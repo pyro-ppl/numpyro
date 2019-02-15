@@ -1,2 +1,14 @@
-.idea
 numpyro.egg-info
+__pycache__/
+
+# built / compiled
+*.pyc
+*.pyo
+/build
+/dist
+
+# IDE
+.idea
+
+# test related
+.pytest_cache
