@@ -2,8 +2,9 @@ from __future__ import absolute_import, division, print_function
 
 from collections import OrderedDict
 
+from jax import random
+
 _PYRO_STACK = []
-_PARAM_STORE = {}
 
 
 class Messenger(object):
@@ -13,15 +14,15 @@ class Messenger(object):
     def __enter__(self):
         _PYRO_STACK.append(self)
 
-    def __exit__(self):
+    def __exit__(self, *args, **kwargs):
         assert _PYRO_STACK[-1] is self
         _PYRO_STACK.pop()
 
     def process_message(self, msg):
-        raise NotImplementedError
+        pass
 
     def postprocess_message(self, msg):
-        raise NotADirectoryError
+        pass
 
     def __call__(self, *args, **kwargs):
         with self:
@@ -35,8 +36,8 @@ class trace(Messenger):
         return self.trace
 
     def postprocess_message(self, msg):
-        assert msg["name"] not in self.trace, "all sites must have unique names"
-        self.trace[msg["name"]] = msg.copy()
+        assert msg['name'] not in self.trace, 'all sites must have unique names'
+        self.trace[msg['name']] = msg.copy()
 
     def get_trace(self, *args, **kwargs):
         self(*args, **kwargs)
@@ -49,8 +50,8 @@ class replay(Messenger):
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg["name"] in self.guide_trace:
-            msg["value"] = self.guide_trace[msg["name"]]["value"]
+        if msg['name'] in self.guide_trace:
+            msg['value'] = self.guide_trace[msg['name']]['value']
 
 
 class block(Messenger):
@@ -60,7 +61,29 @@ class block(Messenger):
 
     def process_message(self, msg):
         if self.hide_fn(msg):
-            msg["stop"] = True
+            msg['stop'] = True
+
+
+class seed(Messenger):
+    def __init__(self, fn, rng):
+        self.rng = rng
+        super(seed, self).__init__(fn)
+
+    def process_message(self, msg):
+        if msg['type'] == 'sample':
+            msg['kwargs']['random_state'] = self.rng
+            _, self.rng = random.split(self.rng)
+
+
+class substitute(Messenger):
+    def __init__(self, fn=None, param_map=None):
+        self.param_map = param_map
+        super(substitute, self).__init__(fn)
+
+    def process_message(self, msg):
+        if msg['type'] == 'param':
+            assert msg['name'] in self.param_map
+            msg['value'] = self.param_map[msg['name']]
 
 
 def apply_stack(msg):
@@ -71,8 +94,8 @@ def apply_stack(msg):
         # it prevents any Messengers above it on the stack from being applied.
         if msg.get("stop"):
             break
-    if msg["value"] is None:
-        msg["value"] = msg["fn"](*msg["args"])
+    if msg['value'] is None:
+        msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
@@ -82,49 +105,45 @@ def apply_stack(msg):
     return msg
 
 
-def sample(fn, obs=None, name=None):
-
+def sample(name, fn, obs=None):
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        return fn.sample('value')
+        return fn.rvs()
 
     # Otherwise, we initialize a message...
     initial_msg = {
-        "type": "sample",
-        "name": name if name is not None else "sample",
-        "fn": fn,
-        "args": (),
-        "value": obs,
+        'type': 'sample',
+        'name': name,
+        'fn': fn,
+        'args': (),
+        'kwargs': {},
+        'value': obs,
     }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
-    return msg["value"]
+    return msg['value']
 
 
-def param(init_value=None, name=None):
+def identity(x):
+    return x
 
-    if init_value is None and name is None:
-        raise ValueError("empty args to param")
 
-    def fn(init_value):
-        value = _PARAM_STORE.setdefault(name, init_value)
-        value.requires_grad_()
-        return value
-
+def param(name, init_value):
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        return fn(init_value)
+        return init_value
 
     # Otherwise, we initialize a message...
     initial_msg = {
-        "type": "param",
-        "name": name,
-        "fn": fn,
-        "args": (init_value,),
-        "value": None,
+        'type': 'param',
+        'name': name,
+        'fn': identity,
+        'args': (init_value,),
+        'kwargs': {},
+        'value': None,
     }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
-    return msg["value"]
+    return msg['value']

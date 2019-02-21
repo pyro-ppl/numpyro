@@ -1,5 +1,6 @@
 import scipy.stats as sp
 from jax import lax
+from jax.interpreters.xla import DeviceArray
 from jax.numpy.lax_numpy import _promote_args
 import jax.numpy as np
 
@@ -7,6 +8,9 @@ import jax.numpy as np
 class jax_continuous(sp.rv_continuous):
     def rvs(self, *args, **kwargs):
         rng = kwargs.pop('random_state')
+        if rng is None:
+            rng = self.random_state
+        assert isinstance(rng, DeviceArray)
         size = kwargs.get('size', None)
         args = list(args)
         scale = kwargs.get('scale', args.pop())
@@ -17,8 +21,6 @@ class jax_continuous(sp.rv_continuous):
             size = lax.broadcast_shapes(*shapes)
         else:
             args = [np.reshape(arg, size) for arg in args]
-            loc = np.reshape(loc, size)
-            scale = np.reshape(scale, size)
         self._random_state = rng
         self._size = size
         vals = self._rvs(*args)
@@ -28,6 +30,6 @@ class jax_continuous(sp.rv_continuous):
         args = list(args)
         scale = kwargs.get('scale', args.pop())
         loc = kwargs.get('loc', args.pop())
-        loc, scale, *args = np._promote_args_like(loc, scale, *args)
+        loc, scale, *args = _promote_args(self.logpdf, loc, scale, *args)
         x = (x - loc) / scale
         return self._logpdf(x) - np.log(scale)
