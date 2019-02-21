@@ -1,4 +1,4 @@
-from jax import grad, random
+from jax import grad, random, jit
 from jax.experimental import optimizers
 import jax.numpy as np
 from jax.random import PRNGKey
@@ -16,26 +16,29 @@ class SVI(object):
         self.guide = seed(guide, subkey)
         self.opt_init = opt_init
         self.opt_update = opt_update
-        self.opt_state = None
         self.loss = loss
 
-    def _setup(self, *args, **kwargs):
+    def init_state(self, *args, **kwargs):
         guide_trace = trace(self.guide).get_trace(*args, **kwargs)
         model_trace = trace(self.model).get_trace(*args, **kwargs)
         params = {}
         for site in list(guide_trace.values()) + list(model_trace.values()):
             if site['type'] == 'param':
                 params[site['name']] = site['value']
-        self.opt_state = self.opt_init(params)
+        return self.opt_init(params)
 
     def step(self, i, *args, **kwargs):
-        if self.opt_state is None:
-            self._setup(*args, **kwargs)
-        params = optimizers.get_params(self.opt_state)
-        loss = self.loss(params, self.model, self.guide, args, kwargs)
-        grads = grad(self.loss)(params, self.model, self.guide, args, kwargs)
-        self.opt_state = self.opt_update(i, grads, self.opt_state)
-        return loss
+        @jit
+        def jitted(i, opt_state, *args, **kwargs):
+            params = optimizers.get_params(opt_state)
+            loss = self.loss(params, self.model, self.guide, args, kwargs)
+            grads = grad(self.loss)(params, self.model, self.guide, args, kwargs)
+            opt_state = self.opt_update(i, grads, opt_state)
+            return loss, opt_state
+        opt_state = kwargs.pop('opt_state')
+        if opt_state is None:
+            opt_state = self.init_state(*args, **kwargs)
+        return jitted(i, opt_state, *args, **kwargs)
 
 
 # This is a basic implementation of the Evidence Lower Bound, which is the

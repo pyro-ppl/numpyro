@@ -34,14 +34,15 @@ def main(args):
     svi = SVI(model, guide, opt_init, opt_update, elbo)
 
     # Basic training loop
+    opt_state = None
     for i in range(args.num_steps):
-        loss = svi.step(i, data)
+        loss, opt_state = svi.step(i, data, opt_state=opt_state)
         if i % 100 == 0:
             print("step {} loss = {}".format(i, loss))
 
     # Report the final values of the variational parameters
     # in the guide after training.
-    params = optimizers.get_params(svi.opt_state)
+    params = optimizers.get_params(opt_state)
     for name, value in params.items():
         print("{} = {}".format(name, value))
 
