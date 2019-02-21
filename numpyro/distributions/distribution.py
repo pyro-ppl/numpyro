@@ -10,6 +10,7 @@ class jax_continuous(sp.rv_continuous):
         rng = kwargs.pop('random_state')
         if rng is None:
             rng = self.random_state
+        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
         assert isinstance(rng, DeviceArray)
         size = kwargs.get('size', None)
         args = list(args)
