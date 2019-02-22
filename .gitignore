@@ -9,6 +9,10 @@ __pycache__/
 
 # IDE
 .idea
+*~
 
 # test related
 .pytest_cache
+
+# tmp files
+.*.swp
