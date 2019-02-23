@@ -16,6 +16,8 @@ class jax_continuous(sp.rv_continuous):
         args = list(args)
         scale = kwargs.get('scale', args.pop() if len(args) > 0 else 1)
         loc = kwargs.get('loc', args.pop() if len(args) > 0 else 0)
+        # FIXME(fehiepsi): Using _promote_args_like requires calling `super(jax_continuous, self).rvs` but
+        # it will call `self._rvs` (which is written using JAX and requires JAX random state).
         loc, scale, *args = _promote_args("rvs", loc, scale, *args)
         if not size:
             shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
