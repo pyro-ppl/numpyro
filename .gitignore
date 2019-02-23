@@ -1,5 +1,6 @@
 numpyro.egg-info
 __pycache__/
+.ipynb_checkpoints/
 
 # built / compiled
 *.pyc

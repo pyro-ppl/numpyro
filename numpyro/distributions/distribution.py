@@ -1,6 +1,6 @@
 import scipy.stats as sp
 from jax import lax
-from jax.numpy.lax_numpy import _promote_args
+from jax.numpy.lax_numpy import _promote_args_like
 import jax.numpy as np
 from numpy.random import mtrand
 
@@ -16,7 +16,7 @@ class jax_continuous(sp.rv_continuous):
         args = list(args)
         scale = kwargs.get('scale', args.pop())
         loc = kwargs.get('loc', args.pop())
-        loc, scale, *args = _promote_args(self.rvs, loc, scale, *args)
+        loc, scale, *args = _promote_args_like(self.rvs, loc, scale, *args)
         if not size:
             shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
             size = lax.broadcast_shapes(*shapes)
