@@ -1,6 +1,6 @@
 import scipy.stats as sp
 from jax import lax
-from jax.numpy.lax_numpy import _promote_args_like
+from jax.numpy.lax_numpy import _promote_args
 import jax.numpy as np
 from numpy.random import mtrand
 
@@ -14,9 +14,9 @@ class jax_continuous(sp.rv_continuous):
         assert not isinstance(rng, mtrand.RandomState)
         size = kwargs.get('size', None)
         args = list(args)
-        scale = kwargs.get('scale', args.pop())
-        loc = kwargs.get('loc', args.pop())
-        loc, scale, *args = _promote_args_like(self.rvs, loc, scale, *args)
+        scale = kwargs.get('scale', args.pop() if len(args) > 0 else 1)
+        loc = kwargs.get('loc', args.pop() if len(args) > 0 else 0)
+        loc, scale, *args = _promote_args("rvs", loc, scale, *args)
         if not size:
             shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
             size = lax.broadcast_shapes(*shapes)
