@@ -1,8 +1,8 @@
 import scipy.stats as sp
 from jax import lax
-from jax.interpreters.xla import DeviceArray
 from jax.numpy.lax_numpy import _promote_args
 import jax.numpy as np
+from numpy.random import mtrand
 
 
 class jax_continuous(sp.rv_continuous):
@@ -11,7 +11,7 @@ class jax_continuous(sp.rv_continuous):
         if rng is None:
             rng = self.random_state
         # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
-        assert isinstance(rng, DeviceArray)
+        assert not isinstance(rng, mtrand.RandomState)
         size = kwargs.get('size', None)
         args = list(args)
         scale = kwargs.get('scale', args.pop())
