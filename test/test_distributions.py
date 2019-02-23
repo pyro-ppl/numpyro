@@ -47,11 +47,13 @@ def test_sample_gradient(loc, scale):
     assert onp.allclose(grad(fn, 1)(loc, scale), random.normal(rng, shape=expected_shape))
 
 
-@pytest.mark.parametrize('loc, scale', [
+@pytest.mark.parametrize("loc_scale", [
+    (),
+    (1,),
     (1, 1),
     (1., np.array([1., 2.])),
 ])
-def test_normal_logprob(loc, scale):
+def test_normal_logprob(loc_scale):
     rng = random.PRNGKey(2)
-    samples = dist.norm.rvs(loc, scale, random_state=rng)
-    assert np.allclose(dist.norm.logpdf(samples, loc, scale), sp.norm.logpdf(samples, loc, scale))
+    samples = dist.norm.rvs(*loc_scale, random_state=rng)
+    assert np.allclose(dist.norm.logpdf(samples, *loc_scale), sp.norm.logpdf(samples, *loc_scale))
