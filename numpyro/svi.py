@@ -30,9 +30,9 @@ class SVI(object):
         return self.opt_init(params)
 
     def _seed(self, rng):
-        model = seed(self.model, rng)
-        _, subkey = random.split(rng)
-        guide = seed(self.guide, subkey)
+        model_seed, guide_seed = random.split(rng, 2)
+        model = seed(self.model, model_seed)
+        guide = seed(self.guide, guide_seed)
         return model, guide
 
     def step(self, i, *args, **kwargs):
@@ -48,7 +48,7 @@ class SVI(object):
             opt_state = self.init_state(*args, **kwargs)
         if not self._jitted_fn:
             self._jitted_fn = jit(jit_fn)
-        _, self.rng = random.split(self.rng)
+        self.rng, = random.split(self.rng, 1)
         return self._jitted_fn(i, opt_state, self.rng, args, kwargs)
 
 

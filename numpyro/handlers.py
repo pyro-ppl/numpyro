@@ -72,7 +72,7 @@ class seed(Messenger):
     def process_message(self, msg):
         if msg['type'] == 'sample':
             msg['kwargs']['random_state'] = self.rng
-            _, self.rng = random.split(self.rng)
+            self.rng, = random.split(self.rng, 1)
 
 
 class substitute(Messenger):
