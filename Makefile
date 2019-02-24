@@ -7,6 +7,6 @@ test: lint FORCE
 	pytest -v test
 
 clean: FORCE
-	git clean -dfx -e pyro-egg.info
+	git clean -dfx -e numpyro.egg-info
 
 FORCE:
