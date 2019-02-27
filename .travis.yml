@@ -1,0 +1,21 @@
+language: python
+
+sudo: false
+
+env:
+    global:
+        - PYTHONPATH=$PWD:$PYTHONPATH
+
+install:
+    - pip install -U pip
+    - pip install .[test]
+    - pip freeze
+
+branches:
+    only:
+        - master
+
+jobs:
+    include:
+        - python: 3.6
+          script: make test
