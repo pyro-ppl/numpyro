@@ -76,8 +76,8 @@ def test_standard_gamma_shape(alpha, shape):
 def test_standard_gamma_stats(alpha):
     rng = random.PRNGKey(0)
     z = standard_gamma(rng, np.full((1000,), alpha))
-    assert np.abs((np.mean(z) - alpha) / alpha) < 0.06
-    assert np.abs((np.var(z) - alpha) / alpha) < 0.2
+    assert np.allclose(np.mean(z), alpha, rtol=0.06)
+    assert np.allclose(np.var(z), alpha, rtol=0.2)
 
 
 @pytest.mark.parametrize("alpha", [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4])
@@ -92,5 +92,4 @@ def test_standard_gamma_grad(alpha):
     pdf = sp.gamma.pdf(z, alpha)
     expected_grad = -cdf_dot / pdf
 
-    error = np.abs((actual_grad - expected_grad) / expected_grad)
-    assert np.max(error) < 0.0005
+    assert np.allclose(actual_grad, expected_grad, rtol=0.0005)

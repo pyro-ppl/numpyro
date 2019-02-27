@@ -182,5 +182,5 @@ def standard_gamma(key, alpha, shape=(), dtype=np.float32):
     shape = shape or np.shape(alpha)
     alpha = lax.convert_element_type(alpha, dtype)
     if np.shape(alpha) != shape:
-        alpha = lax.broadcast(alpha, shape)
+        alpha = np.broadcast_to(alpha, shape)
     return standard_gamma_p.bind(alpha, key)
