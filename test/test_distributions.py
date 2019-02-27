@@ -29,7 +29,7 @@ def test_shape(loc, scale, prepend_shape):
     assert np.shape(dist.norm(loc, scale).rvs(random_state=rng)) == expected_shape
     if prepend_shape is not None:
         expected_shape = prepend_shape + lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
-        assert np.shape(dist.norm.rvs(loc, scale, random_state=rng, size=expected_shape)) == expected_shape
+        assert np.shape(dist.norm.rvs(loc, scale, expected_shape, random_state=rng)) == expected_shape
         assert np.shape(dist.norm(loc, scale).rvs(random_state=rng, size=expected_shape)) == expected_shape
 
 

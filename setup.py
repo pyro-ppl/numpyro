@@ -11,7 +11,7 @@ setup(
     author='Uber AI Labs',
     author_email='npradhan@uber.com',
     install_requires=[
-        'jax>=0.1.19',
+        'jax>=0.1.20',
         'jaxlib>=0.1.7',
     ],
     extras_require={
