@@ -13,12 +13,11 @@ class jax_continuous(sp.rv_continuous):
         if rng is None:
             rng = self.random_state
         # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
+        assert not isinstance(rng, mtrand.RandomState)
         args = deque(args)
         loc = kwargs.get('loc', args.popleft() if len(args) > 0 else 0)
         scale = kwargs.get('scale', args.popleft() if len(args) > 0 else 1)
-        size = kwargs.get('size', None)
-        if size is None and len(args) > 0:
-            size = args.popleft()
+        size = kwargs.get('size', args.popleft() if len(args) > 0 else None)
         # FIXME(fehiepsi): Using _promote_args_like requires calling `super(jax_continuous, self).rvs` but
         # it will call `self._rvs` (which is written using JAX and requires JAX random state).
         loc, scale, *args = _promote_args("rvs", loc, scale, *args)
