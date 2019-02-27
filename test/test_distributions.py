@@ -81,7 +81,6 @@ def test_standard_gamma_stats(alpha):
 
 
 @pytest.mark.parametrize("alpha", [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4])
-@pytest.mark.xfail(reason="TypeError: __invert__() missing 1 required")
 def test_standard_gamma_grad(alpha):
     rng = random.PRNGKey(0)
     alphas = np.full((100,), alpha)
