@@ -57,9 +57,12 @@ def _standard_gamma_impl(alpha, key):
     return samples.reshape(alpha.shape)
 
 
-_bivariate_coef = [[0.16009398, -0.094634816, 0.025146379, -0.0030648348, 1, 0.3266811, 0.10406087, 0.0014179033],
-                   [0.53487893, 0.12980707, 0.06573594, -0.0015649787, 0.16639465, 0.020070098, -0.0035938937, -0.00058392601],
-                   [0.040121005, -0.0065914079, -0.002628604, -0.0013441777, 0.017050642, -0.0021309345, 0.00085092385, -1.5248239e-07]]
+_bivariate_coef = [[0.16009398, -0.094634816, 0.025146379, -0.0030648348,
+                    1, 0.3266811, 0.10406087, 0.0014179033],
+                   [0.53487893, 0.12980707, 0.06573594, -0.0015649787,
+                    0.16639465, 0.020070098, -0.0035938937, -0.00058392601],
+                   [0.040121005, -0.0065914079, -0.002628604, -0.0013441777,
+                    0.017050642, -0.0021309345, 0.00085092385, -1.5248239e-07]]
 
 
 @jit
@@ -78,7 +81,8 @@ def _standard_gamma_grad_one(z, alpha):
         #            =: unnormalized_dCDF / Gamma(a)
         # IncompleteGamma ~ z^a [ 1/a - z/(a+1) + z^2/2!(a+2) - z^3/3!(a+3) + z^4/4!(a+4) - z^5/5!(a+5) ]
         #                 =: z^a * term1
-        # dIncompleteGamma ~ z^a * log(z) * term1 - z^a [1/a^2 - z/(a+1)^2 + z^2/2!(a+2)^2 - z^3/3!(a+3)^2 + z^4/4!(a+4)^2 - z^5/5!(a+5)^2 ]
+        # dIncompleteGamma ~ z^a * log(z) * term1 - z^a [1/a^2 - z/(a+1)^2 + z^2/2!(a+2)^2
+        #                                                - z^3/3!(a+3)^2 + z^4/4!(a+4)^2 - z^5/5!(a+5)^2 ]
         #                  =: z^a * log(z) * term1 - z^a * term2
         # unnormalized_dCDF = z^a { [log(z) - Digamma(a)] * term1 - term2 }
         zi = 1.0
@@ -86,12 +90,12 @@ def _standard_gamma_grad_one(z, alpha):
         term1 = update
         term2 = update / alpha
         for i in range(1, 6):
-            zi =  -zi * z / i
+            zi = -zi * z / i
             update = zi / (alpha + i)
             term1 = term1 + update
             term2 = term2 + update / (alpha + i)
 
-        unnormalized_cdf_dot = np.power(z, alpha) * ((np.log(z) - lax.digamma(alpha)) * term1  - term2)
+        unnormalized_cdf_dot = np.power(z, alpha) * ((np.log(z) - lax.digamma(alpha)) * term1 - term2)
         unnormalized_pdf = np.power(z, alpha - 1) * np.exp(-z)
         grad = -unnormalized_cdf_dot / unnormalized_pdf
 
@@ -122,7 +126,7 @@ def _standard_gamma_grad_one(z, alpha):
 
     def _case3(zagf):
         z, alpha, _, flag = zagf
-        
+
         # Formula 59 of [1]
         z_div_a = np.divide(z, alpha)
         aa = alpha * alpha
@@ -135,7 +139,7 @@ def _standard_gamma_grad_one(z, alpha):
 
     def _case4(zagf):
         z, alpha, _, flag = zagf
-        
+
         # Ref [2]
         u = np.log(z / alpha)
         v = np.log(alpha)
@@ -145,7 +149,7 @@ def _standard_gamma_grad_one(z, alpha):
         p = c[0] + v * (c[1] + v * (c[2] + v * c[3]))
         q = c[4] + v * (c[5] + v * (c[6] + v * c[7]))
         grad = np.exp(p / np.maximum(q, 0.01))
-        
+
         return z, alpha, grad, ~flag
 
     _, _, grad, flag = lax.while_loop(lambda zagf: (~zagf[3]) & (zagf[0] < 0.8), _case1, (z, alpha, 0.0, False))

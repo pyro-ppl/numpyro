@@ -59,7 +59,7 @@ def test_normal_logprob(loc_scale):
     samples = dist.norm.rvs(*loc_scale, random_state=rng)
     assert np.allclose(dist.norm.logpdf(samples, *loc_scale), sp.norm.logpdf(samples, *loc_scale))
 
-    
+
 @pytest.mark.parametrize('alpha, shape', [
     (1., ()),
     (1., (2,)),
@@ -75,9 +75,9 @@ def test_standard_gamma_shape(alpha, shape):
 @pytest.mark.parametrize("alpha", [0.6, 2., 10.])
 def test_standard_gamma_stats(alpha):
     rng = random.PRNGKey(0)
-    z = standard_gamma(random.PRNGKey(0), np.full((1000,), alpha))
-    assert np.abs((np.mean(x) - alpha) / alpha) < 0.06
-    assert np.abs((np.mean(x) - alpha) / alpha) < 0.2
+    z = standard_gamma(rng, np.full((1000,), alpha))
+    assert np.abs((np.mean(z) - alpha) / alpha) < 0.06
+    assert np.abs((np.var(z) - alpha) / alpha) < 0.2
 
 
 @pytest.mark.parametrize("alpha", [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4])
