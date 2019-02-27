@@ -48,7 +48,10 @@ def test_sample_gradient(loc, scale):
 
 
 @pytest.mark.parametrize("loc_scale", [
+    (),
     (1,),
+    (1, 1),
+    (1., np.array([1., 2.])),
 ])
 def test_normal_logprob(loc_scale):
     rng = random.PRNGKey(2)
