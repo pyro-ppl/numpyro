@@ -41,7 +41,8 @@ def _standard_gamma_one(alpha, key):
         return key, X, V, U
 
     _, _, V, _ = lax.while_loop(_cond_fn, _body_fn, (key, 1.0, 1.0, 2.0))
-    return d * V * boost
+    z = d * V * boost
+    return np.where(z == 0, np.finfo(z.dtype).tiny, z)
 
 
 def _standard_gamma_impl(alpha, key):
@@ -161,7 +162,8 @@ def _standard_gamma_grad(sample, alpha):
     alphas = alpha.reshape(-1)
     grads = []
     for i in range(alphas.size):
-        grads.append(_standard_gamma_grad_one(samples[i], keys[i]))
+        grads.append(_standard_gamma_grad_one(samples[i], alphas[i]))
+    grads = np.stack(grads)
     return grads.reshape(alpha.shape)
 
 
