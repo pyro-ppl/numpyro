@@ -31,8 +31,8 @@ class jax_continuous(sp.rv_continuous):
 
     def logpdf(self, x, *args, **kwargs):
         args = list(args)
-        scale = kwargs.get('scale', args.pop() if len(args) > 0 else 1)
         loc = kwargs.get('loc', args.pop() if len(args) > 0 else 0)
+        scale = kwargs.get('scale', args.pop() if len(args) > 0 else 1)
         loc, scale, *args = _promote_args(self.logpdf, loc, scale, *args)
         x = (x - loc) / scale
         return self._logpdf(x) - np.log(scale)
