@@ -25,7 +25,7 @@ class cauchy_gen(jax_continuous):
     def _rvs(self):
         # TODO: move this implementation upstream to jax.random.standard_cauchy
         # Another way is to generate X, Y ~ Normal(0, 1) and return X / Y
-        u = random.uniform(self._random_state, self._size, minval=0.0, maxval=1.0)
+        u = random.uniform(self._random_state, self._size)
         return np.tan(np.pi * (u - 0.5))
 
     def _pdf(self, x):

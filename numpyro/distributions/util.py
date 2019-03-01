@@ -12,7 +12,7 @@ def _standard_gamma_one(alpha, key):
 
     # TODO: use lax.cond here
     # boost for the case alpha < 1
-    boost = np.where(alpha >= 1.0, 1.0, random.uniform(key, ()) ** (1.0 / alpha))
+    boost = np.where(alpha >= 1.0, 1.0, (1 - random.uniform(key, ())) ** (1.0 / alpha))
     key, = random.split(key, 1)  # NOTE: always split the key after calling random.foo
     alpha = np.where(alpha >= 1.0, alpha, alpha + 1.0)
 
@@ -36,7 +36,7 @@ def _standard_gamma_one(alpha, key):
         key, x, v = lax.while_loop(lambda kxv: kxv[2] <= 0.0, _next_kxv, (key, 0.0, -1.0))
         X = x * x
         V = v * v * v
-        U = random.uniform(key, ())
+        U = 1 - random.uniform(key, ())
         key, = random.split(key, 1)
         return key, X, V, U
 
