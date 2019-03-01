@@ -15,7 +15,7 @@ from numpyro.distributions.util import standard_gamma
 @pytest.mark.parametrize('jax_dist', [
     dist.norm,
     dist.uniform,
-])
+], ids=["norm", "uniform"])
 @pytest.mark.parametrize('loc, scale', [
     (1, 1),
     (1., np.array([1., 2.])),
@@ -40,7 +40,7 @@ def test_shape(jax_dist, loc, scale, prepend_shape):
 @pytest.mark.parametrize('jax_dist', [
     dist.norm,
     dist.uniform,
-])
+], ids=["norm", "uniform"])
 @pytest.mark.parametrize('loc, scale', [
     (1., 1.),
     (1., np.array([1., 2.])),
@@ -59,7 +59,7 @@ def test_sample_gradient(jax_dist, loc, scale):
 @pytest.mark.parametrize('jax_dist', [
     dist.norm,
     dist.uniform,
-])
+], ids=["norm", "uniform"])
 @pytest.mark.parametrize('loc_scale', [
     (),
     (1,),
@@ -68,8 +68,9 @@ def test_sample_gradient(jax_dist, loc, scale):
 ])
 def test_logprob(jax_dist, loc_scale):
     rng = random.PRNGKey(2)
-    samples = dist.norm.rvs(*loc_scale, random_state=rng)
-    assert np.allclose(dist.norm.logpdf(samples, *loc_scale), sp.norm.logpdf(samples, *loc_scale))
+    samples = jax_dist.rvs(*loc_scale, random_state=rng)
+    sp_dist = getattr(sp, jax_dist.name)
+    assert np.allclose(jax_dist.logpdf(samples, *loc_scale), sp_dist.logpdf(samples, *loc_scale))
 
 
 @pytest.mark.parametrize('alpha, shape', [
