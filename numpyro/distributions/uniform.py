@@ -1,4 +1,3 @@
-import jax.numpy as np
 import jax.random as random
 
 from numpyro.distributions.distribution import jax_continuous
@@ -35,3 +34,6 @@ class uniform_gen(jax_continuous):
 
     def _entropy(self):
         return 0.0
+
+
+uniform = uniform_gen(name='uniform')
