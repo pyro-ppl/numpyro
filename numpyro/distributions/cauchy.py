@@ -11,17 +11,6 @@ from numpyro.distributions.distribution import jax_continuous
 
 
 class cauchy_gen(jax_continuous):
-    r"""A Cauchy continuous random variable.
-    %(before_notes)s
-    Notes
-    -----
-    The probability density function for `cauchy` is
-    .. math::
-        f(x) = \frac{1}{\pi (1 + x^2)}
-    for a real number :math:`x`.
-    %(after_notes)s
-    %(example)s
-    """
     def _rvs(self):
         # TODO: move this implementation upstream to jax.random.standard_cauchy
         # Another way is to generate X, Y ~ Normal(0, 1) and return X / Y

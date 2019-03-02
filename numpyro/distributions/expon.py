@@ -11,23 +11,9 @@ from numpyro.distributions.distribution import jax_continuous
 
 
 class expon_gen(jax_continuous):
-    r"""An exponential continuous random variable.
-    %(before_notes)s
-    Notes
-    -----
-    The probability density function for `expon` is:
-    .. math::
-        f(x) = \exp(-x)
-    for :math:`x \ge 0`.
-    %(after_notes)s
-    A common parameterization for `expon` is in terms of the rate parameter
-    ``lambda``, such that ``pdf = lambda * exp(-lambda * x)``. This
-    parameterization corresponds to using ``scale = 1 / lambda``.
-    %(example)s
-    """
     def _rvs(self):
         u = random.uniform(self._random_state, self._size)
-        return -np.log1p(-u)
+        return -np.log(u)
 
     def _pdf(self, x):
         # expon.pdf(x) = exp(-x)

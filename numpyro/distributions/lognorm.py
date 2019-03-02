@@ -20,24 +20,6 @@ def _lognorm_logpdf(x, s):
 
 
 class lognorm_gen(jax_continuous):
-    r"""A lognormal continuous random variable.
-    %(before_notes)s
-    Notes
-    -----
-    The probability density function for `lognorm` is:
-    .. math::
-        f(x, s) = \frac{1}{s x \sqrt{2\pi}}
-                  \exp\left(-\frac{\log^2(x)}{2s^2}\right)
-    for :math:`x > 0`, :math:`s > 0`.
-    `lognorm` takes ``s`` as a shape parameter for :math:`s`.
-    %(after_notes)s
-    A common parametrization for a lognormal random variable ``Y`` is in
-    terms of the mean, ``mu``, and standard deviation, ``sigma``, of the
-    unique normally distributed random variable ``X`` such that exp(X) = Y.
-    This parametrization corresponds to setting ``s = sigma`` and ``scale =
-    exp(mu)``.
-    %(example)s
-    """
     # TODO: check if this is fine
     _support_mask = jax_continuous._open_support_mask
 
