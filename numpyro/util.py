@@ -2,6 +2,7 @@ from __future__ import division
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
+    # TODO: add docs
     def init_fn(prox_center=0.):
         x_t = 0.
         x_avg = 0.  # average of primal sequence
