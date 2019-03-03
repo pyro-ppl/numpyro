@@ -10,13 +10,6 @@ from numpyro.distributions.distribution import jax_continuous
 
 
 class uniform_gen(jax_continuous):
-    r"""A uniform continuous random variable.
-    In the standard form, the distribution is uniform on ``[0, 1]``. Using
-    the parameters ``loc`` and ``scale``, one obtains the uniform distribution
-    on ``[loc, loc + scale]``.
-    %(before_notes)s
-    %(example)s
-    """
     def _rvs(self):
         return random.uniform(self._random_state, self._size, minval=0.0, maxval=1.0)
 
