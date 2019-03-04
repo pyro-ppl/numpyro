@@ -40,10 +40,13 @@ def test_welford_covariance(jitted, diagonal, regularize):
     wc_init, wc_update, wc_final = welford_covariance(diagonal=diagonal)
     if jitted:
         wc_update = jit(wc_update)
-    state = wc_init()
+    wc_state = wc_init()
+    # FIXME(fehiepsi): using lax.fori_loop here will give an error
+    #   "Exception: Tracer can't be used with raw numpy functions."
+    # wc_state = lax.fori_loop(0, x.shape[0], lambda i, val: wc_update(x[i], val), wc_state)
     for sample in x:
-        state = wc_update(sample, state)
-    cov = wc_final(state, regularize=regularize)
+        wc_state = wc_update(sample, wc_state)
+    cov = wc_final(wc_state, regularize=regularize)
 
     if diagonal:
         assert np.allclose(cov, np.diagonal(target_cov), rtol=0.06)
