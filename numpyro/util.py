@@ -1,5 +1,7 @@
 from __future__ import division
 
+import jax.numpy as np
+
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
     # TODO: add docs
@@ -25,3 +27,41 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         return (x_t, x_avg, g_avg, t, prox_center)
 
     return init_fn, update_fn
+
+
+def welford_covariance(diagonal=True):
+    # TODO: add docs
+    def init_fn():
+        mean = 0.
+        m2 = 0.
+        n = 0
+        return (mean, m2, n)
+    
+    def update_fn(sample, state):
+        mean, m2, n = state
+        n = n + 1
+        delta_pre = sample - mean
+        mean = mean + delta_pre / n
+        delta_post = sample - mean
+        if diagonal:
+            m2 = m2 + delta_pre * delta_post
+        else:
+            m2 = m2 + np.outer(delta_post, delta_pre)
+        return (mean, m2, n)
+
+    def final_fn(state, regularize=False):
+        mean, m2, n = state
+        if n < 2:
+            raise RuntimeError('Insufficient samples to estimate covariance')
+        cov = m2 / (n - 1)
+        if regularize:
+            # Regularization from Stan
+            scaled_cov = (n / (n + 5)) * cov
+            shrinkage = 1e-3 * (5 / (n + 5))
+            if diagonal:
+                cov = scaled_cov + shrinkage
+            else:
+                cov = scaled_cov + shrinkage * np.identity(mean.shape[0], dtype=mean.dtype)
+        return cov
+
+    return init_fn, update_fn, final_fn
