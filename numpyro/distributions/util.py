@@ -227,3 +227,33 @@ xlogy_p.def_impl(partial(xla.apply_primitive, xlogy_p))
 xlogy_p.def_abstract_eval(xlogy_abstract_eval)
 xla.translations[xlogy_p] = xlogy_translate
 ad.defjvp(xlogy_p, xlogy_jvp_lhs, xlogy_jvp_rhs)
+
+
+def xlog1py(x, y):
+    jaxpr, out, consts = partial_eval.trace_unwrapped_to_jaxpr(xlog1py_impl, tuple(lax._abstractify(o) for o in (x, y)))
+    aval, _ = out
+    return xlog1py_p.bind(x, y, jaxpr=jaxpr, aval=aval, consts=consts)
+
+
+def xlog1py_impl(x, y):
+    return x * np.where(x == 0., 0., np.log1p(y))
+
+
+def xlog1py_jvp_lhs(g, x, y, jaxpr, aval, consts):
+    x, y = _promote_args_like(sp.xlog1py, x, y)
+    g, y = _promote_args_like(sp.xlog1py, g, y)
+    return lax._safe_mul(lax._brcast(g, y), lax._brcast(lax.log1p(y), g))
+
+
+def xlog1py_jvp_rhs(g, x, y, jaxpr, aval, consts):
+    x, y = _promote_args_like(sp.xlog1py, x, y)
+    g, x = _promote_args_like(sp.xlog1py, g, x)
+    jac = lax._safe_mul(lax._brcast(x, y), lax._brcast(lax.reciprocal(1 + y), x))
+    return lax.mul(lax._brcast(g, jac), jac)
+
+
+xlog1py_p = Primitive('xlog1py')
+xlog1py_p.def_impl(partial(xla.apply_primitive, xlog1py_p))
+xlog1py_p.def_abstract_eval(xlogy_abstract_eval)
+xla.translations[xlog1py_p] = xlogy_translate
+ad.defjvp(xlog1py_p, xlog1py_jvp_lhs, xlog1py_jvp_rhs)
