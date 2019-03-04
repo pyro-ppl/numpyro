@@ -1,7 +1,10 @@
 import jax.numpy as np
-from jax import jit, lax, random
+from jax import jit, lax, random, partial
 from jax.core import Primitive
-from jax.interpreters import ad
+from jax.interpreters import ad, partial_eval, xla
+from jax.numpy.lax_numpy import _promote_args_like
+
+import scipy.special as sp
 
 
 @jit
@@ -184,3 +187,43 @@ def standard_gamma(key, alpha, shape=(), dtype=np.float32):
     if np.shape(alpha) != shape:
         alpha = np.broadcast_to(alpha, shape)
     return standard_gamma_p.bind(alpha, key)
+
+
+# TODO @npradhan: move to jax repo, if possible.
+def xlogy(x, y):
+    jaxpr, out, consts = partial_eval.trace_unwrapped_to_jaxpr(xlogy_impl, tuple(lax._abstractify(o) for o in (x, y)))
+    aval, _ = out
+    return xlogy_p.bind(x, y, jaxpr=jaxpr, aval=aval, consts=consts)
+
+
+def xlogy_impl(x, y):
+    return x * np.where(x == 0., 0., np.log(y))
+
+
+def xlogy_abstract_eval(x, y, jaxpr, aval, consts):
+    return lax.maybe_tracer_tuple_to_abstract_tuple(aval)
+
+
+def xlogy_translate(c, x, y, jaxpr, aval, consts):
+    xla_computation = xla.jaxpr_computation(jaxpr, consts, (), c.GetShape(x), c.GetShape(y))
+    return c.Call(xla_computation, (x, y))
+
+
+def xlogy_jvp_lhs(g, x, y, jaxpr, aval, consts):
+    x, y = _promote_args_like(sp.xlogy, x, y)
+    g, y = _promote_args_like(sp.xlogy, g, y)
+    return lax._safe_mul(lax._brcast(g, y), lax._brcast(lax.log(y), g))
+
+
+def xlogy_jvp_rhs(g, x, y, jaxpr, aval, consts):
+    x, y = _promote_args_like(sp.xlogy, x, y)
+    g, x = _promote_args_like(sp.xlogy, g, x)
+    jac = lax._safe_mul(lax._brcast(x, y), lax._brcast(lax.reciprocal(y), x))
+    return lax.mul(lax._brcast(g, jac), jac)
+
+
+xlogy_p = Primitive('xlogy')
+xlogy_p.def_impl(partial(xla.apply_primitive, xlogy_p))
+xlogy_p.def_abstract_eval(xlogy_abstract_eval)
+xla.translations[xlogy_p] = xlogy_translate
+ad.defjvp(xlogy_p, xlogy_jvp_lhs, xlogy_jvp_rhs)
