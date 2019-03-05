@@ -68,7 +68,7 @@ def welford_covariance(diagonal=True):
             m2 = np.zeros((size, size))
         n = 0
         return (mean, m2, n)
-    
+
     def update_fn(sample, state):
         mean, m2, n = state
         n = n + 1
