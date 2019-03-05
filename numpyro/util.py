@@ -59,9 +59,13 @@ def welford_covariance(diagonal=True):
     [1] `The Art of Computer Programming`,
     Donald E. Knuth
     """
-    def init_fn():
-        mean = 0.
-        m2 = 0.
+    def init_fn(size):
+        # TODO: replace by a better pattern
+        mean = np.zeros(size)
+        if diagonal:
+            m2 = np.zeros(size)
+        else:
+            m2 = np.zeros((size, size))
         n = 0
         return (mean, m2, n)
     
@@ -79,8 +83,8 @@ def welford_covariance(diagonal=True):
 
     def final_fn(state, regularize=False):
         mean, m2, n = state
-        if n < 2:
-            raise RuntimeError('Insufficient samples to estimate covariance')
+        # TODO: when n=1, return 0; we temporarily do not check for that case
+        # because lax.cond is not yet available
         cov = m2 / (n - 1)
         if regularize:
             # Regularization from Stan

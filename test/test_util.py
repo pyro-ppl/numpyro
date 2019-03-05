@@ -1,7 +1,8 @@
+import jax.lax as lax
 import jax.numpy as np
 import numpy as onp
 import pytest
-from jax import grad, jit
+from jax import device_put, grad, jit
 
 from numpyro.util import dual_averaging, welford_covariance
 
@@ -36,17 +37,19 @@ def test_welford_covariance(jitted, diagonal, regularize):
     a = onp.random.randn(3, 3)
     target_cov = onp.matmul(a, a.T)
     x = onp.random.multivariate_normal(loc, target_cov, size=(2000,))
+    x = device_put(x)
 
-    wc_init, wc_update, wc_final = welford_covariance(diagonal=diagonal)
+    def get_cov(x):
+        wc_init, wc_update, wc_final = welford_covariance(diagonal=diagonal)
+        wc_state = wc_init(3)
+        wc_state = lax.fori_loop(0, 2000, lambda i, val: wc_update(x[i], val), wc_state)
+        cov = wc_final(wc_state, regularize=regularize)
+        return cov
+
     if jitted:
-        wc_update = jit(wc_update)
-    wc_state = wc_init()
-    # FIXME(fehiepsi): using lax.fori_loop here will give an error
-    #   "Exception: Tracer can't be used with raw numpy functions."
-    # wc_state = lax.fori_loop(0, x.shape[0], lambda i, val: wc_update(x[i], val), wc_state)
-    for sample in x:
-        wc_state = wc_update(sample, wc_state)
-    cov = wc_final(wc_state, regularize=regularize)
+        cov = jit(get_cov)(x)
+    else:
+        cov = get_cov(x)
 
     if diagonal:
         assert np.allclose(cov, np.diagonal(target_cov), rtol=0.06)
