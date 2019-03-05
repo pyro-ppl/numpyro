@@ -1,4 +1,4 @@
-# Code modified from scipy.stats._discrete_distns.py
+# Source code modified from scipy.stats._discrete_distns.py
 #
 # Copyright (c) 2001, 2002 Enthought, Inc.
 # All rights reserved.
