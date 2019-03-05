@@ -1,11 +1,12 @@
 import jax.numpy as np
+import numpy as onp
 import pytest
 import scipy.special as sp
-from jax import jit, lax, partial, grad
+from jax import device_put, jit, lax, partial, grad
 from numpy.testing import assert_allclose
 
 from numpyro.distributions.util import xlogy, xlog1py
-from numpyro.util import dual_averaging
+from numpyro.util import dual_averaging, welford_covariance
 
 _zeros = partial(lax.full_like, fill_value=0)
 
@@ -86,4 +87,33 @@ def test_dual_averaging(jitted):
     else:
         x_opt = optimize(f)
 
-    assert np.allclose(x_opt, -1., atol=1e-3)
+    assert_allclose(x_opt, -1., atol=1e-3)
+
+
+@pytest.mark.parametrize('jitted', [True, False])
+@pytest.mark.parametrize('diagonal', [True, False])
+@pytest.mark.parametrize('regularize', [True, False])
+def test_welford_covariance(jitted, diagonal, regularize):
+    onp.random.seed(0)
+    loc = onp.random.randn(3)
+    a = onp.random.randn(3, 3)
+    target_cov = onp.matmul(a, a.T)
+    x = onp.random.multivariate_normal(loc, target_cov, size=(2000,))
+    x = device_put(x)
+
+    def get_cov(x):
+        wc_init, wc_update, wc_final = welford_covariance(diagonal=diagonal)
+        wc_state = wc_init(3)
+        wc_state = lax.fori_loop(0, 2000, lambda i, val: wc_update(x[i], val), wc_state)
+        cov = wc_final(wc_state, regularize=regularize)
+        return cov
+
+    if jitted:
+        cov = jit(get_cov)(x)
+    else:
+        cov = get_cov(x)
+
+    if diagonal:
+        assert_allclose(cov, np.diagonal(target_cov), rtol=0.06)
+    else:
+        assert_allclose(cov, target_cov, rtol=0.06)
