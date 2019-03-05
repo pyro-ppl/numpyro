@@ -227,3 +227,10 @@ xlogy_p.def_impl(partial(xla.apply_primitive, xlogy_p))
 xlogy_p.def_abstract_eval(xlogy_abstract_eval)
 xla.translations[xlogy_p] = xlogy_translate
 ad.defjvp(xlogy_p, xlogy_jvp_lhs, xlogy_jvp_rhs)
+
+
+def entr(p):
+    e = np.where(p > 0, -p * np.log(p), p)
+    e = np.where(e == 0, 0, e)
+    e = np.where(e < 0, -np.inf)
+    return e

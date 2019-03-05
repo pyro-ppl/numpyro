@@ -5,10 +5,12 @@
 #
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
+
+import jax.numpy as np
 from jax.lax import lgamma
 
 from numpyro.distributions.distribution import jax_discrete
-import jax.numpy as np
+from numpyro.distributions.util import entr, xlogy, xlog1py
 
 
 class binom_gen(jax_discrete):
@@ -21,27 +23,12 @@ class binom_gen(jax_discrete):
 
     def _logpmf(self, x, n, p):
         k = np.floor(x)
-        combiln = (lgamma(n+1) - (lgamma(k+1) + lgamma(n-k+1)))
-        return combiln + np.xlogy(k, p) + np.xlog1py(n-k, -p)
+        combiln = (lgamma(n + 1) - (lgamma(k + 1) + lgamma(n - k + 1)))
+        return combiln + xlogy(k, p) + xlog1py(n - k, -p)
 
     def _pmf(self, x, n, p):
         # binom.pmf(k) = choose(n, k) * p**k * (1-p)**(n-k)
         return np.exp(self._logpmf(x, n, p))
-
-    def _cdf(self, x, n, p):
-        k = np.floor(x)
-        vals = special.bdtr(k, n, p)
-        return vals
-
-    def _sf(self, x, n, p):
-        k = floor(x)
-        return special.bdtrc(k, n, p)
-
-    def _ppf(self, q, n, p):
-        vals = ceil(special.bdtrik(q, n, p))
-        vals1 = np.maximum(vals - 1, 0)
-        temp = special.bdtr(vals1, n, p)
-        return np.where(temp >= q, vals1, vals)
 
     def _stats(self, n, p, moments='mv'):
         q = 1.0 - p
@@ -49,9 +36,9 @@ class binom_gen(jax_discrete):
         var = n * p * q
         g1, g2 = None, None
         if 's' in moments:
-            g1 = (q - p) / sqrt(var)
+            g1 = (q - p) / np.sqrt(var)
         if 'k' in moments:
-            g2 = (1.0 - 6*p*q) / var
+            g2 = (1.0 - 6 * p * q) / var
         return mu, var, g1, g2
 
     def _entropy(self, n, p):
