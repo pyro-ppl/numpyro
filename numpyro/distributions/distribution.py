@@ -6,8 +6,6 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-from collections import deque
-
 import scipy.stats as sp
 from jax import lax
 from jax.random import _is_prng_key
