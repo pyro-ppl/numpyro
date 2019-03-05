@@ -1,13 +1,15 @@
-import jax.numpy as np
-import jax.random as random
-
-from numpyro.distributions.distribution import jax_continuous
-
+# Code modified from scipy.distributions._continous_distns.py
+#
 # Copyright (c) 2001, 2002 Enthought, Inc.
 # All rights reserved.
 #
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
+
+import jax.numpy as np
+import jax.random as random
+
+from numpyro.distributions.distribution import jax_continuous
 
 
 class expon_gen(jax_continuous):
