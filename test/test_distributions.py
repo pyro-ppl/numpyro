@@ -7,6 +7,7 @@ import numpy as onp
 import pytest
 import scipy.stats as sp
 from jax import lax, grad
+from numpy.testing import assert_allclose
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import standard_gamma
@@ -41,6 +42,36 @@ def test_shape(jax_dist, loc, scale, prepend_shape):
                                      size=expected_shape, random_state=rng)) == expected_shape
         assert np.shape(jax_dist(*args, loc=loc, scale=scale)
                         .rvs(random_state=rng, size=expected_shape)) == expected_shape
+
+
+def idfn(param):
+    if isinstance(param, sp._distn_infrastructure.rv_generic):
+        return param.name
+    return repr(param)
+
+
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    # (dist.bernoulli, (0.1,)),
+    # (dist.bernoulli, (np.array([0.3, 0.5]))),
+    (dist.binom, (10, 0.4)),
+    (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+], ids=idfn)
+@pytest.mark.parametrize('prepend_shape', [
+    None,
+    (),
+    (2,),
+    (2, 3),
+])
+def test_shape_discrete(jax_dist, dist_args, prepend_shape):
+    rng = random.PRNGKey(0)
+    sp_dist = getattr(sp, jax_dist.name)
+    expected_shape = np.shape(sp_dist.rvs(*dist_args))
+    assert np.shape(jax_dist.rvs(*dist_args, random_state=rng)) == expected_shape
+    if prepend_shape is not None:
+        shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
+        expected_shape = sp_dist.rvs(*dist_args, size=shape)
+        assert_allclose(np.shape(jax_dist.rvs(*dist_args, size=expected_shape, random_state=rng)),
+                        expected_shape)
 
 
 @pytest.mark.parametrize('jax_dist', [

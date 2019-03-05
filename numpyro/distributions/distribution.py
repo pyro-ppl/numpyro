@@ -41,31 +41,7 @@ class jax_continuous(sp.rv_continuous):
     def rvs(self, *args, **kwargs):
         return _rvs(self, *args, **kwargs)
 
-    # def logpdf(self, x, *args, **kwargs):
-    #     args, loc, scale = self._parse_args(*args, **kwargs)
-    #     loc, scale, *args = _promote_args(self.logpdf, loc, scale, *args)
-    #     x = (x - loc) / scale
-    #     return self._logpdf(x) - np.log(scale)
-
 
 class jax_discrete(sp.rv_discrete):
     def rvs(self, *args, **kwargs):
-        _rvs(self, *args, **kwargs)
-
-    # def logpmf(self, k, *args, **kwargs):
-    #     args, loc, _ = self._parse_args(*args, **kwargs)
-    #     k, loc = map(np.asarray, (k, loc))
-    #     args = tuple(map(np.asarray, args))
-    #     k = np.asarray((k-loc))
-    #     cond0 = self._argcheck(*args)
-    #     cond1 = (k >= self.a) & (k <= self.b) & self._nonzero(k, *args)
-    #     cond = cond0 & cond1
-    #     output = np.empty(np.shape(cond), 'd')
-    #     output.fill(np.NINF)
-    #     np.place(output, (1-cond0) + np.isnan(k), self.badvalue)
-    #     if np.any(cond):
-    #         goodargs = np.argsreduce(cond, *((k,)+args))
-    #         np.place(output, cond, self._logpmf(*goodargs))
-    #     if output.ndim == 0:
-    #         return output[()]
-    #     return output
+        return _rvs(self, *args, **kwargs)

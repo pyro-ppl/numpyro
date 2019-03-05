@@ -10,12 +10,12 @@ import jax.numpy as np
 from jax.lax import lgamma
 
 from numpyro.distributions.distribution import jax_discrete
-from numpyro.distributions.util import entr, xlogy, xlog1py
+from numpyro.distributions.util import entr, xlogy, xlog1py, binomial
 
 
 class binom_gen(jax_discrete):
     def _rvs(self, n, p):
-        return self._random_state.binomial(n, p, self._size)
+        return binomial(self._random_state, p, n, self._size)
 
     def _argcheck(self, n, p):
         self.b = n
@@ -71,3 +71,8 @@ class bernoulli_gen(binom_gen):
 
 bernoulli = bernoulli_gen(b=1, name='bernoulli')
 binom = binom_gen(name='binom')
+
+
+from jax.random import PRNGKey
+key = PRNGKey(0)
+binom.rvs(1, 0.2, random_state=key)

@@ -3,6 +3,7 @@ from jax import jit, lax, random, partial
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like
+from jax.random import uniform
 
 import scipy.special as sp
 
@@ -264,3 +265,13 @@ def entr(p):
     e = np.where(e == 0, 0, e)
     e = np.where(e < 0, -np.inf)
     return e
+
+
+@partial(jit, static_argnums=(3,))
+def binomial(key, p, n=1, shape=()):
+    shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
+    shape = shape + (n,)
+    p = np.broadcast_to(p, shape)
+    uniforms = uniform(key, shape + (np.max(n),), p)
+    uniforms = lax.scatter_p(uniforms, )
+    return np.sum(lax.lt(uniforms), axis=-1, keepdims=False)
