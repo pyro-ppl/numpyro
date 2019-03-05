@@ -25,20 +25,6 @@ def _norm_logpdf(x):
 
 
 class norm_gen(jax_continuous):
-    r"""A normal continuous random variable.
-    The location (``loc``) keyword specifies the mean.
-    The scale (``scale``) keyword specifies the standard deviation.
-    %(before_notes)s
-    Notes
-    -----
-    The probability density function for `norm` is:
-    .. math::
-        f(x) = \frac{\exp(-x^2/2)}{\sqrt{2\pi}}
-    for a real number :math:`x`.
-    %(after_notes)s
-    %(example)s
-    """
-
     def _rvs(self):
         return random.normal(self._random_state, self._size)
 

@@ -13,9 +13,12 @@ from numpyro.distributions.util import standard_gamma
 
 
 @pytest.mark.parametrize('jax_dist', [
+    dist.cauchy,
+    dist.expon,
+    dist.lognorm,
     dist.norm,
     dist.uniform,
-], ids=["norm", "uniform"])
+], ids=lambda jax_dist: jax_dist.name)
 @pytest.mark.parametrize('loc, scale', [
     (1, 1),
     (1., np.array([1., 2.])),
@@ -28,38 +31,48 @@ from numpyro.distributions.util import standard_gamma
 ])
 def test_shape(jax_dist, loc, scale, prepend_shape):
     rng = random.PRNGKey(0)
+    args = (1,) * jax_dist.numargs
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
-    assert np.shape(jax_dist.rvs(loc, scale, random_state=rng)) == expected_shape
-    assert np.shape(jax_dist(loc, scale).rvs(random_state=rng)) == expected_shape
+    assert np.shape(jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng)) == expected_shape
+    assert np.shape(jax_dist(*args, loc=loc, scale=scale).rvs(random_state=rng)) == expected_shape
     if prepend_shape is not None:
         expected_shape = prepend_shape + lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
-        assert np.shape(jax_dist.rvs(loc, scale, expected_shape, random_state=rng)) == expected_shape
-        assert np.shape(jax_dist(loc, scale).rvs(random_state=rng, size=expected_shape)) == expected_shape
+        assert np.shape(jax_dist.rvs(*args, loc=loc, scale=scale,
+                                     size=expected_shape, random_state=rng)) == expected_shape
+        assert np.shape(jax_dist(*args, loc=loc, scale=scale)
+                        .rvs(random_state=rng, size=expected_shape)) == expected_shape
 
 
 @pytest.mark.parametrize('jax_dist', [
+    dist.cauchy,
+    dist.expon,
+    dist.lognorm,
     dist.norm,
     dist.uniform,
-], ids=["norm", "uniform"])
+], ids=lambda jax_dist: jax_dist.name)
 @pytest.mark.parametrize('loc, scale', [
     (1., 1.),
     (1., np.array([1., 2.])),
 ])
 def test_sample_gradient(jax_dist, loc, scale):
     rng = random.PRNGKey(0)
+    args = (1,) * jax_dist.numargs
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
 
     def fn(loc, scale):
-        return jax_dist.rvs(loc, scale, random_state=rng).sum()
+        return jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng).sum()
 
     assert grad(fn)(loc, scale) == loc * reduce(mul, expected_shape[:len(expected_shape) - len(np.shape(loc))], 1.)
-    assert onp.allclose(grad(fn, 1)(loc, scale), jax_dist.rvs(size=expected_shape, random_state=rng))
+    assert onp.allclose(grad(fn, 1)(loc, scale), jax_dist.rvs(*args, size=expected_shape, random_state=rng))
 
 
 @pytest.mark.parametrize('jax_dist', [
+    dist.cauchy,
+    dist.expon,
+    dist.lognorm,
     dist.norm,
     dist.uniform,
-], ids=["norm", "uniform"])
+], ids=lambda jax_dist: jax_dist.name)
 @pytest.mark.parametrize('loc_scale', [
     (),
     (1,),
@@ -68,9 +81,10 @@ def test_sample_gradient(jax_dist, loc, scale):
 ])
 def test_logprob(jax_dist, loc_scale):
     rng = random.PRNGKey(2)
-    samples = jax_dist.rvs(*loc_scale, random_state=rng)
+    args = (1,) * jax_dist.numargs + loc_scale
+    samples = jax_dist.rvs(*args, random_state=rng)
     sp_dist = getattr(sp, jax_dist.name)
-    assert np.allclose(jax_dist.logpdf(samples, *loc_scale), sp_dist.logpdf(samples, *loc_scale))
+    assert np.allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args))
 
 
 @pytest.mark.parametrize('alpha, shape', [
