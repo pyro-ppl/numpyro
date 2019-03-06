@@ -246,4 +246,4 @@ def test_velocity_verlet(jitted, example):
     p_reverse = tree_map(lambda x: -x, p_f)
     q_i, p_i = get_final_state(model, args.step_size, args.num_steps, q_f, p_reverse)
     for node in args.q_i:
-        assert_allclose(q_i[node], args.q_i[node], atol=1e-5)
+        assert_allclose(q_i[node], args.q_i[node], atol=1e-4)

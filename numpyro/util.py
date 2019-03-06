@@ -1,8 +1,12 @@
 from __future__ import division
 
+import random
+
 import jax.numpy as np
 from jax import grad, value_and_grad
 from jax.tree_util import tree_multimap
+
+import numpy as onp
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
@@ -124,3 +128,8 @@ def velocity_verlet(potential_fn, kinetic_fn):
         return (z, r, potential_energy, z_grad)
 
     return init_fn, update_fn
+
+
+def set_rng_seed(rng_seed):
+    random.seed(rng_seed)
+    onp.random.seed(rng_seed)
