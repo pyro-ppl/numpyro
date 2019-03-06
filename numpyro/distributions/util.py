@@ -2,8 +2,7 @@ import jax.numpy as np
 from jax import jit, lax, random, partial
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
-from jax.numpy.lax_numpy import _promote_args_like
-from jax.random import uniform
+from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
 
 import scipy.special as sp
 
@@ -267,12 +266,27 @@ def entr(p):
     return e
 
 
-# TODO: inefficient implementation; partial.jit currently fails.
+def promote_shapes(*args, shape=()):
+    # adapted from lax.lax_numpy
+    if len(args) < 2 and not shape:
+        return args
+    else:
+        shapes = [np.shape(arg) for arg in args]
+        num_dims = len(lax.broadcast_shapes(shape, *shapes))
+        return [lax.reshape(arg, (1,) * (num_dims - len(s)) + s)
+                if len(s) < num_dims else arg for arg, s in zip(args, shapes)]
+
+
+# TODO: inefficient implementation; jit currently fails due to
+# dynamic size of random.uniform.
+# @jit
 def binomial(key, p, n=1, shape=()):
+    p, n = _promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
     n_max = np.max(n)
-    shape = shape + (n_max,)
-    uniforms = uniform(key, shape, p)
-    n = np.broadcast_to(n, np.shape(n) + (1,))
+    uniforms = random.uniform(key, shape + (n_max,))
+    n = np.expand_dims(n, axis=-1)
+    p = np.expand_dims(p, axis=-1)
     mask = (np.arange(n_max) > n).astype(uniforms.dtype)
+    p, uniforms = promote_shapes(p, uniforms)
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)

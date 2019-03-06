@@ -74,8 +74,3 @@ class bernoulli_gen(binom_gen):
 
 bernoulli = bernoulli_gen(b=1, name='bernoulli')
 binom = binom_gen(name='binom')
-
-
-from jax.random import PRNGKey
-key = PRNGKey(0)
-binom.rvs(1, 0.2, random_state=key)

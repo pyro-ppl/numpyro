@@ -97,11 +97,33 @@ def test_sample_gradient(jax_dist, loc, scale):
     assert onp.allclose(grad(fn, 1)(loc, scale), jax_dist.rvs(*args, size=expected_shape, random_state=rng))
 
 
+@pytest.mark.parametrize('jax_dist', [
+    dist.cauchy,
+    dist.expon,
+    dist.lognorm,
+    dist.norm,
+    dist.uniform,
+], ids=lambda jax_dist: jax_dist.name)
+@pytest.mark.parametrize('loc_scale', [
+    (),
+    (1,),
+    (1, 1),
+    (1., np.array([1., 2.])),
+])
+def test_logprob(jax_dist, loc_scale):
+    rng = random.PRNGKey(2)
+    args = (1,) * jax_dist.numargs + loc_scale
+    samples = jax_dist.rvs(*args, random_state=rng)
+    sp_dist = getattr(sp, jax_dist.name)
+    assert np.allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args))
+
+
 @pytest.mark.parametrize('jax_dist, dist_args', [
-    # (dist.bernoulli, (0.1,)),
-    # (dist.bernoulli, (np.array([0.3, 0.5]))),
-    # (dist.binom, (10, 0.4)),
+    (dist.bernoulli, (0.1,)),
+    (dist.bernoulli, (np.array([0.3, 0.5]))),
+    (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+    (dist.binom, [np.array([2, 5]), np.array([[0.4], [0.5]])])
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,
@@ -123,27 +145,6 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
         assert_allclose(jax_dist.logpmf(samples, *dist_args),
                         sp_dist.logpmf(samples, *dist_args),
                         rtol=1e-5)
-
-
-@pytest.mark.parametrize('jax_dist', [
-    dist.cauchy,
-    dist.expon,
-    dist.lognorm,
-    dist.norm,
-    dist.uniform,
-], ids=lambda jax_dist: jax_dist.name)
-@pytest.mark.parametrize('loc_scale', [
-    (),
-    (1,),
-    (1, 1),
-    (1., np.array([1., 2.])),
-])
-def test_logprob(jax_dist, loc_scale):
-    rng = random.PRNGKey(2)
-    args = (1,) * jax_dist.numargs + loc_scale
-    samples = jax_dist.rvs(*args, random_state=rng)
-    sp_dist = getattr(sp, jax_dist.name)
-    assert np.allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args))
 
 
 @pytest.mark.parametrize('alpha, shape', [
