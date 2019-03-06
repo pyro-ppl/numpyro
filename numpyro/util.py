@@ -1,6 +1,8 @@
 from __future__ import division
 
 import jax.numpy as np
+from jax import grad, value_and_grad
+from jax.tree_util import tree_multimap
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
@@ -97,3 +99,28 @@ def welford_covariance(diagonal=True):
         return cov
 
     return init_fn, update_fn, final_fn
+
+
+def velocity_verlet(potential_fn, kinetic_fn):
+    r"""
+    Second order symplectic integrator that uses the velocity verlet algorithm
+    for position `z` and momentum `r`.
+    """
+    def init_fn(z, r):
+        # TODO: init using the cache of potential_energy and z_grad?
+        potential_energy, z_grad = value_and_grad(potential_fn)(z)
+        return (z, r, potential_energy, z_grad)
+
+    def update_fn(step_size, state):
+        """
+        Single step velocity verlet.
+        """
+        z, r, _, z_grad = state
+        r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
+        r_grad = grad(kinetic_fn)(r)
+        z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
+        potential_energy, z_grad = value_and_grad(potential_fn)(z)
+        r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1)
+        return (z, r, potential_energy, z_grad)
+
+    return init_fn, update_fn
