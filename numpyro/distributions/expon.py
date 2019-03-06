@@ -1,4 +1,4 @@
-# Code modified from scipy.distributions._continous_distns.py
+# Source code modified from scipy.stats._continous_distns.py
 #
 # Copyright (c) 2001, 2002 Enthought, Inc.
 # All rights reserved.
