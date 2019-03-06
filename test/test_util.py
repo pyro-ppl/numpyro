@@ -9,7 +9,8 @@ from jax import device_put, grad, jit, lax, partial, tree_map
 from numpy.testing import assert_allclose
 
 from numpyro.distributions.util import xlogy, xlog1py
-from numpyro.util import dual_averaging, velocity_verlet, welford_covariance
+from numpyro.util import (dual_averaging, find_reasonable_step_size,
+                          velocity_verlet, welford_covariance)
 
 logger = logging.getLogger(__name__)
 _zeros = partial(lax.full_like, fill_value=0)
@@ -86,10 +87,8 @@ def test_dual_averaging(jitted):
         return x_avg
 
     f = lambda x: (x + 1) ** 2  # noqa: E731
-    if jitted:
-        x_opt = jit(optimize, static_argnums=(0,))(f)
-    else:
-        x_opt = optimize(f)
+    fn = jit(optimize, static_argnums=(0,)) if jitted else optimize
+    x_opt = fn(f)
 
     assert_allclose(x_opt, -1., atol=1e-3)
 
@@ -112,10 +111,8 @@ def test_welford_covariance(jitted, diagonal, regularize):
         cov = wc_final(wc_state, regularize=regularize)
         return cov
 
-    if jitted:
-        cov = jit(get_cov)(x)
-    else:
-        cov = get_cov(x)
+    fn = jit(get_cov) if jitted else get_cov
+    cov = fn(x)
 
     if diagonal:
         assert_allclose(cov, np.diagonal(target_cov), rtol=0.06)
@@ -222,11 +219,8 @@ def test_velocity_verlet(jitted, example):
         return (q_f, p_f)
 
     model, args = example
-    if jitted:
-        q_f, p_f = jit(get_final_state, static_argnums=(0,))(
-            model, args.step_size, args.num_steps, args.q_i, args.p_i)
-    else:
-        q_f, p_f = get_final_state(model, args.step_size, args.num_steps, args.q_i, args.p_i)
+    fn = jit(get_final_state, static_argnums=(0,)) if jitted else get_final_state
+    q_f, p_f = fn(model, args.step_size, args.num_steps, args.q_i, args.p_i)
 
     logger.info('Test trajectory:')
     logger.info('initial q: {}'.format(args.q_i))
@@ -247,3 +241,35 @@ def test_velocity_verlet(jitted, example):
     q_i, p_i = get_final_state(model, args.step_size, args.num_steps, q_f, p_reverse)
     for node in args.q_i:
         assert_allclose(q_i[node], args.q_i[node], atol=1e-5)
+
+
+@pytest.mark.parametrize('jitted', [True, False])
+@pytest.mark.parametrize('init_step_size', [0.1, 10.0])
+def test_find_reasonable_step_size(jitted, init_step_size):
+    def kinetic_fn(p):
+        return 0.5 * p['x'] ** 2
+
+    def potential_fn(q):
+        return 0.5 * q['x'] ** 2
+
+    p_generator = lambda: {'x': 1.0}  # noqa: E731
+    q = {'x': 0.0}
+
+    fn = (jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
+          if jitted else find_reasonable_step_size)
+    step_size = fn(potential_fn, kinetic_fn, p_generator, q, init_step_size)
+
+    # Apply 1 velocity verlet step with step_size=eps, we have
+    # z_new = eps, r_new = 1 - eps^2 / 2, hence energy_new = 0.5 + eps^4 / 8,
+    # hence delta_energy = energy_new - energy_init = eps^4 / 8.
+    # We want to find a reasonable step_size such that delta_energy ~ -log(0.8),
+    # hence that step_size ~ the following threshold
+    threshold = np.power(-np.log(0.8) * 8, 0.25)
+
+    # Confirm that given init_step_size, we will doubly increase/decrease it until it passes threshold.
+    if init_step_size < threshold:
+        assert step_size / 2 < threshold
+        assert step_size > threshold
+    else:
+        assert step_size * 2 > threshold
+        assert step_size < threshold

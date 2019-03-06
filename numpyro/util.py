@@ -1,5 +1,6 @@
 from __future__ import division
 
+import jax.lax as lax
 import jax.numpy as np
 from jax import grad, value_and_grad
 from jax.tree_util import tree_multimap
@@ -124,3 +125,35 @@ def velocity_verlet(potential_fn, kinetic_fn):
         return (z, r, potential_energy, z_grad)
 
     return init_fn, update_fn
+
+
+def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, position, init_step_size):
+    # We are going to find a step_size which make accept_prob (Metropolis correction)
+    # near the target_accept_prob. If accept_prob:=exp(-delta_energy) is small,
+    # then we have to decrease step_size; otherwise, increase step_size.
+    target_accept_prob = np.log(0.8)
+
+    _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
+    z = position
+    potential_energy, z_grad = value_and_grad(potential_fn)(z)
+
+    def _body_fn(state):
+        step_size, _, direction = state
+        # scale step_size: increase 2x or decrease 2x depends on direction;
+        # direction=1 means keep increasing step_size, otherwise decreasing step_size.
+        # Note that the direction is -1 if delta_energy is `NaN`, which may be the
+        # case for a diverging trajectory (e.g. in the case of evaluating log prob
+        # of a value simulated using a large step size for a constrained sample site).
+        step_size = (2.0 ** direction) * step_size
+        r = momentum_generator()  # generate r upon calling
+        _, r_new, potential_energy_new, _ = vv_update(step_size,
+                                                      (z, r, potential_energy, z_grad))
+        energy_current = kinetic_fn(r) + potential_energy
+        energy_new = kinetic_fn(r_new) + potential_energy_new
+        delta_energy = energy_new - energy_current
+        direction_new = np.where(target_accept_prob < -delta_energy, 1, -1)
+        return (step_size, direction, direction_new)
+
+    step_size, _, _ = lax.while_loop(lambda sdd: (sdd[1] == 0) | (sdd[1] == sdd[2]),
+                                     _body_fn, (init_step_size, 0, 0))
+    return step_size
