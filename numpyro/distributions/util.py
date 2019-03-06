@@ -267,11 +267,12 @@ def entr(p):
     return e
 
 
-@partial(jit, static_argnums=(3,))
+# TODO: inefficient implementation; partial.jit currently fails.
 def binomial(key, p, n=1, shape=()):
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
-    shape = shape + (n,)
-    p = np.broadcast_to(p, shape)
-    uniforms = uniform(key, shape + (np.max(n),), p)
-    uniforms = lax.scatter_p(uniforms, )
-    return np.sum(lax.lt(uniforms), axis=-1, keepdims=False)
+    n_max = np.max(n)
+    shape = shape + (n_max,)
+    uniforms = uniform(key, shape, p)
+    n = np.broadcast_to(n, np.shape(n) + (1,))
+    mask = (np.arange(n_max) > n).astype(uniforms.dtype)
+    return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)

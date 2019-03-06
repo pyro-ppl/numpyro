@@ -8,6 +8,7 @@
 
 import jax.numpy as np
 from jax.lax import lgamma
+from jax.numpy.lax_numpy import _promote_dtypes
 
 from numpyro.distributions.distribution import jax_discrete
 from numpyro.distributions.util import entr, xlogy, xlog1py, binomial
@@ -23,6 +24,7 @@ class binom_gen(jax_discrete):
 
     def _logpmf(self, x, n, p):
         k = np.floor(x)
+        n, p = _promote_dtypes(n, p)
         combiln = (lgamma(n + 1) - (lgamma(k + 1) + lgamma(n - k + 1)))
         return combiln + xlogy(k, p) + xlog1py(n - k, -p)
 
@@ -48,6 +50,7 @@ class binom_gen(jax_discrete):
 
 
 class bernoulli_gen(binom_gen):
+    # TODO: use more efficient implementation from jax.random
     def _rvs(self, p):
         return binom_gen._rvs(self, 1, p)
 

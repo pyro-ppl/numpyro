@@ -51,8 +51,8 @@ def idfn(param):
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
-    # (dist.bernoulli, (0.1,)),
-    # (dist.bernoulli, (np.array([0.3, 0.5]))),
+    (dist.bernoulli, (0.1,)),
+    (dist.bernoulli, (np.array([0.3, 0.5]))),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
 ], ids=idfn)
@@ -62,14 +62,14 @@ def idfn(param):
     (2,),
     (2, 3),
 ])
-def test_shape_discrete(jax_dist, dist_args, prepend_shape):
+def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     rng = random.PRNGKey(0)
     sp_dist = getattr(sp, jax_dist.name)
     expected_shape = np.shape(sp_dist.rvs(*dist_args))
     assert np.shape(jax_dist.rvs(*dist_args, random_state=rng)) == expected_shape
     if prepend_shape is not None:
         shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
-        expected_shape = sp_dist.rvs(*dist_args, size=shape)
+        expected_shape = np.shape(sp_dist.rvs(*dist_args, size=shape))
         assert_allclose(np.shape(jax_dist.rvs(*dist_args, size=expected_shape, random_state=rng)),
                         expected_shape)
 
@@ -95,6 +95,34 @@ def test_sample_gradient(jax_dist, loc, scale):
 
     assert grad(fn)(loc, scale) == loc * reduce(mul, expected_shape[:len(expected_shape) - len(np.shape(loc))], 1.)
     assert onp.allclose(grad(fn, 1)(loc, scale), jax_dist.rvs(*args, size=expected_shape, random_state=rng))
+
+
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    # (dist.bernoulli, (0.1,)),
+    # (dist.bernoulli, (np.array([0.3, 0.5]))),
+    # (dist.binom, (10, 0.4)),
+    (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+], ids=idfn)
+@pytest.mark.parametrize('shape', [
+    None,
+    (),
+    (2,),
+    (2, 3),
+])
+def test_discrete_logpmf(jax_dist, dist_args, shape):
+    rng = random.PRNGKey(0)
+    sp_dist = getattr(sp, jax_dist.name)
+    samples = jax_dist.rvs(*dist_args, random_state=rng)
+    assert_allclose(jax_dist.logpmf(samples, *dist_args),
+                    sp_dist.logpmf(samples, *dist_args),
+                    rtol=1e-5)
+    if shape is not None:
+        shape = shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
+        expected_shape = np.shape(sp_dist.rvs(*dist_args, size=shape))
+        samples = jax_dist.rvs(*dist_args, size=expected_shape, random_state=rng)
+        assert_allclose(jax_dist.logpmf(samples, *dist_args),
+                        sp_dist.logpmf(samples, *dist_args),
+                        rtol=1e-5)
 
 
 @pytest.mark.parametrize('jax_dist', [
