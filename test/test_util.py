@@ -247,13 +247,13 @@ def test_velocity_verlet(jitted, example):
 @pytest.mark.parametrize('init_step_size', [0.1, 10.0])
 def test_find_reasonable_step_size(jitted, init_step_size):
     def kinetic_fn(p):
-        return 0.5 * p['x'] ** 2
+        return 0.5 * p ** 2
 
     def potential_fn(q):
-        return 0.5 * q['x'] ** 2
+        return 0.5 * q ** 2
 
-    p_generator = lambda: {'x': 1.0}  # noqa: E731
-    q = {'x': 0.0}
+    p_generator = lambda: 1.0  # noqa: E731
+    q = 0.0
 
     fn = (jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
           if jitted else find_reasonable_step_size)
