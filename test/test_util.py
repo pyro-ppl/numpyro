@@ -266,7 +266,8 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     # hence that step_size ~ the following threshold
     threshold = np.power(-np.log(0.8) * 8, 0.25)
 
-    # Confirm that given init_step_size, we will doubly increase/decrease it until it passes threshold.
+    # Confirm that given init_step_size, we will doubly increase/decrease it
+    # until it passes threshold.
     if init_step_size < threshold:
         assert step_size / 2 < threshold
         assert step_size > threshold
