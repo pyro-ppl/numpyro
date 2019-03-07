@@ -1,9 +1,13 @@
 from __future__ import division
 
+import random
+
 import jax.lax as lax
 import jax.numpy as np
 from jax import grad, value_and_grad
 from jax.tree_util import tree_multimap
+
+import numpy as onp
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
@@ -127,6 +131,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
     return init_fn, update_fn
 
 
+<<<<<<< HEAD
 def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, position, init_step_size):
     # We are going to find a step_size which make accept_prob (Metropolis correction)
     # near the target_accept_prob. If accept_prob:=exp(-delta_energy) is small,
@@ -157,3 +162,8 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, posi
     step_size, _, _ = lax.while_loop(lambda sdd: (sdd[1] == 0) | (sdd[1] == sdd[2]),
                                      _body_fn, (init_step_size, 0, 0))
     return step_size
+=======
+def set_rng_seed(rng_seed):
+    random.seed(rng_seed)
+    onp.random.seed(rng_seed)
+>>>>>>> upstream/master
