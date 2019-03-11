@@ -11,7 +11,7 @@ experimenatal library that is actively being developed. This uses
    upon. We will provide support for Pyro primitives like `sample` and `param` 
    which can be interpreted with side-effects using effect handlers. Users should 
    be able to extend this to implement custom inference algorithms, and write 
-   the models using the familiar Numpy API.
+   their models using the familiar Numpy API.
  - **Functional** - The API for the inference algorithms and other utility functions 
    may deviate from Pyro in favor of a more *functional* style that works better 
    with JAX. e.g. no global param store or random state.
