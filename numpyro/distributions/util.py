@@ -1,5 +1,5 @@
 import jax.numpy as np
-from jax import jit, lax, random, partial
+from jax import jit, lax, random, partial, vmap
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
@@ -7,14 +7,11 @@ from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
 import scipy.special as sp
 
 
-@jit
-def _standard_gamma_one(alpha, key):
+def _standard_gamma_one(key, alpha):
     # Marsaglia & Tsang's simple transformation-rejection method
     # Ref: https://dl.acm.org/citation.cfm?doid=358407.358414
     # https://en.wikipedia.org/wiki/Gamma_distribution#Generating_gamma-distributed_random_variables
 
-    # TODO: use lax.cond here
-    # boost for the case alpha < 1
     boost = np.where(alpha >= 1.0, 1.0, random.uniform(key, ()) ** (1.0 / alpha))
     key, = random.split(key, 1)  # NOTE: always split the key after calling random.foo
     alpha = np.where(alpha >= 1.0, alpha, alpha + 1.0)
@@ -24,7 +21,7 @@ def _standard_gamma_one(alpha, key):
 
     def _cond_fn(kXVU):
         _, X, V, U = kXVU
-        # TODO: use lax.cond when it is available to avoid evaluating second condition which involves log
+        # TODO: find a way to avoid evaluating second condition which involves log+log
         return (U >= 1.0 - 0.0331 * X * X) & (np.log(U) >= 0.5 * X + d * (1.0 - V + np.log(V)))
 
     def _body_fn(kXVU):
@@ -48,15 +45,10 @@ def _standard_gamma_one(alpha, key):
     return np.where(z == 0, np.finfo(z.dtype).tiny, z)
 
 
-def _standard_gamma_impl(alpha, key):
+def _standard_gamma_impl(key, alpha):
     alphas = np.reshape(alpha, -1)
     keys = random.split(key, alphas.size)
-    # TODO: use vmap here when it supports while_loop
-    # https://github.com/google/jax/issues/441
-    samples = []
-    for i in range(alphas.size):
-        samples.append(_standard_gamma_one(alphas[i], keys[i]))
-    samples = np.stack(samples)
+    samples = vmap(_standard_gamma_one)(keys, alphas)
     return samples.reshape(alpha.shape)
 
 
@@ -68,7 +60,6 @@ _bivariate_coef = [[0.16009398, -0.094634816, 0.025146379, -0.0030648348,
                     0.017050642, -0.0021309345, 0.00085092385, -1.5248239e-07]]
 
 
-@jit
 def _standard_gamma_grad_one(z, alpha):
     # Ref 1: Pathwise Derivatives Beyond the Reparameterization Trick, Martin & Fritz
     # Ref 2: Case 4 follows https://github.com/fritzo/notebooks/blob/master/gamma-reparameterized.ipynb
@@ -163,30 +154,40 @@ def _standard_gamma_grad_one(z, alpha):
 
 
 def _standard_gamma_grad(sample, alpha):
-    if np.isscalar(alpha):
-        return _standard_gamma_grad_one(sample, alpha)
-    samples = sample.reshape(-1)
-    alphas = alpha.reshape(-1)
-    grads = []
-    for i in range(alphas.size):
-        grads.append(_standard_gamma_grad_one(samples[i], alphas[i]))
-    grads = np.stack(grads)
+    samples = np.reshape(sample, -1)
+    alphas = np.reshape(alpha, -1)
+    grads = vmap(_standard_gamma_grad_one)(samples, alphas)
     return grads.reshape(alpha.shape)
+
+
+def _standard_gamma_abstract_eval(key, alpha, jaxpr, aval, consts):
+    return lax.maybe_tracer_tuple_to_abstract_tuple(aval)
+
+
+def _standard_gamma_translate(c, key, alpha, jaxpr, aval, consts):
+    xla_computation = xla.jaxpr_computation(jaxpr, consts, (), c.GetShape(key), c.GetShape(alpha))
+    return c.Call(xla_computation, (key, alpha))
 
 
 # define primitive
 standard_gamma_p = Primitive('standard_gamma')
-standard_gamma_p.def_impl(_standard_gamma_impl)
-standard_gamma_p.def_abstract_eval(lambda alpha, key: alpha)
-ad.defjvp2(standard_gamma_p, lambda tangent, sample, alpha, key: tangent * _standard_gamma_grad(sample, alpha), None)
+standard_gamma_p.def_impl(partial(xla.apply_primitive, standard_gamma_p))
+standard_gamma_p.def_abstract_eval(_standard_gamma_abstract_eval)
+xla.translations[standard_gamma_p] = _standard_gamma_translate
+ad.defjvp2(standard_gamma_p, None,
+           lambda tangent, sample, key, alpha, **kwargs: tangent * _standard_gamma_grad(sample, alpha))
 
 
+@partial(jit, static_argnums=(2, 3))
 def standard_gamma(key, alpha, shape=(), dtype=np.float32):
     shape = shape or np.shape(alpha)
     alpha = lax.convert_element_type(alpha, dtype)
     if np.shape(alpha) != shape:
         alpha = np.broadcast_to(alpha, shape)
-    return standard_gamma_p.bind(alpha, key)
+    jaxpr, out, consts = partial_eval.trace_unwrapped_to_jaxpr(_standard_gamma_impl,
+                                                               tuple(lax._abstractify(o) for o in (key, alpha)))
+    aval, _ = out
+    return standard_gamma_p.bind(key, alpha, jaxpr=jaxpr, aval=aval, consts=consts)
 
 
 # TODO @npradhan: move to jax repo, if possible.
