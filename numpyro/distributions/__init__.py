@@ -1,4 +1,4 @@
-from numpyro.distributions.discrete import bernoulli, binom
+from numpyro.distributions.discrete import bernoulli, binom, multinomial
 from numpyro.distributions.cauchy import cauchy
 from numpyro.distributions.expon import expon
 from numpyro.distributions.lognorm import lognorm
@@ -12,6 +12,7 @@ __all__ = [
     'cauchy',
     'expon',
     'lognorm',
+    'multinomial',
     'norm',
     'uniform',
 ]

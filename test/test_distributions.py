@@ -1,6 +1,7 @@
 from functools import reduce
 from operator import mul
 
+import jax
 import jax.numpy as np
 import jax.random as random
 import numpy as onp
@@ -34,7 +35,9 @@ def test_shape(jax_dist, loc, scale, prepend_shape):
     rng = random.PRNGKey(0)
     args = (1,) * jax_dist.numargs
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
-    assert np.shape(jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng)) == expected_shape
+    samples = jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng)
+    assert isinstance(samples, jax.interpreters.xla.DeviceArray)
+    assert np.shape(samples) == expected_shape
     assert np.shape(jax_dist(*args, loc=loc, scale=scale).rvs(random_state=rng)) == expected_shape
     if prepend_shape is not None:
         expected_shape = prepend_shape + lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
@@ -45,7 +48,8 @@ def test_shape(jax_dist, loc, scale, prepend_shape):
 
 
 def idfn(param):
-    if isinstance(param, sp._distn_infrastructure.rv_generic):
+    if isinstance(param, (sp._distn_infrastructure.rv_generic,
+                          sp._multivariate.multi_rv_generic)):
         return param.name
     return repr(param)
 
@@ -55,6 +59,8 @@ def idfn(param):
     (dist.bernoulli, (np.array([0.3, 0.5]))),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+    (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
+    (dist.multinomial, (10, np.array([1]))),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -66,11 +72,13 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     rng = random.PRNGKey(0)
     sp_dist = getattr(sp, jax_dist.name)
     expected_shape = np.shape(sp_dist.rvs(*dist_args))
-    assert np.shape(jax_dist.rvs(*dist_args, random_state=rng)) == expected_shape
+    samples = jax_dist.rvs(*dist_args, random_state=rng)
+    assert isinstance(samples, jax.interpreters.xla.DeviceArray)
+    assert np.shape(samples) == expected_shape
     if prepend_shape is not None:
         shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
         expected_shape = np.shape(sp_dist.rvs(*dist_args, size=shape))
-        assert_allclose(np.shape(jax_dist.rvs(*dist_args, size=expected_shape, random_state=rng)),
+        assert_allclose(np.shape(jax_dist.rvs(*dist_args, size=shape, random_state=rng)),
                         expected_shape)
 
 
@@ -123,7 +131,9 @@ def test_logprob(jax_dist, loc_scale):
     (dist.bernoulli, (np.array([0.3, 0.5]))),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
-    (dist.binom, [np.array([2, 5]), np.array([[0.4], [0.5]])])
+    (dist.binom, [np.array([2, 5]), np.array([[0.4], [0.5]])]),
+    (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
+    (dist.multinomial, (10, np.array([1.]))),
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,
@@ -136,14 +146,13 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
     sp_dist = getattr(sp, jax_dist.name)
     samples = jax_dist.rvs(*dist_args, random_state=rng)
     assert_allclose(jax_dist.logpmf(samples, *dist_args),
-                    sp_dist.logpmf(samples, *dist_args),
+                    sp_dist.logpmf(onp.asarray(samples), *dist_args),
                     rtol=1e-5)
     if shape is not None:
         shape = shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
-        expected_shape = np.shape(sp_dist.rvs(*dist_args, size=shape))
-        samples = jax_dist.rvs(*dist_args, size=expected_shape, random_state=rng)
+        samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
         assert_allclose(jax_dist.logpmf(samples, *dist_args),
-                        sp_dist.logpmf(samples, *dist_args),
+                        sp_dist.logpmf(onp.asarray(samples), *dist_args),
                         rtol=1e-5)
 
 
