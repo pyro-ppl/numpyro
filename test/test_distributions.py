@@ -22,6 +22,7 @@ from numpyro.distributions.util import standard_gamma
     dist.lognorm,
     dist.norm,
     dist.uniform,
+    dist.t,
 ], ids=lambda jax_dist: jax_dist.name)
 @pytest.mark.parametrize('loc, scale', [
     (1, 1),
@@ -91,6 +92,7 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     dist.lognorm,
     dist.norm,
     dist.uniform,
+    dist.t,
 ], ids=lambda jax_dist: jax_dist.name)
 @pytest.mark.parametrize('loc, scale', [
     (1., 1.),
@@ -119,6 +121,7 @@ def test_sample_gradient(jax_dist, loc, scale):
     dist.gamma,
     dist.lognorm,
     dist.norm,
+    dist.t,
     pytest.param(dist.uniform,
                  marks=pytest.mark.xfail(
                      reason="jax.scipy.uniform.logpdf is not correctly implemented, "
