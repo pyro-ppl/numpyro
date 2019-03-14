@@ -104,12 +104,41 @@ def test_sample_gradient(jax_dist, loc, scale):
     def fn(args, loc, scale):
         return jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng).sum()
 
-    # FIXME: find a proper test for gradients of arg parameters
-    assert len(grad(fn)(args, loc, scale)) == jax_dist.numargs
     assert_allclose(grad(fn, 1)(args, loc, scale),
                     loc * reduce(mul, expected_shape[:len(expected_shape) - np.ndim(loc)], 1.))
     assert_allclose(grad(fn, 2)(args, loc, scale),
                     jax_dist.rvs(*args, size=expected_shape, random_state=rng))
+
+
+@pytest.mark.parametrize('jax_dist', [
+    dist.beta,
+    dist.gamma,
+    dist.lognorm,
+    dist.t,
+], ids=lambda jax_dist: jax_dist.name)
+@pytest.mark.parametrize('arg', [1e-2, 1e-1, 1e0, 1e1, 1e2])
+def test_pathwise_gradient(jax_dist, arg):
+    rng = random.PRNGKey(0)
+    num_args = jax_dist.numargs
+    num_samples = 100
+    sp_dist = getattr(sp, jax_dist.name)
+    arg = np.full((num_samples,), arg)
+
+    def _make_args(i, val):
+        # create a list with i-th value is val
+        return [1 if j != i else val for j in range(num_args)]
+
+    for i in range(num_args):
+        z = jax_dist.rvs(*_make_args(i, arg), random_state=rng)
+        actual_grad = grad(lambda x: np.sum(jax_dist.rvs(*_make_args(i, arg), random_state=rng)))(arg)
+
+        eps = 0.01 * arg / (1.0 + np.sqrt(arg))
+        cdf_dot = ((sp_dist.cdf(z, *_make_args(i, arg + eps)) - sp_dist.cdf(z, *_make_args(i, arg - eps)))
+                   / (2 * eps))
+        pdf = sp_dist.pdf(z, *args)
+        expected_grad = -cdf_dot / pdf
+
+        assert_allclose(actual_grad, expected_grad, rtol=0.005)
 
 
 @pytest.mark.parametrize('jax_dist', [
