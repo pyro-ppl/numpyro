@@ -17,13 +17,6 @@ class expon_gen(jax_continuous):
         u = random.uniform(self._random_state, self._size)
         return -np.log(u)
 
-    def _pdf(self, x):
-        # expon.pdf(x) = exp(-x)
-        return np.exp(-x)
-
-    def _logpdf(self, x):
-        return -x
-
     def _cdf(self, x):
         return -np.expm1(-x)
 
