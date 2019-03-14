@@ -27,6 +27,8 @@ class jax_continuous(sp.rv_continuous):
         # or it will take default value (which is None).
         # Note: self.numargs is the number of shape parameters.
         size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 2) else None)
+        # TODO: when args is not empty, parse_args requires either _pdf or _cdf method is implemented
+        # to recognize valid arg signatures (e.g. `a` in `gamma` or `s` in lognormal)
         args, loc, scale = self._parse_args(*args, **kwargs)
         # FIXME(fehiepsi): Using _promote_args_like requires calling `super(jax_continuous, self).rvs` but
         # it will call `self._rvs` (which is written using JAX and requires JAX random state).
@@ -56,7 +58,6 @@ class jax_discrete(sp.rv_discrete):
     # Discrete distribution instances use scipy samplers directly
     # and put the samples on device later.
     def rvs(self, *args, **kwargs):
-        key = kwargs.pop('random_state')
-        onp.random.seed(key)
+        kwargs['random_state'] = onp.random.RandomState(kwargs['random_state'])
         sample = super(sp.rv_discrete, self).rvs(*args, **kwargs)
         return device_put(sample)
