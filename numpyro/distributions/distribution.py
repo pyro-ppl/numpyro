@@ -43,7 +43,6 @@ class jax_discrete(sp.rv_discrete):
     # Discrete distribution instances use scipy samplers directly
     # and put the samples on device later.
     def rvs(self, *args, **kwargs):
-        key = kwargs.pop('random_state')
-        onp.random.seed(key)
+        kwargs['random_state'] = onp.random.RandomState(kwargs['random_state'])
         sample = super(sp.rv_discrete, self).rvs(*args, **kwargs)
         return device_put(sample)
