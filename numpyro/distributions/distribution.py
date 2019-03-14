@@ -11,6 +11,7 @@ from jax import lax, device_put
 from jax.random import _is_prng_key
 from jax.numpy.lax_numpy import _promote_args
 import jax.numpy as np
+import jax.scipy
 import numpy as onp
 
 
@@ -37,6 +38,18 @@ class jax_continuous(sp.rv_continuous):
         self._size = size
         vals = self._rvs(*args)
         return vals * scale + loc
+
+    def pdf(self, x, *args, **kwargs):
+        if hasattr(jax.scipy.stats, self.name):
+            return getattr(jax.scipy.stats, self.name).pdf(x, *args, **kwargs)
+        else:
+            return super(jax_continuous, self).pdf(x, *args, **kwargs)
+
+    def logpdf(self, x, *args, **kwargs):
+        if hasattr(jax.scipy.stats, self.name):
+            return getattr(jax.scipy.stats, self.name).logpdf(x, *args, **kwargs)
+        else:
+            return super(jax_continuous, self).logpdf(x, *args, **kwargs)
 
 
 class jax_discrete(sp.rv_discrete):

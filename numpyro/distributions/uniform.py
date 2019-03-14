@@ -15,9 +15,6 @@ class uniform_gen(jax_continuous):
     def _rvs(self):
         return random.uniform(self._random_state, self._size, minval=0.0, maxval=1.0)
 
-    def _pdf(self, x):
-        return 1.0 * (x == x)
-
     def _cdf(self, x):
         return x
 

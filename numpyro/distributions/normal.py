@@ -28,13 +28,6 @@ class norm_gen(jax_continuous):
     def _rvs(self):
         return random.normal(self._random_state, self._size)
 
-    def _pdf(self, x):
-        # norm.pdf(x) = exp(-x**2/2)/sqrt(2*pi)
-        return _norm_pdf(x)
-
-    def _logpdf(self, x):
-        return _norm_logpdf(x)
-
     def _stats(self):
         return 0.0, 1.0, 0.0, 0.0
 
