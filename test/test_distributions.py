@@ -104,6 +104,7 @@ def test_sample_gradient(jax_dist, loc, scale):
     def fn(args, loc, scale):
         return jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng).sum()
 
+    # FIXME: find a proper test for gradients of arg parameters
     assert len(grad(fn)(args, loc, scale)) == jax_dist.numargs
     assert_allclose(grad(fn, 1)(args, loc, scale),
                     loc * reduce(mul, expected_shape[:len(expected_shape) - np.ndim(loc)], 1.))
