@@ -17,6 +17,7 @@ from numpyro.distributions.util import standard_gamma
 @pytest.mark.parametrize('jax_dist', [
     dist.cauchy,
     dist.expon,
+    dist.gamma,
     dist.lognorm,
     dist.norm,
     dist.uniform,
@@ -85,6 +86,7 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
 @pytest.mark.parametrize('jax_dist', [
     dist.cauchy,
     dist.expon,
+    dist.gamma,
     dist.lognorm,
     dist.norm,
     dist.uniform,
@@ -108,6 +110,7 @@ def test_sample_gradient(jax_dist, loc, scale):
 @pytest.mark.parametrize('jax_dist', [
     dist.cauchy,
     dist.expon,
+    dist.gamma,
     dist.lognorm,
     dist.norm,
     dist.uniform,
