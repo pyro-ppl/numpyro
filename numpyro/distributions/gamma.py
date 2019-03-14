@@ -17,7 +17,7 @@ class gamma_gen(jax_continuous):
     def _rvs(self, a):
         return standard_gamma(self._random_state, a, self._size)
 
-    # TODO: add _cdf/_sf methods when incomplete gamma is availabel
+    # TODO: add _cdf/_sf methods when incomplete gamma is available
     # https://github.com/google/jax/issues/479
     def _cdf(self, x, a):
         raise NotImplementedError
