@@ -15,8 +15,10 @@ from numpyro.distributions.util import standard_gamma
 
 
 @pytest.mark.parametrize('jax_dist', [
+    dist.beta,
     dist.cauchy,
     dist.expon,
+    dist.gamma,
     dist.lognorm,
     dist.norm,
     dist.uniform,
@@ -78,13 +80,14 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     if prepend_shape is not None:
         shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
         expected_shape = np.shape(sp_dist.rvs(*dist_args, size=shape))
-        assert_allclose(np.shape(jax_dist.rvs(*dist_args, size=shape, random_state=rng)),
-                        expected_shape)
+        assert np.shape(jax_dist.rvs(*dist_args, size=shape, random_state=rng)) == expected_shape
 
 
 @pytest.mark.parametrize('jax_dist', [
+    dist.beta,
     dist.cauchy,
     dist.expon,
+    dist.gamma,
     dist.lognorm,
     dist.norm,
     dist.uniform,
@@ -98,19 +101,28 @@ def test_sample_gradient(jax_dist, loc, scale):
     args = (1,) * jax_dist.numargs
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
 
-    def fn(loc, scale):
+    def fn(args, loc, scale):
         return jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng).sum()
 
-    assert grad(fn)(loc, scale) == loc * reduce(mul, expected_shape[:len(expected_shape) - len(np.shape(loc))], 1.)
-    assert onp.allclose(grad(fn, 1)(loc, scale), jax_dist.rvs(*args, size=expected_shape, random_state=rng))
+    # FIXME: find a proper test for gradients of arg parameters
+    assert len(grad(fn)(args, loc, scale)) == jax_dist.numargs
+    assert_allclose(grad(fn, 1)(args, loc, scale),
+                    loc * reduce(mul, expected_shape[:len(expected_shape) - np.ndim(loc)], 1.))
+    assert_allclose(grad(fn, 2)(args, loc, scale),
+                    jax_dist.rvs(*args, size=expected_shape, random_state=rng))
 
 
 @pytest.mark.parametrize('jax_dist', [
+    dist.beta,
     dist.cauchy,
     dist.expon,
+    dist.gamma,
     dist.lognorm,
     dist.norm,
-    dist.uniform,
+    pytest.param(dist.uniform,
+                 marks=pytest.mark.xfail(
+                     reason="jax.scipy.uniform.logpdf is not correctly implemented, "
+                     "see https://github.com/google/jax/pull/510")),
 ], ids=lambda jax_dist: jax_dist.name)
 @pytest.mark.parametrize('loc_scale', [
     (),
@@ -119,11 +131,11 @@ def test_sample_gradient(jax_dist, loc, scale):
     (1., np.array([1., 2.])),
 ])
 def test_logprob(jax_dist, loc_scale):
-    rng = random.PRNGKey(2)
+    rng = random.PRNGKey(0)
     args = (1,) * jax_dist.numargs + loc_scale
     samples = jax_dist.rvs(*args, random_state=rng)
     sp_dist = getattr(sp, jax_dist.name)
-    assert np.allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args))
+    assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args))
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -172,8 +184,8 @@ def test_standard_gamma_shape(alpha, shape):
 def test_standard_gamma_stats(alpha):
     rng = random.PRNGKey(0)
     z = standard_gamma(rng, np.full((1000,), alpha))
-    assert np.allclose(np.mean(z), alpha, rtol=0.06)
-    assert np.allclose(np.var(z), alpha, rtol=0.2)
+    assert_allclose(np.mean(z), alpha, rtol=0.06)
+    assert_allclose(np.var(z), alpha, rtol=0.2)
 
 
 @pytest.mark.parametrize("alpha", [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4])
@@ -188,4 +200,4 @@ def test_standard_gamma_grad(alpha):
     pdf = sp.gamma.pdf(z, alpha)
     expected_grad = -cdf_dot / pdf
 
-    assert np.allclose(actual_grad, expected_grad, rtol=0.0005)
+    assert_allclose(actual_grad, expected_grad, rtol=0.0005)
