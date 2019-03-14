@@ -102,11 +102,12 @@ def test_sample_gradient(jax_dist, loc, scale):
     args = (1,) * jax_dist.numargs
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
 
-    def fn(loc, scale):
+    def fn(args, loc, scale):
         return jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng).sum()
 
-    assert grad(fn)(loc, scale) == loc * reduce(mul, expected_shape[:len(expected_shape) - len(np.shape(loc))], 1.)
-    assert onp.allclose(grad(fn, 1)(loc, scale), jax_dist.rvs(*args, size=expected_shape, random_state=rng))
+    assert len(grad(fn)(args, loc, scale)) == jax_dist.numargs
+    assert grad(fn, 1)(args, loc, scale) == loc * reduce(mul, expected_shape[:len(expected_shape) - len(np.shape(loc))], 1.)
+    assert onp.allclose(grad(fn, 2)(args, loc, scale), jax_dist.rvs(*args, size=expected_shape, random_state=rng))
 
 
 @pytest.mark.parametrize('jax_dist', [
