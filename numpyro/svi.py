@@ -1,55 +1,45 @@
-from jax import grad, random, jit
+from jax import grad, random, jit, partial
 from jax.experimental import optimizers
 import jax.numpy as np
-from jax.random import PRNGKey
 
 from numpyro.handlers import replay, trace, substitute, seed
 
 
-# This is a unified interface for stochastic variational inference in Pyro.
-# The actual construction of the loss is taken care of by `loss`.
-# See http://docs.pyro.ai/en/0.3.0-release/inference_algos.html
-class SVI(object):
-    def __init__(self, model, guide, opt_init, opt_update, loss, rng=PRNGKey(0)):
-        self.model = model
-        self.guide = guide
-        self.opt_init = opt_init
-        self.opt_update = opt_update
-        self.loss = loss
-        self.rng = rng
-        self._jitted_fn = None
+def _seed(model, guide, rng):
+    model_seed, guide_seed = random.split(rng, 2)
+    model_init = seed(model, model_seed)
+    guide_init = seed(guide, guide_seed)
+    return model_init, guide_init
 
-    def init_state(self, *args, **kwargs):
-        model, guide = self._seed(self.rng)
-        guide_trace = trace(guide).get_trace(*args, **kwargs)
-        model_trace = trace(model).get_trace(*args, **kwargs)
-        params = {}
+
+@partial(jit, static_argnums=(1, 2, 3, 5))
+def _svi_update(i, model, guide, loss, opt_state, opt_update, rng, args, kwargs):
+    model_init, guide_init = _seed(model, guide, rng)
+    params = optimizers.get_params(opt_state)
+    loss_val = loss(params, model_init, guide_init, args, kwargs)
+    grads = grad(loss)(params, model_init, guide_init, args, kwargs)
+    opt_state = opt_update(i, grads, opt_state)
+    return loss_val, opt_state
+
+
+def svi(model, guide, loss, optim_init, optim_update):
+    def init_fn(rng, *args, params=None, **kwargs):
+        if params is None:
+            params = {}
+        model_init, guide_init = _seed(model, guide, rng)
+        guide_trace = trace(guide_init).get_trace(*args, **kwargs)
+        model_trace = trace(model_init).get_trace(*args, **kwargs)
         for site in list(guide_trace.values()) + list(model_trace.values()):
             if site['type'] == 'param':
                 params[site['name']] = site['value']
-        return self.opt_init(params)
+        return optim_init(params)
 
-    def _seed(self, rng):
-        model_seed, guide_seed = random.split(rng, 2)
-        model = seed(self.model, model_seed)
-        guide = seed(self.guide, guide_seed)
-        return model, guide
+    def update_fn(i, opt_state, rng, *args, **kwargs):
+        loss_val, opt_state = _svi_update(i, model, guide, loss, opt_state, optim_update, rng, args, kwargs)
+        rng, = random.split(rng, 1)
+        return loss_val, opt_state, rng
 
-    def step(self, i, *args, **kwargs):
-        def jit_fn(i, opt_state, rng, args, kwargs):
-            model, guide = self._seed(rng)
-            params = optimizers.get_params(opt_state)
-            loss = self.loss(params, model, guide, args, kwargs)
-            grads = grad(self.loss)(params, model, guide, args, kwargs)
-            opt_state = self.opt_update(i, grads, opt_state)
-            return loss, opt_state
-        opt_state = kwargs.pop('opt_state')
-        if opt_state is None:
-            opt_state = self.init_state(*args, **kwargs)
-        if not self._jitted_fn:
-            self._jitted_fn = jit(jit_fn)
-        self.rng, = random.split(self.rng, 1)
-        return self._jitted_fn(i, opt_state, self.rng, args, kwargs)
+    return init_fn, update_fn
 
 
 # This is a basic implementation of the Evidence Lower Bound, which is the

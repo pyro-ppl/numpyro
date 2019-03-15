@@ -8,7 +8,7 @@ from jax.random import PRNGKey
 import numpyro.distributions as dist
 
 from numpyro.handlers import sample, param
-from numpyro.svi import SVI, elbo
+from numpyro.svi import elbo, svi
 
 
 def model(data):
@@ -31,12 +31,14 @@ def main(args):
     # Construct an SVI object so we can do variational inference on our
     # model/guide pair.
     opt_init, opt_update = optimizers.adam(args.learning_rate)
-    svi = SVI(model, guide, opt_init, opt_update, elbo)
+    svi_init, svi_update = svi(model, guide, elbo, opt_init, opt_update)
+    rng = PRNGKey(0)
+    opt_state = svi_init(rng, data)
 
-    # Basic training loop
-    opt_state = None
+    # Training loop
+    rng, = random.split(rng, 1)
     for i in range(args.num_steps):
-        loss, opt_state = svi.step(i, data, opt_state=opt_state)
+        loss, opt_state, rng = svi_update(i, opt_state, rng, data)
         if i % 100 == 0:
             print("step {} loss = {}".format(i, loss))
 
