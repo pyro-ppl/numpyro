@@ -18,7 +18,7 @@ def model(data):
 
 # Define a guide (i.e. variational distribution) with a Normal
 # distribution over the latent random variable `loc`.
-def guide(data):
+def guide():
     guide_loc = param("guide_loc", 0.)
     guide_scale = np.exp(param("guide_scale_log", 0.))
     sample("loc", dist.norm(guide_loc, guide_scale))
@@ -33,12 +33,12 @@ def main(args):
     opt_init, opt_update = optimizers.adam(args.learning_rate)
     svi_init, svi_update = svi(model, guide, elbo, opt_init, opt_update)
     rng = PRNGKey(0)
-    opt_state = svi_init(rng, data)
+    opt_state = svi_init(rng, model_args=(data,))
 
     # Training loop
     rng, = random.split(rng, 1)
     for i in range(args.num_steps):
-        loss, opt_state, rng = svi_update(i, opt_state, rng, data)
+        loss, opt_state, rng = svi_update(i, opt_state, rng, model_args=(data,))
         if i % 100 == 0:
             print("step {} loss = {}".format(i, loss))
 
