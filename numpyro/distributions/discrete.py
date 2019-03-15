@@ -32,6 +32,9 @@ class _binom_gen(jax_discrete, binom_gen):
 
 
 class _bernoulli_gen(jax_discrete, bernoulli_gen):
+    def _logpmf(self, x, p):
+        return xlogy(x, p) + xlog1py(1 - x, -p)
+
     def _entropy(self, p):
         return entr(p) + entr(1 - p)
 

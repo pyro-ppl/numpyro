@@ -2,6 +2,7 @@ from jax import grad, random, jit, partial
 from jax.experimental import optimizers
 import jax.numpy as np
 
+from numpyro.distributions.distribution import jax_continuous
 from numpyro.handlers import replay, trace, substitute, seed
 
 
@@ -12,7 +13,7 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-@partial(jit, static_argnums=(1, 2, 3, 5, 9))
+#@partial(jit, static_argnums=(1, 2, 3, 5, 9))
 def _svi_update(i, model, guide, loss, opt_state, opt_update, rng, model_args, guide_args, kwargs):
     model_init, guide_init = _seed(model, guide, rng)
     params = optimizers.get_params(opt_state)
@@ -63,7 +64,9 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     # data, i.e. sample sites with the keyword `obs=...`.
     for site in model_trace.values():
         if site["type"] == "sample":
-            elbo = elbo + np.sum(site["fn"].logpdf(site["value"]))
+            log_density = site["fn"].logpdf(site["value"]) if isinstance(site["fn"].dist, jax_continuous) \
+                else site["fn"].logpmf(site["value"])
+            elbo = elbo + np.sum(log_density)
     # Loop over all the sample sites in the guide and add the corresponding
     # -log q(z) term to the ELBO.
     for site in guide_trace.values():

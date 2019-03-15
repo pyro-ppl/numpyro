@@ -7,6 +7,9 @@ from urllib.request import urlretrieve
 
 import numpy as np
 
+from jax import device_put
+
+
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                                         '.data'))
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -39,12 +42,14 @@ def _load_mnist():
     def read_label(file):
         with gzip.open(file, 'rb') as f:
             f.read(8)
-            return np.frombuffer(f.read(), dtype=np.int8)
+            data = np.frombuffer(f.read(), dtype=np.int8) / np.float32(255.)
+            return device_put(data)
 
     def read_img(file):
         with gzip.open(file, 'rb') as f:
             _, _, nrows, ncols = struct.unpack(">IIII", f.read(16))
-            return np.frombuffer(f.read(), dtype=np.uint8).reshape(-1, nrows, ncols)
+            data = np.frombuffer(f.read(), dtype=np.uint8) / np.float32(255.)
+            return device_put(data.reshape(-1, nrows, ncols))
 
     files = [os.path.join(DATA_DIR, os.path.basename(urlparse(url).path))
              for url in MNIST.urls]
