@@ -61,3 +61,16 @@ class jax_discrete(sp.rv_discrete):
         kwargs['random_state'] = onp.random.RandomState(kwargs['random_state'])
         sample = super(sp.rv_discrete, self).rvs(*args, **kwargs)
         return device_put(sample)
+
+    def logpmf(self, k, *args, **kwds):
+        args_check = kwds.pop('args_check', True)
+        args, loc, _ = self._parse_args(*args, **kwds)
+        k = (k-loc)
+        if args_check:
+            cond0 = self._argcheck(*args)
+            cond1 = (k >= self.a) & (k <= self.b) & self._nonzero(k, *args)
+            if not np.all(cond0):
+                raise ValueError('Invalid distribution arguments provided to {}.logpmf'.format(self))
+            if not np.all(cond1):
+                raise ValueError('Invalid values provided to {}.logpmf'.format(self))
+        return self._logpmf(k, *args)
