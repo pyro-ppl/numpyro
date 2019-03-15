@@ -1,4 +1,4 @@
-from jax import grad, random, jit, partial
+from jax import random, value_and_grad
 from jax.experimental import optimizers
 import jax.numpy as np
 
@@ -11,17 +11,6 @@ def _seed(model, guide, rng):
     model_init = seed(model, model_seed)
     guide_init = seed(guide, guide_seed)
     return model_init, guide_init
-
-
-@partial(jit, static_argnums=(1, 2, 3, 5, 9))
-def _svi_update(i, model, guide, loss, opt_state, opt_update, rng, model_args, guide_args, kwargs):
-    model_init, guide_init = _seed(model, guide, rng)
-    params = optimizers.get_params(opt_state)
-    # TODO: get both grad and loss using has_aux=True
-    loss_val = loss(params, model_init, guide_init, model_args, guide_args, kwargs)
-    grads = grad(loss)(params, model_init, guide_init, model_args, guide_args, kwargs)
-    opt_state = opt_update(i, grads, opt_state)
-    return loss_val, opt_state
 
 
 def svi(model, guide, loss, optim_init, optim_update, **kwargs):
@@ -39,8 +28,10 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
         return optim_init(params)
 
     def update_fn(i, opt_state, rng, model_args=(), guide_args=()):
-        loss_val, opt_state = _svi_update(i, model, guide, loss, opt_state, optim_update, rng,
-                                          model_args, guide_args, kwargs)
+        model_init, guide_init = _seed(model, guide, rng)
+        params = optimizers.get_params(opt_state)
+        loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args, guide_args, kwargs)
+        opt_state = optim_update(i, grads, opt_state)
         rng, = random.split(rng, 1)
         return loss_val, opt_state, rng
 
