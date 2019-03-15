@@ -19,7 +19,7 @@ class t_gen(jax_continuous):
         key_n, key_g = random.split(self._random_state)
         normal = random.normal(key_n, self._size)
         half_df = df / 2.0
-        gamma = standard_gamma(key_n, half_df, self._size)
+        gamma = standard_gamma(key_g, half_df, self._size)
         return normal * np.sqrt(half_df / gamma)
 
     def _pdf(self, x, df):
