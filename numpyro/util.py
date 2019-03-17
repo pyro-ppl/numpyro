@@ -1,6 +1,7 @@
 from __future__ import division
 
 import random
+from collections import namedtuple
 
 import jax.lax as lax
 import jax.numpy as np
@@ -47,7 +48,8 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         g_avg = (1 - 1 / (t + t0)) * g_avg + g / (t + t0)
         # According to formula (3.4) of [1], we have
         #     x_t = argmin{ g_avg . x + loc_t . |x - x0|^2 },
-        # where loc_t := beta_t / t, beta_t := (gamma/2) * sqrt(t)
+        # hence x_t = x0 - g_avg / (2 * loc_t),
+        # where loc_t := beta_t / t, beta_t := (gamma/2) * sqrt(t).
         x_t = prox_center - (t ** 0.5) / gamma * g_avg
         # weight for the new x_t
         weight_t = t ** (-kappa)
@@ -161,6 +163,120 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, posi
     step_size, _, _ = lax.while_loop(lambda sdd: (sdd[1] == 0) | (sdd[1] == sdd[2]),
                                      _body_fn, (init_step_size, 0, 0))
     return step_size
+
+
+adapt_window = namedtuple("adapt_window", ["start", "end"])
+
+
+def build_adaptation_schedule(num_steps):
+    adaptation_schedule = []
+    # from Stan, for small num_steps
+    if num_steps < 20:
+        adaptation_schedule.append(adapt_window(0, num_steps - 1))
+        return adaptation_schedule
+
+    # We separate num_steps into windows:
+    #   start_buffer + window 1 + window 2 + window 3 + ... + end_buffer
+    # where the length of each window will be doubled for the next window.
+    # We won't adapt mass matrix during start and end buffers; and mass
+    # matrix will be updated at the end of each window. This is helpful
+    # for dealing with the intense computation of sampling momentum from the
+    # inverse of mass matrix.
+    start_buffer_size = 75  # from Stan
+    end_buffer_size = 50  # from Stan
+    init_window_size = 25  # from Stan
+    if (start_buffer_size + end_buffer_size + init_window_size) > num_steps:
+        start_buffer_size = int(0.15 * num_steps)
+        end_buffer_size = int(0.1 * num_steps)
+        init_window_size = num_steps - start_buffer_size - end_buffer_size
+
+    adaptation_schedule.append(adapt_window(start=0, end=start_buffer_size - 1))
+    end_window_start = num_steps - end_buffer_size
+
+    next_window_size = init_window_size
+    next_window_start = start_buffer_size
+    while next_window_start < end_window_start:
+        cur_window_start, cur_window_size = next_window_start, next_window_size
+        # Ensure that slow adaptation windows are monotonically increasing
+        if 3 * cur_window_size <= end_window_start - cur_window_start:
+            next_window_size = 2 * cur_window_size
+        else:
+            cur_window_size = end_window_start - cur_window_start
+        next_window_start = cur_window_start + cur_window_size
+        adaptation_schedule.append(adapt_window(cur_window_start, next_window_start - 1))
+    adaptation_schedule.append(adapt_window(end_window_start, num_steps - 1))
+    return adaptation_schedule
+
+
+def warmup_adapter(num_steps, find_reasonable_step_size=None,
+                   adapt_step_size=True, adapt_mass_matrix=True,
+                   diag_mass=True, target_accept_prob=0.8):
+    ss_init, ss_update = dual_averaging()
+    mm_init, mm_update, mm_final = welford_covariance(diagonal=diag_mass)
+    adaptation_schedule = np.array(build_adaptation_schedule(num_steps))
+    num_windows = len(adaptation_schedule)
+
+    def init_fn(step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
+        if find_reasonable_step_size is not None:
+            step_size = find_reasonable_step_size(step_size)
+        ss_state = ss_init(np.log(10 * step_size))
+
+        if inverse_mass_matrix is None:
+            assert mass_matrix_size is not None
+            if diag_mass:
+                inverse_mass_matrix = np.ones(mass_matrix_size)
+            else:
+                inverse_mass_matrix = np.identity(mass_matrix_size)
+        mm_state = mm_init(inverse_mass_matrix.shape[-1])
+
+        window_idx = 0
+        return step_size, inverse_mass_matrix, ss_state, mm_state, window_idx
+
+    def _update_at_window_end(state):
+        step_size, inverse_mass_matrix, ss_state, mm_state, window_idx = state
+
+        if adapt_step_size:
+            if find_reasonable_step_size is not None:
+                step_size = find_reasonable_step_size(step_size)
+            ss_state = ss_init(np.log(10 * step_size))
+
+        if adapt_mass_matrix:
+            inverse_mass_matrix = mm_final(mm_state, regularize=True)
+            mm_state = mm_init(inverse_mass_matrix.shape[-1])
+
+        return step_size, inverse_mass_matrix, ss_state, mm_state, window_idx
+
+    def update_fn(t, accept_prob, z_flat, state):
+        step_size, inverse_mass_matrix, ss_state, mm_state, window_idx = state
+
+        # update step size state
+        if adapt_step_size:
+            ss_state = ss_update(target_accept_prob - accept_prob, ss_state)
+            # note: at the end of warmup phase, use average of log step_size
+            # TODO: should we make sure that we won't update step_size if t >= num_steps?
+            log_step_size, log_step_size_avg, *_ = ss_state
+            step_size = np.where(t == (num_steps - 1),
+                                 np.exp(log_step_size_avg),
+                                 np.exp(log_step_size))
+
+        # update mass matrix state
+        is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
+        if adapt_mass_matrix:
+            mm_state = lax.cond(is_middle_window,
+                                (z_flat, mm_state), lambda args: mm_update(*args),
+                                mm_state, lambda x: x)
+
+        t_at_window_end = t == adaptation_schedule[window_idx, 1]
+        window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
+        state = step_size, inverse_mass_matrix, ss_state, mm_state, window_idx
+        # TODO: enable lax.cond when https://github.com/google/jax/issues/514 is resolved
+        # state = lax.cond(t_at_window_end & is_middle_window,
+        #                  state, _end_window_fn, state, lambda x: x)
+        if t_at_window_end & is_middle_window:
+            state = _update_at_window_end(state)
+        return state
+
+    return init_fn, update_fn
 
 
 def set_rng_seed(rng_seed):

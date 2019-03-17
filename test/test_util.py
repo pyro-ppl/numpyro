@@ -9,8 +9,9 @@ from jax import device_put, grad, jit, lax, partial, tree_map
 from numpy.testing import assert_allclose
 
 from numpyro.distributions.util import xlogy, xlog1py
-from numpyro.util import (dual_averaging, find_reasonable_step_size,
-                          velocity_verlet, welford_covariance)
+from numpyro.util import (adapt_window, build_adaptation_schedule,
+                          dual_averaging, find_reasonable_step_size,
+                          velocity_verlet, warmup_adapter, welford_covariance)
 
 logger = logging.getLogger(__name__)
 _zeros = partial(lax.full_like, fill_value=0)
@@ -274,3 +275,82 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     else:
         assert step_size * 2 > threshold
         assert step_size < threshold
+
+
+@pytest.mark.parametrize("num_steps, expected", [
+    (18, [(0, 17)]),
+    (50, [(0, 6), (7, 44), (45, 49)]),
+    (100, [(0, 14), (15, 89), (90, 99)]),
+    (150, [(0, 74), (75, 99), (100, 149)]),
+    (200, [(0, 74), (75, 99), (100, 149), (150, 199)]),
+    (280, [(0, 74), (75, 99), (100, 229), (230, 279)]),
+])
+def test_build_adaptation_schedule(num_steps, expected):
+    adaptation_schedule = build_adaptation_schedule(num_steps)
+    expected_schedule = [adapt_window(i, j) for i, j in expected]
+    assert adaptation_schedule == expected_schedule
+
+
+@pytest.mark.parametrize('jitted', [
+    pytest.param(True, marks=pytest.mark.xfail(
+        reason="lax.cond issue: https://github.com/google/jax/issues/514")),
+    False])
+def test_warmup_adapter(jitted):
+    num_steps = 150
+    adaptation_schedule = build_adaptation_schedule(num_steps)
+    find_reasonable_step_size = lambda x: np.where(x < 1, x * 4, x / 4)  # noqa: E731
+    init_step_size = 1.
+    mass_matrix_size = 3
+
+    wa_init, wa_update = warmup_adapter(num_steps, find_reasonable_step_size)
+    wa_update = jit(wa_update) if jitted else wa_update
+
+    wa_state = wa_init(init_step_size, mass_matrix_size=mass_matrix_size)
+    step_size, inverse_mass_matrix, _, _, window_idx = wa_state
+    assert step_size == find_reasonable_step_size(init_step_size)
+    assert_allclose(inverse_mass_matrix, np.ones(mass_matrix_size))
+    assert window_idx == 0
+
+    window = adaptation_schedule[0]
+    for t in range(window.start, window.end + 1):
+        wa_state = wa_update(t, 0.7 + 0.1 * t / (window.end - window.start),
+                             np.ones(3), wa_state)
+    last_step_size = step_size
+    step_size, inverse_mass_matrix, _, _, window_idx = wa_state
+    assert window_idx == 1
+    # step_size is decreased because accept_prob < target_accept_prob
+    assert step_size < last_step_size
+    # inverse_mass_matrix does not change at the end of the first window
+    assert_allclose(inverse_mass_matrix, np.ones(mass_matrix_size))
+
+    window = adaptation_schedule[1]
+    window_len = window.end - window.start
+    for t in range(window.start, window.end + 1):
+        wa_state = wa_update(t, 0.8 + 0.1 * (t - window.start) / window_len,
+                             2 * np.ones(3), wa_state)
+    last_step_size = step_size
+    step_size, inverse_mass_matrix, _, _, window_idx = wa_state
+    assert window_idx == 2
+    # step_size is increased because accept_prob > target_accept_prob
+    assert step_size > last_step_size
+    # Verifies that inverse_mass_matrix changes at the end of the second window.
+    # Because z_flat is constant during the second window, covariance will be 0
+    # and only regularize_term of welford scheme is involved.
+    # This also verifies that z_flat terms in the first window does not affect
+    # the second window.
+    welford_regularize_term = 1e-3 * (5 / (window.end + 1 - window.start + 5))
+    assert_allclose(inverse_mass_matrix,
+                    np.full((mass_matrix_size,), welford_regularize_term))
+
+    window = adaptation_schedule[2]
+    for t in range(window.start, window.end + 1):
+        wa_state = wa_update(t, 0.8, t * np.ones(3), wa_state)
+    last_step_size = step_size
+    step_size, final_inverse_mass_matrix, _, _, window_idx = wa_state
+    assert window_idx == 3
+    # during the last window, because target_accept_prob=0.8,
+    # log_step_size will be equal to the constant prox_center=log(10*last_step_size)
+    assert_allclose(step_size, last_step_size * 10)
+    # Verifies that inverse_mass_matrix does not change during the last window
+    # despite z_flat changes w.r.t time t,
+    assert_allclose(final_inverse_mass_matrix, inverse_mass_matrix)
