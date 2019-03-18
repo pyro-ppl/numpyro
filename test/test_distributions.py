@@ -175,7 +175,7 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
 
         for i in range(len(dist_args)):
             logpmf_grad = grad(fn, i + 1)(samples, *dist_args)
-            assert not (np.any(np.isinf(logpmf_grad) | np.isnan(logpmf_grad)))
+            assert np.all(np.isfinite(logpmf_grad))
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [

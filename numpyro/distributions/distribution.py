@@ -65,7 +65,7 @@ class jax_discrete(sp.rv_discrete):
     def logpmf(self, k, *args, **kwds):
         args_check = kwds.pop('args_check', True)
         args, loc, _ = self._parse_args(*args, **kwds)
-        k = (k-loc)
+        k = k - loc
         if args_check:
             cond0 = self._argcheck(*args)
             cond1 = (k >= self.a) & (k <= self.b) & (np.floor(k) == k)

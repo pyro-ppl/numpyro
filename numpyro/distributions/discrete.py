@@ -59,8 +59,7 @@ class _multinomial_gen(multinomial_gen):
         lax.dynamic_update_slice_in_dim(p, p_, 0, axis=-1)
 
         # true for bad p
-        pcond = np.any(p < 0, axis=-1)
-        pcond |= np.any(p > 1, axis=-1)
+        pcond = np.any(p < 0, axis=-1) | np.any(p > 1, axis=-1)
 
         # true for bad n
         n = np.array(n, dtype=np.int32)
