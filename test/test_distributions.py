@@ -63,7 +63,7 @@ def idfn(param):
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
-    (dist.multinomial, (10, np.array([1]))),
+    (dist.multinomial, (10, np.array([1.]))),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -138,7 +138,7 @@ def test_logprob(jax_dist, loc_scale):
     args = (1,) * jax_dist.numargs + loc_scale
     samples = jax_dist.rvs(*args, random_state=rng)
     sp_dist = getattr(sp, jax_dist.name)
-    assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args))
+    assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args), atol=1e-6)
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -169,6 +169,32 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
         assert_allclose(jax_dist.logpmf(samples, *dist_args),
                         sp_dist.logpmf(onp.asarray(samples), *dist_args),
                         rtol=1e-5)
+
+        def fn(sample, *args):
+            return np.sum(jax_dist.logpmf(sample, *args))
+
+        for i in range(len(dist_args)):
+            logpmf_grad = grad(fn, i + 1)(samples, *dist_args)
+            assert np.all(np.isfinite(logpmf_grad))
+
+
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    (dist.bernoulli, (0.1,)),
+    (dist.bernoulli, (np.array([0.3, 0.5]),)),
+    (dist.binom, (10, 0.4)),
+    (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+    (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
+    (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
+    (dist.multinomial, (10, np.array([1., 1.]))),
+], ids=idfn)
+def test_discrete_logpmf_args_check(jax_dist, dist_args):
+    sample = jax_dist.rvs(*dist_args, random_state=random.PRNGKey(0))
+    with pytest.raises(ValueError, match='Invalid distribution arguments'):
+        dist_args_invalid = dist_args[:-1] + (dist_args[-1] + 1.,)
+        jax_dist.logpmf(sample, *dist_args_invalid)
+    with pytest.raises(ValueError, match='Invalid values'):
+        sample_oos = sample - 0.5
+        jax_dist.logpmf(sample_oos, *dist_args)
 
 
 @pytest.mark.parametrize('alpha, shape', [
