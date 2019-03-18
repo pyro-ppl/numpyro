@@ -68,7 +68,7 @@ class jax_discrete(sp.rv_discrete):
         k = (k-loc)
         if args_check:
             cond0 = self._argcheck(*args)
-            cond1 = (k >= self.a) & (k <= self.b) & self._nonzero(k, *args)
+            cond1 = (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
             if not np.all(cond0):
                 raise ValueError('Invalid distribution arguments provided to {}.logpmf'.format(self))
             if not np.all(cond1):

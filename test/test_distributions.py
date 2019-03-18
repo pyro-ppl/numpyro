@@ -63,7 +63,7 @@ def idfn(param):
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
-    (dist.multinomial, (10, np.array([1]))),
+    (dist.multinomial, (10, np.array([1.]))),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -138,7 +138,7 @@ def test_logprob(jax_dist, loc_scale):
     args = (1,) * jax_dist.numargs + loc_scale
     samples = jax_dist.rvs(*args, random_state=rng)
     sp_dist = getattr(sp, jax_dist.name)
-    assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args))
+    assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args), atol=1e-6)
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -171,7 +171,7 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
                         rtol=1e-5)
 
         def fn(sample, *args):
-            return np.sum(jax_dist.logpmf(sample, *args, args_check=False))
+            return np.sum(jax_dist.logpmf(sample, *args))
 
         for i in range(len(dist_args)):
             logpmf_grad = grad(fn, i + 1)(samples, *dist_args)
