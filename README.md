@@ -1,8 +1,9 @@
 # NumPyro ![unstable](https://img.shields.io/badge/status-unstable-red.svg)
 
-[Pyro](https://github.com/pyro-ppl/pyro) on Numpy. This is an 
-experimenatal library that is actively being developed. This uses 
-[JAX](https://github.com/google/jax) for autograd and JIT support.
+[Pyro](https://github.com/pyro-ppl/pyro) on Numpy. This uses 
+[JAX](https://github.com/google/jax) for autograd and JIT support. This is an 
+early stage experimental library that is under active development, and there are 
+likely to be  many changes to the API and internal classes, as the design evolves. 
 
  ## Design Goals
  
