@@ -15,7 +15,7 @@ from scipy.stats._discrete_distns import binom_gen, bernoulli_gen
 from scipy.stats._multivariate import multinomial_gen
 
 from numpyro.distributions.distribution import jax_discrete
-from numpyro.distributions.util import entr, xlogy, xlog1py
+from numpyro.distributions.util import entr, xlogy, xlog1py, promote_shapes
 
 
 class _binom_gen(jax_discrete, binom_gen):
@@ -53,6 +53,20 @@ class _multinomial_gen(multinomial_gen):
             result = lax.full_like(result, bad_value)
         return device_put(result)
 
+    def _process_parameters(self, n, p):
+        p_ = 1. - p[..., :-1].sum(axis=-1)
+        p, p_ = promote_shapes(p, p_)
+        lax.dynamic_update_slice_in_dim(p, p_, 0, axis=-1)
+
+        # true for bad p
+        pcond = np.any(p < 0, axis=-1) | np.any(p > 1, axis=-1)
+
+        # true for bad n
+        n = np.array(n, dtype=np.int32)
+        ncond = n <= 0
+
+        return n, p, ncond | pcond
+
     def _process_quantiles(self, x, n, p):
         xx = x.astype(n.dtype)
 
@@ -74,20 +88,16 @@ class _multinomial_gen(multinomial_gen):
         n, p, x = _promote_dtypes(n, p, x)
         return lgamma(n+1) + np.sum(xlogy(x, p) - lgamma(x+1), axis=-1)
 
-    def logpmf(self, x, n, p):
+    def logpmf(self, x, n, p, args_check=True):
         n, p, npcond = self._process_parameters(n, p)
         x, xcond = self._process_quantiles(x, n, p)
+        if args_check:
+            if np.any(npcond):
+                raise ValueError('Invalid distribution arguments provided to {}.logpmf'.format(self))
+            if np.any(xcond):
+                raise ValueError('Invalid values provided to {}.logpmf'.format(self))
 
-        result = self._logpmf(x, n, p)
-
-        # replace values for which x was out of the domain; broadcast
-        # xcond to the right shape
-        xcond_ = xcond | np.zeros(npcond.shape, dtype=np.bool_)
-        result = self._checkresult(result, xcond_, np.NINF)
-
-        # replace values bad for n or p; broadcast npcond to the right shape
-        npcond_ = npcond | np.zeros(xcond.shape, dtype=np.bool_)
-        return self._checkresult(result, npcond_, np.nan)
+        return device_put(self._logpmf(x, n, p))
 
     def entropy(self, n, p):
         n, p, npcond = self._process_parameters(n, p)

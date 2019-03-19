@@ -1,4 +1,4 @@
-from jax import grad, random, jit, partial
+from jax import random, value_and_grad
 from jax.experimental import optimizers
 import jax.numpy as np
 
@@ -13,19 +13,8 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-#@partial(jit, static_argnums=(1, 2, 3, 5, 9))
-def _svi_update(i, model, guide, loss, opt_state, opt_update, rng, model_args, guide_args, kwargs):
-    model_init, guide_init = _seed(model, guide, rng)
-    params = optimizers.get_params(opt_state)
-    # TODO: get both grad and loss using has_aux=True
-    loss_val = loss(params, model_init, guide_init, model_args, guide_args, kwargs)
-    grads = grad(loss)(params, model_init, guide_init, model_args, guide_args, kwargs)
-    opt_state = opt_update(i, grads, opt_state)
-    return loss_val, opt_state
-
-
-def svi(model, guide, loss, optim_init, optim_update):
-    def init_fn(rng, model_args=(), guide_args=(), params=None, kwargs={}):
+def svi(model, guide, loss, optim_init, optim_update, **kwargs):
+    def init_fn(rng, model_args=(), guide_args=(), params=None):
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
         if params is None:
@@ -38,9 +27,11 @@ def svi(model, guide, loss, optim_init, optim_update):
                 params[site['name']] = site['value']
         return optim_init(params)
 
-    def update_fn(i, opt_state, rng, model_args=(), guide_args=(), kwargs={}):
-        loss_val, opt_state = _svi_update(i, model, guide, loss, opt_state, optim_update, rng,
-                                          model_args, guide_args, kwargs)
+    def update_fn(i, opt_state, rng, model_args=(), guide_args=()):
+        model_init, guide_init = _seed(model, guide, rng)
+        params = optimizers.get_params(opt_state)
+        loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args, guide_args, kwargs)
+        opt_state = optim_update(i, grads, opt_state)
         rng, = random.split(rng, 1)
         return loss_val, opt_state, rng
 
@@ -62,16 +53,17 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     # Loop over all the sample sites in the model and add the corresponding
     # log p(z) term to the ELBO. Note that this will also include any observed
     # data, i.e. sample sites with the keyword `obs=...`.
+
+    def logp(d, val): return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
+
     for site in model_trace.values():
         if site["type"] == "sample":
-            log_density = site["fn"].logpdf(site["value"]) if isinstance(site["fn"].dist, jax_continuous) \
-                else site["fn"].logpmf(site["value"])
-            elbo = elbo + np.sum(log_density)
+            elbo = elbo + np.sum(logp(site["fn"], site["value"]))
     # Loop over all the sample sites in the guide and add the corresponding
     # -log q(z) term to the ELBO.
     for site in guide_trace.values():
         if site["type"] == "sample":
-            elbo = elbo - np.sum(site["fn"].logpdf(site["value"]))
+            elbo = elbo - logp(site["fn"], site["value"])
     # Return (-elbo) since by convention we do gradient descent on a loss and
     # the ELBO is a lower bound that needs to be maximized.
     return -elbo

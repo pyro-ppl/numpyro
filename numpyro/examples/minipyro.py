@@ -1,7 +1,7 @@
 import argparse
 
 import jax.numpy as np
-from jax import random
+from jax import random, lax
 from jax.experimental import optimizers
 from jax.random import PRNGKey
 
@@ -37,10 +37,13 @@ def main(args):
 
     # Training loop
     rng, = random.split(rng, 1)
-    for i in range(args.num_steps):
-        loss, opt_state, rng = svi_update(i, opt_state, rng, model_args=(data,))
-        if i % 100 == 0:
-            print("step {} loss = {}".format(i, loss))
+
+    def body_fn(i, val):
+        opt_state_, rng_ = val
+        loss, opt_state_, rng_ = svi_update(i, opt_state_, rng_, model_args=(data,))
+        return opt_state_, rng_
+
+    opt_state, _ = lax.fori_loop(0, args.num_steps, body_fn, (opt_state, rng))
 
     # Report the final values of the variational parameters
     # in the guide after training.
