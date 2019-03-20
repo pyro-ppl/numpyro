@@ -292,8 +292,7 @@ def test_build_adaptation_schedule(num_steps, expected):
 
 
 @pytest.mark.parametrize('jitted', [
-    pytest.param(True, marks=pytest.mark.xfail(
-        reason="lax.cond issue: https://github.com/google/jax/issues/514")),
+    True,
     False])
 def test_warmup_adapter(jitted):
     num_steps = 150
