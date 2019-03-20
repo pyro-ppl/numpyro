@@ -270,13 +270,200 @@ def warmup_adapter(num_steps, find_reasonable_step_size=None,
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
         state = step_size, inverse_mass_matrix, ss_state, mm_state, window_idx
         # TODO: enable lax.cond when https://github.com/google/jax/issues/514 is resolved
-        # state = lax.cond(t_at_window_end & is_middle_window,
-        #                  state, _end_window_fn, state, lambda x: x)
-        if t_at_window_end & is_middle_window:
-            state = _update_at_window_end(state)
+        state = lax.cond(t_at_window_end & is_middle_window,
+                         state, _update_at_window_end, state, lambda x: x)
         return state
 
     return init_fn, update_fn
+
+
+_TreeInfo = namedtuple("_TreeInfo", ["z_left", "r_left", "z_left_grad",
+                                     "z_right", "r_right", "z_right_grad",
+                                     "z_proposal", "z_proposal_pe", "z_proposal_grad",
+                                     "weight", "r_sum", "turning", "diverging",
+                                     "sum_accept_probs", "num_proposals"])
+
+
+# let JAX recognize _TreeInfo structure
+# ref: https://github.com/google/jax/issues/446
+# TODO: remove this when namedtuple is supported in JAX
+register_pytree_node(
+    _TreeInfo,
+    lambda xs: (tuple(xs), None),
+    lambda _, xs: _TreeInfo(*xs)
+)
+
+
+# Ref: A Conceptual Introduction to Hamiltonian Monte Carlo,
+# Michael Betancourt
+
+
+def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
+    r_left, _ = ravel_pytree(r_left)
+    r_right, _ = ravel_pytree(r_right)
+    r_sum, _ = ravel_pytree(r)
+
+    if inverse_mass_matrix.ndim == 2:
+        v_left = np.matmul(inverse_mass_matrix, r_left)
+        v_right = np.matmul(inverse_mass_matrix, r_right)
+    else:
+        v_left = np.dot(inverse_mass_matrix, r_left)
+        v_right = np.dot(inverse_mass_matrix, r_right)
+
+    # This implements dynamic termination criterion
+    # (section Section A.4.2, ref [1])
+    turning_at_left = np.dot(v_left, r_sum - r_left) <= 0
+    turning_at_right = np.dot(v_right, r_sum - r_right) <= 0
+    return turning_at_left | turning_at_right
+
+
+def _uniform_transition_prob(current_subtree, new_subtree, use_multinomial_sampling, rng):
+    # Ref: Section A.3.1
+    if use_multinomial_sampling:
+        # e^new_weight / (e^new_weight + e^current_weight)
+        transition_prob = special.expit(new_subtree.weight - current_subtree.weight)
+    else:
+        # For the special case that the weights of both subtrees are both 0,
+        # we set transition prob to 0.5 (any is fine, because the probability
+        # of picking the proposal from both subtrees is 0 at the end!)
+        transition_prob = np.where(
+            (current_subtree.weight > 0) | (new_subtree.weight > 0),
+            new_subtree.weight / (current_subtree.weight + new_subtree.weight), 
+            0.5
+        )
+    return transition_prob
+
+
+def _biased_transition_prob(current_tree, new_tree, use_multinomial_sampling, rng):
+    # Ref: Section A.3.2
+    if use_multinomial_sampling:
+        transition_prob = (new_tree.weight - current_tree.weight).exp()
+    else:
+        transition_prob = new_tree.weight / current_tree.weight
+    transition_prob = np.where(new_tree.turning | new_tree.diverging,
+                               0.0, np.clip(transition_prob, a_max=1.0))
+    return transition_prob
+
+
+def _double_tree(current_tree, tree_depth, vv_update, kinetic_fn, step_size, going_right,
+                 energy_current, slice_exp_term, max_sliced_energy, use_multinomial_sampling,
+                 rng, get_transition_prob)
+    key, subkey = random.split(rng)
+    # Else, build remaining half of tree.
+    # If we are going to the right, start from the right leaf of the first half.
+    z, r, z_grad = lax.cond(going_right,
+                            half_tree,
+                            lambda tree: (tree.z_right, tree.r_right, tree.z_right_grad)
+                            half_tree,
+                            lambda tree: (tree.z_left, tree.r_left, tree.z_left_grad))
+    new_tree = _build_subtree(tree_depth, vv_update, kinetic_fn, z, r, z_grad,
+                              step_size, going_right, energy_current, slice_exp_term,
+                              max_sliced_energy, use_multinomial_sampling, other_half_key)
+
+    # leaves of the full tree are determined by the direction
+    z_left, r_left, z_left_grad, z_right, r_right, r_right_grad = lax.cond(
+        going_right,
+        (half_tree, other_half_tree),
+        lambda trees: (trees[0].z_left, trees[0].r_left,
+                       trees[0].z_left_grad, trees[1].z_right,
+                       trees[1].r_right, trees[1].r_right_grad),
+        (other_half_tree, half_tree),
+        lambda trees: (trees[0].z_left, trees[0].r_left,
+                       trees[0].z_left_grad, trees[1].z_right,
+                       trees[1].r_right, trees[1].r_right_grad)
+    )
+
+    if self.use_multinomial_sampling:
+        tree_weight = logsumexp(torch.stack([half_tree.weight, other_half_tree.weight]), dim=0)
+    else:
+        tree_weight = half_tree.weight + other_half_tree.weight
+
+    transition_prob = get_transition_prob(current_tree, new_tree, use_multinomial_sampling, )
+    transition = random.bernoulli(subkey, transition_prob)
+
+    z_proposal, z_proposal_pe, z_proposal_grad = lax.cond(
+        transition,
+        new_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad),
+        current_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad)
+    )
+
+    r_sum = tree_multimap(sum, current_tree.r_sum, new_tree.r_sum)
+
+    # We already check if first half tree is turning. Now, we check
+    #     if the other half tree or full tree are turning.
+    turning = new_tree.turning | _is_turning(r_left, r_right, r_sum)
+
+    # The divergence is checked by the second half tree (the first half is already checked).
+    diverging = new_tree.diverging
+
+    sum_accept_probs = current_tree.sum_accept_probs + new_tree.sum_accept_probs
+    num_proposals = current_tree.num_proposals + new_tree.num_proposals
+
+    return _TreeInfo(z_left, r_left, z_left_grad, z_right, r_right, r_right_grad,
+                     z_proposal, z_proposal_pe, z_proposal_grad,
+                     tree_weight, r_sum, turning, diverging, sum_accept_probs, num_proposals)
+
+
+def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, to_right,
+                    energy_current, slice_exp_term, max_sliced_energy,
+                    use_multinomial_sampling):
+    step_size = np.where(to_right, step_size, -step_size)
+    z_new, r_new, potential_energy_new, z_new_grad = vv_update(
+        step_size,
+        (z, r, energy_current, z_grad)
+    )
+
+    energy_new = potential_energy_new + kinetic_fn(r_new)
+    # handle the NaN case
+    energy_new = np.where(np.isnan(energy_new), np.inf, energy_new)
+    delta_energy = energy_new - energy_current
+    sliced_energy = delta_energy - slice_exp_term
+
+    if use_multinomial_sampling:
+        tree_weight = -delta_energy
+    else:
+        tree_weight = np.where(sliced_energy <= 0, 1.0, 0.0)
+
+    r_sum = r_new
+    turning = False
+    diverging = sliced_energy > max_sliced_energy
+    accept_prob = np.clip((-delta_energy).exp(), amax=1.0)
+    num_proposals = 1
+    return _TreeInfo(z_new, r_new, z_new_grad, z_new, r_new, z_new_grad,
+                     z_new, potential_energy_new, z_new_grad,
+                     tree_weight, r_sum, turning, diverging, accept_prob, num_proposals)
+
+
+# TODO: make this function jittable if beneficial
+def _build_subtree(tree_depth, vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
+                   energy_current, slice_exp_term, max_sliced_energy,
+                   use_multinomial_sampling, rng):
+    if tree_depth == 0:
+        return _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
+                               energy_current, slice_exp_term, max_sliced_energy,
+                               use_multinomial_sampling)
+
+    key, subkey = random.split(rng)
+    # build the first half of tree
+    half_tree = _build_subtree(tree_depth - 1, vv_update, kinetic_fn, z, r, z_grad, step_size,
+                               going_right, energy_current, slice_exp_term, max_sliced_energy,
+                               use_multinomial_sampling, key)
+
+    # Check conditions to stop doubling. If we meet that condition,
+    #     there is no need to build the other tree.
+    if half_tree.turning | half_tree.diverging:
+        return half_tree
+
+    return _double_tree(half_tree, tree_depth - 1, vv_update, kinetic_fn, step_size, going_right,
+                        energy_current, slice_exp_term, max_sliced_energy,
+                        use_multinomial_sampling, subkey, _subtree_transition_prob)
+
+
+def build_tree(verlet_update, kinetic_fn, z, r, potential_energy, z_grad, max_tree_depth):
+    tree = _TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,
+                     weight, r_sum, turning, divering, accept_prob, num_proposals)
+    
+    # while loop
 
 
 def set_rng_seed(rng_seed):
