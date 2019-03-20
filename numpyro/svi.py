@@ -21,8 +21,8 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
         if params is None:
             params = {}
         model_init, guide_init = _seed(model, guide, rng)
-        guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
-        model_trace = trace(model_init).get_trace(*model_args, **kwargs)
+        guide_trace = trace(substitute(guide_init, params)).get_trace(*guide_args, **kwargs)
+        model_trace = trace(substitute(model_init, params)).get_trace(*model_args, **kwargs)
         for site in list(guide_trace.values()) + list(model_trace.values()):
             if site['type'] == 'param':
                 params[site['name']] = site['value']

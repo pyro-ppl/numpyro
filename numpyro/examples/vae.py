@@ -7,7 +7,7 @@ import jax.random as random
 from jax.random import PRNGKey
 
 from numpyro.examples.datasets import iter_dataset, MNIST
-from numpyro.handlers import sample
+from numpyro.handlers import sample, param
 import numpyro.distributions as dist
 from numpyro.svi import svi, elbo
 
@@ -44,8 +44,9 @@ def decoder(hidden_dim, out_dim):
     )
 
 
-def model(batch, decoder_params, **kwargs):
+def model(batch, **kwargs):
     decode = kwargs['decode']
+    decoder_params = param('decoder', None)
     z_dim = kwargs['z_dim']
     batch = np.reshape(batch, (batch.shape[0], -1))
     z = sample('z', dist.norm(np.zeros((z_dim,)), np.ones((z_dim,))))
@@ -53,8 +54,9 @@ def model(batch, decoder_params, **kwargs):
     return sample('obs', dist.bernoulli(img_loc), obs=batch)
 
 
-def guide(batch, encoder_params, **kwargs):
+def guide(batch, **kwargs):
     encode = kwargs['encode']
+    encoder_params = param('encoder', None)
     batch = np.reshape(batch, (batch.shape[0], -1))
     z_loc, z_std = encode(encoder_params, batch)
     z = sample('z', dist.norm(z_loc, z_std))
@@ -67,7 +69,7 @@ def main(args):
     opt_init, opt_update = optimizers.adam(args.learning_rate)
     svi_init, svi_update = svi(model, guide, elbo, opt_init, opt_update,
                                encode=encode, decode=decode, z_dim=args.z_dim)
-    svi_update = jit(svi_update)
+    svi_update = svi_update
     rng = PRNGKey(0)
     for i in range(args.num_epochs):
         for j, (batch, label) in enumerate(iter_dataset(MNIST, batch_size=args.batch_size)):
@@ -76,15 +78,14 @@ def main(args):
                 _, decoder_params = decoder_init((args.batch_size, args.z_dim))
                 params = {'encoder': encoder_params, 'decoder': decoder_params}
                 opt_state = svi_init(rng,
-                                     model_args=(batch, decoder_params),
-                                     guide_args=(batch, encoder_params),
+                                     model_args=(batch,),
+                                     guide_args=(batch,),
                                      params=params)
                 rng, = random.split(rng, 1)
-            params = optimizers.get_params(opt_state)
             loss, opt_state, rng = svi_update(i, opt_state, rng,
-                                              (batch, params['decoder']),
-                                              (batch, params['encoder']),)
-        print("Epoch {} loss = {}".format(i, loss))
+                                              (batch,),
+                                              (batch,),)
+            print("Epoch {} loss = {}".format(i, loss))
 
 
 if __name__ == '__main__':
