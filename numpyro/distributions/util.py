@@ -1,10 +1,13 @@
 import jax.numpy as np
+from contextlib2 import contextmanager
 from jax import jit, lax, random, partial
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
 
 import scipy.special as sp
+
+from numpyro.distributions.distribution import jax_discrete
 
 
 @jit
@@ -290,3 +293,13 @@ def binomial(key, p, n=1, shape=()):
     mask = (np.arange(n_max) > n).astype(uniforms.dtype)
     p, uniforms = promote_shapes(p, uniforms)
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
+
+
+@contextmanager
+def validation_disabled():
+    discrete_dist_args_check = jax_discrete.args_check
+    try:
+        jax_discrete.args_check = False
+        yield
+    finally:
+        jax_discrete.args_check = discrete_dist_args_check

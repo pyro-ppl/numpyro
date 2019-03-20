@@ -3,6 +3,7 @@ from jax.experimental import optimizers
 import jax.numpy as np
 
 from numpyro.distributions.distribution import jax_continuous
+from numpyro.distributions.util import validation_disabled
 from numpyro.handlers import replay, trace, substitute, seed
 
 
@@ -54,7 +55,10 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     # log p(z) term to the ELBO. Note that this will also include any observed
     # data, i.e. sample sites with the keyword `obs=...`.
 
-    def logp(d, val): return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
+    def logp(d, val):
+        # TODO: Find alternatives to this anti-pattern.
+        with validation_disabled():
+            return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
 
     for site in model_trace.values():
         if site["type"] == "sample":
@@ -63,7 +67,7 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     # -log q(z) term to the ELBO.
     for site in guide_trace.values():
         if site["type"] == "sample":
-            elbo = elbo - logp(site["fn"], site["value"])
+            elbo = elbo - np.sum(logp(site["fn"], site["value"]))
     # Return (-elbo) since by convention we do gradient descent on a loss and
     # the ELBO is a lower bound that needs to be maximized.
     return -elbo

@@ -1,5 +1,6 @@
 import argparse
 
+from jax import jit
 from jax.experimental import stax, optimizers
 import jax.numpy as np
 import jax.random as random
@@ -17,9 +18,11 @@ def sigmoid(x):
 
 # TODO: move to JAX
 def _elemwise_no_params(fun, **kwargs):
-  init_fun = lambda input_shape: (input_shape, ())
-  apply_fun = lambda params, inputs, rng=None: fun(inputs, **kwargs)
-  return init_fun, apply_fun
+    def init_fun(input_shape): return input_shape, ()
+
+    def apply_fun(params, inputs, rng=None): return fun(inputs, **kwargs)
+
+    return init_fun, apply_fun
 
 
 Sigmoid = _elemwise_no_params(sigmoid)
@@ -41,10 +44,11 @@ def decoder(hidden_dim, out_dim):
     )
 
 
-def model(batch, decoder_params, z_dim, **kwargs):
+def model(batch, decoder_params, **kwargs):
     decode = kwargs['decode']
+    z_dim = kwargs['z_dim']
     batch = np.reshape(batch, (batch.shape[0], -1))
-    z = sample('z', dist.norm(np.zeros(z_dim), np.ones(z_dim)))
+    z = sample('z', dist.norm(np.zeros((z_dim,)), np.ones((z_dim,))))
     img_loc = decode(decoder_params, z)
     return sample('obs', dist.bernoulli(img_loc), obs=batch)
 
@@ -61,7 +65,9 @@ def main(args):
     encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
     decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
     opt_init, opt_update = optimizers.adam(args.learning_rate)
-    svi_init, svi_update = svi(model, guide, elbo, opt_init, opt_update)
+    svi_init, svi_update = svi(model, guide, elbo, opt_init, opt_update,
+                               encode=encode, decode=decode, z_dim=args.z_dim)
+    svi_update = jit(svi_update)
     rng = PRNGKey(0)
     for i in range(args.num_epochs):
         for j, (batch, label) in enumerate(iter_dataset(MNIST, batch_size=args.batch_size)):
@@ -70,19 +76,15 @@ def main(args):
                 _, decoder_params = decoder_init((args.batch_size, args.z_dim))
                 params = {'encoder': encoder_params, 'decoder': decoder_params}
                 opt_state = svi_init(rng,
-                                     model_args=(batch, decoder_params, args.z_dim),
+                                     model_args=(batch, decoder_params),
                                      guide_args=(batch, encoder_params),
-                                     kwargs={'encode': encode, 'decode': decode},
                                      params=params)
                 rng, = random.split(rng, 1)
             params = optimizers.get_params(opt_state)
             loss, opt_state, rng = svi_update(i, opt_state, rng,
-                                              model_args=(batch, params['decoder'], args.z_dim),
-                                              guide_args=(batch, params['encoder']),
-                                              kwargs={'encode': encode, 'decode': decode},
-                                              )
-            if i % 100 == 0:
-                print("step {} loss = {}".format(i, loss))
+                                              (batch, params['decoder']),
+                                              (batch, params['encoder']),)
+        print("Epoch {} loss = {}".format(i, loss))
 
 
 if __name__ == '__main__':
