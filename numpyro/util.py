@@ -273,8 +273,10 @@ def warmup_adapter(num_steps, find_reasonable_step_size=None,
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
         state = step_size, inverse_mass_matrix, ss_state, mm_state, window_idx
         # TODO: enable lax.cond when https://github.com/google/jax/issues/514 is resolved
-        state = lax.cond(t_at_window_end & is_middle_window,
-                         state, _update_at_window_end, state, lambda x: x)
+        # state = lax.cond(t_at_window_end & is_middle_window,
+        #                  state, _update_at_window_end, state, lambda x: x)
+        if t_at_window_end & is_middle_window:
+            state = _update_at_window_end(state)
         return state
 
     return init_fn, update_fn
