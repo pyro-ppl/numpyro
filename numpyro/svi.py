@@ -1,4 +1,4 @@
-from jax import random, value_and_grad
+from jax import random, value_and_grad, jit
 from jax.experimental import optimizers
 import jax.numpy as np
 
@@ -36,7 +36,12 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
         rng, = random.split(rng, 1)
         return loss_val, opt_state, rng
 
-    return init_fn, update_fn
+    def evaluate(opt_state, rng, model_args=(), guide_args=()):
+        model_init, guide_init = _seed(model, guide, rng)
+        params = optimizers.get_params(opt_state)
+        return loss(params, model_init, guide_init, model_args, guide_args, kwargs)
+
+    return init_fn, update_fn, evaluate
 
 
 # This is a basic implementation of the Evidence Lower Bound, which is the

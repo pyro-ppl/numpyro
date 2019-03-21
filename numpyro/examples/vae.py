@@ -1,12 +1,14 @@
 import argparse
+import os
 
-from jax import jit
+from jax import jit, lax
 from jax.experimental import stax, optimizers
 import jax.numpy as np
 import jax.random as random
 from jax.random import PRNGKey
+import matplotlib.pyplot as plt
 
-from numpyro.examples.datasets import iter_dataset, MNIST
+from numpyro.examples.datasets import MNIST, load_dataset
 from numpyro.handlers import sample, param
 import numpyro.distributions as dist
 from numpyro.svi import svi, elbo
@@ -26,6 +28,11 @@ def _elemwise_no_params(fun, **kwargs):
 
 
 Sigmoid = _elemwise_no_params(sigmoid)
+
+
+DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                        '.results'))
+os.makedirs(DATA_DIR, exist_ok=True)
 
 
 def encoder(hidden_dim, z_dim):
@@ -63,29 +70,54 @@ def guide(batch, **kwargs):
     return z
 
 
+def evaluate(epoch, data_init, data_fetch, opt_state, eval_fn, rng, encode, decode):
+    num_batches, test_idx = data_init()
+
+    def get_loss(i, loss, rng):
+        batch = data_fetch(i, test_idx)
+        rng = random.split(rng, 1)
+        return loss + eval_fn(opt_state, rng, (batch,), (batch,)), rng
+
+    loss = lax.fori_loop(0, num_batches, get_loss, (0.,)) / num_batches
+    test_sample = data_fetch(test_idx, 0)[:5]
+    params = optimizers.get_params
+    z_mean, z_var = encode(params['encoder'], test_sample)
+    z = dist.norm(z_mean, z_var).rvs()
+    img_loc = decode(params['decode'], z)
+    plt.imsave('original_epoch={}.jpg'.format(epoch), test_sample, cmap='gray')
+    plt.imsave('recons_epoch={}.jpg'.format(epoch), img_loc, cmap='gray')
+    return loss
+
+
 def main(args):
     encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
     decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
     opt_init, opt_update = optimizers.adam(args.learning_rate)
-    svi_init, svi_update = svi(model, guide, elbo, opt_init, opt_update,
-                               encode=encode, decode=decode, z_dim=args.z_dim)
-    svi_update = svi_update
+    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update,
+                                         encode=encode, decode=decode, z_dim=args.z_dim)
+    svi_update = jit(svi_update)
     rng = PRNGKey(0)
+    train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
+    test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
+    num_train, train_idx = train_init()
+    _, encoder_params = encoder_init((args.batch_size, 28 * 28))
+    _, decoder_params = decoder_init((args.batch_size, args.z_dim))
+    params = {'encoder': encoder_params, 'decoder': decoder_params}
+    sample_batch, _ = train_fetch(0, train_idx)
+    opt_state = svi_init(rng, (sample_batch,), (sample_batch,), params)
+    rng, = random.split(rng, 1)
+
+    def epoch(i, val):
+        loss, opt_state, rng, train_idx = val
+        batch = train_fetch(i, train_idx)
+        return svi_update(i, opt_state, rng, (batch,), (batch,),) + (train_idx,)
+
     for i in range(args.num_epochs):
-        for j, (batch, label) in enumerate(iter_dataset(MNIST, batch_size=args.batch_size)):
-            if i == 0 and j == 0:
-                _, encoder_params = encoder_init((args.batch_size, 28 * 28))
-                _, decoder_params = decoder_init((args.batch_size, args.z_dim))
-                params = {'encoder': encoder_params, 'decoder': decoder_params}
-                opt_state = svi_init(rng,
-                                     model_args=(batch,),
-                                     guide_args=(batch,),
-                                     params=params)
-                rng, = random.split(rng, 1)
-            loss, opt_state, rng = svi_update(i, opt_state, rng,
-                                              (batch,),
-                                              (batch,),)
-            print("Epoch {} loss = {}".format(i, loss))
+        num_train, train_idx = train_init()
+        loss, opt_state, rng, _ = lax.fori_loop(0, num_train, epoch, (None, opt_state, rng, train_idx))
+        rng = random.split(rng, 1)
+        test_loss = evaluate(i, test_init, test_fetch, opt_state, svi_eval, rng, encode, decode)
+        print("Epoch {} loss = {}".format(i, test_loss))
 
 
 if __name__ == '__main__':

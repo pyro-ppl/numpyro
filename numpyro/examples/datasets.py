@@ -7,8 +7,7 @@ from urllib.request import urlretrieve
 
 import numpy as np
 
-from jax import device_put
-
+from jax import device_put, lax
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                                         '.data'))
@@ -75,3 +74,22 @@ def iter_dataset(dset, batch_size=None, split='train', shuffle=False):
         start_idx = i * batch_size
         end_idx = min((i + 1) * batch_size, num_records)
         yield tuple(a[idxs[start_idx:end_idx]] for a in arrays)
+
+
+def load_dataset(dset, batch_size=None, split='train', shuffle=False):
+    arrays = _load(dset)[split]
+    num_records = len(arrays[0])
+    idxs = np.arange(num_records)
+    if not batch_size:
+        batch_size = num_records
+
+    def init():
+        return num_records // batch_size, np.random.permutation(idxs) if shuffle else idxs
+
+    def get_batch(i, idxs):
+        start_idx = i * batch_size
+        end_idx = lax.min((i + 1) * batch_size, num_records)
+        slice = lax.dynamic_slice(idxs, start_idx, batch_size)
+        return tuple(a[idxs[start_idx:end_idx]] for a in arrays)
+
+    return init, get_batch
