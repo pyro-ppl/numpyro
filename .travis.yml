@@ -10,10 +10,7 @@ cache:
     directories:
         - $HOME/.data
 
-addons:
-    apt:
-        packages:
-            - libstdc++6
+dist: xenial
 
 install:
     - pip install -U pip
