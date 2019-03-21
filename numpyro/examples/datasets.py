@@ -76,7 +76,7 @@ def iter_dataset(dset, batch_size=None, split='train', shuffle=False):
         yield tuple(a[idxs[start_idx:end_idx]] for a in arrays)
 
 
-def load_dataset(dset, batch_size=None, split='train', shuffle=False):
+def load_dataset(dset, batch_size=None, split='train', shuffle=True):
     arrays = _load(dset)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)

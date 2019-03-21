@@ -15,5 +15,8 @@ __pycache__/
 # test related
 .pytest_cache
 
+# data
+numpyro/examples/.data
+
 # tmp files
 .*.swp
