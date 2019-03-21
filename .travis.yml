@@ -10,9 +10,10 @@ cache:
     directories:
         - $HOME/.data
 
-before_install:
-    - sudo apt-get install libstdc++6
-
+addons:
+    apt:
+        packages:
+            - libstdc++6
 
 install:
     - pip install -U pip
