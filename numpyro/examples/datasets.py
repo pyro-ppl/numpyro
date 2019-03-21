@@ -62,7 +62,7 @@ def _load(dset):
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
-def iter_dataset(dset, batch_size=None, split='train', shuffle=False):
+def iter_dataset(dset, batch_size=None, split='train', shuffle=True):
     arrays = _load(dset)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
@@ -76,7 +76,7 @@ def iter_dataset(dset, batch_size=None, split='train', shuffle=False):
         yield tuple(a[idxs[start_idx:end_idx]] for a in arrays)
 
 
-def load_dataset(dset, batch_size=None, split='train', shuffle=False):
+def load_dataset(dset, batch_size=None, split='train', shuffle=True):
     arrays = _load(dset)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
@@ -87,9 +87,7 @@ def load_dataset(dset, batch_size=None, split='train', shuffle=False):
         return num_records // batch_size, np.random.permutation(idxs) if shuffle else idxs
 
     def get_batch(i, idxs):
-        start_idx = i * batch_size
-        end_idx = lax.min((i + 1) * batch_size, num_records)
-        slice = lax.dynamic_slice(idxs, start_idx, batch_size)
-        return tuple(a[idxs[start_idx:end_idx]] for a in arrays)
+        ret_idx = lax.dynamic_slice_in_dim(idxs, (i + 1) * batch_size, batch_size)
+        return tuple(lax.index_take(a, (ret_idx,), axes=(0,)) for a in arrays)
 
     return init, get_batch

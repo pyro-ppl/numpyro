@@ -6,6 +6,12 @@ env:
     global:
         - PYTHONPATH=$PWD:$PYTHONPATH
 
+cache:
+    directories:
+        - $HOME/.data
+
+dist: xenial
+
 install:
     - pip install -U pip
     - pip install .[test]
