@@ -309,8 +309,8 @@ def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
         v_left = np.matmul(inverse_mass_matrix, r_left)
         v_right = np.matmul(inverse_mass_matrix, r_right)
     elif inverse_mass_matrix.ndim == 1:
-        v_left = np.mul(inverse_mass_matrix, r_left)
-        v_right = np.mul(inverse_mass_matrix, r_right)
+        v_left = np.multiply(inverse_mass_matrix, r_left)
+        v_right = np.multiply(inverse_mass_matrix, r_right)
 
     # This implements dynamic termination criterion (ref [2], section A.4.2).
     turning_at_left = np.dot(v_left, r_sum - r_left) <= 0
