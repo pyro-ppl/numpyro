@@ -6,11 +6,11 @@ import jax.numpy as np
 import numpy as onp
 import pytest
 import scipy.special as sp
-from jax import device_put, grad, jit, lax, partial, tree_map
+from jax import device_put, grad, jit, lax, partial, random, tree_map
 from numpy.testing import assert_allclose
 
 from numpyro.distributions.util import xlogy, xlog1py
-from numpyro.util import (adapt_window, build_adaptation_schedule,
+from numpyro.util import (adapt_window, build_adaptation_schedule, build_tree,
                           dual_averaging, find_reasonable_step_size,
                           velocity_verlet, warmup_adapter, welford_covariance)
 
@@ -355,3 +355,37 @@ def test_warmup_adapter(jitted):
     # Verifies that inverse_mass_matrix does not change during the last window
     # despite z_flat changes w.r.t time t,
     assert_allclose(final_inverse_mass_matrix, inverse_mass_matrix)
+
+
+@pytest.mark.parametrize('step_size', [0.01, 1., 100.])
+@pytest.mark.parametrize('use_multinomial_sampling', [True, False])
+def test_build_tree(step_size, use_multinomial_sampling):
+    def kinetic_fn(p):
+        return 0.5 * p ** 2
+
+    def potential_fn(q):
+        return 0.5 * q ** 2
+
+    vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
+    vv_state = vv_init(0.0, 1.0)
+    inverse_mass_matrix = np.array([1.])
+    rng = random.PRNGKey(0)
+
+    tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
+                      step_size, rng, use_multinomial_sampling=use_multinomial_sampling)
+
+    assert tree.num_proposals >= 2 ** (tree.depth - 1)
+
+    assert tree.sum_accept_probs <= tree.num_proposals
+
+    if tree.depth < 10:
+        assert tree.turning | tree.diverging
+
+    # for large step_size, assert that diverging will happen in 1 step
+    if step_size > 10:
+        assert tree.diverging
+        assert tree.num_proposals == 1
+
+    # for small step_size, assert that it should take a while to meet the terminate condition
+    if step_size < 0.1:
+        assert tree.num_proposals > 10
