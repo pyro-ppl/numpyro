@@ -1,11 +1,11 @@
+from contextlib import contextmanager
+
 import jax.numpy as np
-from contextlib2 import contextmanager
+import scipy.special as sp
 from jax import jit, lax, random, partial
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
-
-import scipy.special as sp
 
 from numpyro.distributions.distribution import jax_discrete
 
