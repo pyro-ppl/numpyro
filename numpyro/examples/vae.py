@@ -31,7 +31,7 @@ Sigmoid = _elemwise_no_params(sigmoid)
 
 
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
-                                        '.results'))
+                              '.results'))
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
 
