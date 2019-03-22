@@ -134,9 +134,9 @@ def main(args):
         t_start = time.time()
         num_train, train_idx = train_init()
         _, opt_state, rng = epoch_train(opt_state, rng)
-        rng, = random.split(rng, 1)
+        rng, rng_test = random.split(rng, 2)
         num_test, test_idx = test_init()
-        test_loss = eval_test(opt_state, rng)
+        test_loss = eval_test(opt_state, rng_test)
         reconstruct_img(i)
         print("Epoch {}: loss = {} ({:.2f} s.)".format(i, test_loss, time.time() - t_start))
 
