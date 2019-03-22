@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 
 from jax import jit, lax
 from jax.experimental import stax, optimizers
@@ -70,29 +71,6 @@ def guide(batch, **kwargs):
     return z
 
 
-def evaluate(epoch, data_init, data_fetch, opt_state, eval_fn, rng, encode, decode):
-    num_batches, test_idx = data_init()
-
-    def get_loss(i, val):
-        loss_sum, rng = val
-        batch, _ = data_fetch(i, test_idx)
-        rng, = random.split(rng, 1)
-        loss = eval_fn(opt_state, rng, (batch,), (batch,)) / len(batch)
-        loss_sum += loss
-        return loss_sum, rng
-
-    loss, _ = lax.fori_loop(0, num_batches, get_loss, (0., rng))
-    loss = loss / num_batches
-    test_sample = data_fetch(0, test_idx)[0][0]
-    params = optimizers.get_params(opt_state)
-    z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
-    z = dist.norm(z_mean, z_var).rvs(random_state=rng)
-    img_loc = decode(params['decoder'], z).reshape([28, 28])
-    plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), test_sample, cmap='gray')
-    plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
-    return loss
-
-
 def main(args):
     encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
     decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
@@ -111,24 +89,54 @@ def main(args):
     opt_state = svi_init(rng, (sample_batch,), (sample_batch,), params)
     rng, = random.split(rng, 1)
 
-    def epoch(i, val):
-        loss_sum, opt_state, rng, train_idx = val
-        batch, _ = train_fetch(i, train_idx)
-        loss, opt_state, rng = svi_update(i, opt_state, rng, (batch,), (batch,),)
-        loss_sum += loss
-        return loss_sum, opt_state, rng, train_idx
+    @jit
+    def epoch_train(opt_state, rng):
+        def body_fn(i, val):
+            loss_sum, opt_state, rng = val
+            batch, _ = train_fetch(i, train_idx)
+            loss, opt_state, rng = svi_update(i, opt_state, rng, (batch,), (batch,),)
+            loss_sum += loss
+            return loss_sum, opt_state, rng
+
+        return lax.fori_loop(0, num_train, body_fn, (0., opt_state, rng))
+
+    @jit
+    def eval_test(opt_state, rng):
+        def body_fun(i, val):
+            loss_sum, rng = val
+            batch, _ = test_fetch(i, test_idx)
+            rng, = random.split(rng, 1)
+            loss = svi_eval(opt_state, rng, (batch,), (batch,)) / len(batch)
+            loss_sum += loss
+            return loss_sum, rng
+
+        loss, _ = lax.fori_loop(0, num_test, body_fun, (0., rng))
+        loss = loss / num_test
+        return loss
+
+    def reconstruct_img(epoch):
+        test_sample = test_fetch(0, test_idx)[0][0]
+        params = optimizers.get_params(opt_state)
+        z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
+        z = dist.norm(z_mean, z_var).rvs(random_state=rng)
+        img_loc = decode(params['decoder'], z).reshape([28, 28])
+        plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), test_sample, cmap='gray')
+        plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 
     for i in range(args.num_epochs):
+        t_start = time.time()
         num_train, train_idx = train_init()
-        loss, opt_state, rng, _ = lax.fori_loop(0, num_train, epoch, (0., opt_state, rng, train_idx))
+        _, opt_state, rng = epoch_train(opt_state, rng)
         rng, = random.split(rng, 1)
-        test_loss = evaluate(i, test_init, test_fetch, opt_state, svi_eval, rng, encode, decode)
-        print("Epoch {} loss = {}".format(i, test_loss))
+        num_test, test_idx = test_init()
+        test_loss = eval_test(opt_state, rng)
+        reconstruct_img(i)
+        print("Epoch {}: loss = {} ({} s.)".format(i, test_loss, time.time() - t_start))
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('-n', '--num-epochs', default=10, type=int, help='number of training epochs')
+    parser.add_argument('-n', '--num-epochs', default=20, type=int, help='number of training epochs')
     parser.add_argument('-lr', '--learning-rate', default=1.0e-3, type=float, help='learning rate')
     parser.add_argument('-batch-size', default=128, type=int, help='batch size')
     parser.add_argument('-z-dim', default=50, type=int, help='size of latent')
