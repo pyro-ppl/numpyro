@@ -62,7 +62,7 @@ def _load(dset):
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
-def iter_dataset(dset, batch_size=None, split='train', shuffle=False):
+def iter_dataset(dset, batch_size=None, split='train', shuffle=True):
     arrays = _load(dset)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)

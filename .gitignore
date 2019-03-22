@@ -12,6 +12,11 @@ __pycache__/
 .idea
 *~
 
+# data files
+numpyro/examples/.data
+numpyro/examples/.results
+numpyro/.DS_Store
+
 # test related
 .pytest_cache
 

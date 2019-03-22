@@ -55,6 +55,8 @@ class jax_continuous(sp.rv_continuous):
 
 
 class jax_discrete(sp.rv_discrete):
+    args_check = True
+
     # Discrete distribution instances use scipy samplers directly
     # and put the samples on device later.
     def rvs(self, *args, **kwargs):
@@ -63,10 +65,9 @@ class jax_discrete(sp.rv_discrete):
         return device_put(sample)
 
     def logpmf(self, k, *args, **kwds):
-        args_check = kwds.pop('args_check', True)
         args, loc, _ = self._parse_args(*args, **kwds)
         k = k - loc
-        if args_check:
+        if self.args_check:
             cond0 = self._argcheck(*args)
             cond1 = (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
             if not np.all(cond0):
