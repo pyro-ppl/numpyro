@@ -71,6 +71,12 @@ def guide(batch, **kwargs):
     return z
 
 
+@jit
+def binarize(rng, batch):
+    rng, = random.split(rng, 1)
+    return rng, random.bernoulli(rng, batch).astype(batch.dtype)
+
+
 def main(args):
     encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
     decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
@@ -85,7 +91,7 @@ def main(args):
     _, encoder_params = encoder_init((args.batch_size, 28 * 28))
     _, decoder_params = decoder_init((args.batch_size, args.z_dim))
     params = {'encoder': encoder_params, 'decoder': decoder_params}
-    sample_batch, _ = train_fetch(0, train_idx)
+    rng, sample_batch = binarize(rng, train_fetch(0, train_idx)[0])
     opt_state = svi_init(rng, (sample_batch,), (sample_batch,), params)
     rng, = random.split(rng, 1)
 
@@ -93,7 +99,7 @@ def main(args):
     def epoch_train(opt_state, rng):
         def body_fn(i, val):
             loss_sum, opt_state, rng = val
-            batch, _ = train_fetch(i, train_idx)
+            rng, batch = binarize(rng, train_fetch(i, train_idx)[0])
             loss, opt_state, rng = svi_update(i, opt_state, rng, (batch,), (batch,),)
             loss_sum += loss
             return loss_sum, opt_state, rng
@@ -104,8 +110,8 @@ def main(args):
     def eval_test(opt_state, rng):
         def body_fun(i, val):
             loss_sum, rng = val
-            batch, _ = test_fetch(i, test_idx)
             rng, = random.split(rng, 1)
+            rng, batch = binarize(rng, test_fetch(i, test_idx)[0])
             loss = svi_eval(opt_state, rng, (batch,), (batch,)) / len(batch)
             loss_sum += loss
             return loss_sum, rng
@@ -115,12 +121,13 @@ def main(args):
         return loss
 
     def reconstruct_img(epoch):
-        test_sample = test_fetch(0, test_idx)[0][0]
+        img = test_fetch(0, test_idx)[0][0]
+        plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), img, cmap='gray')
+        _, test_sample = binarize(rng, img)
         params = optimizers.get_params(opt_state)
         z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
         z = dist.norm(z_mean, z_var).rvs(random_state=rng)
         img_loc = decode(params['decoder'], z).reshape([28, 28])
-        plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), test_sample, cmap='gray')
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 
     for i in range(args.num_epochs):
@@ -131,7 +138,7 @@ def main(args):
         num_test, test_idx = test_init()
         test_loss = eval_test(opt_state, rng)
         reconstruct_img(i)
-        print("Epoch {}: loss = {} ({} s.)".format(i, test_loss, time.time() - t_start))
+        print("Epoch {}: loss = {} ({:.2f} s.)".format(i, test_loss, time.time() - t_start))
 
 
 if __name__ == '__main__':
