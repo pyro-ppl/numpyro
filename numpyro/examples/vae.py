@@ -30,9 +30,9 @@ def _elemwise_no_params(fun, **kwargs):
 Sigmoid = _elemwise_no_params(sigmoid)
 
 
-DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
+RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                                         '.results'))
-os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 
 def encoder(hidden_dim, z_dim):
@@ -73,19 +73,23 @@ def guide(batch, **kwargs):
 def evaluate(epoch, data_init, data_fetch, opt_state, eval_fn, rng, encode, decode):
     num_batches, test_idx = data_init()
 
-    def get_loss(i, loss, rng):
-        batch = data_fetch(i, test_idx)
-        rng = random.split(rng, 1)
-        return loss + eval_fn(opt_state, rng, (batch,), (batch,)), rng
+    def get_loss(i, val):
+        loss_sum, rng = val
+        batch, _ = data_fetch(i, test_idx)
+        rng, = random.split(rng, 1)
+        loss = eval_fn(opt_state, rng, (batch,), (batch,)) / len(batch)
+        loss_sum += loss
+        return loss_sum, rng
 
-    loss = lax.fori_loop(0, num_batches, get_loss, (0.,)) / num_batches
-    test_sample = data_fetch(test_idx, 0)[:5]
-    params = optimizers.get_params
-    z_mean, z_var = encode(params['encoder'], test_sample)
-    z = dist.norm(z_mean, z_var).rvs()
-    img_loc = decode(params['decode'], z)
-    plt.imsave('original_epoch={}.jpg'.format(epoch), test_sample, cmap='gray')
-    plt.imsave('recons_epoch={}.jpg'.format(epoch), img_loc, cmap='gray')
+    loss, _ = lax.fori_loop(0, num_batches, get_loss, (0., rng))
+    loss = loss / num_batches
+    test_sample = data_fetch(0, test_idx)[0][0]
+    params = optimizers.get_params(opt_state)
+    z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
+    z = dist.norm(z_mean, z_var).rvs(random_state=rng)
+    img_loc = decode(params['decoder'], z).reshape([28, 28])
+    plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), test_sample, cmap='gray')
+    plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
     return loss
 
 
@@ -108,14 +112,16 @@ def main(args):
     rng, = random.split(rng, 1)
 
     def epoch(i, val):
-        loss, opt_state, rng, train_idx = val
-        batch = train_fetch(i, train_idx)
-        return svi_update(i, opt_state, rng, (batch,), (batch,),) + (train_idx,)
+        loss_sum, opt_state, rng, train_idx = val
+        batch, _ = train_fetch(i, train_idx)
+        loss, opt_state, rng = svi_update(i, opt_state, rng, (batch,), (batch,),)
+        loss_sum += loss
+        return loss_sum, opt_state, rng, train_idx
 
     for i in range(args.num_epochs):
         num_train, train_idx = train_init()
-        loss, opt_state, rng, _ = lax.fori_loop(0, num_train, epoch, (None, opt_state, rng, train_idx))
-        rng = random.split(rng, 1)
+        loss, opt_state, rng, _ = lax.fori_loop(0, num_train, epoch, (0., opt_state, rng, train_idx))
+        rng, = random.split(rng, 1)
         test_loss = evaluate(i, test_init, test_fetch, opt_state, svi_eval, rng, encode, decode)
         print("Epoch {} loss = {}".format(i, test_loss))
 

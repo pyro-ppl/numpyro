@@ -1,4 +1,4 @@
-from jax import random, value_and_grad, jit
+from jax import random, value_and_grad
 from jax.experimental import optimizers
 import jax.numpy as np
 
@@ -18,11 +18,14 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
+        model_init, guide_init = _seed(model, guide, rng)
         if params is None:
             params = {}
-        model_init, guide_init = _seed(model, guide, rng)
-        guide_trace = trace(substitute(guide_init, params)).get_trace(*guide_args, **kwargs)
-        model_trace = trace(substitute(model_init, params)).get_trace(*model_args, **kwargs)
+        else:
+            model_init = substitute(model_init, params)
+            guide_init = substitute(guide_init, params)
+        guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
+        model_trace = trace(model_init).get_trace(*model_args, **kwargs)
         for site in list(guide_trace.values()) + list(model_trace.values()):
             if site['type'] == 'param':
                 params[site['name']] = site['value']
