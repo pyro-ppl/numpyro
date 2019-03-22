@@ -398,22 +398,35 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                      sum_accept_probs, num_proposals)
 
 
+@jit
+def _get_leaf(tree, going_right):
+    return lax.cond(going_right,
+                    tree,
+                    lambda tree: (tree.z_right, tree.r_right, tree.z_right_grad),
+                    tree,
+                    lambda tree: (tree.z_left, tree.r_left, tree.z_left_grad))
+
+
 def _double_tree(current_tree, vv_update, kinetic_fn, get_transition_prob,
                  inverse_mass_matrix, step_size, going_right, rng,
                  energy_current, slice_exp_term, max_sliced_energy,
-                 use_multinomial_sampling):
+                 use_multinomial_sampling, iterative_build):
     key, transition_key = random.split(rng)
     # If we are going to the right, start from the right leaf of the current tree.
-    if going_right:
-        z, r, z_grad = current_tree.z_right, current_tree.r_right, current_tree.z_right_grad
-    else:
-        z, r, z_grad = current_tree.z_left, current_tree.r_left, current_tree.z_left_grad
+    z, r, z_grad = _get_leaf(current_tree, going_right)
 
     # Then build a new tree.
-    new_tree = _build_subtree(current_tree.depth, vv_update, kinetic_fn, z, r, z_grad,
-                              inverse_mass_matrix, step_size, going_right, key,
-                              energy_current, slice_exp_term, max_sliced_energy,
-                              use_multinomial_sampling)
+    if iterative_build:
+        new_tree = _iterative_build_subtree(current_tree.depth, vv_update, kinetic_fn,
+                                            z, r, z_grad, inverse_mass_matrix, step_size,
+                                            going_right, key,
+                                            energy_current, slice_exp_term, max_sliced_energy,
+                                            use_multinomial_sampling)
+    else:
+        new_tree = _build_subtree(current_tree.depth, vv_update, kinetic_fn, z, r, z_grad,
+                                  inverse_mass_matrix, step_size, going_right, key,
+                                  energy_current, slice_exp_term, max_sliced_energy,
+                                  use_multinomial_sampling)
     return _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, transition_key,
                          use_multinomial_sampling, get_transition_prob)
 
@@ -470,11 +483,16 @@ def _build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matr
         return _double_tree(half_tree, vv_update, kinetic_fn, _uniform_transition_prob,
                             inverse_mass_matrix, step_size, going_right, doubling_key,
                             energy_current, slice_exp_term, max_sliced_energy,
-                            use_multinomial_sampling)
+                            use_multinomial_sampling, iterative_build=False)
+
+
+# TODO: implement
+_iterative_build_subtree = _build_subtree
 
 
 def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, step_size, rng,
-               max_sliced_energy=1000., use_multinomial_sampling=True, max_tree_depth=10):
+               max_sliced_energy=1000., use_multinomial_sampling=True, max_tree_depth=10,
+               iterative_build=True):
     """
     **References:**
     [1] `The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo`,
@@ -482,6 +500,9 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     [2] `A Conceptual Introduction to Hamiltonian Monte Carlo`,
     Michael Betancourt
     """
+    # TODO(fehiepsi): iterative_build flag will be depricated when
+    # performance/memory usage is profiled.
+
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(r)
     key, subkey = random.split(rng)
@@ -503,7 +524,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
         tree = _double_tree(tree, verlet_update, kinetic_fn, _biased_transition_prob,
                             inverse_mass_matrix, step_size, going_right, doubling_key,
                             energy_current, slice_exp_term, max_sliced_energy,
-                            use_multinomial_sampling)
+                            use_multinomial_sampling, iterative_build)
     return tree
 
 
