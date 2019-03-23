@@ -300,7 +300,6 @@ register_pytree_node(
 )
 
 
-@jit
 def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
     r_left, _ = ravel_pytree(r_left)
     r_right, _ = ravel_pytree(r_right)
@@ -319,7 +318,6 @@ def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
     return turning_at_left | turning_at_right
 
 
-@partial(jit, static_argnums=(3,))
 def _uniform_transition_prob(current_subtree, new_subtree, rng, use_multinomial_sampling):
     # This function computes transition prob for subtrees (ref [2], section A.3.1).
     if use_multinomial_sampling:
@@ -337,7 +335,6 @@ def _uniform_transition_prob(current_subtree, new_subtree, rng, use_multinomial_
     return transition_prob
 
 
-@partial(jit, static_argnums=(3,))
 def _biased_transition_prob(current_tree, new_tree, rng, use_multinomial_sampling):
     # This function computes transition prob for main trees (ref [2], section A.3.2).
     if use_multinomial_sampling:
@@ -491,7 +488,6 @@ def _double_tree(current_tree, vv_update, kinetic_fn, get_transition_prob,
                          use_multinomial_sampling, get_transition_prob, iterative_build=False)
 
 
-@jit
 def _leaf_idx_to_ckpt_idx(n):
     # computes the number of non-zero bits except the last bit
     # e.g. 6 -> 2, 7 -> 2, 13 -> 2
@@ -507,7 +503,6 @@ def _leaf_idx_to_ckpt_idx(n):
     return idx_min, idx_max
 
 
-@jit
 def _is_iterative_turning(leaf_idx, inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts):
     r, _ = ravel_pytree(r)
     r_sum, _ = ravel_pytree(r_sum)
@@ -533,7 +528,6 @@ def _is_iterative_turning(leaf_idx, inverse_mass_matrix, r, r_sum, r_ckpts, r_su
     return turning, r_ckpts, r_sum_ckpts
 
 
-@partial(jit, static_argnums=(1, 2, 13, 14))
 def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                              inverse_mass_matrix, step_size, going_right, rng,
                              energy_current, slice_exp_term, max_sliced_energy,
@@ -601,7 +595,10 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     Michael Betancourt
     """
     # TODO(fehiepsi): iterative_build flag will be depricated when
-    # performance/memory usage is profiled.
+    # memory usage is profiled.
+    # At that time, we will also remove all the decorator @jit in the
+    # above small functions because tracing these functions are
+    # already covered by lax while loops.
 
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(r)
