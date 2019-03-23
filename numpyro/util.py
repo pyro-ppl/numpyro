@@ -5,10 +5,9 @@ from collections import namedtuple
 
 import jax.lax as lax
 import jax.numpy as np
+import numpy as onp
 from jax import grad, value_and_grad
 from jax.tree_util import tree_multimap
-
-import numpy as onp
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):

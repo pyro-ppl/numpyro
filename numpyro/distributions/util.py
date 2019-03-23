@@ -2,7 +2,7 @@ from contextlib import contextmanager
 
 import jax.numpy as np
 import scipy.special as sp
-from jax import jit, lax, random, partial
+from jax import jit, lax, partial, random
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes

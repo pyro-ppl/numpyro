@@ -2,17 +2,17 @@ import argparse
 import os
 import time
 
-from jax import jit, lax
-from jax.experimental import stax, optimizers
 import jax.numpy as np
 import jax.random as random
-from jax.random import PRNGKey
 import matplotlib.pyplot as plt
+from jax import jit, lax
+from jax.experimental import optimizers, stax
+from jax.random import PRNGKey
 
-from numpyro.examples.datasets import MNIST, load_dataset
-from numpyro.handlers import sample, param
 import numpyro.distributions as dist
-from numpyro.svi import svi, elbo
+from numpyro.examples.datasets import MNIST, load_dataset
+from numpyro.handlers import param, sample
+from numpyro.svi import elbo, svi
 
 
 def sigmoid(x):
