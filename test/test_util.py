@@ -13,7 +13,7 @@ from numpyro.distributions.util import xlog1py, xlogy
 from numpyro.util import (
     adapt_window,
     build_adaptation_schedule,
-    build_tree
+    build_tree,
     dual_averaging,
     find_reasonable_step_size,
     velocity_verlet,
@@ -367,7 +367,8 @@ def test_warmup_adapter(jitted):
 
 @pytest.mark.parametrize('step_size', [0.01, 1., 100.])
 @pytest.mark.parametrize('use_multinomial_sampling', [True, False])
-def test_build_tree(step_size, use_multinomial_sampling):
+@pytest.mark.parametrize('iterative_build', [True, False])
+def test_build_tree(step_size, use_multinomial_sampling, iterative_build):
     def kinetic_fn(p):
         return 0.5 * p ** 2
 
@@ -379,8 +380,13 @@ def test_build_tree(step_size, use_multinomial_sampling):
     inverse_mass_matrix = np.array([1.])
     rng = random.PRNGKey(0)
 
-    tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
-                      step_size, rng, use_multinomial_sampling=use_multinomial_sampling)
+    def f(vv_state):
+        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
+                          step_size, rng, use_multinomial_sampling=use_multinomial_sampling)
+        return tree
+
+    fn = jit(f) if iterative_build else f
+    tree = fn(vv_state)
 
     assert tree.num_proposals >= 2 ** (tree.depth - 1)
 

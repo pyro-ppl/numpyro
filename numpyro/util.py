@@ -386,8 +386,9 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
     r_sum = tree_multimap(np.add, current_tree.r_sum, new_tree.r_sum)
 
     # Checks either the new tree is turning or the combined tree is turning.
+    # For iterative_build, we don't need to check.
     if iterative_build:
-        turning = False
+        turning = current_tree.turning
     else:
         turning = new_tree.turning | _is_turning(inverse_mass_matrix, r_left, r_right, r_sum)
 
@@ -400,15 +401,6 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                      z_proposal, z_proposal_pe, z_proposal_grad,
                      tree_depth, tree_weight, r_sum, turning, diverging,
                      sum_accept_probs, num_proposals)
-
-
-@jit
-def _get_leaf(tree, going_right):
-    return lax.cond(going_right,
-                    tree,
-                    lambda tree: (tree.z_right, tree.r_right, tree.z_right_grad),
-                    tree,
-                    lambda tree: (tree.z_left, tree.r_left, tree.z_left_grad))
 
 
 @partial(jit, static_argnums=(0, 1, 10))
@@ -463,7 +455,16 @@ def _build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matr
         return _double_tree(half_tree, vv_update, kinetic_fn, _uniform_transition_prob,
                             inverse_mass_matrix, step_size, going_right, doubling_key,
                             energy_current, slice_exp_term, max_sliced_energy,
-                            use_multinomial_sampling)
+                            use_multinomial_sampling, depth, iterative_build=False)
+
+
+@jit
+def _get_leaf(tree, going_right):
+    return lax.cond(going_right,
+                    tree,
+                    lambda tree: (tree.z_right, tree.r_right, tree.z_right_grad),
+                    tree,
+                    lambda tree: (tree.z_left, tree.r_left, tree.z_left_grad))
 
 
 def _double_tree(current_tree, vv_update, kinetic_fn, get_transition_prob,
@@ -532,6 +533,7 @@ def _is_iterative_turning(leaf_idx, inverse_mass_matrix, r, r_sum, r_ckpts, r_su
     return turning, r_ckpts, r_sum_ckpts
 
 
+@partial(jit, static_argnums=(1, 2, 13, 14))
 def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                              inverse_mass_matrix, step_size, going_right, rng,
                              energy_current, slice_exp_term, max_sliced_energy,
@@ -575,11 +577,6 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                  dtype=inverse_mass_matrix.dtype)
     r_sum_checkpoints = index_update(r_sum_checkpoints, 0, r_init)
 
-    # FIXME: use native while here is fine
-    #state = (basetree, False, r_checkpoints, r_sum_checkpoints, rng)
-    #while _cond_fn(state):
-    #    state = _body_fn(state)
-    #tree, turning, _, _, _ = state
     tree, turning, _, _, _ = lax.while_loop(
         _cond_fn,
         _body_fn,
@@ -621,13 +618,26 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
                      depth=0, weight=tree_weight, r_sum=r, turning=False, diverging=False,
                      sum_accept_probs=0., num_proposals=0)
 
-    while (tree.depth < max_tree_depth) & ~tree.turning & ~tree.diverging:
+    def _cond_fn(state):
+        tree, _ = state
+        return (tree.depth < max_tree_depth) & ~tree.turning & ~tree.diverging
+
+    def _body_fn(state):
+        tree, key = state
         key, direction_key, doubling_key = random.split(key, 3)
         going_right = random.bernoulli(direction_key)
         tree = _double_tree(tree, verlet_update, kinetic_fn, _biased_transition_prob,
                             inverse_mass_matrix, step_size, going_right, doubling_key,
                             energy_current, slice_exp_term, max_sliced_energy,
                             use_multinomial_sampling, max_tree_depth, iterative_build)
+        return tree, key
+
+    state = (tree, key)
+    if iterative_build:
+        tree, _ = lax.while_loop(_cond_fn, _body_fn, state)
+    else:
+        while _cond_fn(state):
+            tree, _ = state = _body_fn(state)
     return tree
 
 
