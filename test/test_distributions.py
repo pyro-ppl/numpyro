@@ -7,7 +7,7 @@ import jax.random as random
 import numpy as onp
 import pytest
 import scipy.stats as sp
-from jax import lax, grad
+from jax import grad, lax
 from numpy.testing import assert_allclose
 
 import numpyro.distributions as dist

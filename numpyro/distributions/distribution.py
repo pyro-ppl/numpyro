@@ -6,13 +6,13 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-import scipy.stats as sp
-from jax import lax, device_put
-from jax.random import _is_prng_key
-from jax.numpy.lax_numpy import _promote_args
 import jax.numpy as np
 import jax.scipy
 import numpy as onp
+import scipy.stats as sp
+from jax import device_put, lax
+from jax.numpy.lax_numpy import _promote_args
+from jax.random import _is_prng_key
 
 
 class jax_continuous(sp.rv_continuous):

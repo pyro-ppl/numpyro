@@ -1,10 +1,10 @@
+import jax.numpy as np
 from jax import random, value_and_grad
 from jax.experimental import optimizers
-import jax.numpy as np
 
 from numpyro.distributions.distribution import jax_continuous
 from numpyro.distributions.util import validation_disabled
-from numpyro.handlers import replay, trace, substitute, seed
+from numpyro.handlers import replay, seed, substitute, trace
 
 
 def _seed(model, guide, rng):
