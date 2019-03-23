@@ -6,13 +6,13 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-import scipy.stats as sp
-from jax import lax, device_put
-from jax.random import _is_prng_key
-from jax.numpy.lax_numpy import _promote_args
 import jax.numpy as np
 import jax.scipy
 import numpy as onp
+import scipy.stats as sp
+from jax import device_put, lax
+from jax.numpy.lax_numpy import _promote_args
+from jax.random import _is_prng_key
 
 
 class jax_continuous(sp.rv_continuous):
@@ -55,6 +55,8 @@ class jax_continuous(sp.rv_continuous):
 
 
 class jax_discrete(sp.rv_discrete):
+    args_check = True
+
     # Discrete distribution instances use scipy samplers directly
     # and put the samples on device later.
     def rvs(self, *args, **kwargs):
@@ -63,10 +65,9 @@ class jax_discrete(sp.rv_discrete):
         return device_put(sample)
 
     def logpmf(self, k, *args, **kwds):
-        args_check = kwds.pop('args_check', True)
         args, loc, _ = self._parse_args(*args, **kwds)
         k = k - loc
-        if args_check:
+        if self.args_check:
             cond0 = self._argcheck(*args)
             cond1 = (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
             if not np.all(cond0):

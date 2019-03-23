@@ -1,9 +1,10 @@
+import jax.numpy as np
 from jax import random, value_and_grad
 from jax.experimental import optimizers
-import jax.numpy as np
 
 from numpyro.distributions.distribution import jax_continuous
-from numpyro.handlers import replay, trace, substitute, seed
+from numpyro.distributions.util import validation_disabled
+from numpyro.handlers import replay, seed, substitute, trace
 
 
 def _seed(model, guide, rng):
@@ -17,9 +18,12 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
+        model_init, guide_init = _seed(model, guide, rng)
         if params is None:
             params = {}
-        model_init, guide_init = _seed(model, guide, rng)
+        else:
+            model_init = substitute(model_init, params)
+            guide_init = substitute(guide_init, params)
         guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
         model_trace = trace(model_init).get_trace(*model_args, **kwargs)
         for site in list(guide_trace.values()) + list(model_trace.values()):
@@ -35,7 +39,12 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
         rng, = random.split(rng, 1)
         return loss_val, opt_state, rng
 
-    return init_fn, update_fn
+    def evaluate(opt_state, rng, model_args=(), guide_args=()):
+        model_init, guide_init = _seed(model, guide, rng)
+        params = optimizers.get_params(opt_state)
+        return loss(params, model_init, guide_init, model_args, guide_args, kwargs)
+
+    return init_fn, update_fn, evaluate
 
 
 # This is a basic implementation of the Evidence Lower Bound, which is the
@@ -54,7 +63,10 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     # log p(z) term to the ELBO. Note that this will also include any observed
     # data, i.e. sample sites with the keyword `obs=...`.
 
-    def logp(d, val): return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
+    def logp(d, val):
+        # TODO: Find alternatives to this anti-pattern.
+        with validation_disabled():
+            return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
 
     for site in model_trace.values():
         if site["type"] == "sample":
@@ -63,7 +75,7 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     # -log q(z) term to the ELBO.
     for site in guide_trace.values():
         if site["type"] == "sample":
-            elbo = elbo - logp(site["fn"], site["value"])
+            elbo = elbo - np.sum(logp(site["fn"], site["value"]))
     # Return (-elbo) since by convention we do gradient descent on a loss and
     # the ELBO is a lower bound that needs to be maximized.
     return -elbo

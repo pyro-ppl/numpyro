@@ -9,10 +9,17 @@ import scipy.special as sp
 from jax import device_put, grad, jit, lax, partial, random, tree_map
 from numpy.testing import assert_allclose
 
-from numpyro.distributions.util import xlogy, xlog1py
-from numpyro.util import (adapt_window, build_adaptation_schedule, build_tree,
-                          dual_averaging, find_reasonable_step_size,
-                          velocity_verlet, warmup_adapter, welford_covariance)
+from numpyro.distributions.util import xlog1py, xlogy
+from numpyro.util import (
+    adapt_window,
+    build_adaptation_schedule,
+    build_tree
+    dual_averaging,
+    find_reasonable_step_size,
+    velocity_verlet,
+    warmup_adapter,
+    welford_covariance
+)
 
 logger = logging.getLogger(__name__)
 _zeros = partial(lax.full_like, fill_value=0)

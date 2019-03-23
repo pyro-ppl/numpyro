@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 import numpy as np
-
 from jax import device_put, lax
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
@@ -62,7 +61,7 @@ def _load(dset):
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
-def iter_dataset(dset, batch_size=None, split='train', shuffle=False):
+def iter_dataset(dset, batch_size=None, split='train', shuffle=True):
     arrays = _load(dset)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)

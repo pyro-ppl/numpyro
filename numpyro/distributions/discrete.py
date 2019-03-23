@@ -7,15 +7,15 @@
 # All rights reserved.
 
 import jax.numpy as np
+import numpy as onp
 from jax import device_put, lax
 from jax.lax import lgamma
 from jax.numpy.lax_numpy import _promote_dtypes
-import numpy as onp
-from scipy.stats._discrete_distns import binom_gen, bernoulli_gen
+from scipy.stats._discrete_distns import bernoulli_gen, binom_gen
 from scipy.stats._multivariate import multinomial_gen
 
 from numpyro.distributions.distribution import jax_discrete
-from numpyro.distributions.util import entr, xlogy, xlog1py, promote_shapes
+from numpyro.distributions.util import entr, promote_shapes, xlog1py, xlogy
 
 
 class _binom_gen(jax_discrete, binom_gen):

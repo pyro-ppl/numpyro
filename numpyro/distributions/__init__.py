@@ -1,13 +1,6 @@
-from numpyro.distributions.discrete import bernoulli, binom, multinomial
-from numpyro.distributions.beta import beta
-from numpyro.distributions.cauchy import cauchy
-from numpyro.distributions.expon import expon
-from numpyro.distributions.gamma import gamma
-from numpyro.distributions.lognorm import lognorm
-from numpyro.distributions.normal import norm
-from numpyro.distributions.t import t
-from numpyro.distributions.uniform import uniform
 import numpyro.distributions.patch  # noqa: F401
+from numpyro.distributions.continuous import beta, cauchy, expon, gamma, lognorm, norm, t, uniform
+from numpyro.distributions.discrete import bernoulli, binom, multinomial
 
 __all__ = [
     'beta',

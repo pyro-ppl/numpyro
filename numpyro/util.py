@@ -6,13 +6,12 @@ from collections import namedtuple
 import jax.lax as lax
 import jax.numpy as np
 import jax.random as random
+import numpy as onp
 from jax import grad, jit, partial, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.ops import index_update
 from jax.scipy import special
 from jax.tree_util import register_pytree_node, tree_multimap
-
-import numpy as onp
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):

@@ -1,13 +1,12 @@
 import argparse
 
 import jax.numpy as np
-from jax import random, lax
+from jax import lax, random
 from jax.experimental import optimizers
 from jax.random import PRNGKey
 
 import numpyro.distributions as dist
-
-from numpyro.handlers import sample, param
+from numpyro.handlers import param, sample
 from numpyro.svi import elbo, svi
 
 
@@ -31,7 +30,7 @@ def main(args):
     # Construct an SVI object so we can do variational inference on our
     # model/guide pair.
     opt_init, opt_update = optimizers.adam(args.learning_rate)
-    svi_init, svi_update = svi(model, guide, elbo, opt_init, opt_update)
+    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update)
     rng = PRNGKey(0)
     opt_state = svi_init(rng, model_args=(data,))
 
