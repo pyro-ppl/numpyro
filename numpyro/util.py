@@ -351,7 +351,7 @@ def _biased_transition_prob(current_tree, new_tree, rng, use_multinomial_samplin
     return transition_prob
 
 
-@partial(jit, static_argnums=(5, 6))
+@partial(jit, static_argnums=(5, 6, 7))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                   use_multinomial_sampling, get_transition_prob, iterative_build):
     # Now we combine the current tree and the new tree. Note that outside
@@ -487,7 +487,7 @@ def _double_tree(current_tree, vv_update, kinetic_fn, get_transition_prob,
                                   energy_current, slice_exp_term, max_sliced_energy,
                                   use_multinomial_sampling)
     return _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, transition_key,
-                         use_multinomial_sampling, get_transition_prob)
+                         use_multinomial_sampling, get_transition_prob, iterative_build=False)
 
 
 @jit
@@ -506,11 +506,12 @@ def _leaf_idx_to_ckpt_idx(n):
     return idx_min, idx_max
 
 
+@jit
 def _is_iterative_turning(leaf_idx, inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts):
     r, _ = ravel_pytree(r)
     r_sum, _ = ravel_pytree(r_sum)
 
-    ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idx(num_proposals)
+    ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idx(leaf_idx)
     # we update checkpoints when leaf_idx is even
     r_ckpts, r_sum_ckpts = lax.cond(leaf_idx % 2 == 1,
                                     (r_ckpts, r_sum_ckpts),
@@ -519,12 +520,15 @@ def _is_iterative_turning(leaf_idx, inverse_mass_matrix, r, r_sum, r_ckpts, r_su
                                     lambda x: (index_update(x[0], ckpt_idx_max, r),
                                                index_update(x[1], ckpt_idx_max, r_sum)))
 
-    def _body_fn(i):
-        subtree_r_sum = r_sum - r_sum_ckpts[chpt_idx] + r_ckpts[chpt_idx]
-        # XXX no need to unravel here
-        return _is_turning(inverse_mass_matrix, r_ckpts[chpt_idx], r, subtree_r_sum)
+    def _body_fn(state):
+        i, _ = state
+        subtree_r_sum = r_sum - r_sum_ckpts[i] + r_ckpts[i]
+        # XXX we might not need to unravel here
+        return i - 1, _is_turning(inverse_mass_matrix, r_ckpts[i], r, subtree_r_sum)
 
-    turning = lax.while_loop(lambda i: i <= ckpt_idx_max, _body_fn, ckpt_idx_min)
+    _, turning = lax.while_loop(lambda it: (it[0] >= ckpt_idx_min) & ~it[1],
+                                _body_fn,
+                                (ckpt_idx_max, False))
     return turning, r_ckpts, r_sum_ckpts
 
 
@@ -539,7 +543,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         return (tree.num_proposals < max_num_proposals) & ~turning & ~tree.diverging
 
     def _body_fn(state):
-        current_tree, r_checkpoints, r_sum_checkpoints, rng = state
+        current_tree, _, r_checkpoints, r_sum_checkpoints, rng = state
         rng, transition_rng = random.split(rng)
         z, r, z_grad = _get_leaf(current_tree, going_right)
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
@@ -549,7 +553,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                  transition_rng, use_multinomial_sampling,
                                  _uniform_transition_prob, iterative_build=True)
         turning, r_checkpoints, r_sum_checkpoints = _is_iterative_turning(
-            current_tree.num_proposals - 1,
+            current_tree.num_proposals,
             inverse_mass_matrix,
             new_leaf.r_right,
             new_tree.r_sum,
@@ -561,12 +565,21 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
                                energy_current, slice_exp_term, max_sliced_energy,
                                use_multinomial_sampling)
-    # TODO: we can create these checkpoints 1 time at build_tree method
+    r_init, _ = ravel_pytree(basetree.r_left)
+    # TODO: we can create these checkpoints at build_tree method
     # and reuse it; but let's do this optimization later
     r_checkpoints = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
                              dtype=inverse_mass_matrix.dtype)
+    r_checkpoints = index_update(r_checkpoints, 0, r_init)
     r_sum_checkpoints = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
                                  dtype=inverse_mass_matrix.dtype)
+    r_sum_checkpoints = index_update(r_sum_checkpoints, 0, r_init)
+
+    # FIXME: use native while here is fine
+    #state = (basetree, False, r_checkpoints, r_sum_checkpoints, rng)
+    #while _cond_fn(state):
+    #    state = _body_fn(state)
+    #tree, turning, _, _, _ = state
     tree, turning, _, _, _ = lax.while_loop(
         _cond_fn,
         _body_fn,
