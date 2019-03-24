@@ -2,10 +2,10 @@ import argparse
 import os
 import time
 
-import jax.numpy as np
-import jax.random as random
 import matplotlib.pyplot as plt
-from jax import jit, lax
+
+import jax.numpy as np
+from jax import jit, lax, random
 from jax.experimental import optimizers, stax
 from jax.random import PRNGKey
 

@@ -3,6 +3,9 @@ all: test
 lint: FORCE
 	flake8
 
+format: FORCE
+	isort -rc .
+
 test: lint FORCE
 	pytest -v test
 

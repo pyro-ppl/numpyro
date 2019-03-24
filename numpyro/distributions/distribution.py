@@ -6,16 +6,17 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-import jax.numpy as np
-import jax.scipy
 import numpy as onp
-import scipy.stats as sp
+import scipy.stats as osp_stats
+
+import jax.numpy as np
 from jax import device_put, lax
 from jax.numpy.lax_numpy import _promote_args
 from jax.random import _is_prng_key
+from jax.scipy import stats
 
 
-class jax_continuous(sp.rv_continuous):
+class jax_continuous(osp_stats.rv_continuous):
     def rvs(self, *args, **kwargs):
         rng = kwargs.pop('random_state')
         if rng is None:
@@ -42,26 +43,26 @@ class jax_continuous(sp.rv_continuous):
         return vals * scale + loc
 
     def pdf(self, x, *args, **kwargs):
-        if hasattr(jax.scipy.stats, self.name):
-            return getattr(jax.scipy.stats, self.name).pdf(x, *args, **kwargs)
+        if hasattr(stats, self.name):
+            return getattr(stats, self.name).pdf(x, *args, **kwargs)
         else:
             return super(jax_continuous, self).pdf(x, *args, **kwargs)
 
     def logpdf(self, x, *args, **kwargs):
-        if hasattr(jax.scipy.stats, self.name):
-            return getattr(jax.scipy.stats, self.name).logpdf(x, *args, **kwargs)
+        if hasattr(stats, self.name):
+            return getattr(stats, self.name).logpdf(x, *args, **kwargs)
         else:
             return super(jax_continuous, self).logpdf(x, *args, **kwargs)
 
 
-class jax_discrete(sp.rv_discrete):
+class jax_discrete(osp_stats.rv_discrete):
     args_check = True
 
     # Discrete distribution instances use scipy samplers directly
     # and put the samples on device later.
     def rvs(self, *args, **kwargs):
         kwargs['random_state'] = onp.random.RandomState(kwargs['random_state'])
-        sample = super(sp.rv_discrete, self).rvs(*args, **kwargs)
+        sample = super(osp_stats.rv_discrete, self).rvs(*args, **kwargs)
         return device_put(sample)
 
     def logpmf(self, k, *args, **kwds):

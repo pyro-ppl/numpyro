@@ -1,11 +1,13 @@
 from contextlib import contextmanager
 
+import scipy.special as osp_special
+
 import jax.numpy as np
-import scipy.special as sp
-from jax import jit, lax, partial, random
+from jax import jit, lax, random
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
+from jax.util import partial
 
 from numpyro.distributions.distribution import jax_discrete
 
@@ -213,14 +215,14 @@ def xlogy_translate(c, x, y, jaxpr, aval, consts):
 
 
 def xlogy_jvp_lhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(sp.xlogy, x, y)
-    g, y = _promote_args_like(sp.xlogy, g, y)
+    x, y = _promote_args_like(osp_special.xlogy, x, y)
+    g, y = _promote_args_like(osp_special.xlogy, g, y)
     return lax._safe_mul(lax._brcast(g, y), lax._brcast(lax.log(y), g))
 
 
 def xlogy_jvp_rhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(sp.xlogy, x, y)
-    g, x = _promote_args_like(sp.xlogy, g, x)
+    x, y = _promote_args_like(osp_special.xlogy, x, y)
+    g, x = _promote_args_like(osp_special.xlogy, g, x)
     jac = lax._safe_mul(lax._brcast(x, y), lax._brcast(lax.reciprocal(y), x))
     return lax.mul(lax._brcast(g, jac), jac)
 
@@ -243,14 +245,14 @@ def xlog1py_impl(x, y):
 
 
 def xlog1py_jvp_lhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(sp.xlog1py, x, y)
-    g, y = _promote_args_like(sp.xlog1py, g, y)
+    x, y = _promote_args_like(osp_special.xlog1py, x, y)
+    g, y = _promote_args_like(osp_special.xlog1py, g, y)
     return lax._safe_mul(lax._brcast(g, y), lax._brcast(lax.log1p(y), g))
 
 
 def xlog1py_jvp_rhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(sp.xlog1py, x, y)
-    g, x = _promote_args_like(sp.xlog1py, g, x)
+    x, y = _promote_args_like(osp_special.xlog1py, x, y)
+    g, x = _promote_args_like(osp_special.xlog1py, g, x)
     jac = lax._safe_mul(lax._brcast(x, y), lax._brcast(lax.reciprocal(1 + y), x))
     return lax.mul(lax._brcast(g, jac), jac)
 
