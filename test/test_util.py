@@ -2,12 +2,14 @@ import logging
 import os
 from collections import namedtuple
 
-import jax.numpy as np
 import numpy as onp
 import pytest
-import scipy.special as sp
-from jax import device_put, grad, jit, lax, partial, tree_map
+import scipy.special as osp_special
 from numpy.testing import assert_allclose
+
+import jax.numpy as np
+from jax import device_put, grad, jit, lax, tree_map
+from jax.util import partial
 
 from numpyro.distributions.util import xlog1py, xlogy
 from numpyro.util import (
@@ -32,7 +34,7 @@ _zeros = partial(lax.full_like, fill_value=0)
 @pytest.mark.parametrize('jit_fn', [False, True])
 def test_xlogy(x, y, jit_fn):
     fn = xlogy if not jit_fn else jit(xlogy)
-    assert np.allclose(fn(x, y), sp.xlogy(x, y))
+    assert_allclose(fn(x, y), osp_special.xlogy(x, y))
 
 
 @pytest.mark.parametrize('x, y, grad1, grad2', [
@@ -60,7 +62,7 @@ def test_xlogy_jac(x, y, grad1, grad2):
 @pytest.mark.parametrize('jit_fn', [False, True])
 def test_xlog1py(x, y, jit_fn):
     fn = xlog1py if not jit_fn else jit(xlog1py)
-    assert_allclose(fn(x, y), sp.xlog1py(x, y))
+    assert_allclose(fn(x, y), osp_special.xlog1py(x, y))
 
 
 @pytest.mark.parametrize('x, y, grad1, grad2', [

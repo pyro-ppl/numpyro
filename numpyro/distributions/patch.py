@@ -1,4 +1,5 @@
 import scipy
+import scipy.stats
 
 
 def patch_dependency(target, root_module):

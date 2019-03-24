@@ -1,11 +1,10 @@
-from __future__ import division
-
 import random
 from collections import namedtuple
 
+import numpy as onp
+
 import jax.lax as lax
 import jax.numpy as np
-import numpy as onp
 from jax import grad, value_and_grad
 from jax.tree_util import tree_multimap
 
