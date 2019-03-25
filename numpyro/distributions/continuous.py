@@ -9,7 +9,7 @@
 
 import jax.numpy as np
 import jax.random as random
-from jax.scipy import special
+from jax.scipy.special import digamma, gammaln
 
 from numpyro.distributions.distribution import jax_continuous
 from numpyro.distributions.util import standard_gamma
@@ -106,7 +106,7 @@ class gamma_gen(jax_continuous):
         return a, a, 2.0 / np.sqrt(a), 6.0 / a
 
     def _entropy(self, a):
-        return special.digamma(a) * (1 - a) + a + special.gammaln(a)
+        return digamma(a) * (1 - a) + a + gammaln(a)
 
 
 _norm_pdf_C = np.sqrt(2 * np.pi)
@@ -177,13 +177,13 @@ class t_gen(jax_continuous):
         # t.pdf(x, df) = ---------------------------------------------------
         #                sqrt(pi*df) * gamma(df/2) * (1+x**2/df)**((df+1)/2)
         r = np.asarray(df * 1.0)
-        Px = np.exp(special.gammaln((r + 1) / 2) - special.gammaln(r / 2))
+        Px = np.exp(gammaln((r + 1) / 2) - gammaln(r / 2))
         Px = Px / np.sqrt(r * np.pi) * (1 + (x ** 2) / r) ** ((r + 1) / 2)
         return Px
 
     def _logpdf(self, x, df):
         r = df * 1.0
-        lPx = special.gammaln((r + 1) / 2) - special.gammaln(r / 2)
+        lPx = gammaln((r + 1) / 2) - gammaln(r / 2)
         lPx = lPx - (0.5 * np.log(r * np.pi) + (r + 1) / 2 * np.log(1 + (x ** 2) / r))
         return lPx
 

@@ -1,14 +1,15 @@
 from functools import reduce
 from operator import mul
 
+import numpy as onp
+import pytest
+import scipy.stats as osp_stats
+from numpy.testing import assert_allclose
+
 import jax
 import jax.numpy as np
 import jax.random as random
-import numpy as onp
-import pytest
-import scipy.stats as sp
 from jax import grad, lax
-from numpy.testing import assert_allclose
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import standard_gamma
@@ -51,8 +52,8 @@ def test_shape(jax_dist, loc, scale, prepend_shape):
 
 
 def idfn(param):
-    if isinstance(param, (sp._distn_infrastructure.rv_generic,
-                          sp._multivariate.multi_rv_generic)):
+    if isinstance(param, (osp_stats._distn_infrastructure.rv_generic,
+                          osp_stats._multivariate.multi_rv_generic)):
         return param.name
     return repr(param)
 
@@ -73,7 +74,7 @@ def idfn(param):
 ])
 def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     rng = random.PRNGKey(0)
-    sp_dist = getattr(sp, jax_dist.name)
+    sp_dist = getattr(osp_stats, jax_dist.name)
     expected_shape = np.shape(sp_dist.rvs(*dist_args))
     samples = jax_dist.rvs(*dist_args, random_state=rng)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
@@ -137,7 +138,7 @@ def test_logprob(jax_dist, loc_scale):
     rng = random.PRNGKey(0)
     args = (1,) * jax_dist.numargs + loc_scale
     samples = jax_dist.rvs(*args, random_state=rng)
-    sp_dist = getattr(sp, jax_dist.name)
+    sp_dist = getattr(osp_stats, jax_dist.name)
     assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args), atol=1e-6)
 
 
@@ -158,7 +159,7 @@ def test_logprob(jax_dist, loc_scale):
 ])
 def test_discrete_logpmf(jax_dist, dist_args, shape):
     rng = random.PRNGKey(0)
-    sp_dist = getattr(sp, jax_dist.name)
+    sp_dist = getattr(osp_stats, jax_dist.name)
     samples = jax_dist.rvs(*dist_args, random_state=rng)
     assert_allclose(jax_dist.logpmf(samples, *dist_args),
                     sp_dist.logpmf(onp.asarray(samples), *dist_args),
@@ -225,8 +226,9 @@ def test_standard_gamma_grad(alpha):
     actual_grad = grad(lambda x: np.sum(standard_gamma(rng, x)))(alphas)
 
     eps = 0.01 * alpha / (1.0 + np.sqrt(alpha))
-    cdf_dot = (sp.gamma.cdf(z, alpha + eps) - sp.gamma.cdf(z, alpha - eps)) / (2 * eps)
-    pdf = sp.gamma.pdf(z, alpha)
+    cdf_dot = (osp_stats.gamma.cdf(z, alpha + eps)
+               - osp_stats.gamma.cdf(z, alpha - eps)) / (2 * eps)
+    pdf = osp_stats.gamma.pdf(z, alpha)
     expected_grad = -cdf_dot / pdf
 
     assert_allclose(actual_grad, expected_grad, rtol=0.0005)

@@ -6,13 +6,14 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-import jax.numpy as np
 import numpy as onp
-from jax import device_put, lax
-from jax.lax import lgamma
-from jax.numpy.lax_numpy import _promote_dtypes
 from scipy.stats._discrete_distns import bernoulli_gen, binom_gen
 from scipy.stats._multivariate import multinomial_gen
+
+import jax.numpy as np
+from jax import device_put, lax
+from jax.numpy.lax_numpy import _promote_dtypes
+from jax.scipy.special import gammaln
 
 from numpyro.distributions.distribution import jax_discrete
 from numpyro.distributions.util import entr, promote_shapes, xlog1py, xlogy
@@ -22,7 +23,7 @@ class _binom_gen(jax_discrete, binom_gen):
     def _logpmf(self, x, n, p):
         k = np.floor(x)
         n, p = _promote_dtypes(n, p)
-        combiln = (lgamma(n + 1) - (lgamma(k + 1) + lgamma(n - k + 1)))
+        combiln = (gammaln(n + 1) - (gammaln(k + 1) + gammaln(n - k + 1)))
         return combiln + xlogy(k, p) + xlog1py(n - k, -p)
 
     def _entropy(self, n, p):
@@ -79,14 +80,13 @@ class _multinomial_gen(multinomial_gen):
                              (x.shape[-1], p.shape[-1]))
 
         # true for x out of the domain
-        cond = np.any(xx != x, axis=-1)
-        cond |= np.any(xx < 0, axis=-1)
+        cond = np.any(xx != x, axis=-1) | np.any(xx < 0, axis=-1)
         cond = cond | (np.sum(xx, axis=-1) != n)
         return x, cond
 
     def _logpmf(self, x, n, p):
         n, p, x = _promote_dtypes(n, p, x)
-        return lgamma(n+1) + np.sum(xlogy(x, p) - lgamma(x+1), axis=-1)
+        return gammaln(n + 1) + np.sum(xlogy(x, p) - gammaln(x + 1), axis=-1)
 
     def logpmf(self, x, n, p, args_check=True):
         n, p, npcond = self._process_parameters(n, p)
@@ -102,17 +102,16 @@ class _multinomial_gen(multinomial_gen):
     def entropy(self, n, p):
         n, p, npcond = self._process_parameters(n, p)
 
-        x = np.arange(1, np.max(n)+1)
+        x = np.arange(1, np.max(n) + 1)
 
-        term1 = n*np.sum(entr(p), axis=-1)
-        term1 -= lgamma(n+1)
+        term1 = n * np.sum(entr(p), axis=-1) - gammaln(n + 1)
 
         n = n[..., np.newaxis]
         new_axes_needed = max(p.ndim, n.ndim) - x.ndim + 1
-        x.shape += (1,)*new_axes_needed
+        x.shape += (1,) * new_axes_needed
 
-        term2 = np.sum(binom.pmf(x, n, p)*lgamma(x+1),
-                       axis=(-1, -1-new_axes_needed))
+        term2 = np.sum(binom.pmf(x, n, p) * gammaln(x + 1),
+                       axis=(-1, -1 - new_axes_needed))
 
         return self._checkresult(term1 + term2, npcond, np.nan)
 

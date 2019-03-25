@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
 import numpy as np
+
 from jax import device_put, lax
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
