@@ -171,7 +171,8 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, r_generator, z, init_ste
     We are going to find a step_size which make accept_prob (Metropolis correction)
     near the target_accept_prob. If accept_prob:=exp(-delta_energy) is small,
     then we have to decrease step_size; otherwise, increase step_size.
-    
+    """
+
     target_accept_prob = np.log(0.8)
 
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
@@ -246,6 +247,8 @@ def build_adaptation_schedule(num_steps):
 def warmup_adapter(num_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    diag_mass=True, target_accept_prob=0.8):
+    # XXX here we use the default dual_averaging, welford_covariance,
+    # build_adaptation_schedule if users need to 
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=diag_mass)
     adaptation_schedule = np.array(build_adaptation_schedule(num_steps))
