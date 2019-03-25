@@ -1,5 +1,4 @@
 import logging
-import os
 from collections import namedtuple
 
 import numpy as onp
