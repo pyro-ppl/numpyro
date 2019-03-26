@@ -103,4 +103,4 @@ def test_standard_gamma_grad(alpha):
     pdf = osp_stats.gamma.pdf(z, alpha)
     expected_grad = -cdf_dot / pdf
 
-    assert_allclose(actual_grad, expected_grad, rtol=0.0006)
+    assert_allclose(actual_grad, expected_grad, rtol=0.0005)
