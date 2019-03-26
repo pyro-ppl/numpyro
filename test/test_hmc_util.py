@@ -1,18 +1,12 @@
 import logging
-import os
 from collections import namedtuple
 
 import numpy as onp
 import pytest
-<<<<<<< HEAD:test/test_util.py
-import scipy.special as sp
-from jax import device_put, grad, jit, lax, partial, random, tree_map
-=======
->>>>>>> master:test/test_hmc_util.py
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import device_put, grad, jit, lax, tree_map
+from jax import device_put, grad, jit, lax, random, tree_map
 
 from numpyro.hmc_util import (
     adapt_window,
@@ -22,7 +16,9 @@ from numpyro.hmc_util import (
     find_reasonable_step_size,
     velocity_verlet,
     warmup_adapter,
-    welford_covariance
+    welford_covariance,
+    _leaf_idx_to_ckpt_idxs,
+    _is_iterative_turning,
 )
 
 logger = logging.getLogger(__name__)
@@ -310,8 +306,35 @@ def test_warmup_adapter(jitted):
     assert_allclose(final_inverse_mass_matrix, inverse_mass_matrix)
 
 
+@pytest.mark.parametrize('leaf_idx ckpt_idxs', [
+    (6, (3, 2)),
+    (7, (0, 2)),
+    (13, (2, 2)),
+    (15, (0, 3)),
+])
+def test_leaf_idx_to_ckpt_idx(leaf_idx, ckpt_idxs):
+    assert _leaf_idx_to_ckpt_idxs(leaf_idx) == ckpt_idxs
+
+
+@pytest.mark.parametrize('ckpt_idxs, expected_turning', [
+    ((3, 2), False),
+    ((3, 3), True),
+    ((0, 2), False),
+    ((1, 3), True),
+])
+def test_is_iterative_turning(ckpt_idxs, expected_turning):
+    inverse_mass_matrix = np.ones(1)
+    r = 1.
+    r_sum = 2.
+    r_ckpts = np.array([1., 2., 3., -2.])
+    r_sum_ckpts = r_ckpts + 1
+
+    actual_turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
+                                           *ckpt_idxs)
+    assert expected_turning == actual_turning
+
+
 @pytest.mark.parametrize('step_size', [0.01, 1., 100.])
-@pytest.mark.parametrize('use_multinomial_sampling', [True, False])
 @pytest.mark.parametrize('iterative_build', [True, False])
 def test_build_tree(step_size, use_multinomial_sampling, iterative_build):
     def kinetic_fn(p):
