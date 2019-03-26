@@ -128,13 +128,13 @@ def velocity_verlet(potential_fn, kinetic_fn):
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         return IntegratorState(z, r, potential_energy, z_grad)
 
-    def update_fn(step_size, state):
+    def update_fn(step_size, state, inv_mass_matrix):
         """
         Single step velocity verlet.
         """
         z, r, _, z_grad = state
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
-        r_grad = grad(kinetic_fn)(r)
+        r_grad = grad(kinetic_fn)(r, inv_mass_matrix)
         z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1)
