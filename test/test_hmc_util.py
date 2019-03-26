@@ -302,7 +302,7 @@ def test_warmup_adapter(jitted):
     assert_allclose(final_inverse_mass_matrix, inverse_mass_matrix)
 
 
-@pytest.mark.parametrize('leaf_idx ckpt_idxs', [
+@pytest.mark.parametrize('leaf_idx, ckpt_idxs', [
     (6, (3, 2)),
     (7, (0, 2)),
     (13, (2, 2)),
@@ -315,13 +315,14 @@ def test_leaf_idx_to_ckpt_idx(leaf_idx, ckpt_idxs):
 @pytest.mark.parametrize('ckpt_idxs, expected_turning', [
     ((3, 2), False),
     ((3, 3), True),
-    ((0, 2), False),
+    ((0, 0), False),
+    ((0, 1), True),
     ((1, 3), True),
 ])
 def test_is_iterative_turning(ckpt_idxs, expected_turning):
     inverse_mass_matrix = np.ones(1)
     r = 1.
-    r_sum = 2.
+    r_sum = 3.
     r_ckpts = np.array([1., 2., 3., -2.])
     r_sum_ckpts = r_ckpts + 1
 
