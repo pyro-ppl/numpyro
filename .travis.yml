@@ -6,8 +6,16 @@ env:
     global:
         - PYTHONPATH=$PWD:$PYTHONPATH
 
+cache:
+    directories:
+        - $HOME/.data
+
+dist: xenial
+
 install:
     - pip install -U pip
+    - pip install jaxlib
+    - pip install -e git+git://github.com/google/jax.git@850e8a756a78388605745d241a7f25daa371a23b#egg=jax
     - pip install .[test]
     - pip freeze
 

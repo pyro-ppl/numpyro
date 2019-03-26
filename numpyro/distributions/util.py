@@ -1,10 +1,15 @@
+from contextlib import contextmanager
+
+import scipy.special as osp_special
+
 import jax.numpy as np
 from jax import jit, lax, random, partial, vmap
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
+from jax.util import partial
 
-import scipy.special as sp
+from numpyro.distributions.distribution import jax_discrete
 
 
 def _standard_gamma_one(key, alpha):
@@ -22,6 +27,7 @@ def _standard_gamma_one(key, alpha):
     def _cond_fn(kXVU):
         _, X, V, U = kXVU
         # TODO: find a way to avoid evaluating second condition which involves log+log
+        # note: lax.cond does not support batching rule yet
         return (U >= 1.0 - 0.0331 * X * X) & (np.log(U) >= 0.5 * X + d * (1.0 - V + np.log(V)))
 
     def _body_fn(kXVU):
@@ -211,14 +217,14 @@ def xlogy_translate(c, x, y, jaxpr, aval, consts):
 
 
 def xlogy_jvp_lhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(sp.xlogy, x, y)
-    g, y = _promote_args_like(sp.xlogy, g, y)
+    x, y = _promote_args_like(osp_special.xlogy, x, y)
+    g, y = _promote_args_like(osp_special.xlogy, g, y)
     return lax._safe_mul(lax._brcast(g, y), lax._brcast(lax.log(y), g))
 
 
 def xlogy_jvp_rhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(sp.xlogy, x, y)
-    g, x = _promote_args_like(sp.xlogy, g, x)
+    x, y = _promote_args_like(osp_special.xlogy, x, y)
+    g, x = _promote_args_like(osp_special.xlogy, g, x)
     jac = lax._safe_mul(lax._brcast(x, y), lax._brcast(lax.reciprocal(y), x))
     return lax.mul(lax._brcast(g, jac), jac)
 
@@ -241,14 +247,14 @@ def xlog1py_impl(x, y):
 
 
 def xlog1py_jvp_lhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(sp.xlog1py, x, y)
-    g, y = _promote_args_like(sp.xlog1py, g, y)
+    x, y = _promote_args_like(osp_special.xlog1py, x, y)
+    g, y = _promote_args_like(osp_special.xlog1py, g, y)
     return lax._safe_mul(lax._brcast(g, y), lax._brcast(lax.log1p(y), g))
 
 
 def xlog1py_jvp_rhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(sp.xlog1py, x, y)
-    g, x = _promote_args_like(sp.xlog1py, g, x)
+    x, y = _promote_args_like(osp_special.xlog1py, x, y)
+    g, x = _promote_args_like(osp_special.xlog1py, g, x)
     jac = lax._safe_mul(lax._brcast(x, y), lax._brcast(lax.reciprocal(1 + y), x))
     return lax.mul(lax._brcast(g, jac), jac)
 
@@ -291,3 +297,13 @@ def binomial(key, p, n=1, shape=()):
     mask = (np.arange(n_max) > n).astype(uniforms.dtype)
     p, uniforms = promote_shapes(p, uniforms)
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
+
+
+@contextmanager
+def validation_disabled():
+    discrete_dist_args_check = jax_discrete.args_check
+    try:
+        jax_discrete.args_check = False
+        yield
+    finally:
+        jax_discrete.args_check = discrete_dist_args_check

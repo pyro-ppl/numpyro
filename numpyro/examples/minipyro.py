@@ -1,14 +1,13 @@
 import argparse
 
 import jax.numpy as np
-from jax import random
+from jax import lax, random
 from jax.experimental import optimizers
 from jax.random import PRNGKey
 
 import numpyro.distributions as dist
-
-from numpyro.handlers import sample, param
-from numpyro.svi import SVI, elbo
+from numpyro.handlers import param, sample
+from numpyro.svi import elbo, svi
 
 
 def model(data):
@@ -18,7 +17,7 @@ def model(data):
 
 # Define a guide (i.e. variational distribution) with a Normal
 # distribution over the latent random variable `loc`.
-def guide(data):
+def guide():
     guide_loc = param("guide_loc", 0.)
     guide_scale = np.exp(param("guide_scale_log", 0.))
     sample("loc", dist.norm(guide_loc, guide_scale))
@@ -31,14 +30,19 @@ def main(args):
     # Construct an SVI object so we can do variational inference on our
     # model/guide pair.
     opt_init, opt_update = optimizers.adam(args.learning_rate)
-    svi = SVI(model, guide, opt_init, opt_update, elbo)
+    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update)
+    rng = PRNGKey(0)
+    opt_state = svi_init(rng, model_args=(data,))
 
-    # Basic training loop
-    opt_state = None
-    for i in range(args.num_steps):
-        loss, opt_state = svi.step(i, data, opt_state=opt_state)
-        if i % 100 == 0:
-            print("step {} loss = {}".format(i, loss))
+    # Training loop
+    rng, = random.split(rng, 1)
+
+    def body_fn(i, val):
+        opt_state_, rng_ = val
+        loss, opt_state_, rng_ = svi_update(i, opt_state_, rng_, model_args=(data,))
+        return opt_state_, rng_
+
+    opt_state, _ = lax.fori_loop(0, args.num_steps, body_fn, (opt_state, rng))
 
     # Report the final values of the variational parameters
     # in the guide after training.
