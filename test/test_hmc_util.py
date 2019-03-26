@@ -240,11 +240,7 @@ def test_build_adaptation_schedule(num_steps, expected):
     assert adaptation_schedule == expected_schedule
 
 
-@pytest.mark.parametrize('jitted', [
-    pytest.param(True, marks=pytest.mark.xfail(
-        reason="lax.cond issue: https://github.com/google/jax/issues/514")),
-    False])
-@pytest.mark.skipif('CI' in os.environ, reason='needs next release of JAX')
+@pytest.mark.parametrize('jitted', [True, False])
 def test_warmup_adapter(jitted):
     num_steps = 150
     adaptation_schedule = build_adaptation_schedule(num_steps)
