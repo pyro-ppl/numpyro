@@ -333,7 +333,7 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
 
 @pytest.mark.parametrize('step_size', [0.01, 1., 100.])
 @pytest.mark.parametrize('iterative_build', [True, False])
-def test_build_tree(step_size, use_multinomial_sampling, iterative_build):
+def test_build_tree(step_size, iterative_build):
     def kinetic_fn(p):
         return 0.5 * p ** 2
 
@@ -346,8 +346,7 @@ def test_build_tree(step_size, use_multinomial_sampling, iterative_build):
     rng = random.PRNGKey(0)
 
     def f(vv_state):
-        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
-                          step_size, rng, use_multinomial_sampling=use_multinomial_sampling)
+        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix, step_size, rng)
         return tree
 
     fn = jit(f) if iterative_build else f
