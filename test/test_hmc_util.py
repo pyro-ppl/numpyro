@@ -82,10 +82,10 @@ Example = namedtuple('test_case', ['model', 'args'])
 
 
 def register_model(init_args):
-    """
+    '''
     Register the model along with each of the model arguments
     as test examples.
-    """
+    '''
     def register_fn(model):
         for args in init_args:
             test_example = Example(model, args)
@@ -226,7 +226,7 @@ def test_find_reasonable_step_size(jitted, init_step_size):
         assert step_size < threshold
 
 
-@pytest.mark.parametrize("num_steps, expected", [
+@pytest.mark.parametrize('num_steps, expected', [
     (18, [(0, 17)]),
     (50, [(0, 6), (7, 44), (45, 49)]),
     (100, [(0, 14), (15, 89), (90, 99)]),
@@ -332,8 +332,7 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
 
 
 @pytest.mark.parametrize('step_size', [0.01, 1., 100.])
-@pytest.mark.parametrize('iterative_build', [True, False])
-def test_build_tree(step_size, iterative_build):
+def test_build_tree(step_size):
     def kinetic_fn(p):
         return 0.5 * p ** 2
 
@@ -345,11 +344,12 @@ def test_build_tree(step_size, iterative_build):
     inverse_mass_matrix = np.array([1.])
     rng = random.PRNGKey(0)
 
-    def f(vv_state):
-        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix, step_size, rng)
+    @jit
+    def fn(vv_state):
+        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
+                          step_size, rng)
         return tree
 
-    fn = jit(f) if iterative_build else f
     tree = fn(vv_state)
 
     assert tree.num_proposals >= 2 ** (tree.depth - 1)
@@ -367,3 +367,41 @@ def test_build_tree(step_size, iterative_build):
     # for small step_size, assert that it should take a while to meet the terminate condition
     if step_size < 0.1:
         assert tree.num_proposals > 10
+
+
+@pytest.mark.parametrize('step_size', [0.01, 1., 100.])
+def test_build_tree_iterative_agree_recursive(step_size):
+    def kinetic_fn(p):
+        return 0.5 * p ** 2
+
+    def potential_fn(q):
+        return 0.5 * q ** 2
+
+    vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
+    vv_state = vv_init(0.0, 1.0)
+    inverse_mass_matrix = np.array([1.])
+    rng = random.PRNGKey(0)
+
+    @jit
+    def iterative_fn(vv_state):
+        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
+                          step_size, rng, iterative_build=True)
+        return tree
+
+    def recursive_fn(vv_state):
+        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
+                          step_size, rng, iterative_build=False)
+        return tree
+
+    itree = iterative_fn(vv_state)
+    rtree = recursive_fn(vv_state)
+
+    for field in ['z_left', 'r_left', 'z_left_grad', 'z_right', 'r_right', 'z_right_grad',
+                  'depth', 'weight', 'turning', 'diverging', 'num_proposals']:
+        assert getattr(itree, field) == getattr(rtree, field), 'disagree at {}'.format(field)
+
+    # due to precision, (a + b + c + d) might be different from ((a + b) + (c + d));
+    # hence we can get a little bit different result for r_sum and sum_accept_probs
+    # (and might be the weight too)
+    assert_allclose(itree.r_sum, rtree.r_sum, rtol=1e-6)
+    assert_allclose(itree.sum_accept_probs, rtree.sum_accept_probs, rtol=1e-6)

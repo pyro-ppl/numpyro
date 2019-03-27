@@ -162,7 +162,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, posi
     return step_size
 
 
-adapt_window = namedtuple("adapt_window", ["start", "end"])
+adapt_window = namedtuple('adapt_window', ['start', 'end'])
 
 
 def build_adaptation_schedule(num_steps):
@@ -275,11 +275,11 @@ def warmup_adapter(num_steps, find_reasonable_step_size=None,
 
 # TODO: we don't need to store z_proposal_pe, z_proposal_grad if we don't need
 # to cache pe and grad for the next update step
-_TreeInfo = namedtuple("_TreeInfo", ["z_left", "r_left", "z_left_grad",
-                                     "z_right", "r_right", "z_right_grad",
-                                     "z_proposal", "z_proposal_pe", "z_proposal_grad",
-                                     "depth", "weight", "r_sum", "turning", "diverging",
-                                     "sum_accept_probs", "num_proposals"])
+_TreeInfo = namedtuple('_TreeInfo', ['z_left', 'r_left', 'z_left_grad',
+                                     'z_right', 'r_right', 'z_right_grad',
+                                     'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
+                                     'depth', 'weight', 'r_sum', 'turning', 'diverging',
+                                     'sum_accept_probs', 'num_proposals'])
 
 
 # let JAX recognize _TreeInfo structure
@@ -310,14 +310,14 @@ def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
     return turning_at_left | turning_at_right
 
 
-def _uniform_transition_prob(current_subtree, new_subtree, rng):
+def _uniform_transition_kernel(current_tree, new_tree):
     # This function computes transition prob for subtrees (ref [2], section A.3.1).
     # e^new_weight / (e^new_weight + e^current_weight)
-    transition_prob = expit(new_subtree.weight - current_subtree.weight)
+    transition_prob = expit(new_tree.weight - current_tree.weight)
     return transition_prob
 
 
-def _biased_transition_prob(current_tree, new_tree, rng):
+def _biased_transition_kernel(current_tree, new_tree):
     # This function computes transition prob for main trees (ref [2], section A.3.2).
     transition_prob = np.exp(new_tree.weight - current_tree.weight)
     # If new tree is turning or diverging, we won't move the proposal
@@ -345,10 +345,10 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
     )
 
     transition_prob = lax.cond(biased_transition,
-                               (current_tree, new_tree, rng),
-                               lambda args: _biased_transition_prob(*args),
-                               (current_tree, new_tree, rng),
-                               lambda args: _uniform_transition_prob(*args))
+                               (current_tree, new_tree),
+                               lambda trees: _biased_transition_kernel(trees[0], trees[1]),
+                               (current_tree, new_tree),
+                               lambda trees: _uniform_transition_kernel(trees[0], trees[1]))
 
     transition = random.bernoulli(rng, transition_prob)
     z_proposal, z_proposal_pe, z_proposal_grad = lax.cond(
