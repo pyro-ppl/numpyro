@@ -6,16 +6,19 @@ import pytest
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import device_put, grad, jit, lax, tree_map
+from jax import device_put, grad, jit, lax, random, tree_map
 
 from numpyro.hmc_util import (
     adapt_window,
     build_adaptation_schedule,
+    build_tree,
     dual_averaging,
     find_reasonable_step_size,
     velocity_verlet,
     warmup_adapter,
-    welford_covariance
+    welford_covariance,
+    _leaf_idx_to_ckpt_idxs,
+    _is_iterative_turning,
 )
 
 logger = logging.getLogger(__name__)
@@ -223,7 +226,7 @@ def test_find_reasonable_step_size(jitted, init_step_size):
         assert step_size < threshold
 
 
-@pytest.mark.parametrize("num_steps, expected", [
+@pytest.mark.parametrize('num_steps, expected', [
     (18, [(0, 17)]),
     (50, [(0, 6), (7, 44), (45, 49)]),
     (100, [(0, 14), (15, 89), (90, 99)]),
@@ -297,3 +300,108 @@ def test_warmup_adapter(jitted):
     # Verifies that inverse_mass_matrix does not change during the last window
     # despite z_flat changes w.r.t time t,
     assert_allclose(final_inverse_mass_matrix, inverse_mass_matrix)
+
+
+@pytest.mark.parametrize('leaf_idx, ckpt_idxs', [
+    (6, (3, 2)),
+    (7, (0, 2)),
+    (13, (2, 2)),
+    (15, (0, 3)),
+])
+def test_leaf_idx_to_ckpt_idx(leaf_idx, ckpt_idxs):
+    assert _leaf_idx_to_ckpt_idxs(leaf_idx) == ckpt_idxs
+
+
+@pytest.mark.parametrize('ckpt_idxs, expected_turning', [
+    ((3, 2), False),
+    ((3, 3), True),
+    ((0, 0), False),
+    ((0, 1), True),
+    ((1, 3), True),
+])
+def test_is_iterative_turning(ckpt_idxs, expected_turning):
+    inverse_mass_matrix = np.ones(1)
+    r = 1.
+    r_sum = 3.
+    r_ckpts = np.array([1., 2., 3., -2.])
+    r_sum_ckpts = r_ckpts + 1
+
+    actual_turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
+                                           *ckpt_idxs)
+    assert expected_turning == actual_turning
+
+
+@pytest.mark.parametrize('step_size', [0.01, 1., 100.])
+def test_build_tree(step_size):
+    def kinetic_fn(p):
+        return 0.5 * p ** 2
+
+    def potential_fn(q):
+        return 0.5 * q ** 2
+
+    vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
+    vv_state = vv_init(0.0, 1.0)
+    inverse_mass_matrix = np.array([1.])
+    rng = random.PRNGKey(0)
+
+    @jit
+    def fn(vv_state):
+        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
+                          step_size, rng)
+        return tree
+
+    tree = fn(vv_state)
+
+    assert tree.num_proposals >= 2 ** (tree.depth - 1)
+
+    assert tree.sum_accept_probs <= tree.num_proposals
+
+    if tree.depth < 10:
+        assert tree.turning | tree.diverging
+
+    # for large step_size, assert that diverging will happen in 1 step
+    if step_size > 10:
+        assert tree.diverging
+        assert tree.num_proposals == 1
+
+    # for small step_size, assert that it should take a while to meet the terminate condition
+    if step_size < 0.1:
+        assert tree.num_proposals > 10
+
+
+@pytest.mark.parametrize('step_size', [0.01, 1., 100.])
+def test_build_tree_iterative_agree_recursive(step_size):
+    def kinetic_fn(p):
+        return 0.5 * p ** 2
+
+    def potential_fn(q):
+        return 0.5 * q ** 2
+
+    vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
+    vv_state = vv_init(0.0, 1.0)
+    inverse_mass_matrix = np.array([1.])
+    rng = random.PRNGKey(0)
+
+    @jit
+    def iterative_fn(vv_state):
+        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
+                          step_size, rng, iterative_build=True)
+        return tree
+
+    def recursive_fn(vv_state):
+        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
+                          step_size, rng, iterative_build=False)
+        return tree
+
+    itree = iterative_fn(vv_state)
+    rtree = recursive_fn(vv_state)
+
+    for field in ['z_left', 'r_left', 'z_left_grad', 'z_right', 'r_right', 'z_right_grad',
+                  'depth', 'weight', 'turning', 'diverging', 'num_proposals']:
+        assert getattr(itree, field) == getattr(rtree, field), 'disagree at {}'.format(field)
+
+    # due to precision, (a + b + c + d) might be different from ((a + b) + (c + d));
+    # hence we can get a little bit different result for r_sum and sum_accept_probs
+    # (and might be the weight too)
+    assert_allclose(itree.r_sum, rtree.r_sum, rtol=1e-6)
+    assert_allclose(itree.sum_accept_probs, rtree.sum_accept_probs, rtol=1e-6)
