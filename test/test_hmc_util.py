@@ -9,16 +9,16 @@ import jax.numpy as np
 from jax import device_put, grad, jit, lax, random, tree_map
 
 from numpyro.hmc_util import (
-    adapt_window,
+    AdaptWindow,
+    _is_iterative_turning,
+    _leaf_idx_to_ckpt_idxs,
     build_adaptation_schedule,
     build_tree,
     dual_averaging,
     find_reasonable_step_size,
     velocity_verlet,
     warmup_adapter,
-    welford_covariance,
-    _leaf_idx_to_ckpt_idxs,
-    _is_iterative_turning,
+    welford_covariance
 )
 
 logger = logging.getLogger(__name__)
@@ -236,7 +236,7 @@ def test_find_reasonable_step_size(jitted, init_step_size):
 ])
 def test_build_adaptation_schedule(num_steps, expected):
     adaptation_schedule = build_adaptation_schedule(num_steps)
-    expected_schedule = [adapt_window(i, j) for i, j in expected]
+    expected_schedule = [AdaptWindow(i, j) for i, j in expected]
     assert adaptation_schedule == expected_schedule
 
 

@@ -1,11 +1,24 @@
-from collections import namedtuple
-
 import jax.numpy as np
 from jax import grad, jit, lax, partial, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.ops import index_update
 from jax.scipy.special import expit
-from jax.tree_util import register_pytree_node, tree_multimap
+from jax.tree_util import tree_multimap
+
+from numpyro.util import laxtuple
+
+
+AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
+AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "ss_state", "mm_state", "window_idx"])
+IntegratorState = laxtuple("IntegratorState", ["z", "r", "potential_energy", "z_grad"])
+
+# TODO: we don't need to store z_proposal_pe, z_proposal_grad if we don't need
+# to cache pe and grad for the next update step
+_TreeInfo = laxtuple('_TreeInfo', ['z_left', 'r_left', 'z_left_grad',
+                                   'z_right', 'r_right', 'z_right_grad',
+                                   'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
+                                   'depth', 'weight', 'r_sum', 'turning', 'diverging',
+                                   'sum_accept_probs', 'num_proposals'])
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
@@ -113,7 +126,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
     def init_fn(z, r):
         # TODO: init using the cache of potential_energy and z_grad?
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
-        return z, r, potential_energy, z_grad
+        return IntegratorState(z, r, potential_energy, z_grad)
 
     def update_fn(step_size, state):
         """
@@ -125,7 +138,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
         z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1)
-        return z, r, potential_energy, z_grad
+        return IntegratorState(z, r, potential_energy, z_grad)
 
     return init_fn, update_fn
 
@@ -162,14 +175,11 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, posi
     return step_size
 
 
-adapt_window = namedtuple('adapt_window', ['start', 'end'])
-
-
 def build_adaptation_schedule(num_steps):
     adaptation_schedule = []
     # from Stan, for small num_steps
     if num_steps < 20:
-        adaptation_schedule.append(adapt_window(0, num_steps - 1))
+        adaptation_schedule.append(AdaptWindow(0, num_steps - 1))
         return adaptation_schedule
 
     # We separate num_steps into windows:
@@ -187,7 +197,7 @@ def build_adaptation_schedule(num_steps):
         end_buffer_size = int(0.1 * num_steps)
         init_window_size = num_steps - start_buffer_size - end_buffer_size
 
-    adaptation_schedule.append(adapt_window(start=0, end=start_buffer_size - 1))
+    adaptation_schedule.append(AdaptWindow(start=0, end=start_buffer_size - 1))
     end_window_start = num_steps - end_buffer_size
 
     next_window_size = init_window_size
@@ -200,8 +210,8 @@ def build_adaptation_schedule(num_steps):
         else:
             cur_window_size = end_window_start - cur_window_start
         next_window_start = cur_window_start + cur_window_size
-        adaptation_schedule.append(adapt_window(cur_window_start, next_window_start - 1))
-    adaptation_schedule.append(adapt_window(end_window_start, num_steps - 1))
+        adaptation_schedule.append(AdaptWindow(cur_window_start, next_window_start - 1))
+    adaptation_schedule.append(AdaptWindow(end_window_start, num_steps - 1))
     return adaptation_schedule
 
 
@@ -227,7 +237,7 @@ def warmup_adapter(num_steps, find_reasonable_step_size=None,
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         window_idx = 0
-        return step_size, inverse_mass_matrix, ss_state, mm_state, window_idx
+        return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
 
     def _update_at_window_end(state):
         step_size, inverse_mass_matrix, ss_state, mm_state, window_idx = state
@@ -241,7 +251,7 @@ def warmup_adapter(num_steps, find_reasonable_step_size=None,
             inverse_mass_matrix = mm_final(mm_state, regularize=True)
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
-        return step_size, inverse_mass_matrix, ss_state, mm_state, window_idx
+        return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
 
     def update_fn(t, accept_prob, z_flat, state):
         step_size, inverse_mass_matrix, ss_state, mm_state, window_idx = state
@@ -265,31 +275,12 @@ def warmup_adapter(num_steps, find_reasonable_step_size=None,
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
-        state = step_size, inverse_mass_matrix, ss_state, mm_state, window_idx
+        state = AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
         state = lax.cond(t_at_window_end & is_middle_window,
                          state, _update_at_window_end, state, lambda x: x)
         return state
 
     return init_fn, update_fn
-
-
-# TODO: we don't need to store z_proposal_pe, z_proposal_grad if we don't need
-# to cache pe and grad for the next update step
-_TreeInfo = namedtuple('_TreeInfo', ['z_left', 'r_left', 'z_left_grad',
-                                     'z_right', 'r_right', 'z_right_grad',
-                                     'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
-                                     'depth', 'weight', 'r_sum', 'turning', 'diverging',
-                                     'sum_accept_probs', 'num_proposals'])
-
-
-# let JAX recognize _TreeInfo structure
-# ref: https://github.com/google/jax/issues/446
-# TODO: remove this when namedtuple is supported in JAX
-register_pytree_node(
-    _TreeInfo,
-    lambda xs: (tuple(xs), None),
-    lambda _, xs: _TreeInfo(*xs)
-)
 
 
 def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
