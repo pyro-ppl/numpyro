@@ -7,7 +7,6 @@ from jax.tree_util import tree_multimap
 
 from numpyro.util import laxtuple
 
-
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
 AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "ss_state", "mm_state", "window_idx"])
 IntegratorState = laxtuple("IntegratorState", ["z", "r", "potential_energy", "z_grad"])
@@ -128,13 +127,13 @@ def velocity_verlet(potential_fn, kinetic_fn):
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         return IntegratorState(z, r, potential_energy, z_grad)
 
-    def update_fn(step_size, state, inv_mass_matrix):
+    def update_fn(step_size, inverse_mass_matrix, state):
         """
         Single step velocity verlet.
         """
         z, r, _, z_grad = state
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
-        r_grad = grad(kinetic_fn)(r, inv_mass_matrix)
+        r_grad = grad(kinetic_fn)(r, inverse_mass_matrix)
         z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1)
@@ -143,7 +142,8 @@ def velocity_verlet(potential_fn, kinetic_fn):
     return init_fn, update_fn
 
 
-def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, position, init_step_size):
+def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
+                              position, init_step_size):
     # We are going to find a step_size which make accept_prob (Metropolis correction)
     # near the target_accept_prob. If accept_prob:=exp(-delta_energy) is small,
     # then we have to decrease step_size; otherwise, increase step_size.
@@ -163,15 +163,18 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, posi
         step_size = (2.0 ** direction) * step_size
         r = momentum_generator()  # generate r upon calling
         _, r_new, potential_energy_new, _ = vv_update(step_size,
+                                                      inverse_mass_matrix,
                                                       (z, r, potential_energy, z_grad))
-        energy_current = kinetic_fn(r) + potential_energy
-        energy_new = kinetic_fn(r_new) + potential_energy_new
+        energy_current = kinetic_fn(r, inverse_mass_matrix) + potential_energy
+        energy_new = kinetic_fn(r_new, inverse_mass_matrix) + potential_energy_new
         delta_energy = energy_new - energy_current
         direction_new = np.where(target_accept_prob < -delta_energy, 1, -1)
         return step_size, direction, direction_new
 
-    step_size, _, _ = lax.while_loop(lambda sdd: (sdd[1] == 0) | (sdd[1] == sdd[2]),
-                                     _body_fn, (init_step_size, 0, 0))
+    def _cond_fn(state):
+        return (state[1] == 0) | (state[1] == state[2])
+
+    step_size, _, _ = lax.while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0))
     return step_size
 
 
@@ -372,16 +375,17 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                      sum_accept_probs, num_proposals)
 
 
-@partial(jit, static_argnums=(0, 1, 10))
-def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
+@partial(jit, static_argnums=(0, 1, 11))
+def _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size, going_right,
                     energy_current, max_delta_energy):
     step_size = np.where(going_right, step_size, -step_size)
     z_new, r_new, potential_energy_new, z_new_grad = vv_update(
         step_size,
-        (z, r, energy_current, z_grad)
+        inverse_mass_matrix,
+        (z, r, energy_current, z_grad),
     )
 
-    energy_new = potential_energy_new + kinetic_fn(r_new)
+    energy_new = potential_energy_new + kinetic_fn(r_new, inverse_mass_matrix)
     # Handles the NaN case.
     energy_new = np.where(np.isnan(energy_new), np.inf, energy_new)
     delta_energy = energy_new - energy_current
@@ -398,7 +402,7 @@ def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
 def _build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                    going_right, rng, energy_current, max_delta_energy):
     if depth == 0:
-        return _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
+        return _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size, going_right,
                                energy_current, max_delta_energy)
 
     key, doubling_key = random.split(rng)
@@ -489,8 +493,8 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         current_tree, _, r_ckpts, r_sum_ckpts, rng = state
         rng, transition_rng = random.split(rng)
         z, r, z_grad = _get_leaf(current_tree, going_right)
-        new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
-                                   energy_current, max_delta_energy)
+        new_leaf = _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size,
+                                   going_right, energy_current, max_delta_energy)
         biased_transition = False
         new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
                                  transition_rng, biased_transition, iterative_build=True)
@@ -511,8 +515,8 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                         ckpt_idx_min, ckpt_idx_max)
         return new_tree, turning, r_ckpts, r_sum_ckpts, rng
 
-    basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, step_size, going_right,
-                               energy_current, max_delta_energy)
+    basetree = _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size,
+                               going_right, energy_current, max_delta_energy)
     r_init, _ = ravel_pytree(basetree.r_left)
     # TODO: we can create these checkpoints at build_tree method
     # and reuse it; but let's do this optimization later
@@ -552,7 +556,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     # already covered by lax while loops.
 
     z, r, potential_energy, z_grad = verlet_state
-    energy_current = potential_energy + kinetic_fn(r)
+    energy_current = potential_energy + kinetic_fn(r, inverse_mass_matrix)
     key, subkey = random.split(rng)
 
     tree = _TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,

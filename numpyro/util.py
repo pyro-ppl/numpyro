@@ -5,7 +5,6 @@ import numpy as onp
 
 from jax.tree_util import register_pytree_node
 
-
 _DATA_TYPES = {}
 
 
