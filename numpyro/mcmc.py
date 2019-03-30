@@ -1,5 +1,6 @@
 import math
 
+import jax
 import jax.numpy as np
 from jax import lax, partial, random
 from jax.flatten_util import ravel_pytree
@@ -50,11 +51,10 @@ def hmc_kernel(potential_fn, kinetic_fn):
         m_inv_init = np.ones(np.shape(z_flat))
         rng, rng_momentum = random.split(rng)
         momentum_generator = partial(_sample_momentum, m_inv_init, pack_fn, rng_momentum)
-        num_steps = _get_num_steps(step_size, trajectory_length)
         find_initial_ss = partial(find_reasonable_step_size, potential_fn, kinetic_fn, momentum_generator,
                                   m_inv_init, init_samples)
 
-        wa_init, wa_update = warmup_adapter(num_steps,
+        wa_init, wa_update = warmup_adapter(num_warmup_steps,
                                             find_reasonable_step_size=find_initial_ss,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
@@ -73,13 +73,22 @@ def hmc_kernel(potential_fn, kinetic_fn):
             num_steps = _get_num_steps(wa_state.step_size, trajectory_length)
             accept_prob, vv_state_new = _next(num_steps, wa_state.step_size, wa_state.inverse_mass_matrix, vv_state)
             transition = random.bernoulli(rng_transition, accept_prob)
-            vv_state = lax.cond(transition,
-                                vv_state_new, lambda state: state,
-                                vv_state, lambda state: state)
-            wa_state = wa_update(t, accept_prob, vv_state.z, wa_state)
+            if jax.api._jit_is_disabled:
+                if transition:
+                    vv_state = vv_state_new
+            else:
+                vv_state = lax.cond(transition,
+                                    vv_state_new, lambda state: state,
+                                    vv_state, lambda state: state)
+            z_flat, _ = ravel_pytree(vv_state.z)
+            wa_state = wa_update(t, accept_prob, z_flat, wa_state)
             return vv_state, wa_state, rng
 
-        vv_state, wa_state, rng = lax.fori_loop(0, num_warmup_steps, body_fn, (vv_state, wa_state, rng))
+        if jax.api._jit_is_disabled:
+            for i in range(0, num_warmup_steps):
+                vv_state, wa_state, rng = body_fn(i, (vv_state, wa_state, rng))
+        else:
+            vv_state, wa_state, rng = lax.fori_loop(0, num_warmup_steps, body_fn, (vv_state, wa_state, rng))
         num_steps = _get_num_steps(wa_state.step_size, trajectory_length)
         return HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
                         wa_state.step_size, wa_state.inverse_mass_matrix, rng)
@@ -91,9 +100,8 @@ def hmc_kernel(potential_fn, kinetic_fn):
         energy_old = vv_state.potential_energy + kinetic_fn(vv_state.r, inverse_mass_matrix)
         energy_new = vv_state_new.potential_energy + kinetic_fn(vv_state_new.r, inverse_mass_matrix)
         delta_energy = energy_new - energy_old
-        np.where(np.isnan(delta_energy), np.inf, delta_energy)
+        delta_energy = np.where(np.isnan(delta_energy), np.inf, delta_energy)
         accept_prob = np.clip(np.exp(-delta_energy), a_max=1.0)
-        print(accept_prob)
         return accept_prob, vv_state_new
 
     def sample_kernel(hmc_state, i):
@@ -103,9 +111,13 @@ def hmc_kernel(potential_fn, kinetic_fn):
         accept_prob, vv_state_new = _next(hmc_state.num_steps, hmc_state.step_size, hmc_state.inverse_mass_matrix,
                                           vv_state)
         transition = random.bernoulli(rng_transition, accept_prob)
-        vv_state = lax.cond(transition,
-                            vv_state_new, lambda state: state,
-                            vv_state, lambda state: state)
+        if jax.api._jit_is_disabled:
+            if transition:
+                vv_state = vv_state_new
+        else:
+            vv_state = lax.cond(transition,
+                                vv_state_new, lambda state: state,
+                                vv_state, lambda state: state)
         return HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, hmc_state.num_steps,
                         hmc_state.step_size, hmc_state.inverse_mass_matrix, rng)
 

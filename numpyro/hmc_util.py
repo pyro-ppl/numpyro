@@ -218,12 +218,12 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
-def warmup_adapter(num_steps, find_reasonable_step_size=None,
+def warmup_adapter(num_warmup_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    diag_mass=True, target_accept_prob=0.8):
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=diag_mass)
-    adaptation_schedule = np.array(build_adaptation_schedule(num_steps))
+    adaptation_schedule = np.array(build_adaptation_schedule(num_warmup_steps))
     num_windows = len(adaptation_schedule)
 
     def init_fn(step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
@@ -265,7 +265,7 @@ def warmup_adapter(num_steps, find_reasonable_step_size=None,
             # note: at the end of warmup phase, use average of log step_size
             # TODO: should we make sure that we won't update step_size if t >= num_steps?
             log_step_size, log_step_size_avg, *_ = ss_state
-            step_size = np.where(t == (num_steps - 1),
+            step_size = np.where(t == (num_warmup_steps - 1),
                                  np.exp(log_step_size_avg),
                                  np.exp(log_step_size))
 

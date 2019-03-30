@@ -1,5 +1,6 @@
 import random
 from collections import namedtuple
+from contextlib import contextmanager
 
 import numpy as onp
 
@@ -35,3 +36,15 @@ def laxtuple(name, fields):
     cls.update = cls._replace
     _DATA_TYPES[key] = cls
     return cls
+
+
+@contextmanager
+def optional(condition, context_manager):
+    """
+    Optionally wrap inside `context_manager` if condition is `True`.
+    """
+    if condition:
+        with context_manager:
+            yield
+    else:
+        yield

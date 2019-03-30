@@ -1,17 +1,19 @@
-import jax
+from numpy.testing import assert_allclose
 import pytest
 
 import jax.numpy as np
-from jax import jit, lax
+from jax import lax
 
 from numpyro.mcmc import hmc_kernel
 
 
-@pytest.mark.parametrize('adapt_mass_matrix', [False, True])
-@jax.disable_jit()
-def test_normal(adapt_mass_matrix):
+@pytest.mark.parametrize('jit', [True])
+def test_normal(jit):
+    true_mean, true_std = 1., 2.
+    warmup_steps, num_samples = 1000, 8000
+
     def potential_fn(z):
-        return - 0.5 * np.sum((z[0] - 1.) ** 2 / 4.)
+        return 0.5 * np.sum(((z[0] - true_mean) / true_std) ** 2)
 
     def kinetic_fn(r, m_inv):
         return 0.5 * np.sum(m_inv * r[0] ** 2)
@@ -19,9 +21,9 @@ def test_normal(adapt_mass_matrix):
     init_kernel, sample_kernel = hmc_kernel(potential_fn, kinetic_fn)
     init_samples = [np.array([0.])]
     hmc_state = init_kernel(init_samples,
-                            num_warmup_steps=50,
-                            adapt_mass_matrix=adapt_mass_matrix)
-
+                            num_warmup_steps=warmup_steps)
     sample_kernel = sample_kernel
-    hmc_states = lax.scan(sample_kernel, hmc_state, np.arange(50))
-    print(hmc_states)
+    hmc_states = lax.scan(sample_kernel, hmc_state, np.arange(num_samples))
+    zs = hmc_states.z[0]
+    assert_allclose(np.mean(zs), true_mean, rtol=0.05)
+    assert_allclose(np.std(zs), true_std, rtol=0.05)
