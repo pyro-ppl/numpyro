@@ -376,7 +376,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
 
 
 @partial(jit, static_argnums=(0, 1, 11))
-def _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size, going_right,
+def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size, going_right,
                     energy_current, max_delta_energy):
     step_size = np.where(going_right, step_size, -step_size)
     z_new, r_new, potential_energy_new, z_new_grad = vv_update(
@@ -402,7 +402,7 @@ def _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, st
 def _build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                    going_right, rng, energy_current, max_delta_energy):
     if depth == 0:
-        return _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size, going_right,
+        return _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size, going_right,
                                energy_current, max_delta_energy)
 
     key, doubling_key = random.split(rng)
@@ -493,7 +493,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         current_tree, _, r_ckpts, r_sum_ckpts, rng = state
         rng, transition_rng = random.split(rng)
         z, r, z_grad = _get_leaf(current_tree, going_right)
-        new_leaf = _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size,
+        new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
         biased_transition = False
         new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
@@ -515,7 +515,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                         ckpt_idx_min, ckpt_idx_max)
         return new_tree, turning, r_ckpts, r_sum_ckpts, rng
 
-    basetree = _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size,
+    basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                going_right, energy_current, max_delta_energy)
     r_init, _ = ravel_pytree(basetree.r_left)
     # TODO: we can create these checkpoints at build_tree method
