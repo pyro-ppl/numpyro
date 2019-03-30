@@ -77,7 +77,7 @@ def test_welford_covariance(jitted, diagonal, regularize):
 TEST_EXAMPLES = []
 EXAMPLE_IDS = []
 
-ModelArgs = namedtuple('model_args', ['step_size', 'num_steps', 'q_i', 'p_i', 'q_f', 'p_f', 'prec'])
+ModelArgs = namedtuple('model_args', ['step_size', 'num_steps', 'q_i', 'p_i', 'q_f', 'p_f', 'm_inv', 'prec'])
 Example = namedtuple('test_case', ['model', 'args'])
 
 
@@ -102,13 +102,14 @@ def register_model(init_args):
         p_i={'x': 1.0},
         q_f={'x': np.sin(1.0)},
         p_f={'x': np.cos(1.0)},
+        m_inv=np.array([1.]),
         prec=1e-4
     )
 ])
 class HarmonicOscillator(object):
     @staticmethod
-    def kinetic_fn(p):
-        return 0.5 * p['x'] ** 2
+    def kinetic_fn(p, m_inv):
+        return 0.5 * np.sum(m_inv * p['x'] ** 2)
 
     @staticmethod
     def potential_fn(q):
@@ -123,13 +124,15 @@ class HarmonicOscillator(object):
         p_i={'x': 0.0, 'y': 1.0},
         q_f={'x': 1.0, 'y': 0.0},
         p_f={'x': 0.0, 'y': 1.0},
+        m_inv=np.array([1., 1.]),
         prec=5.0e-3
     )
 ])
 class CircularPlanetaryMotion(object):
     @staticmethod
-    def kinetic_fn(p):
-        return 0.5 * p['x'] ** 2 + 0.5 * p['y'] ** 2
+    def kinetic_fn(p, m_inv):
+        z = np.stack([p['x'], p['y']], axis=-1)
+        return 0.5 * np.dot(m_inv, z**2)
 
     @staticmethod
     def potential_fn(q):
@@ -144,13 +147,14 @@ class CircularPlanetaryMotion(object):
         p_i={'x': 0.0},
         q_f={'x': -0.02},
         p_f={'x': 0.0},
+        m_inv=np.array([1.]),
         prec=1.0e-4
     )
 ])
 class QuarticOscillator(object):
     @staticmethod
-    def kinetic_fn(p):
-        return 0.5 * p['x'] ** 2
+    def kinetic_fn(p, m_inv):
+        return 0.5 * np.sum(m_inv * p['x'] ** 2)
 
     @staticmethod
     def potential_fn(q):
@@ -164,7 +168,7 @@ def test_velocity_verlet(jitted, example):
         vv_init, vv_update = velocity_verlet(model.potential_fn, model.kinetic_fn)
         vv_state = vv_init(q_i, p_i)
         q_f, p_f, _, _ = lax.fori_loop(0, num_steps,
-                                       lambda i, val: vv_update(step_size, val),
+                                       lambda i, val: vv_update(step_size, args.m_inv, val),
                                        vv_state)
         return (q_f, p_f)
 
@@ -180,8 +184,8 @@ def test_velocity_verlet(jitted, example):
         assert_allclose(p_f[node], args.p_f[node], atol=args.prec)
 
     logger.info('Test energy conservation:')
-    energy_initial = model.kinetic_fn(args.p_i) + model.potential_fn(args.q_i)
-    energy_final = model.kinetic_fn(p_f) + model.potential_fn(q_f)
+    energy_initial = model.kinetic_fn(args.p_i, args.m_inv) + model.potential_fn(args.q_i)
+    energy_final = model.kinetic_fn(p_f, args.m_inv) + model.potential_fn(q_f)
     logger.info('initial energy: {}'.format(energy_initial))
     logger.info('final energy: {}'.format(energy_final))
     assert_allclose(energy_initial, energy_final, atol=1e-5)
@@ -196,18 +200,19 @@ def test_velocity_verlet(jitted, example):
 @pytest.mark.parametrize('jitted', [True, False])
 @pytest.mark.parametrize('init_step_size', [0.1, 10.0])
 def test_find_reasonable_step_size(jitted, init_step_size):
-    def kinetic_fn(p):
-        return 0.5 * p ** 2
+    def kinetic_fn(p, m_inv):
+        return 0.5 * np.sum(m_inv * p ** 2)
 
     def potential_fn(q):
         return 0.5 * q ** 2
 
     p_generator = lambda: 1.0  # noqa: E731
     q = 0.0
+    m_inv = np.array([1.])
 
     fn = (jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
           if jitted else find_reasonable_step_size)
-    step_size = fn(potential_fn, kinetic_fn, p_generator, q, init_step_size)
+    step_size = fn(potential_fn, kinetic_fn, p_generator, m_inv, q, init_step_size)
 
     # Apply 1 velocity verlet step with step_size=eps, we have
     # z_new = eps, r_new = 1 - eps^2 / 2, hence energy_new = 0.5 + eps^4 / 8,
@@ -333,8 +338,8 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
 
 @pytest.mark.parametrize('step_size', [0.01, 1., 100.])
 def test_build_tree(step_size):
-    def kinetic_fn(p):
-        return 0.5 * p ** 2
+    def kinetic_fn(p, m_inv):
+        return 0.5 * np.sum(m_inv * p ** 2)
 
     def potential_fn(q):
         return 0.5 * q ** 2
@@ -371,8 +376,8 @@ def test_build_tree(step_size):
 
 @pytest.mark.parametrize('step_size', [0.01, 1., 100.])
 def test_build_tree_iterative_agree_recursive(step_size):
-    def kinetic_fn(p):
-        return 0.5 * p ** 2
+    def kinetic_fn(p, m_inv):
+        return 0.5 * np.sum(m_inv * p ** 2)
 
     def potential_fn(q):
         return 0.5 * q ** 2
