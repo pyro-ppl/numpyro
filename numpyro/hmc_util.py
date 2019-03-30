@@ -218,12 +218,12 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
-def warmup_adapter(num_warmup_steps, find_reasonable_step_size=None,
+def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    diag_mass=True, target_accept_prob=0.8):
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=diag_mass)
-    adaptation_schedule = np.array(build_adaptation_schedule(num_warmup_steps))
+    adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
     num_windows = len(adaptation_schedule)
 
     def init_fn(step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
@@ -265,7 +265,7 @@ def warmup_adapter(num_warmup_steps, find_reasonable_step_size=None,
             # note: at the end of warmup phase, use average of log step_size
             # TODO: should we make sure that we won't update step_size if t >= num_steps?
             log_step_size, log_step_size_avg, *_ = ss_state
-            step_size = np.where(t == (num_warmup_steps - 1),
+            step_size = np.where(t == (num_adapt_steps - 1),
                                  np.exp(log_step_size_avg),
                                  np.exp(log_step_size))
 
@@ -376,7 +376,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
 
 
 @partial(jit, static_argnums=(0, 1, 11))
-def _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size, going_right,
+def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size, going_right,
                     energy_current, max_delta_energy):
     step_size = np.where(going_right, step_size, -step_size)
     z_new, r_new, potential_energy_new, z_new_grad = vv_update(
@@ -402,7 +402,7 @@ def _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, st
 def _build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                    going_right, rng, energy_current, max_delta_energy):
     if depth == 0:
-        return _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size, going_right,
+        return _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size, going_right,
                                energy_current, max_delta_energy)
 
     key, doubling_key = random.split(rng)
@@ -493,7 +493,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         current_tree, _, r_ckpts, r_sum_ckpts, rng = state
         rng, transition_rng = random.split(rng)
         z, r, z_grad = _get_leaf(current_tree, going_right)
-        new_leaf = _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size,
+        new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
         biased_transition = False
         new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
@@ -515,7 +515,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                         ckpt_idx_min, ckpt_idx_max)
         return new_tree, turning, r_ckpts, r_sum_ckpts, rng
 
-    basetree = _build_basetree(vv_update, kinetic_fn, inverse_mass_matrix, z, r, z_grad, step_size,
+    basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                going_right, energy_current, max_delta_energy)
     r_init, _ = ravel_pytree(basetree.r_left)
     # TODO: we can create these checkpoints at build_tree method
