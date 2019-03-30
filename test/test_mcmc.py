@@ -1,14 +1,12 @@
 from numpy.testing import assert_allclose
-import pytest
 
 import jax.numpy as np
-from jax import lax
+from jax import lax, jit
 
 from numpyro.mcmc import hmc_kernel
 
 
-@pytest.mark.parametrize('jit', [True])
-def test_normal(jit):
+def test_normal():
     true_mean, true_std = 1., 2.
     warmup_steps, num_samples = 1000, 8000
 
@@ -22,7 +20,7 @@ def test_normal(jit):
     init_samples = [np.array([0.])]
     hmc_state = init_kernel(init_samples,
                             num_warmup_steps=warmup_steps)
-    sample_kernel = sample_kernel
+    sample_kernel = jit(sample_kernel)
     hmc_states = lax.scan(sample_kernel, hmc_state, np.arange(num_samples))
     zs = hmc_states.z[0]
     assert_allclose(np.mean(zs), true_mean, rtol=0.05)
