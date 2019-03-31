@@ -52,12 +52,6 @@ def optional(condition, context_manager):
         yield
 
 
-def disable_jit(control_flow_prims=False):
-    if not control_flow_prims:
-        global _DISABLE_CONTROL_FLOW_PRIM
-        _DISABLE_CONTROL_FLOW_PRIM = True
-
-
 @contextmanager
 def control_flow_prims_disabled():
     global _DISABLE_CONTROL_FLOW_PRIM
