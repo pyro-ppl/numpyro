@@ -5,7 +5,7 @@ from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
-from numpyro.util import laxtuple
+from numpyro.util import cond, control_flow_prims_disabled, laxtuple, optional, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
 AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "ss_state", "mm_state", "window_idx"])
@@ -174,7 +174,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     def _cond_fn(state):
         return (state[1] == 0) | (state[1] == state[2])
 
-    step_size, _, _ = lax.while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0))
+    step_size, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0))
     return step_size
 
 
@@ -272,15 +272,15 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
         if adapt_mass_matrix:
-            mm_state = lax.cond(is_middle_window,
-                                (z_flat, mm_state), lambda args: mm_update(*args),
-                                mm_state, lambda x: x)
+            mm_state = cond(is_middle_window,
+                            (z_flat, mm_state), lambda args: mm_update(*args),
+                            mm_state, lambda x: x)
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
         state = AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
-        state = lax.cond(t_at_window_end & is_middle_window,
-                         state, _update_at_window_end, state, lambda x: x)
+        state = cond(t_at_window_end & is_middle_window,
+                     state, _update_at_window_end, state, lambda x: x)
         return state
 
     return init_fn, update_fn
@@ -326,7 +326,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                   biased_transition, iterative_build):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
-    z_left, r_left, z_left_grad, z_right, r_right, r_right_grad = lax.cond(
+    z_left, r_left, z_left_grad, z_right, r_right, r_right_grad = cond(
         going_right,
         (current_tree, new_tree),
         lambda trees: (trees[0].z_left, trees[0].r_left,
@@ -338,14 +338,14 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                        trees[1].r_right, trees[1].z_right_grad)
     )
 
-    transition_prob = lax.cond(biased_transition,
-                               (current_tree, new_tree),
-                               lambda trees: _biased_transition_kernel(trees[0], trees[1]),
-                               (current_tree, new_tree),
-                               lambda trees: _uniform_transition_kernel(trees[0], trees[1]))
+    transition_prob = cond(biased_transition,
+                           (current_tree, new_tree),
+                           lambda trees: _biased_transition_kernel(trees[0], trees[1]),
+                           (current_tree, new_tree),
+                           lambda trees: _uniform_transition_kernel(trees[0], trees[1]))
 
     transition = random.bernoulli(rng, transition_prob)
-    z_proposal, z_proposal_pe, z_proposal_grad = lax.cond(
+    z_proposal, z_proposal_pe, z_proposal_grad = cond(
         transition,
         new_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad),
         current_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad)
@@ -424,11 +424,11 @@ def _build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matr
 
 @jit
 def _get_leaf(tree, going_right):
-    return lax.cond(going_right,
-                    tree,
-                    lambda tree: (tree.z_right, tree.r_right, tree.z_right_grad),
-                    tree,
-                    lambda tree: (tree.z_left, tree.r_left, tree.z_left_grad))
+    return cond(going_right,
+                tree,
+                lambda tree: (tree.z_right, tree.r_right, tree.z_right_grad),
+                tree,
+                lambda tree: (tree.z_left, tree.r_left, tree.z_left_grad))
 
 
 def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_size,
@@ -455,14 +455,14 @@ def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_
 def _leaf_idx_to_ckpt_idxs(n):
     # computes the number of non-zero bits except the last bit
     # e.g. 6 -> 2, 7 -> 2, 13 -> 2
-    _, idx_max = lax.while_loop(lambda nc: nc[0] > 0,
-                                lambda nc: (nc[0] >> 1, nc[1] + (nc[0] & 1)),
-                                (n >> 1, 0))
+    _, idx_max = while_loop(lambda nc: nc[0] > 0,
+                            lambda nc: (nc[0] >> 1, nc[1] + (nc[0] & 1)),
+                            (n >> 1, 0))
     # computes the number of contiguous last non-zero bits
     # e.g. 6 -> 0, 7 -> 3, 13 -> 1
-    _, num_subtrees = lax.while_loop(lambda nc: (nc[0] & 1) != 0,
-                                     lambda nc: (nc[0] >> 1, nc[1] + 1),
-                                     (n, 0))
+    _, num_subtrees = while_loop(lambda nc: (nc[0] & 1) != 0,
+                                 lambda nc: (nc[0] >> 1, nc[1] + 1),
+                                 (n, 0))
     idx_min = idx_max - num_subtrees + 1
     return idx_min, idx_max
 
@@ -474,9 +474,9 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
         # XXX we might not need to unravel here
         return i - 1, _is_turning(inverse_mass_matrix, r_ckpts[i], r, subtree_r_sum)
 
-    _, turning = lax.while_loop(lambda it: (it[0] >= idx_min) & ~it[1],
-                                _body_fn,
-                                (idx_max, False))
+    _, turning = while_loop(lambda it: (it[0] >= idx_min) & ~it[1],
+                            _body_fn,
+                            (idx_max, False))
     return turning
 
 
@@ -504,12 +504,12 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         r, _ = ravel_pytree(new_leaf.r_right)
         r_sum, _ = ravel_pytree(new_tree.r_sum)
         # we update checkpoints when leaf_idx is even
-        r_ckpts, r_sum_ckpts = lax.cond(leaf_idx % 2 == 0,
-                                        (r_ckpts, r_sum_ckpts),
-                                        lambda x: (index_update(x[0], ckpt_idx_max, r),
-                                                   index_update(x[1], ckpt_idx_max, r_sum)),
-                                        (r_ckpts, r_sum_ckpts),
-                                        lambda x: x)
+        r_ckpts, r_sum_ckpts = cond(leaf_idx % 2 == 0,
+                                    (r_ckpts, r_sum_ckpts),
+                                    lambda x: (index_update(x[0], ckpt_idx_max, r),
+                                               index_update(x[1], ckpt_idx_max, r_sum)),
+                                    (r_ckpts, r_sum_ckpts),
+                                    lambda x: x)
 
         turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
                                         ckpt_idx_min, ckpt_idx_max)
@@ -527,7 +527,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                  dtype=inverse_mass_matrix.dtype)
     r_sum_checkpoints = index_update(r_sum_checkpoints, 0, r_init)
 
-    tree, turning, _, _, _ = lax.while_loop(
+    tree, turning, _, _, _ = while_loop(
         _cond_fn,
         _body_fn,
         (basetree, False, r_checkpoints, r_sum_checkpoints, rng)
@@ -578,9 +578,6 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
         return tree, key
 
     state = (tree, key)
-    if iterative_build:
-        tree, _ = lax.while_loop(_cond_fn, _body_fn, state)
-    else:
-        while _cond_fn(state):
-            tree, _ = state = _body_fn(state)
+    with optional(not iterative_build, control_flow_prims_disabled()):
+        tree, _ = while_loop(_cond_fn, _body_fn, state)
     return tree
