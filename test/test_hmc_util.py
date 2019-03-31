@@ -56,6 +56,7 @@ def test_welford_covariance(jitted, diagonal, regularize):
         x = onp.random.multivariate_normal(loc, target_cov, size=(2000,))
         x = device_put(x)
 
+        @jit
         def get_cov(x):
             wc_init, wc_update, wc_final = welford_covariance(diagonal=diagonal)
             wc_state = wc_init(3)
@@ -63,8 +64,7 @@ def test_welford_covariance(jitted, diagonal, regularize):
             cov = wc_final(wc_state, regularize=regularize)
             return cov
 
-        fn = jit(get_cov) if jitted else get_cov
-        cov = fn(x)
+        cov = get_cov(x)
 
         if diagonal:
             assert_allclose(cov, np.diagonal(target_cov), rtol=0.06)
