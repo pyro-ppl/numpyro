@@ -67,6 +67,8 @@ def cond(pred, true_operand, true_fun, false_operand, false_fun):
     if _DISABLE_CONTROL_FLOW_PRIM:
         if pred:
             return true_fun(true_operand)
+        else:
+            return false_fun(false_operand)
     else:
         return lax.cond(pred, true_operand, true_fun, false_operand, false_fun)
 
