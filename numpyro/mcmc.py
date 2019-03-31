@@ -94,9 +94,14 @@ def hmc_kernel(potential_fn, kinetic_fn):
                         wa_state.step_size, wa_state.inverse_mass_matrix, rng)
 
     def _next(num_steps, step_size, inverse_mass_matrix, vv_state):
-        vv_state_new = lax.fori_loop(0, num_steps,
-                                     lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
-                                     vv_state)
+        if jax.api._jit_is_disabled:
+            vv_state_new = vv_state
+            for i in range(int(num_steps)):
+                vv_state_new = vv_update(step_size, inverse_mass_matrix, vv_state_new)
+        else:
+            vv_state_new = lax.fori_loop(0, num_steps,
+                                         lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
+                                         vv_state)
         energy_old = vv_state.potential_energy + kinetic_fn(vv_state.r, inverse_mass_matrix)
         energy_new = vv_state_new.potential_energy + kinetic_fn(vv_state_new.r, inverse_mass_matrix)
         delta_energy = energy_new - energy_old
