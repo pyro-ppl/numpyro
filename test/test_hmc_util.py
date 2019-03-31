@@ -6,11 +6,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import device_put, grad, jit, lax, random, tree_map
-from jax.scipy.special import expit
-
-import numpyro.distributions as dist
-
+from jax import device_put, disable_jit, grad, jit, lax, random, tree_map
 
 from numpyro.hmc_util import (
     AdaptWindow,
@@ -24,6 +20,7 @@ from numpyro.hmc_util import (
     warmup_adapter,
     welford_covariance
 )
+from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 
 logger = logging.getLogger(__name__)
 
@@ -51,27 +48,28 @@ def test_dual_averaging(jitted):
 @pytest.mark.parametrize('diagonal', [True, False])
 @pytest.mark.parametrize('regularize', [True, False])
 def test_welford_covariance(jitted, diagonal, regularize):
-    onp.random.seed(0)
-    loc = onp.random.randn(3)
-    a = onp.random.randn(3, 3)
-    target_cov = onp.matmul(a, a.T)
-    x = onp.random.multivariate_normal(loc, target_cov, size=(2000,))
-    x = device_put(x)
+    with optional(jitted, disable_jit()), optional(jitted, control_flow_prims_disabled()):
+        onp.random.seed(0)
+        loc = onp.random.randn(3)
+        a = onp.random.randn(3, 3)
+        target_cov = onp.matmul(a, a.T)
+        x = onp.random.multivariate_normal(loc, target_cov, size=(2000,))
+        x = device_put(x)
 
-    def get_cov(x):
-        wc_init, wc_update, wc_final = welford_covariance(diagonal=diagonal)
-        wc_state = wc_init(3)
-        wc_state = lax.fori_loop(0, 2000, lambda i, val: wc_update(x[i], val), wc_state)
-        cov = wc_final(wc_state, regularize=regularize)
-        return cov
+        @jit
+        def get_cov(x):
+            wc_init, wc_update, wc_final = welford_covariance(diagonal=diagonal)
+            wc_state = wc_init(3)
+            wc_state = fori_loop(0, 2000, lambda i, val: wc_update(x[i], val), wc_state)
+            cov = wc_final(wc_state, regularize=regularize)
+            return cov
 
-    fn = jit(get_cov) if jitted else get_cov
-    cov = fn(x)
+        cov = get_cov(x)
 
-    if diagonal:
-        assert_allclose(cov, np.diagonal(target_cov), rtol=0.06)
-    else:
-        assert_allclose(cov, target_cov, rtol=0.06)
+        if diagonal:
+            assert_allclose(cov, np.diagonal(target_cov), rtol=0.06)
+        else:
+            assert_allclose(cov, target_cov, rtol=0.06)
 
 
 ########################################
@@ -163,35 +161,6 @@ class QuarticOscillator(object):
     @staticmethod
     def potential_fn(q):
         return 0.25 * np.power(q['x'], 4.0)
-
-
-@register_model([
-    ModelArgs(
-        step_size=0.1,
-        num_steps=1810,
-        q_i=np.array([0., 0., 0.]),
-        p_i=np.array([1., 1., 1.]),
-        m_inv=np.array([1., 1., 1.]),
-        prec=1.0e-4,
-    )
-])
-class LogisticRegression(object):
-    N, dim = 2000, 3
-    warmup_steps, num_samples = 1000, 8000
-    data = random.normal(random.PRNGKey(0), (N, dim))
-    true_coefs = np.arange(1., dim + 1.)
-    probs = expit(np.sum(true_coefs * data, axis=-1))
-    labels = dist.bernoulli(probs).rvs()
-
-    def kinetic_fn(beta, m_inv):
-        return 0.5 * np.sum(m_inv * beta ** 2)
-
-    def potential_fn(beta):
-        coefs_mean = np.zeros(dim)
-        coefs_lpdf = dist.norm(coefs_mean, np.ones(dim)).logpdf(beta)
-        probs = expit(np.sum(beta * data, axis=-1))
-        y_lpdf = dist.bernoulli(probs).logpmf(labels)
-        return - (np.sum(coefs_lpdf) + np.sum(y_lpdf))
 
 
 @pytest.mark.parametrize('jitted', [True, False])

@@ -4,9 +4,11 @@ from contextlib import contextmanager
 
 import numpy as onp
 
+from jax import lax
 from jax.tree_util import register_pytree_node
 
 _DATA_TYPES = {}
+_DISABLE_CONTROL_FLOW_PRIM = False
 
 
 def set_rng_seed(rng_seed):
@@ -48,3 +50,44 @@ def optional(condition, context_manager):
             yield
     else:
         yield
+
+
+@contextmanager
+def control_flow_prims_disabled():
+    global _DISABLE_CONTROL_FLOW_PRIM
+    stored_flag = _DISABLE_CONTROL_FLOW_PRIM
+    try:
+        _DISABLE_CONTROL_FLOW_PRIM = True
+        yield
+    finally:
+        _DISABLE_CONTROL_FLOW_PRIM = stored_flag
+
+
+def cond(pred, true_operand, true_fun, false_operand, false_fun):
+    if _DISABLE_CONTROL_FLOW_PRIM:
+        if pred:
+            return true_fun(true_operand)
+        else:
+            return false_fun(false_operand)
+    else:
+        return lax.cond(pred, true_operand, true_fun, false_operand, false_fun)
+
+
+def while_loop(cond_fun, body_fun, init_val):
+    if _DISABLE_CONTROL_FLOW_PRIM:
+        val = init_val
+        while cond_fun(val):
+            val = body_fun(val)
+        return val
+    else:
+        return lax.while_loop(cond_fun, body_fun, init_val)
+
+
+def fori_loop(lower, upper, body_fun, init_val):
+    if _DISABLE_CONTROL_FLOW_PRIM:
+        val = init_val
+        for i in range(lower, upper):
+            val = body_fun(i, val)
+        return val
+    else:
+        return lax.fori_loop(lower, upper, body_fun, init_val)
