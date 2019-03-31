@@ -5,7 +5,7 @@ from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
-from numpyro.util import cond, control_flow_prims_disabled, laxtuple, optional, while_loop
+from numpyro.util import cond, laxtuple, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
 AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "ss_state", "mm_state", "window_idx"])
