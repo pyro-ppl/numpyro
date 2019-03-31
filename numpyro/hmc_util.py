@@ -1,5 +1,5 @@
 import jax.numpy as np
-from jax import grad, jit, lax, partial, random, value_and_grad
+from jax import grad, jit, partial, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.ops import index_update
 from jax.scipy.special import expit

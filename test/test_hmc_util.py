@@ -6,7 +6,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import device_put, disable_jit, grad, jit, random, tree_map
+from jax import device_put, disable_jit, grad, jit, lax, random, tree_map
 
 from numpyro.hmc_util import (
     AdaptWindow,
