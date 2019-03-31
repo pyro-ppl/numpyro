@@ -5,7 +5,8 @@ from contextlib import contextmanager
 import numpy as onp
 
 from jax import lax
-from jax.tree_util import register_pytree_node
+from jax.flatten_util import ravel_pytree
+from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -86,8 +87,20 @@ def while_loop(cond_fun, body_fun, init_val):
 def fori_loop(lower, upper, body_fun, init_val):
     if _DISABLE_CONTROL_FLOW_PRIM:
         val = init_val
-        for i in range(lower, upper):
+        for i in range(int(lower), int(upper)):
             val = body_fun(i, val)
         return val
     else:
         return lax.fori_loop(lower, upper, body_fun, init_val)
+
+
+def scan(f, a, bs):
+    if _DISABLE_CONTROL_FLOW_PRIM:
+        bs, pack_fn = ravel_pytree(bs)
+        as_ = []
+        _, tree_def = tree_flatten(bs)
+        for b in bs:
+            as_.append(f(a, b))
+        return tree_unflatten(tree_def, as_)
+    else:
+        return lax.scan(f, a, bs)
