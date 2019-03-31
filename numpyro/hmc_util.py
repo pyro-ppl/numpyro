@@ -578,6 +578,10 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
         return tree, key
 
     state = (tree, key)
-    with optional(not iterative_build, control_flow_prims_disabled()):
+    if iterative_build:
         tree, _ = while_loop(_cond_fn, _body_fn, state)
+    else:
+        while _cond_fn(state):
+            state = _body_fn(state)
+        tree, _ = state
     return tree
