@@ -38,7 +38,7 @@ def test_logistic_regression():
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
     probs = expit(np.sum(true_coefs * data, axis=-1))
-    labels = dist.bernoulli(probs).rvs()
+    labels = dist.bernoulli(probs).rvs(random_state=random.PRNGKey(0))
 
     with validation_disabled():
         def potential_fn(beta):
