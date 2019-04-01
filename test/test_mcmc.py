@@ -44,7 +44,9 @@ def test_logistic_regression():
         def potential_fn(beta):
             coefs_mean = np.zeros(dim)
             coefs_lpdf = dist.norm(coefs_mean, np.ones(dim)).logpdf(beta)
-            probs = expit(np.sum(beta * data, axis=-1))
+            probs = np.clip(expit(np.sum(beta * data, axis=-1)),
+                            a_min=np.finfo(np.float32).tiny,
+                            a_max=(1 - np.finfo(np.float32).eps))
             y_lpdf = dist.bernoulli(probs).logpmf(labels)
             return - (np.sum(coefs_lpdf) + np.sum(y_lpdf))
 
@@ -54,7 +56,7 @@ def test_logistic_regression():
         init_kernel, sample_kernel = hmc_kernel(potential_fn, kinetic_fn)
         init_samples = np.zeros(dim)
         hmc_state = init_kernel(init_samples,
-                                step_size=0.01,
+                                step_size=0.1,
                                 num_steps=15,
                                 num_warmup_steps=warmup_steps)
         sample_kernel = jit(sample_kernel)
