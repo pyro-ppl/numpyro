@@ -61,4 +61,4 @@ def test_logistic_regression():
                                 num_warmup_steps=warmup_steps)
         sample_kernel = jit(sample_kernel)
         hmc_states = scan(sample_kernel, hmc_state, np.arange(num_samples))
-        assert_allclose(np.mean(hmc_states.z, 0), true_coefs, rtol=0.08)
+        assert_allclose(np.mean(hmc_states.z, 0), true_coefs, atol=0.2)
