@@ -18,16 +18,17 @@ def _get_num_steps(step_size, trajectory_length):
     return np.where(num_steps < 1, np.array(1, dtype=np.int32), num_steps)
 
 
-def _sample_momentum(inverse_mass_matrix, pack_fn, rng):
+def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
     if inverse_mass_matrix.ndim == 1:
-        return pack_fn(dist.norm(0., np.sqrt(np.reciprocal(inverse_mass_matrix))).rvs(random_state=rng))
+        r = dist.norm(0., np.sqrt(np.reciprocal(inverse_mass_matrix))).rvs(random_state=rng)
+        return unpack_fn(r)
     elif inverse_mass_matrix.ndim == 2:
         raise NotImplementedError
 
 
 def hmc_kernel(potential_fn, kinetic_fn):
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
-    unflatten_fn = None
+    momentum_generator = None
 
     def init_kernel(init_samples,
                     num_warmup_steps,
@@ -44,15 +45,14 @@ def hmc_kernel(potential_fn, kinetic_fn):
         else:
             trajectory_length = num_steps * step_size
 
-        z_flat, pack_fn = ravel_pytree(init_samples)
-        nonlocal unflatten_fn
-        unflatten_fn = pack_fn
-        m_inv_init = np.ones(np.shape(z_flat))
-        rng, rng_momentum = random.split(rng)
-        momentum_generator = partial(_sample_momentum, m_inv_init, pack_fn, rng_momentum)
-        find_initial_ss = partial(find_reasonable_step_size, potential_fn, kinetic_fn, momentum_generator,
-                                  m_inv_init, init_samples)
+        z_flat, unravel_fn = ravel_pytree(init_samples)
+        nonlocal momentum_generator
+        momentum_generator = partial(_sample_momentum, unravel_fn)
 
+        find_reasonable_ss = partial(find_reasonable_step_size,
+                                     potential_fn, kinetic_fn, momentum_generator)
+
+        rng, rng_wa, rng_momentum = random.split(rng, 3)
         wa_init, wa_update = warmup_adapter(num_warmup_steps,
                                             find_reasonable_step_size=find_initial_ss,
                                             adapt_step_size=adapt_step_size,
@@ -60,14 +60,14 @@ def hmc_kernel(potential_fn, kinetic_fn):
                                             diag_mass=diag_mass,
                                             target_accept_prob=target_accept_prob)
 
-        wa_state = wa_init(step_size, mass_matrix_size=np.size(z_flat))
-        r = _sample_momentum(wa_state.inverse_mass_matrix, pack_fn, rng)
+        wa_state = wa_init(step_size, mass_matrix_size=np.size(z_flat), rng=rng_wa)
+        r = momentum_generator(wa_state.inverse_mass_matrix, rng_momentum)
         vv_state = vv_init(init_samples, r)
 
         def body_fn(t, args):
             vv_state, wa_state, rng = args
-            rng, rng_momentum, rng_transition = random.split(rng, 3)
-            r = _sample_momentum(wa_state.inverse_mass_matrix, pack_fn, rng_momentum)
+            rng, rng_momentum, rng_transition, rng_wa = random.split(rng, 4)
+            r = momentum_generator(wa_state.inverse_mass_matrix, rng_momentum)
             vv_state = vv_state.update(r=r)
             num_steps = _get_num_steps(wa_state.step_size, trajectory_length)
             accept_prob, vv_state_new = _next(num_steps, wa_state.step_size, wa_state.inverse_mass_matrix, vv_state)
@@ -76,7 +76,7 @@ def hmc_kernel(potential_fn, kinetic_fn):
                             vv_state_new, lambda state: state,
                             vv_state, lambda state: state)
             z_flat, _ = ravel_pytree(vv_state.z)
-            wa_state = wa_update(t, accept_prob, z_flat, wa_state)
+            wa_state = wa_update(t, accept_prob, z_flat, rng_wa, wa_state)
             return vv_state, wa_state, rng
 
         vv_state, wa_state, rng = fori_loop(0, num_warmup_steps, body_fn, (vv_state, wa_state, rng))
@@ -97,7 +97,7 @@ def hmc_kernel(potential_fn, kinetic_fn):
 
     def sample_kernel(hmc_state, i):
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
-        r = _sample_momentum(hmc_state.inverse_mass_matrix, unflatten_fn, rng_momentum)
+        r = momentum_generator(wa_state.inverse_mass_matrix, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         accept_prob, vv_state_new = _next(hmc_state.num_steps, hmc_state.step_size, hmc_state.inverse_mass_matrix,
                                           vv_state)

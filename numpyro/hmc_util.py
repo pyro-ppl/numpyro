@@ -142,8 +142,8 @@ def velocity_verlet(potential_fn, kinetic_fn):
     return init_fn, update_fn
 
 
-def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
-                              position, init_step_size):
+def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
+                              position, inverse_mass_matrix, init_step_size, rng):
     # We are going to find a step_size which make accept_prob (Metropolis correction)
     # near the target_accept_prob. If accept_prob:=exp(-delta_energy) is small,
     # then we have to decrease step_size; otherwise, increase step_size.
@@ -154,14 +154,15 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
 
     def _body_fn(state):
-        step_size, _, direction = state
+        step_size, _, direction, rng = state
+        rng, rng_momentum = random.split(rng)
         # scale step_size: increase 2x or decrease 2x depends on direction;
         # direction=1 means keep increasing step_size, otherwise decreasing step_size.
         # Note that the direction is -1 if delta_energy is `NaN`, which may be the
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
-        r = momentum_generator()  # generate r upon calling
+        r = momentum_generator(inverse_mass_matrix, rng_momentum)
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
                                                       (z, r, potential_energy, z_grad))
@@ -169,12 +170,12 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         energy_new = kinetic_fn(r_new, inverse_mass_matrix) + potential_energy_new
         delta_energy = energy_new - energy_current
         direction_new = np.where(target_accept_prob < -delta_energy, 1, -1)
-        return step_size, direction, direction_new
+        return step_size, direction, direction_new, rng
 
     def _cond_fn(state):
         return (state[1] == 0) | (state[1] == state[2])
 
-    step_size, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0))
+    step_size, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
     return step_size
 
 
@@ -226,28 +227,29 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
     num_windows = len(adaptation_schedule)
 
-    def init_fn(step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
-        if find_reasonable_step_size is not None:
-            step_size = find_reasonable_step_size(step_size)
-        ss_state = ss_init(np.log(10 * step_size))
-
+    def init_fn(z, rng, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
         if inverse_mass_matrix is None:
             assert mass_matrix_size is not None
             if diag_mass:
                 inverse_mass_matrix = np.ones(mass_matrix_size)
             else:
                 inverse_mass_matrix = np.identity(mass_matrix_size)
+
+        if find_reasonable_step_size is not None:
+            step_size = find_reasonable_step_size(z, inverse_mass_matrix, step_size, rng)
+        ss_state = ss_init(np.log(10 * step_size))
+
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         window_idx = 0
         return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
 
-    def _update_at_window_end(state):
+    def _update_at_window_end(rng, state):
         step_size, inverse_mass_matrix, ss_state, mm_state, window_idx = state
 
         if adapt_step_size:
             if find_reasonable_step_size is not None:
-                step_size = find_reasonable_step_size(step_size)
+                step_size = find_reasonable_step_size(z, rng, inverse_mass_matrix, ss_state, mm_state, step_size)
             ss_state = ss_init(np.log(10 * step_size))
 
         if adapt_mass_matrix:
@@ -256,7 +258,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
         return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
 
-    def update_fn(t, accept_prob, z_flat, state):
+    def update_fn(t, accept_prob, z, rng, state):
         step_size, inverse_mass_matrix, ss_state, mm_state, window_idx = state
 
         # update step size state
@@ -272,6 +274,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
         if adapt_mass_matrix:
+            z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
                             (z_flat, mm_state), lambda args: mm_update(*args),
                             mm_state, lambda x: x)
@@ -280,7 +283,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
         state = AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
         state = cond(t_at_window_end & is_middle_window,
-                     state, _update_at_window_end, state, lambda x: x)
+                     (rng, state), _update_at_window_end, state, lambda x: x)
         return state
 
     return init_fn, update_fn
