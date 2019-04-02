@@ -45,7 +45,8 @@ def hmc_kernel(potential_fn, kinetic_fn):
         else:
             trajectory_length = num_steps * step_size
 
-        z_flat, unravel_fn = ravel_pytree(init_samples)
+        z = init_samples
+        z_flat, unravel_fn = ravel_pytree(z)
         nonlocal momentum_generator
         momentum_generator = partial(_sample_momentum, unravel_fn)
 
@@ -60,9 +61,9 @@ def hmc_kernel(potential_fn, kinetic_fn):
                                             diag_mass=diag_mass,
                                             target_accept_prob=target_accept_prob)
 
-        wa_state = wa_init(step_size, mass_matrix_size=np.size(z_flat), rng=rng_wa)
+        wa_state = wa_init(z, rng_wa, mass_matrix_size=np.size(z_flat))
         r = momentum_generator(wa_state.inverse_mass_matrix, rng_momentum)
-        vv_state = vv_init(init_samples, r)
+        vv_state = vv_init(z, r)
 
         def body_fn(t, args):
             vv_state, wa_state, rng = args
@@ -70,13 +71,13 @@ def hmc_kernel(potential_fn, kinetic_fn):
             r = momentum_generator(wa_state.inverse_mass_matrix, rng_momentum)
             vv_state = vv_state.update(r=r)
             num_steps = _get_num_steps(wa_state.step_size, trajectory_length)
-            accept_prob, vv_state_new = _next(num_steps, wa_state.step_size, wa_state.inverse_mass_matrix, vv_state)
+            accept_prob, vv_state_new = _next(num_steps, wa_state.step_size,
+                                              wa_state.inverse_mass_matrix, vv_state)
             transition = random.bernoulli(rng_transition, accept_prob)
             vv_state = cond(transition,
                             vv_state_new, lambda state: state,
                             vv_state, lambda state: state)
-            z_flat, _ = ravel_pytree(vv_state.z)
-            wa_state = wa_update(t, accept_prob, z_flat, rng_wa, wa_state)
+            wa_state = wa_update(t, accept_prob, z, rng_wa, wa_state)
             return vv_state, wa_state, rng
 
         vv_state, wa_state, rng = fori_loop(0, num_warmup_steps, body_fn, (vv_state, wa_state, rng))
@@ -99,8 +100,8 @@ def hmc_kernel(potential_fn, kinetic_fn):
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
         r = momentum_generator(wa_state.inverse_mass_matrix, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
-        accept_prob, vv_state_new = _next(hmc_state.num_steps, hmc_state.step_size, hmc_state.inverse_mass_matrix,
-                                          vv_state)
+        accept_prob, vv_state_new = _next(hmc_state.num_steps, hmc_state.step_size,
+                                          hmc_state.inverse_mass_matrix, vv_state)
         transition = random.bernoulli(rng_transition, accept_prob)
         vv_state = cond(transition,
                         vv_state_new, lambda state: state,

@@ -142,8 +142,8 @@ def velocity_verlet(potential_fn, kinetic_fn):
     return init_fn, update_fn
 
 
-def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
-                              position, inverse_mass_matrix, init_step_size, rng):
+def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
+                              position, rng, init_step_size):
     # We are going to find a step_size which make accept_prob (Metropolis correction)
     # near the target_accept_prob. If accept_prob:=exp(-delta_energy) is small,
     # then we have to decrease step_size; otherwise, increase step_size.
@@ -236,7 +236,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                 inverse_mass_matrix = np.identity(mass_matrix_size)
 
         if find_reasonable_step_size is not None:
-            step_size = find_reasonable_step_size(z, inverse_mass_matrix, step_size, rng)
+            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng, step_size)
         ss_state = ss_init(np.log(10 * step_size))
 
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
@@ -244,17 +244,17 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         window_idx = 0
         return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
 
-    def _update_at_window_end(rng, state):
+    def _update_at_window_end(z, rng, state):
         step_size, inverse_mass_matrix, ss_state, mm_state, window_idx = state
-
-        if adapt_step_size:
-            if find_reasonable_step_size is not None:
-                step_size = find_reasonable_step_size(z, rng, inverse_mass_matrix, ss_state, mm_state, step_size)
-            ss_state = ss_init(np.log(10 * step_size))
 
         if adapt_mass_matrix:
             inverse_mass_matrix = mm_final(mm_state, regularize=True)
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
+
+        if adapt_step_size:
+            if find_reasonable_step_size is not None:
+                step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng, step_size)
+            ss_state = ss_init(np.log(10 * step_size))
 
         return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
 
@@ -283,7 +283,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
         state = AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
         state = cond(t_at_window_end & is_middle_window,
-                     (rng, state), _update_at_window_end, state, lambda x: x)
+                     (z, rng, state), _update_at_window_end, state, lambda x: x)
         return state
 
     return init_fn, update_fn
