@@ -55,7 +55,7 @@ def hmc_kernel(potential_fn, kinetic_fn):
 
         rng, rng_wa, rng_momentum = random.split(rng, 3)
         wa_init, wa_update = warmup_adapter(num_warmup_steps,
-                                            find_reasonable_step_size=find_initial_ss,
+                                            find_reasonable_step_size=find_reasonable_ss,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
                                             diag_mass=diag_mass,
@@ -98,7 +98,7 @@ def hmc_kernel(potential_fn, kinetic_fn):
 
     def sample_kernel(hmc_state, i):
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
-        r = momentum_generator(wa_state.inverse_mass_matrix, rng_momentum)
+        r = momentum_generator(hmc_state.inverse_mass_matrix, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         accept_prob, vv_state_new = _next(hmc_state.num_steps, hmc_state.step_size,
                                           hmc_state.inverse_mass_matrix, vv_state)

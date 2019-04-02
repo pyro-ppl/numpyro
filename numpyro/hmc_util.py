@@ -175,7 +175,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     def _cond_fn(state):
         return (state[1] == 0) | (state[1] == state[2])
 
-    step_size, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
+    step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
     return step_size
 
 
@@ -283,7 +283,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
         state = AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx)
         state = cond(t_at_window_end & is_middle_window,
-                     (z, rng, state), _update_at_window_end, state, lambda x: x)
+                     (z, rng, state), lambda args: _update_at_window_end(*args),
+                     state, lambda x: x)
         return state
 
     return init_fn, update_fn
