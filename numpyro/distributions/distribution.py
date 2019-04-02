@@ -8,6 +8,7 @@
 
 import numpy as onp
 import scipy.stats as osp_stats
+from scipy.stats._distn_infrastructure import rv_generic
 
 import jax.numpy as np
 from jax import device_put, lax
@@ -76,3 +77,9 @@ class jax_discrete(osp_stats.rv_discrete):
             if not np.all(cond1):
                 raise ValueError('Invalid values provided to {}.logpmf'.format(self))
         return self._logpmf(k, *args)
+
+
+class jax_multivariate(rv_generic):
+    pass
+    # This class serves as a midpoint between multivariate distribution
+    # implementations and rv_generic behaviour.
