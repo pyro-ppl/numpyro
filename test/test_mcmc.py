@@ -44,10 +44,8 @@ def test_logistic_regression():
         def potential_fn(beta):
             coefs_mean = np.zeros(dim)
             coefs_lpdf = dist.norm(coefs_mean, np.ones(dim)).logpdf(beta)
-            probs = np.clip(expit(np.sum(beta * data, axis=-1)),
-                            a_min=np.finfo(np.float32).tiny,
-                            a_max=(1 - np.finfo(np.float32).eps))
-            y_lpdf = dist.bernoulli(probs).logpmf(labels)
+            logits = np.sum(beta * data, axis=-1)
+            y_lpdf = dist.bernoulli(logits, is_logits=True).logpmf(labels)
             return - (np.sum(coefs_lpdf) + np.sum(y_lpdf))
 
         def kinetic_fn(beta, m_inv):

@@ -5,9 +5,10 @@ from numpy.testing import assert_allclose
 
 import jax.numpy as np
 from jax import grad, jit, lax, random
+from jax.scipy.special import expit
 from jax.util import partial
 
-from numpyro.distributions.util import standard_gamma, xlog1py, xlogy
+from numpyro.distributions.util import binary_cross_entropy_with_logits, standard_gamma, xlog1py, xlogy
 
 _zeros = partial(lax.full_like, fill_value=0)
 
@@ -68,6 +69,16 @@ def test_xlog1py(x, y, jit_fn):
 def test_xlog1py_jac(x, y, grad1, grad2):
     assert_allclose(grad(lambda x, y: np.sum(xlog1py(x, y)))(x, y), grad1)
     assert_allclose(grad(lambda x, y: np.sum(xlog1py(x, y)), 1)(x, y), grad2)
+
+
+@pytest.mark.parametrize('x, y', [
+    (0.2, 10.),
+    (0.6, -10.),
+])
+def test_binary_cross_entropy_with_logits(x, y):
+    actual = -y * np.log(expit(x)) - (1 - y) * np.log(expit(-x))
+    expect = binary_cross_entropy_with_logits(x, y)
+    assert_allclose(actual, expect, rtol=1e-6)
 
 
 @pytest.mark.parametrize('alpha, shape', [
