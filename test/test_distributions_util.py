@@ -8,8 +8,7 @@ from jax import grad, jit, lax, random
 from jax.scipy.special import expit
 from jax.util import partial
 
-from numpyro.distributions.util import (binary_cross_entropy_with_logits, standard_gamma,
-                                        xlog1py, xlogy)
+from numpyro.distributions.util import binary_cross_entropy_with_logits, standard_gamma, xlog1py, xlogy
 
 _zeros = partial(lax.full_like, fill_value=0)
 

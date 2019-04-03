@@ -16,8 +16,7 @@ from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import expit, gammaln
 
 from numpyro.distributions.distribution import jax_discrete
-from numpyro.distributions.util import (binary_cross_entropy_with_logits, entr, promote_shapes,
-                                        xlog1py, xlogy)
+from numpyro.distributions.util import binary_cross_entropy_with_logits, entr, promote_shapes, xlog1py, xlogy
 
 
 class _binom_gen(jax_discrete, binom_gen):

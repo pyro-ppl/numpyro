@@ -209,4 +209,4 @@ def test_discrete_with_logits(jax_dist, dist_args):
 
     actual_pmf = jax_dist.logpmf(actual_sample, *dist_args)
     expected_pmf = jax_dist(*logit_args, is_logits=True).logpmf(actual_sample)
-    assert_allclose(actual_pmf, expected_pmf)
+    assert_allclose(actual_pmf, expected_pmf, rtol=1e-6)
