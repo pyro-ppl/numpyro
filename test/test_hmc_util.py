@@ -208,13 +208,14 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     def potential_fn(q):
         return 0.5 * q ** 2
 
-    p_generator = lambda: 1.0  # noqa: E731
+    p_generator = lambda m_inv, rng: 1.0  # noqa: E731
     q = 0.0
     m_inv = np.array([1.])
 
     fn = (jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
           if jitted else find_reasonable_step_size)
-    step_size = fn(potential_fn, kinetic_fn, p_generator, m_inv, q, init_step_size)
+    rng = random.PRNGKey(0)
+    step_size = fn(potential_fn, kinetic_fn, p_generator, m_inv, q, rng, init_step_size)
 
     # Apply 1 velocity verlet step with step_size=eps, we have
     # z_new = eps, r_new = 1 - eps^2 / 2, hence energy_new = 0.5 + eps^4 / 8,
@@ -249,25 +250,29 @@ def test_build_adaptation_schedule(num_steps, expected):
 
 @pytest.mark.parametrize('jitted', [True, False])
 def test_warmup_adapter(jitted):
+    def find_reasonable_step_size(m_inv, z, rng, step_size):
+        return np.where(step_size < 1, step_size * 4, step_size / 4)
+
     num_steps = 150
     adaptation_schedule = build_adaptation_schedule(num_steps)
-    find_reasonable_step_size = lambda x: np.where(x < 1, x * 4, x / 4)  # noqa: E731
     init_step_size = 1.
     mass_matrix_size = 3
 
     wa_init, wa_update = warmup_adapter(num_steps, find_reasonable_step_size)
     wa_update = jit(wa_update) if jitted else wa_update
 
-    wa_state = wa_init(init_step_size, mass_matrix_size=mass_matrix_size)
+    rng = random.PRNGKey(0)
+    z = np.ones(3)
+    wa_state = wa_init(z, rng, init_step_size, mass_matrix_size=mass_matrix_size)
     step_size, inverse_mass_matrix, _, _, window_idx = wa_state
-    assert step_size == find_reasonable_step_size(init_step_size)
+    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, rng, init_step_size)
     assert_allclose(inverse_mass_matrix, np.ones(mass_matrix_size))
     assert window_idx == 0
 
     window = adaptation_schedule[0]
     for t in range(window.start, window.end + 1):
         wa_state = wa_update(t, 0.7 + 0.1 * t / (window.end - window.start),
-                             np.ones(3), wa_state)
+                             z, rng, wa_state)
     last_step_size = step_size
     step_size, inverse_mass_matrix, _, _, window_idx = wa_state
     assert window_idx == 1
@@ -280,7 +285,7 @@ def test_warmup_adapter(jitted):
     window_len = window.end - window.start
     for t in range(window.start, window.end + 1):
         wa_state = wa_update(t, 0.8 + 0.1 * (t - window.start) / window_len,
-                             2 * np.ones(3), wa_state)
+                             2 * z, rng, wa_state)
     last_step_size = step_size
     step_size, inverse_mass_matrix, _, _, window_idx = wa_state
     assert window_idx == 2
@@ -297,7 +302,7 @@ def test_warmup_adapter(jitted):
 
     window = adaptation_schedule[2]
     for t in range(window.start, window.end + 1):
-        wa_state = wa_update(t, 0.8, t * np.ones(3), wa_state)
+        wa_state = wa_update(t, 0.8, t * z, rng, wa_state)
     last_step_size = step_size
     step_size, final_inverse_mass_matrix, _, _, window_idx = wa_state
     assert window_idx == 3
