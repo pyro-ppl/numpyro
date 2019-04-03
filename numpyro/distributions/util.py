@@ -273,6 +273,12 @@ def entr(p):
     return e
 
 
+def binary_cross_entropy_with_logits(x, y):
+    # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
+    # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
+    return np.clip(x, 0) - x * y + np.log1p(np.exp(-np.abs(x)))
+
+
 def promote_shapes(*args, shape=()):
     # adapted from lax.lax_numpy
     if len(args) < 2 and not shape:

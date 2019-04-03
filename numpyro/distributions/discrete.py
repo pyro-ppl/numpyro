@@ -13,10 +13,11 @@ from scipy.stats._multivariate import multinomial_gen
 import jax.numpy as np
 from jax import device_put, lax
 from jax.numpy.lax_numpy import _promote_dtypes
-from jax.scipy.special import gammaln
+from jax.scipy.special import expit, gammaln
 
 from numpyro.distributions.distribution import jax_discrete
-from numpyro.distributions.util import entr, promote_shapes, xlog1py, xlogy
+from numpyro.distributions.util import (binary_cross_entropy_with_logits, entr, promote_shapes,
+                                        xlog1py, xlogy)
 
 
 class _binom_gen(jax_discrete, binom_gen):
@@ -33,8 +34,39 @@ class _binom_gen(jax_discrete, binom_gen):
 
 
 class _bernoulli_gen(jax_discrete, bernoulli_gen):
+    def __new__(cls, *args, **kwargs):
+        return super(_bernoulli_gen, cls).__new__(cls)
+
+    def __init__(self, *args, **kwargs):
+        self.is_logits = kwargs.pop("is_logits", False)
+        super(_bernoulli_gen, self).__init__(*args, **kwargs)
+
+    def freeze(self, *args, **kwargs):
+        self._ctor_param.update(is_logits=kwargs.pop("is_logits", False))
+        return super(_bernoulli_gen, self).freeze(*args, **kwargs)
+
+    def rvs(self, *args, **kwargs):
+        if self.is_logits:
+            # convert logits to probs
+            if args:
+                args = list(args)
+                args[0] = expit(args[0])
+            else:
+                kwargs['p'] = expit(kwargs['p'])
+        return super(_bernoulli_gen, self).rvs(*args, **kwargs)
+
+    def _argcheck(self, p):
+        if self.is_logits:
+            return np.isfinite(p)
+        else:
+            return (p >= 0) & (p <= 1)
+
     def _logpmf(self, x, p):
-        return xlogy(x, p) + xlog1py(1 - x, -p)
+        if self.is_logits:
+            return -binary_cross_entropy_with_logits(p, x)
+        else:
+            # TODO: consider always clamp and convert probs to logits
+            return xlogy(x, p) + xlog1py(1 - x, -p)
 
     def _entropy(self, p):
         return entr(p) + entr(1 - p)

@@ -67,11 +67,11 @@ class jax_discrete(osp_stats.rv_discrete):
         # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
         assert _is_prng_key(rng)
         kwargs['random_state'] = onp.random.RandomState(rng)
-        sample = super(osp_stats.rv_discrete, self).rvs(*args, **kwargs)
+        sample = super(jax_discrete, self).rvs(*args, **kwargs)
         return device_put(sample)
 
-    def logpmf(self, k, *args, **kwds):
-        args, loc, _ = self._parse_args(*args, **kwds)
+    def logpmf(self, k, *args, **kwargs):
+        args, loc, _ = self._parse_args(*args, **kwargs)
         k = k - loc
         if self.args_check:
             cond0 = self._argcheck(*args)

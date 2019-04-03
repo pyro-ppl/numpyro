@@ -10,6 +10,7 @@ import jax
 import jax.numpy as np
 import jax.random as random
 from jax import grad, lax
+from jax.scipy.special import logit
 
 import numpyro.distributions as dist
 
@@ -59,7 +60,7 @@ def idfn(param):
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
     (dist.bernoulli, (0.1,)),
-    (dist.bernoulli, (np.array([0.3, 0.5]))),
+    (dist.bernoulli, (np.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
@@ -140,7 +141,7 @@ def test_logprob(jax_dist, loc_scale):
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
     (dist.bernoulli, (0.1,)),
-    (dist.bernoulli, (np.array([0.3, 0.5]))),
+    (dist.bernoulli, (np.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.binom, [np.array([2, 5]), np.array([[0.4], [0.5]])]),
@@ -192,3 +193,20 @@ def test_discrete_logpmf_args_check(jax_dist, dist_args):
     with pytest.raises(ValueError, match='Invalid values'):
         sample_oos = sample - 0.5
         jax_dist.logpmf(sample_oos, *dist_args)
+
+
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    (dist.bernoulli, (0.1,)),
+    (dist.bernoulli, (np.array([0.3, 0.5]),)),
+], ids=idfn)
+def test_discrete_with_logits(jax_dist, dist_args):
+    rng = random.PRNGKey(0)
+    logit_args = dist_args[:-1] + (logit(dist_args[-1]),)
+
+    actual_sample = jax_dist.rvs(*dist_args, random_state=rng)
+    expected_sample = jax_dist(*logit_args, is_logits=True).rvs(random_state=rng)
+    assert_allclose(actual_sample, expected_sample)
+
+    actual_pmf = jax_dist.logpmf(actual_sample, *dist_args)
+    expected_pmf = jax_dist(*logit_args, is_logits=True).logpmf(actual_sample)
+    assert_allclose(actual_pmf, expected_pmf)
