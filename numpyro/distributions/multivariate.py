@@ -17,7 +17,7 @@ def _lnB(alpha):
     return np.sum(gammaln(alpha), axis=-1) - gammaln(np.sum(alpha, axis=-1))
 
 
-class _dirichlet_gen(jax_mvcontinuous):
+class dirichlet_gen(jax_mvcontinuous):
     # TODO: use dirichlet doc instead of the default one of rv_continuous
     # TODO: add _argcheck, _support_mask with simplex
     def _logpdf(self, x, alpha):
@@ -46,4 +46,4 @@ class _dirichlet_gen(jax_mvcontinuous):
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
 
-dirichlet = _dirichlet_gen(a=0.0, b=1.0, name='dirichlet')
+dirichlet = dirichlet_gen(a=0.0, b=1.0, name='dirichlet')
