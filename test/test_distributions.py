@@ -35,7 +35,7 @@ import numpyro.distributions as dist
     (2,),
     (2, 3),
 ])
-def test_shape(jax_dist, loc, scale, prepend_shape):
+def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
     rng = random.PRNGKey(0)
     args = (1,) * jax_dist.numargs
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
@@ -56,6 +56,31 @@ def idfn(param):
                           osp_stats._multivariate.multi_rv_generic)):
         return param.name
     return repr(param)
+
+
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    (dist.dirichlet, (np.ones(3),)),
+    (dist.dirichlet, (np.ones((2, 3)),)),
+], ids=idfn)
+@pytest.mark.parametrize('prepend_shape', [
+    None,
+    (),
+    (2,),
+    (2, 3),
+])
+def test_mvcontinuous_shape(jax_dist, dist_args, prepend_shape):
+    rng = random.PRNGKey(0)
+    expected_shape = lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
+    samples = jax_dist.rvs(*dist_args, random_state=rng)
+    assert isinstance(samples, jax.interpreters.xla.DeviceArray)
+    assert np.shape(samples) == expected_shape
+    assert np.shape(jax_dist(*dist_args).rvs(random_state=rng)) == expected_shape
+    if prepend_shape is not None:
+        expected_shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
+        samples = jax_dist.rvs(*dist_args, size=expected_shape[:-1], random_state=rng)
+        assert np.shape(samples) == expected_shape
+        samples = jax_dist(*dist_args).rvs(random_state=rng, size=expected_shape[:-1])
+        assert np.shape(samples) == expected_shape
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -115,6 +140,20 @@ def test_sample_gradient(jax_dist, loc, scale):
                     jax_dist.rvs(*args, size=expected_shape, random_state=rng))
 
 
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    (dist.dirichlet, (np.ones(3),)),
+    (dist.dirichlet, (np.ones((2, 3)),)),
+], ids=idfn)
+def test_mvsample_gradient(jax_dist, dist_args):
+    rng = random.PRNGKey(0)
+
+    def fn(args):
+        return jax_dist.rvs(*args, random_state=rng).sum()
+
+    # FIXME: find a proper test for gradients of arg parameters
+    assert len(grad(fn)(dist_args)) == jax_dist.numargs
+
+
 @pytest.mark.parametrize('jax_dist', [
     dist.beta,
     dist.cauchy,
@@ -131,12 +170,33 @@ def test_sample_gradient(jax_dist, loc, scale):
     (1, 1),
     (1., np.array([1., 2.])),
 ])
-def test_logprob(jax_dist, loc_scale):
+def test_continuous_logpdf(jax_dist, loc_scale):
     rng = random.PRNGKey(0)
     args = (1,) * jax_dist.numargs + loc_scale
     samples = jax_dist.rvs(*args, random_state=rng)
     sp_dist = getattr(osp_stats, jax_dist.name)
     assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args), atol=1e-6)
+
+
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    (dist.dirichlet, (np.array([1., 2., 3.]),)),
+], ids=idfn)
+@pytest.mark.parametrize('shape', [
+    None,
+    (),
+    (2,),
+    (2, 3),
+])
+def test_mvcontinuous_logpdf(jax_dist, dist_args, shape):
+    rng = random.PRNGKey(0)
+    samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
+    sp_dist = getattr(osp_stats, jax_dist.name)
+    # XXX scipy.stats.dirichlet does not work with batch
+    if samples.ndim == 1:
+        assert_allclose(jax_dist.logpdf(samples, *dist_args),
+                        sp_dist.logpdf(samples, *dist_args), atol=1e-6)
+
+    assert jax_dist.logpdf(samples, *dist_args).shape == samples.shape[:-1]
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [

@@ -7,75 +7,43 @@
 # All rights reserved.
 
 import jax.numpy as np
-from jax import random
 from jax.scipy.special import digamma, gammaln
 
-from numpyro.distributions.distribution import jax_multivariate
-from numpyro.distributions.util import xlogy
+from numpyro.distributions.util import xlogy, standard_gamma
+from numpyro.distributions.distribution import jax_mvcontinuous
 
 
 def _lnB(alpha):
-    return np.sum(gammaln(alpha)) - gammaln(np.sum(alpha))
+    return np.sum(gammaln(alpha), axis=-1) - gammaln(np.sum(alpha, axis=-1))
 
 
-class dirichlet_gen(jax_multivariate):
+class _dirichlet_gen(jax_mvcontinuous):
+    # TODO: use dirichlet doc instead of the default one of rv_continuous
+    # TODO: add _argcheck, _support_mask with simplex
     def _logpdf(self, x, alpha):
         lnB = _lnB(alpha)
-        return -lnB + np.sum((xlogy(alpha - 1, x.T)).T, 0)
+        return -lnB + np.sum(xlogy(alpha - 1, x), axis=-1)
 
-    def logpdf(self, x, alpha):
-        alpha = _dirichlet_check_parameters(alpha)
-        x = _dirichlet_check_input(alpha, x)
-
-        out = self._logpdf(x, alpha)
-        return _squeeze_output(out)
-
-    def pdf(self, x, alpha):
-        alpha = _dirichlet_check_parameters(alpha)
-        x = _dirichlet_check_input(alpha, x)
-
-        out = np.exp(self._logpdf(x, alpha))
-        return _squeeze_output(out)
+    def _pdf(self, x, alpha):
+        return np.exp(self._logpdf(x, alpha))
 
     def mean(self, alpha):
-        alpha = _dirichlet_check_parameters(alpha)
-
-        out = alpha / (np.sum(alpha))
-        return _squeeze_output(out)
+        return alpha / np.sum(alpha, axis=-1, keepdims=True)
 
     def var(self, alpha):
-        alpha = _dirichlet_check_parameters(alpha)
+        alpha0 = np.sum(alpha, axis=-1, keepdims=True)
+        return (alpha * (alpha0 - alpha)) / ((alpha0 * alpha0) * (alpha0 + 1))
 
-        alpha0 = np.sum(alpha)
-        out = (alpha * (alpha0 - alpha)) / ((alpha0 * alpha0) * (alpha0 + 1))
-        return _squeeze_output(out)
-
-    def entropy(self, alpha):
-        alpha = _dirichlet_check_parameters(alpha)
-
-        alpha0 = np.sum(alpha)
+    def _entropy(self, alpha):
+        alpha0 = np.sum(alpha, axis=-1)
         lnB = _lnB(alpha)
-        K = alpha.shape[0]
+        K = alpha.shape[-1]
+        return lnB + (alpha0 - K) * digamma(alpha0) - np.inner((alpha - 1) * digamma(alpha))
 
-        out = lnB + (alpha0 - K) * scipy.special.psi(alpha0) - np.sum(
-            (alpha - 1) * scipy.special.psi(alpha))
-        return _squeeze_output(out)
+    def _rvs(self, alpha):
+        K = alpha.shape[-1]
+        gamma_samples = standard_gamma(self._random_state, alpha, self._size + (K,))
+        return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
-    def rvs(self, alpha, size=1, random_state=None):
-        """
-        Draw random samples from a Dirichlet distribution.
-        Parameters
-        ----------
-        %(_dirichlet_doc_default_callparams)s
-        size : int, optional
-            Number of samples to draw (default 1).
-        %(_doc_random_state)s
-        Returns
-        -------
-        rvs : ndarray or scalar
-            Random variates of size (`size`, `N`), where `N` is the
-            dimension of the random variable.
-        """
-        alpha = _dirichlet_check_parameters(alpha)
-        random_state = self._get_random_state(random_state)
-        return random_state.dirichlet(alpha, size=size)
+
+dirichlet = _dirichlet_gen(a=0.0, b=1.0, name='dirichlet')
