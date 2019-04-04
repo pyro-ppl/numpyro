@@ -42,7 +42,7 @@ class dirichlet_gen(jax_mvcontinuous):
 
     def _rvs(self, alpha):
         K = alpha.shape[-1]
-        gamma_samples = standard_gamma(self._random_state, alpha, self._size + (K,))
+        gamma_samples = standard_gamma(self._random_state, alpha, shape=self._size + (K,))
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
 
