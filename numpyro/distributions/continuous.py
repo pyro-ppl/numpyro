@@ -20,8 +20,8 @@ class beta_gen(jax_continuous):
         # XXX the implementation is different from PyTorch's one
         # in PyTorch, a sample is generated from dirichlet distribution
         key_a, key_b = random.split(self._random_state)
-        gamma_a = standard_gamma(key_a, a, self._size)
-        gamma_b = standard_gamma(key_b, b, self._size)
+        gamma_a = standard_gamma(key_a, a, shape=self._size)
+        gamma_b = standard_gamma(key_b, b, shape=self._size)
         return gamma_a / (gamma_a + gamma_b)
 
     def _cdf(self, x, a, b):
@@ -40,7 +40,7 @@ class cauchy_gen(jax_continuous):
     def _rvs(self):
         # TODO: move this implementation upstream to jax.random.standard_cauchy
         # Another way is to generate X, Y ~ Normal(0, 1) and return X / Y
-        u = random.uniform(self._random_state, self._size)
+        u = random.uniform(self._random_state, shape=self._size)
         return np.tan(np.pi * (u - 0.5))
 
     def _pdf(self, x):
@@ -68,7 +68,7 @@ class cauchy_gen(jax_continuous):
 
 class expon_gen(jax_continuous):
     def _rvs(self):
-        u = random.uniform(self._random_state, self._size)
+        u = random.uniform(self._random_state, shape=self._size)
         return -np.log(u)
 
     def _cdf(self, x):
@@ -95,7 +95,7 @@ class expon_gen(jax_continuous):
 
 class gamma_gen(jax_continuous):
     def _rvs(self, a):
-        return standard_gamma(self._random_state, a, self._size)
+        return standard_gamma(self._random_state, a, shape=self._size)
 
     # TODO: add _cdf/_sf methods when incomplete gamma is available
     # https://github.com/google/jax/issues/479
@@ -124,7 +124,7 @@ class lognorm_gen(jax_continuous):
     _support_mask = jax_continuous._open_support_mask
 
     def _rvs(self, s):
-        return np.exp(s * random.normal(self._random_state, self._size))
+        return np.exp(s * random.normal(self._random_state, shape=self._size))
 
     def _pdf(self, x, s):
         # lognorm.pdf(x, s) = 1 / (s*x*sqrt(2*pi)) * exp(-1/2*(log(x)/s)**2)
@@ -155,7 +155,7 @@ def _norm_logpdf(x):
 
 class norm_gen(jax_continuous):
     def _rvs(self):
-        return random.normal(self._random_state, self._size)
+        return random.normal(self._random_state, shape=self._size)
 
     def _stats(self):
         return 0.0, 1.0, 0.0, 0.0
@@ -167,9 +167,9 @@ class norm_gen(jax_continuous):
 class t_gen(jax_continuous):
     def _rvs(self, df):
         key_n, key_g = random.split(self._random_state)
-        normal = random.normal(key_n, self._size)
+        normal = random.normal(key_n, shape=self._size)
         half_df = df / 2.0
-        gamma = standard_gamma(key_n, half_df, self._size)
+        gamma = standard_gamma(key_n, half_df, shape=self._size)
         return normal * np.sqrt(half_df / gamma)
 
     def _pdf(self, x, df):
@@ -199,7 +199,7 @@ class t_gen(jax_continuous):
 
 class uniform_gen(jax_continuous):
     def _rvs(self):
-        return random.uniform(self._random_state, self._size, minval=0.0, maxval=1.0)
+        return random.uniform(self._random_state, shape=self._size)
 
     def _cdf(self, x):
         return x

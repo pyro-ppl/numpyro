@@ -8,6 +8,8 @@
 
 import numpy as onp
 import scipy.stats as osp_stats
+from scipy._lib._util import getargspec_no_self
+from scipy.stats._distn_infrastructure import instancemethod
 
 import jax.numpy as np
 from jax import device_put, lax
@@ -37,6 +39,9 @@ class jax_continuous(osp_stats.rv_continuous):
         if not size:
             shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
             size = lax.broadcast_shapes(*shapes)
+        # TODO(fehiepsi): add test for int size
+        elif isinstance(size, int):
+            size = (size,)
         self._random_state = rng
         self._size = size
         vals = self._rvs(*args)
@@ -58,6 +63,9 @@ class jax_continuous(osp_stats.rv_continuous):
 class jax_discrete(osp_stats.rv_discrete):
     args_check = True
 
+    def _support_mask(self, k):
+        return (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
+
     # Discrete distribution instances use scipy samplers directly
     # and put the samples on device later.
     def rvs(self, *args, **kwargs):
@@ -75,9 +83,64 @@ class jax_discrete(osp_stats.rv_discrete):
         k = k - loc
         if self.args_check:
             cond0 = self._argcheck(*args)
-            cond1 = (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
+            cond1 = self._support_mask(k)
             if not np.all(cond0):
                 raise ValueError('Invalid distribution arguments provided to {}.logpmf'.format(self))
             if not np.all(cond1):
                 raise ValueError('Invalid values provided to {}.logpmf'.format(self))
         return self._logpmf(k, *args)
+
+
+_parse_arg_template = """
+def _parse_args(self, {shape_arg_str}):
+    return ({shape_arg_str}), 0, 1
+"""
+
+
+class jax_mvcontinuous(osp_stats.rv_continuous):
+    def _construct_argparser(self, *args, **kwargs):
+        if self.shapes:
+            shapes = self.shapes.replace(',', ' ').split()
+        else:
+            shapes = getargspec_no_self(self._rvs).args
+
+        # have the arguments, construct the method from template
+        shapes_str = ', '.join(shapes) + ', ' if shapes else ''  # NB: not None
+        dct = dict(shape_arg_str=shapes_str)
+        ns = {}
+        exec(_parse_arg_template.format(**dct), ns)
+        # NB: attach to the instance, not class
+        for name in ['_parse_args']:
+            setattr(self, name, instancemethod(ns[name], self, self.__class__))
+
+        self.shapes = ', '.join(shapes) if shapes else None
+        if not hasattr(self, 'numargs'):
+            self.numargs = len(shapes)
+
+    def rvs(self, *args, **kwargs):
+        rng = kwargs.pop('random_state')
+        if rng is None:
+            rng = self.random_state
+        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
+        assert _is_prng_key(rng)
+
+        args = list(args)
+        size = kwargs.pop('size', args.pop() if len(args) > self.numargs else None)
+
+        args, _, _ = self._parse_args(*args, **kwargs)
+        # XXX we might not need to verify that args is empty for multivariate distributions
+        args = _promote_args("rvs", *args)
+
+        # TODO: make this code compatible to mvn distribution
+        if not size:
+            size = args[-1].shape[:-1]
+        elif isinstance(size, int):
+            size = (size,)
+
+        self._random_state = rng
+        self._size = size
+        return self._rvs(*args)
+
+    def logpdf(self, *args, **kwargs):
+        # TODO: check args, check input
+        return self._logpdf(*args, **kwargs)
