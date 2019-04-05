@@ -34,9 +34,9 @@ def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
 
 def hmc_kernel(potential_fn, kinetic_fn, algo='NUTS'):
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
+    trajectory_length = None
     momentum_generator = None
     wa_update = None
-    trajectory_length = None
 
     def init_kernel(init_samples,
                     num_warmup_steps,
