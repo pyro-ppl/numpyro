@@ -32,7 +32,20 @@ def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
         raise NotImplementedError
 
 
-def hmc_kernel(potential_fn, kinetic_fn, algo='NUTS'):
+def _euclidean_ke(r, inverse_mass_matrix):
+    r, _ = ravel_pytree(r)
+
+    if inverse_mass_matrix.ndim == 2:
+        v = np.matmul(inverse_mass_matrix, r)
+    elif inverse_mass_matrix.ndim == 1:
+        v = np.multiply(inverse_mass_matrix, r)
+
+    return 0.5 * np.dot(v, r)
+
+
+def hmc_kernel(potential_fn, kinetic_fn=None, algo='NUTS'):
+    if kinetic_fn is None:
+        kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     trajectory_length = None
     momentum_generator = None
