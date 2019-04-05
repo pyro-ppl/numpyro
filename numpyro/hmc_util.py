@@ -229,7 +229,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
     num_windows = len(adaptation_schedule)
 
     def init_fn(z, rng, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
-        rng, rng_sub = random.split(rng)
+        rng, rng_ss = random.split(rng)
         if inverse_mass_matrix is None:
             assert mass_matrix_size is not None
             if diag_mass:
@@ -238,7 +238,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                 inverse_mass_matrix = np.identity(mass_matrix_size)
 
         if find_reasonable_step_size is not None:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_sub, step_size)
+            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
         ss_state = ss_init(np.log(10 * step_size))
 
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
@@ -246,7 +246,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         window_idx = 0
         return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng)
 
-    def _update_at_window_end(z, rng_sub, state):
+    def _update_at_window_end(z, rng_ss, state):
         step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng = state
 
         if adapt_mass_matrix:
@@ -255,14 +255,14 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
         if adapt_step_size:
             if find_reasonable_step_size is not None:
-                step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_sub, step_size)
+                step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
             ss_state = ss_init(np.log(10 * step_size))
 
         return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng)
 
     def update_fn(t, accept_prob, z, state):
         step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng = state
-        rng, rng_sub = random.split(rng)
+        rng, rng_ss = random.split(rng)
 
         # update step size state
         if adapt_step_size:
@@ -286,7 +286,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
         state = AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng)
         state = cond(t_at_window_end & is_middle_window,
-                     (z, rng_sub, state), lambda args: _update_at_window_end(*args),
+                     (z, rng_ss, state), lambda args: _update_at_window_end(*args),
                      state, lambda x: x)
         return state
 
@@ -393,9 +393,9 @@ def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, st
     )
 
     energy_new = potential_energy_new + kinetic_fn(r_new, inverse_mass_matrix)
-    # Handles the NaN case.
-    energy_new = np.where(np.isnan(energy_new), np.inf, energy_new)
     delta_energy = energy_new - energy_current
+    # Handles the NaN case.
+    delta_energy = np.where(np.isnan(delta_energy), np.inf, delta_energy)
     tree_weight = -delta_energy
 
     diverging = delta_energy > max_delta_energy

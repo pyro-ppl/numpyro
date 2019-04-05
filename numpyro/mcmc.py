@@ -71,19 +71,17 @@ def hmc_kernel(potential_fn, kinetic_fn, algo='NUTS'):
                                             target_accept_prob=target_accept_prob)
 
         rng_hmc, rng_wa = random.split(rng)
-        wa_init_state = wa_init(z, rng_wa, mass_matrix_size=np.size(z_flat))
-        r = momentum_generator(wa_init_state.inverse_mass_matrix, rng)
+        wa_state = wa_init(z, rng_wa, mass_matrix_size=np.size(z_flat))
+        r = momentum_generator(wa_state.inverse_mass_matrix, rng)
         vv_state = vv_init(z, r)
-        hmc_init_state = HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
-                                  wa_init_state.step_size, wa_init_state.inverse_mass_matrix,
-                                  rng_hmc)
+        hmc_state = HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
+                             wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
 
         if run_warmup:
-            hmc_state, wa_state = fori_loop(0, num_warmup_steps, warmup_update,
-                                            (hmc_init_state, wa_init_state))
+            hmc_state, _ = fori_loop(0, num_warmup_steps, warmup_update, (hmc_state, wa_state))
             return hmc_state
         else:
-            return warmup_update, hmc_init_state, wa_init_state
+            return warmup_update, hmc_state, wa_state
 
     def warmup_update(t, states):
         hmc_state, wa_state = states
@@ -114,10 +112,10 @@ def hmc_kernel(potential_fn, kinetic_fn, algo='NUTS'):
                                  inverse_mass_matrix, step_size, rng)
         accept_prob = binary_tree.sum_accept_probs / binary_tree.num_proposals
         num_steps = binary_tree.num_proposals
-        vv_state_new = vv_state.update(z=binary_tree.z_proposal,
-                                       potential_energy=binary_tree.z_proposal_pe,
-                                       z_grad=binary_tree.z_proposal_grad)
-        return vv_state_new, num_steps, accept_prob
+        vv_state = vv_state.update(z=binary_tree.z_proposal,
+                                   potential_energy=binary_tree.z_proposal_pe,
+                                   z_grad=binary_tree.z_proposal_grad)
+        return vv_state, num_steps, accept_prob
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
