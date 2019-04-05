@@ -81,7 +81,7 @@ def hmc_kernel(potential_fn, kinetic_fn, algo='NUTS'):
             hmc_state, _ = fori_loop(0, num_warmup_steps, warmup_update, (hmc_state, wa_state))
             return hmc_state
         else:
-            return warmup_update, hmc_state, wa_state
+            return hmc_state, wa_state, warmup_update
 
     def warmup_update(t, states):
         hmc_state, wa_state = states
