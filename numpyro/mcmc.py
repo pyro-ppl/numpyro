@@ -107,7 +107,7 @@ def hmc_kernel(potential_fn, kinetic_fn, algo='NUTS'):
         vv_state = cond(transition,
                         vv_state_new, lambda state: state,
                         vv_state, lambda state: state)
-        return vv_state_new, num_steps, accept_prob
+        return vv_state, num_steps, accept_prob
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state, rng):
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
