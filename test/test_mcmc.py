@@ -11,6 +11,7 @@ from numpyro.distributions.util import validation_disabled
 from numpyro.mcmc import hmc_kernel
 
 
+# TODO: add test for diag_mass=False
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_unnormalized_normal(algo):
     true_mean, true_std = 1., 2.
@@ -19,10 +20,7 @@ def test_unnormalized_normal(algo):
     def potential_fn(z):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
-    def kinetic_fn(r, m_inv):
-        return 0.5 * np.sum(m_inv * r ** 2)
-
-    init_kernel, sample_kernel = hmc_kernel(potential_fn, kinetic_fn, algo)
+    init_kernel, sample_kernel = hmc_kernel(potential_fn, algo=algo)
     init_samples = np.array(0.)
     hmc_state = init_kernel(init_samples,
                             num_steps=10,
@@ -49,10 +47,7 @@ def test_logistic_regression(algo):
             y_lpdf = dist.bernoulli(logits, is_logits=True).logpmf(labels)
             return - (np.sum(coefs_lpdf) + np.sum(y_lpdf))
 
-        def kinetic_fn(beta, m_inv):
-            return 0.5 * np.dot(m_inv, beta ** 2)
-
-        init_kernel, sample_kernel = hmc_kernel(potential_fn, kinetic_fn, algo)
+        init_kernel, sample_kernel = hmc_kernel(potential_fn, algo=algo)
         init_samples = np.zeros(dim)
         hmc_state = init_kernel(init_samples,
                                 step_size=0.1,
