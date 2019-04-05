@@ -118,6 +118,7 @@ def sample(name, fn, obs=None):
         'args': (),
         'kwargs': {},
         'value': obs,
+        'is_observed': obs is not None,
     }
 
     # ...and use apply_stack to send it to the Messengers

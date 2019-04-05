@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as np
 from jax import grad, jit, partial, random, value_and_grad
 from jax.flatten_util import ravel_pytree
@@ -7,7 +8,7 @@ from jax.tree_util import tree_multimap
 
 from numpyro.distributions.distribution import jax_continuous
 from numpyro.distributions.util import validation_disabled
-from numpyro.handlers import substitute, trace
+from numpyro.handlers import substitute, trace, seed
 from numpyro.util import cond, laxtuple, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
@@ -597,19 +598,27 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     return tree
 
 
-def potential_energy(model, model_args, params):
+def log_density(model, model_args, model_kwargs, params):
     def logp(d, val):
         with validation_disabled():
             return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
 
     model = substitute(model, params)
-    model_trace = trace(model).get_trace(*model_args)
-    log_density = 0.
+    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
+    log_joint = 0.
     for site in model_trace.values():
-        if site["type"] == "sample":
-            log_density = log_density + np.sum(logp(site["fn"], site["value"]))
-    return -log_density
+        if site['type'] == 'sample':
+            log_joint = log_joint + np.sum(logp(site['fn'], site['value']))
+    return log_joint, model_trace
 
 
-def kinetic_energy(params):
-    pass
+def potential_energy(model, model_args, model_kwargs):
+    return lambda params: - jax.partial(log_density, model, model_args, model_kwargs)(params)[0]
+
+
+def initialize_model(rng, model, model_args, model_kwargs):
+    model = seed(model, rng)
+    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
+    init_params = {k: v['value'] for k, v in model_trace.items()
+                   if v['type'] == 'sample' and not v['is_observed']}
+    return init_params, potential_energy(model, model_args, model_kwargs)
