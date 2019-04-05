@@ -5,6 +5,9 @@ from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
+from numpyro.distributions.distribution import jax_continuous
+from numpyro.distributions.util import validation_disabled
+from numpyro.handlers import substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
@@ -592,3 +595,21 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
             state = _body_fn(state)
         tree, _ = state
     return tree
+
+
+def potential_energy(model, model_args, params):
+    def logp(d, val):
+        with validation_disabled():
+            return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
+
+    model = substitute(model, params)
+    model_trace = trace(model).get_trace(*model_args)
+    log_density = 0.
+    for site in model_trace.values():
+        if site["type"] == "sample":
+            log_density = log_density + np.sum(logp(site["fn"], site["value"]))
+    return -log_density
+
+
+def kinetic_energy(params):
+    pass
