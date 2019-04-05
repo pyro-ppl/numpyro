@@ -134,7 +134,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
         """
         z, r, _, z_grad = state
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
-        r_grad = grad(kinetic_fn)(r, inverse_mass_matrix)
+        r_grad = grad(kinetic_fn, argnums=1)(inverse_mass_matrix, r)
         z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1)
@@ -167,8 +167,8 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
                                                       (z, r, potential_energy, z_grad))
-        energy_current = kinetic_fn(r, inverse_mass_matrix) + potential_energy
-        energy_new = kinetic_fn(r_new, inverse_mass_matrix) + potential_energy_new
+        energy_current = kinetic_fn(inverse_mass_matrix, r) + potential_energy
+        energy_new = kinetic_fn(inverse_mass_matrix, r_new) + potential_energy_new
         delta_energy = energy_new - energy_current
         direction_new = np.where(target_accept_prob < -delta_energy, 1, -1)
         return step_size, direction, direction_new, rng
@@ -392,7 +392,7 @@ def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, st
         (z, r, energy_current, z_grad),
     )
 
-    energy_new = potential_energy_new + kinetic_fn(r_new, inverse_mass_matrix)
+    energy_new = potential_energy_new + kinetic_fn(inverse_mass_matrix, r_new)
     delta_energy = energy_new - energy_current
     # Handles the NaN case.
     delta_energy = np.where(np.isnan(delta_energy), np.inf, delta_energy)
@@ -563,7 +563,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     # already covered by lax while loops.
 
     z, r, potential_energy, z_grad = verlet_state
-    energy_current = potential_energy + kinetic_fn(r, inverse_mass_matrix)
+    energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
     key, subkey = random.split(rng)
 
     tree = _TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,

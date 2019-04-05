@@ -11,6 +11,7 @@ from numpyro.distributions.util import validation_disabled
 from numpyro.mcmc import hmc_kernel
 
 
+# TODO: add test for diag_mass=False
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_unnormalized_normal(algo):
     true_mean, true_std = 1., 2.

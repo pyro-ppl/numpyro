@@ -32,7 +32,7 @@ def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
         raise NotImplementedError
 
 
-def _euclidean_ke(r, inverse_mass_matrix):
+def _euclidean_ke(inverse_mass_matrix, r):
     r, _ = ravel_pytree(r)
 
     if inverse_mass_matrix.ndim == 2:
@@ -109,8 +109,8 @@ def hmc_kernel(potential_fn, kinetic_fn=None, algo='NUTS'):
         vv_state_new = fori_loop(0, num_steps,
                                  lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
                                  vv_state)
-        energy_old = vv_state.potential_energy + kinetic_fn(vv_state.r, inverse_mass_matrix)
-        energy_new = vv_state_new.potential_energy + kinetic_fn(vv_state_new.r, inverse_mass_matrix)
+        energy_old = vv_state.potential_energy + kinetic_fn(inverse_mass_matrix, vv_state.r)
+        energy_new = vv_state_new.potential_energy + kinetic_fn(inverse_mass_matrix, vv_state_new.r)
         delta_energy = energy_new - energy_old
         delta_energy = np.where(np.isnan(delta_energy), np.inf, delta_energy)
         accept_prob = np.clip(np.exp(-delta_energy), a_max=1.0)
