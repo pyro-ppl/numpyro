@@ -117,6 +117,14 @@ def tscan(f, a, bs, fields=(0,)):
     necessary fields from `a`'s structure. Defaults to selecting only the first
     field. Other fields will be filled by None.
     """
+    # Note: code is copied and modified from lax.scan implementation in
+    # [JAX](https://github.com/google/jax) to support the additional `fields`
+    # arg. Original code has the following copyright:
+    #
+    # Copyright 2018 Google LLC
+    #
+    # Licensed under the Apache License, Version 2.0 (the "License")
+
     # convert pytree to flat jaxtuple
     a, a_tree = pytree_to_flatjaxtuple(a)
     bs, b_tree = pytree_to_flatjaxtuple(bs)
