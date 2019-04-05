@@ -3,12 +3,12 @@ from numpy.testing import assert_allclose
 
 import jax.numpy as np
 import jax.random as random
-from jax import lax
 from jax.scipy.special import expit
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import validation_disabled
 from numpyro.mcmc import hmc_kernel
+from numpyro.util import tscan
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
@@ -27,7 +27,7 @@ def test_unnormalized_normal(algo):
     hmc_state = init_kernel(init_samples,
                             num_steps=10,
                             num_warmup_steps=warmup_steps)
-    hmc_states = lax.scan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples))
+    hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples))
     assert_allclose(np.mean(hmc_states.z), true_mean, rtol=0.05)
     assert_allclose(np.std(hmc_states.z), true_std, rtol=0.05)
 
@@ -58,6 +58,6 @@ def test_logistic_regression(algo):
                                 step_size=0.1,
                                 num_steps=15,
                                 num_warmup_steps=warmup_steps)
-        hmc_states = lax.scan(lambda state, i: sample_kernel(state),
-                              hmc_state, np.arange(num_samples))
+        hmc_states = tscan(lambda state, i: sample_kernel(state),
+                           hmc_state, np.arange(num_samples))
         assert_allclose(np.mean(hmc_states.z, 0), true_coefs, atol=0.2)
