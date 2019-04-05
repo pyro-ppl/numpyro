@@ -264,17 +264,16 @@ def test_warmup_adapter(jitted):
     rng = random.PRNGKey(0)
     z = np.ones(3)
     wa_state = wa_init(z, rng, init_step_size, mass_matrix_size=mass_matrix_size)
-    step_size, inverse_mass_matrix, _, _, window_idx = wa_state
-    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, rng, init_step_size)
+    step_size, inverse_mass_matrix, _, _, window_idx, _ = wa_state
+    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, init_step_size)
     assert_allclose(inverse_mass_matrix, np.ones(mass_matrix_size))
     assert window_idx == 0
 
     window = adaptation_schedule[0]
     for t in range(window.start, window.end + 1):
-        wa_state = wa_update(t, 0.7 + 0.1 * t / (window.end - window.start),
-                             z, rng, wa_state)
+        wa_state = wa_update(t, 0.7 + 0.1 * t / (window.end - window.start), z, wa_state)
     last_step_size = step_size
-    step_size, inverse_mass_matrix, _, _, window_idx = wa_state
+    step_size, inverse_mass_matrix, _, _, window_idx, _ = wa_state
     assert window_idx == 1
     # step_size is decreased because accept_prob < target_accept_prob
     assert step_size < last_step_size
@@ -284,10 +283,9 @@ def test_warmup_adapter(jitted):
     window = adaptation_schedule[1]
     window_len = window.end - window.start
     for t in range(window.start, window.end + 1):
-        wa_state = wa_update(t, 0.8 + 0.1 * (t - window.start) / window_len,
-                             2 * z, rng, wa_state)
+        wa_state = wa_update(t, 0.8 + 0.1 * (t - window.start) / window_len, 2 * z, wa_state)
     last_step_size = step_size
-    step_size, inverse_mass_matrix, _, _, window_idx = wa_state
+    step_size, inverse_mass_matrix, _, _, window_idx, _ = wa_state
     assert window_idx == 2
     # step_size is increased because accept_prob > target_accept_prob
     assert step_size > last_step_size
@@ -302,9 +300,9 @@ def test_warmup_adapter(jitted):
 
     window = adaptation_schedule[2]
     for t in range(window.start, window.end + 1):
-        wa_state = wa_update(t, 0.8, t * z, rng, wa_state)
+        wa_state = wa_update(t, 0.8, t * z, wa_state)
     last_step_size = step_size
-    step_size, final_inverse_mass_matrix, _, _, window_idx = wa_state
+    step_size, final_inverse_mass_matrix, _, _, window_idx, _ = wa_state
     assert window_idx == 3
     # during the last window, because target_accept_prob=0.8,
     # log_step_size will be equal to the constant prox_center=log(10*last_step_size)
