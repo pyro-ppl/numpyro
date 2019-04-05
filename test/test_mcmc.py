@@ -58,6 +58,6 @@ def test_logistic_regression(algo):
                                 step_size=0.1,
                                 num_steps=15,
                                 num_warmup_steps=warmup_steps)
-        hmc_states = lax.scan(lambda state, i: sample_kernel(state)
+        hmc_states = lax.scan(lambda state, i: sample_kernel(state),
                               hmc_state, np.arange(num_samples))
         assert_allclose(np.mean(hmc_states.z, 0), true_coefs, atol=0.2)
