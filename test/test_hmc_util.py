@@ -265,7 +265,7 @@ def test_warmup_adapter(jitted):
     z = np.ones(3)
     wa_state = wa_init(z, rng, init_step_size, mass_matrix_size=mass_matrix_size)
     step_size, inverse_mass_matrix, _, _, window_idx, _ = wa_state
-    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, init_step_size)
+    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, rng, init_step_size)
     assert_allclose(inverse_mass_matrix, np.ones(mass_matrix_size))
     assert window_idx == 0
 
