@@ -3,7 +3,7 @@ from numpy.testing import assert_allclose
 
 import jax.numpy as np
 import jax.random as random
-from jax import jit, lax
+from jax import lax
 from jax.scipy.special import expit
 
 import numpyro.distributions as dist
@@ -26,6 +26,7 @@ def test_unnormalized_normal(algo):
     init_kernel, sample_kernel = hmc_kernel(potential_fn, kinetic_fn, algo)
     init_samples = np.array(0.)
     hmc_state = init_kernel(init_samples,
+                            num_steps=10,
                             num_warmup_steps=warmup_steps)
     hmc_states = lax.scan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples))
     assert_allclose(np.mean(hmc_states.z), true_mean, rtol=0.05)
