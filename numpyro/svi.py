@@ -1,10 +1,8 @@
-import jax.numpy as np
 from jax import random, value_and_grad
 from jax.experimental import optimizers
 
-from numpyro.distributions.distribution import jax_continuous
-from numpyro.distributions.util import validation_disabled
 from numpyro.handlers import replay, seed, substitute, trace
+from numpyro.hmc_util import log_density
 
 
 def _seed(model, guide, rng):
@@ -54,28 +52,10 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
 # random variablbes with reparameterized samplers), but all the ELBO
 # implementations in Pyro share the same basic logic.
 def elbo(param_map, model, guide, model_args, guide_args, kwargs):
-    model = substitute(model, param_map)
-    guide = substitute(guide, param_map)
-    guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
-    model_trace = trace(replay(model, guide_trace)).get_trace(*model_args, **kwargs)
-    elbo = 0.
-    # Loop over all the sample sites in the model and add the corresponding
-    # log p(z) term to the ELBO. Note that this will also include any observed
-    # data, i.e. sample sites with the keyword `obs=...`.
-
-    def logp(d, val):
-        # TODO: Find alternatives to this anti-pattern.
-        with validation_disabled():
-            return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
-
-    for site in model_trace.values():
-        if site["type"] == "sample":
-            elbo = elbo + np.sum(logp(site["fn"], site["value"]))
-    # Loop over all the sample sites in the guide and add the corresponding
-    # -log q(z) term to the ELBO.
-    for site in guide_trace.values():
-        if site["type"] == "sample":
-            elbo = elbo - np.sum(logp(site["fn"], site["value"]))
+    guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
+    model_log_density, _ = log_density(replay(model, guide_trace), model_args, kwargs, param_map)
+    # log p(z) - log q(z)
+    elbo = model_log_density - guide_log_density
     # Return (-elbo) since by convention we do gradient descent on a loss and
     # the ELBO is a lower bound that needs to be maximized.
     return -elbo

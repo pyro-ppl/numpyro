@@ -6,13 +6,7 @@ from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 
 import numpyro.distributions as dist
-from numpyro.hmc_util import (
-    IntegratorState,
-    build_tree,
-    find_reasonable_step_size,
-    velocity_verlet,
-    warmup_adapter
-)
+from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
 from numpyro.util import cond, fori_loop, laxtuple
 
 HMCState = laxtuple('HMCState', ['z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
@@ -32,7 +26,20 @@ def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
         raise NotImplementedError
 
 
-def hmc_kernel(potential_fn, kinetic_fn, algo='NUTS'):
+def _euclidean_ke(inverse_mass_matrix, r):
+    r, _ = ravel_pytree(r)
+
+    if inverse_mass_matrix.ndim == 2:
+        v = np.matmul(inverse_mass_matrix, r)
+    elif inverse_mass_matrix.ndim == 1:
+        v = np.multiply(inverse_mass_matrix, r)
+
+    return 0.5 * np.dot(v, r)
+
+
+def hmc_kernel(potential_fn, kinetic_fn=None, algo='NUTS'):
+    if kinetic_fn is None:
+        kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     trajectory_length = None
     momentum_generator = None
@@ -96,8 +103,8 @@ def hmc_kernel(potential_fn, kinetic_fn, algo='NUTS'):
         vv_state_new = fori_loop(0, num_steps,
                                  lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
                                  vv_state)
-        energy_old = vv_state.potential_energy + kinetic_fn(vv_state.r, inverse_mass_matrix)
-        energy_new = vv_state_new.potential_energy + kinetic_fn(vv_state_new.r, inverse_mass_matrix)
+        energy_old = vv_state.potential_energy + kinetic_fn(inverse_mass_matrix, vv_state.r)
+        energy_new = vv_state_new.potential_energy + kinetic_fn(inverse_mass_matrix, vv_state_new.r)
         delta_energy = energy_new - energy_old
         delta_energy = np.where(np.isnan(delta_energy), np.inf, delta_energy)
         accept_prob = np.clip(np.exp(-delta_energy), a_max=1.0)
