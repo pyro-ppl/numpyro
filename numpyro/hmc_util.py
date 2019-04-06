@@ -332,9 +332,9 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
-@partial(jit, static_argnums=(6,))
+@partial(jit, static_argnums=(5,))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
-                  biased_transition, iterative_build):
+                  biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
     z_left, r_left, z_left_grad, z_right, r_right, r_right_grad = cond(
@@ -349,11 +349,15 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                        trees[1].r_right, trees[1].z_right_grad)
     )
 
-    transition_prob = cond(biased_transition,
-                           (current_tree, new_tree),
-                           lambda trees: _biased_transition_kernel(trees[0], trees[1]),
-                           (current_tree, new_tree),
-                           lambda trees: _uniform_transition_kernel(trees[0], trees[1]))
+    #transition_prob = cond(biased_transition,
+    #                       (current_tree, new_tree),
+    #                       lambda trees: _biased_transition_kernel(trees[0], trees[1]),
+    #                       (current_tree, new_tree),
+    #                       lambda trees: _uniform_transition_kernel(trees[0], trees[1]))
+    if biased_transition:
+        transition_prob = _biased_transition_kernel(current_tree, new_tree)
+    else:
+        transition_prob = _uniform_transition_kernel(current_tree, new_tree)
 
     transition = random.bernoulli(rng, transition_prob)
     z_proposal, z_proposal_pe, z_proposal_grad = cond(
@@ -370,7 +374,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
 
     # Checks either the new tree is turning or the combined tree is turning.
     # For iterative_build, we don't need to check.
-    if iterative_build:
+    if not biased_transition:
         turning = current_tree.turning
     else:
         turning = new_tree.turning | _is_turning(inverse_mass_matrix, r_left, r_right, r_sum)
@@ -430,7 +434,7 @@ def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_
                                         max_tree_depth)
 
     return _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, transition_key,
-                         biased_transition, iterative_build=False)
+                         biased_transition=True)
 
 
 def _leaf_idx_to_ckpt_idxs(n):
@@ -477,7 +481,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
         new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
-                                 transition_rng, False, iterative_build=True)
+                                 transition_rng, biased_transition=False)
 
         leaf_idx = current_tree.num_proposals
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
