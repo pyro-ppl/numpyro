@@ -1,9 +1,9 @@
 import pytest
-from jax import jit
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
 import jax.random as random
+from jax import jit
 from jax.scipy.special import expit
 
 import numpyro.distributions as dist

@@ -8,7 +8,7 @@ from jax.tree_util import tree_multimap
 
 from numpyro.distributions.distribution import jax_continuous
 from numpyro.distributions.util import validation_disabled
-from numpyro.handlers import substitute, trace, seed
+from numpyro.handlers import seed, substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])

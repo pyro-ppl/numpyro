@@ -9,8 +9,8 @@
 import jax.numpy as np
 from jax.scipy.special import digamma, gammaln
 
-from numpyro.distributions.util import xlogy, standard_gamma
 from numpyro.distributions.distribution import jax_mvcontinuous
+from numpyro.distributions.util import standard_gamma, xlogy
 
 
 def _lnB(alpha):
