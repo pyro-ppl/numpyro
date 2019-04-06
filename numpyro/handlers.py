@@ -81,8 +81,7 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'param':
-            assert msg['name'] in self.param_map
+        if msg['name'] in self.param_map:
             msg['value'] = self.param_map[msg['name']]
 
 

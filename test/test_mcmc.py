@@ -43,9 +43,9 @@ def test_logistic_regression(algo):
 
     with validation_disabled():
         def model(labels):
-            coefs = sample("coefs", dist.norm(np.zeros(dim), np.ones(dim)))
+            coefs = sample('coefs', dist.norm(np.zeros(dim), np.ones(dim)))
             logits = np.sum(coefs * data, axis=-1)
-            return sample("obs", dist.bernoulli(logits, is_logits=True), obs=labels)
+            return sample('obs', dist.bernoulli(logits, is_logits=True), obs=labels)
 
         init_params, potential_fn = initialize_model(random.PRNGKey(2), model, (labels,), {})
         init_kernel, sample_kernel = hmc_kernel(potential_fn, algo=algo)
@@ -55,4 +55,4 @@ def test_logistic_regression(algo):
                                 num_warmup_steps=warmup_steps)
         hmc_states = scan(lambda state, i: sample_kernel(state),
                           hmc_state, np.arange(num_samples))
-        assert_allclose(np.mean(hmc_states.z, 0), true_coefs, atol=0.2)
+        assert_allclose(np.mean(hmc_states.z['coefs'], 0), true_coefs, atol=0.2)
