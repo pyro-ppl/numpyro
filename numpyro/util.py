@@ -112,8 +112,38 @@ def scan(f, a, bs):
 
 
 def tscan(f, a, bs, fields=(0,)):
+    if _DISABLE_CONTROL_FLOW_PRIM:
+        # convert pytree to flat jaxtuple
+        a, a_tree = pytree_to_flatjaxtuple(a)
+        bs, b_tree = pytree_to_flatjaxtuple(bs)
+        length = tuple(bs)[0].shape[0]
+        state = [lax.full((length,) + a[i].shape, 0, lax._dtype(a[i])) for i in fields]
+
+        def body_fun(i, vals):
+            a, state = vals
+            # select i-th element from each b
+            b = [b[i] for b in bs]
+            ff, _ = pytree_fun_to_flatjaxtuple_fun(wrap_init(f), (a_tree, b_tree))
+            a_out = ff.call_wrapped(a, core.pack(b))
+            # select fields from a_out and update state
+            state_out = [lax.dynamic_update_index_in_dim(s, a[None, ...], i, axis=0)
+                         for a, s in zip([tuple(a_out)[j] for j in fields], state)]
+            return a_out, state_out
+
+        _, state = fori_loop(0, length, body_fun, (a, state))
+
+        out = [None] * len(a)
+        for field, i in zip(fields, range(len(fields))):
+            out[field] = state[i].copy()
+
+        return tree_unflatten(a_tree, core.pack(out))
+    else:
+        return _tscan(f, a, bs, fields)
+
+
+def _tscan(f, a, bs, fields=(0,)):
     """
-    Works as jax.lax.scan but has additional `fields` arguments to select only
+    Works as jax.lax.scan but has additional `fields` argument to select only
     necessary fields from `a`'s structure. Defaults to selecting only the first
     field. Other fields will be filled by None.
     """
@@ -159,7 +189,7 @@ def _tscan_impl(a, bs, fields, consts, aval_out, jaxpr):
         a_out = core.eval_jaxpr(jaxpr, consts, (), a, core.pack(b))
         # select fields from a_out and update state
         state_out = [lax.dynamic_update_index_in_dim(s, a[None, ...], i, axis=0)
-                     for a, s in zip([tuple(a_out)[i] for i in fields], state)]
+                     for a, s in zip([tuple(a_out)[j] for j in fields], state)]
         return a_out, state_out
 
     _, state = lax.fori_loop(0, length, body_fun, (a, state))

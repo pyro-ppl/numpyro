@@ -1,13 +1,15 @@
+import pytest
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
 from jax import lax
 from jax.tree_util import tree_map
 
-from numpyro.util import laxtuple, tscan
+from numpyro.util import control_flow_prims_disabled, laxtuple, optional, tscan
 
 
-def test_tscan():
+@pytest.mark.parametrize('prims_disabled', [True, False])
+def test_tscan(prims_disabled):
     def f(tree, yz):
         y, z = yz
         return tree_map(lambda x: (x + y) * z, tree)
@@ -20,7 +22,8 @@ def test_tscan():
           np.array([4., 3., 2., 1.]))
 
     expected_tree = lax.scan(f, a, bs)
-    actual_tree = tscan(f, a, bs, fields=(0, 2))
+    with optional(prims_disabled, control_flow_prims_disabled()):
+        actual_tree = tscan(f, a, bs, fields=(0, 2))
     assert_allclose(actual_tree.x, expected_tree.x)
     assert_allclose(actual_tree.z, expected_tree.z)
     assert actual_tree.y is None
