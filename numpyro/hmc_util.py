@@ -16,8 +16,6 @@ AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "ss_sta
                                      "window_idx", "rng"])
 IntegratorState = laxtuple("IntegratorState", ["z", "r", "potential_energy", "z_grad"])
 
-# TODO: we don't need to store z_proposal_pe, z_proposal_grad if we don't need
-# to cache pe and grad for the next update step
 _TreeInfo = laxtuple('_TreeInfo', ['z_left', 'r_left', 'z_left_grad',
                                    'z_right', 'r_right', 'z_right_grad',
                                    'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
@@ -333,8 +331,7 @@ def _biased_transition_kernel(current_tree, new_tree):
 
 
 @partial(jit, static_argnums=(5,))
-def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
-                  biased_transition):
+def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
     z_left, r_left, z_left_grad, z_right, r_right, r_right_grad = cond(
@@ -442,7 +439,6 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
     def _body_fn(state):
         i, _ = state
         subtree_r_sum = r_sum - r_sum_ckpts[i] + r_ckpts[i]
-        # XXX we might not need to unravel here
         return i - 1, _is_turning(inverse_mass_matrix, r_ckpts[i], r, subtree_r_sum)
 
     _, turning = while_loop(lambda it: (it[0] >= idx_min) & ~it[1],
@@ -534,7 +530,6 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
         tree, key = state
         key, direction_key, doubling_key = random.split(key, 3)
         going_right = random.bernoulli(direction_key)
-        biased_transition = True
         tree = _double_tree(tree, verlet_update, kinetic_fn, inverse_mass_matrix, step_size,
                             going_right, doubling_key, energy_current, max_delta_energy,
                             max_tree_depth)
