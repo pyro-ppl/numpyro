@@ -406,7 +406,7 @@ def _get_leaf(tree, going_right):
 
 
 def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_size,
-                 going_right, rng, energy_current, max_delta_energy, max_tree_depth):
+                 going_right, rng, energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
     key, transition_key = random.split(rng)
     # If we are going to the right, start from the right leaf of the current tree.
     z, r, z_grad = _get_leaf(current_tree, going_right)
@@ -414,7 +414,7 @@ def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_
     new_tree = _iterative_build_subtree(current_tree.depth, vv_update, kinetic_fn,
                                         z, r, z_grad, inverse_mass_matrix, step_size,
                                         going_right, key, energy_current, max_delta_energy,
-                                        max_tree_depth)
+                                        r_ckpts, r_sum_ckpts)
 
     return _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, transition_key,
                          biased_transition=True)
@@ -449,7 +449,7 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
 
 def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                              inverse_mass_matrix, step_size, going_right, rng,
-                             energy_current, max_delta_energy, max_tree_depth):
+                             energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
     max_num_proposals = 2 ** depth
 
     def _cond_fn(state):
@@ -484,19 +484,13 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                going_right, energy_current, max_delta_energy)
     r_init, _ = ravel_pytree(basetree.r_left)
-    # TODO: we can create these checkpoints at build_tree method
-    # and reuse it; but let's do this optimization later
-    r_checkpoints = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
-                             dtype=inverse_mass_matrix.dtype)
-    r_checkpoints = index_update(r_checkpoints, 0, r_init)
-    r_sum_checkpoints = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
-                                 dtype=inverse_mass_matrix.dtype)
-    r_sum_checkpoints = index_update(r_sum_checkpoints, 0, r_init)
+    r_ckpts = index_update(r_ckpts, 0, r_init)
+    r_sum_ckpts = index_update(r_sum_ckpts, 0, r_init)
 
     tree, turning, _, _, _ = while_loop(
         _cond_fn,
         _body_fn,
-        (basetree, False, r_checkpoints, r_sum_checkpoints, rng)
+        (basetree, False, r_ckpts, r_sum_ckpts, rng)
     )
     # update depth and turning condition
     return _TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
@@ -517,6 +511,10 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     """
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
+    r_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
+                       dtype=inverse_mass_matrix.dtype)
+    r_sum_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
+                           dtype=inverse_mass_matrix.dtype)
 
     tree = _TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,
                      depth=0, weight=0., r_sum=r, turning=False, diverging=False,
@@ -532,7 +530,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
         going_right = random.bernoulli(direction_key)
         tree = _double_tree(tree, verlet_update, kinetic_fn, inverse_mass_matrix, step_size,
                             going_right, doubling_key, energy_current, max_delta_energy,
-                            max_tree_depth)
+                            r_ckpts, r_sum_ckpts)
         return tree, key
 
     state = (tree, rng)
