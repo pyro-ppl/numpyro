@@ -4,13 +4,14 @@ from contextlib import contextmanager
 
 import numpy as onp
 
+import jax.numpy as np
 from jax import core, lax
 from jax.abstract_arrays import ShapedArray
 from jax.api_util import pytree_fun_to_flatjaxtuple_fun, pytree_to_flatjaxtuple
 from jax.flatten_util import ravel_pytree
 from jax.interpreters import partial_eval, xla
 from jax.linear_util import wrap_init
-from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
+from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten, tree_map, tree_multimap
 from jax.util import partial
 
 _DATA_TYPES = {}
@@ -101,42 +102,40 @@ def fori_loop(lower, upper, body_fun, init_val):
 
 def scan(f, a, bs):
     if _DISABLE_CONTROL_FLOW_PRIM:
-        bs, pack_fn = ravel_pytree(bs)
-        as_ = []
-        _, tree_def = tree_flatten(bs)
-        for b in bs:
-            as_.append(f(a, b))
-        return tree_unflatten(tree_def, as_)
+        length = tree_flatten(bs)[0][0].shape[0]
+        for i in range(length):
+            b = tree_map(lambda x: x[i], bs)
+            a = f(a, b)
+            a_out = tree_map(lambda x: x[None, ...], a)
+            if i == 0:
+                out = a_out
+            else:
+                out = tree_multimap(lambda x, y: np.concatenate((x, y)), out, a_out)
+        return out
     else:
         return lax.scan(f, a, bs)
 
 
 def tscan(f, a, bs, fields=(0,)):
     if _DISABLE_CONTROL_FLOW_PRIM:
-        # convert pytree to flat jaxtuple
-        a, a_tree = pytree_to_flatjaxtuple(a)
-        bs, b_tree = pytree_to_flatjaxtuple(bs)
-        length = tuple(bs)[0].shape[0]
-        state = [lax.full((length,) + a[i].shape, 0, lax._dtype(a[i])) for i in fields]
+        length = tree_flatten(bs)[0][0].shape[0]
+        for i in range(length):
+            b = tree_map(lambda x: x[i], bs)
+            a = f(a, b)
+            a_out = tree_map(lambda x: x[None, ...], a)
 
-        def body_fun(i, vals):
-            a, state = vals
-            # select i-th element from each b
-            b = [b[i] for b in bs]
-            ff, _ = pytree_fun_to_flatjaxtuple_fun(wrap_init(f), (a_tree, b_tree))
-            a_out = ff.call_wrapped(a, core.pack(b))
-            # select fields from a_out and update state
-            state_out = [lax.dynamic_update_index_in_dim(s, a[None, ...], i, axis=0)
-                         for a, s in zip([tuple(a_out)[j] for j in fields], state)]
-            return a_out, state_out
+            # the following three lines are necessary for tscan;
+            # it might be useful in the case you want to use `transform` instead of `fields`
+            a_flat, a_tree = tree_flatten(a_out)
+            a_selected = [field if i in fields else None for i, field in enumerate(a_out)]
+            a_out = tree_unflatten(a_tree, a_selected)
 
-        _, state = fori_loop(0, length, body_fun, (a, state))
-
-        out = [None] * len(a)
-        for field, i in zip(fields, range(len(fields))):
-            out[field] = state[i].copy()
-
-        return tree_unflatten(a_tree, core.pack(out))
+            if i == 0:
+                out = a_out
+            else:
+                out = tree_multimap(lambda x, y: np.concatenate((x, y)) if x is not None else None,
+                                    out, a_out)
+        return out
     else:
         return _tscan(f, a, bs, fields)
 
