@@ -39,8 +39,8 @@ def test_logistic_regression(algo):
     warmup_steps, num_samples = 1000, 8000
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
-    probs = expit(np.sum(true_coefs * data, axis=-1))
-    labels = dist.bernoulli(probs).rvs(random_state=random.PRNGKey(0))
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.bernoulli(logits, is_logits=True).rvs(random_state=random.PRNGKey(1))
 
     with validation_disabled():
         def model(labels):
