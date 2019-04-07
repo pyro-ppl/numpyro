@@ -8,7 +8,6 @@ import jax.numpy as np
 from jax import core, lax
 from jax.abstract_arrays import ShapedArray
 from jax.api_util import pytree_fun_to_flatjaxtuple_fun, pytree_to_flatjaxtuple
-from jax.flatten_util import ravel_pytree
 from jax.interpreters import partial_eval, xla
 from jax.linear_util import wrap_init
 from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten, tree_map, tree_multimap
