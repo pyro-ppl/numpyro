@@ -115,7 +115,7 @@ def scan(f, a, bs):
         return lax.scan(f, a, bs)
 
 
-def tscan(f, a, bs, transform=None):
+def tscan(f, a, bs, transform):
     if not transform:
         def transform(x): return x
     if _DISABLE_CONTROL_FLOW_PRIM:
@@ -152,9 +152,9 @@ def _tscan(f, a, bs, transform=None):
 
     a, a_tree = pytree_to_flatjaxtuple(a)
     bs, b_tree = pytree_to_flatjaxtuple(bs)
-    f, out_tree = pytree_fun_to_flatjaxtuple_fun(wrap_init(f), (a_tree, b_tree))
-    transform_f, transform_tree = pytree_fun_to_flatjaxtuple_fun(wrap_init(transform),
-                                                                 (a_tree,))
+    f, _ = pytree_fun_to_flatjaxtuple_fun(wrap_init(f), (a_tree, b_tree))
+    transform_f, transform_tree = pytree_fun_to_flatjaxtuple_fun(
+        wrap_init(transform), (a_tree,))
 
     # convert arrays to abstract values
     a_aval, _ = lax._abstractify(a)
