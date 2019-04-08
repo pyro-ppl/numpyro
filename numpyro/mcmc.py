@@ -78,7 +78,7 @@ def hmc_kernel(potential_fn, kinetic_fn=None, algo='NUTS'):
                                             target_accept_prob=target_accept_prob)
 
         rng_hmc, rng_wa = random.split(rng)
-        wa_state = wa_init(z, rng_wa, mass_matrix_size=np.size(z_flat))
+        wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
         r = momentum_generator(wa_state.inverse_mass_matrix, rng)
         vv_state = vv_init(z, r)
         hmc_state = HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
