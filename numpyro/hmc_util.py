@@ -239,7 +239,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             else:
                 inverse_mass_matrix = np.identity(mass_matrix_size)
 
-        if find_reasonable_step_size is not None:
+        if adapt_step_size and (find_reasonable_step_size is not None):
             step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
         ss_state = ss_init(np.log(10 * step_size))
 
