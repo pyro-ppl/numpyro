@@ -44,6 +44,19 @@ def test_tscan_dict(prims_disabled):
     check_eq(actual_tree, expected_tree)
 
 
+@pytest.mark.parametrize('prims_disabled', [True, False])
+def test_scan_scalar(prims_disabled):
+    def f(x, y):
+        return {'i': x['i'] + y['i'], 'j': x['j'] - y['j']}
+
+    a = {'i': np.array(0.), 'j': np.array(1.)}
+    bs = {'i': np.array([1., 2., 3.]), 'j': np.array([2., 3., 6.])}
+    expected_tree = {'i': np.array([1., 3., 6.])}
+    with optional(prims_disabled, control_flow_prims_disabled()):
+        actual_tree = tscan(f, a, bs, transform=lambda a: {'i': a['i']})
+    check_eq(actual_tree, expected_tree)
+
+
 def test_scan_prims_disabled():
     def f(tree, yz):
         y, z = yz

@@ -105,7 +105,7 @@ def scan(f, a, bs):
         for i in range(length):
             b = tree_map(lambda x: x[i], bs)
             a = f(a, b)
-            a_out = tree_map(lambda x: x[None, ...], a)
+            a_out = tree_map(lambda x: np.expand_dims(x, axis=0), a)
             if i == 0:
                 out = a_out
             else:
@@ -115,15 +115,17 @@ def scan(f, a, bs):
         return lax.scan(f, a, bs)
 
 
-def tscan(f, a, bs, transform):
-    if not transform:
-        def transform(x): return x
+def _identity(x):
+    return x
+
+
+def tscan(f, a, bs, transform=_identity):
     if _DISABLE_CONTROL_FLOW_PRIM:
         length = tree_flatten(bs)[0][0].shape[0]
         for i in range(length):
             b = tree_map(lambda x: x[i], bs)
             a = f(a, b)
-            a_out = transform(tree_map(lambda x: x[None, ...], a))
+            a_out = transform(tree_map(lambda x: np.expand_dims(x, axis=0), a))
             if i == 0:
                 out = a_out
             else:
@@ -177,7 +179,7 @@ def _tscan(f, a, bs, transform=None):
 def _tscan_impl(a, bs, consts, aval_out, jaxpr, transform_jaxpr):
     length = tuple(bs)[0].shape[0]
     template = core.eval_jaxpr(transform_jaxpr, (), (), a)
-    state = [lax.full((length,) + t.shape, 0, lax._dtype(t)) for t in template]
+    state = [lax.full((length,) + np.shape(t), 0, lax._dtype(t)) for t in template]
 
     def body_fun(i, vals):
         a, state = vals
