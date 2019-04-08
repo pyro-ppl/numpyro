@@ -203,12 +203,3 @@ tscan_p = core.Primitive('tscan')
 tscan_p.def_impl(_tscan_impl)
 tscan_p.def_abstract_eval(_tscan_abstract_eval)
 xla.translations[tscan_p] = partial(xla.lower_fun, _tscan_impl)
-
-
-def f(x, y):
-    return {"i": x["i"] + y["i"], "j": x["j"] - y["j"]}
-
-
-print(tscan(f, {"i": np.array([0.]), "j": np.array([1.])},
-               {"i": np.array([1., 2., 3.]), "j": np.array([2., 3., 6.])},
-            transform=lambda x: {"i": x["i"]}))
