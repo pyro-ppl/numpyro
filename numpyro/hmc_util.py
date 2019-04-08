@@ -16,8 +16,6 @@ AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "ss_sta
                                      "window_idx", "rng"])
 IntegratorState = laxtuple("IntegratorState", ["z", "r", "potential_energy", "z_grad"])
 
-# TODO: we don't need to store z_proposal_pe, z_proposal_grad if we don't need
-# to cache pe and grad for the next update step
 _TreeInfo = laxtuple('_TreeInfo', ['z_left', 'r_left', 'z_left_grad',
                                    'z_right', 'r_right', 'z_right_grad',
                                    'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
@@ -332,9 +330,8 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
-@partial(jit, static_argnums=(6,))
-def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
-                  biased_transition, iterative_build):
+@partial(jit, static_argnums=(5,))
+def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
     z_left, r_left, z_left_grad, z_right, r_right, r_right_grad = cond(
@@ -348,12 +345,14 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                        trees[0].z_left_grad, trees[1].z_right,
                        trees[1].r_right, trees[1].z_right_grad)
     )
+    r_sum = tree_multimap(np.add, current_tree.r_sum, new_tree.r_sum)
 
-    transition_prob = cond(biased_transition,
-                           (current_tree, new_tree),
-                           lambda trees: _biased_transition_kernel(trees[0], trees[1]),
-                           (current_tree, new_tree),
-                           lambda trees: _uniform_transition_kernel(trees[0], trees[1]))
+    if biased_transition:
+        transition_prob = _biased_transition_kernel(current_tree, new_tree)
+        turning = new_tree.turning | _is_turning(inverse_mass_matrix, r_left, r_right, r_sum)
+    else:
+        transition_prob = _uniform_transition_kernel(current_tree, new_tree)
+        turning = current_tree.turning
 
     transition = random.bernoulli(rng, transition_prob)
     z_proposal, z_proposal_pe, z_proposal_grad = cond(
@@ -363,18 +362,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
     )
 
     tree_depth = current_tree.depth + 1
-
     tree_weight = np.logaddexp(current_tree.weight, new_tree.weight)
-
-    r_sum = tree_multimap(np.add, current_tree.r_sum, new_tree.r_sum)
-
-    # Checks either the new tree is turning or the combined tree is turning.
-    # For iterative_build, we don't need to check.
-    if iterative_build:
-        turning = current_tree.turning
-    else:
-        turning = new_tree.turning | _is_turning(inverse_mass_matrix, r_left, r_right, r_sum)
-
     diverging = new_tree.diverging
 
     sum_accept_probs = current_tree.sum_accept_probs + new_tree.sum_accept_probs
@@ -386,7 +374,6 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
                      sum_accept_probs, num_proposals)
 
 
-@partial(jit, static_argnums=(0, 1, 11))
 def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size, going_right,
                     energy_current, max_delta_energy):
     step_size = np.where(going_right, step_size, -step_size)
@@ -410,30 +397,6 @@ def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, st
                      diverging=diverging, sum_accept_probs=accept_prob, num_proposals=1)
 
 
-def _build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
-                   going_right, rng, energy_current, max_delta_energy):
-    if depth == 0:
-        return _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size, going_right,
-                               energy_current, max_delta_energy)
-
-    key, doubling_key = random.split(rng)
-    # Builds the first half of tree.
-    half_tree = _build_subtree(depth - 1, vv_update, kinetic_fn, z, r, z_grad,
-                               inverse_mass_matrix, step_size, going_right, key,
-                               energy_current, max_delta_energy)
-
-    # Checks conditions to stop doubling.
-    # If we meet that condition, there is no need to build the other tree.
-    if half_tree.turning | half_tree.diverging:
-        return half_tree
-    else:
-        biased_transition = False
-        return _double_tree(half_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_size,
-                            going_right, doubling_key, energy_current, max_delta_energy,
-                            biased_transition, depth, iterative_build=False)
-
-
-@jit
 def _get_leaf(tree, going_right):
     return cond(going_right,
                 tree,
@@ -443,24 +406,18 @@ def _get_leaf(tree, going_right):
 
 
 def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_size,
-                 going_right, rng, energy_current, max_delta_energy,
-                 biased_transition, max_tree_depth, iterative_build):
+                 going_right, rng, energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
     key, transition_key = random.split(rng)
     # If we are going to the right, start from the right leaf of the current tree.
     z, r, z_grad = _get_leaf(current_tree, going_right)
 
-    # Then build a new tree.
-    if iterative_build:
-        new_tree = _iterative_build_subtree(current_tree.depth, vv_update, kinetic_fn,
-                                            z, r, z_grad, inverse_mass_matrix, step_size,
-                                            going_right, key, energy_current, max_delta_energy,
-                                            max_tree_depth)
-    else:
-        new_tree = _build_subtree(current_tree.depth, vv_update, kinetic_fn, z, r, z_grad,
-                                  inverse_mass_matrix, step_size, going_right, key,
-                                  energy_current, max_delta_energy)
+    new_tree = _iterative_build_subtree(current_tree.depth, vv_update, kinetic_fn,
+                                        z, r, z_grad, inverse_mass_matrix, step_size,
+                                        going_right, key, energy_current, max_delta_energy,
+                                        r_ckpts, r_sum_ckpts)
+
     return _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, transition_key,
-                         biased_transition, iterative_build=False)
+                         biased_transition=True)
 
 
 def _leaf_idx_to_ckpt_idxs(n):
@@ -482,7 +439,6 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
     def _body_fn(state):
         i, _ = state
         subtree_r_sum = r_sum - r_sum_ckpts[i] + r_ckpts[i]
-        # XXX we might not need to unravel here
         return i - 1, _is_turning(inverse_mass_matrix, r_ckpts[i], r, subtree_r_sum)
 
     _, turning = while_loop(lambda it: (it[0] >= idx_min) & ~it[1],
@@ -493,7 +449,7 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
 
 def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                              inverse_mass_matrix, step_size, going_right, rng,
-                             energy_current, max_delta_energy, max_tree_depth):
+                             energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
     max_num_proposals = 2 ** depth
 
     def _cond_fn(state):
@@ -506,9 +462,8 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         z, r, z_grad = _get_leaf(current_tree, going_right)
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
-        biased_transition = False
         new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
-                                 transition_rng, biased_transition, iterative_build=True)
+                                 transition_rng, biased_transition=False)
 
         leaf_idx = current_tree.num_proposals
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
@@ -529,19 +484,13 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                going_right, energy_current, max_delta_energy)
     r_init, _ = ravel_pytree(basetree.r_left)
-    # TODO: we can create these checkpoints at build_tree method
-    # and reuse it; but let's do this optimization later
-    r_checkpoints = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
-                             dtype=inverse_mass_matrix.dtype)
-    r_checkpoints = index_update(r_checkpoints, 0, r_init)
-    r_sum_checkpoints = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
-                                 dtype=inverse_mass_matrix.dtype)
-    r_sum_checkpoints = index_update(r_sum_checkpoints, 0, r_init)
+    r_ckpts = index_update(r_ckpts, 0, r_init)
+    r_sum_ckpts = index_update(r_sum_ckpts, 0, r_init)
 
     tree, turning, _, _, _ = while_loop(
         _cond_fn,
         _body_fn,
-        (basetree, False, r_checkpoints, r_sum_checkpoints, rng)
+        (basetree, False, r_ckpts, r_sum_ckpts, rng)
     )
     # update depth and turning condition
     return _TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
@@ -552,7 +501,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
 
 
 def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, step_size, rng,
-               max_delta_energy=1000., max_tree_depth=10, iterative_build=True):
+               max_delta_energy=1000., max_tree_depth=10):
     """
     **References:**
     [1] `The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo`,
@@ -560,15 +509,12 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     [2] `A Conceptual Introduction to Hamiltonian Monte Carlo`,
     Michael Betancourt
     """
-    # TODO(fehiepsi): iterative_build flag will be depricated when
-    # memory usage is profiled.
-    # At that time, we will also remove all the decorator @jit in the
-    # above small functions because tracing these functions are
-    # already covered by lax while loops.
-
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
-    key, subkey = random.split(rng)
+    r_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
+                       dtype=inverse_mass_matrix.dtype)
+    r_sum_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
+                           dtype=inverse_mass_matrix.dtype)
 
     tree = _TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,
                      depth=0, weight=0., r_sum=r, turning=False, diverging=False,
@@ -582,19 +528,13 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
         tree, key = state
         key, direction_key, doubling_key = random.split(key, 3)
         going_right = random.bernoulli(direction_key)
-        biased_transition = True
         tree = _double_tree(tree, verlet_update, kinetic_fn, inverse_mass_matrix, step_size,
                             going_right, doubling_key, energy_current, max_delta_energy,
-                            biased_transition, max_tree_depth, iterative_build)
+                            r_ckpts, r_sum_ckpts)
         return tree, key
 
-    state = (tree, key)
-    if iterative_build:
-        tree, _ = while_loop(_cond_fn, _body_fn, state)
-    else:
-        while _cond_fn(state):
-            state = _body_fn(state)
-        tree, _ = state
+    state = (tree, rng)
+    tree, _ = while_loop(_cond_fn, _body_fn, state)
     return tree
 
 

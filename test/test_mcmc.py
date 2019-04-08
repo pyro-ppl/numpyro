@@ -2,9 +2,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-import jax.random as random
-from jax import jit
-from jax.scipy.special import expit
+from jax import jit, random
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import validation_disabled
@@ -39,8 +37,8 @@ def test_logistic_regression(algo):
     warmup_steps, num_samples = 1000, 8000
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
-    probs = expit(np.sum(true_coefs * data, axis=-1))
-    labels = dist.bernoulli(probs).rvs(random_state=random.PRNGKey(0))
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.bernoulli(logits, is_logits=True).rvs(random_state=random.PRNGKey(1))
 
     with validation_disabled():
         def model(labels):
