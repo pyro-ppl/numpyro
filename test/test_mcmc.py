@@ -26,9 +26,10 @@ def test_unnormalized_normal(algo):
     hmc_state = init_kernel(init_samples,
                             num_steps=10,
                             num_warmup_steps=warmup_steps)
-    hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples))
-    assert_allclose(np.mean(hmc_states.z), true_mean, rtol=0.05)
-    assert_allclose(np.std(hmc_states.z), true_std, rtol=0.05)
+    hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
+                       transform=lambda x: x.z)
+    assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
+    assert_allclose(np.std(hmc_states), true_std, rtol=0.05)
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
@@ -53,6 +54,6 @@ def test_logistic_regression(algo):
                                 num_steps=15,
                                 num_warmup_steps=warmup_steps)
         sample_kernel = jit(sample_kernel)
-        hmc_states = tscan(lambda state, i: sample_kernel(state),
-                           hmc_state, np.arange(num_samples))
-        assert_allclose(np.mean(hmc_states.z['coefs'], 0), true_coefs, atol=0.2)
+        hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
+                           transform=lambda x: x.z)
+        assert_allclose(np.mean(hmc_states['coefs'], 0), true_coefs, atol=0.2)
