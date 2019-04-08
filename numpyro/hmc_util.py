@@ -222,7 +222,11 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
-def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
+def _identity_step_size(inverse_mass_matrix, z, rng, step_size):
+    return step_size
+
+
+def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_size,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    diag_mass=True, target_accept_prob=0.8):
     ss_init, ss_update = dual_averaging()
@@ -239,7 +243,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             else:
                 inverse_mass_matrix = np.identity(mass_matrix_size)
 
-        if find_reasonable_step_size is not None:
+        if adapt_step_size:
             step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
         ss_state = ss_init(np.log(10 * step_size))
 
@@ -256,8 +260,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
-            if find_reasonable_step_size is not None:
-                step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
+            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
             ss_state = ss_init(np.log(10 * step_size))
 
         return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng)
