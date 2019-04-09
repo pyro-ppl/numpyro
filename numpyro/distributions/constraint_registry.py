@@ -1,11 +1,16 @@
 # The implementation follows the design in PyTorch: torch.distributions.constraint_registry.py
 
+from numpyro.distributions import constraints, transforms
+
 
 class ConstraintRegistry(object):
     def __init__(self):
         self._registry = {}
 
-    def register(self, constraint, factory):
+    def register(self, constraint, factory=None):
+        if factory is None:
+            return lambda factory: self.register(constraint, factory)
+
         if isinstance(constraint, constraints.Constraint):
             constraint = type(constraint)
 
@@ -16,6 +21,7 @@ class ConstraintRegistry(object):
             factory = self._registry[type(constraint)]
         except KeyError:
             raise NotImplementedError
+
         return factory(constraint)
 
 
@@ -35,7 +41,7 @@ def _transform_to_interval(constraint):
                                                                    constraint.upper_bound)])
 
 
-@transform_to.register(constraints.real)
+@biject_to.register(constraints.real)
 def _transform_to_real(constraint):
     return transforms.IdentityTransform
 

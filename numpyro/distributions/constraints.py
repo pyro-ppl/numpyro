@@ -22,7 +22,7 @@ class _IntegerInterval(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return (x >= self.lower_bound) & (x <= self.upper_bound) & (x == np.floor(value))
+        return (x >= self.lower_bound) & (x <= self.upper_bound) & (x == np.floor(x))
 
 
 class _Interval(Constraint):
@@ -42,7 +42,7 @@ class _Real(Constraint):
 class _Simplex(Constraint):
     def __call__(self, x):
         x_sum = np.sum(x, axis=-1)
-        return np.all(x >= 0, axis=-1) & (x_sum <= 1) & (x_sum > 1 - 1e-6)
+        return np.all(x > 0, axis=-1) & (x_sum <= 1) & (x_sum > 1 - 1e-6)
 
 
 greater_than = _GreaterThan

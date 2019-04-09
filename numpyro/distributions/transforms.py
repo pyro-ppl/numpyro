@@ -3,6 +3,8 @@
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
+from numpyro.distributions import constraints
+
 
 class Transform(object):
     domain = constraints.real
@@ -51,7 +53,7 @@ class ComposeTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y):
-        result = 0
+        result = 0.
         for part in self.parts[:-1]:
             y_tmp = part(x)
             result = result + _sum_rightmost(part.log_abs_det_jacobian(x, y_tmp),
@@ -95,6 +97,7 @@ class ExpTransform(Transform):
     codomain = constraints.positive
 
     def __call__(self, x):
+        # XXX consider to clamp from below for stability if necessary
         return np.exp(x)
 
     def inv(self, y):
@@ -120,6 +123,7 @@ class SigmoidTransform(Transform):
     codomain = constraints.unit_interval
 
     def __call__(self, x):
+        # XXX consider to clamp to (0, 1) for stability if necessary
         return expit(x)
 
     def inv(self, y):
@@ -137,7 +141,7 @@ class StickBreakingTransform(Transform):
         # we shift x to obtain a balanced mapping (0, 0, ..., 0) -> (1/K, 1/K, ..., 1/K)
         x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
         # convert to probabilities (relative to the remaining) of each fraction of the stick
-        z = expit(x)
+        z = expit(x)  # XXX consider to clamp to (0, 1) for stability if necessary
         z1m_cumprod = np.cumprod(1 - z, axis=-1)
         z_padded = np.pad(z, (0, 1), mode="constant", constant_values=1)
         z1m_cumprod_shifted = np.pad(z_cumprod, (1, 0), mode="constant", constant_values=1)
