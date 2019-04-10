@@ -115,7 +115,7 @@ class IdentityTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y):
-        return 0.
+        return np.full(np.shape(x), 0.)
 
 
 class SigmoidTransform(Transform):

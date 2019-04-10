@@ -335,7 +335,7 @@ def test_biject_to(constraint, shape):
 
     # test log_abs_det_jacobian
     actual = transform.log_abs_det_jacobian(x, y)
-    assert actual.shape == batch_shape
+    assert np.shape(actual) == batch_shape
     if len(shape) == transform.event_dim:
         if constraint is constraints.simplex:
             return
