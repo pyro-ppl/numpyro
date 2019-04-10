@@ -346,5 +346,5 @@ def test_biject_to(constraint, shape):
             expected = np.log(np.abs(grad(transform)(x)))
             inv_expected = np.log(np.abs(grad(transform.inv)(y)))
 
-        assert_allclose(actual, expected)
+        assert_allclose(actual, expected, atol=1e-6)
         assert_allclose(actual, -inv_expected, atol=1e-6)
