@@ -1,6 +1,14 @@
 # The implementation follows the design in PyTorch: torch.distributions.constraint_registry.py
 
-from numpyro.distributions import constraints, transforms
+from numpyro.distributions import constraints
+from numpyro.distributions.transforms import (
+    AffineTransform,
+    ComposeTransform,
+    ExpTransform,
+    IdentityTransform,
+    SigmoidTransform,
+    StickBreakingTransform
+)
 
 
 class ConstraintRegistry(object):
@@ -30,22 +38,23 @@ biject_to = ConstraintRegistry()
 
 @biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
-    return transforms.ComposeTransform([transforms.ExpTransform(),
-                                        transforms.AffineTransform(constraint.lower_bound, 1)])
+    return ComposeTransform([ExpTransform(),
+                             AffineTransform(constraint.lower_bound, 1,
+                                             domain=constraints.positive)])
 
 
 @biject_to.register(constraints.interval)
 def _transform_to_interval(constraint):
-    return transforms.ComposeTransform([transforms.SigmoidTransform(),
-                                        transforms.AffineTransform(constraint.lower_bound,
-                                                                   constraint.upper_bound)])
+    return ComposeTransform([SigmoidTransform(),
+                             AffineTransform(constraint.lower_bound, constraint.upper_bound,
+                                             domain=constraints.unit_interval)])
 
 
 @biject_to.register(constraints.real)
 def _transform_to_real(constraint):
-    return transforms.IdentityTransform
+    return IdentityTransform()
 
 
 @biject_to.register(constraints.simplex)
 def _transform_to_simplex(constraint):
-    return transforms.StickBreakingTransform()
+    return StickBreakingTransform()

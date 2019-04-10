@@ -8,12 +8,11 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 import jax
 import jax.numpy as np
-import jax.random as random
-from jax import grad, lax
+from jax import grad, lax, random
 from jax.scipy.special import logit
 
 import numpyro.distributions as dist
-from numpyro.distributions import constraints, transforms
+from numpyro.distributions import constraints
 from numpyro.distributions.constraint_registry import biject_to
 
 
@@ -57,6 +56,8 @@ def idfn(param):
     if isinstance(param, (osp_stats._distn_infrastructure.rv_generic,
                           osp_stats._multivariate.multi_rv_generic)):
         return param.name
+    elif isinstance(param, constraints.Constraint):
+        return param.__class__.__name__
     return repr(param)
 
 
@@ -279,13 +280,6 @@ def test_discrete_with_logits(jax_dist, dist_args):
 ########################################
 
 
-def constraint_idfn(val):
-    if isinstance(val, constraints.Constraint):
-        # note this wouldn't show any hours/minutes/seconds
-        return val.__class__
-    return repr(val)
-
-
 @pytest.mark.parametrize('constraint, x, expected', [
     (constraints.greater_than(1), 3, True),
     (constraints.greater_than(1), np.array([-1, 1, 5]), np.array([False, False, True])),
@@ -306,75 +300,51 @@ def constraint_idfn(val):
     (constraints.unit_interval, 0.1, True),
     (constraints.unit_interval, np.array([-5, 0, 0.5, 1, 7]),
      np.array([False, False, True, False, False])),
-], ids=constraint_idfn)
+], ids=idfn)
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
-    """
-    @pytest.mark.parametrize('jax_dist, dist_args', [
-        (ComposeTransform, (0.1,)),
-        (dist.bernoulli, (np.array([0.3, 0.5]),)),
-    ])
-    def test_transforms(transform):
-        rng = random.PRNGKey(0)
-        logit_args = dist_args[:-1] + (logit(dist_args[-1]),)
 
-        actual_sample = jax_dist.rvs(*dist_args, random_state=rng)
-        expected_sample = jax_dist(*logit_args, is_logits=True).rvs(random_state=rng)
-        assert_allclose(actual_sample, expected_sample)
+@pytest.mark.parametrize('shape', [(), (1,), (3,), (5,), (3, 1), (1, 3), (5, 3)], ids=idfn)
+@pytest.mark.parametrize('constraint', [
+    constraints.greater_than(2),
+    constraints.interval(-3, 5),
+    constraints.positive,
+    constraints.real,
+    constraints.simplex,
+    constraints.unit_interval,
+], ids=idfn)
+def test_biject_to(constraint, shape):
+    if constraint is constraints.simplex and not shape:
+        return
+    transform = biject_to(constraint)
+    rng = random.PRNGKey(0)
+    x = random.normal(rng, shape)
+    y = transform(x)
 
-        actual_pmf = jax_dist.logpmf(actual_sample, *dist_args)
-        expected_pmf = jax_dist(*logit_args, is_logits=True).logpmf(actual_sample)
-        assert_allclose(actual_pmf, expected_pmf, rtol=1e-6)
+    # test codomain
+    batch_shape = shape if transform.event_dim == 0 else shape[:-1]
+    assert_array_equal(transform.codomain(y), np.ones(batch_shape))
 
+    # test inv
+    z = transform.inv(y)
+    assert_allclose(x, z, atol=1e-6)
 
-    @pytest.mark.parametrize("value_shape", [(1, 1), (3, 1, 1), (3, 3), (1, 3, 3), (5, 3, 3)])
-    def test_constraint(value_shape):
-        value = torch.randn(value_shape).tril()
-        value.diagonal(dim1=-2, dim2=-1).exp_()
-        value = value / value.norm(2, dim=-1, keepdim=True)
+    # test domain, currently all is constraints.real
+    assert_array_equal(transform.domain(z), np.ones(shape))
 
-        # this also tests for shape
-        assert_tensors_equal(corr_cholesky_constraint.check(value),
-                             value.new_ones(value_shape[:-2], dtype=torch.uint8))
+    # test log_abs_det_jacobian
+    actual = transform.log_abs_det_jacobian(x, y)
+    assert actual.shape == batch_shape
+    if len(shape) == transform.event_dim:
+        if constraint is constraints.simplex:
+            return
+            # TODO compare against numerical values when jvp rule for `cumsum`, `cumprod` is available
+            # expected = np.linalg.slogdet(jax.jacobian(transform)(x)[::-1, :])[1]
+            # inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, ::-1])[1]
+        else:
+            expected = np.log(np.abs(grad(transform)(x)))
+            inv_expected = np.log(np.abs(grad(transform.inv)(y)))
 
-
-    def _autograd_log_det(ys, x):
-        # computes log_abs_det_jacobian of y w.r.t. x
-        return torch.stack([torch.autograd.grad(y, (x,), retain_graph=True)[0]
-                            for y in ys]).slogdet()[1]
-
-
-    @pytest.mark.parametrize("x_shape", [(1,), (3, 1), (6,), (1, 6), (5, 6)])
-    @pytest.mark.parametrize("mapping", [biject_to, transform_to])
-    def test_corr_cholesky_transform(x_shape, mapping):
-        transform = mapping(corr_cholesky_constraint)
-        x = torch.randn(x_shape, requires_grad=True)
-        y = transform(x)
-
-        # test codomain
-        assert_tensors_equal(transform.codomain.check(y),
-                             x.new_ones(x_shape[:-1], dtype=torch.uint8))
-
-        # test inv
-        z = transform.inv(y)
-        assert_close(x, z)
-
-        # test domain
-        assert_tensors_equal(transform.domain.check(z),
-                             x.new_ones(x_shape, dtype=torch.uint8))
-
-        # test log_abs_det_jacobian
-        log_det = transform.log_abs_det_jacobian(x, y)
-        assert log_det.shape == x_shape[:-1]
-        if len(x_shape) == 1:
-            tril_index = y.new_ones(y.shape).tril(diagonal=-1) > 0.5
-            y_tril_vector = y[tril_index]
-            assert_close(_autograd_log_det(y_tril_vector, x), log_det)
-
-            y_tril_vector = y_tril_vector.detach().requires_grad_()
-            y = y.new_zeros(y.shape)
-            y[tril_index] = y_tril_vector
-            z = transform.inv(y)
-            assert_close(_autograd_log_det(z, y_tril_vector), -log_det)
-    """
+        assert_allclose(actual, expected)
+        assert_allclose(actual, -inv_expected, atol=1e-6)
