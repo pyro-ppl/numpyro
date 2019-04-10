@@ -338,7 +338,14 @@ def test_biject_to(constraint, shape):
     assert np.shape(actual) == batch_shape
     if len(shape) == transform.event_dim:
         if constraint is constraints.simplex:
-            return
+            # compare against pytorch
+            if shape == (1,):
+                expected = -1.3968685
+            elif shape == (3,):
+                expected = -7.139747
+            elif shape == (5,):
+                expected = -11.871904
+            inv_expected = -expected
             # TODO compare against numerical values when jvp rule for `cumsum`, `cumprod` is available
             # expected = np.linalg.slogdet(jax.jacobian(transform)(x)[::-1, :])[1]
             # inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, ::-1])[1]
