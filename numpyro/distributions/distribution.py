@@ -85,7 +85,7 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
         # support of the transformed distribution
         _, loc, scale = self._parse_args(*args, **kwargs)
         return AffineTransform(loc, scale, domain=self._support_mask).codomain
-        
+
     def rvs(self, *args, **kwargs):
         rng = kwargs.pop('random_state')
         if rng is None:
