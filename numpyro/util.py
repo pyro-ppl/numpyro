@@ -105,7 +105,7 @@ def scan(f, a, bs):
         for i in range(length):
             b = tree_map(lambda x: x[i], bs)
             a = f(a, b)
-            a_out = tree_map(lambda x: x[None, ...], a)
+            a_out = tree_map(lambda x: np.expand_dims(x, axis=0), a)
             if i == 0:
                 out = a_out
             else:
@@ -115,20 +115,17 @@ def scan(f, a, bs):
         return lax.scan(f, a, bs)
 
 
-def tscan(f, a, bs, fields=(0,)):
+def _identity(x):
+    return x
+
+
+def tscan(f, a, bs, transform=_identity):
     if _DISABLE_CONTROL_FLOW_PRIM:
         length = tree_flatten(bs)[0][0].shape[0]
         for i in range(length):
             b = tree_map(lambda x: x[i], bs)
             a = f(a, b)
-            a_out = tree_map(lambda x: x[None, ...], a)
-
-            # the following three lines are necessary for tscan;
-            # it might be useful in the case you want to use `transform` instead of `fields`
-            a_flat, a_tree = tree_flatten(a_out)
-            a_selected = [field if i in fields else None for i, field in enumerate(a_out)]
-            a_out = tree_unflatten(a_tree, a_selected)
-
+            a_out = transform(tree_map(lambda x: np.expand_dims(x, axis=0), a))
             if i == 0:
                 out = a_out
             else:
@@ -136,10 +133,10 @@ def tscan(f, a, bs, fields=(0,)):
                                     out, a_out)
         return out
     else:
-        return _tscan(f, a, bs, fields)
+        return _tscan(f, a, bs, transform)
 
 
-def _tscan(f, a, bs, fields=(0,)):
+def _tscan(f, a, bs, transform=None):
     """
     Works as jax.lax.scan but has additional `fields` argument to select only
     necessary fields from `a`'s structure. Defaults to selecting only the first
@@ -154,10 +151,12 @@ def _tscan(f, a, bs, fields=(0,)):
     # Licensed under the Apache License, Version 2.0 (the "License")
 
     # convert pytree to flat jaxtuple
+
     a, a_tree = pytree_to_flatjaxtuple(a)
     bs, b_tree = pytree_to_flatjaxtuple(bs)
-    fields, _ = pytree_to_flatjaxtuple(fields)
-    f, out_tree = pytree_fun_to_flatjaxtuple_fun(wrap_init(f), (a_tree, b_tree))
+    f, _ = pytree_fun_to_flatjaxtuple_fun(wrap_init(f), (a_tree, b_tree))
+    transform_f, transform_tree = pytree_fun_to_flatjaxtuple_fun(
+        wrap_init(transform), (a_tree,))
 
     # convert arrays to abstract values
     a_aval, _ = lax._abstractify(a)
@@ -169,34 +168,33 @@ def _tscan(f, a, bs, fields=(0,)):
     a_pval = partial_eval.PartialVal((a_aval, core.unit))
     b_pval = partial_eval.PartialVal((b_aval, core.unit))
     jaxpr, pval_out, consts = partial_eval.trace_to_jaxpr(f, (a_pval, b_pval))
+    transform_jaxpr, _, _ = partial_eval.trace_to_jaxpr(transform_f, (a_pval,))
     aval_out, _ = pval_out
     consts = core.pack(consts)
 
-    out = tscan_p.bind(a, bs, fields, consts, aval_out=aval_out, jaxpr=jaxpr)
-    return tree_unflatten(out_tree(), out)
+    out = tscan_p.bind(a, bs, consts, aval_out=aval_out, jaxpr=jaxpr, transform_jaxpr=transform_jaxpr)
+    return tree_unflatten(transform_tree(), out)
 
 
-def _tscan_impl(a, bs, fields, consts, aval_out, jaxpr):
+def _tscan_impl(a, bs, consts, aval_out, jaxpr, transform_jaxpr):
     length = tuple(bs)[0].shape[0]
-    state = [lax.full((length,) + a[i].shape, 0, lax._dtype(a[i])) for i in fields]
+    template = core.eval_jaxpr(transform_jaxpr, (), (), a)
+    state = [lax.full((length,) + np.shape(t), 0, lax._dtype(t)) for t in template]
 
     def body_fun(i, vals):
         a, state = vals
         # select i-th element from each b
         b = [lax.dynamic_index_in_dim(b, i, keepdims=False) for b in bs]
         a_out = core.eval_jaxpr(jaxpr, consts, (), a, core.pack(b))
+
         # select fields from a_out and update state
-        state_out = [lax.dynamic_update_index_in_dim(s, a[None, ...], i, axis=0)
-                     for a, s in zip([tuple(a_out)[j] for j in fields], state)]
+        t_out = core.eval_jaxpr(transform_jaxpr, (), (), a_out)
+        state_out = [lax.dynamic_update_index_in_dim(s, t[None, ...], i, axis=0)
+                     for t, s in zip(t_out, state)]
         return a_out, state_out
 
     _, state = lax.fori_loop(0, length, body_fun, (a, state))
-
-    # set None for non-selected fields
-    out = [None] * len(a)
-    for field, i in zip(fields, range(len(fields))):
-        out[field] = state[i]
-    return core.pack(out)
+    return core.pack(state)
 
 
 def _tscan_abstract_eval(a, bs, fields, consts, aval_out, jaxpr):
