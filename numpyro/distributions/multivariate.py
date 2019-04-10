@@ -9,6 +9,7 @@
 import jax.numpy as np
 from jax.scipy.special import digamma, gammaln
 
+from numpyro.distributions import constraints
 from numpyro.distributions.distribution import jax_mvcontinuous
 from numpyro.distributions.util import standard_gamma, xlogy
 
@@ -19,7 +20,8 @@ def _lnB(alpha):
 
 class dirichlet_gen(jax_mvcontinuous):
     # TODO: use dirichlet doc instead of the default one of rv_continuous
-    # TODO: add _argcheck, _support_mask with simplex
+    _support_mask = constraints.simplex
+
     def _logpdf(self, x, alpha):
         lnB = _lnB(alpha)
         return -lnB + np.sum(xlogy(alpha - 1, x), axis=-1)

@@ -14,6 +14,16 @@ from jax.scipy.special import logit
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraint_registry import biject_to
+from numpyro.distributions.distribution import jax_frozen
+
+
+def idfn(param):
+    if isinstance(param, (osp_stats._distn_infrastructure.rv_generic,
+                          osp_stats._multivariate.multi_rv_generic)):
+        return param.name
+    elif isinstance(param, constraints.Constraint):
+        return param.__class__.__name__
+    return repr(param)
 
 
 @pytest.mark.parametrize('jax_dist', [
@@ -25,7 +35,7 @@ from numpyro.distributions.constraint_registry import biject_to
     dist.norm,
     dist.t,
     dist.uniform,
-], ids=lambda jax_dist: jax_dist.name)
+], ids=idfn)
 @pytest.mark.parametrize('loc, scale', [
     (1, 1),
     (1., np.array([1., 2.])),
@@ -52,13 +62,39 @@ def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
                         .rvs(random_state=rng, size=expected_shape)) == expected_shape
 
 
-def idfn(param):
-    if isinstance(param, (osp_stats._distn_infrastructure.rv_generic,
-                          osp_stats._multivariate.multi_rv_generic)):
-        return param.name
-    elif isinstance(param, constraints.Constraint):
-        return param.__class__.__name__
-    return repr(param)
+@pytest.mark.parametrize('jax_dist, dist_args, sample', [
+    (dist.beta, (-1, 1), -1),
+    (dist.beta, (2, np.array([1., -3])), np.array([1., -2])),
+    (dist.cauchy, (), np.inf),
+    (dist.cauchy, (), np.array([1., np.nan])),
+    (dist.expon, (), -1),
+    (dist.expon, (), np.array([1., -2])),
+    (dist.gamma, (-1,), -1),
+    (dist.gamma, (np.array([-2., 3]),), np.array([1., -2])),
+    (dist.lognorm, (-1,), -1),
+    (dist.lognorm, (np.array([-2., 3]),), np.array([1., -2])),
+    (dist.norm, (), np.inf),
+    (dist.norm, (), np.array([1., np.nan])),
+    (dist.t, (-1,), np.inf),
+    (dist.t, (np.array([-2., 3]),), np.array([1., np.nan])),
+    (dist.uniform, (), -1),
+    (dist.uniform, (), np.array([0.5, -2])),
+], ids=idfn)
+def test_continuous_validate_args(jax_dist, dist_args, sample):
+    valid_args = (1,) * len(dist_args)
+    jax_frozen._validate_args = True
+
+    if dist_args:
+        with pytest.raises(ValueError, match='Invalid shape parameters'):
+            jax_dist(*dist_args)
+
+    with pytest.raises(ValueError, match='Invalid scale parameter'):
+        jax_dist(*valid_args, scale=-1)
+
+    valid_args = (1,) * len(dist_args)
+    frozen_dist = jax_dist(*valid_args)
+    with pytest.raises(ValueError, match='Invalid values'):
+        frozen_dist.logpdf(sample)
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -122,7 +158,7 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     dist.norm,
     dist.t,
     dist.uniform,
-], ids=lambda jax_dist: jax_dist.name)
+], ids=idfn)
 @pytest.mark.parametrize('loc, scale', [
     (1., 1.),
     (1., np.array([1., 2.])),
@@ -166,7 +202,7 @@ def test_mvsample_gradient(jax_dist, dist_args):
     dist.norm,
     dist.t,
     dist.uniform,
-], ids=lambda jax_dist: jax_dist.name)
+], ids=idfn)
 @pytest.mark.parametrize('loc_scale', [
     (),
     (1,),
