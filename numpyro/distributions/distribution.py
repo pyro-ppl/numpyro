@@ -9,7 +9,7 @@
 import numpy as onp
 import scipy.stats as osp_stats
 from scipy._lib._util import getargspec_no_self
-from scipy.stats._distn_infrastructure import instancemethod
+from scipy.stats._distn_infrastructure import instancemethod, rv_frozen, rv_generic
 
 import jax.numpy as np
 from jax import device_put, lax
@@ -17,8 +17,75 @@ from jax.numpy.lax_numpy import _promote_args
 from jax.random import _is_prng_key
 from jax.scipy import stats
 
+from numpyro.distributions.transforms import AffineTransform
 
-class jax_continuous(osp_stats.rv_continuous):
+
+class jax_frozen(rv_frozen):
+    _validate_args = False
+
+    def __init__(self, dist, *args, **kwargs):
+        self.args = args
+        self.kwds = kwargs
+
+        # create a new instance
+        self.dist = dist.__class__(**dist._updated_ctor_param())
+
+        shapes, _, scale = self.dist._parse_args(*args, **kwargs)
+        if self._validate_args:
+            # TODO: check more concretely for each shape parameter
+            if not np.all(self.dist._argcheck(*shapes)):
+                raise ValueError('Invalid shape parameters provided to the distribution.')
+            if not np.all(scale > 0):
+                raise ValueError('Invalid scale parameter provided to the distribution.')
+
+        self.a, self.b = self.dist.a, self.dist.b
+
+    @property
+    def support(self):
+        return self.dist._support(*self.args, **self.kwds)
+
+    def __call__(self, size=None, random_state=None):
+        return self.rvs(size, random_state)
+
+    def logpdf(self, x):
+        if self._validate_args:
+            self._validate_sample(x)
+        return self.dist.logpdf(x, *self.args, **self.kwds)
+
+    def logpmf(self, k):
+        if self._validate_args:
+            self._validate_sample(k)
+        return self.dist.logpmf(k, *self.args, **self.kwds)
+
+    def _validate_sample(self, x):
+        if not np.all(self.support(x)):
+            raise ValueError('Invalid values provided to log prob method. '
+                             'The value argument must be within the support.')
+
+
+class jax_generic(rv_generic):
+    arg_constraints = {}
+
+    def freeze(self, *args, **kwargs):
+        return jax_frozen(self, *args, **kwargs)
+
+    def _argcheck(self, *args):
+        cond = 1
+        if args:
+            for arg, arg_name in zip(args, self.shapes.split(', ')):
+                cond = np.logical_and(cond, self.arg_constraints[arg_name](arg))
+        return cond
+
+    # TODO: move the implementation of _construct_argparser in jax_mvcontinuous
+    # to here if everything works.
+
+
+class jax_continuous(jax_generic, osp_stats.rv_continuous):
+    def _support(self, *args, **kwargs):
+        # support of the transformed distribution
+        _, loc, scale = self._parse_args(*args, **kwargs)
+        return AffineTransform(loc, scale, domain=self._support_mask).codomain
+        
     def rvs(self, *args, **kwargs):
         rng = kwargs.pop('random_state')
         if rng is None:
