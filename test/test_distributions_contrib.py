@@ -71,7 +71,7 @@ def test_sample_gradient(jax_dist, sp_dist, params, sp_params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert np.shape(actual_grad[i]) == np.shape(params[i])
-        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.12)
+        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.15)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params, sp_params', CONTINUOUS + DISCRETE)
