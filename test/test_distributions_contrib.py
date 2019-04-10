@@ -42,7 +42,7 @@ DISCRETE = [
 ])
 def test_continuous_shape(jax_dist, sp_dist, params, sp_params, prepend_shape):
     jax_dist = jax_dist(*params)
-    sp_dist = sp_dist(*params)
+    sp_dist = sp_dist(*sp_params)
     rng = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape
     samples = jax_dist.sample(key=rng, size=expected_shape)
