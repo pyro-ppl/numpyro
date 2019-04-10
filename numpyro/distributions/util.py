@@ -1,9 +1,11 @@
 from contextlib import contextmanager
+from numbers import Number
 
+import numpy as onp
 import scipy.special as osp_special
 
 import jax.numpy as np
-from jax import jit, lax, random, vmap
+from jax import canonicalize_dtype, jit, lax, random, vmap
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
@@ -288,6 +290,11 @@ def promote_shapes(*args, shape=()):
         num_dims = len(lax.broadcast_shapes(shape, *shapes))
         return [lax.reshape(arg, (1,) * (num_dims - len(s)) + s)
                 if len(s) < num_dims else arg for arg, s in zip(args, shapes)]
+
+
+def get_dtypes(*args):
+    return [canonicalize_dtype(type(arg)) if isinstance(arg, Number)
+            else canonicalize_dtype(onp.dtype(arg)) for arg in args]
 
 
 # TODO: inefficient implementation; jit currently fails due to
