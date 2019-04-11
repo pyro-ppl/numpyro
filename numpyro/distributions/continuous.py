@@ -11,11 +11,15 @@ import jax.numpy as np
 import jax.random as random
 from jax.scipy.special import digamma, gammaln
 
+from numpyro.distributions import constraints
 from numpyro.distributions.distribution import jax_continuous
 from numpyro.distributions.util import standard_gamma
 
 
 class beta_gen(jax_continuous):
+    arg_constraints = {"a": constraints.positive, "b": constraints.positive}
+    _support_mask = constraints.unit_interval
+
     def _rvs(self, a, b):
         # XXX the implementation is different from PyTorch's one
         # in PyTorch, a sample is generated from dirichlet distribution
@@ -37,6 +41,8 @@ class beta_gen(jax_continuous):
 
 
 class cauchy_gen(jax_continuous):
+    _support_mask = constraints.real
+
     def _rvs(self):
         # TODO: move this implementation upstream to jax.random.standard_cauchy
         # Another way is to generate X, Y ~ Normal(0, 1) and return X / Y
@@ -67,6 +73,8 @@ class cauchy_gen(jax_continuous):
 
 
 class expon_gen(jax_continuous):
+    _support_mask = constraints.positive
+
     def _rvs(self):
         u = random.uniform(self._random_state, shape=self._size)
         return -np.log(u)
@@ -94,6 +102,9 @@ class expon_gen(jax_continuous):
 
 
 class gamma_gen(jax_continuous):
+    arg_constraints = {"a": constraints.positive}
+    _support_mask = constraints.positive
+
     def _rvs(self, a):
         return standard_gamma(self._random_state, a, shape=self._size)
 
@@ -120,8 +131,8 @@ def _lognorm_logpdf(x, s):
 
 
 class lognorm_gen(jax_continuous):
-    # TODO: check if this is fine
-    _support_mask = jax_continuous._open_support_mask
+    arg_constraints = {"s": constraints.positive}
+    _support_mask = constraints.positive
 
     def _rvs(self, s):
         return np.exp(s * random.normal(self._random_state, shape=self._size))
@@ -154,6 +165,8 @@ def _norm_logpdf(x):
 
 
 class norm_gen(jax_continuous):
+    _support_mask = constraints.real
+
     def _rvs(self):
         return random.normal(self._random_state, shape=self._size)
 
@@ -165,6 +178,9 @@ class norm_gen(jax_continuous):
 
 
 class t_gen(jax_continuous):
+    arg_constraints = {"df": constraints.positive}
+    _support_mask = constraints.real
+
     def _rvs(self, df):
         key_n, key_g = random.split(self._random_state)
         normal = random.normal(key_n, shape=self._size)
@@ -198,6 +214,8 @@ class t_gen(jax_continuous):
 
 
 class uniform_gen(jax_continuous):
+    _support_mask = constraints.unit_interval
+
     def _rvs(self):
         return random.uniform(self._random_state, shape=self._size)
 
@@ -216,9 +234,9 @@ class uniform_gen(jax_continuous):
 
 beta = beta_gen(a=0.0, b=1.0, name='beta')
 cauchy = cauchy_gen(name='cauchy')
-expon = expon_gen(name='expon')
+expon = expon_gen(a=0.0, name='expon')
 gamma = gamma_gen(a=0.0, name='gamma')
 lognorm = lognorm_gen(a=0.0, name='lognorm')
 norm = norm_gen(name='norm')
 t = t_gen(name='t')
-uniform = uniform_gen(name='uniform')
+uniform = uniform_gen(a=0.0, b=1.0, name='uniform')
