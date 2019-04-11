@@ -1,4 +1,4 @@
-from numbers import Number
+from contextlib import contextmanager
 
 import numpy as onp
 import scipy.special as osp_special
@@ -290,13 +290,12 @@ def promote_shapes(*args, shape=()):
 
 
 def get_dtypes(*args):
-    return [canonicalize_dtype(type(arg)) if isinstance(arg, Number)
-            else canonicalize_dtype(onp.dtype(arg)) for arg in args]
+    return [canonicalize_dtype(onp.result_type(arg)) for arg in args]
 
 
 # TODO: inefficient implementation; jit currently fails due to
 # dynamic size of random.uniform.
-# @jit
+@partial(jit, static_argnums=(0, 2, 3))
 def binomial(key, p, n=1, shape=()):
     p, n = _promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
@@ -307,3 +306,7 @@ def binomial(key, p, n=1, shape=()):
     mask = (np.arange(n_max) > n).astype(uniforms.dtype)
     p, uniforms = promote_shapes(p, uniforms)
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
+
+
+def sum_rightmost(x, dim):
+    return np.sum(x, axis=-1) if dim == 1 else x

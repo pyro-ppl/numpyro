@@ -26,6 +26,7 @@ import jax.numpy as np
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions import constraints
+from numpyro.distributions.util import sum_rightmost
 
 
 class Transform(object):
@@ -43,8 +44,47 @@ class Transform(object):
         raise NotImplementedError
 
 
-def _sum_rightmost(x, dim):
-    return np.sum(x, axis=-1) if dim == 1 else x
+class AbsTransform(Transform):
+    domain = constraints.real
+    codomain = constraints.positive
+
+    def __eq__(self, other):
+        return isinstance(other, AbsTransform)
+
+    def _call(self, x):
+        return x.abs()
+
+    def _inverse(self, y):
+        return y
+
+
+class AffineTransform(Transform):
+    # TODO: currently, just support scale > 0
+    def __init__(self, loc, scale, domain=constraints.real):
+        self.loc = loc
+        self.scale = scale
+        self.domain = domain
+
+    @property
+    def codomain(self):
+        if self.domain is constraints.real:
+            return constraints.real
+        elif isinstance(self.domain, constraints.greater_than):
+            return constraints.greater_than(self.loc + self.scale * self.domain.lower_bound)
+        elif isinstance(self.domain, constraints.interval):
+            return constraints.interval(self.loc + self.scale * self.domain.lower_bound,
+                                        self.loc + self.scale * self.domain.upper_bound)
+        else:
+            raise NotImplementedError
+
+    def __call__(self, x):
+        return self.loc + self.scale * x
+
+    def inv(self, y):
+        return (y - self.loc) / self.scale
+
+    def log_abs_det_jacobian(self, x, y):
+        return np.broadcast_to(np.log(np.abs(self.scale)), x.shape)
 
 
 class ComposeTransform(Transform):
@@ -77,41 +117,12 @@ class ComposeTransform(Transform):
         result = 0.
         for part in self.parts[:-1]:
             y_tmp = part(x)
-            result = result + _sum_rightmost(part.log_abs_det_jacobian(x, y_tmp),
-                                             self.event_dim - part.event_dim)
+            result = result + sum_rightmost(part.log_abs_det_jacobian(x, y_tmp),
+                                            self.event_dim - part.event_dim)
             x = y_tmp
-        result = result + _sum_rightmost(self.parts[-1].log_abs_det_jacobian(x, y),
-                                         self.event_dim - self.parts[-1].event_dim)
+        result = result + sum_rightmost(self.parts[-1].log_abs_det_jacobian(x, y),
+                                        self.event_dim - self.parts[-1].event_dim)
         return result
-
-
-class AffineTransform(Transform):
-    # TODO: currently, just support scale > 0
-    def __init__(self, loc, scale, domain=constraints.real):
-        self.loc = loc
-        self.scale = scale
-        self.domain = domain
-
-    @property
-    def codomain(self):
-        if self.domain is constraints.real:
-            return constraints.real
-        elif isinstance(self.domain, constraints.greater_than):
-            return constraints.greater_than(self.loc + self.scale * self.domain.lower_bound)
-        elif isinstance(self.domain, constraints.interval):
-            return constraints.interval(self.loc + self.scale * self.domain.lower_bound,
-                                        self.loc + self.scale * self.domain.upper_bound)
-        else:
-            raise NotImplementedError
-
-    def __call__(self, x):
-        return self.loc + self.scale * x
-
-    def inv(self, y):
-        return (y - self.loc) / self.scale
-
-    def log_abs_det_jacobian(self, x, y):
-        return np.broadcast_to(np.log(np.abs(self.scale)), x.shape)
 
 
 class ExpTransform(Transform):
