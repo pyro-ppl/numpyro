@@ -133,8 +133,6 @@ class jax_discrete(osp_stats.rv_discrete):
     def _support_mask(self, k):
         return (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
 
-    # Discrete distribution instances use scipy samplers directly
-    # and put the samples on device later.
     def rvs(self, *args, **kwargs):
         rng = kwargs.pop('random_state')
         if rng is None:

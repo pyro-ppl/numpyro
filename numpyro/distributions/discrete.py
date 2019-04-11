@@ -7,7 +7,6 @@
 # All rights reserved.
 
 import numpy as onp
-from scipy.stats._discrete_distns import bernoulli_gen, binom_gen
 from scipy.stats._multivariate import multinomial_gen
 
 import jax.numpy as np
@@ -19,7 +18,15 @@ from numpyro.distributions.distribution import jax_discrete
 from numpyro.distributions.util import binary_cross_entropy_with_logits, entr, promote_shapes, xlog1py, xlogy
 
 
-class _binom_gen(jax_discrete, binom_gen):
+class binom_gen(jax_discrete):
+    _support_mask = constraints.
+
+    def _rvs(self, n, p):
+        # use scipy samplers directly and put the samples on device later.
+        random_state = onp.random.RandomState(self._random_state)
+        sample = random_state.binomial(n, p, self._size)
+        return device_put(sample)
+
     def _logpmf(self, x, n, p):
         k = np.floor(x)
         n, p = _promote_dtypes(n, p)
@@ -32,7 +39,9 @@ class _binom_gen(jax_discrete, binom_gen):
         return np.sum(entr(vals), axis=0)
 
 
-class _bernoulli_gen(jax_discrete, bernoulli_gen):
+class bernoulli_gen(jax_discrete):
+    _support_mask = constraints.integer_interval(0, 1)
+
     def __new__(cls, *args, **kwargs):
         return super(_bernoulli_gen, cls).__new__(cls)
 
