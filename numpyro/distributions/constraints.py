@@ -31,9 +31,6 @@ class Constraint(object):
 
 
 class _Boolean(Constraint):
-    """
-    Constrain to the two values `{0, 1}`.
-    """
     def __call__(self, value):
         return (value == 0) | (value == 1)
 

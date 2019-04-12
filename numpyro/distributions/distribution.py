@@ -132,6 +132,7 @@ class jax_discrete(jax_generic, osp_stats.rv_discrete):
     def _support_mask(self, k):
         return (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
 
+    # TODO: This will not work for the case that loc != 0
     def _support(self, *args, **kwargs):
         return self._support_mask
 
