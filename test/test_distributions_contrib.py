@@ -57,7 +57,7 @@ DISCRETE = [
     T(dist.BernoulliWithLogits, np.array([-1., 3.])),
     T(dist.Binomial, np.array([0.2, 0.7]), np.array([10, 2])),
     T(dist.Binomial, np.array([0.2, 0.7]), np.array([5, 8])),
-    T(dist.BinomialWithLogits, np.array([-4., 5.]), np.array([5, 8])),
+    T(dist.BinomialWithLogits, np.array([-1., 3.]), np.array([5, 8])),
 ]
 
 
@@ -94,6 +94,8 @@ def test_sample_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-5
     for i in range(len(params)):
+        if np.result_type(params[i]) in (np.int32, np.int64):
+            continue
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
         fn_lhs = fn(args_lhs)
@@ -140,6 +142,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-5
     for i in range(len(params)):
+        if np.result_type(params[i]) in (np.int32, np.int64):
+            continue
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
         fn_lhs = fn(args_lhs, value)
@@ -147,4 +151,4 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert np.shape(actual_grad[i]) == np.shape(params[i])
-        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.15)
+        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.10)
