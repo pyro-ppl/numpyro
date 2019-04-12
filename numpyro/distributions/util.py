@@ -1,4 +1,3 @@
-from contextlib import contextmanager
 from numbers import Number
 
 import numpy as onp
@@ -10,8 +9,6 @@ from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
 from jax.util import partial
-
-from numpyro.distributions.distribution import jax_discrete
 
 
 def _standard_gamma_one(key, alpha):
@@ -310,4 +307,3 @@ def binomial(key, p, n=1, shape=()):
     mask = (np.arange(n_max) > n).astype(uniforms.dtype)
     p, uniforms = promote_shapes(p, uniforms)
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
-
