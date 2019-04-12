@@ -311,12 +311,3 @@ def binomial(key, p, n=1, shape=()):
     p, uniforms = promote_shapes(p, uniforms)
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
 
-
-@contextmanager
-def validation_disabled():
-    discrete_dist_args_check = jax_discrete.args_check
-    try:
-        jax_discrete.args_check = False
-        yield
-    finally:
-        jax_discrete.args_check = discrete_dist_args_check

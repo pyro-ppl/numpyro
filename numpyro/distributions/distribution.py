@@ -5,6 +5,7 @@
 #
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
+from contextlib import contextmanager
 
 import numpy as onp
 import scipy.stats as osp_stats
@@ -32,9 +33,9 @@ class jax_frozen(rv_frozen):
 
         shapes, _, scale = self.dist._parse_args(*args, **kwargs)
         if self._validate_args:
-            # TODO: check more concretely for each shape parameter
+            # TODO: check more concretely for each parameter
             if not np.all(self.dist._argcheck(*shapes)):
-                raise ValueError('Invalid shape parameters provided to the distribution.')
+                raise ValueError('Invalid parameters provided to the distribution.')
             if not np.all(scale > 0):
                 raise ValueError('Invalid scale parameter provided to the distribution.')
 
@@ -127,11 +128,12 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
             return super(jax_continuous, self).logpdf(x, *args, **kwargs)
 
 
-class jax_discrete(osp_stats.rv_discrete):
-    args_check = True
-
+class jax_discrete(jax_generic, osp_stats.rv_discrete):
     def _support_mask(self, k):
         return (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
+
+    def _support(self, *args, **kwargs):
+        return self._support_mask
 
     # Discrete distribution instances use scipy samplers directly
     # and put the samples on device later.
@@ -148,13 +150,6 @@ class jax_discrete(osp_stats.rv_discrete):
     def logpmf(self, k, *args, **kwargs):
         args, loc, _ = self._parse_args(*args, **kwargs)
         k = k - loc
-        if self.args_check:
-            cond0 = self._argcheck(*args)
-            cond1 = self._support_mask(k)
-            if not np.all(cond0):
-                raise ValueError('Invalid distribution arguments provided to {}.logpmf'.format(self))
-            if not np.all(cond1):
-                raise ValueError('Invalid values provided to {}.logpmf'.format(self))
         return self._logpmf(k, *args)
 
 
@@ -211,3 +206,13 @@ class jax_mvcontinuous(osp_stats.rv_continuous):
     def logpdf(self, *args, **kwargs):
         # TODO: check args, check input
         return self._logpdf(*args, **kwargs)
+
+
+@contextmanager
+def validation_enabled():
+    jax_frozen_flag = jax_frozen._validate_args
+    try:
+        jax_frozen._validate_args = True
+        yield
+    finally:
+        jax_frozen._validate_args = jax_frozen_flag

@@ -15,11 +15,15 @@ from jax import device_put, lax
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import expit, gammaln
 
+from numpyro.distributions import constraints
 from numpyro.distributions.distribution import jax_discrete
 from numpyro.distributions.util import binary_cross_entropy_with_logits, entr, promote_shapes, xlog1py, xlogy
 
 
 class _binom_gen(jax_discrete, binom_gen):
+    arg_constraints = {'n': constraints.nonnegative_integer,
+                       'p': constraints.unit_interval}
+
     def _logpmf(self, x, n, p):
         k = np.floor(x)
         n, p = _promote_dtypes(n, p)
@@ -33,6 +37,9 @@ class _binom_gen(jax_discrete, binom_gen):
 
 
 class _bernoulli_gen(jax_discrete, bernoulli_gen):
+    # TODO: This should depend on initialization
+    arg_constraints = {'p': constraints.real}
+
     def __new__(cls, *args, **kwargs):
         return super(_bernoulli_gen, cls).__new__(cls)
 
