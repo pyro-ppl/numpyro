@@ -14,60 +14,25 @@ from jax import device_put, lax
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import expit, gammaln
 
+from numpyro.distributions import constraints
 from numpyro.distributions.distribution import jax_discrete
 from numpyro.distributions.util import binary_cross_entropy_with_logits, entr, promote_shapes, xlog1py, xlogy
-
-
-class binom_gen(jax_discrete):
-    _support_mask = constraints.
-
-    def _rvs(self, n, p):
-        # use scipy samplers directly and put the samples on device later.
-        random_state = onp.random.RandomState(self._random_state)
-        sample = random_state.binomial(n, p, self._size)
-        return device_put(sample)
-
-    def _logpmf(self, x, n, p):
-        k = np.floor(x)
-        n, p = _promote_dtypes(n, p)
-        combiln = (gammaln(n + 1) - (gammaln(k + 1) + gammaln(n - k + 1)))
-        return combiln + xlogy(k, p) + xlog1py(n - k, -p)
-
-    def _entropy(self, n, p):
-        k = np.arange(n + 1)
-        vals = self._pmf(k, n, p)
-        return np.sum(entr(vals), axis=0)
 
 
 class bernoulli_gen(jax_discrete):
     _support_mask = constraints.integer_interval(0, 1)
 
-    def __new__(cls, *args, **kwargs):
-        return super(_bernoulli_gen, cls).__new__(cls)
-
-    def __init__(self, *args, **kwargs):
-        self.is_logits = kwargs.pop("is_logits", False)
-        super(_bernoulli_gen, self).__init__(*args, **kwargs)
-
-    def freeze(self, *args, **kwargs):
-        self._ctor_param.update(is_logits=kwargs.pop("is_logits", False))
-        return super(_bernoulli_gen, self).freeze(*args, **kwargs)
-
-    def rvs(self, *args, **kwargs):
+    @property
+    def arg_constraints(self):
         if self.is_logits:
-            # convert logits to probs
-            if args:
-                args = list(args)
-                args[0] = expit(args[0])
-            else:
-                kwargs['p'] = expit(kwargs['p'])
-        return super(_bernoulli_gen, self).rvs(*args, **kwargs)
-
-    def _argcheck(self, p):
-        if self.is_logits:
-            return np.isfinite(p)
+            return {'p': constraints.real}
         else:
-            return (p >= 0) & (p <= 1)
+            return {'p': constraints.unit_interval}
+
+    def _rvs(self, p):
+        if self.is_logits:
+            p = expit(p)
+        return random.bernoulli(self._random_state, p, self._size)
 
     def _logpmf(self, x, p):
         if self.is_logits:
@@ -77,7 +42,55 @@ class bernoulli_gen(jax_discrete):
             return xlogy(x, p) + xlog1py(1 - x, -p)
 
     def _entropy(self, p):
+        # TODO: use logits and binary_cross_entropy_with_logits for more stable
+        if self.is_logits:
+            p = expit(p)
         return entr(p) + entr(1 - p)
+
+
+class binom_gen(jax_discrete):
+    @property
+    def arg_constraints(self):
+        if self.is_logits:
+            return {'n': constraints.nonnegative_integer,
+                    'p': constraints.real}
+        else:
+            return {'n': constraints.nonnegative_integer,
+                    'p': constraints.unit_interval}
+
+    def _support(self, *args, **kwargs):
+        (n, p), loc, _ = self._parse_args(*args, **kwargs)
+        return constraints.integer_interval(loc, loc + n)
+
+    def _rvs(self, n, p):
+        if self.is_logits:
+            p = expit(p)
+        # use scipy samplers directly and put the samples on device later.
+        random_state = onp.random.RandomState(self._random_state)
+        sample = random_state.binomial(n, p, self._size)
+        return device_put(sample)
+
+    def _logpmf(self, x, n, p):
+        k = np.floor(x)
+        n, p = _promote_dtypes(n, p)
+        combiln = (gammaln(n + 1) - (gammaln(k + 1) + gammaln(n - k + 1)))
+        if self.is_logits:
+            # TODO: move this implementation to PyTorch if it does not get non-continuous problem
+            # In PyTorch, k * logit - n * log1p(e^logit) get overflow when logit is a large
+            # positive number. In that case, we can reformulate into
+            # k * logit - n * log1p(e^logit) = k * logit - n * (log1p(e^-logit) + logit)
+            #                                = k * logit - n * logit - n * log1p(e^-logit)
+            # More context: https://github.com/pytorch/pytorch/pull/15962/
+            return combiln + k * p - n * np.clip(p, 0) - xlog1py(n, np.exp(-np.abs(p)))
+        else:
+            return combiln + xlogy(k, p) + xlog1py(n - k, -p)
+
+    def _entropy(self, n, p):
+        if self.is_logits:
+            p = expit(p)
+        k = np.arange(n + 1)
+        vals = self._pmf(k, n, p)
+        return np.sum(entr(vals), axis=0)
 
 
 class _multinomial_gen(multinomial_gen):
@@ -161,6 +174,6 @@ class _multinomial_gen(multinomial_gen):
         return device_put(random_state.multinomial(n, p, size))
 
 
-bernoulli = _bernoulli_gen(b=1, name='bernoulli')
-binom = _binom_gen(name='binom')
+bernoulli = bernoulli_gen(b=1, name='bernoulli')
+binom = binom_gen(name='binom')
 multinomial = _multinomial_gen()

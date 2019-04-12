@@ -5,6 +5,7 @@
 #
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
+from contextlib import contextmanager
 
 import numpy as onp
 import scipy.stats as osp_stats
@@ -32,9 +33,9 @@ class jax_frozen(rv_frozen):
 
         shapes, _, scale = self.dist._parse_args(*args, **kwargs)
         if self._validate_args:
-            # TODO: check more concretely for each shape parameter
+            # TODO: check more concretely for each parameter
             if not np.all(self.dist._argcheck(*shapes)):
-                raise ValueError('Invalid shape parameters provided to the distribution.')
+                raise ValueError('Invalid parameters provided to the distribution.')
             if not np.all(scale > 0):
                 raise ValueError('Invalid scale parameter provided to the distribution.')
 
@@ -127,11 +128,28 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
             return super(jax_continuous, self).logpdf(x, *args, **kwargs)
 
 
-class jax_discrete(osp_stats.rv_discrete):
-    args_check = True
+class jax_discrete(jax_generic, osp_stats.rv_discrete):
+    def __new__(cls, *args, **kwargs):
+        return super(jax_discrete, cls).__new__(cls)
 
-    def _support_mask(self, k):
-        return (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
+    def __init__(self, *args, **kwargs):
+        self.is_logits = kwargs.pop("is_logits", False)
+        super(_bernoulli_gen, self).__init__(*args, **kwargs)
+
+    def freeze(self, *args, **kwargs):
+        self._ctor_param.update(is_logits=kwargs.pop("is_logits", False))
+        return super(bernoulli_gen, self).freeze(*args, **kwargs)
+
+    def _support(self, *args, **kwargs):
+        args, loc, _ = self._parse_args(*args, **kwargs)
+        support_mask = self._support_mask
+        if isinstance(support_mark, constraints.integer_interval):
+            return constraints.integer_interval(loc + support_mask.lower_bound,
+                                                loc + support_mask.upper_bound)
+        elif isinstance(support_mark, constraints.integer_greater_than):
+            return constraints.integer_greater_than(loc + support_mask.lower_bound)
+        else:
+            raise NotImplementedError
 
     def rvs(self, *args, **kwargs):
         rng = kwargs.pop('random_state')
@@ -139,20 +157,25 @@ class jax_discrete(osp_stats.rv_discrete):
             rng = self.random_state
         # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
         assert _is_prng_key(rng)
-        kwargs['random_state'] = onp.random.RandomState(rng)
-        sample = super(jax_discrete, self).rvs(*args, **kwargs)
-        return device_put(sample)
+
+        args = list(args)
+        size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 1) else None)
+        args, loc, _ = self._parse_args(*args, **kwargs)
+        loc, *args = _promote_args("rvs", loc, *args)
+        if not size:
+            shapes = [np.shape(arg) for arg in args] + [np.shape(loc)]
+            size = lax.broadcast_shapes(*shapes)
+        elif isinstance(size, int):
+            size = (size,)
+
+        self._random_state = rng
+        self._size = size
+        vals = self._rvs(*args)
+        return vals + loc
 
     def logpmf(self, k, *args, **kwargs):
         args, loc, _ = self._parse_args(*args, **kwargs)
         k = k - loc
-        if self.args_check:
-            cond0 = self._argcheck(*args)
-            cond1 = self._support_mask(k)
-            if not np.all(cond0):
-                raise ValueError('Invalid distribution arguments provided to {}.logpmf'.format(self))
-            if not np.all(cond1):
-                raise ValueError('Invalid values provided to {}.logpmf'.format(self))
         return self._logpmf(k, *args)
 
 
@@ -209,3 +232,13 @@ class jax_mvcontinuous(osp_stats.rv_continuous):
     def logpdf(self, *args, **kwargs):
         # TODO: check args, check input
         return self._logpdf(*args, **kwargs)
+
+
+@contextmanager
+def validation_enabled():
+    jax_frozen_flag = jax_frozen._validate_args
+    try:
+        jax_frozen._validate_args = True
+        yield
+    finally:
+        jax_frozen._validate_args = jax_frozen_flag
