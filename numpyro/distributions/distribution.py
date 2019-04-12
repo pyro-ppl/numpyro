@@ -7,17 +7,17 @@
 # All rights reserved.
 from contextlib import contextmanager
 
-import numpy as onp
 import scipy.stats as osp_stats
 from scipy._lib._util import getargspec_no_self
 from scipy.stats._distn_infrastructure import instancemethod, rv_frozen, rv_generic
 
 import jax.numpy as np
-from jax import device_put, lax
+from jax import lax
 from jax.numpy.lax_numpy import _promote_args
 from jax.random import _is_prng_key
 from jax.scipy import stats
 
+from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform
 
 
@@ -72,9 +72,10 @@ class jax_generic(rv_generic):
 
     def _argcheck(self, *args):
         cond = 1
+        constraints = self.arg_constraints
         if args:
             for arg, arg_name in zip(args, self.shapes.split(', ')):
-                cond = np.logical_and(cond, self.arg_constraints[arg_name](arg))
+                cond = np.logical_and(cond, constraints[arg_name](arg))
         return cond
 
     # TODO: move the implementation of _construct_argparser in jax_mvcontinuous
@@ -134,19 +135,19 @@ class jax_discrete(jax_generic, osp_stats.rv_discrete):
 
     def __init__(self, *args, **kwargs):
         self.is_logits = kwargs.pop("is_logits", False)
-        super(_bernoulli_gen, self).__init__(*args, **kwargs)
+        super(jax_discrete, self).__init__(*args, **kwargs)
 
     def freeze(self, *args, **kwargs):
         self._ctor_param.update(is_logits=kwargs.pop("is_logits", False))
-        return super(bernoulli_gen, self).freeze(*args, **kwargs)
+        return super(jax_discrete, self).freeze(*args, **kwargs)
 
     def _support(self, *args, **kwargs):
         args, loc, _ = self._parse_args(*args, **kwargs)
         support_mask = self._support_mask
-        if isinstance(support_mark, constraints.integer_interval):
+        if isinstance(support_mask, constraints.integer_interval):
             return constraints.integer_interval(loc + support_mask.lower_bound,
                                                 loc + support_mask.upper_bound)
-        elif isinstance(support_mark, constraints.integer_greater_than):
+        elif isinstance(support_mask, constraints.integer_greater_than):
             return constraints.integer_greater_than(loc + support_mask.lower_bound)
         else:
             raise NotImplementedError

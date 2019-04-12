@@ -10,7 +10,7 @@ import numpy as onp
 from scipy.stats._multivariate import multinomial_gen
 
 import jax.numpy as np
-from jax import device_put, lax
+from jax import device_put, lax, random
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import expit, gammaln
 
@@ -40,6 +40,9 @@ class bernoulli_gen(jax_discrete):
         else:
             # TODO: consider always clamp and convert probs to logits
             return xlogy(x, p) + xlog1py(1 - x, -p)
+
+    def _pmf(self, x, p):
+        return np.exp(self._logpmf(x, p))
 
     def _entropy(self, p):
         # TODO: use logits and binary_cross_entropy_with_logits for more stable
@@ -84,6 +87,9 @@ class binom_gen(jax_discrete):
             return combiln + k * p - n * np.clip(p, 0) - xlog1py(n, np.exp(-np.abs(p)))
         else:
             return combiln + xlogy(k, p) + xlog1py(n - k, -p)
+
+    def _pmf(self, x, n, p):
+        return np.exp(self._logpmf(x, n, p))
 
     def _entropy(self, n, p):
         if self.is_logits:
