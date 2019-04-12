@@ -5,7 +5,6 @@ import jax.numpy as np
 from jax import jit, random
 
 import numpyro.distributions as dist
-from numpyro.distributions.util import validation_disabled
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc_kernel
@@ -41,19 +40,18 @@ def test_logistic_regression(algo):
     logits = np.sum(true_coefs * data, axis=-1)
     labels = dist.bernoulli(logits, is_logits=True).rvs(random_state=random.PRNGKey(1))
 
-    with validation_disabled():
-        def model(labels):
-            coefs = sample('coefs', dist.norm(np.zeros(dim), np.ones(dim)))
-            logits = np.sum(coefs * data, axis=-1)
-            return sample('obs', dist.bernoulli(logits, is_logits=True), obs=labels)
+    def model(labels):
+        coefs = sample('coefs', dist.norm(np.zeros(dim), np.ones(dim)))
+        logits = np.sum(coefs * data, axis=-1)
+        return sample('obs', dist.bernoulli(logits, is_logits=True), obs=labels)
 
-        init_params, potential_fn = initialize_model(random.PRNGKey(2), model, (labels,), {})
-        init_kernel, sample_kernel = hmc_kernel(potential_fn, algo=algo)
-        hmc_state = init_kernel(init_params,
-                                step_size=0.1,
-                                num_steps=15,
-                                num_warmup_steps=warmup_steps)
-        sample_kernel = jit(sample_kernel)
-        hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
-                           transform=lambda x: x.z)
-        assert_allclose(np.mean(hmc_states['coefs'], 0), true_coefs, atol=0.2)
+    init_params, potential_fn = initialize_model(random.PRNGKey(2), model, (labels,), {})
+    init_kernel, sample_kernel = hmc_kernel(potential_fn, algo=algo)
+    hmc_state = init_kernel(init_params,
+                            step_size=0.1,
+                            num_steps=15,
+                            num_warmup_steps=warmup_steps)
+    sample_kernel = jit(sample_kernel)
+    hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
+                       transform=lambda x: x.z)
+    assert_allclose(np.mean(hmc_states['coefs'], 0), true_coefs, atol=0.2)

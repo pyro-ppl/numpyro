@@ -7,7 +7,6 @@ from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
 from numpyro.distributions.distribution import jax_continuous
-from numpyro.distributions.util import validation_disabled
 from numpyro.handlers import seed, substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
 
@@ -543,8 +542,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
 
 def log_density(model, model_args, model_kwargs, params):
     def logp(d, val):
-        with validation_disabled():
-            return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
+        return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
 
     model = substitute(model, params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)

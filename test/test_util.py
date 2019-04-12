@@ -1,9 +1,9 @@
 import pytest
-from jax.test_util import check_eq
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
 from jax import lax
+from jax.test_util import check_eq
 from jax.tree_util import tree_map
 
 from numpyro.util import control_flow_prims_disabled, laxtuple, optional, scan, tscan
