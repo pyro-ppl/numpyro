@@ -1,11 +1,10 @@
-from torch.distributions import AbsTransform, TransformedDistribution
-
 import jax.numpy as np
 import jax.random as random
 from jax import lax
 
-from numpyro.contrib.distributions.distribution import Distribution
+from numpyro.contrib.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions import constraints
+from numpyro.distributions.transforms import AbsTransform
 from numpyro.distributions.util import get_dtypes, promote_shapes
 
 
@@ -20,12 +19,14 @@ class Cauchy(Distribution):
         super(Cauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
-        u = random.uniform(key, shape=size)
+        u = random.uniform(key, shape=size + self.batch_shape)
         eps = np.tan(np.pi * (u - 0.5))
         return self.loc + eps * self.scale
 
     def log_prob(self, value):
-        return - np.log(np.pi) - np.log(self.scale) - (1.0 + ((value - self.loc) / self.scale) ** 2)
+        if self._validate_args:
+            self._validate_sample(value)
+        return - np.log(np.pi) - np.log(self.scale) - np.log(1.0 + ((value - self.loc) / self.scale) ** 2)
 
     @property
     def mean(self):
@@ -46,11 +47,13 @@ class Exponential(Distribution):
         super(Exponential, self).__init__(batch_shape=np.shape(rate), validate_args=validate_args)
 
     def sample(self, key, size=()):
-        u = random.uniform(key, shape=size)
+        u = random.uniform(key, shape=size + self.batch_shape)
         return np.log1p(-(-u)) / self.rate
 
     def log_prob(self, value):
-        return self.rate.log() - self.rate * value
+        if self._validate_args:
+            self._validate_sample(value)
+        return np.log(self.rate) - self.rate * value
 
     @property
     def mean(self):
@@ -72,8 +75,11 @@ class HalfCauchy(TransformedDistribution):
                                          validate_args=validate_args)
 
     def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
         log_prob = self.base_dist.log_prob(value) + np.log(2)
-        log_prob[value.expand(log_prob.shape) < 0] = -np.inf
+        value, log_prob = promote_shapes(value, log_prob)
+        log_prob = np.where(value < 0, -np.inf, log_prob)
         return log_prob
 
     @property
@@ -96,10 +102,12 @@ class Normal(Distribution):
         super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
-        eps = random.normal(key, shape=size)
+        eps = random.normal(key, shape=size + self.batch_shape)
         return self.loc + eps * self.scale
 
     def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
         return -((value - self.loc) ** 2) / (2.0 * self.scale ** 2) \
                - np.log(self.scale) - np.log(np.sqrt(2 * np.pi))
 
@@ -122,10 +130,12 @@ class Uniform(Distribution):
         super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
-        size = size or self.batch_shape
+        size = size + self.batch_shape
         return self.low + random.uniform(key, shape=size) * (self.high - self.low)
 
     def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
         within_bounds = ((value >= self.low) & (value < self.high))
         return np.log(lax.convert_element_type(within_bounds, get_dtypes(self.low)[0])) - \
             np.log(self.high - self.low)

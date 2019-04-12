@@ -104,7 +104,7 @@ class TransformedDistribution(Distribution):
         return self.base_dist.reparametrized
 
     def sample(self, key, size=()):
-        x = self.base_dist.sample(size)
+        x = self.base_dist.sample(key, size)
         for transform in self.transforms:
             x = transform(x)
         return x

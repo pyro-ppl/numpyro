@@ -36,7 +36,7 @@ class _Boolean(Constraint):
 
 
 class _Dependent(Constraint):
-    def check(self, x):
+    def __call__(self, x):
         raise ValueError('Cannot determine validity of dependent constraint')
 
 

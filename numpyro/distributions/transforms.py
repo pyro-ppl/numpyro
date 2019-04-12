@@ -51,10 +51,10 @@ class AbsTransform(Transform):
     def __eq__(self, other):
         return isinstance(other, AbsTransform)
 
-    def _call(self, x):
-        return x.abs()
+    def __call__(self, x):
+        return np.abs(x)
 
-    def _inverse(self, y):
+    def _inv(self, y):
         return y
 
 
