@@ -30,6 +30,11 @@ class Constraint(object):
         raise NotImplementedError
 
 
+class _Boolean(Constraint):
+    def __call__(self, value):
+        return (value == 0) | (value == 1)
+
+
 class _GreaterThan(Constraint):
     def __init__(self, lower_bound):
         self.lower_bound = lower_bound
@@ -45,6 +50,14 @@ class _IntegerInterval(Constraint):
 
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound) & (x == np.floor(x))
+
+
+class _IntegerGreaterThan(Constraint):
+    def __init__(self, lower_bound):
+        self.lower_bound = lower_bound
+
+    def __call__(self, value):
+        return (value % 1 == 0) & (value >= self.lower_bound)
 
 
 class _Interval(Constraint):
@@ -67,9 +80,12 @@ class _Simplex(Constraint):
         return np.all(x > 0, axis=-1) & (x_sum <= 1) & (x_sum > 1 - 1e-6)
 
 
+boolean = _Boolean()
 greater_than = _GreaterThan
 integer_interval = _IntegerInterval
 interval = _Interval
+nonnegative_integer = _IntegerGreaterThan(0)
+positive_integer = _IntegerGreaterThan(1)
 positive = _GreaterThan(0)
 real = _Real()
 simplex = _Simplex()

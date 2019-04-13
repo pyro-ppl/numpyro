@@ -14,7 +14,7 @@ from jax.scipy.special import logit
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraint_registry import biject_to
-from numpyro.distributions.distribution import jax_frozen
+from numpyro.distributions.distribution import jax_frozen, validation_enabled
 
 
 def idfn(param):
@@ -85,7 +85,7 @@ def test_continuous_validate_args(jax_dist, dist_args, sample):
     jax_frozen._validate_args = True
 
     if dist_args:
-        with pytest.raises(ValueError, match='Invalid shape parameters'):
+        with pytest.raises(ValueError, match='Invalid parameters'):
             jax_dist(*dist_args)
 
     with pytest.raises(ValueError, match='Invalid scale parameter'):
@@ -147,6 +147,23 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
         shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
         expected_shape = np.shape(sp_dist.rvs(*dist_args, size=shape))
         assert np.shape(jax_dist.rvs(*dist_args, size=shape, random_state=rng)) == expected_shape
+
+
+@pytest.mark.parametrize('jax_dist, valid_args, invalid_args, invalid_sample', [
+    (dist.bernoulli, (0.8,), (np.nan,), 2),
+    (dist.binom, (10, 0.8), (-10, 0.8), -10),
+    (dist.binom, (10, 0.8), (10, 1.1), -1),
+], ids=idfn)
+def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_sample):
+    with validation_enabled():
+        jax_dist._validate_args = True
+
+        with pytest.raises(ValueError, match='Invalid parameters'):
+            jax_dist(*invalid_args)
+
+        frozen_dist = jax_dist(*valid_args)
+        with pytest.raises(ValueError, match='Invalid values'):
+            frozen_dist.logpmf(invalid_sample)
 
 
 @pytest.mark.parametrize('jax_dist', [
@@ -276,11 +293,6 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
-    (dist.bernoulli, (0.1,)),
-    (dist.bernoulli, (np.array([0.3, 0.5]),)),
-    (dist.binom, (10, 0.4)),
-    (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
-    (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
     (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
     (dist.multinomial, (10, np.array([1., 1.]))),
 ], ids=idfn)
@@ -317,6 +329,9 @@ def test_discrete_with_logits(jax_dist, dist_args):
 
 
 @pytest.mark.parametrize('constraint, x, expected', [
+    (constraints.boolean, np.array([True, False]), np.array([True, True])),
+    (constraints.boolean, np.array([1, 1]), np.array([True, True])),
+    (constraints.boolean, np.array([-1, 1]), np.array([False, True])),
     (constraints.greater_than(1), 3, True),
     (constraints.greater_than(1), np.array([-1, 1, 5]), np.array([False, False, True])),
     (constraints.integer_interval(-3, 5), 0, True),
@@ -325,8 +340,12 @@ def test_discrete_with_logits(jax_dist, dist_args):
     (constraints.interval(-3, 5), 0, True),
     (constraints.interval(-3, 5), np.array([-5, -3, 0, 5, 7]),
      np.array([False, False, True, False, False])),
+    (constraints.nonnegative_integer, 3, True),
+    (constraints.nonnegative_integer, np.array([-1., 0., 5.]), np.array([False, True, True])),
     (constraints.positive, 3, True),
     (constraints.positive, np.array([-1, 0, 5]), np.array([False, False, True])),
+    (constraints.positive_integer, 3, True),
+    (constraints.positive_integer, np.array([-1., 0., 5.]), np.array([False, False, True])),
     (constraints.real, -1, True),
     (constraints.real, np.array([np.inf, np.NINF, np.nan, np.pi]),
      np.array([False, False, False, True])),
