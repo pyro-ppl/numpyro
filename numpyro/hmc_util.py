@@ -419,7 +419,7 @@ def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_
                                         r_ckpts, r_sum_ckpts)
 
     return _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, transition_key,
-                         biased_transition=True)
+                         True)
 
 
 def _leaf_idx_to_ckpt_idxs(n):
@@ -465,7 +465,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
         new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
-                                 transition_rng, biased_transition=False)
+                                 transition_rng, False)
 
         leaf_idx = current_tree.num_proposals
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
