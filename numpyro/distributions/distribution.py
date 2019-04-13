@@ -7,17 +7,17 @@
 # All rights reserved.
 from contextlib import contextmanager
 
-import numpy as onp
 import scipy.stats as osp_stats
 from scipy._lib._util import getargspec_no_self
 from scipy.stats._distn_infrastructure import instancemethod, rv_frozen, rv_generic
 
 import jax.numpy as np
-from jax import device_put, lax
+from jax import lax
 from jax.numpy.lax_numpy import _promote_args
 from jax.random import _is_prng_key
 from jax.scipy import stats
 
+from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform
 
 
@@ -72,9 +72,10 @@ class jax_generic(rv_generic):
 
     def _argcheck(self, *args):
         cond = 1
+        constraints = self.arg_constraints
         if args:
             for arg, arg_name in zip(args, self.shapes.split(', ')):
-                cond = np.logical_and(cond, self.arg_constraints[arg_name](arg))
+                cond = np.logical_and(cond, constraints[arg_name](arg))
         return cond
 
     # TODO: move the implementation of _construct_argparser in jax_mvcontinuous
@@ -129,24 +130,49 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
 
 
 class jax_discrete(jax_generic, osp_stats.rv_discrete):
-    def _support_mask(self, k):
-        return (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
+    def __new__(cls, *args, **kwargs):
+        return super(jax_discrete, cls).__new__(cls)
 
-    # TODO: This will not work for the case that loc != 0
+    def __init__(self, *args, **kwargs):
+        self.is_logits = kwargs.pop("is_logits", False)
+        super(jax_discrete, self).__init__(*args, **kwargs)
+
+    def freeze(self, *args, **kwargs):
+        self._ctor_param.update(is_logits=kwargs.pop("is_logits", False))
+        return super(jax_discrete, self).freeze(*args, **kwargs)
+
     def _support(self, *args, **kwargs):
-        return self._support_mask
+        args, loc, _ = self._parse_args(*args, **kwargs)
+        support_mask = self._support_mask
+        if isinstance(support_mask, constraints.integer_interval):
+            return constraints.integer_interval(loc + support_mask.lower_bound,
+                                                loc + support_mask.upper_bound)
+        elif isinstance(support_mask, constraints.integer_greater_than):
+            return constraints.integer_greater_than(loc + support_mask.lower_bound)
+        else:
+            raise NotImplementedError
 
-    # Discrete distribution instances use scipy samplers directly
-    # and put the samples on device later.
     def rvs(self, *args, **kwargs):
         rng = kwargs.pop('random_state')
         if rng is None:
             rng = self.random_state
         # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
         assert _is_prng_key(rng)
-        kwargs['random_state'] = onp.random.RandomState(rng)
-        sample = super(jax_discrete, self).rvs(*args, **kwargs)
-        return device_put(sample)
+
+        args = list(args)
+        size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 1) else None)
+        args, loc, _ = self._parse_args(*args, **kwargs)
+        loc, *args = _promote_args("rvs", loc, *args)
+        if not size:
+            shapes = [np.shape(arg) for arg in args] + [np.shape(loc)]
+            size = lax.broadcast_shapes(*shapes)
+        elif isinstance(size, int):
+            size = (size,)
+
+        self._random_state = rng
+        self._size = size
+        vals = self._rvs(*args)
+        return vals + loc
 
     def logpmf(self, k, *args, **kwargs):
         args, loc, _ = self._parse_args(*args, **kwargs)

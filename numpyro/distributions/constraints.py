@@ -83,6 +83,7 @@ class _Simplex(Constraint):
 boolean = _Boolean()
 greater_than = _GreaterThan
 integer_interval = _IntegerInterval
+integer_greater_than = _IntegerGreaterThan
 interval = _Interval
 nonnegative_integer = _IntegerGreaterThan(0)
 positive_integer = _IntegerGreaterThan(1)
