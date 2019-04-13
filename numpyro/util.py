@@ -121,7 +121,7 @@ def _identity(x):
 
 def tscan(f, a, bs, transform=_identity):
     if _DISABLE_CONTROL_FLOW_PRIM:
-        tscan_nonprim(f, a, bs, transform=_identity)
+        _tscan_nonprim(f, a, bs, transform=_identity)
     else:
         return _tscan(f, a, bs, transform)
 
