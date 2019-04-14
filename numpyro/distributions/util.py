@@ -307,3 +307,8 @@ def binomial(key, p, n=1, shape=()):
     mask = (np.arange(n_max) > n).astype(uniforms.dtype)
     p, uniforms = promote_shapes(p, uniforms)
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
+
+
+def categorical(key, p, size=()):
+    # this implementation is fast when event shape is small, and slow otherwise
+    # Ref: https://stackoverflow.com/a/34190035

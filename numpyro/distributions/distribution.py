@@ -78,9 +78,6 @@ class jax_generic(rv_generic):
                 cond = np.logical_and(cond, constraints[arg_name](arg))
         return cond
 
-    # TODO: move the implementation of _construct_argparser in jax_mvcontinuous
-    # to here if everything works.
-
 
 class jax_continuous(jax_generic, osp_stats.rv_continuous):
     def _support(self, *args, **kwargs):
@@ -99,16 +96,15 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
         # or it will take default value (which is None).
         # Note: self.numargs is the number of shape parameters.
         size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 2) else None)
-        # TODO: when args is not empty, parse_args requires either _pdf or _cdf method is implemented
+        # XXX when args is not empty, parse_args requires either _pdf or _cdf method is implemented
         # to recognize valid arg signatures (e.g. `a` in `gamma` or `s` in lognormal)
         args, loc, scale = self._parse_args(*args, **kwargs)
-        # FIXME(fehiepsi): Using _promote_args_like requires calling `super(jax_continuous, self).rvs` but
+        # XXX using _promote_args_like requires calling `super(jax_continuous, self).rvs` but
         # it will call `self._rvs` (which is written using JAX and requires JAX random state).
         loc, scale, *args = _promote_args("rvs", loc, scale, *args)
         if not size:
             shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
             size = lax.broadcast_shapes(*shapes)
-        # TODO(fehiepsi): add test for int size
         elif isinstance(size, int):
             size = (size,)
         self._random_state = rng
@@ -186,7 +182,7 @@ def _parse_args(self, {shape_arg_str}):
 """
 
 
-class jax_mvcontinuous(osp_stats.rv_continuous):
+class jax_multivariate(jax_generic):
     def _construct_argparser(self, *args, **kwargs):
         if self.shapes:
             shapes = self.shapes.replace(',', ' ').split()
@@ -206,6 +202,9 @@ class jax_mvcontinuous(osp_stats.rv_continuous):
         if not hasattr(self, 'numargs'):
             self.numargs = len(shapes)
 
+    def _support(self, *args, **kwargs):
+        return self._support_mask
+
     def rvs(self, *args, **kwargs):
         rng = kwargs.pop('random_state')
         if rng is None:
@@ -220,19 +219,14 @@ class jax_mvcontinuous(osp_stats.rv_continuous):
         # XXX we might not need to verify that args is empty for multivariate distributions
         args = _promote_args("rvs", *args)
 
-        # TODO: make this code compatible to mvn distribution
         if not size:
-            size = args[-1].shape[:-1]
+            size = self._batch_shape(*args)
         elif isinstance(size, int):
             size = (size,)
 
         self._random_state = rng
         self._size = size
         return self._rvs(*args)
-
-    def logpdf(self, *args, **kwargs):
-        # TODO: check args, check input
-        return self._logpdf(*args, **kwargs)
 
 
 @contextmanager
