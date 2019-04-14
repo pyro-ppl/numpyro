@@ -121,12 +121,12 @@ def _identity(x):
 
 def tscan(f, a, bs, transform=_identity):
     if _DISABLE_CONTROL_FLOW_PRIM:
-        tscan_nonprim(f, a, bs, transform=_identity)
+        _tscan_nonprim(f, a, bs, transform=_identity)
     else:
         return _tscan(f, a, bs, transform)
 
 
-def tscan_nonprim(f, a, bs, transform=_identity):
+def _tscan_nonprim(f, a, bs, transform=_identity):
     length = tree_flatten(bs)[0][0].shape[0]
     for i in range(length):
         b = tree_map(lambda x: x[i], bs)
