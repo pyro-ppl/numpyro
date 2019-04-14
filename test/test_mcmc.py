@@ -7,7 +7,7 @@ from jax import jit, random
 import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import hmc_kernel
+from numpyro.mcmc import hmc
 from numpyro.util import tscan
 
 
@@ -20,7 +20,7 @@ def test_unnormalized_normal(algo):
     def potential_fn(z):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
-    init_kernel, sample_kernel = hmc_kernel(potential_fn, algo=algo)
+    init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     init_samples = np.array(0.)
     hmc_state = init_kernel(init_samples,
                             num_steps=10,
@@ -46,7 +46,7 @@ def test_logistic_regression(algo):
         return sample('obs', dist.bernoulli(logits, is_logits=True), obs=labels)
 
     init_params, potential_fn = initialize_model(random.PRNGKey(2), model, (labels,), {})
-    init_kernel, sample_kernel = hmc_kernel(potential_fn, algo=algo)
+    init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             step_size=0.1,
                             num_steps=15,

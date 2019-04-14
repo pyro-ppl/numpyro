@@ -37,7 +37,7 @@ def _euclidean_ke(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def hmc_kernel(potential_fn, kinetic_fn=None, algo='NUTS'):
+def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     if kinetic_fn is None:
         kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
