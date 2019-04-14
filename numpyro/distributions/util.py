@@ -4,7 +4,7 @@ import numpy as onp
 import scipy.special as osp_special
 
 import jax.numpy as np
-from jax import canonicalize_dtype, jit, lax, random, vmap
+from jax import canonicalize_dtype, custom_transforms, jit, lax, random, vmap
 from jax.core import Primitive
 from jax.interpreters import ad, partial_eval, xla
 from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
@@ -276,6 +276,24 @@ def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
     return np.clip(x, 0) + np.log1p(np.exp(-np.abs(x))) - x * y
+
+
+@custom_transforms
+def cumsum(x):
+    return np.cumsum(x, axis=-1)
+
+
+ad.defjvp(cumsum.primitive, lambda g, x: np.cumsum(g, axis=-1))
+
+
+@custom_transforms
+def cumprod(x):
+    return np.cumprod(x, axis=-1)
+
+
+# XXX this implementation does not address the case x=0, hence the result in that case will be nan
+# Ref: https://stackoverflow.com/questions/40916955/how-to-compute-gradient-of-cumprod-safely
+ad.defjvp2(cumprod.primitive, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
 
 
 def promote_shapes(*args, shape=()):

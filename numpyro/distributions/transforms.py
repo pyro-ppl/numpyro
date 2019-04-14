@@ -26,6 +26,7 @@ import jax.numpy as np
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions import constraints
+from numpyro.distributions.util import cumprod, cumsum
 
 
 class Transform(object):
@@ -163,7 +164,8 @@ class StickBreakingTransform(Transform):
         x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
         # convert to probabilities (relative to the remaining) of each fraction of the stick
         z = expit(x)  # XXX consider to clamp to (0, 1) for stability if necessary
-        z1m_cumprod = np.cumprod(1 - z, axis=-1)
+        # XXX cumprod does not enjoy 0 entries, make sure to clamp 1 - z by eps if instability happens
+        z1m_cumprod = cumprod(1 - z)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (0, 1)
         z_padded = np.pad(z, pad_width, mode="constant", constant_values=1.)
@@ -173,7 +175,7 @@ class StickBreakingTransform(Transform):
 
     def inv(self, y):
         y_crop = y[..., :-1]
-        z1m_cumprod = 1 - y_crop.cumsum(-1)
+        z1m_cumprod = 1 - cumsum(y_crop)
         # hence x = logit(z) = log(z / (1 - z)) = y[::-1] / z1m_cumprod
         x = np.log(y_crop / z1m_cumprod)
         return x + np.log(x.shape[-1] - np.arange(x.shape[-1]))
