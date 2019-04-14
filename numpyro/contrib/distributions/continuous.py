@@ -30,11 +30,11 @@ class Cauchy(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.loc, self.batch_shape)
+        return np.broadcast_to(np.nan, self.batch_shape)
 
     @property
     def variance(self):
-        return np.broadcast_to(self.scale, self.batch_shape)
+        return np.broadcast_to(np.nan, self.batch_shape)
 
 
 class Exponential(Distribution):
@@ -48,7 +48,7 @@ class Exponential(Distribution):
 
     def sample(self, key, size=()):
         u = random.uniform(key, shape=size + self.batch_shape)
-        return np.log1p(-(-u)) / self.rate
+        return -np.log1p(-u) / self.rate
 
     def log_prob(self, value):
         if self._validate_args:
@@ -61,7 +61,7 @@ class Exponential(Distribution):
 
     @property
     def variance(self):
-        return np.reciprocal(self.rate)
+        return np.reciprocal(self.rate ** 2)
 
 
 class HalfCauchy(TransformedDistribution):
@@ -84,11 +84,11 @@ class HalfCauchy(TransformedDistribution):
 
     @property
     def mean(self):
-        return self.base_dist.mean
+        return np.broadcast_to(np.inf, self.batch_shape)
 
     @property
     def variance(self):
-        return self.base_dist.variance
+        return np.broadcast_to(np.inf, self.batch_shape)
 
 
 class Normal(Distribution):
@@ -117,7 +117,7 @@ class Normal(Distribution):
 
     @property
     def variance(self):
-        return np.broadcast_to(self.scale, self.batch_shape)
+        return np.broadcast_to(self.scale ** 2, self.batch_shape)
 
 
 class Uniform(Distribution):
@@ -142,7 +142,7 @@ class Uniform(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to((self.high - self.low) / 2., self.batch_shape)
+        return np.broadcast_to(self.low + (self.high - self.low) / 2., self.batch_shape)
 
     @property
     def variance(self):

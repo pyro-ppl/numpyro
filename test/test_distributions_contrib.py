@@ -152,3 +152,19 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert np.shape(actual_grad[i]) == np.shape(params[i])
         assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.10)
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+def test_mean_var(jax_dist, sp_dist, params):
+    n = 100000
+    d_jax = jax_dist(*params)
+    d_sp = sp_dist(*params)
+    k = random.PRNGKey(0)
+    samples = d_jax.sample(k, size=(n,))
+    sp_mean, sp_var = d_sp.stats(moments='mv')
+    assert_allclose(d_jax.mean, sp_mean)
+    assert_allclose(d_jax.variance, sp_var)
+    if np.all(np.isfinite(sp_mean)):
+        assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
+    if np.all(np.isfinite(sp_var)):
+        assert_allclose(np.std(samples, 0), np.sqrt(d_jax.variance), rtol=0.05, atol=1e-2)

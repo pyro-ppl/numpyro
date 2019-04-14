@@ -54,7 +54,7 @@ class AbsTransform(Transform):
     def __call__(self, x):
         return np.abs(x)
 
-    def _inv(self, y):
+    def inv(self, y):
         return y
 
 

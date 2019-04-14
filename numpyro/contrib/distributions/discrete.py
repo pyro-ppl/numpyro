@@ -138,9 +138,8 @@ class BinomialWithLogits(Distribution):
         log_factorial_n = gammaln(total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(total_count - value + 1)
-        # Note that: torch.log1p(-self.probs)) = - torch.log1p(self.logits.exp()))
-        return (log_factorial_n - log_factorial_k - log_factorial_nmk +
-                value * self.logits - total_count * np.log1p(np.exp(self.logits)))
+        return log_factorial_n - log_factorial_k - log_factorial_nmk + value * self.logits \
+            - total_count * np.clip(self.logits, 0) - xlog1py(self.total_count, np.exp(-np.abs(self.logits)))
 
     @lazy_property
     def probs(self):
