@@ -45,7 +45,7 @@ def test_logistic_regression(algo):
         logits = np.sum(coefs * data, axis=-1)
         return sample('obs', dist.bernoulli(logits, is_logits=True), obs=labels)
 
-    init_params, potential_fn = initialize_model(random.PRNGKey(2), model, (labels,), {})
+    init_params, potential_fn, transforms = initialize_model(random.PRNGKey(2), model, (labels,), {})
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             step_size=0.1,
@@ -53,5 +53,5 @@ def test_logistic_regression(algo):
                             num_warmup_steps=warmup_steps)
     sample_kernel = jit(sample_kernel)
     hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
-                       transform=lambda x: x.z)
+                       transform=lambda x: {k: transforms[k](v) for k, v in x.z.items()})
     assert_allclose(np.mean(hmc_states['coefs'], 0), true_coefs, atol=0.2)

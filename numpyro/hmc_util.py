@@ -6,6 +6,7 @@ from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
+from numpyro.distributions import biject_to
 from numpyro.distributions.distribution import jax_continuous
 from numpyro.handlers import seed, substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
@@ -553,13 +554,21 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
-def potential_energy(model, model_args, model_kwargs):
-    return lambda params: - jax.partial(log_density, model, model_args, model_kwargs)(params)[0]
+def potential_energy(model, model_args, model_kwargs, transforms):
+    def _potential_energy(params):
+        params_constrained = {k: transforms[k](v) for k, v in params.items()}
+        log_joint = jax.partial(log_density, model, model_args, model_kwargs)(params)[0]
+        for name, t in transforms.items():
+            log_joint = log_joint + np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
+        return log_joint
+
+    return _potential_energy
 
 
 def initialize_model(rng, model, model_args, model_kwargs):
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    init_params = {k: v['value'] for k, v in model_trace.items()
-                   if v['type'] == 'sample' and not v['is_observed']}
-    return init_params, potential_energy(model, model_args, model_kwargs)
+    transforms = {k: biject_to(v['fn'].support) for k, v in model_trace.items()
+                  if v['type'] == 'sample' and not v['is_observed']}
+    init_params = {k: transforms[k].inv(model_trace[k]['value']) for k in transforms}
+    return init_params, potential_energy(model, model_args, model_kwargs, transforms), transforms
