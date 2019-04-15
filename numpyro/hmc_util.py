@@ -557,10 +557,10 @@ def log_density(model, model_args, model_kwargs, params):
 def potential_energy(model, model_args, model_kwargs, transforms):
     def _potential_energy(params):
         params_constrained = {k: transforms[k](v) for k, v in params.items()}
-        log_joint = jax.partial(log_density, model, model_args, model_kwargs)(params)[0]
+        log_joint = jax.partial(log_density, model, model_args, model_kwargs)(params_constrained)[0]
         for name, t in transforms.items():
             log_joint = log_joint + np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
-        return log_joint
+        return - log_joint
 
     return _potential_energy
 

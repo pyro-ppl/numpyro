@@ -29,6 +29,10 @@ from numpyro.distributions import constraints
 from numpyro.distributions.util import sum_rightmost
 
 
+def clipped_expit(x):
+    return np.clip(expit(x), a_min=np.finfo(x.dtype).tiny, a_max=1.-np.finfo(x.dtype).eps)
+
+
 class Transform(object):
     domain = constraints.real
     codomain = constraints.real
@@ -155,8 +159,7 @@ class SigmoidTransform(Transform):
     codomain = constraints.unit_interval
 
     def __call__(self, x):
-        # XXX consider to clamp to (0, 1) for stability if necessary
-        return expit(x)
+        return clipped_expit(x)
 
     def inv(self, y):
         return logit(y)
@@ -173,7 +176,7 @@ class StickBreakingTransform(Transform):
         # we shift x to obtain a balanced mapping (0, 0, ..., 0) -> (1/K, 1/K, ..., 1/K)
         x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
         # convert to probabilities (relative to the remaining) of each fraction of the stick
-        z = expit(x)  # XXX consider to clamp to (0, 1) for stability if necessary
+        z = clipped_expit(x)
         z1m_cumprod = np.cumprod(1 - z, axis=-1)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (0, 1)
