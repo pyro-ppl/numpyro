@@ -565,10 +565,16 @@ def potential_energy(model, model_args, model_kwargs, transforms):
     return _potential_energy
 
 
+def transform_fn(transforms, params, invert=False):
+    return {k: transforms[k](v) if not invert else transforms[k].inv(v)
+            for k, v in params.items()}
+
+
 def initialize_model(rng, model, model_args, model_kwargs):
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    transforms = {k: biject_to(v['fn'].support) for k, v in model_trace.items()
-                  if v['type'] == 'sample' and not v['is_observed']}
-    init_params = {k: transforms[k].inv(model_trace[k]['value']) for k in transforms}
-    return init_params, potential_energy(model, model_args, model_kwargs, transforms), transforms
+    sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
+    transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
+    init_params = transform_fn(transforms, {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+    return init_params, potential_energy(model, model_args, model_kwargs, transforms), \
+        jax.partial(transform_fn, transforms)

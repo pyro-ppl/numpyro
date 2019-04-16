@@ -8,7 +8,7 @@ import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
-from numpyro.util import control_flow_prims_disabled, tscan
+from numpyro.util import tscan
 
 
 # TODO: add test for diag_mass=False
@@ -69,14 +69,14 @@ def test_beta_bernoulli(algo):
 
     true_probs = np.array([0.9, 0.1])
     data = dist.bernoulli(true_probs).rvs(size=(1000, 2), random_state=random.PRNGKey(0))
-    init_params, potential_fn, transforms = initialize_model(random.PRNGKey(2), model, (data,), {})
+    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, (data,), {})
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             step_size=0.1,
                             num_steps=15,
                             num_warmup_steps=warmup_steps)
     hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
-                       transform=lambda x: {k: transforms[k](v) for k, v in x.z.items()})
+                       transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, rtol=0.05)
 
 
@@ -93,12 +93,12 @@ def test_dirichlet_categorical(algo):
 
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.multinomial(p=true_probs, n=1).rvs(size=(2000,))
-    init_params, potential_fn, transforms = initialize_model(random.PRNGKey(2), model, (data,), {})
+    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, (data,), {})
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             step_size=0.1,
                             num_steps=15,
                             num_warmup_steps=warmup_steps)
     hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
-                       transform=lambda x: {k: transforms[k](v) for k, v in x.z.items()})
+                       transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, rtol=0.05)
