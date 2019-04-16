@@ -35,6 +35,15 @@ class _Boolean(Constraint):
         return (value == 0) | (value == 1)
 
 
+class _Dependent(Constraint):
+    def __call__(self, x):
+        raise ValueError('Cannot determine validity of dependent constraint')
+
+
+def is_dependent(constraint):
+    return isinstance(constraint, _Dependent)
+
+
 class _GreaterThan(Constraint):
     def __init__(self, lower_bound):
         self.lower_bound = lower_bound
@@ -81,8 +90,10 @@ class _Simplex(Constraint):
 
 
 boolean = _Boolean()
+dependent = _Dependent
 greater_than = _GreaterThan
 integer_interval = _IntegerInterval
+integer_greater_than = _IntegerGreaterThan
 interval = _Interval
 nonnegative_integer = _IntegerGreaterThan(0)
 positive_integer = _IntegerGreaterThan(1)

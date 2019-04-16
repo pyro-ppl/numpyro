@@ -14,7 +14,7 @@ from jax.scipy.special import logit
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraint_registry import biject_to
-from numpyro.distributions.distribution import jax_frozen, validation_enabled
+from numpyro.distributions.distribution import validation_enabled
 
 
 def idfn(param):
@@ -82,19 +82,18 @@ def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
 ], ids=idfn)
 def test_continuous_validate_args(jax_dist, dist_args, sample):
     valid_args = (1,) * len(dist_args)
-    jax_frozen._validate_args = True
+    with validation_enabled():
+        if dist_args:
+            with pytest.raises(ValueError, match='Invalid parameters'):
+                jax_dist(*dist_args)
 
-    if dist_args:
-        with pytest.raises(ValueError, match='Invalid parameters'):
-            jax_dist(*dist_args)
+        with pytest.raises(ValueError, match='Invalid scale parameter'):
+            jax_dist(*valid_args, scale=-1)
 
-    with pytest.raises(ValueError, match='Invalid scale parameter'):
-        jax_dist(*valid_args, scale=-1)
-
-    valid_args = (1,) * len(dist_args)
-    frozen_dist = jax_dist(*valid_args)
-    with pytest.raises(ValueError, match='Invalid values'):
-        frozen_dist.logpdf(sample)
+        valid_args = (1,) * len(dist_args)
+        frozen_dist = jax_dist(*valid_args)
+        with pytest.raises(ValueError, match='Invalid values'):
+            frozen_dist.logpdf(sample)
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -260,7 +259,7 @@ def test_mvcontinuous_logpdf(jax_dist, dist_args, shape):
     (dist.bernoulli, (np.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
-    (dist.binom, [np.array([2, 5]), np.array([[0.4], [0.5]])]),
+    (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
     (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
     (dist.multinomial, (10, np.array([1.]))),
 ], ids=idfn)
@@ -309,6 +308,9 @@ def test_discrete_logpmf_args_check(jax_dist, dist_args):
 @pytest.mark.parametrize('jax_dist, dist_args', [
     (dist.bernoulli, (0.1,)),
     (dist.bernoulli, (np.array([0.3, 0.5]),)),
+    (dist.binom, (10, 0.4)),
+    (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+    (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
 ], ids=idfn)
 def test_discrete_with_logits(jax_dist, dist_args):
     rng = random.PRNGKey(0)

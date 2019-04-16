@@ -37,32 +37,27 @@ def _euclidean_ke(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def hmc_kernel(potential_fn, kinetic_fn=None, algo='NUTS'):
+def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     if kinetic_fn is None:
         kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
-    trajectory_length = None
+    trajectory_len = None
     momentum_generator = None
     wa_update = None
 
     def init_kernel(init_samples,
                     num_warmup_steps,
                     step_size=1.0,
-                    num_steps=None,
                     adapt_step_size=True,
                     adapt_mass_matrix=True,
                     diag_mass=True,
                     target_accept_prob=0.8,
+                    trajectory_length=2*math.pi,
                     run_warmup=True,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
-        nonlocal trajectory_length, momentum_generator, wa_update
-
-        if num_steps is None:
-            trajectory_length = 2 * math.pi
-        else:
-            trajectory_length = num_steps * step_size
-
+        nonlocal momentum_generator, wa_update, trajectory_len
+        trajectory_len = float(trajectory_length)
         z = init_samples
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
@@ -99,7 +94,7 @@ def hmc_kernel(potential_fn, kinetic_fn=None, algo='NUTS'):
         return hmc_state, wa_state
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng):
-        num_steps = _get_num_steps(step_size, trajectory_length)
+        num_steps = _get_num_steps(step_size, trajectory_len)
         vv_state_new = fori_loop(0, num_steps,
                                  lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
                                  vv_state)
