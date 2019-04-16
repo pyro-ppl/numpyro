@@ -23,7 +23,7 @@ def test_unnormalized_normal(algo):
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     init_samples = np.array(0.)
     hmc_state = init_kernel(init_samples,
-                            num_steps=10,
+                            trajectory_length=10,
                             num_warmup_steps=warmup_steps)
     hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
                        transform=lambda x: x.z)
@@ -48,8 +48,7 @@ def test_logistic_regression(algo):
     init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, (labels,), {})
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
-                            step_size=0.1,
-                            num_steps=15,
+                            trajectory_length=10,
                             num_warmup_steps=warmup_steps)
     hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
                        transform=lambda x: transform_fn(x.z))
@@ -73,7 +72,7 @@ def test_beta_bernoulli(algo):
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             step_size=0.1,
-                            num_steps=15,
+                            trajectory_length=1.,
                             num_warmup_steps=warmup_steps)
     hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
                        transform=lambda x: transform_fn(x.z))
@@ -97,7 +96,7 @@ def test_dirichlet_categorical(algo):
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             step_size=0.1,
-                            num_steps=15,
+                            trajectory_length=2.,
                             num_warmup_steps=warmup_steps)
     hmc_states = tscan(lambda state, i: sample_kernel(state), hmc_state, np.arange(num_samples),
                        transform=lambda x: transform_fn(x.z))
