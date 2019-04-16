@@ -8,7 +8,7 @@ from jax import grad, jit, lax, random
 from jax.scipy.special import expit
 from jax.util import partial
 
-from numpyro.distributions.util import binary_cross_entropy_with_logits, standard_gamma, xlog1py, xlogy
+from numpyro.distributions.util import binary_cross_entropy_with_logits, cumprod, cumsum, standard_gamma, xlog1py, xlogy
 
 _zeros = partial(lax.full_like, fill_value=0)
 
@@ -79,6 +79,31 @@ def test_binary_cross_entropy_with_logits(x, y):
     actual = -y * np.log(expit(x)) - (1 - y) * np.log(expit(-x))
     expect = binary_cross_entropy_with_logits(x, y)
     assert_allclose(actual, expect, rtol=1e-6)
+
+
+@pytest.mark.parametrize('shape', [
+    (3,),
+    (5, 4),
+])
+def test_cumsum_jac(shape):
+    rng = random.PRNGKey(0)
+    x = random.normal(rng, shape=shape)
+    expected = grad(lambda x: np.sum(x * (np.arange(x.shape[-1]) + 1.)[::-1]))(x)
+    actual = grad(lambda x: np.sum(cumsum(x)))(x)
+    assert_allclose(expected, actual)
+
+
+@pytest.mark.parametrize('shape', [
+    (3,),
+    (5, 3),
+])
+def test_cumprod_jac(shape):
+    rng = random.PRNGKey(0)
+    x = random.uniform(rng, shape=shape)
+    expected = grad(lambda x: np.sum(x[..., 0] + x[..., 0] * x[..., 1]
+                                     + x[..., 0] * x[..., 1] * x[..., 2]))(x)
+    actual = grad(lambda x: np.sum(cumprod(x)))(x)
+    assert_allclose(expected, actual, rtol=2e-7)
 
 
 @pytest.mark.parametrize('alpha, shape', [
