@@ -1,0 +1,1 @@
+import numpyro.patch

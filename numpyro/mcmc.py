@@ -1,13 +1,13 @@
 import math
 
 import jax.numpy as np
-from jax import partial, random
+from jax import partial, random, jit
 from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 
 import numpyro.distributions as dist
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
-from numpyro.util import cond, fori_loop, laxtuple
+from numpyro.util import cond, fori_loop, laxtuple, tscan
 
 HMCState = laxtuple('HMCState', ['z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                  'step_size', 'inverse_mass_matrix', 'rng'])
@@ -80,7 +80,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                              wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
 
         if run_warmup:
-            hmc_state, _ = fori_loop(0, num_warmup_steps, warmup_update, (hmc_state, wa_state))
+            hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps, warmup_update,
+                                                               (hmc_state, wa_state))
             return hmc_state
         else:
             return hmc_state, wa_state, warmup_update
