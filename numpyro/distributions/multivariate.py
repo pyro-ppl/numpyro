@@ -22,10 +22,6 @@ def _lnB(alpha):
 # rv_continuous/rv_discrete
 
 class categorical_gen(jax_multivariate, jax_discrete):
-    def _support(self, *args, **kwargs):
-        (p,), _, _ = self._parse_args(*args, **kwargs)
-        return constraints.integer_interval(0, p.shape[-1] - 1)
-
     @property
     def arg_constraints(self):
         if self.is_logits:
@@ -33,14 +29,23 @@ class categorical_gen(jax_multivariate, jax_discrete):
         else:
             return {'p': constraints.simplex}
 
+    def _support(self, *args, **kwargs):
+        (p,), _, _ = self._parse_args(*args, **kwargs)
+        return constraints.integer_interval(0, p.shape[-1] - 1)
+
+    def _batch_shape(self, p):
+        return p.shape[:-1]
+
     def logpmf(self, x, p):
-        n, p, x = _promote_dtypes(n, p, x)
+        batch_shape = lax.broadcast_shapes(x.shape, p.shape[:-1])
+        # append a dimension to x
+        x = np.expand_dims(x, axis=-1)
+        x = np.broadcast_to(x, batch_shape + (1,))
+        p = np.broadcast_to(p, batch_shape + p.shape[-1:])
         if self.is_logits:
-            # FIXME
-            return ...
+            return np.take_along_axis(p, x, axis=-1)[..., 0]
         else:
-            # FIXME
-            return 
+            return np.take_along_axis(np.log(p), x, axis=-1)[..., 0]
 
     def pmf(self, x, p):
         return np.exp(self.logpmf(x, p))
@@ -100,7 +105,6 @@ class multinomial_gen(jax_multivariate, jax_discrete):
         return p.shape[:-1]
 
     def logpmf(self, x, n, p):
-        n, p, x = _promote_dtypes(n, p, x)
         if self.is_logits:
             return gammaln(n + 1) + np.sum(x * p - gammaln(x + 1), axis=-1)
         else:
