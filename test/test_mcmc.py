@@ -80,7 +80,7 @@ def test_beta_bernoulli(algo):
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_dirichlet_categorical(algo):
-    warmup_steps, num_samples = 200, 1000
+    warmup_steps, num_samples = 100, 1000
 
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
