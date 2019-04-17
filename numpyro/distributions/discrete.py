@@ -9,7 +9,7 @@
 import numpy as onp
 
 import jax.numpy as np
-from jax import device_put, lax, random
+from jax import device_put, random
 from jax.scipy.special import expit, gammaln
 
 from numpyro.distributions import constraints

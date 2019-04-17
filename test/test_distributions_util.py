@@ -9,7 +9,16 @@ from jax import grad, jacobian, jit, lax, random
 from jax.scipy.special import expit
 from jax.util import partial
 
-from numpyro.distributions.util import binary_cross_entropy_with_logits, categorical_rvs, cumprod, cumsum, multinomial_rvs, standard_gamma, xlog1py, xlogy
+from numpyro.distributions.util import (
+    binary_cross_entropy_with_logits,
+    categorical_rvs,
+    cumprod,
+    cumsum,
+    multinomial_rvs,
+    standard_gamma,
+    xlog1py,
+    xlogy
+)
 
 _zeros = partial(lax.full_like, fill_value=0)
 
@@ -89,6 +98,7 @@ def test_binary_cross_entropy_with_logits(x, y):
 def test_cumsum_jac(shape):
     rng = random.PRNGKey(0)
     x = random.normal(rng, shape=shape)
+
     def test_fn(x):
         return np.stack([x[..., 0], x[..., 0] + x[..., 1], x[..., 0] + x[..., 1] + x[..., 2]], -1)
 
@@ -103,6 +113,7 @@ def test_cumsum_jac(shape):
 def test_cumprod_jac(shape):
     rng = random.PRNGKey(0)
     x = random.uniform(rng, shape=shape)
+
     def test_fn(x):
         return np.stack([x[..., 0], x[..., 0] * x[..., 1], x[..., 0] * x[..., 1] * x[..., 2]], -1)
 

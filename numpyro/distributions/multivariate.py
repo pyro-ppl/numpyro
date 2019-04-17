@@ -7,12 +7,14 @@
 # All rights reserved.
 
 import jax.numpy as np
+from jax import lax
 from jax.experimental.stax import softmax
 from jax.scipy.special import digamma, gammaln
 
 from numpyro.distributions import constraints
+from numpyro.distributions.discrete import binom
 from numpyro.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
-from numpyro.distributions.util import categorical_rvs, multinomial_rvs, standard_gamma, xlogy
+from numpyro.distributions.util import categorical_rvs, entr, multinomial_rvs, standard_gamma, xlogy
 
 
 def _lnB(alpha):
