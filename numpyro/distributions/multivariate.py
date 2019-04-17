@@ -7,6 +7,7 @@
 # All rights reserved.
 
 import jax.numpy as np
+from jax.experimental.stax import softmax
 from jax.scipy.special import digamma, gammaln
 
 from numpyro.distributions import constraints
@@ -36,13 +37,18 @@ class categorical_gen(jax_multivariate, jax_discrete):
     def _batch_shape(self, p):
         return p.shape[:-1]
 
+    def _event_shape(self, p):
+        return ()
+
     def logpmf(self, x, p):
         batch_shape = lax.broadcast_shapes(x.shape, p.shape[:-1])
         # append a dimension to x
+        # TODO: consider to convert x.dtype to int
         x = np.expand_dims(x, axis=-1)
         x = np.broadcast_to(x, batch_shape + (1,))
         p = np.broadcast_to(p, batch_shape + p.shape[-1:])
         if self.is_logits:
+            # gather and remove the trailing dimension
             return np.take_along_axis(p, x, axis=-1)[..., 0]
         else:
             return np.take_along_axis(np.log(p), x, axis=-1)[..., 0]
@@ -51,7 +57,9 @@ class categorical_gen(jax_multivariate, jax_discrete):
         return np.exp(self.logpmf(x, p))
 
     def _rvs(self, p):
-        return categorical_rvs(self._random_sate, n, p, self._size)
+        if self.is_logits:
+            p = softmax(p)
+        return categorical_rvs(self._random_state, p, self._size)
 
 
 class dirichlet_gen(jax_multivariate, jax_continuous):
@@ -60,6 +68,9 @@ class dirichlet_gen(jax_multivariate, jax_continuous):
 
     def _batch_shape(self, alpha):
         return alpha.shape[:-1]
+
+    def _event_shape(self, alpha):
+        return alpha.shape[-1:]
 
     def logpdf(self, x, alpha):
         lnB = _lnB(alpha)
@@ -104,6 +115,9 @@ class multinomial_gen(jax_multivariate, jax_discrete):
     def _batch_shape(self, n, p):
         return p.shape[:-1]
 
+    def _event_shape(self, n, p):
+        return p.shape[-1:]
+
     def logpmf(self, x, n, p):
         if self.is_logits:
             return gammaln(n + 1) + np.sum(x * p - gammaln(x + 1), axis=-1)
@@ -128,6 +142,8 @@ class multinomial_gen(jax_multivariate, jax_discrete):
         return term1 + term2
 
     def _rvs(self, n, p):
+        if self.is_logits:
+            p = softmax(p)
         return multinomial_rvs(self._random_state, n, p, self._size)
 
 

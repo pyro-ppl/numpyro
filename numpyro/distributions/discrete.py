@@ -67,6 +67,7 @@ class binom_gen(jax_discrete):
         if self.is_logits:
             p = expit(p)
         # use scipy samplers directly and put the samples on device later.
+        # TODO: use util.binomial instead
         random_state = onp.random.RandomState(self._random_state)
         sample = random_state.binomial(n, p, self._size)
         return device_put(sample)

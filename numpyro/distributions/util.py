@@ -346,13 +346,15 @@ def _scatter_add_one(operand, indices, updates):
 @partial(jit, static_argnums=(1, 3))
 def multinomial_rvs(key, n, p, shape=()):
     shape = shape or p.shape[:-1]
-    indices = categorical_rvs(key, p, shape + (n,))
-    indices_2D = indices.reshape((-1, n))
+    # get indices from categorical distribution then gather the result
+    indices = categorical_rvs(key, p, (n,) + shape)
+    # NB: we transpose to move batch shape to the front
+    indices_2D = indices.reshape((n, -1)).T
     samples_2D = vmap(_scatter_add_one, (0, 0, 0))(np.zeros((indices_2D.shape[0], p.shape[-1]),
                                                             dtype=indices.dtype),
                                                    np.expand_dims(indices_2D, axis=-1),
                                                    np.ones(indices_2D.shape, dtype=indices.dtype))
-    return samples_2D.reshape(indices.shape[:-1] + (p.shape[-1],))
+    return samples_2D.reshape(shape + p.shape[-1:])
 
 
 def sum_rightmost(x, dim):

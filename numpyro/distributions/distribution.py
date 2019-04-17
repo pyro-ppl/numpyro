@@ -216,8 +216,6 @@ class jax_multivariate(jax_generic):
         size = kwargs.pop('size', args.pop() if len(args) > self.numargs else None)
 
         args, _, _ = self._parse_args(*args, **kwargs)
-        # XXX we might not need to verify that args is empty for multivariate distributions
-        args = _promote_args("rvs", *args)
 
         if not size:
             size = self._batch_shape(*args)
