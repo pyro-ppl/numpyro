@@ -10,6 +10,7 @@ import numpy as onp
 
 import jax.numpy as np
 from jax import device_put, random
+from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import expit, gammaln
 
 from numpyro.distributions import constraints
@@ -73,6 +74,7 @@ class binom_gen(jax_discrete):
         return device_put(sample)
 
     def _logpmf(self, x, n, p):
+        n, p = _promote_dtypes(n, p)
         combiln = gammaln(n + 1) - (gammaln(x + 1) + gammaln(n - x + 1))
         if self.is_logits:
             # TODO: move this implementation to PyTorch if it does not get non-continuous problem

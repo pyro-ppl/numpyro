@@ -9,6 +9,7 @@
 import jax.numpy as np
 from jax import lax
 from jax.experimental.stax import softmax
+from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import digamma, gammaln
 
 from numpyro.distributions import constraints
@@ -121,6 +122,7 @@ class multinomial_gen(jax_multivariate, jax_discrete):
         return p.shape[-1:]
 
     def logpmf(self, x, n, p):
+        x, n, p = _promote_dtypes(x, n, p)
         if self.is_logits:
             return gammaln(n + 1) + np.sum(x * p - gammaln(x + 1), axis=-1)
         else:

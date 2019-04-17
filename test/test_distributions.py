@@ -14,7 +14,7 @@ from jax.scipy.special import logit
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraint_registry import biject_to
-from numpyro.distributions.distribution import validation_enabled
+from numpyro.distributions.distribution import jax_multivariate, validation_enabled
 
 
 def idfn(param):
@@ -258,16 +258,47 @@ def test_continuous_logpdf(jax_dist, loc_scale):
     (2,),
     (2, 3),
 ])
-def test_dirichlet_logpdf(jax_dist, dist_args, shape):
+def test_multivariate_continuous_logpdf(jax_dist, dist_args, shape):
     rng = random.PRNGKey(0)
     samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
-    sp_dist = getattr(osp_stats, jax_dist.name)
     # XXX scipy.stats.dirichlet does not work with batch
     if samples.ndim == 1:
+        sp_dist = getattr(osp_stats, jax_dist.name)
         assert_allclose(jax_dist.logpdf(samples, *dist_args),
                         sp_dist.logpdf(samples, *dist_args), atol=1e-6)
 
-    assert jax_dist.logpdf(samples, *dist_args).shape == samples.shape[:-1]
+    event_dim = len(jax_dist._event_shape(*dist_args))
+    batch_shape = samples.shape if event_dim == 0 else samples.shape[:-1]
+    assert jax_dist.logpdf(samples, *dist_args).shape == batch_shape
+
+
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    (dist.categorical, (np.array([0.7, 0.3]),)),
+    (dist.multinomial, (10, np.array([0.3, 0.7]),)),
+], ids=idfn)
+@pytest.mark.parametrize('shape', [
+    None,
+    (),
+    (2,),
+    (2, 3),
+])
+def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
+    rng = random.PRNGKey(0)
+    samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
+    # XXX scipy.stats.multinomial does not work with batch
+    if samples.ndim == 1:
+        if jax_dist is dist.multinomial:
+            sp_dist = getattr(osp_stats, jax_dist.name)
+            assert_allclose(jax_dist.logpmf(samples, *dist_args),
+                            sp_dist.logpmf(samples, *dist_args), atol=1e-5)
+        else:
+            # test against PyTorch
+            assert_allclose(jax_dist.logpmf(np.array([1, 0]), *dist_args),
+                            np.array([-1.2040, -0.3567]), atol=1e-4)
+
+    event_dim = len(jax_dist._event_shape(*dist_args))
+    batch_shape = samples.shape if event_dim == 0 else samples.shape[:-1]
+    assert jax_dist.logpmf(samples, *dist_args).shape == batch_shape
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -276,8 +307,6 @@ def test_dirichlet_logpdf(jax_dist, dist_args, shape):
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
-    (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
-    (dist.multinomial, (10, np.array([1.]))),
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,
@@ -313,10 +342,15 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
+    (dist.categorical, (np.array([0.1, 0.9]),)),
+    (dist.categorical, (np.array([[0.1, 0.9], [0.2, 0.8]]),)),
+    (dist.multinomial, (10, np.array([0.1, 0.9]),)),
+    (dist.multinomial, (10, np.array([[0.1, 0.9], [0.2, 0.8]]),)),
 ], ids=idfn)
 def test_discrete_with_logits(jax_dist, dist_args):
     rng = random.PRNGKey(0)
-    logit_args = dist_args[:-1] + (logit(dist_args[-1]),)
+    logit_to_prob = np.log if isinstance(jax_dist, jax_multivariate) else logit
+    logit_args = dist_args[:-1] + (logit_to_prob(dist_args[-1]),)
 
     actual_sample = jax_dist.rvs(*dist_args, random_state=rng)
     expected_sample = jax_dist(*logit_args, is_logits=True).rvs(random_state=rng)
