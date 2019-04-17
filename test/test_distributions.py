@@ -287,14 +287,14 @@ def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
     samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
     # XXX scipy.stats.multinomial does not work with batch
     if samples.ndim == 1:
-        if jax_dist is dist.multinomial:
-            sp_dist = getattr(osp_stats, jax_dist.name)
-            assert_allclose(jax_dist.logpmf(samples, *dist_args),
-                            sp_dist.logpmf(samples, *dist_args), atol=1e-5)
-        else:
+        if jax_dist is dist.categorical:
             # test against PyTorch
             assert_allclose(jax_dist.logpmf(np.array([1, 0]), *dist_args),
                             np.array([-1.2040, -0.3567]), atol=1e-4)
+        else:
+            sp_dist = getattr(osp_stats, jax_dist.name)
+            assert_allclose(jax_dist.logpmf(samples, *dist_args),
+                            sp_dist.logpmf(samples, *dist_args), atol=1e-5)
 
     event_dim = len(jax_dist._event_shape(*dist_args))
     batch_shape = samples.shape if event_dim == 0 else samples.shape[:-1]
