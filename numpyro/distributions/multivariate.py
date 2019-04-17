@@ -11,7 +11,7 @@ from jax.scipy.special import digamma, gammaln
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
-from numpyro.distributions.util import standard_gamma, xlogy
+from numpyro.distributions.util import categorical_rvs, multinomial_rvs, standard_gamma, xlogy
 
 
 def _lnB(alpha):
@@ -33,10 +33,20 @@ class categorical_gen(jax_multivariate, jax_discrete):
         else:
             return {'p': constraints.simplex}
 
-    def _rvs(self, n, p):
-        random_state = onp.random.RandomState(self._random_state)
-        sample = random_state.multinomial(1, p, self._size)
-        return device_put(random_state.multinomial(n, p, size))
+    def logpmf(self, x, p):
+        n, p, x = _promote_dtypes(n, p, x)
+        if self.is_logits:
+            # FIXME
+            return ...
+        else:
+            # FIXME
+            return 
+
+    def pmf(self, x, p):
+        return np.exp(self.logpmf(x, p))
+
+    def _rvs(self, p):
+        return categorical_rvs(self._random_sate, n, p, self._size)
 
 
 class dirichlet_gen(jax_multivariate, jax_continuous):
@@ -92,13 +102,14 @@ class multinomial_gen(jax_multivariate, jax_discrete):
     def logpmf(self, x, n, p):
         n, p, x = _promote_dtypes(n, p, x)
         if self.is_logits:
-            
+            return gammaln(n + 1) + np.sum(x * p - gammaln(x + 1), axis=-1)
         else:
             return gammaln(n + 1) + np.sum(xlogy(x, p) - gammaln(x + 1), axis=-1)
 
-    def entropy(self, n, p):
-        n, p, npcond = self._process_parameters(n, p)
+    def pmf(self, x, n, p):
+        return np.exp(self.logpmf(x, n, p))
 
+    def entropy(self, n, p):
         x = np.arange(1, np.max(n) + 1)
 
         term1 = n * np.sum(entr(p), axis=-1) - gammaln(n + 1)
@@ -110,12 +121,10 @@ class multinomial_gen(jax_multivariate, jax_discrete):
         term2 = np.sum(binom.pmf(x, n, p) * gammaln(x + 1),
                        axis=(-1, -1 - new_axes_needed))
 
-        return self._checkresult(term1 + term2, npcond, np.nan)
+        return term1 + term2
 
     def _rvs(self, n, p):
-        random_state = onp.random.RandomState(self._random_state)
-        sample = random_state.multinomial(n, p, self._size)
-        return device_put(random_state.multinomial(n, p, size))
+        return multinomial_rvs(self._random_state, n, p, self._size)
 
 
 categorical = categorical_gen(name='categorical')

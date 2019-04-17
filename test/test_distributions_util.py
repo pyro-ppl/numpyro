@@ -4,7 +4,7 @@ import scipy.stats as osp_stats
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import grad, jit, lax, random
+from jax import grad, jacobian, jit, lax, random
 from jax.scipy.special import expit
 from jax.util import partial
 
@@ -83,14 +83,16 @@ def test_binary_cross_entropy_with_logits(x, y):
 
 @pytest.mark.parametrize('shape', [
     (3,),
-    (5, 4),
+    (5, 3),
 ])
 def test_cumsum_jac(shape):
     rng = random.PRNGKey(0)
     x = random.normal(rng, shape=shape)
-    expected = grad(lambda x: np.sum(x * (np.arange(x.shape[-1]) + 1.)[::-1]))(x)
-    actual = grad(lambda x: np.sum(cumsum(x)))(x)
-    assert_allclose(expected, actual)
+    def test_fn(x):
+        return np.stack([x[..., 0], x[..., 0] + x[..., 1], x[..., 0] + x[..., 1] + x[..., 2]], -1)
+
+    assert_allclose(cumsum(x), test_fn(x))
+    assert_allclose(jacobian(cumsum)(x), jacobian(test_fn)(x))
 
 
 @pytest.mark.parametrize('shape', [
@@ -100,10 +102,11 @@ def test_cumsum_jac(shape):
 def test_cumprod_jac(shape):
     rng = random.PRNGKey(0)
     x = random.uniform(rng, shape=shape)
-    expected = grad(lambda x: np.sum(x[..., 0] + x[..., 0] * x[..., 1]
-                                     + x[..., 0] * x[..., 1] * x[..., 2]))(x)
-    actual = grad(lambda x: np.sum(cumprod(x)))(x)
-    assert_allclose(expected, actual, rtol=2e-7)
+    def test_fn(x):
+        return np.stack([x[..., 0], x[..., 0] * x[..., 1], x[..., 0] * x[..., 1] * x[..., 2]], -1)
+
+    assert_allclose(cumprod(x), test_fn(x))
+    assert_allclose(jacobian(cumprod)(x), jacobian(test_fn)(x), atol=1e-7)
 
 
 @pytest.mark.parametrize('alpha, shape', [
