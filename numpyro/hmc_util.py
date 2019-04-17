@@ -6,6 +6,7 @@ from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
+from numpyro.distributions import biject_to
 from numpyro.distributions.distribution import jax_continuous
 from numpyro.handlers import seed, substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
@@ -419,7 +420,7 @@ def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_
                                         r_ckpts, r_sum_ckpts)
 
     return _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, transition_key,
-                         biased_transition=True)
+                         True)
 
 
 def _leaf_idx_to_ckpt_idxs(n):
@@ -465,7 +466,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
         new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
-                                 transition_rng, biased_transition=False)
+                                 transition_rng, False)
 
         leaf_idx = current_tree.num_proposals
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
@@ -553,13 +554,27 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
-def potential_energy(model, model_args, model_kwargs):
-    return lambda params: - jax.partial(log_density, model, model_args, model_kwargs)(params)[0]
+def potential_energy(model, model_args, model_kwargs, transforms):
+    def _potential_energy(params):
+        params_constrained = {k: transforms[k](v) for k, v in params.items()}
+        log_joint = jax.partial(log_density, model, model_args, model_kwargs)(params_constrained)[0]
+        for name, t in transforms.items():
+            log_joint = log_joint + np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
+        return - log_joint
+
+    return _potential_energy
+
+
+def transform_fn(transforms, params, invert=False):
+    return {k: transforms[k](v) if not invert else transforms[k].inv(v)
+            for k, v in params.items()}
 
 
 def initialize_model(rng, model, model_args, model_kwargs):
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    init_params = {k: v['value'] for k, v in model_trace.items()
-                   if v['type'] == 'sample' and not v['is_observed']}
-    return init_params, potential_energy(model, model_args, model_kwargs)
+    sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
+    transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
+    init_params = transform_fn(transforms, {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+    return init_params, potential_energy(model, model_args, model_kwargs, transforms), \
+        jax.partial(transform_fn, transforms)

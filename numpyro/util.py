@@ -121,12 +121,12 @@ def _identity(x):
 
 def tscan(f, a, bs, transform=_identity):
     if _DISABLE_CONTROL_FLOW_PRIM:
-        tscan_nonprim(f, a, bs, transform=_identity)
+        return _tscan_nonprim(f, a, bs, transform)
     else:
         return _tscan(f, a, bs, transform)
 
 
-def tscan_nonprim(f, a, bs, transform=_identity):
+def _tscan_nonprim(f, a, bs, transform):
     length = tree_flatten(bs)[0][0].shape[0]
     for i in range(length):
         b = tree_map(lambda x: x[i], bs)
@@ -140,7 +140,7 @@ def tscan_nonprim(f, a, bs, transform=_identity):
     return out
 
 
-def _tscan(f, a, bs, transform=None):
+def _tscan(f, a, bs, transform):
     """
     Works as jax.lax.scan but has additional `fields` argument to select only
     necessary fields from `a`'s structure. Defaults to selecting only the first
@@ -172,17 +172,18 @@ def _tscan(f, a, bs, transform=None):
     a_pval = partial_eval.PartialVal((a_aval, core.unit))
     b_pval = partial_eval.PartialVal((b_aval, core.unit))
     jaxpr, pval_out, consts = partial_eval.trace_to_jaxpr(f, (a_pval, b_pval))
-    transform_jaxpr, _, _ = partial_eval.trace_to_jaxpr(transform_f, (a_pval,))
+    transform_jaxpr, _, t_consts = partial_eval.trace_to_jaxpr(transform_f, (a_pval,))
     aval_out, _ = pval_out
     consts = core.pack(consts)
 
-    out = tscan_p.bind(a, bs, consts, aval_out=aval_out, jaxpr=jaxpr, transform_jaxpr=transform_jaxpr)
+    out = tscan_p.bind(a, bs, consts, aval_out=aval_out, jaxpr=jaxpr, transform_jaxpr=transform_jaxpr,
+                       transform_consts=core.pack(t_consts))
     return tree_unflatten(transform_tree(), out)
 
 
-def _tscan_impl(a, bs, consts, aval_out, jaxpr, transform_jaxpr):
+def _tscan_impl(a, bs, consts, aval_out, jaxpr, transform_jaxpr, transform_consts):
     length = tuple(bs)[0].shape[0]
-    template = core.eval_jaxpr(transform_jaxpr, (), (), a)
+    template = core.eval_jaxpr(transform_jaxpr, transform_consts, (), a)
     state = [lax.full((length,) + np.shape(t), 0, lax._dtype(t)) for t in template]
 
     def body_fun(i, vals):
@@ -192,7 +193,7 @@ def _tscan_impl(a, bs, consts, aval_out, jaxpr, transform_jaxpr):
         a_out = core.eval_jaxpr(jaxpr, consts, (), a, core.pack(b))
 
         # select fields from a_out and update state
-        t_out = core.eval_jaxpr(transform_jaxpr, (), (), a_out)
+        t_out = core.eval_jaxpr(transform_jaxpr, transform_consts, (), a_out)
         state_out = [lax.dynamic_update_index_in_dim(s, t[None, ...], i, axis=0)
                      for t, s in zip(t_out, state)]
         return a_out, state_out
