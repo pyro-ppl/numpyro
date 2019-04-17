@@ -326,6 +326,37 @@ def binomial(key, p, n=1, shape=()):
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
 
 
+@partial(jit, static_argnums=(2,))
+def categorical_rvs(key, p, shape=()):
+    # this implementation is fast when event shape is small, and slow otherwise
+    # Ref: https://stackoverflow.com/a/34190035
+    shape = shape or p.shape[:-1]
+    s = cumsum(p)
+    r = random.uniform(key, shape=shape + (1,))
+    return np.sum(s < r, axis=-1)
+
+
+def _scatter_add_one(operand, indices, updates):
+    return lax.scatter_add(operand, indices, updates,
+                           lax.ScatterDimensionNumbers(update_window_dims=(),
+                                                       inserted_window_dims=(0,),
+                                                       scatter_dims_to_operand_dims=(0,)))
+
+
+@partial(jit, static_argnums=(1, 3))
+def multinomial_rvs(key, n, p, shape=()):
+    shape = shape or p.shape[:-1]
+    # get indices from categorical distribution then gather the result
+    indices = categorical_rvs(key, p, (n,) + shape)
+    # NB: we transpose to move batch shape to the front
+    indices_2D = indices.reshape((n, -1)).T
+    samples_2D = vmap(_scatter_add_one, (0, 0, 0))(np.zeros((indices_2D.shape[0], p.shape[-1]),
+                                                            dtype=indices.dtype),
+                                                   np.expand_dims(indices_2D, axis=-1),
+                                                   np.ones(indices_2D.shape, dtype=indices.dtype))
+    return samples_2D.reshape(shape + p.shape[-1:])
+
+
 def sum_rightmost(x, dim):
     return np.sum(x, axis=-1) if dim == 1 else x
 

@@ -1,14 +1,24 @@
+import numpy as onp
 import pytest
 import scipy.special as osp_special
 import scipy.stats as osp_stats
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import grad, jit, lax, random
+from jax import grad, jacobian, jit, lax, random
 from jax.scipy.special import expit
 from jax.util import partial
 
-from numpyro.distributions.util import binary_cross_entropy_with_logits, cumprod, cumsum, standard_gamma, xlog1py, xlogy
+from numpyro.distributions.util import (
+    binary_cross_entropy_with_logits,
+    categorical_rvs,
+    cumprod,
+    cumsum,
+    multinomial_rvs,
+    standard_gamma,
+    xlog1py,
+    xlogy
+)
 
 _zeros = partial(lax.full_like, fill_value=0)
 
@@ -83,14 +93,17 @@ def test_binary_cross_entropy_with_logits(x, y):
 
 @pytest.mark.parametrize('shape', [
     (3,),
-    (5, 4),
+    (5, 3),
 ])
 def test_cumsum_jac(shape):
     rng = random.PRNGKey(0)
     x = random.normal(rng, shape=shape)
-    expected = grad(lambda x: np.sum(x * (np.arange(x.shape[-1]) + 1.)[::-1]))(x)
-    actual = grad(lambda x: np.sum(cumsum(x)))(x)
-    assert_allclose(expected, actual)
+
+    def test_fn(x):
+        return np.stack([x[..., 0], x[..., 0] + x[..., 1], x[..., 0] + x[..., 1] + x[..., 2]], -1)
+
+    assert_allclose(cumsum(x), test_fn(x))
+    assert_allclose(jacobian(cumsum)(x), jacobian(test_fn)(x))
 
 
 @pytest.mark.parametrize('shape', [
@@ -100,10 +113,12 @@ def test_cumsum_jac(shape):
 def test_cumprod_jac(shape):
     rng = random.PRNGKey(0)
     x = random.uniform(rng, shape=shape)
-    expected = grad(lambda x: np.sum(x[..., 0] + x[..., 0] * x[..., 1]
-                                     + x[..., 0] * x[..., 1] * x[..., 2]))(x)
-    actual = grad(lambda x: np.sum(cumprod(x)))(x)
-    assert_allclose(expected, actual, rtol=2e-7)
+
+    def test_fn(x):
+        return np.stack([x[..., 0], x[..., 0] * x[..., 1], x[..., 0] * x[..., 1] * x[..., 2]], -1)
+
+    assert_allclose(cumprod(x), test_fn(x))
+    assert_allclose(jacobian(cumprod)(x), jacobian(test_fn)(x), atol=1e-7)
 
 
 @pytest.mark.parametrize('alpha, shape', [
@@ -140,3 +155,51 @@ def test_standard_gamma_grad(alpha):
     expected_grad = -cdf_dot / pdf
 
     assert_allclose(actual_grad, expected_grad, rtol=0.0005)
+
+
+@pytest.mark.parametrize('p, shape', [
+    (np.array([0.1, 0.9]), ()),
+    (np.array([0.2, 0.8]), (2,)),
+    (np.array([[0.1, 0.9], [0.2, 0.8]]), ()),
+    (np.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
+])
+def test_categorical_shape(p, shape):
+    rng = random.PRNGKey(0)
+    expected_shape = lax.broadcast_shapes(p.shape[:-1], shape)
+    assert np.shape(categorical_rvs(rng, p, shape)) == expected_shape
+
+
+@pytest.mark.parametrize("p", [
+    np.array([0.2, 0.3, 0.5]),
+    np.array([0.8, 0.1, 0.1]),
+])
+def test_categorical_stats(p):
+    rng = random.PRNGKey(0)
+    n = 10000
+    z = categorical_rvs(rng, p, (n,))
+    _, counts = onp.unique(z, return_counts=True)
+    assert_allclose(counts / float(n), p, atol=0.01)
+
+
+@pytest.mark.parametrize('p, shape', [
+    (np.array([0.1, 0.9]), ()),
+    (np.array([0.2, 0.8]), (2,)),
+    (np.array([[0.1, 0.9], [0.2, 0.8]]), ()),
+    (np.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
+])
+def test_multinomial_shape(p, shape):
+    rng = random.PRNGKey(0)
+    n = 10000
+    expected_shape = lax.broadcast_shapes(p.shape[:-1], shape) + p.shape[-1:]
+    assert np.shape(multinomial_rvs(rng, n, p, shape)) == expected_shape
+
+
+@pytest.mark.parametrize("p", [
+    np.array([0.2, 0.3, 0.5]),
+    np.array([0.8, 0.1, 0.1]),
+])
+def test_multinomial_stats(p):
+    rng = random.PRNGKey(0)
+    n = 10000
+    z = multinomial_rvs(rng, n, p)
+    assert_allclose(z / float(n), p, atol=0.01)

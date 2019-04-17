@@ -14,7 +14,7 @@ from jax.scipy.special import logit
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraint_registry import biject_to
-from numpyro.distributions.distribution import validation_enabled
+from numpyro.distributions.distribution import jax_multivariate, validation_enabled
 
 
 def idfn(param):
@@ -97,8 +97,12 @@ def test_continuous_validate_args(jax_dist, dist_args, sample):
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
+    (dist.categorical, (np.array([0.1, 0.9]),)),
+    (dist.categorical, (np.array([[0.1, 0.9], [0.2, 0.8]]),)),
     (dist.dirichlet, (np.ones(3),)),
     (dist.dirichlet, (np.ones((2, 3)),)),
+    (dist.multinomial, (10, np.array([0.1, 0.9]),)),
+    (dist.multinomial, (10, np.array([[0.1, 0.9], [0.2, 0.8]]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -106,19 +110,35 @@ def test_continuous_validate_args(jax_dist, dist_args, sample):
     (2,),
     (2, 3),
 ])
-def test_mvcontinuous_shape(jax_dist, dist_args, prepend_shape):
+def test_multivariate_shape(jax_dist, dist_args, prepend_shape):
     rng = random.PRNGKey(0)
-    expected_shape = lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
+    expected_shape = jax_dist._batch_shape(*dist_args) + jax_dist._event_shape(*dist_args)
     samples = jax_dist.rvs(*dist_args, random_state=rng)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
     assert np.shape(samples) == expected_shape
     assert np.shape(jax_dist(*dist_args).rvs(random_state=rng)) == expected_shape
     if prepend_shape is not None:
-        expected_shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
-        samples = jax_dist.rvs(*dist_args, size=expected_shape[:-1], random_state=rng)
+        size = prepend_shape + jax_dist._batch_shape(*dist_args)
+        expected_shape = size + jax_dist._event_shape(*dist_args)
+        samples = jax_dist.rvs(*dist_args, size=size, random_state=rng)
         assert np.shape(samples) == expected_shape
-        samples = jax_dist(*dist_args).rvs(random_state=rng, size=expected_shape[:-1])
+        samples = jax_dist(*dist_args).rvs(random_state=rng, size=size)
         assert np.shape(samples) == expected_shape
+
+
+@pytest.mark.parametrize('jax_dist, valid_args, invalid_args, invalid_sample', [
+    (dist.categorical, (np.array([0.1, 0.9]),), (np.array([0.1, 0.8]),), np.array([1, 4])),
+    (dist.dirichlet, (np.ones(3),), (np.array([-1., 2., 3.]),), np.array([0.1, 0.7, 0.1])),
+    (dist.multinomial, (10, np.array([0.1, 0.9]),), (10, np.array([0.2, 0.9]),), np.array([-1, 9])),
+], ids=idfn)
+def test_multivariate_validate_args(jax_dist, valid_args, invalid_args, invalid_sample):
+    with validation_enabled():
+        with pytest.raises(ValueError, match='Invalid parameters'):
+            jax_dist(*invalid_args)
+
+        frozen_dist = jax_dist(*valid_args)
+        with pytest.raises(ValueError, match='Invalid values'):
+            frozen_dist.logpmf(invalid_sample)
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -126,8 +146,6 @@ def test_mvcontinuous_shape(jax_dist, dist_args, prepend_shape):
     (dist.bernoulli, (np.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
-    (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
-    (dist.multinomial, (10, np.array([1.]))),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -155,8 +173,6 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
 ], ids=idfn)
 def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_sample):
     with validation_enabled():
-        jax_dist._validate_args = True
-
         with pytest.raises(ValueError, match='Invalid parameters'):
             jax_dist(*invalid_args)
 
@@ -242,16 +258,47 @@ def test_continuous_logpdf(jax_dist, loc_scale):
     (2,),
     (2, 3),
 ])
-def test_mvcontinuous_logpdf(jax_dist, dist_args, shape):
+def test_multivariate_continuous_logpdf(jax_dist, dist_args, shape):
     rng = random.PRNGKey(0)
     samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
-    sp_dist = getattr(osp_stats, jax_dist.name)
     # XXX scipy.stats.dirichlet does not work with batch
     if samples.ndim == 1:
+        sp_dist = getattr(osp_stats, jax_dist.name)
         assert_allclose(jax_dist.logpdf(samples, *dist_args),
                         sp_dist.logpdf(samples, *dist_args), atol=1e-6)
 
-    assert jax_dist.logpdf(samples, *dist_args).shape == samples.shape[:-1]
+    event_dim = len(jax_dist._event_shape(*dist_args))
+    batch_shape = samples.shape if event_dim == 0 else samples.shape[:-1]
+    assert jax_dist.logpdf(samples, *dist_args).shape == batch_shape
+
+
+@pytest.mark.parametrize('jax_dist, dist_args', [
+    (dist.categorical, (np.array([0.7, 0.3]),)),
+    (dist.multinomial, (10, np.array([0.3, 0.7]),)),
+], ids=idfn)
+@pytest.mark.parametrize('shape', [
+    None,
+    (),
+    (2,),
+    (2, 3),
+])
+def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
+    rng = random.PRNGKey(0)
+    samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
+    # XXX scipy.stats.multinomial does not work with batch
+    if samples.ndim == 1:
+        if jax_dist is dist.categorical:
+            # test against PyTorch
+            assert_allclose(jax_dist.logpmf(np.array([1, 0]), *dist_args),
+                            np.array([-1.2040, -0.3567]), atol=1e-4)
+        else:
+            sp_dist = getattr(osp_stats, jax_dist.name)
+            assert_allclose(jax_dist.logpmf(samples, *dist_args),
+                            sp_dist.logpmf(samples, *dist_args), atol=1e-5)
+
+    event_dim = len(jax_dist._event_shape(*dist_args))
+    batch_shape = samples.shape if event_dim == 0 else samples.shape[:-1]
+    assert jax_dist.logpmf(samples, *dist_args).shape == batch_shape
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -260,8 +307,6 @@ def test_mvcontinuous_logpdf(jax_dist, dist_args, shape):
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
-    (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
-    (dist.multinomial, (10, np.array([1.]))),
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,
@@ -292,29 +337,20 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
-    (dist.multinomial, (10, np.array([0.1, 0.4, 0.5]))),
-    (dist.multinomial, (10, np.array([1., 1.]))),
-], ids=idfn)
-def test_discrete_logpmf_args_check(jax_dist, dist_args):
-    sample = jax_dist.rvs(*dist_args, random_state=random.PRNGKey(0))
-    with pytest.raises(ValueError, match='Invalid distribution arguments'):
-        dist_args_invalid = dist_args[:-1] + (dist_args[-1] + 1.,)
-        jax_dist.logpmf(sample, *dist_args_invalid)
-    with pytest.raises(ValueError, match='Invalid values'):
-        sample_oos = sample - 0.5
-        jax_dist.logpmf(sample_oos, *dist_args)
-
-
-@pytest.mark.parametrize('jax_dist, dist_args', [
     (dist.bernoulli, (0.1,)),
     (dist.bernoulli, (np.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
+    (dist.categorical, (np.array([0.1, 0.9]),)),
+    (dist.categorical, (np.array([[0.1, 0.9], [0.2, 0.8]]),)),
+    (dist.multinomial, (10, np.array([0.1, 0.9]),)),
+    (dist.multinomial, (10, np.array([[0.1, 0.9], [0.2, 0.8]]),)),
 ], ids=idfn)
 def test_discrete_with_logits(jax_dist, dist_args):
     rng = random.PRNGKey(0)
-    logit_args = dist_args[:-1] + (logit(dist_args[-1]),)
+    logit_to_prob = np.log if isinstance(jax_dist, jax_multivariate) else logit
+    logit_args = dist_args[:-1] + (logit_to_prob(dist_args[-1]),)
 
     actual_sample = jax_dist.rvs(*dist_args, random_state=rng)
     expected_sample = jax_dist(*logit_args, is_logits=True).rvs(random_state=rng)
