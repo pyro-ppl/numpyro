@@ -57,7 +57,6 @@ def benchmark_hmc(args, features, labels):
                                   trajectory_length=trajectory_length, run_warmup=False)
     t1 = time.time()
     print("time for hmc_init: ", t1 - t0)
-    hmc_state = hmc_state.update(step_size=1.)
 
     def transform(state): return {'coefs': state.z['coefs'],
                                   'num_steps': state.num_steps}
