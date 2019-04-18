@@ -1,1 +1,1 @@
-import numpyro.patch
+import numpyro.patch  # noqa: F401

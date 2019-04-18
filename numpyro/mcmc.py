@@ -7,7 +7,7 @@ from jax.random import PRNGKey
 
 import numpyro.distributions as dist
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
-from numpyro.util import cond, fori_loop, laxtuple, tscan
+from numpyro.util import cond, fori_loop, laxtuple
 
 HMCState = laxtuple('HMCState', ['z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                  'step_size', 'inverse_mass_matrix', 'rng'])
