@@ -1,7 +1,7 @@
 import math
 
 import jax.numpy as np
-from jax import partial, random, jit
+from jax import jit, partial, random
 from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 

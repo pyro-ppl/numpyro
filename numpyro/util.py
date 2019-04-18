@@ -2,15 +2,14 @@ import random
 from collections import namedtuple
 from contextlib import contextmanager
 
-import jax
 import numpy as onp
 
+import jax
 import jax.numpy as np
 from jax import core, lax
 from jax.abstract_arrays import ShapedArray
 from jax.api_util import pytree_fun_to_flatjaxtuple_fun, pytree_to_flatjaxtuple
 from jax.interpreters import partial_eval, xla
-from jax.interpreters.xla import aval_from_xla_shape
 from jax.linear_util import wrap_init
 from jax.tree_util import register_pytree_node, tree_flatten, tree_map, tree_multimap, tree_unflatten
 from jax.util import partial
