@@ -64,6 +64,7 @@ def benchmark_hmc(args, features, labels):
     def body_fn(state, i):
         return sample_kernel(state)
 
+    hmc_state = hmc_state.update(step_size=1.)
     tscan(body_fn, hmc_state, np.arange(1), transform=transform)
     t2 = time.time()
     print("time to compile sample_kernel: ", t2 - t1)
