@@ -15,7 +15,7 @@ from numpyro.mcmc import hmc
 from numpyro.util import tscan
 
 
-jax.config.update("jax_platform_name", "gpu")
+
 
 
 # TODO: add to datasets.py so as to avoid dependency on scikit-learn
@@ -76,6 +76,7 @@ def benchmark_hmc(args, features, labels):
 
 
 def main(args):
+    jax.config.update("jax_platform_name", args.device)
     features, labels = load_dataset()
     benchmark_hmc(args, features, labels)
 
@@ -85,5 +86,6 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--num-samples', default=100, type=int, help='number of samples')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--algo', default='NUTS', type=str, help='whether to run "HMC" or "NUTS"')
+    parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "cuda".')
     args = parser.parse_args()
     main(args)
