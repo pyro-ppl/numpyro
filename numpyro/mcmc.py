@@ -1,7 +1,7 @@
 import math
 
 import jax.numpy as np
-from jax import partial, random
+from jax import jit, partial, random
 from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 
@@ -80,7 +80,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                              wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
 
         if run_warmup:
-            hmc_state, _ = fori_loop(0, num_warmup_steps, warmup_update, (hmc_state, wa_state))
+            hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps, warmup_update,
+                                                               (hmc_state, wa_state))
             return hmc_state
         else:
             return hmc_state, wa_state, warmup_update
