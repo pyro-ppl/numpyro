@@ -29,7 +29,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.util import cumprod, cumsum, sum_rightmost
 
 
-def clipped_expit(x):
+def _clipped_expit(x):
     return np.clip(expit(x), a_min=np.finfo(x.dtype).tiny, a_max=1.-np.finfo(x.dtype).eps)
 
 
@@ -159,7 +159,7 @@ class SigmoidTransform(Transform):
     codomain = constraints.unit_interval
 
     def __call__(self, x):
-        return clipped_expit(x)
+        return _clipped_expit(x)
 
     def inv(self, y):
         return logit(y)
@@ -176,7 +176,7 @@ class StickBreakingTransform(Transform):
         # we shift x to obtain a balanced mapping (0, 0, ..., 0) -> (1/K, 1/K, ..., 1/K)
         x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
         # convert to probabilities (relative to the remaining) of each fraction of the stick
-        z = clipped_expit(x)
+        z = _clipped_expit(x)
         z1m_cumprod = cumprod(1 - z)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (0, 1)
@@ -195,5 +195,5 @@ class StickBreakingTransform(Transform):
     def log_abs_det_jacobian(self, x, y):
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
         # |det|(J) = Product(y * (1 - z))
-        z = expit(x - np.log(x.shape[-1] - np.arange(x.shape[-1])))
+        z = _clipped_expit(x - np.log(x.shape[-1] - np.arange(x.shape[-1])))
         return np.sum(np.log(y[..., :-1] * (1 - z)), axis=-1)
