@@ -16,7 +16,7 @@ from numpyro.util import tscan
 
 
 step_size = 0.00167132
-init_params = {"coefs": np.array(
+init_params = {"coefs": onp.array(
     [+2.03420663e+00, -3.53567265e-02, -1.49223924e-01, -3.07049364e-01,
      -1.00028366e-01, -1.46827862e-01, -1.64167881e-01, -4.20344204e-01,
      +9.47479829e-02, -1.12681836e-02, +2.64442056e-01, -1.22087866e-01,
@@ -63,10 +63,7 @@ def model(data, labels):
 
 
 def benchmark_hmc(args, features, labels):
-    N, dim = features.shape
     trajectory_length = step_size * args.num_steps
-    init_params = {'coefs': random.normal(key=random.PRNGKey(0), shape=(dim,))}
-
     _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, (features, labels,), {})
     init_kernel, sample_kernel = hmc(potential_fn, algo=args.algo)
     t0 = time.time()
