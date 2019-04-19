@@ -4,6 +4,7 @@ import time
 import numpy as onp
 from sklearn.datasets import fetch_covtype
 
+import jax
 import jax.numpy as np
 from jax import random
 
@@ -12,6 +13,9 @@ from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
 from numpyro.util import tscan
+
+
+jax.config.update("jax_platform_name", "gpu")
 
 
 # TODO: add to datasets.py so as to avoid dependency on scikit-learn
@@ -69,7 +73,6 @@ def benchmark_hmc(args, features, labels):
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
     print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)
-    print(hmc_states['coefs'])
 
 
 def main(args):
