@@ -47,7 +47,7 @@ def benchmark_hmc(args, features, labels):
     N, dim = features.shape
     step_size = np.sqrt(0.5 / N)
     trajectory_length = step_size * args.num_steps
-    init_params = {'coefs': np.zeros(dim)}
+    init_params = {'coefs': random.normal(key=random.PRNGKey(0), shape=(dim,))}
 
     _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, (features, labels,), {})
     init_kernel, sample_kernel = hmc(potential_fn, algo=args.algo)
@@ -64,15 +64,12 @@ def benchmark_hmc(args, features, labels):
     def body_fn(state, i):
         return sample_kernel(state)
 
-    hmc_state = hmc_state.update(step_size=1.)
-    tscan(body_fn, hmc_state, np.arange(1), transform=transform)
-    t2 = time.time()
-    print("time to compile sample_kernel: ", t2 - t1)
     hmc_state = hmc_state.update(step_size=step_size)
     hmc_states = tscan(body_fn, hmc_state, np.arange(args.num_samples), transform=transform)
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
-    print('avg. time for each step: ', (time.time() - t2) / num_leapfrogs)
+    print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)
+    print(hmc_states['coefs'])
 
 
 def main(args):
