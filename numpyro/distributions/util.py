@@ -334,6 +334,8 @@ def categorical_rvs(key, p, shape=()):
     shape = shape or p.shape[:-1]
     s = cumsum(p)
     r = random.uniform(key, shape=shape + (1,))
+    # FIXME: replace this computation by using binary search as suggested in the above
+    # reference. A while_loop + vmap for a reshaped 2D array would be enough.
     return np.sum(s < r, axis=-1)
 
 
