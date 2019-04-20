@@ -111,7 +111,7 @@ class gamma_gen(jax_continuous):
         return a, a, 2.0 / np.sqrt(a), 6.0 / a
 
     def _entropy(self, a):
-        return digamma(a) * (1 - a) + a + gammaln(a)    
+        return digamma(a) * (1 - a) + a + gammaln(a)
 
 
 class lognorm_gen(jax_continuous):
@@ -173,6 +173,9 @@ class t_gen(jax_continuous):
         half_df = df / 2.0
         gamma = standard_gamma(key_n, half_df, shape=self._size)
         return normal * np.sqrt(half_df / gamma)
+
+    def _cdf(self, x, df):
+        raise NotImplementedError
 
     def _stats(self, df):
         mu = np.where(df > 1, 0.0, np.inf)
