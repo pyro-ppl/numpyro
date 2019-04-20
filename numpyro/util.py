@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 import numpy as onp
 
+import jax
 import jax.numpy as np
 from jax import core, lax
 from jax.abstract_arrays import ShapedArray
@@ -119,6 +120,7 @@ def _identity(x):
     return x
 
 
+@jax.partial(jax.jit, static_argnums=(0, 3))
 def tscan(f, a, bs, transform=_identity):
     if _DISABLE_CONTROL_FLOW_PRIM:
         return _tscan_nonprim(f, a, bs, transform)
@@ -171,17 +173,17 @@ def _tscan(f, a, bs, transform):
     # convert abstract values to partial values (?) then evaluate to get jaxpr
     a_pval = partial_eval.PartialVal((a_aval, core.unit))
     b_pval = partial_eval.PartialVal((b_aval, core.unit))
-    jaxpr, pval_out, consts = partial_eval.trace_to_jaxpr(f, (a_pval, b_pval))
-    transform_jaxpr, _, t_consts = partial_eval.trace_to_jaxpr(transform_f, (a_pval,))
+    jaxpr, intermed_out, consts = partial_eval.trace_to_jaxpr(f, (a_pval, b_pval))
+    transform_jaxpr, pval_out, t_consts = partial_eval.trace_to_jaxpr(transform_f, (intermed_out,))
     aval_out, _ = pval_out
     consts = core.pack(consts)
 
-    out = tscan_p.bind(a, bs, consts, aval_out=aval_out, jaxpr=jaxpr, transform_jaxpr=transform_jaxpr,
-                       transform_consts=core.pack(t_consts))
+    out = tscan_p.bind(a, bs, consts=consts, transform_consts=core.pack(t_consts), aval_out=aval_out,
+                       jaxpr=jaxpr, transform_jaxpr=transform_jaxpr)
     return tree_unflatten(transform_tree(), out)
 
 
-def _tscan_impl(a, bs, consts, aval_out, jaxpr, transform_jaxpr, transform_consts):
+def _tscan_impl(a, bs, consts, transform_consts, aval_out, jaxpr, transform_jaxpr):
     length = tuple(bs)[0].shape[0]
     template = core.eval_jaxpr(transform_jaxpr, transform_consts, (), a)
     state = [lax.full((length,) + np.shape(t), 0, lax._dtype(t)) for t in template]
@@ -202,7 +204,7 @@ def _tscan_impl(a, bs, consts, aval_out, jaxpr, transform_jaxpr, transform_const
     return core.pack(state)
 
 
-def _tscan_abstract_eval(a, bs, fields, consts, aval_out, jaxpr):
+def _tscan_abstract_eval(a, bs, consts, transform_consts, aval_out, jaxpr, transform_jaxpr):
     return lax.maybe_tracer_tuple_to_abstract_tuple(aval_out)
 
 
