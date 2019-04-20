@@ -9,6 +9,7 @@
 
 import jax.numpy as np
 import jax.random as random
+import jax.scipy.stats as lsp_stats
 from jax.scipy.special import digamma, gammaln
 
 from numpyro.distributions import constraints
@@ -21,6 +22,7 @@ class beta_gen(jax_continuous):
     _support_mask = constraints.unit_interval
 
     def _rvs(self, a, b):
+        # TODO: use upstream implementation when available
         # XXX the implementation is different from PyTorch's one
         # in PyTorch, a sample is generated from dirichlet distribution
         key_a, key_b = random.split(self._random_state)
@@ -44,14 +46,7 @@ class cauchy_gen(jax_continuous):
     _support_mask = constraints.real
 
     def _rvs(self):
-        # TODO: move this implementation upstream to jax.random.standard_cauchy
-        # Another way is to generate X, Y ~ Normal(0, 1) and return X / Y
-        u = random.uniform(self._random_state, shape=self._size)
-        return np.tan(np.pi * (u - 0.5))
-
-    def _pdf(self, x):
-        # cauchy.pdf(x) = 1 / (pi * (1 + x**2))
-        return 1.0 / np.pi / (1.0 + x * x)
+        return random.cauchy(self._random_state, shape=self._size)
 
     def _cdf(self, x):
         return 0.5 + 1.0 / np.pi * np.arctan(x)
@@ -76,8 +71,7 @@ class expon_gen(jax_continuous):
     _support_mask = constraints.positive
 
     def _rvs(self):
-        u = random.uniform(self._random_state, shape=self._size)
-        return -np.log(u)
+        return random.exponential(self._random_state, shape=self._size)
 
     def _cdf(self, x):
         return -np.expm1(-x)
@@ -120,21 +114,12 @@ class gamma_gen(jax_continuous):
         return digamma(a) * (1 - a) + a + gammaln(a)
 
 
-_norm_pdf_C = np.sqrt(2 * np.pi)
-_norm_pdf_logC = np.log(_norm_pdf_C)
-
-
-def _lognorm_logpdf(x, s):
-    return np.where(x != 0,
-                    -np.log(x) ** 2 / (2 * s ** 2) - np.log(s * x * _norm_pdf_C),
-                    -np.inf)
-
-
 class lognorm_gen(jax_continuous):
     arg_constraints = {"s": constraints.positive}
     _support_mask = constraints.positive
 
     def _rvs(self, s):
+        # TODO: use upstream implementation when available
         return np.exp(s * random.normal(self._random_state, shape=self._size))
 
     def _pdf(self, x, s):
@@ -142,7 +127,9 @@ class lognorm_gen(jax_continuous):
         return np.exp(self._logpdf(x, s))
 
     def _logpdf(self, x, s):
-        return _lognorm_logpdf(x, s)
+        return np.where(x != 0,
+                        -np.log(x) ** 2 / (2 * s ** 2) - np.log(s * x * np.sqrt(2 * np.pi)),
+                        -np.inf)
 
     def _stats(self, s):
         p = np.exp(s * s)
@@ -154,14 +141,6 @@ class lognorm_gen(jax_continuous):
 
     def _entropy(self, s):
         return 0.5 * (1 + np.log(2 * np.pi) + 2 * np.log(s))
-
-
-def _norm_pdf(x):
-    return np.exp(-x ** 2 / 2.0) / _norm_pdf_C
-
-
-def _norm_logpdf(x):
-    return -x ** 2 / 2.0 - _norm_pdf_logC
 
 
 class norm_gen(jax_continuous):
@@ -176,32 +155,27 @@ class norm_gen(jax_continuous):
     def _entropy(self):
         return 0.5 * (np.log(2 * np.pi) + 1)
 
+    def cdf(x, loc=0, scale=1):
+        return lsp_stats.norm.cdf(x, loc, scale)
+
+    def logcdf(x, loc=0, scale=1):
+        return lsp_stats.norm.logcdf(x, loc, scale)
+
 
 class t_gen(jax_continuous):
     arg_constraints = {"df": constraints.positive}
     _support_mask = constraints.real
 
     def _rvs(self, df):
+        # TODO: use upstream implementation when available
         key_n, key_g = random.split(self._random_state)
         normal = random.normal(key_n, shape=self._size)
         half_df = df / 2.0
         gamma = standard_gamma(key_n, half_df, shape=self._size)
         return normal * np.sqrt(half_df / gamma)
 
-    def _pdf(self, x, df):
-        #                                gamma((df+1)/2)
-        # t.pdf(x, df) = ---------------------------------------------------
-        #                sqrt(pi*df) * gamma(df/2) * (1+x**2/df)**((df+1)/2)
-        r = np.asarray(df * 1.0)
-        Px = np.exp(gammaln((r + 1) / 2) - gammaln(r / 2))
-        Px = Px / np.sqrt(r * np.pi) * (1 + (x ** 2) / r) ** ((r + 1) / 2)
-        return Px
-
-    def _logpdf(self, x, df):
-        r = df * 1.0
-        lPx = gammaln((r + 1) / 2) - gammaln(r / 2)
-        lPx = lPx - (0.5 * np.log(r * np.pi) + (r + 1) / 2 * np.log(1 + (x ** 2) / r))
-        return lPx
+    def _cdf(self, x, df):
+        raise NotImplementedError
 
     def _stats(self, df):
         mu = np.where(df > 1, 0.0, np.inf)

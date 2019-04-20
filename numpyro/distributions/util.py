@@ -50,6 +50,7 @@ def _standard_gamma_one(key, alpha):
     return np.where(z == 0, np.finfo(z.dtype).tiny, z)
 
 
+# TODO: use upstream implementation when available because it is 2x faster
 def _standard_gamma_impl(key, alpha):
     alphas = np.reshape(alpha, -1)
     keys = random.split(key, alphas.size)
