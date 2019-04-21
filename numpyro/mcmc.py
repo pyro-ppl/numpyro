@@ -54,6 +54,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
                     run_warmup=True,
+                    heuristic_step_size=False,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
         nonlocal momentum_generator, wa_update, trajectory_len
@@ -62,16 +63,19 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
 
-        find_reasonable_ss = partial(find_reasonable_step_size,
-                                     potential_fn, kinetic_fn, momentum_generator)
-
+        wa_kwargs = {}
         # FIXME: compiling find_reasonable_step_size is so slow
+        if heuristic_step_size:
+            wa_kwargs["find_reasonable_step_size"] = partial(find_reasonable_step_size,
+                                                             potential_fn, kinetic_fn,
+                                                             momentum_generator)
+
         wa_init, wa_update = warmup_adapter(num_warmup_steps,
-                                            # find_reasonable_step_size=find_reasonable_ss,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
                                             diag_mass=diag_mass,
-                                            target_accept_prob=target_accept_prob)
+                                            target_accept_prob=target_accept_prob,
+                                            **wa_kwargs)
 
         rng_hmc, rng_wa = random.split(rng)
         wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
