@@ -65,8 +65,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         find_reasonable_ss = partial(find_reasonable_step_size,
                                      potential_fn, kinetic_fn, momentum_generator)
 
+        # FIXME: compiling find_reasonable_step_size is so slow
         wa_init, wa_update = warmup_adapter(num_warmup_steps,
-                                            find_reasonable_step_size=find_reasonable_ss,
+                                            # find_reasonable_step_size=find_reasonable_ss,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
                                             diag_mass=diag_mass,

@@ -173,7 +173,6 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         energy_new = kinetic_fn(inverse_mass_matrix, r_new) + potential_energy_new
         delta_energy = energy_new - energy_current
         direction_new = np.where(target_accept_prob < -delta_energy, 1, -1)
-        print(delta_energy, direction_new)
         return step_size, direction, direction_new, rng
 
     def _cond_fn(state):
