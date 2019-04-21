@@ -50,6 +50,7 @@ def _standard_gamma_one(key, alpha):
     return np.where(z == 0, np.finfo(z.dtype).tiny, z)
 
 
+# TODO: use upstream implementation when available because it is 2x faster
 def _standard_gamma_impl(key, alpha):
     alphas = np.reshape(alpha, -1)
     keys = random.split(key, alphas.size)
@@ -333,6 +334,8 @@ def categorical_rvs(key, p, shape=()):
     shape = shape or p.shape[:-1]
     s = cumsum(p)
     r = random.uniform(key, shape=shape + (1,))
+    # FIXME: replace this computation by using binary search as suggested in the above
+    # reference. A while_loop + vmap for a reshaped 2D array would be enough.
     return np.sum(s < r, axis=-1)
 
 
