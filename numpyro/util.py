@@ -1,5 +1,4 @@
 import random
-import time
 from collections import namedtuple
 from contextlib import contextmanager
 

@@ -2,7 +2,7 @@ import pytest
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import random, jit
+from jax import random
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample
@@ -50,7 +50,7 @@ def test_logistic_regression(algo):
     hmc_state = init_kernel(init_params,
                             trajectory_length=10,
                             num_warmup_steps=warmup_steps)
-    hmc_states = fori_append(jit(sample_kernel), hmc_state, num_samples,
+    hmc_states = fori_append(sample_kernel, hmc_state, num_samples,
                              transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['coefs'], 0), true_coefs, atol=0.2)
 
