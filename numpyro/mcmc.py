@@ -42,6 +42,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     trajectory_len = None
+    _max_tree_depth = None
     momentum_generator = None
     wa_update = None
 
@@ -53,12 +54,14 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     diag_mass=True,
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
+                    max_tree_depth=10,
                     run_warmup=True,
                     heuristic_step_size=False,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
         nonlocal momentum_generator, wa_update, trajectory_len
         trajectory_len = float(trajectory_length)
+        _max_tree_depth = max_tree_depth
         z = init_samples
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
@@ -117,7 +120,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state, rng):
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
-                                 inverse_mass_matrix, step_size, rng)
+                                 inverse_mass_matrix, step_size, rng,
+                                 max_tree_depth=_max_tree_depth)
         accept_prob = binary_tree.sum_accept_probs / binary_tree.num_proposals
         num_steps = binary_tree.num_proposals
         vv_state = vv_state.update(z=binary_tree.z_proposal,
