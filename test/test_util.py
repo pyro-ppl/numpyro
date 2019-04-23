@@ -6,7 +6,7 @@ from jax import lax
 from jax.test_util import check_eq
 from jax.tree_util import tree_map
 
-from numpyro.util import control_flow_prims_disabled, laxtuple, optional, scan, tscan
+from numpyro.util import control_flow_prims_disabled, laxtuple, optional, scan, tscan, fori_append
 
 
 @pytest.mark.parametrize('prims_disabled', [True, False])
@@ -41,6 +41,17 @@ def test_tscan_dict(prims_disabled):
     expected_tree = {'i': scan_tree['i']}
     with optional(prims_disabled, control_flow_prims_disabled()):
         actual_tree = tscan(f, a, bs, transform=lambda a: {'i': a['i']})
+    check_eq(actual_tree, expected_tree)
+
+
+def test_fori_append():
+    def f(x):
+        return {'i': x['i'] + x['j'], 'j': x['i'] - x['j']}
+
+    a = {'i': np.array([0.]), 'j': np.array([1.])}
+    scan_tree = lax.scan(lambda x, y: f(x), a, np.arange(3))
+    expected_tree = {'i': scan_tree['i']}
+    actual_tree = fori_append(f, a, 3, transform=lambda a: {'i': a['i']})
     check_eq(actual_tree, expected_tree)
 
 
