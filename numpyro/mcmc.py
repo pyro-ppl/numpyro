@@ -59,7 +59,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     heuristic_step_size=False,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
-        nonlocal momentum_generator, wa_update, trajectory_len
+        nonlocal momentum_generator, wa_update, trajectory_len, _max_tree_depth
         trajectory_len = float(trajectory_length)
         _max_tree_depth = max_tree_depth
         z = init_samples
