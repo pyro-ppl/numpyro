@@ -14,7 +14,6 @@ from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
 from numpyro.util import tscan
 
-
 step_size = 0.00167132
 init_params = {"coefs": onp.array(
     [+2.03420663e+00, -3.53567265e-02, -1.49223924e-01, -3.07049364e-01,
