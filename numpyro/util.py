@@ -6,10 +6,11 @@ import numpy as onp
 
 import jax
 import jax.numpy as np
-from jax import core, lax
+from jax import core, jit, lax, vmap
 from jax.abstract_arrays import ShapedArray
 from jax.api_util import pytree_fun_to_flatjaxtuple_fun, pytree_to_flatjaxtuple
 from jax.interpreters import partial_eval, xla
+from jax.flatten_util import ravel_pytree
 from jax.linear_util import wrap_init
 from jax.tree_util import register_pytree_node, tree_flatten, tree_map, tree_multimap, tree_unflatten
 from jax.util import partial
@@ -237,3 +238,19 @@ def fori_append(f, a, n, transform, jit=True):
         fn_loop(1, (init_val, state))
     _, state = fn_loop(n, (init_val, state))
     return tree_unflatten(trans_treedef, state)
+
+
+def fori_collect(n, body_fun, init_val, transform=_identity):
+    # works like lax.fori_loop but ignores i in body_fn, supports
+    # postprocessing `transform`, and collects values during the loop
+    _, unravel_fn = ravel_pytree(transform(init_val))
+    ravel_transform = jit(lambda x: ravel_pytree(transform(x))[0])
+
+    collection = []
+    val = init_val
+    for i in range(n):
+        val = body_fun(val)
+        collection.append(ravel_transform(val))
+
+    collection = np.stack(collection)
+    return vmap(unravel_fn)(collection)

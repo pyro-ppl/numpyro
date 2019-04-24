@@ -8,7 +8,7 @@ import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
-from numpyro.util import fori_append
+from numpyro.util import fori_collect
 
 
 # TODO: add test for diag_mass=False
@@ -73,8 +73,9 @@ def test_beta_bernoulli(algo):
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
                             num_warmup_steps=warmup_steps)
-    hmc_states = fori_append(sample_kernel, hmc_state, num_samples,
-                             transform=lambda x: transform_fn(x.z))
+
+    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
+                              transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.05)
 
 
