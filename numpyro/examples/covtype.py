@@ -12,7 +12,7 @@ import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
-from numpyro.util import fori_append
+from numpyro.util import fori_collect
 
 step_size = 0.00167132
 init_params = {"coefs": onp.array(
@@ -77,8 +77,8 @@ def benchmark_hmc(args, features, labels):
                                   'num_steps': state.num_steps}
 
     hmc_state = hmc_state.update(step_size=step_size)
-    hmc_states = fori_append(sample_kernel, hmc_state, args.num_samples,
-                             transform=transform)
+    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
+                              transform=transform)
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
     print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)
