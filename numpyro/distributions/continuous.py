@@ -114,6 +114,19 @@ class gamma_gen(jax_continuous):
         return digamma(a) * (1 - a) + a + gammaln(a)
 
 
+class halfcauchy_gen(jax_continuous):
+    _support_mask = constraints.positive
+
+    def _rvs(self):
+        return np.abs(random.cauchy(self._random_state, shape=self._size))
+
+    def _logpdf(self, x):
+        return np.log(2.0 / np.pi) - np.log1p(x * x)
+
+    def _pdf(self, x):
+        return 2.0 / np.pi / (1.0 + x * x)
+
+
 class lognorm_gen(jax_continuous):
     arg_constraints = {"s": constraints.positive}
     _support_mask = constraints.positive
@@ -187,6 +200,35 @@ class t_gen(jax_continuous):
         return mu, mu2, g1, g2
 
 
+class trunccauchy_gen(jax_continuous):
+    arg_constraints = {"a": constraints.real, "b": constraints.real}
+
+    def _support(self, *args, **kwargs):
+        (a, b), loc, scale = self._parse_args(*args, **kwargs)
+        # TODO: make constraints.less_than and support a == -np.inf
+        if b == np.inf:
+            return constraints.greater_than((a - loc) * scale)
+        else:
+            return constraints.interval((a - loc) * scale, (b - loc) * scale)
+
+    def _rvs(self, a, b):
+        # We use inverse transform method:
+        # z ~ ppf(U), where U ~ Uniform(cdf(a), cdf(b)).
+        #                     ~ Uniform(arctan(a), arctan(b)) / pi + 1/2
+        u = random.uniform(self._random_state, shape=self._size,
+                           minval=np.arctan(a), maxval=np.arctan(b))
+        return np.tan(u)
+
+    def _logpdf(self, x, a, b):
+        # trunc_pdf(x) = pdf(x) / (cdf(b) - cdf(a))
+        #              = 1 / (1 + x^2) / (arctan(b) - arctan(a))
+        normalizer = np.log(np.arctan(b) - np.arctan(a))
+        return -(np.log(1 + x * x) + normalizer)
+
+    def _pdf(self, x, a, b):
+        return np.reciprocal((1 + x * x) * (np.arctan(b) - np.arctan(a)))
+
+
 class uniform_gen(jax_continuous):
     _support_mask = constraints.unit_interval
 
@@ -210,7 +252,9 @@ beta = beta_gen(a=0.0, b=1.0, name='beta')
 cauchy = cauchy_gen(name='cauchy')
 expon = expon_gen(a=0.0, name='expon')
 gamma = gamma_gen(a=0.0, name='gamma')
+halfcauchy = halfcauchy_gen(name='halfcauchy_gen')
 lognorm = lognorm_gen(a=0.0, name='lognorm')
 norm = norm_gen(name='norm')
 t = t_gen(name='t')
+trunccauchy = trunccauchy_gen(name='trunccauchy_gen')
 uniform = uniform_gen(a=0.0, b=1.0, name='uniform')
