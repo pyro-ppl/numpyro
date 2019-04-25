@@ -32,7 +32,7 @@ from numpyro.distributions.util import sum_rightmost
 class Distribution(object):
     arg_constraints = {}
     support = None
-    is_reparametrized = False
+    reparametrized_params = []
     _validate_args = False
 
     def __init__(self, batch_shape=(), event_shape=(), validate_args=None):
