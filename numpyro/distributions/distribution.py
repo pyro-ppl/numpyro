@@ -75,7 +75,8 @@ class jax_generic(rv_generic):
         constraints = self.arg_constraints
         if args:
             for arg, arg_name in zip(args, self.shapes.split(', ')):
-                cond = np.logical_and(cond, constraints[arg_name](arg))
+                if arg_name in constraints:
+                    cond = np.logical_and(cond, constraints[arg_name](arg))
         return cond
 
 
