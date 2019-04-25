@@ -34,7 +34,7 @@ def test_unnormalized_normal(algo):
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_logistic_regression(algo):
     N, dim = 3000, 3
-    warmup_steps, num_samples = 1000, 8000
+    warmup_steps, num_samples = 1000, 12000
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
     logits = np.sum(true_coefs * data, axis=-1)
@@ -57,7 +57,7 @@ def test_logistic_regression(algo):
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_beta_bernoulli(algo):
-    warmup_steps, num_samples = 500, 1500
+    warmup_steps, num_samples = 500, 16000
 
     def model(data):
         alpha = np.array([1.1, 1.1])
@@ -81,7 +81,7 @@ def test_beta_bernoulli(algo):
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_dirichlet_categorical(algo):
-    warmup_steps, num_samples = 100, 1000
+    warmup_steps, num_samples = 100, 20000
 
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])

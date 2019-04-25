@@ -43,6 +43,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     trajectory_len = None
     momentum_generator = None
+    wa_update = None
 
     def init_kernel(init_samples,
                     num_warmup_steps,
@@ -55,7 +56,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     run_warmup=True,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
-        nonlocal momentum_generator, trajectory_len
+        nonlocal momentum_generator, wa_update, trajectory_len
         trajectory_len = float(trajectory_length)
         z = init_samples
         z_flat, unravel_fn = ravel_pytree(z)
@@ -78,16 +79,20 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc_state = HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
                              wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
 
-        jwa_update = jit(wa_update)
         if run_warmup:
-            for t in range(num_warmup_steps):
-                hmc_state = sample_kernel(hmc_state)
-                wa_state = jwa_update(t, hmc_state.accept_prob, hmc_state.z, wa_state)
-                hmc_state = hmc_state.update(step_size=wa_state.step_size,
-                                             inverse_mass_matrix=wa_state.inverse_mass_matrix)
+            hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps, warmup_update,
+                                                               (hmc_state, wa_state))
             return hmc_state
         else:
-            return hmc_state, wa_state, jwa_update
+            return hmc_state, wa_state, wa_update
+
+    def warmup_update(t, states):
+        hmc_state, wa_state = states
+        hmc_state = sample_kernel(hmc_state)
+        wa_state = wa_update(t, hmc_state.accept_prob, hmc_state.z, wa_state)
+        hmc_state = hmc_state.update(step_size=wa_state.step_size,
+                                     inverse_mass_matrix=wa_state.inverse_mass_matrix)
+        return hmc_state, wa_state
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng):
         num_steps = _get_num_steps(step_size, trajectory_len)
