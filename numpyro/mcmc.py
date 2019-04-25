@@ -122,7 +122,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
-    @jit
     def sample_kernel(hmc_state):
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
         r = momentum_generator(hmc_state.inverse_mass_matrix, rng_momentum)
