@@ -252,5 +252,6 @@ def fori_collect(n, body_fun, init_val, transform=_identity):
         val = body_fun(val)
         collection.append(ravel_transform(val))
 
-    collection = np.stack(collection)
+    # XXX: jax.numpy.stack/concatenate is currently so slow
+    collection = onp.stack(collection)
     return vmap(unravel_fn)(collection)
