@@ -86,7 +86,7 @@ class binom_gen(jax_discrete):
         return device_put(sample)
 
     def _logpmf(self, x, n, p):
-        n, p = _promote_dtypes(n, p)
+        x, n, p = _promote_dtypes(x, n, p)
         combiln = gammaln(n + 1) - (gammaln(x + 1) + gammaln(n - x + 1))
         if self.is_logits:
             # TODO: move this implementation to PyTorch if it does not get non-continuous problem

@@ -195,7 +195,8 @@ def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_samp
     dist.lognorm,
     dist.norm,
     dist.t,
-    dist.trunccauchy,
+    pytest.param(dist.trunccauchy, marks=pytest.mark.xfail(
+        reason='jvp rule for np.arctan is not yet available')),
     dist.uniform,
 ], ids=idfn)
 @pytest.mark.parametrize('loc, scale', [
