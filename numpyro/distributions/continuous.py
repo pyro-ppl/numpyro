@@ -221,6 +221,52 @@ class norm_gen(jax_continuous):
         return lsp_stats.norm.logcdf(x, loc, scale)
 
 
+class pareto_gen(jax_continuous):
+    arg_constraints = {'b': constraints.positive}
+    _support_mask = constraints.greater_than(1)
+
+    def _rvs(self, b):
+        return random.pareto(self._random_state, b, shape=self._size)
+
+    def _cdf(self, x, b):
+        return 1 - x ** (-b)
+
+    def _ppf(self, q, b):
+        return np.pow(1 - q, -1.0 / b)
+
+    def _sf(self, x, b):
+        return x ** (-b)
+
+    def _stats(self, b, moments='mv'):
+        mu, mu2, g1, g2 = None, None, None, None
+        if 'm' in moments:
+            mask = b > 1
+            bt = np.extract(mask, b)
+            mu = np.where(mask, bt / (bt - 1.0), np.inf)
+        if 'v' in moments:
+            mask = b > 2
+            bt = np.extract(mask, b)
+            mu2 = np.where(mask, bt / (bt - 2.0) / (bt - 1.0) ** 2, np.inf)
+        if 's' in moments:
+            mask = b > 3
+            bt = np.extract(mask, b)
+            vals = 2 * (bt + 1.0) * np.sqrt(bt - 2.0) / ((bt - 3.0) * np.sqrt(bt))
+            g1 = np.where(mask, vals, np.nan)
+        if 'k' in moments:
+            mask = b > 4
+            bt = np.extract(mask, b)
+            vals = (6.0 * np.polyval([1.0, 1.0, -6, -2], bt)
+                    / np.polyval([1.0, -7.0, 12.0, 0.0], bt))
+            g2 = np.where(mask, vals, np.nan)
+        return mu, mu2, g1, g2
+
+    def _entropy(self, c):
+        return 1 + 1.0 / c - np.log(c)
+
+
+pareto = pareto_gen(a=1.0, name="pareto")
+
+
 class t_gen(jax_continuous):
     arg_constraints = {'df': constraints.positive}
     _support_mask = constraints.real

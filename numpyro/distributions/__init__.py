@@ -7,6 +7,7 @@ from numpyro.distributions.continuous import (
     halfcauchy,
     lognorm,
     norm,
+    pareto,
     t,
     trunccauchy,
     uniform
@@ -28,6 +29,7 @@ __all__ = [
     'lognorm',
     'multinomial',
     'norm',
+    'pareto',
     't',
     'trunccauchy',
     'uniform',
