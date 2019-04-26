@@ -160,6 +160,8 @@ def test_multivariate_validate_args(jax_dist, valid_args, invalid_args, invalid_
     (dist.bernoulli, (np.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+    (dist.poisson, (1.,)),
+    (dist.poisson, (np.array([1., 4., 10.]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -184,6 +186,7 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     (dist.bernoulli, (0.8,), (np.nan,), 2),
     (dist.binom, (10, 0.8), (-10, 0.8), -10),
     (dist.binom, (10, 0.8), (10, 1.1), -1),
+    (dist.poisson, (4.,), (-1.,), -1),
 ], ids=idfn)
 def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_sample):
     with validation_enabled():
@@ -338,6 +341,8 @@ def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
+    (dist.poisson, (4.,)),
+    (dist.poisson, (np.array([1., 4., 10.]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,

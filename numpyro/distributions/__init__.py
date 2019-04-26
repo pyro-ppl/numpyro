@@ -14,7 +14,7 @@ from numpyro.distributions.continuous import (
     truncnorm,
     uniform
 )
-from numpyro.distributions.discrete import bernoulli, binom
+from numpyro.distributions.discrete import bernoulli, binom, poisson
 from numpyro.distributions.multivariate import categorical, dirichlet, multinomial
 
 __all__ = [
@@ -33,6 +33,7 @@ __all__ = [
     'multinomial',
     'norm',
     'pareto',
+    'poisson',
     't',
     'trunccauchy',
     'truncnorm',

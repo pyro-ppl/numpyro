@@ -6,10 +6,9 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-
 import jax.numpy as np
 import jax.random as random
-import jax.scipy.stats as lsp_stats
+from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import digamma, gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.distributions import constraints
@@ -146,7 +145,7 @@ class halfcauchy_gen(jax_continuous):
         return np.log(2 * np.pi)
 
 
-class halfnorm_gen(rv_continuous):
+class halfnorm_gen(jax_continuous):
     _support_mask = constraints.positive
 
     def _rvs(self):
@@ -167,10 +166,10 @@ class halfnorm_gen(rv_continuous):
 
     def _stats(self):
         return (np.sqrt(2.0 / np.pi), 1 - 2.0 / np.pi,
-                np.sqrt(2) * (4 - np.pi) / (np.pi - 2) ** 1.5, 8 * (np.pi - 3) / (np.pi - 2) **2)
+                np.sqrt(2) * (4 - np.pi) / (np.pi - 2) ** 1.5, 8 * (np.pi - 3) / (np.pi - 2) ** 2)
 
     def _entropy(self):
-        return 0.5 * np.log( np.pi / 2.0) + 0.5
+        return 0.5 * np.log(np.pi / 2.0) + 0.5
 
 
 class lognorm_gen(jax_continuous):
@@ -298,55 +297,6 @@ class pareto_gen(jax_continuous):
         return 1 + 1.0 / c - np.log(c)
 
 
-pareto = pareto_gen(a=1.0, name="pareto")
-
-
-class pareto_gen(jax_continuous):
-    arg_constraints = {'b': constraints.positive}
-    _support_mask = constraints.greater_than(1)
-
-    def _rvs(self, b):
-        return random.pareto(self._random_state, b, shape=self._size)
-
-    def _cdf(self, x, b):
-        return 1 - x ** (-b)
-
-    def _ppf(self, q, b):
-        return np.pow(1 - q, -1.0 / b)
-
-    def _sf(self, x, b):
-        return x ** (-b)
-
-    def _stats(self, b, moments='mv'):
-        mu, mu2, g1, g2 = None, None, None, None
-        if 'm' in moments:
-            mask = b > 1
-            bt = np.extract(mask, b)
-            mu = np.where(mask, bt / (bt - 1.0), np.inf)
-        if 'v' in moments:
-            mask = b > 2
-            bt = np.extract(mask, b)
-            mu2 = np.where(mask, bt / (bt - 2.0) / (bt - 1.0) ** 2, np.inf)
-        if 's' in moments:
-            mask = b > 3
-            bt = np.extract(mask, b)
-            vals = 2 * (bt + 1.0) * np.sqrt(bt - 2.0) / ((bt - 3.0) * np.sqrt(bt))
-            g1 = np.where(mask, vals, np.nan)
-        if 'k' in moments:
-            mask = b > 4
-            bt = np.extract(mask, b)
-            vals = (6.0 * np.polyval([1.0, 1.0, -6, -2], bt)
-                    / np.polyval([1.0, -7.0, 12.0, 0.0], bt))
-            g2 = np.where(mask, vals, np.nan)
-        return mu, mu2, g1, g2
-
-    def _entropy(self, c):
-        return 1 + 1.0 / c - np.log(c)
-
-
-pareto = pareto_gen(a=1.0, name="pareto")
-
-
 class t_gen(jax_continuous):
     arg_constraints = {'df': constraints.positive}
     _support_mask = constraints.real
@@ -428,27 +378,24 @@ class truncnorm_gen(jax_continuous):
         return self._ppf(u, a, b)
 
     def _pdf(self, x, a, b):
-        delta = np.where(a > 0,
-                         norm._sf(a) - norm._sf(b),
-                         norm._cdf(b) - norm._cdf(a))
-        return norm._pdf(x) / self._delta
+        delta = norm._sf(a) - norm._sf(b)
+        return norm._pdf(x) / delta
 
     def _logpdf(self, x, a, b):
-        delta = np.where(a > 0,
-                         norm._sf(a) - norm._sf(b),
-                         norm._cdf(b) - norm._cdf(a))
+        x, a, b = _promote_dtypes(x, a, b)
+        # XXX: consider to use norm._cdf(b) - norm._cdf(a) when a, b < 0
+        delta = norm._sf(a) - norm._sf(b)
         return norm._logpdf(x) - np.log(delta)
 
     def _cdf(self, x, a, b):
-        delta = np.where(a > 0,
-                         norm._sf(a) - norm._sf(b),
-                         norm._cdf(b) - norm._cdf(a))
+        delta = norm._sf(a) - norm._sf(b)
         return (norm._cdf(x) - norm._cdf(a)) / delta
 
     def _ppf(self, q, a, b):
-        ppf = np.where(a > 0,
-                       norm._isf(q * norm._sf(b) + norm._sf(a) * (1.0 - q)),
-                       norm._ppf(q * norm._cdf(b) + norm._cdf(a) * (1.0 - q)))
+        q, a, b = _promote_dtypes(q, a, b)
+        # XXX: consider to use norm._ppf(q * norm._cdf(b) + norm._cdf(a) * (1.0 - q))
+        # when a, b < 0
+        ppf = norm._isf(q * norm._sf(b) + norm._sf(a) * (1.0 - q))
         return ppf
 
     def _stats(self, a, b):
@@ -484,16 +431,11 @@ cauchy = cauchy_gen(name='cauchy')
 expon = expon_gen(a=0.0, name='expon')
 gamma = gamma_gen(a=0.0, name='gamma')
 halfcauchy = halfcauchy_gen(a=0.0, name='halfcauchy')
-<<<<<<< HEAD
 halfnorm = halfnorm_gen(a=0.0, name='halfnorm')
-=======
->>>>>>> upstream/master
 lognorm = lognorm_gen(a=0.0, name='lognorm')
 norm = norm_gen(name='norm')
+pareto = pareto_gen(a=1.0, name="pareto")
 t = t_gen(name='t')
 trunccauchy = trunccauchy_gen(name='trunccauchy')
-<<<<<<< HEAD
 truncnorm = truncnorm_gen(name='truncnorm')
-=======
->>>>>>> upstream/master
 uniform = uniform_gen(a=0.0, b=1.0, name='uniform')
