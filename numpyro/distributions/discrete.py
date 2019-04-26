@@ -130,5 +130,42 @@ class binom_gen(jax_discrete):
         return np.sum(entr(vals), axis=0)
 
 
+class poisson_gen(jax_discrete):
+    arg_constraints = {'mu': constraints.positive}
+    _support_mask = constraints.nonnegative_integer
+
+    def _rvs(self, mu):
+        random_state = onp.random.RandomState(self._random_state)
+        sample = random_state.poisson(mu, self._size)
+        return device_put(sample)
+
+    def _logpmf(self, x, mu):
+        x, mu = _promote_dtypes(x, mu)
+        Pk = xlogy(x, mu) - gammaln(x + 1) - mu
+        return Pk
+
+    def _pmf(self, x, mu):
+        # poisson.pmf(k) = exp(-mu) * mu**k / k!
+        return np.exp(self._logpmf(x, mu))
+
+    def _cdf(self, x, mu):
+        raise NotImplementedError('Missing jax.scipy.special.pdtr')
+
+    def _sf(self, x, mu):
+        raise NotImplementedError('Missing jax.scipy.special.pdtrc')
+
+    def _ppf(self, q, mu):
+        raise NotImplementedError('Missing jax.scipy.special.pdtrk')
+
+    def _stats(self, mu):
+        var = mu
+        tmp = np.asarray(mu)
+        mu_nonzero = tmp > 0
+        g1 = np.where(mu_nonzero, np.sqrt(1.0 / tmp), np.inf)
+        g2 = np.where(mu_nonzero, 1.0 / tmp, np.inf)
+        return mu, var, g1, g2
+
+
 bernoulli = bernoulli_gen(b=1, name='bernoulli')
 binom = binom_gen(name='binom')
+poisson = poisson_gen(name='poisson')

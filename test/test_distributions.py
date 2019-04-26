@@ -32,9 +32,11 @@ def idfn(param):
     dist.expon,
     dist.gamma,
     dist.halfcauchy,
+    dist.halfnorm,
     dist.lognorm,
     dist.pareto,
     dist.trunccauchy,
+    dist.truncnorm,
     dist.norm,
     dist.t,
     dist.uniform,
@@ -76,6 +78,8 @@ def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
     (dist.gamma, (np.array([-2., 3]),), np.array([1., -2])),
     (dist.halfcauchy, (), -1),
     (dist.halfcauchy, (), np.array([1., -2])),
+    (dist.halfnorm, (), -1),
+    (dist.halfnorm, (), np.array([1., -2])),
     (dist.lognorm, (-1,), -1),
     (dist.lognorm, (np.array([-2., 3]),), np.array([1., -2])),
     (dist.norm, (), np.inf),
@@ -86,6 +90,8 @@ def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
     (dist.t, (np.array([-2., 3]),), np.array([1., np.nan])),
     (dist.trunccauchy, (), -1),
     (dist.trunccauchy, (), np.array([1., -2])),
+    (dist.truncnorm, (), -1),
+    (dist.truncnorm, (), np.array([1., -2])),
     (dist.uniform, (), -1),
     (dist.uniform, (), np.array([0.5, -2])),
 ], ids=idfn)
@@ -154,6 +160,8 @@ def test_multivariate_validate_args(jax_dist, valid_args, invalid_args, invalid_
     (dist.bernoulli, (np.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+    (dist.poisson, (1.,)),
+    (dist.poisson, (np.array([1., 4., 10.]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -178,6 +186,7 @@ def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     (dist.bernoulli, (0.8,), (np.nan,), 2),
     (dist.binom, (10, 0.8), (-10, 0.8), -10),
     (dist.binom, (10, 0.8), (10, 1.1), -1),
+    (dist.poisson, (4.,), (-1.,), -1),
 ], ids=idfn)
 def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_sample):
     with validation_enabled():
@@ -195,12 +204,14 @@ def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_samp
     dist.expon,
     dist.gamma,
     dist.halfcauchy,
+    dist.halfnorm,
     dist.lognorm,
     dist.norm,
     dist.pareto,
     dist.t,
     pytest.param(dist.trunccauchy, marks=pytest.mark.xfail(
         reason='jvp rule for np.arctan is not yet available')),
+    dist.truncnorm,
     dist.uniform,
 ], ids=idfn)
 @pytest.mark.parametrize('loc, scale', [
@@ -243,11 +254,13 @@ def test_mvsample_gradient(jax_dist, dist_args):
     dist.expon,
     dist.gamma,
     dist.halfcauchy,
+    dist.halfnorm,
     dist.lognorm,
     dist.norm,
     dist.pareto,
     dist.t,
     dist.trunccauchy,
+    dist.truncnorm,
     dist.uniform,
 ], ids=idfn)
 @pytest.mark.parametrize('loc_scale', [
@@ -328,6 +341,8 @@ def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
     (dist.binom, (10, 0.4)),
     (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
     (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
+    (dist.poisson, (4.,)),
+    (dist.poisson, (np.array([1., 4., 10.]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,

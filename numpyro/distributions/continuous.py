@@ -6,10 +6,9 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-
 import jax.numpy as np
 import jax.random as random
-import jax.scipy.stats as lsp_stats
+from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import digamma, gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.distributions import constraints
@@ -146,6 +145,33 @@ class halfcauchy_gen(jax_continuous):
         return np.log(2 * np.pi)
 
 
+class halfnorm_gen(jax_continuous):
+    _support_mask = constraints.positive
+
+    def _rvs(self):
+        return np.abs(random.normal(self._random_state, shape=self._size))
+
+    def _pdf(self, x):
+        # halfnorm.pdf(x) = sqrt(2/pi) * exp(-x**2/2)
+        return np.sqrt(2.0 / np.pi) * np.exp(-x * x / 2.0)
+
+    def _logpdf(self, x):
+        return 0.5 * np.log(2.0 / np.pi) - x * x / 2.0
+
+    def _cdf(self, x):
+        return norm._cdf(x) * 2 - 1.0
+
+    def _ppf(self, q):
+        return norm._ppf((1 + q) / 2.0)
+
+    def _stats(self):
+        return (np.sqrt(2.0 / np.pi), 1 - 2.0 / np.pi,
+                np.sqrt(2) * (4 - np.pi) / (np.pi - 2) ** 1.5, 8 * (np.pi - 3) / (np.pi - 2) ** 2)
+
+    def _entropy(self):
+        return 0.5 * np.log(np.pi / 2.0) + 0.5
+
+
 class lognorm_gen(jax_continuous):
     arg_constraints = {'s': constraints.positive}
     _support_mask = constraints.positive
@@ -164,19 +190,19 @@ class lognorm_gen(jax_continuous):
                         -np.inf)
 
     def _cdf(self, x, s):
-        return ndtr(np.log(x) / s)
+        return norm._cdf(np.log(x) / s)
 
     def _logcdf(self, x, s):
-        return log_ndtr(np.log(x) / s)
+        return norm._logcdf(np.log(x) / s)
 
     def _ppf(self, q, s):
-        return np.exp(s * ndtri(q))
+        return np.exp(s * norm._ppf(q))
 
     def _sf(self, x, s):
-        return ndtr(-np.log(x) / s)
+        return norm._sf(np.log(x) / s)
 
     def _logsf(self, x, s):
-        return log_ndtr(-np.log(x) / s)
+        return norm._logsf(-np.log(x) / s)
 
     def _stats(self, s):
         p = np.exp(s * s)
@@ -196,6 +222,19 @@ class norm_gen(jax_continuous):
     def _rvs(self):
         return random.normal(self._random_state, shape=self._size)
 
+    def _pdf(self, x):
+        # norm.pdf(x) = exp(-x**2/2)/sqrt(2*pi)
+        return np.exp(-x**2 / 2.0) / np.sqrt(2 * np.pi)
+
+    def _logpdf(self, x):
+        return -(x ** 2 + np.log(2 * np.pi)) / 2.0
+
+    def _cdf(self, x):
+        return ndtr(x)
+
+    def _logcdf(self, x):
+        return log_ndtr(x)
+
     def _sf(self, x):
         return ndtr(-x)
 
@@ -213,12 +252,6 @@ class norm_gen(jax_continuous):
 
     def _entropy(self):
         return 0.5 * (np.log(2 * np.pi) + 1)
-
-    def cdf(x, loc=0, scale=1):
-        return lsp_stats.norm.cdf(x, loc, scale)
-
-    def logcdf(x, loc=0, scale=1):
-        return lsp_stats.norm.logcdf(x, loc, scale)
 
 
 class pareto_gen(jax_continuous):
@@ -262,9 +295,6 @@ class pareto_gen(jax_continuous):
 
     def _entropy(self, c):
         return 1 + 1.0 / c - np.log(c)
-
-
-pareto = pareto_gen(a=1.0, name="pareto")
 
 
 class t_gen(jax_continuous):
@@ -320,14 +350,61 @@ class trunccauchy_gen(jax_continuous):
                            minval=np.arctan(a), maxval=np.arctan(b))
         return np.tan(u)
 
+    def _pdf(self, x, a, b):
+        return np.reciprocal((1 + x * x) * (np.arctan(b) - np.arctan(a)))
+
     def _logpdf(self, x, a, b):
         # trunc_pdf(x) = pdf(x) / (cdf(b) - cdf(a))
         #              = 1 / (1 + x^2) / (arctan(b) - arctan(a))
         normalizer = np.log(np.arctan(b) - np.arctan(a))
         return -(np.log(1 + x * x) + normalizer)
 
+
+class truncnorm_gen(jax_continuous):
+    # TODO: override _argcheck with the constraint that a < b
+
+    def _support(self, *args, **kwargs):
+        (a, b), loc, scale = self._parse_args(*args, **kwargs)
+        # TODO: make constraints.less_than and support a == -np.inf
+        if b == np.inf:
+            return constraints.greater_than((a - loc) * scale)
+        else:
+            return constraints.interval((a - loc) * scale, (b - loc) * scale)
+
+    def _rvs(self, a, b):
+        # We use inverse transform method:
+        # z ~ ppf(U), where U ~ Uniform(0, 1).
+        u = random.uniform(self._random_state, shape=self._size)
+        return self._ppf(u, a, b)
+
     def _pdf(self, x, a, b):
-        return np.reciprocal((1 + x * x) * (np.arctan(b) - np.arctan(a)))
+        delta = norm._sf(a) - norm._sf(b)
+        return norm._pdf(x) / delta
+
+    def _logpdf(self, x, a, b):
+        x, a, b = _promote_dtypes(x, a, b)
+        # XXX: consider to use norm._cdf(b) - norm._cdf(a) when a, b < 0
+        delta = norm._sf(a) - norm._sf(b)
+        return norm._logpdf(x) - np.log(delta)
+
+    def _cdf(self, x, a, b):
+        delta = norm._sf(a) - norm._sf(b)
+        return (norm._cdf(x) - norm._cdf(a)) / delta
+
+    def _ppf(self, q, a, b):
+        q, a, b = _promote_dtypes(q, a, b)
+        # XXX: consider to use norm._ppf(q * norm._cdf(b) + norm._cdf(a) * (1.0 - q))
+        # when a, b < 0
+        ppf = norm._isf(q * norm._sf(b) + norm._sf(a) * (1.0 - q))
+        return ppf
+
+    def _stats(self, a, b):
+        nA, nB = norm._cdf(a), norm._cdf(b)
+        d = nB - nA
+        pA, pB = norm._pdf(a), norm._pdf(b)
+        mu = (pA - pB) / d   # correction sign
+        mu2 = 1 + (a * pA - b * pB) / d - mu * mu
+        return mu, mu2, None, None
 
 
 class uniform_gen(jax_continuous):
@@ -354,8 +431,11 @@ cauchy = cauchy_gen(name='cauchy')
 expon = expon_gen(a=0.0, name='expon')
 gamma = gamma_gen(a=0.0, name='gamma')
 halfcauchy = halfcauchy_gen(a=0.0, name='halfcauchy')
+halfnorm = halfnorm_gen(a=0.0, name='halfnorm')
 lognorm = lognorm_gen(a=0.0, name='lognorm')
 norm = norm_gen(name='norm')
+pareto = pareto_gen(a=1.0, name="pareto")
 t = t_gen(name='t')
 trunccauchy = trunccauchy_gen(name='trunccauchy')
+truncnorm = truncnorm_gen(name='truncnorm')
 uniform = uniform_gen(a=0.0, b=1.0, name='uniform')
