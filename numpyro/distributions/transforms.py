@@ -187,7 +187,7 @@ class StickBreakingTransform(Transform):
 
     def inv(self, y):
         y_crop = y[..., :-1]
-        z1m_cumprod = 1 - cumsum(y_crop)
+        z1m_cumprod = np.clip(1 - cumsum(y_crop), a_min=np.finfo(y.dtype).tiny)
         # hence x = logit(z) = log(z / (1 - z)) = y[::-1] / z1m_cumprod
         x = np.log(y_crop / z1m_cumprod)
         return x + np.log(x.shape[-1] - np.arange(x.shape[-1]))

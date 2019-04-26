@@ -10,7 +10,7 @@
 import jax.numpy as np
 import jax.random as random
 import jax.scipy.stats as lsp_stats
-from jax.scipy.special import digamma, gammaln
+from jax.scipy.special import digamma, gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import jax_continuous
@@ -18,7 +18,7 @@ from numpyro.distributions.util import standard_gamma
 
 
 class beta_gen(jax_continuous):
-    arg_constraints = {"a": constraints.positive, "b": constraints.positive}
+    arg_constraints = {'a': constraints.positive, 'b': constraints.positive}
     _support_mask = constraints.unit_interval
 
     def _rvs(self, a, b):
@@ -31,7 +31,10 @@ class beta_gen(jax_continuous):
         return gamma_a / (gamma_a + gamma_b)
 
     def _cdf(self, x, a, b):
-        raise NotImplementedError
+        raise NotImplementedError('Missing jax.scipy.special.btdtr')
+
+    def _ppf(self, q, a, b):
+        raise NotImplementedError('Missing jax.scipy.special.btdtri')
 
     def _stats(self, a, b):
         mn = a * 1.0 / (a + b)
@@ -96,16 +99,20 @@ class expon_gen(jax_continuous):
 
 
 class gamma_gen(jax_continuous):
-    arg_constraints = {"a": constraints.positive}
+    arg_constraints = {'a': constraints.positive}
     _support_mask = constraints.positive
 
     def _rvs(self, a):
         return standard_gamma(self._random_state, a, shape=self._size)
 
-    # TODO: add _cdf/_sf methods when incomplete gamma is available
-    # https://github.com/google/jax/issues/479
     def _cdf(self, x, a):
-        raise NotImplementedError
+        raise NotImplementedError('Missing jax.scipy.special.gammainc')
+
+    def _sf(self, x, a):
+        raise NotImplementedError('Missing jax.scipy.special.gammainc')
+
+    def _ppf(self, q, a):
+        raise NotImplementedError('Missing jax.scipy.special.gammaincinv')
 
     def _stats(self, a):
         return a, a, 2.0 / np.sqrt(a), 6.0 / a
@@ -114,8 +121,33 @@ class gamma_gen(jax_continuous):
         return digamma(a) * (1 - a) + a + gammaln(a)
 
 
+class halfcauchy_gen(jax_continuous):
+    _support_mask = constraints.positive
+
+    def _rvs(self):
+        return np.abs(random.cauchy(self._random_state, shape=self._size))
+
+    def _pdf(self, x):
+        return 2.0 / np.pi / (1.0 + x * x)
+
+    def _logpdf(self, x):
+        return np.log(2.0 / np.pi) - np.log1p(x * x)
+
+    def _cdf(self, x):
+        return 2.0 / np.pi * np.arctan(x)
+
+    def _ppf(self, q):
+        return np.tan(np.pi / 2 * q)
+
+    def _stats(self):
+        return np.inf, np.inf, np.nan, np.nan
+
+    def _entropy(self):
+        return np.log(2 * np.pi)
+
+
 class lognorm_gen(jax_continuous):
-    arg_constraints = {"s": constraints.positive}
+    arg_constraints = {'s': constraints.positive}
     _support_mask = constraints.positive
 
     def _rvs(self, s):
@@ -130,6 +162,21 @@ class lognorm_gen(jax_continuous):
         return np.where(x != 0,
                         -np.log(x) ** 2 / (2 * s ** 2) - np.log(s * x * np.sqrt(2 * np.pi)),
                         -np.inf)
+
+    def _cdf(self, x, s):
+        return ndtr(np.log(x) / s)
+
+    def _logcdf(self, x, s):
+        return log_ndtr(np.log(x) / s)
+
+    def _ppf(self, q, s):
+        return np.exp(s * ndtri(q))
+
+    def _sf(self, x, s):
+        return ndtr(-np.log(x) / s)
+
+    def _logsf(self, x, s):
+        return log_ndtr(-np.log(x) / s)
 
     def _stats(self, s):
         p = np.exp(s * s)
@@ -149,6 +196,18 @@ class norm_gen(jax_continuous):
     def _rvs(self):
         return random.normal(self._random_state, shape=self._size)
 
+    def _sf(self, x):
+        return ndtr(-x)
+
+    def _logsf(self, x):
+        return log_ndtr(-x)
+
+    def _ppf(self, q):
+        return ndtri(q)
+
+    def _isf(self, q):
+        return -ndtri(q)
+
     def _stats(self):
         return 0.0, 1.0, 0.0, 0.0
 
@@ -162,8 +221,54 @@ class norm_gen(jax_continuous):
         return lsp_stats.norm.logcdf(x, loc, scale)
 
 
+class pareto_gen(jax_continuous):
+    arg_constraints = {'b': constraints.positive}
+    _support_mask = constraints.greater_than(1)
+
+    def _rvs(self, b):
+        return random.pareto(self._random_state, b, shape=self._size)
+
+    def _cdf(self, x, b):
+        return 1 - x ** (-b)
+
+    def _ppf(self, q, b):
+        return np.pow(1 - q, -1.0 / b)
+
+    def _sf(self, x, b):
+        return x ** (-b)
+
+    def _stats(self, b, moments='mv'):
+        mu, mu2, g1, g2 = None, None, None, None
+        if 'm' in moments:
+            mask = b > 1
+            bt = np.extract(mask, b)
+            mu = np.where(mask, bt / (bt - 1.0), np.inf)
+        if 'v' in moments:
+            mask = b > 2
+            bt = np.extract(mask, b)
+            mu2 = np.where(mask, bt / (bt - 2.0) / (bt - 1.0) ** 2, np.inf)
+        if 's' in moments:
+            mask = b > 3
+            bt = np.extract(mask, b)
+            vals = 2 * (bt + 1.0) * np.sqrt(bt - 2.0) / ((bt - 3.0) * np.sqrt(bt))
+            g1 = np.where(mask, vals, np.nan)
+        if 'k' in moments:
+            mask = b > 4
+            bt = np.extract(mask, b)
+            vals = (6.0 * np.polyval([1.0, 1.0, -6, -2], bt)
+                    / np.polyval([1.0, -7.0, 12.0, 0.0], bt))
+            g2 = np.where(mask, vals, np.nan)
+        return mu, mu2, g1, g2
+
+    def _entropy(self, c):
+        return 1 + 1.0 / c - np.log(c)
+
+
+pareto = pareto_gen(a=1.0, name="pareto")
+
+
 class t_gen(jax_continuous):
-    arg_constraints = {"df": constraints.positive}
+    arg_constraints = {'df': constraints.positive}
     _support_mask = constraints.real
 
     def _rvs(self, df):
@@ -175,7 +280,16 @@ class t_gen(jax_continuous):
         return normal * np.sqrt(half_df / gamma)
 
     def _cdf(self, x, df):
-        raise NotImplementedError
+        raise NotImplementedError('Missing jax.scipy.special.stdtr')
+
+    def _sf(self, x, df):
+        raise NotImplementedError('Missing jax.scipy.special.stdtr')
+
+    def _ppf(self, q, df):
+        raise NotImplementedError('Missing jax.scipy.special.stdtrit')
+
+    def _isf(self, q, df):
+        raise NotImplementedError('Missing jax.scipy.special.stdtrit')
 
     def _stats(self, df):
         mu = np.where(df > 1, 0.0, np.inf)
@@ -185,6 +299,35 @@ class t_gen(jax_continuous):
         g2 = np.where(df > 4, 6.0 / (df - 4.0), np.inf)
         g2 = np.where(df <= 2, np.nan, g2)
         return mu, mu2, g1, g2
+
+
+class trunccauchy_gen(jax_continuous):
+    # TODO: override _argcheck with the constraint that a < b
+
+    def _support(self, *args, **kwargs):
+        (a, b), loc, scale = self._parse_args(*args, **kwargs)
+        # TODO: make constraints.less_than and support a == -np.inf
+        if b == np.inf:
+            return constraints.greater_than((a - loc) * scale)
+        else:
+            return constraints.interval((a - loc) * scale, (b - loc) * scale)
+
+    def _rvs(self, a, b):
+        # We use inverse transform method:
+        # z ~ ppf(U), where U ~ Uniform(cdf(a), cdf(b)).
+        #                     ~ Uniform(arctan(a), arctan(b)) / pi + 1/2
+        u = random.uniform(self._random_state, shape=self._size,
+                           minval=np.arctan(a), maxval=np.arctan(b))
+        return np.tan(u)
+
+    def _logpdf(self, x, a, b):
+        # trunc_pdf(x) = pdf(x) / (cdf(b) - cdf(a))
+        #              = 1 / (1 + x^2) / (arctan(b) - arctan(a))
+        normalizer = np.log(np.arctan(b) - np.arctan(a))
+        return -(np.log(1 + x * x) + normalizer)
+
+    def _pdf(self, x, a, b):
+        return np.reciprocal((1 + x * x) * (np.arctan(b) - np.arctan(a)))
 
 
 class uniform_gen(jax_continuous):
@@ -210,7 +353,9 @@ beta = beta_gen(a=0.0, b=1.0, name='beta')
 cauchy = cauchy_gen(name='cauchy')
 expon = expon_gen(a=0.0, name='expon')
 gamma = gamma_gen(a=0.0, name='gamma')
+halfcauchy = halfcauchy_gen(a=0.0, name='halfcauchy')
 lognorm = lognorm_gen(a=0.0, name='lognorm')
 norm = norm_gen(name='norm')
 t = t_gen(name='t')
+trunccauchy = trunccauchy_gen(name='trunccauchy')
 uniform = uniform_gen(a=0.0, b=1.0, name='uniform')

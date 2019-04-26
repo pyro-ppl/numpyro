@@ -31,7 +31,10 @@ def idfn(param):
     dist.cauchy,
     dist.expon,
     dist.gamma,
+    dist.halfcauchy,
     dist.lognorm,
+    dist.pareto,
+    dist.trunccauchy,
     dist.norm,
     dist.t,
     dist.uniform,
@@ -48,7 +51,7 @@ def idfn(param):
 ])
 def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
     rng = random.PRNGKey(0)
-    args = (1,) * jax_dist.numargs
+    args = [i + 1 for i in range(jax_dist.numargs)]
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
     samples = jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
@@ -71,17 +74,23 @@ def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
     (dist.expon, (), np.array([1., -2])),
     (dist.gamma, (-1,), -1),
     (dist.gamma, (np.array([-2., 3]),), np.array([1., -2])),
+    (dist.halfcauchy, (), -1),
+    (dist.halfcauchy, (), np.array([1., -2])),
     (dist.lognorm, (-1,), -1),
     (dist.lognorm, (np.array([-2., 3]),), np.array([1., -2])),
     (dist.norm, (), np.inf),
     (dist.norm, (), np.array([1., np.nan])),
+    (dist.pareto, (-1,), -1),
+    (dist.pareto, (np.array([-2., 3]),), np.array([1., -2])),
     (dist.t, (-1,), np.inf),
     (dist.t, (np.array([-2., 3]),), np.array([1., np.nan])),
+    (dist.trunccauchy, (), -1),
+    (dist.trunccauchy, (), np.array([1., -2])),
     (dist.uniform, (), -1),
     (dist.uniform, (), np.array([0.5, -2])),
 ], ids=idfn)
 def test_continuous_validate_args(jax_dist, dist_args, sample):
-    valid_args = (1,) * len(dist_args)
+    valid_args = [i + 1 for i in range(jax_dist.numargs)]
     with validation_enabled():
         if dist_args:
             with pytest.raises(ValueError, match='Invalid parameters'):
@@ -90,7 +99,6 @@ def test_continuous_validate_args(jax_dist, dist_args, sample):
         with pytest.raises(ValueError, match='Invalid scale parameter'):
             jax_dist(*valid_args, scale=-1)
 
-        valid_args = (1,) * len(dist_args)
         frozen_dist = jax_dist(*valid_args)
         with pytest.raises(ValueError, match='Invalid values'):
             frozen_dist.logpdf(sample)
@@ -186,9 +194,13 @@ def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_samp
     dist.cauchy,
     dist.expon,
     dist.gamma,
+    dist.halfcauchy,
     dist.lognorm,
     dist.norm,
+    dist.pareto,
     dist.t,
+    pytest.param(dist.trunccauchy, marks=pytest.mark.xfail(
+        reason='jvp rule for np.arctan is not yet available')),
     dist.uniform,
 ], ids=idfn)
 @pytest.mark.parametrize('loc, scale', [
@@ -197,7 +209,7 @@ def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_samp
 ])
 def test_sample_gradient(jax_dist, loc, scale):
     rng = random.PRNGKey(0)
-    args = (1,) * jax_dist.numargs
+    args = [i + 1 for i in range(jax_dist.numargs)]
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
 
     def fn(args, loc, scale):
@@ -230,9 +242,12 @@ def test_mvsample_gradient(jax_dist, dist_args):
     dist.cauchy,
     dist.expon,
     dist.gamma,
+    dist.halfcauchy,
     dist.lognorm,
     dist.norm,
+    dist.pareto,
     dist.t,
+    dist.trunccauchy,
     dist.uniform,
 ], ids=idfn)
 @pytest.mark.parametrize('loc_scale', [
@@ -243,10 +258,16 @@ def test_mvsample_gradient(jax_dist, dist_args):
 ])
 def test_continuous_logpdf(jax_dist, loc_scale):
     rng = random.PRNGKey(0)
-    args = (1,) * jax_dist.numargs + loc_scale
+    args = [i + 1 for i in range(jax_dist.numargs)] + list(loc_scale)
     samples = jax_dist.rvs(*args, random_state=rng)
-    sp_dist = getattr(osp_stats, jax_dist.name)
-    assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args), atol=1e-6)
+    if jax_dist is dist.trunccauchy:
+        sp_dist = osp_stats.cauchy
+        assert_allclose(jax_dist.logpdf(samples, args[0], args[1]),
+                        sp_dist.logpdf(samples) - np.log(sp_dist.cdf(args[1]) - sp_dist.cdf(args[0])),
+                        atol=1e-6)
+    else:
+        sp_dist = getattr(osp_stats, jax_dist.name)
+        assert_allclose(jax_dist.logpdf(samples, *args), sp_dist.logpdf(samples, *args), atol=1.3e-6)
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [

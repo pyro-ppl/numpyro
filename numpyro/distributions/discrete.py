@@ -43,6 +43,18 @@ class bernoulli_gen(jax_discrete):
     def _pmf(self, x, p):
         return np.exp(self._logpmf(x, p))
 
+    def _cdf(self, x, p):
+        return binom._cdf(x, 1, p)
+
+    def _sf(self, x, p):
+        return binom._sf(x, 1, p)
+
+    def _ppf(self, q, p):
+        return binom._ppf(q, 1, p)
+
+    def _stats(self, p):
+        return binom._stats(1, p)
+
     def _entropy(self, p):
         # TODO: use logits and binary_cross_entropy_with_logits for more stable
         if self.is_logits:
@@ -74,7 +86,7 @@ class binom_gen(jax_discrete):
         return device_put(sample)
 
     def _logpmf(self, x, n, p):
-        n, p = _promote_dtypes(n, p)
+        x, n, p = _promote_dtypes(x, n, p)
         combiln = gammaln(n + 1) - (gammaln(x + 1) + gammaln(n - x + 1))
         if self.is_logits:
             # TODO: move this implementation to PyTorch if it does not get non-continuous problem
@@ -89,6 +101,26 @@ class binom_gen(jax_discrete):
 
     def _pmf(self, x, n, p):
         return np.exp(self._logpmf(x, n, p))
+
+    def _cdf(self, x, n, p):
+        raise NotImplementedError('Missing jax.scipy.special.bdtr')
+
+    def _sf(self, x, n, p):
+        raise NotImplementedError('Missing jax.scipy.special.bdtrc')
+
+    def _ppf(self, q, n, p):
+        raise NotImplementedError('Missing jax.scipy.special.bdtrk')
+
+    def _stats(self, n, p, moments='mv'):
+        q = 1.0 - p
+        mu = n * p
+        var = n * p * q
+        g1, g2 = None, None
+        if 's' in moments:
+            g1 = (q - p) / np.sqrt(var)
+        if 'k' in moments:
+            g2 = (1.0 - 6 * p * q) / var
+        return mu, var, g1, g2
 
     def _entropy(self, n, p):
         if self.is_logits:
