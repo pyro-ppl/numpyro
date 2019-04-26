@@ -5,11 +5,13 @@ from numpyro.distributions.continuous import (
     expon,
     gamma,
     halfcauchy,
+    halfnorm,
     lognorm,
     norm,
     pareto,
     t,
     trunccauchy,
+    truncnorm,
     uniform
 )
 from numpyro.distributions.discrete import bernoulli, binom
@@ -26,11 +28,13 @@ __all__ = [
     'expon',
     'gamma',
     'halfcauchy',
+    'halfnorm',
     'lognorm',
     'multinomial',
     'norm',
     'pareto',
     't',
     'trunccauchy',
+    'truncnorm',
     'uniform',
 ]
