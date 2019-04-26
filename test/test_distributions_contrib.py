@@ -1,3 +1,4 @@
+import inspect
 from collections import namedtuple
 
 import pytest
@@ -132,7 +133,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     if not jax_dist.reparametrized_params:
         pytest.skip('{} not reparametrized.'.format(jax_dist.__name__))
 
-    reparametrized = set(i for i, _ in jax_dist.reparametrized_params)
+    dist_args = [p.name for p in inspect.signature(jax_dist).parameters.values()]
 
     rng = random.PRNGKey(0)
 
@@ -144,7 +145,8 @@ def test_sample_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-5
     for i in range(len(params)):
-        if np.result_type(params[i]) in (np.int32, np.int64) or i not in reparametrized:
+        if np.result_type(params[i]) in (np.int32, np.int64) or \
+                dist_args[i] not in jax_dist.reparametrized_params:
             continue
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]

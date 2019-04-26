@@ -66,7 +66,7 @@ class Beta(Distribution):
 
 
 class Cauchy(Distribution):
-    reparametrized_params = [(0, 'loc'), (1, 'scale')]
+    reparametrized_params = ['loc', 'scale']
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
 
@@ -115,9 +115,10 @@ class Dirichlet(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
+        normalize_term = (gammaln(np.sum(self.concentration, axis=-1)) -
+                          np.sum(gammaln(self.concentration), axis=-1))
         return (np.sum(np.log(value) * (self.concentration - 1.), axis=-1) +
-                gammaln(np.sum(self.concentration, axis=-1)) -
-                np.sum(gammaln(self.concentration), axis=-1))
+                normalize_term)
 
     @property
     def mean(self):
@@ -150,8 +151,9 @@ class Gamma(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return (self.concentration * np.log(self.rate) + (self.concentration - 1) * np.log(value) -
-                self.rate * value - gammaln(self.concentration))
+        normalize_term = (self.concentration * np.log(self.rate) -
+                          self.rate * value - gammaln(self.concentration))
+        return (self.concentration - 1) * np.log(value) + normalize_term
 
     @property
     def mean(self):
@@ -170,7 +172,7 @@ class Chi2(Gamma):
 
 
 class Exponential(Distribution):
-    reparametrized_params = [(0, 'rate')]
+    reparametrized_params = ['rate']
     arg_constraints = {'rate': constraints.positive}
     support = constraints.positive
 
@@ -197,7 +199,7 @@ class Exponential(Distribution):
 
 
 class HalfCauchy(TransformedDistribution):
-    reparametrized_params = [(0, 'scale')]
+    reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
     support = constraints.positive
 
@@ -226,7 +228,7 @@ class HalfCauchy(TransformedDistribution):
 class Normal(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
-    reparametrized_params = [(0, 'loc'), (1, 'scale')]
+    reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc, scale, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -255,7 +257,7 @@ class Normal(Distribution):
 class LogNormal(TransformedDistribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.positive
-    reparametrized_params = [(0, 'loc'), (1, 'scale')]
+    reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc, scale, validate_args=None):
         base_dist = Normal(loc, scale)
@@ -285,14 +287,14 @@ class Pareto(TransformedDistribution):
     @property
     def mean(self):
         # mean is inf for alpha <= 1
-        a = np.clip(self.alpha, a_min=1.)
-        return a * self.scale / (a - 1)
+        a = lax.div(self.alpha * self.scale, (self.alpha - 1))
+        return np.where(self.alpha <= 1, np.inf, a)
 
     @property
     def variance(self):
         # var is inf for alpha <= 2
-        a = np.clip(self.alpha, a_min=2.)
-        return (self.scale ** 2) * a / ((a - 1) ** 2 * (a - 2))
+        a = lax.div((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
+        return np.where(self.alpha <= 2, np.inf, a)
 
     @property
     def support(self):
@@ -301,7 +303,7 @@ class Pareto(TransformedDistribution):
 
 class Uniform(Distribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
-    reparametrized_params = [(0, 'low'), (1, 'high')]
+    reparametrized_params = ['low', 'high']
 
     def __init__(self, low, high, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
@@ -335,7 +337,7 @@ class Uniform(Distribution):
 class StudentT(Distribution):
     arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
-    reparametrized_params = [(1, 'loc'), (2, 'scale')]
+    reparametrized_params = ['loc', 'scale']
 
     def __init__(self, df, loc=0., scale=1., validate_args=None):
         self.df, self.loc, self.scale = promote_shapes(df, loc, scale)
