@@ -8,7 +8,7 @@ import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
-from numpyro.util import fori_append
+from numpyro.util import fori_append, fori_collect
 
 
 # TODO: add test for diag_mass=False
@@ -56,8 +56,9 @@ def test_logistic_regression(algo):
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_beta_bernoulli(algo):
-    warmup_steps, num_samples = 500, 1500
+@pytest.mark.parametrize('fori_method', ['append', 'collect'])
+def test_beta_bernoulli(algo, fori_method):
+    warmup_steps, num_samples = 500, 20000
 
     def model(data):
         alpha = np.array([1.1, 1.1])
@@ -73,14 +74,19 @@ def test_beta_bernoulli(algo):
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
                             num_warmup_steps=warmup_steps)
-    hmc_states = fori_append(sample_kernel, hmc_state, num_samples,
-                             transform=lambda x: transform_fn(x.z))
+    if fori_method == 'append':
+        hmc_states = fori_append(sample_kernel, hmc_state, num_samples,
+                                 transform=lambda x: transform_fn(x.z))
+    else:
+        hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
+                                  transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.05)
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_dirichlet_categorical(algo):
-    warmup_steps, num_samples = 100, 1000
+@pytest.mark.parametrize('fori_method', ['append', 'collect'])
+def test_dirichlet_categorical(algo, fori_method):
+    warmup_steps, num_samples = 100, 20000
 
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
@@ -95,6 +101,10 @@ def test_dirichlet_categorical(algo):
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
                             num_warmup_steps=warmup_steps)
-    hmc_states = fori_append(sample_kernel, hmc_state, num_samples,
-                             transform=lambda x: transform_fn(x.z))
+    if fori_method == 'append':
+        hmc_states = fori_append(sample_kernel, hmc_state, num_samples,
+                                 transform=lambda x: transform_fn(x.z))
+    else:
+        hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
+                                  transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.02)
