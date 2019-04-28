@@ -68,8 +68,8 @@ def benchmark_hmc(args, features, labels):
     t0 = time.time()
     # TODO: Use init_params from `initialize_model` instead of fixed params.
     hmc_state, _, _ = init_kernel(init_params, num_warmup_steps=0, step_size=step_size,
-                                  trajectory_length=trajectory_length, run_warmup=False,
-                                  adapt_step_size=False)
+                                  trajectory_length=trajectory_length,
+                                  heuristic_step_size=False, run_warmup=False)
     sample_kernel(hmc_state.update(step_size=1.))
     t1 = time.time()
     print("time for hmc_init: ", t1 - t0)
@@ -77,7 +77,6 @@ def benchmark_hmc(args, features, labels):
     def transform(state): return {'coefs': state.z['coefs'],
                                   'num_steps': state.num_steps}
 
-    hmc_state = hmc_state.update(step_size=step_size)
     if args.fori_method == "append":
         hmc_states = fori_append(sample_kernel, hmc_state, args.num_samples, transform=transform)
     else:
