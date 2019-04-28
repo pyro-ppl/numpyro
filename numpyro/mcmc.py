@@ -1,4 +1,5 @@
 import math
+from collections.abc import Iterable
 
 import jax.numpy as np
 from jax import jit, partial, random
@@ -56,6 +57,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
                     run_warmup=True,
+                    use_prims=True,
                     heuristic_step_size=True,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
@@ -87,9 +89,16 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc_state = HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
                              wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
 
+        wa_update = jit(wa_update)
         if run_warmup:
-            hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps, warmup_update,
-                                                               (hmc_state, wa_state))
+            if use_prims:
+                hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps,
+                                                                   warmup_update,
+                                                                   (hmc_state, wa_state))
+            else:
+                n_iter = n if isinstance(num_warmup_steps, Iterable) else range(num_warmup_steps)
+                for i in n_iter:
+                    hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
             return hmc_state
         else:
             return hmc_state, wa_state, wa_update

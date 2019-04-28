@@ -1,5 +1,6 @@
 import random
 from collections import namedtuple
+from collections.abc import Iterable
 from contextlib import contextmanager
 
 import numpy as onp
@@ -162,7 +163,8 @@ def fori_collect(n, body_fun, init_val, transform=_identity, use_prims=True):
         collection = []
 
         val = init_val
-        for i in range(n):
+        n_iter = n if isinstance(n, Iterable) else range(n)
+        for i in n_iter:
             val = body_fun(val)
             collection.append(jit(ravel_fn)(val))
 
