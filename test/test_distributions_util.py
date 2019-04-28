@@ -19,7 +19,8 @@ from numpyro.distributions.util import (
     multinomial_rvs,
     standard_gamma,
     xlog1py,
-    xlogy
+    xlogy,
+    vec_to_tril_matrix,
 )
 
 _zeros = partial(lax.full_like, fill_value=0)
@@ -210,3 +211,23 @@ def test_multinomial_stats(p, n):
     n = float(n) if isinstance(n, Number) else np.expand_dims(n.astype(p.dtype), -1)
     p = np.broadcast_to(p, z.shape)
     assert_allclose(z / n, p, atol=0.01)
+
+
+@pytest.mark.parametrize("shape", [
+    (6,),
+    (5, 10),
+    (3, 4, 3),
+])
+@pytest.mark.parametrize("diagonal", [
+    0,
+    -1,
+    -2,
+])
+def test_vec_to_tril_matrix(shape, diagonal):
+    rng = random.PRNGKey(0)
+    x = random.normal(rng, shape)
+    actual = vec_to_tril_matrix(x, diagonal)
+    expected = onp.zeros(shape[:-1] + actual.shape[-2:])
+    tril_idxs = onp.tril_indices(expected.shape[-1], diagonal)
+    expected[..., tril_idxs[0], tril_idxs[1]] = x
+    assert_allclose(actual, expected)
