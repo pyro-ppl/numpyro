@@ -81,7 +81,8 @@ def benchmark_hmc(args, features, labels):
     if args.fori_method == "append":
         hmc_states = fori_append(sample_kernel, hmc_state, args.num_samples, transform=transform)
     else:
-        hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform)
+        hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform,
+                                  use_prims=False)
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
     print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)

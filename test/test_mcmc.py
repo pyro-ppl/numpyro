@@ -79,7 +79,7 @@ def test_beta_bernoulli(algo, fori_method):
                                  transform=lambda x: transform_fn(x.z))
     else:
         hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                                  transform=lambda x: transform_fn(x.z), use_prims=True)
+                                  transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.05)
 
 
@@ -106,5 +106,5 @@ def test_dirichlet_categorical(algo, fori_method):
                                  transform=lambda x: transform_fn(x.z))
     else:
         hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                                  transform=lambda x: transform_fn(x.z), use_prims=True)
+                                  transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.02)
