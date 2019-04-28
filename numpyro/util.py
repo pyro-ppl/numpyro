@@ -6,7 +6,7 @@ import numpy as onp
 
 import jax
 import jax.numpy as np
-from jax import jit, lax, vmap
+from jax import jit, lax, ops, vmap
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import register_pytree_node, tree_flatten, tree_map, tree_multimap, tree_unflatten
 
@@ -116,7 +116,7 @@ def _identity(x):
     return x
 
 
-def fori_append(f, a, n, transform=_identity, jit=False):
+def fori_append(f, a, n, transform=_identity, jit=True):
     init_val, a_treedef = tree_flatten(a)
     a, trans_treedef = tree_flatten(transform(a))
     state = [lax.full((n,) + np.shape(i), 0, lax._dtype(i)) for i in a]
@@ -141,22 +141,32 @@ def fori_append(f, a, n, transform=_identity, jit=False):
     return tree_unflatten(trans_treedef, state)
 
 
-def fori_collect(n, body_fun, init_val, transform=_identity):
+def fori_collect(n, body_fun, init_val, transform=_identity, use_prims=False):
     # works like lax.fori_loop but ignores i in body_fn, supports
     # postprocessing `transform`, and collects values during the loop
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
-    def _body_fun(states):
-        val = body_fun(states[0])
-        return val, jit(ravel_fn)(val)
+    if use_prims:
+        collection = np.zeros((n,) + init_val_flat.shape, dtype=init_val_flat.dtype)
 
-    collection = []
-    states = (init_val, init_val_flat)
-    for i in range(n):
-        states = _body_fun(states)
-        collection.append(states[1])
+        def _body_fn(i, vals):
+            a, collection = vals
+            a = body_fun(a)
+            collection = ops.index_update(collection, i, ravel_fn(a))
+            return a, collection
 
-    # XXX: jax.numpy.stack/concatenate is currently so slow
-    collection = onp.stack(collection)
+        _, collection = jit(lax.fori_loop, static_argnums=(2,))(0, n, _body_fn,
+                                                                (init_val, collection))
+    else:
+        collection = []
+
+        val = init_val
+        for i in range(n):
+            val = body_fun(val)
+            collection.append(jit(ravel_fn)(val))
+
+        # XXX: jax.numpy.stack/concatenate is currently so slow
+        collection = onp.stack(collection)
+
     return vmap(unravel_fn)(collection)
