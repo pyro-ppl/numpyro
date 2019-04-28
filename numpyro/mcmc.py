@@ -42,6 +42,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     trajectory_len = None
+    max_treedepth = None
     momentum_generator = None
     wa_update = None
 
@@ -53,24 +54,31 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     diag_mass=True,
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
+                    max_tree_depth=10,
                     run_warmup=True,
+                    heuristic_step_size=True,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
-        nonlocal momentum_generator, wa_update, trajectory_len
+        nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth
         trajectory_len = float(trajectory_length)
+        max_treedepth = max_tree_depth
         z = init_samples
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
 
-        find_reasonable_ss = partial(find_reasonable_step_size,
-                                     potential_fn, kinetic_fn, momentum_generator)
+        wa_kwargs = {}
+        # FIXME: compiling find_reasonable_step_size is so slow for some models
+        if heuristic_step_size:
+            wa_kwargs["find_reasonable_step_size"] = partial(find_reasonable_step_size,
+                                                             potential_fn, kinetic_fn,
+                                                             momentum_generator)
 
         wa_init, wa_update = warmup_adapter(num_warmup_steps,
-                                            find_reasonable_step_size=find_reasonable_ss,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
                                             diag_mass=diag_mass,
-                                            target_accept_prob=target_accept_prob)
+                                            target_accept_prob=target_accept_prob,
+                                            **wa_kwargs)
 
         rng_hmc, rng_wa = random.split(rng)
         wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
@@ -112,7 +120,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state, rng):
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
-                                 inverse_mass_matrix, step_size, rng)
+                                 inverse_mass_matrix, step_size, rng,
+                                 max_tree_depth=max_treedepth)
         accept_prob = binary_tree.sum_accept_probs / binary_tree.num_proposals
         num_steps = binary_tree.num_proposals
         vv_state = vv_state.update(z=binary_tree.z_proposal,
@@ -122,6 +131,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
+    @jit
     def sample_kernel(hmc_state):
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
         r = momentum_generator(hmc_state.inverse_mass_matrix, rng_momentum)

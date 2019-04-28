@@ -12,7 +12,7 @@ import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
-from numpyro.util import fori_append
+from numpyro.util import fori_append, fori_collect
 
 step_size = 0.00167132
 init_params = {"coefs": onp.array(
@@ -70,6 +70,7 @@ def benchmark_hmc(args, features, labels):
     hmc_state, _, _ = init_kernel(init_params, num_warmup_steps=0, step_size=step_size,
                                   trajectory_length=trajectory_length, run_warmup=False,
                                   adapt_step_size=False)
+    sample_kernel(hmc_state.update(step_size=1.))
     t1 = time.time()
     print("time for hmc_init: ", t1 - t0)
 
@@ -77,8 +78,10 @@ def benchmark_hmc(args, features, labels):
                                   'num_steps': state.num_steps}
 
     hmc_state = hmc_state.update(step_size=step_size)
-    hmc_states = fori_append(sample_kernel, hmc_state, args.num_samples,
-                             transform=transform)
+    if args.fori_method == "append":
+        hmc_states = fori_append(sample_kernel, hmc_state, args.num_samples, transform=transform)
+    else:
+        hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform)
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
     print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)
@@ -95,6 +98,8 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--num-samples', default=100, type=int, help='number of samples')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--algo', default='NUTS', type=str, help='whether to run "HMC" or "NUTS"')
+    parser.add_argument('--fori-method', default='append', type=str,
+                        help='whether to use "append" or "collect"')
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
