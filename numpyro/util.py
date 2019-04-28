@@ -151,10 +151,10 @@ def fori_collect(n, body_fun, init_val, transform=_identity, use_prims=False):
         collection = np.zeros((n,) + init_val_flat.shape, dtype=init_val_flat.dtype)
 
         def _body_fn(i, vals):
-            a, collection = vals
-            a = body_fun(a)
-            collection = ops.index_update(collection, i, ravel_fn(a))
-            return a, collection
+            val, collection = vals
+            val = body_fun(val)
+            collection = ops.index_update(collection, i, ravel_fn(val))
+            return val, collection
 
         _, collection = jit(lax.fori_loop, static_argnums=(2,))(0, n, _body_fn,
                                                                 (init_val, collection))
