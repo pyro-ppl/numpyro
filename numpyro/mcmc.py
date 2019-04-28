@@ -96,7 +96,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                                                    warmup_update,
                                                                    (hmc_state, wa_state))
             else:
-                n_iter = n if isinstance(num_warmup_steps, Iterable) else range(num_warmup_steps)
+                n_iter = (num_warmup_steps if isinstance(num_warmup_steps, Iterable)
+                          else range(num_warmup_steps))
                 for i in n_iter:
                     hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
             return hmc_state
