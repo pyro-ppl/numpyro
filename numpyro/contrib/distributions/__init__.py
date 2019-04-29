@@ -1,3 +1,5 @@
+# flake8: noqa
+
 from jax import numpy as np
 
 from numpyro.contrib.distributions.continuous import (
