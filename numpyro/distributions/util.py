@@ -328,7 +328,7 @@ def binomial(key, p, n=1, shape=()):
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
 
 
-#@partial(jit, static_argnums=(2,))
+@partial(jit, static_argnums=(2,))
 def categorical_rvs(key, p, shape=()):
     # this implementation is fast when event shape is small, and slow otherwise
     # Ref: https://stackoverflow.com/a/34190035
@@ -367,7 +367,7 @@ def _scatter_add_one(operand, indices, updates):
                                                        scatter_dims_to_operand_dims=(0,)))
 
 
-#@partial(jit, static_argnums=(1, 3))
+@partial(jit, static_argnums=(1, 3))
 def multinomial_rvs(key, n, p, shape=()):
     if np.shape(n) != np.shape(p)[:-1]:
         broadcast_shape = lax.broadcast_shapes(np.shape(n), np.shape(p)[:-1])
