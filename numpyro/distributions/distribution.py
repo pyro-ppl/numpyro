@@ -13,7 +13,6 @@ from scipy.stats._distn_infrastructure import instancemethod, rv_frozen, rv_gene
 
 import jax.numpy as np
 from jax import lax
-from jax.numpy.lax_numpy import _promote_args
 from jax.random import _is_prng_key
 from jax.scipy import stats
 
@@ -75,7 +74,8 @@ class jax_generic(rv_generic):
         constraints = self.arg_constraints
         if args:
             for arg, arg_name in zip(args, self.shapes.split(', ')):
-                cond = np.logical_and(cond, constraints[arg_name](arg))
+                if arg_name in constraints:
+                    cond = np.logical_and(cond, constraints[arg_name](arg))
         return cond
 
 
@@ -91,6 +91,7 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
             rng = self.random_state
         # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
         assert _is_prng_key(rng)
+
         args = list(args)
         # If 'size' is not in kwargs, then it is either the last element of args
         # or it will take default value (which is None).
@@ -99,14 +100,12 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
         # XXX when args is not empty, parse_args requires either _pdf or _cdf method is implemented
         # to recognize valid arg signatures (e.g. `a` in `gamma` or `s` in lognormal)
         args, loc, scale = self._parse_args(*args, **kwargs)
-        # XXX using _promote_args_like requires calling `super(jax_continuous, self).rvs` but
-        # it will call `self._rvs` (which is written using JAX and requires JAX random state).
-        loc, scale, *args = _promote_args("rvs", loc, scale, *args)
         if not size:
             shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
             size = lax.broadcast_shapes(*shapes)
         elif isinstance(size, int):
             size = (size,)
+
         self._random_state = rng
         self._size = size
         vals = self._rvs(*args)
@@ -160,7 +159,6 @@ class jax_discrete(jax_generic, osp_stats.rv_discrete):
         args = list(args)
         size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 1) else None)
         args, loc, _ = self._parse_args(*args, **kwargs)
-        loc, *args = _promote_args("rvs", loc, *args)
         if not size:
             shapes = [np.shape(arg) for arg in args] + [np.shape(loc)]
             size = lax.broadcast_shapes(*shapes)
@@ -216,9 +214,7 @@ class jax_multivariate(jax_generic):
 
         args = list(args)
         size = kwargs.pop('size', args.pop() if len(args) > self.numargs else None)
-
         args, _, _ = self._parse_args(*args, **kwargs)
-
         if not size:
             size = self._batch_shape(*args)
         elif isinstance(size, int):

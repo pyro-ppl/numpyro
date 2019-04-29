@@ -1,4 +1,5 @@
 from functools import update_wrapper
+from numbers import Number
 
 import numpy as onp
 import scipy.special as osp_special
@@ -339,6 +340,26 @@ def categorical_rvs(key, p, shape=()):
     return np.sum(s < r, axis=-1)
 
 
+@partial(jit, static_argnums=(1, 2))
+def poisson(key, rate, shape=()):
+    # Ref: https://en.wikipedia.org/wiki/Poisson_distribution#Generating_Poisson-distributed_random_variables
+    shape = shape or np.shape(rate)
+    L = np.exp(-rate)
+    k = np.zeros(shape)
+    p = np.ones(shape)
+
+    def body_fn(val):
+        k, p, rng = val
+        k = np.where(p > L, k + 1, k)
+        rng, rng_u = random.split(rng)
+        u = random.uniform(rng_u, shape)
+        p = p * u
+        return k, p, rng
+
+    k, _, _ = lax.while_loop(lambda val: np.any(val[1] > L), body_fn, (k, p, key))
+    return k - 1
+
+
 def _scatter_add_one(operand, indices, updates):
     return lax.scatter_add(operand, indices, updates,
                            lax.ScatterDimensionNumbers(update_window_dims=(),
@@ -348,16 +369,29 @@ def _scatter_add_one(operand, indices, updates):
 
 @partial(jit, static_argnums=(1, 3))
 def multinomial_rvs(key, n, p, shape=()):
+    if np.shape(n) != np.shape(p)[:-1]:
+        broadcast_shape = lax.broadcast_shapes(np.shape(n), np.shape(p)[:-1])
+        n = np.broadcast_to(n, broadcast_shape)
+        p = np.broadcast_to(p, broadcast_shape + np.shape(p)[-1:])
     shape = shape or p.shape[:-1]
+    n_max = int(np.max(n))
     # get indices from categorical distribution then gather the result
-    indices = categorical_rvs(key, p, (n,) + shape)
+    indices = categorical_rvs(key, p, (n_max,) + shape)
+    # mask out values when counts is heterogeneous
+    if not isinstance(n, Number):
+        mask = promote_shapes(np.arange(n_max) < np.expand_dims(n, -1), shape=shape + (n_max,))[0]
+        mask = np.moveaxis(mask, -1, 0).astype(indices.dtype)
+        excess = np.concatenate([np.expand_dims(n_max - n, -1), np.zeros(np.shape(n) + (p.shape[-1] - 1,))], -1)
+    else:
+        mask = 1
+        excess = 0
     # NB: we transpose to move batch shape to the front
-    indices_2D = indices.reshape((n, -1)).T
+    indices_2D = (np.reshape(indices * mask, (n_max, -1,))).T
     samples_2D = vmap(_scatter_add_one, (0, 0, 0))(np.zeros((indices_2D.shape[0], p.shape[-1]),
                                                             dtype=indices.dtype),
                                                    np.expand_dims(indices_2D, axis=-1),
                                                    np.ones(indices_2D.shape, dtype=indices.dtype))
-    return samples_2D.reshape(shape + p.shape[-1:])
+    return samples_2D.reshape(shape + p.shape[-1:]) - excess
 
 
 def sum_rightmost(x, dim):
