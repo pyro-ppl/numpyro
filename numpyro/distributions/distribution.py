@@ -121,7 +121,9 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
         if hasattr(stats, self.name):
             return getattr(stats, self.name).logpdf(x, *args, **kwargs)
         else:
-            return super(jax_continuous, self).logpdf(x, *args, **kwargs)
+            args, loc, scale = self._parse_args(*args, **kwargs)
+            y = (x - loc) / scale
+            return self._logpdf(y, *args) - np.log(scale)
 
 
 class jax_discrete(jax_generic, osp_stats.rv_discrete):
