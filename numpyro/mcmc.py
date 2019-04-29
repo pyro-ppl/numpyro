@@ -1,5 +1,6 @@
 import math
-from collections.abc import Iterable
+
+import tqdm
 
 import jax.numpy as np
 from jax import jit, partial, random
@@ -58,6 +59,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     max_tree_depth=10,
                     run_warmup=True,
                     use_prims=True,
+                    progbar=True,
                     heuristic_step_size=True,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
@@ -96,8 +98,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                                                    warmup_update,
                                                                    (hmc_state, wa_state))
             else:
-                n_iter = (num_warmup_steps if isinstance(num_warmup_steps, Iterable)
-                          else range(num_warmup_steps))
+                n_iter = tqdm.trange(num_warmup_steps) if progbar else range(num_warmup_steps)
                 for i in n_iter:
                     hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
             return hmc_state

@@ -30,7 +30,7 @@ from jax.scipy.special import gammaln
 
 from numpyro.contrib.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions import constraints
-from numpyro.distributions.transforms import AbsTransform, ExpTransform, AffineTransform
+from numpyro.distributions.transforms import AbsTransform, AffineTransform, ExpTransform
 from numpyro.distributions.util import get_dtypes, promote_shapes, standard_gamma
 
 
