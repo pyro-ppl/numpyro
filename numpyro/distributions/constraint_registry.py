@@ -26,6 +26,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.transforms import (
     AffineTransform,
     ComposeTransform,
+    CorrCholeskyTransform,
     ExpTransform,
     IdentityTransform,
     SigmoidTransform,
@@ -56,6 +57,11 @@ class ConstraintRegistry(object):
 
 
 biject_to = ConstraintRegistry()
+
+
+@biject_to.register(constraints.corr_cholesky)
+def _transform_to_corr_cholesky(constraint):
+    return CorrCholeskyTransform()
 
 
 @biject_to.register(constraints.greater_than)
