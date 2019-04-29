@@ -8,7 +8,7 @@ import jax
 import jax.numpy as np
 from jax import random
 
-import numpyro.distributions as dist
+import numpyro.contrib.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
