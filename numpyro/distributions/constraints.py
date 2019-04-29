@@ -38,7 +38,7 @@ class _Boolean(Constraint):
 class _CorrCholesky(Constraint):
     def __call__(self, x):
         tril = np.tril(x)
-        lower_triangular = np.all((tril == x).reshape(x.shape[:-2] + (-1,)), axis=-1)
+        lower_triangular = np.all(np.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
         positive_diagonal = np.all(np.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         x_norm = np.linalg.norm(x, axis=-1)
         unit_norm_row = np.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)

@@ -392,7 +392,7 @@ def multinomial_rvs(key, n, p, shape=()):
                                                             dtype=indices.dtype),
                                                    np.expand_dims(indices_2D, axis=-1),
                                                    np.ones(indices_2D.shape, dtype=indices.dtype))
-    return samples_2D.reshape(shape + p.shape[-1:]) - excess
+    return np.reshape(samples_2D, shape + p.shape[-1:]) - excess
 
 
 def sum_rightmost(x, dim):
@@ -407,12 +407,13 @@ def matrix_to_tril_vec(x, diagonal=0):
 def vec_to_tril_matrix(t, diagonal=0):
     # NB: the following formula only works for diagonal <= 0
     n = round((math.sqrt(1 + 8 * t.shape[-1]) - 1) / 2) - diagonal
-    idx = onp.arange(n * n).reshape((n, n))[onp.tril_indices(n, diagonal)]
-    x = lax.scatter_add(np.zeros(t.shape[:-1] + (n * n,)), np.expand_dims(idx, axis=-1), t,
+    n2 = n * n
+    idx = np.reshape(np.arange(n2), (n, n))[onp.tril_indices(n, diagonal)]
+    x = lax.scatter_add(np.zeros(t.shape[:-1] + (n2,)), np.expand_dims(idx, axis=-1), t,
                         lax.ScatterDimensionNumbers(update_window_dims=range(t.ndim - 1),
                                                     inserted_window_dims=(t.ndim - 1,),
                                                     scatter_dims_to_operand_dims=(t.ndim - 1,)))
-    return x.reshape(x.shape[:-1] + (n, n))
+    return np.reshape(x, x.shape[:-1] + (n, n))
 
 
 # The is sourced from: torch.distributions.util.py
