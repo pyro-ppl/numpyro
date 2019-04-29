@@ -80,8 +80,7 @@ class _Interval(Constraint):
 
 class _Real(Constraint):
     def __call__(self, x):
-        # XXX we allow +-inf here, consider to create a new one for finite constraint
-        return ~np.isnan(x)
+        return np.isfinite(x)
 
 
 class _Simplex(Constraint):
