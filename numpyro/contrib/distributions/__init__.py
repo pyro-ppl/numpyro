@@ -10,7 +10,7 @@ from numpyro.contrib.distributions.continuous import (
     Normal,
     Pareto,
     StudentT,
-    Uniform,
+    Uniform
 )
 from numpyro.contrib.distributions.discrete import (
     Bernoulli,
@@ -21,7 +21,7 @@ from numpyro.contrib.distributions.discrete import (
     CategoricalWithLogits,
     Multinomial,
     MultinomialWithLogits,
-    Poisson,
+    Poisson
 )
 
 __all__ = [

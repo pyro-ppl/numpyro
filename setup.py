@@ -13,6 +13,7 @@ setup(
     install_requires=[
         'jax>=0.1.25',
         'jaxlib>=0.1.12',
+        'tqdm',
     ],
     extras_require={
         'test': ['flake8', 'pytest>=4.1'],
