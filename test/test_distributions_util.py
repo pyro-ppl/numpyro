@@ -1,3 +1,5 @@
+from numbers import Number
+
 import numpy as onp
 import pytest
 import scipy.special as osp_special
@@ -198,8 +200,13 @@ def test_multinomial_shape(p, shape):
     np.array([0.2, 0.3, 0.5]),
     np.array([0.8, 0.1, 0.1]),
 ])
-def test_multinomial_stats(p):
+@pytest.mark.parametrize("n", [
+    10000,
+    np.array([10000, 20000]),
+])
+def test_multinomial_stats(p, n):
     rng = random.PRNGKey(0)
-    n = 10000
     z = multinomial_rvs(rng, n, p)
-    assert_allclose(z / float(n), p, atol=0.01)
+    n = float(n) if isinstance(n, Number) else np.expand_dims(n.astype(p.dtype), -1)
+    p = np.broadcast_to(p, z.shape)
+    assert_allclose(z / n, p, atol=0.01)

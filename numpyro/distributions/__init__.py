@@ -1,6 +1,20 @@
 from numpyro.distributions.constraint_registry import biject_to
-from numpyro.distributions.continuous import beta, cauchy, expon, gamma, lognorm, norm, t, uniform
-from numpyro.distributions.discrete import bernoulli, binom
+from numpyro.distributions.continuous import (
+    beta,
+    cauchy,
+    expon,
+    gamma,
+    halfcauchy,
+    halfnorm,
+    lognorm,
+    norm,
+    pareto,
+    t,
+    trunccauchy,
+    truncnorm,
+    uniform
+)
+from numpyro.distributions.discrete import bernoulli, binom, poisson
 from numpyro.distributions.multivariate import categorical, dirichlet, multinomial
 
 __all__ = [
@@ -13,9 +27,15 @@ __all__ = [
     'dirichlet',
     'expon',
     'gamma',
+    'halfcauchy',
+    'halfnorm',
     'lognorm',
     'multinomial',
     'norm',
+    'pareto',
+    'poisson',
     't',
+    'trunccauchy',
+    'truncnorm',
     'uniform',
 ]

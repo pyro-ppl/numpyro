@@ -1,5 +1,7 @@
 import math
 
+import tqdm
+
 import jax.numpy as np
 from jax import jit, partial, random
 from jax.flatten_util import ravel_pytree
@@ -42,6 +44,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     trajectory_len = None
+    max_treedepth = None
     momentum_generator = None
     wa_update = None
 
@@ -53,18 +56,22 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     diag_mass=True,
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
+                    max_tree_depth=10,
                     run_warmup=True,
-                    heuristic_step_size=False,
+                    use_prims=True,
+                    progbar=True,
+                    heuristic_step_size=True,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
-        nonlocal momentum_generator, wa_update, trajectory_len
+        nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth
         trajectory_len = float(trajectory_length)
+        max_treedepth = max_tree_depth
         z = init_samples
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
 
         wa_kwargs = {}
-        # FIXME: compiling find_reasonable_step_size is so slow
+        # FIXME: compiling find_reasonable_step_size is so slow for some models
         if heuristic_step_size:
             wa_kwargs["find_reasonable_step_size"] = partial(find_reasonable_step_size,
                                                              potential_fn, kinetic_fn,
@@ -84,12 +91,19 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc_state = HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
                              wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
 
+        wa_update = jit(wa_update)
         if run_warmup:
-            hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps, warmup_update,
-                                                               (hmc_state, wa_state))
+            if use_prims:
+                hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps,
+                                                                   warmup_update,
+                                                                   (hmc_state, wa_state))
+            else:
+                n_iter = tqdm.trange(num_warmup_steps) if progbar else range(num_warmup_steps)
+                for i in n_iter:
+                    hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
             return hmc_state
         else:
-            return hmc_state, wa_state, wa_update
+            return hmc_state, wa_state, warmup_update
 
     def warmup_update(t, states):
         hmc_state, wa_state = states
@@ -117,7 +131,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state, rng):
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
-                                 inverse_mass_matrix, step_size, rng)
+                                 inverse_mass_matrix, step_size, rng,
+                                 max_tree_depth=max_treedepth)
         accept_prob = binary_tree.sum_accept_probs / binary_tree.num_proposals
         num_steps = binary_tree.num_proposals
         vv_state = vv_state.update(z=binary_tree.z_proposal,
@@ -127,6 +142,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
+    @jit
     def sample_kernel(hmc_state):
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
         r = momentum_generator(hmc_state.inverse_mass_matrix, rng_momentum)

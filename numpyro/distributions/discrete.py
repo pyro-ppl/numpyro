@@ -43,6 +43,18 @@ class bernoulli_gen(jax_discrete):
     def _pmf(self, x, p):
         return np.exp(self._logpmf(x, p))
 
+    def _cdf(self, x, p):
+        return binom._cdf(x, 1, p)
+
+    def _sf(self, x, p):
+        return binom._sf(x, 1, p)
+
+    def _ppf(self, q, p):
+        return binom._ppf(q, 1, p)
+
+    def _stats(self, p):
+        return binom._stats(1, p)
+
     def _entropy(self, p):
         # TODO: use logits and binary_cross_entropy_with_logits for more stable
         if self.is_logits:
@@ -74,7 +86,7 @@ class binom_gen(jax_discrete):
         return device_put(sample)
 
     def _logpmf(self, x, n, p):
-        n, p = _promote_dtypes(n, p)
+        x, n, p = _promote_dtypes(x, n, p)
         combiln = gammaln(n + 1) - (gammaln(x + 1) + gammaln(n - x + 1))
         if self.is_logits:
             # TODO: move this implementation to PyTorch if it does not get non-continuous problem
@@ -90,6 +102,26 @@ class binom_gen(jax_discrete):
     def _pmf(self, x, n, p):
         return np.exp(self._logpmf(x, n, p))
 
+    def _cdf(self, x, n, p):
+        raise NotImplementedError('Missing jax.scipy.special.bdtr')
+
+    def _sf(self, x, n, p):
+        raise NotImplementedError('Missing jax.scipy.special.bdtrc')
+
+    def _ppf(self, q, n, p):
+        raise NotImplementedError('Missing jax.scipy.special.bdtrk')
+
+    def _stats(self, n, p, moments='mv'):
+        q = 1.0 - p
+        mu = n * p
+        var = n * p * q
+        g1, g2 = None, None
+        if 's' in moments:
+            g1 = (q - p) / np.sqrt(var)
+        if 'k' in moments:
+            g2 = (1.0 - 6 * p * q) / var
+        return mu, var, g1, g2
+
     def _entropy(self, n, p):
         if self.is_logits:
             p = expit(p)
@@ -98,5 +130,42 @@ class binom_gen(jax_discrete):
         return np.sum(entr(vals), axis=0)
 
 
+class poisson_gen(jax_discrete):
+    arg_constraints = {'mu': constraints.positive}
+    _support_mask = constraints.nonnegative_integer
+
+    def _rvs(self, mu):
+        random_state = onp.random.RandomState(self._random_state)
+        sample = random_state.poisson(mu, self._size)
+        return device_put(sample)
+
+    def _logpmf(self, x, mu):
+        x, mu = _promote_dtypes(x, mu)
+        Pk = xlogy(x, mu) - gammaln(x + 1) - mu
+        return Pk
+
+    def _pmf(self, x, mu):
+        # poisson.pmf(k) = exp(-mu) * mu**k / k!
+        return np.exp(self._logpmf(x, mu))
+
+    def _cdf(self, x, mu):
+        raise NotImplementedError('Missing jax.scipy.special.pdtr')
+
+    def _sf(self, x, mu):
+        raise NotImplementedError('Missing jax.scipy.special.pdtrc')
+
+    def _ppf(self, q, mu):
+        raise NotImplementedError('Missing jax.scipy.special.pdtrk')
+
+    def _stats(self, mu):
+        var = mu
+        tmp = np.asarray(mu)
+        mu_nonzero = tmp > 0
+        g1 = np.where(mu_nonzero, np.sqrt(1.0 / tmp), np.inf)
+        g2 = np.where(mu_nonzero, 1.0 / tmp, np.inf)
+        return mu, var, g1, g2
+
+
 bernoulli = bernoulli_gen(b=1, name='bernoulli')
 binom = binom_gen(name='binom')
+poisson = poisson_gen(name='poisson')
