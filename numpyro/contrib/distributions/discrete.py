@@ -37,10 +37,11 @@ from numpyro.distributions.util import (
     get_dtypes,
     lazy_property,
     multinomial_rvs,
+    poisson,
     promote_shapes,
     xlog1py,
-    xlogy,
-    poisson)
+    xlogy
+)
 
 
 def clamp_probs(probs):
