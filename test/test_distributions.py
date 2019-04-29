@@ -15,6 +15,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraint_registry import biject_to
 from numpyro.distributions.distribution import jax_multivariate, validation_enabled
+from numpyro.distributions.util import matrix_to_tril_vec, vec_to_tril_matrix
 
 
 def idfn(param):
@@ -406,6 +407,10 @@ def test_discrete_with_logits(jax_dist, dist_args):
     (constraints.boolean, np.array([True, False]), np.array([True, True])),
     (constraints.boolean, np.array([1, 1]), np.array([True, True])),
     (constraints.boolean, np.array([-1, 1]), np.array([False, True])),
+    (constraints.corr_cholesky, np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
+     np.array([True, False])),  # NB: not lower_triangular
+    (constraints.corr_cholesky, np.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
+     np.array([False, False])),  # NB: not positive_diagonal & not unit_norm_row
     (constraints.greater_than(1), 3, True),
     (constraints.greater_than(1), np.array([-1, 1, 5]), np.array([False, False, True])),
     (constraints.integer_interval(-3, 5), 0, True),
@@ -434,8 +439,9 @@ def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
 
-@pytest.mark.parametrize('shape', [(), (1,), (3,), (5,), (3, 1), (1, 3), (5, 3)], ids=idfn)
+@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)], ids=idfn)
 @pytest.mark.parametrize('constraint', [
+    constraints.corr_cholesky,
     constraints.greater_than(2),
     constraints.interval(-3, 5),
     constraints.positive,
@@ -444,9 +450,9 @@ def test_constraints(constraint, x, expected):
     constraints.unit_interval,
 ], ids=idfn)
 def test_biject_to(constraint, shape):
-    if constraint is constraints.simplex and not shape:
-        return
     transform = biject_to(constraint)
+    if len(shape) < transform.event_dim:
+        return
     rng = random.PRNGKey(0)
     x = random.normal(rng, shape)
     y = transform(x)
@@ -467,8 +473,14 @@ def test_biject_to(constraint, shape):
     assert np.shape(actual) == batch_shape
     if len(shape) == transform.event_dim:
         if constraint is constraints.simplex:
-            expected = np.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
-            inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
+            expected = onp.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
+        elif constraint is constraints.corr_cholesky:
+            vec_transform = lambda x: matrix_to_tril_vec(transform(x), diagonal=-1)  # noqa: E731
+            y_tril = matrix_to_tril_vec(y, diagonal=-1)
+            inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x, diagonal=-1))  # noqa: E731
+            expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         else:
             expected = np.log(np.abs(grad(transform)(x)))
             inv_expected = np.log(np.abs(grad(transform.inv)(y)))

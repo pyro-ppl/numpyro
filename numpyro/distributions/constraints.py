@@ -35,6 +35,16 @@ class _Boolean(Constraint):
         return (value == 0) | (value == 1)
 
 
+class _CorrCholesky(Constraint):
+    def __call__(self, x):
+        tril = np.tril(x)
+        lower_triangular = np.all(np.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        positive_diagonal = np.all(np.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
+        x_norm = np.linalg.norm(x, axis=-1)
+        unit_norm_row = np.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
+        return lower_triangular & positive_diagonal & unit_norm_row
+
+
 class _Dependent(Constraint):
     def __call__(self, x):
         raise ValueError('Cannot determine validity of dependent constraint')
@@ -90,6 +100,7 @@ class _Simplex(Constraint):
 
 
 boolean = _Boolean()
+corr_cholesky = _CorrCholesky()
 dependent = _Dependent
 greater_than = _GreaterThan
 integer_interval = _IntegerInterval
