@@ -5,18 +5,7 @@ from jax import lax
 from jax.test_util import check_eq
 from jax.tree_util import tree_map
 
-from numpyro.util import control_flow_prims_disabled, fori_append, fori_collect, laxtuple, scan
-
-
-def test_fori_append():
-    def f(x):
-        return {'i': x['i'] + x['j'], 'j': x['i'] - x['j']}
-
-    a = {'i': np.array([0.]), 'j': np.array([1.])}
-    scan_tree = lax.scan(lambda x, y: f(x), a, np.arange(3))
-    expected_tree = {'i': scan_tree['i']}
-    actual_tree = fori_append(f, a, 3, transform=lambda a: {'i': a['i']})
-    check_eq(actual_tree, expected_tree)
+from numpyro.util import control_flow_prims_disabled, fori_collect, laxtuple, scan
 
 
 def test_fori_collect():
