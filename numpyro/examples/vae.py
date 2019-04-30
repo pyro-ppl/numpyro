@@ -57,9 +57,9 @@ def model(batch, **kwargs):
     decoder_params = param('decoder', None)
     z_dim = kwargs['z_dim']
     batch = np.reshape(batch, (batch.shape[0], -1))
-    z = sample('z', dist.norm(np.zeros((z_dim,)), np.ones((z_dim,))))
+    z = sample('z', dist.Normal(np.zeros((z_dim,)), np.ones((z_dim,))))
     img_loc = decode(decoder_params, z)
-    return sample('obs', dist.bernoulli(img_loc), obs=batch)
+    return sample('obs', dist.Bernoulli(img_loc), obs=batch)
 
 
 def guide(batch, **kwargs):
@@ -67,7 +67,7 @@ def guide(batch, **kwargs):
     encoder_params = param('encoder', None)
     batch = np.reshape(batch, (batch.shape[0], -1))
     z_loc, z_std = encode(encoder_params, batch)
-    z = sample('z', dist.norm(z_loc, z_std))
+    z = sample('z', dist.Normal(z_loc, z_std))
     return z
 
 
@@ -126,7 +126,7 @@ def main(args):
         _, test_sample = binarize(rng, img)
         params = optimizers.get_params(opt_state)
         z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
-        z = dist.norm(z_mean, z_var).rvs(random_state=rng)
+        z = dist.Normal(z_mean, z_var).sample(rng)
         img_loc = decode(params['decoder'], z).reshape([28, 28])
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 

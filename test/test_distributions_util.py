@@ -18,9 +18,9 @@ from numpyro.distributions.util import (
     cumsum,
     multinomial_rvs,
     standard_gamma,
-    xlog1py,
-    xlogy,
     vec_to_tril_matrix,
+    xlog1py,
+    xlogy
 )
 
 _zeros = partial(lax.full_like, fill_value=0)

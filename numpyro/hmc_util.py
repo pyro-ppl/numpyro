@@ -6,9 +6,7 @@ from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
-from numpyro.contrib.distributions.distribution import Distribution
-from numpyro.distributions import biject_to
-from numpyro.distributions.distribution import jax_continuous
+from numpyro.distributions.constraints import biject_to
 from numpyro.handlers import seed, substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
 
@@ -543,20 +541,12 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
 
 
 def log_density(model, model_args, model_kwargs, params):
-    def logp(d, val):
-        if isinstance(d, Distribution):
-            return d.log_prob(val)
-        elif isinstance(d.dist, jax_continuous):
-            return d.logpdf(val)
-        else:
-            return d.logpmf(val)
-
     model = substitute(model, params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = 0.
     for site in model_trace.values():
         if site['type'] == 'sample':
-            log_joint = log_joint + np.sum(logp(site['fn'], site['value']))
+            log_joint = log_joint + np.sum(site['fn'].log_prob(site['value']))
     return log_joint, model_trace
 
 

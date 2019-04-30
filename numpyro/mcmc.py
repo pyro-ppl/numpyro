@@ -7,7 +7,7 @@ from jax import jit, partial, random
 from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 
-import numpyro.contrib.distributions as dist
+import numpyro.distributions as dist
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
 from numpyro.util import cond, fori_loop, laxtuple
 
@@ -22,7 +22,7 @@ def _get_num_steps(step_size, trajectory_length):
 
 def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
     if inverse_mass_matrix.ndim == 1:
-        r = dist.norm(0., np.sqrt(np.reciprocal(inverse_mass_matrix))).rvs(random_state=rng)
+        r = dist.Normal(0., np.sqrt(np.reciprocal(inverse_mass_matrix))).sample(rng)
         return unpack_fn(r)
     elif inverse_mass_matrix.ndim == 2:
         raise NotImplementedError

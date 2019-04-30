@@ -5,14 +5,14 @@ from jax import lax, random
 from jax.experimental import optimizers
 from jax.random import PRNGKey
 
-import numpyro.contrib.distributions as dist
+import numpyro.distributions as dist
 from numpyro.handlers import param, sample
 from numpyro.svi import elbo, svi
 
 
 def model(data):
-    loc = sample("loc", dist.norm(0., 1.))
-    sample("obs", dist.norm(loc, 1.), obs=data)
+    loc = sample("loc", dist.Normal(0., 1.))
+    sample("obs", dist.Normal(loc, 1.), obs=data)
 
 
 # Define a guide (i.e. variational distribution) with a Normal
@@ -20,7 +20,7 @@ def model(data):
 def guide():
     guide_loc = param("guide_loc", 0.)
     guide_scale = np.exp(param("guide_scale_log", 0.))
-    sample("loc", dist.norm(guide_loc, guide_scale))
+    sample("loc", dist.Normal(guide_loc, guide_scale))
 
 
 def main(args):
