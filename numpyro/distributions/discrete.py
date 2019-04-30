@@ -266,9 +266,7 @@ class MultinomialWithLogits(Distribution):
         dtype = get_dtypes(self.logits)[0]
         value = lax.convert_element_type(value, dtype)
         total_count = lax.convert_element_type(self.total_count, dtype)
-        logits = self.logits
-        logits = np.clip(logits, a_min=np.finfo(get_dtypes(logits)[0]).min)
-        return gammaln(total_count + 1) + np.sum(value * logits - gammaln(value + 1), axis=-1)
+        return gammaln(total_count + 1) + np.sum(value * self.logits - gammaln(value + 1), axis=-1)
 
     @lazy_property
     def probs(self):
@@ -308,20 +306,17 @@ class Categorical(Distribution):
         batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
         value = np.expand_dims(value, axis=-1)
         value = np.broadcast_to(value, batch_shape + (1,))
-        log_pmf = np.broadcast_to(self.logits, batch_shape + np.shape(self.logits)[-1:])
+        logits = _to_logits_multinom(self.probs)
+        log_pmf = np.broadcast_to(logits, batch_shape + np.shape(logits)[-1:])
         return np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
-
-    @lazy_property
-    def logits(self):
-        return _to_logits_multinom(self.probs)
 
     @property
     def mean(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+        return lax.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
 
     @property
     def variance(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+        return lax.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
 
     @property
     def support(self):
