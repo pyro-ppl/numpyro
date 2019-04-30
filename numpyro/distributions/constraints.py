@@ -93,7 +93,7 @@ class _Multinomial(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, value):
-        return (value >= 0) & (np.sum(value, -1) == self.upper_bound)
+        return np.all(value >= 0, axis=-1) & (np.sum(value, -1) == self.upper_bound)
 
 
 class _Real(Constraint):
