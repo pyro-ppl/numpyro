@@ -5,7 +5,7 @@ from jax import lax, random
 from jax.experimental import optimizers
 from jax.random import PRNGKey
 
-import numpyro.distributions as dist
+import numpyro.contrib.distributions as dist
 from numpyro.handlers import param, sample
 from numpyro.svi import elbo, svi
 

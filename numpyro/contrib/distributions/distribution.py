@@ -38,13 +38,13 @@ class Distribution(object):
     def __init__(self, batch_shape=(), event_shape=(), validate_args=None):
         self._batch_shape = batch_shape
         self._event_shape = event_shape
-        if validate_args is None:
+        if validate_args is not None:
             self._validate_args = validate_args
         if self._validate_args:
             for param, constraint in self.arg_constraints.items():
                 if constraints.is_dependent(constraint):
                     continue  # skip constraints that cannot be checked
-                if not constraint.check(getattr(self, param)).all():
+                if not np.all(constraint(getattr(self, param))):
                     raise ValueError("The parameter {} has invalid values".format(param))
         super(Distribution, self).__init__()
 
@@ -74,6 +74,22 @@ class Distribution(object):
         if not np.all(self.support(value)):
             raise ValueError('Invalid values provided to log prob method. '
                              'The value argument must be within the support.')
+
+    def __call__(self, *args, **kwargs):
+        key = kwargs.pop('random_state')
+        return self.sample(key, *args, **kwargs)
+
+    # TODO: Following methods are for compatibility with scipy;
+    # should be removed before release.
+    def rvs(self, *args, **kwargs):
+        key = kwargs.pop('random_state')
+        return self.sample(key, *args, **kwargs)
+
+    def logpdf(self, value):
+        return self.log_prob(value)
+
+    def logpmf(self, value):
+        return self.log_prob(value)
 
 
 class TransformedDistribution(Distribution):
@@ -110,6 +126,8 @@ class TransformedDistribution(Distribution):
         return x
 
     def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
         event_dim = len(self.event_shape)
         log_prob = 0.0
         y = value

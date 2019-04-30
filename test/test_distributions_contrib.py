@@ -3,6 +3,7 @@ from collections import namedtuple
 
 import pytest
 import scipy.stats as osp
+from jax import lax
 from numpy.testing import assert_allclose
 
 import jax
@@ -11,6 +12,8 @@ import jax.random as random
 
 import numpyro.contrib.distributions as dist
 from numpyro.contrib.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
+import numpyro.distributions.constraints as constraints
+from numpyro.distributions.util import poisson, multinomial_rvs
 
 
 def _identity(x): return x
@@ -107,6 +110,58 @@ DISCRETE = [
 
 def _is_batched_multivariate(jax_dist):
     return len(jax_dist.event_shape) > 0 and len(jax_dist.batch_shape) > 0
+
+
+def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
+    eps = 1e-6
+
+    if isinstance(constraint, constraints._Boolean):
+        return random.bernoulli(key, shape=size)
+    elif isinstance(constraint, constraints._GreaterThan):
+        return np.exp(random.normal(key, size)) + constraint.lower_bound + eps
+    elif isinstance(constraint, constraints._IntegerInterval):
+        lower_bound = np.broadcast_to(constraint.lower_bound, size)
+        upper_bound = np.broadcast_to(constraint.upper_bound, size)
+        return random.randint(key, size, lower_bound, upper_bound + 1)
+    elif isinstance(constraint, constraints._IntegerGreaterThan):
+        return constraint.lower_bound + poisson(key, 5, shape=size)
+    elif isinstance(constraint, constraints._Interval):
+        lower_bound = np.broadcast_to(constraint.lower_bound, size)
+        upper_bound = np.broadcast_to(constraint.upper_bound, size)
+        return random.uniform(key, size, minval=lower_bound, maxval=upper_bound)
+    elif isinstance(constraint, constraints._Real):
+        return random.normal(key, size)
+    elif isinstance(constraint, constraints._Simplex):
+        return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1])
+    elif isinstance(constraint, constraints._Multinomial):
+        n = size[-1]
+        return multinomial_rvs(key, n=constraint.upper_bound, p=np.ones((n,)) / n, shape=size[:-1])
+    else:
+        raise NotImplementedError('{} not implemented.'.format(constraint))
+
+
+def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
+    if isinstance(constraint, constraints._Boolean):
+        return random.bernoulli(key, shape=size) - 2
+    elif isinstance(constraint, constraints._GreaterThan):
+        return constraint.lower_bound - np.exp(random.normal(key, size))
+    elif isinstance(constraint, constraints._IntegerInterval):
+        lower_bound = np.broadcast_to(constraint.lower_bound, size)
+        return random.randint(key, size, lower_bound - 1, lower_bound)
+    elif isinstance(constraint, constraints._IntegerGreaterThan):
+        return constraint.lower_bound - poisson(key, 5, shape=size)
+    elif isinstance(constraint, constraints._Interval):
+        upper_bound = np.broadcast_to(constraint.upper_bound, size)
+        return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.)
+    elif isinstance(constraint, constraints._Real):
+        return lax.full(size, np.nan)
+    elif isinstance(constraint, constraints._Simplex):
+        return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1]) + 1e-2
+    elif isinstance(constraint, constraints._Multinomial):
+        n = size[-1]
+        return multinomial_rvs(key, n=constraint.upper_bound, p=np.ones((n,)) / n, shape=size[:-1]) + 1
+    else:
+        raise NotImplementedError('{} not implemented.'.format(constraint))
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
@@ -242,3 +297,51 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
         if np.all(np.isfinite(d_jax.variance)):
             assert_allclose(np.std(samples, 0), np.sqrt(d_jax.variance), rtol=0.05, atol=1e-2)
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('prepend_shape', [
+    (),
+    (2,),
+    (2, 3),
+])
+def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
+    dist_args = [p.name for p in inspect.signature(jax_dist).parameters.values()]
+
+    valid_params, oob_params = list(params), list(params)
+    key = random.PRNGKey(1)
+    dependent_constraint = False
+    for i in range(len(params)):
+        constraint = jax_dist.arg_constraints[dist_args[i]]
+        if isinstance(constraint, constraints._Dependent):
+            dependent_constraint = True
+            break
+        key, key_gen = random.split(key)
+        oob_params[i] = gen_values_outside_bounds(constraint, np.shape(params[i]), key)
+        valid_params[i] = gen_values_within_bounds(constraint, np.shape(params[i]), key)
+
+    assert jax_dist(*oob_params)
+
+    # Invalid parameter values throw ValueError
+    if not dependent_constraint:
+        with pytest.raises(ValueError):
+            jax_dist(*oob_params, validate_args=True)
+
+    d = jax_dist(*valid_params, validate_args=True)
+
+    # Test agreement of log density evaluation on randomly generated samples
+    # with scipy's implementation when available.
+    if sp_dist and \
+            not _is_batched_multivariate(d) and \
+            not (d.event_shape and prepend_shape):
+        valid_samples = gen_values_within_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
+        try:
+            expected = sp_dist(*valid_params).logpdf(valid_samples)
+        except AttributeError:
+            expected = sp_dist(*valid_params).logpmf(valid_samples)
+        assert_allclose(d.log_prob(valid_samples), expected, atol=1e-5)
+
+    # Out of support samples throw ValueError
+    oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
+    with pytest.raises(ValueError):
+        d.log_prob(oob_samples)

@@ -88,6 +88,14 @@ class _Interval(Constraint):
         return (value > self.lower_bound) & (value < self.upper_bound)
 
 
+class _Multinomial(Constraint):
+    def __init__(self, upper_bound):
+        self.upper_bound = upper_bound
+
+    def __call__(self, value):
+        return np.all(value >= 0, axis=-1) & (np.sum(value, -1) == self.upper_bound)
+
+
 class _Real(Constraint):
     def __call__(self, x):
         return np.isfinite(x)
@@ -99,13 +107,16 @@ class _Simplex(Constraint):
         return np.all(x > 0, axis=-1) & (x_sum <= 1) & (x_sum > 1 - 1e-6)
 
 
+# TODO: Make types consistent
+
 boolean = _Boolean()
 corr_cholesky = _CorrCholesky()
-dependent = _Dependent
+dependent = _Dependent()
 greater_than = _GreaterThan
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
+multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 positive_integer = _IntegerGreaterThan(1)
 positive = _GreaterThan(0)
