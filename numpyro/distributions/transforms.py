@@ -132,25 +132,19 @@ class ComposeTransform(Transform):
 def _signed_stick_breaking_tril(t):
     # transform t to tril matrix with identity diagonal
     r = vec_to_tril_matrix(t, diagonal=-1)
-    r = r + np.identity(r.shape[-1])
 
     # apply stick-breaking on the squared values;
     # we omit the step of computing s = z * z_cumprod by using the fact:
     #     y = sign(r) * s = sign(r) * sqrt(z * z_cumprod) = r * sqrt(z_cumprod)
     z = r ** 2
     z1m_cumprod = cumprod(1 - z)
-
-    # to workaround the issue: NaN propagated through backward pass even when not accessed
-    # at https://github.com/pytorch/pytorch/issues/15506 (which also happens in JAX),
-    # here we only take sqrt at tril part
-    z1m_cumprod_tril_sqrt = np.sqrt(matrix_to_tril_vec(z1m_cumprod, diagonal=-1))
-    z1m_cumprod_sqrt = vec_to_tril_matrix(z1m_cumprod_tril_sqrt, diagonal=-1)
+    z1m_cumprod_sqrt = np.sqrt(z1m_cumprod)
 
     pad_width = [(0, 0)] * z.ndim
     pad_width[-1] = (1, 0)
     z1m_cumprod_sqrt_shifted = np.pad(z1m_cumprod_sqrt[..., :-1], pad_width,
                                       mode="constant", constant_values=1.)
-    y = r * z1m_cumprod_sqrt_shifted
+    y = (r + np.identity(r.shape[-1])) * z1m_cumprod_sqrt_shifted
     return y
 
 
