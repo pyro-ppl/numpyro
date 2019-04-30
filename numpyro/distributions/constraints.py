@@ -31,6 +31,7 @@ from numpyro.distributions.util import cumprod, cumsum, matrix_to_tril_vec, sum_
 # CONSTRAINTS
 ##########################################################
 
+
 class Constraint(object):
     def __call__(self, x):
         raise NotImplementedError
