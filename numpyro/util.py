@@ -5,11 +5,10 @@ from contextlib import contextmanager
 import numpy as onp
 import tqdm
 
-import jax
 import jax.numpy as np
 from jax import jit, lax, ops, vmap
 from jax.flatten_util import ravel_pytree
-from jax.tree_util import register_pytree_node, tree_flatten, tree_map, tree_multimap, tree_unflatten
+from jax.tree_util import register_pytree_node, tree_flatten, tree_map, tree_multimap
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
