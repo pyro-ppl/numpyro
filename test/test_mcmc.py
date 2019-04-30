@@ -167,4 +167,4 @@ def test_binom_stable(is_logits):
                               transform=lambda x: transform_fn(x.z),
                               progbar=False)
 
-    assert_allclose(np.mean(hmc_states['p'], 0), data['x'] / data['n'], rtol=0.001)
+    assert_allclose(np.mean(hmc_states['p'], 0), data['x'] / data['n'], rtol=0.005)
