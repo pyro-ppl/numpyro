@@ -76,14 +76,13 @@ class Cauchy(Distribution):
         super(Cauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
-        u = random.uniform(key, shape=size + self.batch_shape)
-        eps = np.tan(np.pi * (u - 0.5))
+        eps = random.cauchy(key, shape=size + self.batch_shape)
         return self.loc + eps * self.scale
 
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return - np.log(np.pi) - np.log(self.scale) - np.log(1.0 + ((value - self.loc) / self.scale) ** 2)
+        return - np.log(np.pi) - np.log(self.scale) - np.log1p(((value - self.loc) / self.scale) ** 2)
 
     @property
     def mean(self):
@@ -182,8 +181,7 @@ class Exponential(Distribution):
         super(Exponential, self).__init__(batch_shape=np.shape(rate), validate_args=validate_args)
 
     def sample(self, key, size=()):
-        u = random.uniform(key, shape=size + self.batch_shape)
-        return -np.log1p(-u) / self.rate
+        return random.exponential(key, shape=size + self.batch_shape) / self.rate
 
     def log_prob(self, value):
         if self._validate_args:
@@ -213,10 +211,7 @@ class HalfCauchy(TransformedDistribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        log_prob = self.base_dist.log_prob(value) + np.log(2)
-        value, log_prob = promote_shapes(value, log_prob)
-        log_prob = np.where(value < 0, -np.inf, log_prob)
-        return log_prob
+        return self.base_dist.log_prob(value) + np.log(2)
 
     @property
     def mean(self):

@@ -263,7 +263,7 @@ class MultinomialWithLogits(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        dtype = get_dtypes(self.probs)[0]
+        dtype = get_dtypes(self.logits)[0]
         value = lax.convert_element_type(value, dtype)
         total_count = lax.convert_element_type(self.total_count, dtype)
         logits = self.logits
@@ -317,11 +317,11 @@ class Categorical(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(np.nan, self.batch_shape)
+        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
 
     @property
     def variance(self):
-        return np.broadcast_to(np.nan, self.batch_shape)
+        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
 
     @property
     def support(self):
@@ -331,7 +331,7 @@ class Categorical(Distribution):
 class CategoricalWithLogits(Distribution):
     arg_constraints = {'logits': constraints.real}
 
-    def __init__(self, logits, total_count=1, validate_args=None):
+    def __init__(self, logits, validate_args=None):
         if np.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         logits = logits - logsumexp(logits)
@@ -356,11 +356,11 @@ class CategoricalWithLogits(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(np.nan, self.batch_shape)
+        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
 
     @property
     def variance(self):
-        return np.broadcast_to(np.nan, self.batch_shape)
+        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
 
     @property
     def support(self):
@@ -381,8 +381,8 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = value.astype(get_dtypes(self.rate)[0])
-        return (np.log(self.rate) * value) - self.rate - gammaln(value + 1)
+        value = lax.convert_element_type(value, get_dtypes(self.rate)[0])
+        return (np.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
     def mean(self):
