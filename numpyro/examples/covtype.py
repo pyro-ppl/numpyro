@@ -77,7 +77,7 @@ def benchmark_hmc(args, features, labels):
                                   'num_steps': state.num_steps}
 
     hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform,
-                              use_prims=False)
+                              progbar=True)
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
     print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)

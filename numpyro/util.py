@@ -116,13 +116,13 @@ def _identity(x):
     return x
 
 
-def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True, use_prims=True):
+def fori_collect(n, body_fun, init_val, transform=_identity, progbar=False):
     # works like lax.fori_loop but ignores i in body_fn, supports
     # postprocessing `transform`, and collects values during the loop
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
-    if use_prims:
+    if not progbar:
         collection = np.zeros((n,) + init_val_flat.shape, dtype=init_val_flat.dtype)
 
         def _body_fn(i, vals):
@@ -137,8 +137,7 @@ def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True, use_p
         collection = []
 
         val = init_val
-        n_iter = tqdm.trange(n) if progbar else range(n)
-        for i in n_iter:
+        for _ in tqdm.trange(n):
             val = body_fun(val)
             collection.append(jit(ravel_fn)(val))
 
