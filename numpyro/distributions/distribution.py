@@ -78,18 +78,6 @@ class Distribution(object):
         key = kwargs.pop('random_state')
         return self.sample(key, *args, **kwargs)
 
-    # TODO: Following methods are for compatibility with scipy;
-    # should be removed before release.
-    def rvs(self, *args, **kwargs):
-        key = kwargs.pop('random_state')
-        return self.sample(key, *args, **kwargs)
-
-    def logpdf(self, value):
-        return self.log_prob(value)
-
-    def logpmf(self, value):
-        return self.log_prob(value)
-
 
 class TransformedDistribution(Distribution):
     arg_constraints = {}
