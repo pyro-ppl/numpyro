@@ -130,7 +130,7 @@ def test_change_point():
         19,  23,  27,  20,   6,  17,  13,  10,  14,   6,  16,  15,   7,   2,
         15,  15,  19,  70,  49,   7,  53,  22,  21,  31,  19,  11,  18,  20,
         12,  35,  17,  23,  17,   4,   2,  31,  30,  13,  27,   0,  39,  37,
-         5,  14,  13,  22,
+        5,  14,  13,  22,
     ])
     init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model,
                                                                (count_data,), {})
