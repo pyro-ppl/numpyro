@@ -117,31 +117,6 @@ def _identity(x):
     return x
 
 
-def fori_append(f, a, n, transform=_identity, jit=True):
-    init_val, a_treedef = tree_flatten(a)
-    a, trans_treedef = tree_flatten(transform(a))
-    state = [lax.full((n,) + np.shape(i), 0, lax._dtype(i)) for i in a]
-
-    def body_fun(i, vals):
-        a, state = vals
-        a = tree_unflatten(a_treedef, a)
-        a_out = f(a)
-        state_out = transform(a_out)
-        a_out, state_out = tree_flatten(a_out)[0], tree_flatten(state_out)[0]
-        state_out = [lax.dynamic_update_index_in_dim(s, t[None, ...], i, axis=0)
-                     for t, s in zip(state_out, state)]
-        return a_out, state_out
-
-    def fn_loop(n, x): return lax.fori_loop(0, n, body_fun, x)
-
-    if jit:
-        # JIT on a single step.
-        fn_loop = jax.jit(fn_loop)
-        fn_loop(1, (init_val, state))
-    _, state = fn_loop(n, (init_val, state))
-    return tree_unflatten(trans_treedef, state)
-
-
 def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True, use_prims=True):
     # works like lax.fori_loop but ignores i in body_fn, supports
     # postprocessing `transform`, and collects values during the loop
