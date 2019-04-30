@@ -58,7 +58,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
                     run_warmup=True,
-                    use_prims=True,
                     progbar=True,
                     heuristic_step_size=True,
                     rng=PRNGKey(0)):
@@ -93,13 +92,13 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
         wa_update = jit(wa_update)
         if run_warmup:
-            if use_prims:
+            # JIT if progress bar updates not required
+            if not progbar:
                 hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps,
                                                                    warmup_update,
                                                                    (hmc_state, wa_state))
             else:
-                n_iter = tqdm.trange(num_warmup_steps) if progbar else range(num_warmup_steps)
-                for i in n_iter:
+                for i in tqdm.trange(num_warmup_steps):
                     hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
             return hmc_state
         else:
