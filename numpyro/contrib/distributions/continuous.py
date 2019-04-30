@@ -136,7 +136,7 @@ class Dirichlet(Distribution):
 class Gamma(Distribution):
     arg_constraints = {'concentration': constraints.positive,
                        'rate': constraints.positive}
-    support = constraints.simplex
+    support = constraints.positive
 
     def __init__(self, concentration, rate, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
@@ -168,6 +168,7 @@ class Chi2(Gamma):
     arg_constraints = {'df': constraints.positive}
 
     def __init__(self, df, validate_args=None):
+        self.df = df
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
@@ -205,6 +206,7 @@ class HalfCauchy(TransformedDistribution):
 
     def __init__(self, scale, validate_args=None):
         base_dist = Cauchy(0, scale)
+        self.scale = scale
         super(HalfCauchy, self).__init__(base_dist, AbsTransform(),
                                          validate_args=validate_args)
 

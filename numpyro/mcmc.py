@@ -7,7 +7,7 @@ from jax import jit, partial, random
 from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 
-import numpyro.distributions as dist
+import numpyro.contrib.distributions as dist
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
 from numpyro.util import cond, fori_loop, laxtuple
 

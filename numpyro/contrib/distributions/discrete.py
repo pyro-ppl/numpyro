@@ -156,6 +156,10 @@ class Binomial(Distribution):
     def variance(self):
         return np.broadcast_to(self.total_count * self.probs * (1 - self.probs), self.batch_shape)
 
+    @property
+    def support(self):
+        return constraints.integer_interval(0, self.total_count)
+
 
 class BinomialWithLogits(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
@@ -192,6 +196,10 @@ class BinomialWithLogits(Distribution):
     @property
     def variance(self):
         return np.broadcast_to(self.total_count * self.probs * (1 - self.probs), self.batch_shape)
+
+    @property
+    def support(self):
+        return constraints.integer_interval(0, self.total_count)
 
 
 class Multinomial(Distribution):
@@ -231,7 +239,7 @@ class Multinomial(Distribution):
 
     @property
     def support(self):
-        return constraints.integer_interval(0, self.total_count)
+        return constraints.multinomial(self.total_count)
 
 
 class MultinomialWithLogits(Distribution):
@@ -276,6 +284,10 @@ class MultinomialWithLogits(Distribution):
         return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs),
                                self.batch_shape + self.event_shape)
 
+    @property
+    def support(self):
+        return constraints.multinomial(self.total_count)
+
 
 class Categorical(Distribution):
     arg_constraints = {'probs': constraints.simplex}
@@ -293,10 +305,11 @@ class Categorical(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = np.expand_dims(value, -1)
-        value, log_pmf = promote_shapes(value, self.logits)
-        value = value[..., :1]
-        return np.take_along_axis(log_pmf, value, -1)[..., 0]
+        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
+        value = np.expand_dims(value, axis=-1)
+        value = np.broadcast_to(value, batch_shape + (1,))
+        log_pmf = np.broadcast_to(self.logits, batch_shape + np.shape(self.logits)[-1:])
+        return np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
 
     @lazy_property
     def logits(self):
@@ -316,8 +329,7 @@ class Categorical(Distribution):
 
 
 class CategoricalWithLogits(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'logits': constraints.simplex}
+    arg_constraints = {'logits': constraints.real}
 
     def __init__(self, logits, total_count=1, validate_args=None):
         if np.ndim(logits) < 1:
