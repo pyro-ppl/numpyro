@@ -1,8 +1,10 @@
+import numpy as onp
 import pytest
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
 from jax import random
+from jax.scipy.special import logit
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample
@@ -91,7 +93,7 @@ def test_dirichlet_categorical(algo, fori_method):
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
         p_latent = sample('p_latent', dist.dirichlet(alpha=concentration))
-        sample("obs", dist.categorical(p=p_latent), obs=data)
+        sample('obs', dist.categorical(p=p_latent), obs=data)
         return p_latent
 
     true_probs = np.array([0.1, 0.6, 0.3])
@@ -108,3 +110,61 @@ def test_dirichlet_categorical(algo, fori_method):
         hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
                                   transform=lambda x: transform_fn(x.z))
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.02)
+
+
+def test_change_point():
+    # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
+    warmup_steps, num_samples = 300, 1000
+
+    def model(data):
+        alpha = 1 / np.mean(data)
+        lambda1 = sample('lambda1', dist.expon(alpha))
+        lambda2 = sample('lambda2', dist.expon(alpha))
+        tau = sample('tau', dist.uniform(0, 1))
+        lambda12 = np.where(np.arange(len(data)) < tau * len(data), lambda1, lambda2)
+        sample('obs', dist.poisson(lambda12), obs=data)
+
+    count_data = np.array([
+        13,  24,   8,  24,   7,  35,  14,  11,  15,  11,  22,  22,  11,  57,
+        11,  19,  29,   6,  19,  12,  22,  12,  18,  72,  32,   9,   7,  13,
+        19,  23,  27,  20,   6,  17,  13,  10,  14,   6,  16,  15,   7,   2,
+        15,  15,  19,  70,  49,   7,  53,  22,  21,  31,  19,  11,  18,  20,
+        12,  35,  17,  23,  17,   4,   2,  31,  30,  13,  27,   0,  39,  37,
+         5,  14,  13,  22,
+    ])
+    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model,
+                                                               (count_data,), {})
+    init_kernel, sample_kernel = hmc(potential_fn)
+    hmc_state = init_kernel(init_params, num_warmup_steps=warmup_steps,
+                            progbar=True)
+    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
+                              transform=lambda x: transform_fn(x.z),
+                              progbar=True)
+    tau_posterior = (hmc_states['tau'] * len(count_data)).astype("int")
+    tau_values, counts = onp.unique(tau_posterior, return_counts=True)
+    mode_ind = np.argmax(counts)
+    mode = tau_values[mode_ind]
+    assert max(tau_values) == 44
+    assert mode == 44
+
+
+@pytest.mark.parametrize('is_logits', ['True', 'False'])
+def test_binom_stable(is_logits):
+    # Ref: https://github.com/pyro-ppl/pyro/issues/1706
+    warmup_steps, num_samples = 200, 200
+
+    def model(data):
+        p = sample('p', dist.beta(1., 1.))
+        if is_logits:
+            p = logit(p)
+        sample('obs', dist.binom(data['n'], p, is_logits=is_logits), obs=data['x'])
+
+    data = {'n': 5000000, 'x': 3849}
+    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, (data,), {})
+    init_kernel, sample_kernel = hmc(potential_fn)
+    hmc_state = init_kernel(init_params, num_warmup_steps=warmup_steps, progbar=False)
+    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
+                              transform=lambda x: transform_fn(x.z),
+                              progbar=False)
+
+    assert_allclose(np.mean(hmc_states['p'], 0), data['x'] / data['n'], rtol=0.001)
