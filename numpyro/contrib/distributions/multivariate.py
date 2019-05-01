@@ -15,7 +15,7 @@ from jax.scipy.special import digamma, gammaln
 from numpyro.contrib.distributions.discrete import binom
 from numpyro.contrib.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
 from numpyro.distributions import constraints
-from numpyro.distributions.util import categorical_rvs, entr, multinomial_rvs, standard_gamma, xlogy
+from numpyro.distributions.util import categorical as categorical_rvs, entr, multinomial as multinomial_rvs, standard_gamma, xlogy
 
 
 def _lnB(alpha):
@@ -148,7 +148,7 @@ class multinomial_gen(jax_multivariate, jax_discrete):
     def _rvs(self, n, p):
         if self.is_logits:
             p = softmax(p)
-        return multinomial_rvs(self._random_state, n, p, self._size)
+        return multinomial_rvs(self._random_state, p, n, self._size)
 
 
 categorical = categorical_gen(name='categorical')
