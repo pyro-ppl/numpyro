@@ -177,7 +177,7 @@ ad.defjvp2(_standard_gamma_p.primitive, None,
 
 
 @partial(jit, static_argnums=(2, 3))
-def standard_gamma(key, alpha, shape=(), dtype=np.float32):
+def _standard_gamma(key, alpha, shape=(), dtype=np.float32):
     shape = shape or np.shape(alpha)
     alpha = lax.convert_element_type(alpha, dtype)
     if np.shape(alpha) != shape:
@@ -185,13 +185,17 @@ def standard_gamma(key, alpha, shape=(), dtype=np.float32):
     return _standard_gamma_p(key, alpha)
 
 
+def standard_gamma(key, alpha, shape=(), dtype=np.float32):
+    return _standard_gamma(key, alpha, shape, dtype)
+
+
 # TODO: inefficient implementation; jit currently fails due to
 # dynamic size of random.uniform.
 @partial(jit, static_argnums=(2, 3))
-def binomial(key, p, n=1, shape=()):
+def _binomial(key, p, n=1, shape=()):
     p, n = promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
-    n_max = np.max(n)
+    n_max = int(np.max(n))
     uniforms = random.uniform(key, shape + (n_max,))
     n = np.expand_dims(n, axis=-1)
     p = np.expand_dims(p, axis=-1)
@@ -200,8 +204,12 @@ def binomial(key, p, n=1, shape=()):
     return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
 
 
+def binomial(key, p, n=1, shape=()):
+    return _binomial(key, p, n, shape)
+
+
 @partial(jit, static_argnums=(2,))
-def categorical(key, p, shape=()):
+def _categorical(key, p, shape=()):
     # this implementation is fast when event shape is small, and slow otherwise
     # Ref: https://stackoverflow.com/a/34190035
     shape = shape or p.shape[:-1]
@@ -212,8 +220,12 @@ def categorical(key, p, shape=()):
     return np.sum(s < r, axis=-1)
 
 
+def categorical(key, p, shape=()):
+    return _categorical(key, p, shape)
+
+
 @partial(jit, static_argnums=(2,))
-def poisson(key, rate, shape=()):
+def _poisson(key, rate, shape=()):
     # Ref: https://en.wikipedia.org/wiki/Poisson_distribution#Generating_Poisson-distributed_random_variables
     shape = shape or np.shape(rate)
     L = np.exp(-rate)
@@ -232,6 +244,10 @@ def poisson(key, rate, shape=()):
     return k - 1
 
 
+def poisson(key, rate, shape):
+    return _poisson(key, rate, shape)
+
+
 def _scatter_add_one(operand, indices, updates):
     return lax.scatter_add(operand, indices, updates,
                            lax.ScatterDimensionNumbers(update_window_dims=(),
@@ -240,7 +256,7 @@ def _scatter_add_one(operand, indices, updates):
 
 
 @partial(jit, static_argnums=(2, 3))
-def multinomial(key, p, n, shape=()):
+def _multinomial(key, p, n, shape=()):
     if np.shape(n) != np.shape(p)[:-1]:
         broadcast_shape = lax.broadcast_shapes(np.shape(n), np.shape(p)[:-1])
         n = np.broadcast_to(n, broadcast_shape)
@@ -266,16 +282,24 @@ def multinomial(key, p, n, shape=()):
     return np.reshape(samples_2D, shape + p.shape[-1:]) - excess
 
 
+def multinomial(key, p, n, shape=()):
+    return _multinomial(key, p, n, shape)
+
 
 def _xlogy_jvp_lhs(g, x, y):
-    g, y = promote_shapes(g, y)
-    return lax._safe_mul(lax._brcast(g, y), np.log(y))
+    shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
+    g = np.broadcast_to(g, shape)
+    y = np.broadcast_to(y, shape)
+    g, y = _promote_args_like(osp_special.xlogy, g, y)
+    return lax._safe_mul(g, np.log(y))
 
 
 def _xlogy_jvp_rhs(g, x, y):
-    g, x = promote_shapes(g, x)
+    shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
+    g = np.broadcast_to(g, shape)
+    x = np.broadcast_to(x, shape)
     x, y = _promote_args_like(osp_special.xlogy, x, y)
-    return lax._brcast(g, x) * lax._safe_mul(x, np.reciprocal(y))
+    return g * lax._safe_mul(x, np.reciprocal(y))
 
 
 @custom_transforms
@@ -288,14 +312,19 @@ ad.defjvp(xlogy.primitive, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
 
 
 def _xlog1py_jvp_lhs(g, x, y):
-    g, y = promote_shapes(g, y)
-    return lax._safe_mul(lax._brcast(g, y), np.log1p(y))
+    shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
+    g = np.broadcast_to(g, shape)
+    y = np.broadcast_to(y, shape)
+    g, y = _promote_args_like(osp_special.xlog1py, g, y)
+    return lax._safe_mul(g, np.log1p(y))
 
 
 def _xlog1py_jvp_rhs(g, x, y):
-    g, x = promote_shapes(g, x)
+    shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
+    g = np.broadcast_to(g, shape)
+    x = np.broadcast_to(x, shape)
     x, y = _promote_args_like(osp_special.xlog1py, x, y)
-    return lax._brcast(g, x) * lax._safe_mul(x, np.reciprocal(1 + y))
+    return g * lax._safe_mul(x, np.reciprocal(1 + y))
 
 
 @custom_transforms

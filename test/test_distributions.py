@@ -240,6 +240,14 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
         expected = sp_dist.logpdf(samples)
     except AttributeError:
         expected = sp_dist.logpmf(samples)
+    except ValueError as e:
+        # precision issue: np.sum(x / np.sum(x)) = 0.99999994 != 1
+        if "The input vector 'x' must lie within the normal simplex." in str(e):
+            samples = samples.copy().astype('float64')
+            samples = samples / samples.sum(axis=-1, keepdims=True)
+            expected = sp_dist.logpdf(samples)
+        else:
+            raise e
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 

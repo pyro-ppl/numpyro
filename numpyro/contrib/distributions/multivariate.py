@@ -15,7 +15,10 @@ from jax.scipy.special import digamma, gammaln
 from numpyro.contrib.distributions.discrete import binom
 from numpyro.contrib.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
 from numpyro.distributions import constraints
-from numpyro.distributions.util import categorical as categorical_rvs, entr, multinomial as multinomial_rvs, standard_gamma, xlogy
+from numpyro.distributions.util import categorical as categorical_rvs
+from numpyro.distributions.util import entr
+from numpyro.distributions.util import multinomial as multinomial_rvs
+from numpyro.distributions.util import standard_gamma, xlogy
 
 
 def _lnB(alpha):
