@@ -1,17 +1,19 @@
 import inspect
 from collections import namedtuple
 
+import numpy as onp
 import pytest
 import scipy.stats as osp
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 
 import jax
 import jax.numpy as np
 import jax.random as random
-from jax import lax
+from jax import grad, lax
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
+from numpyro.distributions.constraints import biject_to, matrix_to_tril_vec, vec_to_tril_matrix
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.util import multinomial, poisson
 
@@ -353,3 +355,94 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
     with pytest.raises(ValueError):
         d.log_prob(oob_samples)
+
+
+########################################
+# Tests for constraints and transforms #
+########################################
+
+
+@pytest.mark.parametrize('constraint, x, expected', [
+    (constraints.boolean, np.array([True, False]), np.array([True, True])),
+    (constraints.boolean, np.array([1, 1]), np.array([True, True])),
+    (constraints.boolean, np.array([-1, 1]), np.array([False, True])),
+    (constraints.corr_cholesky, np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
+     np.array([True, False])),  # NB: not lower_triangular
+    (constraints.corr_cholesky, np.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
+     np.array([False, False])),  # NB: not positive_diagonal & not unit_norm_row
+    (constraints.greater_than(1), 3, True),
+    (constraints.greater_than(1), np.array([-1, 1, 5]), np.array([False, False, True])),
+    (constraints.integer_interval(-3, 5), 0, True),
+    (constraints.integer_interval(-3, 5), np.array([-5, -3, 0, 1.1, 5, 7]),
+     np.array([False, True, True, False, True, False])),
+    (constraints.interval(-3, 5), 0, True),
+    (constraints.interval(-3, 5), np.array([-5, -3, 0, 5, 7]),
+     np.array([False, False, True, False, False])),
+    (constraints.nonnegative_integer, 3, True),
+    (constraints.nonnegative_integer, np.array([-1., 0., 5.]), np.array([False, True, True])),
+    (constraints.positive, 3, True),
+    (constraints.positive, np.array([-1, 0, 5]), np.array([False, False, True])),
+    (constraints.positive_integer, 3, True),
+    (constraints.positive_integer, np.array([-1., 0., 5.]), np.array([False, False, True])),
+    (constraints.real, -1, True),
+    (constraints.real, np.array([np.inf, np.NINF, np.nan, np.pi]),
+     np.array([False, False, False, True])),
+    (constraints.simplex, np.array([0.1, 0.3, 0.6]), True),
+    (constraints.simplex, np.array([[0.1, 0.3, 0.6], [-0.1, 0.6, 0.5], [0.1, 0.6, 0.5]]),
+     np.array([True, False, False])),
+    (constraints.unit_interval, 0.1, True),
+    (constraints.unit_interval, np.array([-5, 0, 0.5, 1, 7]),
+     np.array([False, False, True, False, False])),
+])
+def test_constraints(constraint, x, expected):
+    assert_array_equal(constraint(x), expected)
+
+
+@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
+@pytest.mark.parametrize('constraint', [
+    constraints.corr_cholesky,
+    constraints.greater_than(2),
+    constraints.interval(-3, 5),
+    constraints.positive,
+    constraints.real,
+    constraints.simplex,
+    constraints.unit_interval,
+])
+def test_biject_to(constraint, shape):
+    transform = biject_to(constraint)
+    if len(shape) < transform.event_dim:
+        return
+    rng = random.PRNGKey(0)
+    x = random.normal(rng, shape)
+    y = transform(x)
+
+    # test codomain
+    batch_shape = shape if transform.event_dim == 0 else shape[:-1]
+    assert_array_equal(transform.codomain(y), np.ones(batch_shape))
+
+    # test inv
+    z = transform.inv(y)
+    assert_allclose(x, z, atol=1e-6)
+
+    # test domain, currently all is constraints.real
+    assert_array_equal(transform.domain(z), np.ones(shape))
+
+    # test log_abs_det_jacobian
+    actual = transform.log_abs_det_jacobian(x, y)
+    assert np.shape(actual) == batch_shape
+    if len(shape) == transform.event_dim:
+        if constraint is constraints.simplex:
+            expected = onp.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
+        elif constraint is constraints.corr_cholesky:
+            vec_transform = lambda x: matrix_to_tril_vec(transform(x), diagonal=-1)  # noqa: E731
+            y_tril = matrix_to_tril_vec(y, diagonal=-1)
+            inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x, diagonal=-1))  # noqa: E731
+            expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
+        else:
+            expected = np.log(np.abs(grad(transform)(x)))
+            inv_expected = np.log(np.abs(grad(transform.inv)(y)))
+
+        assert_allclose(actual, expected, atol=1e-6)
+        assert_allclose(actual, -inv_expected, atol=1e-6)
