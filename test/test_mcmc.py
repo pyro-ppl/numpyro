@@ -137,8 +137,6 @@ def test_change_point():
     assert max(tau_values) == 44
     assert mode == 44
 
-from numpyro.contrib.distributions import beta
-from numpyro.contrib.distributions import binom
 
 @pytest.mark.parametrize('with_logits', ['True', 'False'])
 def test_binomial_stable(with_logits):
@@ -148,17 +146,16 @@ def test_binomial_stable(with_logits):
     def model(data):
         p = sample('p', beta(1., 1.))
         if with_logits:
-            l = logit(p)
-            sample('obs', binom(data['n'], p, is_logits=True), obs=data['x'])
-            #sample('obs', dist.BinomialWithLogits(l, data['n']), obs=data['x'])
+            logits = logit(p)
+            sample('obs', dist.BinomialWithLogits(logits, data['n']), obs=data['x'])
         else:
-            sample('obs', binom(data['n'], p), obs=data['x'])
-            #sample('obs', dist.Binomial(p, data['n']), obs=data['x'])
+            sample('obs', dist.Binomial(p, data['n']), obs=data['x'])
 
     data = {'n': 5000000, 'x': 3849}
     init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, (data,), {})
     init_kernel, sample_kernel = hmc(potential_fn)
-    hmc_state = init_kernel(init_params, num_warmup_steps=warmup_steps, progbar=True)
+    hmc_state = init_kernel(init_params, num_warmup_steps=warmup_steps,
+                            progbar=True)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
                               transform=lambda x: transform_fn(x.z),
                               progbar=True)
