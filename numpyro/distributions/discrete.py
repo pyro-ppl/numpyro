@@ -34,6 +34,7 @@ from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     binomial,
     categorical_rvs,
+    clamp_probs,
     get_dtypes,
     lazy_property,
     multinomial_rvs,
@@ -42,11 +43,6 @@ from numpyro.distributions.util import (
     xlog1py,
     xlogy
 )
-
-
-def clamp_probs(probs):
-    finfo = np.finfo(get_dtypes(probs)[0])
-    return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
 def _to_probs_bernoulli(logits):
@@ -82,7 +78,7 @@ class Bernoulli(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return xlogy(value, self.probs) + xlog1py(1-value, -self.probs)
+        return xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
 
     @property
     def mean(self):

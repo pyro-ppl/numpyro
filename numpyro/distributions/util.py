@@ -456,3 +456,8 @@ class lazy_property(object):
         value = self.wrapped(instance)
         setattr(instance, self.wrapped.__name__, value)
         return value
+
+
+def clamp_probs(probs):
+    finfo = np.finfo(get_dtypes(probs)[0])
+    return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)

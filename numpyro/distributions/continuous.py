@@ -239,8 +239,8 @@ class Normal(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return -((value - self.loc) ** 2) / (2.0 * self.scale ** 2) \
-               - np.log(self.scale) - np.log(np.sqrt(2 * np.pi))
+        normalize_term = np.log(self.scale) + np.log(np.sqrt(2 * np.pi))
+        return -((value - self.loc) ** 2) / (2.0 * self.scale ** 2) - normalize_term
 
     @property
     def mean(self):
@@ -314,9 +314,7 @@ class Uniform(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        within_bounds = ((value >= self.low) & (value < self.high))
-        return np.log(lax.convert_element_type(within_bounds, get_dtypes(self.low)[0])) - \
-            np.log(self.high - self.low)
+        return - np.broadcast_to(np.log(self.high - self.low), np.shape(value))
 
     @property
     def mean(self):
@@ -354,7 +352,7 @@ class StudentT(Distribution):
         y = (value - self.loc) / self.scale
         z = (np.log(self.scale) + 0.5 * np.log(self.df) + 0.5 * np.log(np.pi) +
              gammaln(0.5 * self.df) - gammaln(0.5 * (self.df + 1.)))
-        return -0.5 * (self.df + 1.) * np.log1p(y**2. / self.df) - z
+        return -0.5 * (self.df + 1.) * np.log1p(y ** 2. / self.df) - z
 
     @property
     def mean(self):
