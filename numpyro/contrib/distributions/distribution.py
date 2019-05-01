@@ -47,6 +47,12 @@ class jax_frozen(rv_frozen):
     def __call__(self, size=None, random_state=None):
         return self.rvs(size, random_state)
 
+    def log_prob(self, x):
+        if isinstance(self.dist, jax_continuous):
+            return self.logpdf(x)
+        else:
+            return self.logpmf(x)
+
     def logpdf(self, x):
         if self._validate_args:
             self._validate_sample(x)

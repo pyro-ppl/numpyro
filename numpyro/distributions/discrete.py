@@ -179,7 +179,7 @@ class BinomialWithLogits(Distribution):
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(total_count - value + 1)
         normalize_term = (total_count * np.clip(self.logits, 0) +
-                          xlog1py(self.total_count, np.exp(-np.abs(self.logits))) -
+                          xlog1py(total_count, np.exp(-np.abs(self.logits))) -
                           log_factorial_n)
         return value * self.logits - log_factorial_k - log_factorial_nmk - normalize_term
 
