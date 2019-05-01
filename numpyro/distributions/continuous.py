@@ -31,7 +31,7 @@ from jax.scipy.special import gammaln
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
-from numpyro.distributions.util import get_dtypes, promote_shapes, standard_gamma
+from numpyro.distributions.util import promote_shapes, standard_gamma
 
 
 class Beta(Distribution):
