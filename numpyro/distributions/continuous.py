@@ -114,9 +114,9 @@ class Dirichlet(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        normalize_term = (gammaln(np.sum(self.concentration, axis=-1)) -
-                          np.sum(gammaln(self.concentration), axis=-1))
-        return (np.sum(np.log(value) * (self.concentration - 1.), axis=-1) +
+        normalize_term = (np.sum(gammaln(self.concentration), axis=-1) -
+                          gammaln(np.sum(self.concentration, axis=-1)))
+        return (np.sum(np.log(value) * (self.concentration - 1.), axis=-1) -
                 normalize_term)
 
     @property
@@ -150,9 +150,9 @@ class Gamma(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        normalize_term = (self.concentration * np.log(self.rate) -
-                          self.rate * value - gammaln(self.concentration))
-        return (self.concentration - 1) * np.log(value) + normalize_term
+        normalize_term = (gammaln(self.concentration) -
+                          self.concentration * np.log(self.rate))
+        return (self.concentration - 1) * np.log(value) - self.rate * value - normalize_term
 
     @property
     def mean(self):

@@ -178,8 +178,10 @@ class BinomialWithLogits(Distribution):
         log_factorial_n = gammaln(total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(total_count - value + 1)
-        return log_factorial_n - log_factorial_k - log_factorial_nmk + value * self.logits \
-            - total_count * np.clip(self.logits, 0) - xlog1py(self.total_count, np.exp(-np.abs(self.logits)))
+        normalize_term = (total_count * np.clip(self.logits, 0) +
+                          xlog1py(self.total_count, np.exp(-np.abs(self.logits))) -
+                          log_factorial_n)
+        return value * self.logits - log_factorial_k - log_factorial_nmk - normalize_term
 
     @lazy_property
     def probs(self):
