@@ -61,13 +61,14 @@ class Beta(Distribution):
     @property
     def variance(self):
         total = self.concentration1 + self.concentration0
-        return self.concentration1 * self.concentration0 / (total ** 2 * (total + 1))
+        return (self.concentration1 * self.concentration0 /
+                (total ** 2 * (total + 1)))
 
 
 class Cauchy(Distribution):
+    reparametrized_params = ['loc', 'scale']
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc, scale, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
@@ -85,11 +86,11 @@ class Cauchy(Distribution):
 
     @property
     def mean(self):
-        return np.full(self.batch_shape, np.nan)
+        return np.broadcast_to(np.nan, self.batch_shape)
 
     @property
     def variance(self):
-        return np.full(self.batch_shape, np.nan)
+        return np.broadcast_to(np.nan, self.batch_shape)
 
 
 class Dirichlet(Distribution):
@@ -115,16 +116,59 @@ class Dirichlet(Distribution):
             self._validate_sample(value)
         normalize_term = (np.sum(gammaln(self.concentration), axis=-1) -
                           gammaln(np.sum(self.concentration, axis=-1)))
-        return np.sum(np.log(value) * (self.concentration - 1.), axis=-1) - normalize_term
+        return (np.sum(np.log(value) * (self.concentration - 1.), axis=-1) -
+                normalize_term)
 
     @property
     def mean(self):
-        return self.concentration / np.sum(self.concentration, axis=-1, keepdims=True)
+        return np.broadcast_to(self.concentration / np.sum(self.concentration, axis=-1, keepdims=True),
+                               self.batch_shape + self.event_shape)
 
     @property
     def variance(self):
         con0 = np.sum(self.concentration, axis=-1, keepdims=True)
-        return self.concentration * (con0 - self.concentration) / (con0 ** 2 * (con0 + 1))
+        return np.broadcast_to(self.concentration * (con0 - self.concentration) /
+                               (con0 ** 2 * (con0 + 1)),
+                               self.batch_shape + self.event_shape)
+
+
+class Gamma(Distribution):
+    arg_constraints = {'concentration': constraints.positive,
+                       'rate': constraints.positive}
+    support = constraints.positive
+
+    def __init__(self, concentration, rate, validate_args=None):
+        self.concentration, self.rate = promote_shapes(concentration, rate)
+        batch_shape = lax.broadcast_shapes(np.shape(concentration), np.shape(rate))
+        super(Gamma, self).__init__(batch_shape=batch_shape,
+                                    validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        shape = size + self.batch_shape + self.event_shape
+        return standard_gamma(key, self.concentration, shape=shape) / self.rate
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        normalize_term = (gammaln(self.concentration) -
+                          self.concentration * np.log(self.rate))
+        return (self.concentration - 1) * np.log(value) - self.rate * value - normalize_term
+
+    @property
+    def mean(self):
+        return np.broadcast_to(self.concentration / self.rate, self.batch_shape)
+
+    @property
+    def variance(self):
+        return np.broadcast_to(self.concentration / np.power(self.rate, 2), self.batch_shape)
+
+
+class Chi2(Gamma):
+    arg_constraints = {'df': constraints.positive}
+
+    def __init__(self, df, validate_args=None):
+        self.df = df
+        super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
 class Exponential(Distribution):
@@ -153,45 +197,6 @@ class Exponential(Distribution):
         return np.reciprocal(self.rate ** 2)
 
 
-class Gamma(Distribution):
-    arg_constraints = {'concentration': constraints.positive,
-                       'rate': constraints.positive}
-    support = constraints.positive
-
-    def __init__(self, concentration, rate, validate_args=None):
-        self.concentration, self.rate = promote_shapes(concentration, rate)
-        batch_shape = lax.broadcast_shapes(np.shape(concentration), np.shape(rate))
-        super(Gamma, self).__init__(batch_shape=batch_shape,
-                                    validate_args=validate_args)
-
-    def sample(self, key, size=()):
-        shape = size + self.batch_shape + self.event_shape
-        return standard_gamma(key, self.concentration, shape=shape) / self.rate
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        normalize_term = (gammaln(self.concentration) -
-                          self.concentration * np.log(self.rate))
-        return (self.concentration - 1) * np.log(value) - self.rate * value - normalize_term
-
-    @property
-    def mean(self):
-        return self.concentration / self.rate
-
-    @property
-    def variance(self):
-        return self.concentration / np.power(self.rate, 2)
-
-
-class Chi2(Gamma):
-    arg_constraints = {'df': constraints.positive}
-
-    def __init__(self, df, validate_args=None):
-        self.df = df
-        super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
-
-
 class HalfCauchy(TransformedDistribution):
     reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
@@ -210,11 +215,11 @@ class HalfCauchy(TransformedDistribution):
 
     @property
     def mean(self):
-        return np.full(self.batch_shape, np.inf)
+        return np.broadcast_to(np.inf, self.batch_shape)
 
     @property
     def variance(self):
-        return np.full(self.batch_shape, np.inf)
+        return np.broadcast_to(np.inf, self.batch_shape)
 
 
 class Normal(Distribution):
@@ -293,6 +298,37 @@ class Pareto(TransformedDistribution):
         return constraints.greater_than(self.scale)
 
 
+class Uniform(Distribution):
+    arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
+    reparametrized_params = ['low', 'high']
+
+    def __init__(self, low, high, validate_args=None):
+        self.low, self.high = promote_shapes(low, high)
+        batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
+        super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        size = size + self.batch_shape
+        return self.low + random.uniform(key, shape=size) * (self.high - self.low)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return - np.broadcast_to(np.log(self.high - self.low), np.shape(value))
+
+    @property
+    def mean(self):
+        return np.broadcast_to(self.low + (self.high - self.low) / 2., self.batch_shape)
+
+    @property
+    def variance(self):
+        return np.broadcast_to((self.high - self.low) ** 2 / 12., self.batch_shape)
+
+    @property
+    def support(self):
+        return constraints.interval(self.low, self.high)
+
+
 class StudentT(Distribution):
     arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -328,34 +364,3 @@ class StudentT(Distribution):
         var = np.where(self.df > 2, self.scale ** 2 * self.df / (self.df - 2.0), np.inf)
         var = np.where(self.df <= 1, np.nan, var)
         return np.broadcast_to(var, self.batch_shape)
-
-
-class Uniform(Distribution):
-    arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
-    reparametrized_params = ['low', 'high']
-
-    def __init__(self, low, high, validate_args=None):
-        self.low, self.high = promote_shapes(low, high)
-        batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
-        super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
-
-    def sample(self, key, size=()):
-        size = size + self.batch_shape
-        return self.low + random.uniform(key, shape=size) * (self.high - self.low)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        return - np.broadcast_to(np.log(self.high - self.low), np.shape(value))
-
-    @property
-    def mean(self):
-        return self.low + (self.high - self.low) / 2.
-
-    @property
-    def variance(self):
-        return (self.high - self.low) ** 2 / 12.
-
-    @property
-    def support(self):
-        return constraints.interval(self.low, self.high)
