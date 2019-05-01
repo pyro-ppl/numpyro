@@ -160,4 +160,4 @@ def test_binomial_stable(with_logits):
                               transform=lambda x: transform_fn(x.z),
                               progbar=True)
 
-    assert_allclose(np.mean(hmc_states['p'], 0), data['x'] / data['n'], rtol=0.005)
+    assert_allclose(np.mean(hmc_states['p'], 0), data['x'] / data['n'], rtol=0.05)
