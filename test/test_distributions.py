@@ -1,14 +1,15 @@
 import inspect
 from collections import namedtuple
 
+import numpy as onp
 import pytest
 import scipy.stats as osp
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 
 import jax
 import jax.numpy as np
 import jax.random as random
-from jax import lax
+from jax import grad, lax
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
@@ -384,12 +385,12 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     (constraints.unit_interval, 0.1, True),
     (constraints.unit_interval, np.array([-5, 0, 0.5, 1, 7]),
      np.array([False, False, True, False, False])),
-], ids=idfn)
+])
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
 
-@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)], ids=idfn)
+@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 @pytest.mark.parametrize('constraint', [
     constraints.corr_cholesky,
     constraints.greater_than(2),
@@ -398,7 +399,7 @@ def test_constraints(constraint, x, expected):
     constraints.real,
     constraints.simplex,
     constraints.unit_interval,
-], ids=idfn)
+])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
     if len(shape) < transform.event_dim:

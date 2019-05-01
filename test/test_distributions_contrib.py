@@ -4,7 +4,7 @@ from operator import mul
 import numpy as onp
 import pytest
 import scipy.stats as osp_stats
-from numpy.testing import assert_allclose, assert_array_equal
+from numpy.testing import assert_allclose
 
 import jax
 import jax.numpy as np

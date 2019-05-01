@@ -87,7 +87,7 @@ def test_dirichlet_categorical(algo):
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
         p_latent = sample('p_latent', dist.Dirichlet(concentration))
-        sample("obs", dist.Categorical(p_latent), obs=data)
+        sample('obs', dist.Categorical(p_latent), obs=data)
         return p_latent
 
     true_probs = np.array([0.1, 0.6, 0.3])
@@ -144,7 +144,7 @@ def test_binomial_stable(with_logits):
     warmup_steps, num_samples = 200, 200
 
     def model(data):
-        p = sample('p', beta(1., 1.))
+        p = sample('p', dist.Beta(1., 1.))
         if with_logits:
             logits = logit(p)
             sample('obs', dist.BinomialWithLogits(logits, data['n']), obs=data['x'])
