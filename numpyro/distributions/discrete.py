@@ -225,11 +225,11 @@ class Categorical(Distribution):
 
     @property
     def mean(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
 
     @property
     def variance(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
 
     @property
     def support(self):
@@ -264,11 +264,11 @@ class CategoricalWithLogits(Distribution):
 
     @property
     def mean(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
 
     @property
     def variance(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
 
     @property
     def support(self):
@@ -345,13 +345,11 @@ class MultinomialWithLogits(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs,
-                               self.batch_shape + self.event_shape)
+        return np.expand_dims(self.total_count, -1) * self.probs
 
     @property
     def variance(self):
-        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs),
-                               self.batch_shape + self.event_shape)
+        return np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @property
     def support(self):

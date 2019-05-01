@@ -85,11 +85,11 @@ class Cauchy(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(np.nan, self.batch_shape)
+        return np.full(self.batch_shape, np.nan)
 
     @property
     def variance(self):
-        return np.broadcast_to(np.nan, self.batch_shape)
+        return np.full(self.batch_shape, np.nan)
 
 
 class Dirichlet(Distribution):
@@ -210,11 +210,11 @@ class HalfCauchy(TransformedDistribution):
 
     @property
     def mean(self):
-        return np.full(np.inf, self.batch_shape)
+        return np.full(self.batch_shape, np.inf)
 
     @property
     def variance(self):
-        return np.full(np.inf, self.batch_shape)
+        return np.full(self.batch_shape, np.inf)
 
 
 class Normal(Distribution):

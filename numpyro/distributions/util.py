@@ -168,11 +168,11 @@ def _standard_gamma_grad(sample, alpha):
 
 
 @custom_transforms
-def standard_gamma_p(key, alpha):
+def _standard_gamma_p(key, alpha):
     return _standard_gamma_impl(key, alpha)
 
 
-ad.defjvp2(standard_gamma_p.primitive, None,
+ad.defjvp2(_standard_gamma_p.primitive, None,
            lambda tangent, sample, key, alpha, **kwargs: tangent * _standard_gamma_grad(sample, alpha))
 
 
@@ -182,7 +182,7 @@ def standard_gamma(key, alpha, shape=(), dtype=np.float32):
     alpha = lax.convert_element_type(alpha, dtype)
     if np.shape(alpha) != shape:
         alpha = np.broadcast_to(alpha, shape)
-    return standard_gamma_p(key, alpha)
+    return _standard_gamma_p(key, alpha)
 
 
 # TODO: inefficient implementation; jit currently fails due to
@@ -266,14 +266,45 @@ def multinomial(key, p, n, shape=()):
     return np.reshape(samples_2D, shape + p.shape[-1:]) - excess
 
 
+
+def _xlogy_jvp_lhs(g, x, y):
+    g, y = promote_shapes(g, y)
+    return lax._safe_mul(lax._brcast(g, y), np.log(y))
+
+
+def _xlogy_jvp_rhs(g, x, y):
+    g, x = promote_shapes(g, x)
+    x, y = _promote_args_like(osp_special.xlogy, x, y)
+    return lax._brcast(g, x) * lax._safe_mul(x, np.reciprocal(y))
+
+
+@custom_transforms
 def xlogy(x, y):
     x, y = _promote_args_like(osp_special.xlogy, x, y)
-    return lax._safe_mul(x, lax.log(y))
+    return lax._safe_mul(x, np.log(y))
 
 
+ad.defjvp(xlogy.primitive, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
+
+
+def _xlog1py_jvp_lhs(g, x, y):
+    g, y = promote_shapes(g, y)
+    return lax._safe_mul(lax._brcast(g, y), np.log1p(y))
+
+
+def _xlog1py_jvp_rhs(g, x, y):
+    g, x = promote_shapes(g, x)
+    x, y = _promote_args_like(osp_special.xlog1py, x, y)
+    return lax._brcast(g, x) * lax._safe_mul(x, np.reciprocal(1 + y))
+
+
+@custom_transforms
 def xlog1py(x, y):
     x, y = _promote_args_like(osp_special.xlog1py, x, y)
-    return lax._safe_mul(x, lax.log1p(y))
+    return lax._safe_mul(x, np.log1p(y))
+
+
+ad.defjvp(xlog1py.primitive, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
 
 
 def entr(p):
