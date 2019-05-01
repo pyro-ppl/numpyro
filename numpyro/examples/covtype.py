@@ -8,7 +8,7 @@ import jax
 import jax.numpy as np
 from jax import random
 
-import numpyro.contrib.distributions as dist
+import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
@@ -56,9 +56,9 @@ def load_dataset():
 
 def model(data, labels):
     N, dim = data.shape
-    coefs = sample('coefs', dist.norm(np.zeros(dim), np.ones(dim)))
+    coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
     logits = np.dot(data, coefs)
-    return sample('obs', dist.bernoulli(logits, is_logits=True), obs=labels)
+    return sample('obs', dist.BernoulliWithLogits(logits), obs=labels)
 
 
 def benchmark_hmc(args, features, labels):

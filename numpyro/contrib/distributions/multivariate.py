@@ -12,9 +12,9 @@ from jax.experimental.stax import softmax
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import digamma, gammaln
 
+from numpyro.contrib.distributions.discrete import binom
+from numpyro.contrib.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
 from numpyro.distributions import constraints
-from numpyro.distributions.discrete import binom
-from numpyro.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
 from numpyro.distributions.util import categorical_rvs, entr, multinomial_rvs, standard_gamma, xlogy
 
 
