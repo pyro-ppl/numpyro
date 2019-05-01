@@ -7,9 +7,8 @@ import scipy.special as osp_special
 
 import jax.numpy as np
 from jax import canonicalize_dtype, custom_transforms, jit, lax, random, vmap
-from jax.core import Primitive
-from jax.interpreters import ad, partial_eval, xla
-from jax.numpy.lax_numpy import _promote_args_like, _promote_shapes
+from jax.interpreters import ad
+from jax.numpy.lax_numpy import _promote_args_like
 from jax.util import partial
 
 
@@ -168,21 +167,12 @@ def _standard_gamma_grad(sample, alpha):
     return grads.reshape(alpha.shape)
 
 
-def _standard_gamma_abstract_eval(key, alpha, jaxpr, aval, consts):
-    return lax.maybe_tracer_tuple_to_abstract_tuple(aval)
+@custom_transforms
+def standard_gamma_p(key, alpha):
+    return _standard_gamma_impl(key, alpha)
 
 
-def _standard_gamma_translate(c, key, alpha, jaxpr, aval, consts):
-    xla_computation = xla.jaxpr_computation(jaxpr, consts, (), c.GetShape(key), c.GetShape(alpha))
-    return c.Call(xla_computation, (key, alpha))
-
-
-# define primitive
-standard_gamma_p = Primitive('standard_gamma')
-standard_gamma_p.def_impl(partial(xla.apply_primitive, standard_gamma_p))
-standard_gamma_p.def_abstract_eval(_standard_gamma_abstract_eval)
-xla.translations[standard_gamma_p] = _standard_gamma_translate
-ad.defjvp2(standard_gamma_p, None,
+ad.defjvp2(standard_gamma_p.primitive, None,
            lambda tangent, sample, key, alpha, **kwargs: tangent * _standard_gamma_grad(sample, alpha))
 
 
@@ -192,87 +182,102 @@ def standard_gamma(key, alpha, shape=(), dtype=np.float32):
     alpha = lax.convert_element_type(alpha, dtype)
     if np.shape(alpha) != shape:
         alpha = np.broadcast_to(alpha, shape)
-    jaxpr, out, consts = partial_eval.trace_unwrapped_to_jaxpr(_standard_gamma_impl,
-                                                               tuple(lax._abstractify(o) for o in (key, alpha)))
-    aval, _ = out
-    return standard_gamma_p.bind(key, alpha, jaxpr=jaxpr, aval=aval, consts=consts)
+    return standard_gamma_p(key, alpha)
 
 
-# TODO @npradhan: move to jax repo, if possible.
+# TODO: inefficient implementation; jit currently fails due to
+# dynamic size of random.uniform.
+@partial(jit, static_argnums=(2, 3))
+def binomial(key, p, n=1, shape=()):
+    p, n = promote_shapes(p, n)
+    shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
+    n_max = np.max(n)
+    uniforms = random.uniform(key, shape + (n_max,))
+    n = np.expand_dims(n, axis=-1)
+    p = np.expand_dims(p, axis=-1)
+    mask = (np.arange(n_max) < n).astype(uniforms.dtype)
+    p, uniforms = promote_shapes(p, uniforms)
+    return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
+
+
+@partial(jit, static_argnums=(2,))
+def categorical(key, p, shape=()):
+    # this implementation is fast when event shape is small, and slow otherwise
+    # Ref: https://stackoverflow.com/a/34190035
+    shape = shape or p.shape[:-1]
+    s = cumsum(p)
+    r = random.uniform(key, shape=shape + (1,))
+    # FIXME: replace this computation by using binary search as suggested in the above
+    # reference. A while_loop + vmap for a reshaped 2D array would be enough.
+    return np.sum(s < r, axis=-1)
+
+
+@partial(jit, static_argnums=(2,))
+def poisson(key, rate, shape=()):
+    # Ref: https://en.wikipedia.org/wiki/Poisson_distribution#Generating_Poisson-distributed_random_variables
+    shape = shape or np.shape(rate)
+    L = np.exp(-rate)
+    k = np.zeros(shape)
+    p = np.ones(shape)
+
+    def body_fn(val):
+        k, p, rng = val
+        k = np.where(p > L, k + 1, k)
+        rng, rng_u = random.split(rng)
+        u = random.uniform(rng_u, shape)
+        p = p * u
+        return k, p, rng
+
+    k, _, _ = lax.while_loop(lambda val: np.any(val[1] > L), body_fn, (k, p, key))
+    return k - 1
+
+
+def _scatter_add_one(operand, indices, updates):
+    return lax.scatter_add(operand, indices, updates,
+                           lax.ScatterDimensionNumbers(update_window_dims=(),
+                                                       inserted_window_dims=(0,),
+                                                       scatter_dims_to_operand_dims=(0,)))
+
+
+@partial(jit, static_argnums=(2, 3))
+def multinomial(key, p, n, shape=()):
+    if np.shape(n) != np.shape(p)[:-1]:
+        broadcast_shape = lax.broadcast_shapes(np.shape(n), np.shape(p)[:-1])
+        n = np.broadcast_to(n, broadcast_shape)
+        p = np.broadcast_to(p, broadcast_shape + np.shape(p)[-1:])
+    shape = shape or p.shape[:-1]
+    n_max = int(np.max(n))
+    # get indices from categorical distribution then gather the result
+    indices = categorical(key, p, (n_max,) + shape)
+    # mask out values when counts is heterogeneous
+    if not isinstance(n, Number):
+        mask = promote_shapes(np.arange(n_max) < np.expand_dims(n, -1), shape=shape + (n_max,))[0]
+        mask = np.moveaxis(mask, -1, 0).astype(indices.dtype)
+        excess = np.concatenate([np.expand_dims(n_max - n, -1), np.zeros(np.shape(n) + (p.shape[-1] - 1,))], -1)
+    else:
+        mask = 1
+        excess = 0
+    # NB: we transpose to move batch shape to the front
+    indices_2D = (np.reshape(indices * mask, (n_max, -1,))).T
+    samples_2D = vmap(_scatter_add_one, (0, 0, 0))(np.zeros((indices_2D.shape[0], p.shape[-1]),
+                                                            dtype=indices.dtype),
+                                                   np.expand_dims(indices_2D, axis=-1),
+                                                   np.ones(indices_2D.shape, dtype=indices.dtype))
+    return np.reshape(samples_2D, shape + p.shape[-1:]) - excess
+
+
 def xlogy(x, y):
-    jaxpr, out, consts = partial_eval.trace_unwrapped_to_jaxpr(xlogy_impl, tuple(lax._abstractify(o) for o in (x, y)))
-    aval, _ = out
-    return xlogy_p.bind(x, y, jaxpr=jaxpr, aval=aval, consts=consts)
-
-
-def xlogy_impl(x, y):
-    return x * np.where(x == 0., 0., np.log(y))
-
-
-def xlogy_abstract_eval(x, y, jaxpr, aval, consts):
-    return lax.maybe_tracer_tuple_to_abstract_tuple(aval)
-
-
-def xlogy_translate(c, x, y, jaxpr, aval, consts):
-    xla_computation = xla.jaxpr_computation(jaxpr, consts, (), c.GetShape(x), c.GetShape(y))
-    return c.Call(xla_computation, (x, y))
-
-
-def xlogy_jvp_lhs(g, x, y, jaxpr, aval, consts):
     x, y = _promote_args_like(osp_special.xlogy, x, y)
-    g, y = _promote_args_like(osp_special.xlogy, g, y)
-    return lax._safe_mul(lax._brcast(g, y), lax._brcast(lax.log(y), g))
-
-
-def xlogy_jvp_rhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(osp_special.xlogy, x, y)
-    g, x = _promote_args_like(osp_special.xlogy, g, x)
-    jac = lax._safe_mul(lax._brcast(x, y), lax._brcast(lax.reciprocal(y), x))
-    return lax.mul(lax._brcast(g, jac), jac)
-
-
-xlogy_p = Primitive('xlogy')
-xlogy_p.def_impl(partial(xla.apply_primitive, xlogy_p))
-xlogy_p.def_abstract_eval(xlogy_abstract_eval)
-xla.translations[xlogy_p] = xlogy_translate
-ad.defjvp(xlogy_p, xlogy_jvp_lhs, xlogy_jvp_rhs)
+    return lax._safe_mul(x, lax.log(y))
 
 
 def xlog1py(x, y):
-    jaxpr, out, consts = partial_eval.trace_unwrapped_to_jaxpr(xlog1py_impl, tuple(lax._abstractify(o) for o in (x, y)))
-    aval, _ = out
-    return xlog1py_p.bind(x, y, jaxpr=jaxpr, aval=aval, consts=consts)
-
-
-def xlog1py_impl(x, y):
-    return x * np.where(x == 0., 0., np.log1p(y))
-
-
-def xlog1py_jvp_lhs(g, x, y, jaxpr, aval, consts):
     x, y = _promote_args_like(osp_special.xlog1py, x, y)
-    g, y = _promote_args_like(osp_special.xlog1py, g, y)
-    return lax._safe_mul(lax._brcast(g, y), lax._brcast(lax.log1p(y), g))
-
-
-def xlog1py_jvp_rhs(g, x, y, jaxpr, aval, consts):
-    x, y = _promote_args_like(osp_special.xlog1py, x, y)
-    g, x = _promote_args_like(osp_special.xlog1py, g, x)
-    jac = lax._safe_mul(lax._brcast(x, y), lax._brcast(lax.reciprocal(1 + y), x))
-    return lax.mul(lax._brcast(g, jac), jac)
-
-
-xlog1py_p = Primitive('xlog1py')
-xlog1py_p.def_impl(partial(xla.apply_primitive, xlog1py_p))
-xlog1py_p.def_abstract_eval(xlogy_abstract_eval)
-xla.translations[xlog1py_p] = xlogy_translate
-ad.defjvp(xlog1py_p, xlog1py_jvp_lhs, xlog1py_jvp_rhs)
+    return lax._safe_mul(x, lax.log1p(y))
 
 
 def entr(p):
-    e = np.where(p > 0, -p * np.log(p), p)
-    e = np.where(e == 0, 0, e)
-    e = np.where(e < 0, -np.inf)
-    return e
+    return np.where(p < 0, -np.inf, -xlogy(p))
 
 
 def binary_cross_entropy_with_logits(x, y):
@@ -312,87 +317,6 @@ def promote_shapes(*args, shape=()):
 
 def get_dtypes(*args):
     return [canonicalize_dtype(onp.result_type(arg)) for arg in args]
-
-
-# TODO: inefficient implementation; jit currently fails due to
-# dynamic size of random.uniform.
-@partial(jit, static_argnums=(0, 2, 3))
-def binomial(key, p, n=1, shape=()):
-    p, n = _promote_shapes(p, n)
-    shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
-    n_max = np.max(n)
-    uniforms = random.uniform(key, shape + (n_max,))
-    n = np.expand_dims(n, axis=-1)
-    p = np.expand_dims(p, axis=-1)
-    mask = (np.arange(n_max) < n).astype(uniforms.dtype)
-    p, uniforms = promote_shapes(p, uniforms)
-    return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
-
-
-@partial(jit, static_argnums=(2,))
-def categorical_rvs(key, p, shape=()):
-    # this implementation is fast when event shape is small, and slow otherwise
-    # Ref: https://stackoverflow.com/a/34190035
-    shape = shape or p.shape[:-1]
-    s = cumsum(p)
-    r = random.uniform(key, shape=shape + (1,))
-    # FIXME: replace this computation by using binary search as suggested in the above
-    # reference. A while_loop + vmap for a reshaped 2D array would be enough.
-    return np.sum(s < r, axis=-1)
-
-
-@partial(jit, static_argnums=(1, 2))
-def poisson(key, rate, shape=()):
-    # Ref: https://en.wikipedia.org/wiki/Poisson_distribution#Generating_Poisson-distributed_random_variables
-    shape = shape or np.shape(rate)
-    L = np.exp(-rate)
-    k = np.zeros(shape)
-    p = np.ones(shape)
-
-    def body_fn(val):
-        k, p, rng = val
-        k = np.where(p > L, k + 1, k)
-        rng, rng_u = random.split(rng)
-        u = random.uniform(rng_u, shape)
-        p = p * u
-        return k, p, rng
-
-    k, _, _ = lax.while_loop(lambda val: np.any(val[1] > L), body_fn, (k, p, key))
-    return k - 1
-
-
-def _scatter_add_one(operand, indices, updates):
-    return lax.scatter_add(operand, indices, updates,
-                           lax.ScatterDimensionNumbers(update_window_dims=(),
-                                                       inserted_window_dims=(0,),
-                                                       scatter_dims_to_operand_dims=(0,)))
-
-
-@partial(jit, static_argnums=(1, 3))
-def multinomial_rvs(key, n, p, shape=()):
-    if np.shape(n) != np.shape(p)[:-1]:
-        broadcast_shape = lax.broadcast_shapes(np.shape(n), np.shape(p)[:-1])
-        n = np.broadcast_to(n, broadcast_shape)
-        p = np.broadcast_to(p, broadcast_shape + np.shape(p)[-1:])
-    shape = shape or p.shape[:-1]
-    n_max = int(np.max(n))
-    # get indices from categorical distribution then gather the result
-    indices = categorical_rvs(key, p, (n_max,) + shape)
-    # mask out values when counts is heterogeneous
-    if not isinstance(n, Number):
-        mask = promote_shapes(np.arange(n_max) < np.expand_dims(n, -1), shape=shape + (n_max,))[0]
-        mask = np.moveaxis(mask, -1, 0).astype(indices.dtype)
-        excess = np.concatenate([np.expand_dims(n_max - n, -1), np.zeros(np.shape(n) + (p.shape[-1] - 1,))], -1)
-    else:
-        mask = 1
-        excess = 0
-    # NB: we transpose to move batch shape to the front
-    indices_2D = (np.reshape(indices * mask, (n_max, -1,))).T
-    samples_2D = vmap(_scatter_add_one, (0, 0, 0))(np.zeros((indices_2D.shape[0], p.shape[-1]),
-                                                            dtype=indices.dtype),
-                                                   np.expand_dims(indices_2D, axis=-1),
-                                                   np.ones(indices_2D.shape, dtype=indices.dtype))
-    return np.reshape(samples_2D, shape + p.shape[-1:]) - excess
 
 
 def sum_rightmost(x, dim):

@@ -33,11 +33,11 @@ from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     binomial,
-    categorical_rvs,
+    categorical,
     clamp_probs,
     get_dtypes,
     lazy_property,
-    multinomial_rvs,
+    multinomial,
     poisson,
     promote_shapes,
     xlog1py,
@@ -82,11 +82,11 @@ class Bernoulli(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.probs, self.batch_shape)
+        return self.probs
 
     @property
     def variance(self):
-        return np.broadcast_to(self.probs * (1 - self.probs), self.batch_shape)
+        return self.probs * (1 - self.probs)
 
 
 class BernoulliWithLogits(Distribution):
@@ -113,11 +113,11 @@ class BernoulliWithLogits(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.probs, self.batch_shape)
+        return self.probs
 
     @property
     def variance(self):
-        return np.broadcast_to(self.probs * (1 - self.probs), self.batch_shape)
+        return self.probs * (1 - self.probs)
 
 
 class Binomial(Distribution):
@@ -200,91 +200,6 @@ class BinomialWithLogits(Distribution):
         return constraints.integer_interval(0, self.total_count)
 
 
-class Multinomial(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'probs': constraints.simplex}
-
-    def __init__(self, probs, total_count=1, validate_args=None):
-        if np.ndim(probs) < 1:
-            raise ValueError("`probs` parameter must be at least one-dimensional.")
-        batch_shape = lax.broadcast_shapes(np.shape(probs)[:-1], np.shape(total_count))
-        self.probs = promote_shapes(probs, shape=batch_shape + np.shape(probs)[-1:])[0]
-        self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
-        super(Multinomial, self).__init__(batch_shape=batch_shape,
-                                          event_shape=np.shape(self.probs)[-1:],
-                                          validate_args=validate_args)
-
-    def sample(self, key, size=()):
-        return multinomial_rvs(key, self.total_count, self.probs, shape=size + self.batch_shape)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        dtype = get_dtypes(self.probs)[0]
-        value = lax.convert_element_type(value, dtype)
-        total_count = lax.convert_element_type(self.total_count, dtype)
-        return gammaln(total_count + 1) + np.sum(xlogy(value, self.probs) - gammaln(value + 1), axis=-1)
-
-    @property
-    def mean(self):
-        return np.broadcast_to(self.probs * np.expand_dims(self.total_count, -1),
-                               self.batch_shape + self.event_shape)
-
-    @property
-    def variance(self):
-        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs),
-                               self.batch_shape + self.event_shape)
-
-    @property
-    def support(self):
-        return constraints.multinomial(self.total_count)
-
-
-class MultinomialWithLogits(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'logits': constraints.real}
-
-    def __init__(self, logits, total_count=1, validate_args=None):
-        if np.ndim(logits) < 1:
-            raise ValueError("`logits` parameter must be at least one-dimensional.")
-        batch_shape = lax.broadcast_shapes(np.shape(logits)[:-1], np.shape(total_count))
-        logits = logits - logsumexp(logits)
-        self.logits = promote_shapes(logits, shape=batch_shape + np.shape(logits)[-1:])[0]
-        self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
-        super(MultinomialWithLogits, self).__init__(batch_shape=batch_shape,
-                                                    event_shape=np.shape(self.logits)[-1:],
-                                                    validate_args=validate_args)
-
-    def sample(self, key, size=()):
-        return multinomial_rvs(key, self.total_count, self.probs, shape=size + self.batch_shape)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        dtype = get_dtypes(self.logits)[0]
-        value = lax.convert_element_type(value, dtype)
-        total_count = lax.convert_element_type(self.total_count, dtype)
-        return gammaln(total_count + 1) + np.sum(value * self.logits - gammaln(value + 1), axis=-1)
-
-    @lazy_property
-    def probs(self):
-        return _to_probs_multinom(self.logits)
-
-    @property
-    def mean(self):
-        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs,
-                               self.batch_shape + self.event_shape)
-
-    @property
-    def variance(self):
-        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs),
-                               self.batch_shape + self.event_shape)
-
-    @property
-    def support(self):
-        return constraints.multinomial(self.total_count)
-
-
 class Categorical(Distribution):
     arg_constraints = {'probs': constraints.simplex}
 
@@ -296,7 +211,7 @@ class Categorical(Distribution):
                                           validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return categorical_rvs(key, self.probs, shape=size + self.batch_shape)
+        return categorical(key, self.probs, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -333,7 +248,7 @@ class CategoricalWithLogits(Distribution):
                                                     validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return categorical_rvs(key, self.probs, shape=size + self.batch_shape)
+        return categorical(key, self.probs, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -358,6 +273,89 @@ class CategoricalWithLogits(Distribution):
     @property
     def support(self):
         return constraints.integer_interval(0, np.shape(self.logits)[-1])
+
+
+class Multinomial(Distribution):
+    arg_constraints = {'total_count': constraints.nonnegative_integer,
+                       'probs': constraints.simplex}
+
+    def __init__(self, probs, total_count=1, validate_args=None):
+        if np.ndim(probs) < 1:
+            raise ValueError("`probs` parameter must be at least one-dimensional.")
+        batch_shape = lax.broadcast_shapes(np.shape(probs)[:-1], np.shape(total_count))
+        self.probs = promote_shapes(probs, shape=batch_shape + np.shape(probs)[-1:])[0]
+        self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
+        super(Multinomial, self).__init__(batch_shape=batch_shape,
+                                          event_shape=np.shape(self.probs)[-1:],
+                                          validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        return multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        dtype = get_dtypes(self.probs)[0]
+        value = lax.convert_element_type(value, dtype)
+        total_count = lax.convert_element_type(self.total_count, dtype)
+        return gammaln(total_count + 1) + np.sum(xlogy(value, self.probs) - gammaln(value + 1), axis=-1)
+
+    @property
+    def mean(self):
+        return self.probs * np.expand_dims(self.total_count, -1)
+
+    @property
+    def variance(self):
+        return np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
+
+    @property
+    def support(self):
+        return constraints.multinomial(self.total_count)
+
+
+class MultinomialWithLogits(Distribution):
+    arg_constraints = {'total_count': constraints.nonnegative_integer,
+                       'logits': constraints.real}
+
+    def __init__(self, logits, total_count=1, validate_args=None):
+        if np.ndim(logits) < 1:
+            raise ValueError("`logits` parameter must be at least one-dimensional.")
+        batch_shape = lax.broadcast_shapes(np.shape(logits)[:-1], np.shape(total_count))
+        logits = logits - logsumexp(logits)
+        self.logits = promote_shapes(logits, shape=batch_shape + np.shape(logits)[-1:])[0]
+        self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
+        super(MultinomialWithLogits, self).__init__(batch_shape=batch_shape,
+                                                    event_shape=np.shape(self.logits)[-1:],
+                                                    validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        return multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        dtype = get_dtypes(self.logits)[0]
+        value = lax.convert_element_type(value, dtype)
+        total_count = lax.convert_element_type(self.total_count, dtype)
+        return gammaln(total_count + 1) + np.sum(value * self.logits - gammaln(value + 1), axis=-1)
+
+    @lazy_property
+    def probs(self):
+        return _to_probs_multinom(self.logits)
+
+    @property
+    def mean(self):
+        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs,
+                               self.batch_shape + self.event_shape)
+
+    @property
+    def variance(self):
+        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs),
+                               self.batch_shape + self.event_shape)
+
+    @property
+    def support(self):
+        return constraints.multinomial(self.total_count)
 
 
 class Poisson(Distribution):

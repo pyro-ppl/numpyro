@@ -13,7 +13,7 @@ from jax import lax
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
-from numpyro.distributions.util import multinomial_rvs, poisson
+from numpyro.distributions.util import multinomial, poisson
 
 
 def _identity(x): return x
@@ -135,7 +135,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1])
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
-        return multinomial_rvs(key, n=constraint.upper_bound, p=np.ones((n,)) / n, shape=size[:-1])
+        return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -159,7 +159,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1]) + 1e-2
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
-        return multinomial_rvs(key, n=constraint.upper_bound, p=np.ones((n,)) / n, shape=size[:-1]) + 1
+        return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
