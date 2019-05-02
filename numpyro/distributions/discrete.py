@@ -33,11 +33,11 @@ from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     binomial,
-    categorical_rvs,
+    categorical,
     clamp_probs,
     get_dtypes,
     lazy_property,
-    multinomial_rvs,
+    multinomial,
     poisson,
     promote_shapes,
     xlog1py,
@@ -215,7 +215,7 @@ class Multinomial(Distribution):
                                           validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return multinomial_rvs(key, self.total_count, self.probs, shape=size + self.batch_shape)
+        return multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -256,7 +256,7 @@ class MultinomialWithLogits(Distribution):
                                                     validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return multinomial_rvs(key, self.total_count, self.probs, shape=size + self.batch_shape)
+        return multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -296,7 +296,7 @@ class Categorical(Distribution):
                                           validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return categorical_rvs(key, self.probs, shape=size + self.batch_shape)
+        return categorical(key, self.probs, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -333,7 +333,7 @@ class CategoricalWithLogits(Distribution):
                                                     validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return categorical_rvs(key, self.probs, shape=size + self.batch_shape)
+        return categorical(key, self.probs, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:

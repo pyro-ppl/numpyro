@@ -15,7 +15,7 @@ import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
 from numpyro.distributions.constraints import biject_to, matrix_to_tril_vec, vec_to_tril_matrix
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
-from numpyro.distributions.util import multinomial_rvs, poisson
+from numpyro.distributions.util import multinomial, poisson
 
 
 def _identity(x): return x
@@ -137,7 +137,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1])
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
-        return multinomial_rvs(key, n=constraint.upper_bound, p=np.ones((n,)) / n, shape=size[:-1])
+        return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -161,7 +161,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1]) + 1e-2
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
-        return multinomial_rvs(key, n=constraint.upper_bound, p=np.ones((n,)) / n, shape=size[:-1]) + 1
+        return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -242,6 +242,14 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
         expected = sp_dist.logpdf(samples)
     except AttributeError:
         expected = sp_dist.logpmf(samples)
+    except ValueError as e:
+        # precision issue: np.sum(x / np.sum(x)) = 0.99999994 != 1
+        if "The input vector 'x' must lie within the normal simplex." in str(e):
+            samples = samples.copy().astype('float64')
+            samples = samples / samples.sum(axis=-1, keepdims=True)
+            expected = sp_dist.logpdf(samples)
+        else:
+            raise e
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
