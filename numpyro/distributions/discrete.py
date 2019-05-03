@@ -82,11 +82,11 @@ class Bernoulli(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.probs, self.batch_shape)
+        return self.probs
 
     @property
     def variance(self):
-        return np.broadcast_to(self.probs * (1 - self.probs), self.batch_shape)
+        return self.probs * (1 - self.probs)
 
 
 class BernoulliWithLogits(Distribution):
@@ -113,11 +113,11 @@ class BernoulliWithLogits(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.probs, self.batch_shape)
+        return self.probs
 
     @property
     def variance(self):
-        return np.broadcast_to(self.probs * (1 - self.probs), self.batch_shape)
+        return self.probs * (1 - self.probs)
 
 
 class Binomial(Distribution):
@@ -200,6 +200,81 @@ class BinomialWithLogits(Distribution):
         return constraints.integer_interval(0, self.total_count)
 
 
+class Categorical(Distribution):
+    arg_constraints = {'probs': constraints.simplex}
+
+    def __init__(self, probs, validate_args=None):
+        if np.ndim(probs) < 1:
+            raise ValueError("`probs` parameter must be at least one-dimensional.")
+        self.probs = probs
+        super(Categorical, self).__init__(batch_shape=np.shape(self.probs)[:-1],
+                                          validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        return categorical(key, self.probs, shape=size + self.batch_shape)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
+        value = np.expand_dims(value, axis=-1)
+        value = np.broadcast_to(value, batch_shape + (1,))
+        logits = _to_logits_multinom(self.probs)
+        log_pmf = np.broadcast_to(logits, batch_shape + np.shape(logits)[-1:])
+        return np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
+
+    @property
+    def mean(self):
+        return np.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
+
+    @property
+    def variance(self):
+        return np.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
+
+    @property
+    def support(self):
+        return constraints.integer_interval(0, np.shape(self.probs)[-1])
+
+
+class CategoricalWithLogits(Distribution):
+    arg_constraints = {'logits': constraints.real}
+
+    def __init__(self, logits, validate_args=None):
+        if np.ndim(logits) < 1:
+            raise ValueError("`logits` parameter must be at least one-dimensional.")
+        logits = logits - logsumexp(logits)
+        self.logits = logits
+        super(CategoricalWithLogits, self).__init__(batch_shape=np.shape(logits)[:-1],
+                                                    validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        return categorical(key, self.probs, shape=size + self.batch_shape)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        value = np.expand_dims(value, -1)
+        value, log_pmf = promote_shapes(value, self.logits)
+        value = value[..., :1]
+        return np.take_along_axis(log_pmf, value, -1)[..., 0]
+
+    @lazy_property
+    def probs(self):
+        return _to_probs_multinom(self.logits)
+
+    @property
+    def mean(self):
+        return np.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+
+    @property
+    def variance(self):
+        return np.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+
+    @property
+    def support(self):
+        return constraints.integer_interval(0, np.shape(self.logits)[-1])
+
+
 class Multinomial(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'probs': constraints.simplex}
@@ -227,13 +302,11 @@ class Multinomial(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.probs * np.expand_dims(self.total_count, -1),
-                               self.batch_shape + self.event_shape)
+        return self.probs * np.expand_dims(self.total_count, -1)
 
     @property
     def variance(self):
-        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs),
-                               self.batch_shape + self.event_shape)
+        return np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @property
     def support(self):
@@ -272,92 +345,15 @@ class MultinomialWithLogits(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs,
-                               self.batch_shape + self.event_shape)
+        return np.expand_dims(self.total_count, -1) * self.probs
 
     @property
     def variance(self):
-        return np.broadcast_to(np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs),
-                               self.batch_shape + self.event_shape)
+        return np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @property
     def support(self):
         return constraints.multinomial(self.total_count)
-
-
-class Categorical(Distribution):
-    arg_constraints = {'probs': constraints.simplex}
-
-    def __init__(self, probs, validate_args=None):
-        if np.ndim(probs) < 1:
-            raise ValueError("`probs` parameter must be at least one-dimensional.")
-        self.probs = probs
-        super(Categorical, self).__init__(batch_shape=np.shape(self.probs)[:-1],
-                                          validate_args=validate_args)
-
-    def sample(self, key, size=()):
-        return categorical(key, self.probs, shape=size + self.batch_shape)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
-        value = np.expand_dims(value, axis=-1)
-        value = np.broadcast_to(value, batch_shape + (1,))
-        logits = _to_logits_multinom(self.probs)
-        log_pmf = np.broadcast_to(logits, batch_shape + np.shape(logits)[-1:])
-        return np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
-
-    @property
-    def mean(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
-
-    @property
-    def variance(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
-
-    @property
-    def support(self):
-        return constraints.integer_interval(0, np.shape(self.probs)[-1])
-
-
-class CategoricalWithLogits(Distribution):
-    arg_constraints = {'logits': constraints.real}
-
-    def __init__(self, logits, validate_args=None):
-        if np.ndim(logits) < 1:
-            raise ValueError("`logits` parameter must be at least one-dimensional.")
-        logits = logits - logsumexp(logits)
-        self.logits = logits
-        super(CategoricalWithLogits, self).__init__(batch_shape=np.shape(logits)[:-1],
-                                                    validate_args=validate_args)
-
-    def sample(self, key, size=()):
-        return categorical(key, self.probs, shape=size + self.batch_shape)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        value = np.expand_dims(value, -1)
-        value, log_pmf = promote_shapes(value, self.logits)
-        value = value[..., :1]
-        return np.take_along_axis(log_pmf, value, -1)[..., 0]
-
-    @lazy_property
-    def probs(self):
-        return _to_probs_multinom(self.logits)
-
-    @property
-    def mean(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
-
-    @property
-    def variance(self):
-        return lax.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
-
-    @property
-    def support(self):
-        return constraints.integer_interval(0, np.shape(self.logits)[-1])
 
 
 class Poisson(Distribution):
