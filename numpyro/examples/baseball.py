@@ -1,16 +1,21 @@
 import argparse
-import numpyro.distributions as dist
+
+import numpy as onp
+
 import jax.numpy as np
 import jax.random as random
+from jax.scipy.misc import logsumexp
 
-from numpyro.examples.datasets import load_dataset, BASEBALL
-from numpyro.handlers import sample, substitute, seed
+import numpyro.distributions as dist
+from numpyro.examples.datasets import BASEBALL, load_dataset
+from numpyro.handlers import sample, seed, substitute, trace
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
-from numpyro.util import fori_collect, control_flow_prims_disabled
+from numpyro.util import fori_collect
 
 """
-Original example from 
+Original example from Pyro: 
+https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py 
 
 Example has been adapted from [1]. It demonstrates how to do Bayesian inference using
 NUTS (or, HMC) in Pyro, and use of some common inference utilities.
@@ -125,57 +130,80 @@ def partially_pooled_with_logit(at_bats, hits=None):
 def run_inference(model, at_bats, hits, rng, args):
     init_params, potential_fn, transform_fn = initialize_model(rng, model,
                                                                (at_bats, hits), {})
-    with control_flow_prims_disabled():
-        init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-        hmc_state = init_kernel(init_params, args.num_warmup_steps)
-        hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
-                                  transform=lambda hmc_state: transform_fn(hmc_state.z),
-                                  progbar=True)
+    init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
+    hmc_state = init_kernel(init_params, args.num_warmup_steps)
+    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
+                              transform=lambda hmc_state: transform_fn(hmc_state.z),
+                              progbar=True)
     return hmc_states
 
 
-def predict(model, at_bats, z, rng, player_names, hits):
-    model_name = model.__name__
+def predict(model, at_bats, hits, z, rng, player_names, train=True):
+    header = model.__name__ + (' - TRAIN' if train else ' - TEST')
     model = substitute(seed(model, rng), z)
-    predictions = model(at_bats)
-    mean, std = np.mean(predictions, 0), np.std(predictions, 0)
-    print_out('=' * 15 + model_name + '=' * 15,
-              mean,
-              std,
-              player_names,
-              hits)
+    model_trace = trace(model).get_trace(at_bats)
+    predictions = model_trace['obs']['value']
+    print_results('=' * 30 + header + '=' * 30,
+                  predictions,
+                  player_names,
+                  at_bats,
+                  hits)
+    if not train:
+        model = substitute(model, z)
+        model_trace = trace(model).get_trace(at_bats, hits)
+        log_joint = 0.
+        for site in model_trace.values():
+            site_log_prob = site['fn'].log_prob(site['value'])
+            log_joint = log_joint + onp.apply_over_axes(np.sum,
+                                                        site_log_prob,
+                                                        range(1, np.ndim(site_log_prob)))
+        log_pred_density = logsumexp(log_joint) - np.log(np.shape(log_joint)[0])
+        print('\nLog predictive density: {:.2f}\n'.format(log_pred_density))
 
 
-def print_out(header, mean, std, player_names, hits):
-    columns = ['', 'Mean', 'Std', 'ActualHits']
-    header_format = '{:>20} {:>7} {:>7} {:>14}'
-    row_format = '{:>20} {:>7.2f} {:>7.2f} {:>14}'
-    print('\n\n')
-    print(header)
+def predictive_log_density(model, at_bats, z, rng):
+    model = substitute(seed(model, rng), z)
+    model_trace = trace(model).get_trace(at_bats)
+    log_joint = 0.
+    for site in model_trace.values():
+        if site['type'] == 'sample':
+            log_joint = log_joint + np.sum(site['fn'].log_prob(site['value']))
+    return log_joint, model_trace
+
+
+def print_results(header, preds, player_names, at_bats, hits):
+    columns = ['', 'At-bats', 'ActualHits', 'Pred(p25)', 'Pred(p50)', 'Pred(p75)']
+    header_format = '{:>20} {:>10} {:>10} {:>10} {:>10} {:>10}'
+    row_format = '{:>20} {:>10.0f} {:>10.0f} {:>10.2f} {:>10.2f} {:>10.2f}'
+    quantiles = onp.quantile(preds, [0.25, 0.5, 0.75], axis=0)
+    print('\n', header, '\n')
     print(header_format.format(*columns))
     for i, p in enumerate(player_names):
-        print(row_format.format(p, mean[i], std[i], hits[i]))
-    print('\n\n')
+        print(row_format.format(p, at_bats[i], hits[i], *quantiles[:, i]), '\n')
 
 
 def main(args):
-    _, fetch = load_dataset(BASEBALL, split='train', shuffle=False)
-    train, player_names = fetch(0)
+    _, fetch_train = load_dataset(BASEBALL, split='train', shuffle=False)
+    train, player_names = fetch_train()
+    _, fetch_test = load_dataset(BASEBALL, split='test', shuffle=False)
+    test, _ = fetch_test()
     at_bats, hits = train[:, 0], train[:, 1]
-    for i, model in enumerate((#fully_pooled,
+    season_at_bats, season_hits = test[:, 0], test[:, 1]
+    for i, model in enumerate((fully_pooled,
                                not_pooled,
-                               #partially_pooled,
-                               # partially_pooled_with_logit,
+                               partially_pooled,
+                               partially_pooled_with_logit,
                                )):
         rng, rng_predict = random.split(random.PRNGKey(i))
         zs = run_inference(model, at_bats, hits, random.PRNGKey(i), args)
-        predict(model, at_bats, zs, rng_predict, player_names, hits)
+        predict(model, at_bats, hits, zs, rng_predict, player_names)
+        predict(model, season_at_bats, season_hits, zs, rng_predict, player_names, train=False)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Baseball batting average using HMC")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=20, type=int)
-    parser.add_argument("--num-warmup-steps", nargs='?', default=10, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
+    parser.add_argument("--num-warmup-steps", nargs='?', default=1500, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)

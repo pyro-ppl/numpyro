@@ -314,7 +314,7 @@ class Uniform(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return - np.broadcast_to(np.log(self.high - self.low), np.shape(value))
+        return - np.log(np.broadcast_to(self.high - self.low, np.shape(value)))
 
     @property
     def mean(self):

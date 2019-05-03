@@ -1,7 +1,7 @@
 import jax.numpy as np
 from jax import lax
 
-from numpyro.examples.datasets import MNIST, load_dataset, BASEBALL
+from numpyro.examples.datasets import BASEBALL, MNIST, load_dataset
 
 
 def test_mnist_data_load():

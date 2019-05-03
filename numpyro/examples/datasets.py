@@ -114,7 +114,7 @@ def load_dataset(dset, batch_size=None, split='train', shuffle=True):
     def init():
         return num_records // batch_size, np.random.permutation(idxs) if shuffle else idxs
 
-    def get_batch(i, idxs=idxs):
+    def get_batch(i=0, idxs=idxs):
         ret_idx = lax.dynamic_slice_in_dim(idxs, (i + 1) * batch_size, batch_size)
         return tuple(lax.index_take(a, (ret_idx,), axes=(0,)) if isinstance(a, DeviceArray)
                      else np.take(a, ret_idx, axis=0) for a in arrays)
