@@ -58,6 +58,14 @@ DATA_URL = "https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt"
 
 # TODO: Remove broadcasting logic when support for `pyro.plate` is
 # available.
+#
+# Note that the current manual broadcasting logic is designed to
+# also work when the latent variables are batched along the leading
+# axis. This is useful for doing vectorized predictions, i.e. getting
+# the entire empirical distribution in one pass through the model.
+# This broadcasting logic can be removed when support for plates is
+# available.
+
 def fully_pooled(at_bats, hits=None):
     r"""
     Number of hits in $K$ at bats for each player has a Binomial
