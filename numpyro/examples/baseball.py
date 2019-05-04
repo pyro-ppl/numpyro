@@ -56,6 +56,8 @@ hyper-parameters) of running HMC on different problems.
 DATA_URL = "https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt"
 
 
+# TODO: Remove broadcasting logic when support for `pyro.plate` is
+# available.
 def fully_pooled(at_bats, hits=None):
     r"""
     Number of hits in $K$ at bats for each player has a Binomial
@@ -138,6 +140,8 @@ def run_inference(model, at_bats, hits, rng, args):
     return hmc_states
 
 
+# TODO: Consider providing generic utilities for doing predictions
+# and computing posterior log density
 def predict(model, at_bats, hits, z, rng, player_names, train=True):
     header = model.__name__ + (' - TRAIN' if train else ' - TEST')
     model = substitute(seed(model, rng), z)
@@ -154,21 +158,10 @@ def predict(model, at_bats, hits, z, rng, player_names, train=True):
         log_joint = 0.
         for site in model_trace.values():
             site_log_prob = site['fn'].log_prob(site['value'])
-            log_joint = log_joint + onp.apply_over_axes(np.sum,
-                                                        site_log_prob,
-                                                        range(1, np.ndim(site_log_prob)))
-        log_pred_density = logsumexp(log_joint) - np.log(np.shape(log_joint)[0])
-        print('\nLog predictive density: {:.2f}\n'.format(log_pred_density))
-
-
-def predictive_log_density(model, at_bats, z, rng):
-    model = substitute(seed(model, rng), z)
-    model_trace = trace(model).get_trace(at_bats)
-    log_joint = 0.
-    for site in model_trace.values():
-        if site['type'] == 'sample':
-            log_joint = log_joint + np.sum(site['fn'].log_prob(site['value']))
-    return log_joint, model_trace
+            log_joint = log_joint + np.sum(site_log_prob.reshape(site_log_prob.shape[:1] + (-1,)),
+                                           -1)
+        log_post_density = logsumexp(log_joint) - np.log(np.shape(log_joint)[0])
+        print('\nPosterior log density: {:.2f}\n'.format(log_post_density))
 
 
 def print_results(header, preds, player_names, at_bats, hits):
