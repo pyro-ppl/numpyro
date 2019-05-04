@@ -25,7 +25,7 @@
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
-from numpyro.distributions.util import cumprod, cumsum, matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost, vec_to_tril_matrix
+from numpyro.distributions.util import cumprod, cumsum, matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost
 
 ##########################################################
 # CONSTRAINTS

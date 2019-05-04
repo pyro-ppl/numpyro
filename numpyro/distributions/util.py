@@ -9,6 +9,7 @@ import jax.numpy as np
 from jax import canonicalize_dtype, custom_transforms, jit, lax, random, vmap
 from jax.interpreters import ad
 from jax.numpy.lax_numpy import _promote_args_like
+from jax.scipy.special import gammaln
 from jax.util import partial
 
 

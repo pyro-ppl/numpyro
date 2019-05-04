@@ -25,13 +25,20 @@
 
 import jax.numpy as np
 import jax.random as random
-from jax import lax
+from jax import lax, ops
 from jax.scipy.special import gammaln
 
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
-from numpyro.distributions.util import multigammaln, promote_shapes, signed_stick_breaking_tril, standard_gamma
+from numpyro.distributions.util import (
+    matrix_to_tril_vec,
+    multigammaln,
+    promote_shapes,
+    signed_stick_breaking_tril,
+    standard_gamma,
+    vec_to_tril_matrix
+)
 
 
 class Beta(Distribution):
@@ -262,28 +269,26 @@ class LKJCholesky(Distribution):
         batch_shape = concentration.shape
         event_shape = (dimension, dimension)
 
-        N = dimension * (dimension - 1) // 2
         # We construct base distributions to generate samples for each method.
         # The purpose of this base distribution is to generate a distribution for
         # correlation matrices which is propotional to `det(M)^{\eta - 1}`.
         # (note that this is not a unique way to define base distribution)
         # Both of the following methods have marginal distribution of each off-diagonal
         # element of sampled correlation matrices is Beta(eta + (D-2) / 2, eta + (D-2) / 2).
+        Dm1 = self.dimension - 1
+        marginal_concentration = concentration + 0.5 * (self.dimension - 2)
+        offset = 0.5 * np.arange(Dm1)
         if sample_method == "cvine":
-            # The following construction follows from the algorithm in Section 2.4 of [1].
-            beta_concentration_init = concentration + 0.5 * (dimension - 1)
-            # offset is [1, 2, 2, 3, 3, 3,...] / 2
-            offset = 0.5 * matrix_to_tril_vec(np.broadcast_to(
-                np.arange(1., dimension), (dimension - 1, dimension - 1)))
-            beta_concentration = np.expand_dims(beta_concentration_init, axis=-1) - offset
+            # The following construction follows from the algorithm in Section 2.4 of [1]:
+            # offset_tril is [0, 1, 1, 2, 2, 2,...] / 2
+            offset_tril = matrix_to_tril_vec(np.broadcast_to(offset, (Dm1, Dm1)))
+            beta_concentration = np.expand_dims(marginal_concentration, axis=-1) - offset_tril
             self._beta = Beta(beta_concentration, beta_concentration)
         elif sample_method == "onion":
-            # The following construction follows from the algorithm in Section 3.2 of [1].
-            # NB: in [1], the method for case k > 1 can work for the case k = 1. 
-            beta_concentration0_init = concentration + (dimension - 1) / 2.
-            offset = 0.5 * np.arange(1., dimension)
-            beta_concentration0 = np.expand_dims(beta_concentration_init, axis=-1) - offset
-            beta_concentration1 = offset
+            # The following construction follows from the algorithm in Section 3.2 of [1]:
+            # NB: in [1], the method for case k > 1 can also work for the case k = 1.
+            beta_concentration0 = np.expand_dims(marginal_concentration, axis=-1) - offset
+            beta_concentration1 = offset + 0.5
             self._beta = Beta(beta_concentration1, beta_concentration0)
         else:
             raise ValueError("`method` should be one of 'cvine' or 'onion'.")
@@ -321,7 +326,7 @@ class LKJCholesky(Distribution):
         # The following Normal distribution is used to create a uniform distribution on
         # a hypershere (ref: http://mathworld.wolfram.com/HyperspherePointPicking.html)
         normal_sample = random.normal(
-            key_normal, 
+            key_normal,
             shape=self.batch_shape + (self.dimension * (self.dimension - 1) // 2,)
         )
         normal_sample = vec_to_tril_matrix(normal_sample, diagonal=0)
