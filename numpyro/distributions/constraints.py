@@ -25,7 +25,7 @@
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
-from numpyro.distributions.util import cumprod, cumsum, matrix_to_tril_vec, sum_rightmost, vec_to_tril_matrix
+from numpyro.distributions.util import cumprod, cumsum, matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost, vec_to_tril_matrix
 
 ##########################################################
 # CONSTRAINTS
@@ -236,25 +236,6 @@ class ComposeTransform(Transform):
         return result
 
 
-def _signed_stick_breaking_tril(t):
-    # transform t to tril matrix with identity diagonal
-    r = vec_to_tril_matrix(t, diagonal=-1)
-
-    # apply stick-breaking on the squared values;
-    # we omit the step of computing s = z * z_cumprod by using the fact:
-    #     y = sign(r) * s = sign(r) * sqrt(z * z_cumprod) = r * sqrt(z_cumprod)
-    z = r ** 2
-    z1m_cumprod = cumprod(1 - z)
-    z1m_cumprod_sqrt = np.sqrt(z1m_cumprod)
-
-    pad_width = [(0, 0)] * z.ndim
-    pad_width[-1] = (1, 0)
-    z1m_cumprod_sqrt_shifted = np.pad(z1m_cumprod_sqrt[..., :-1], pad_width,
-                                      mode="constant", constant_values=1.)
-    y = (r + np.identity(r.shape[-1])) * z1m_cumprod_sqrt_shifted
-    return y
-
-
 class CorrCholeskyTransform(Transform):
     r"""
     Transforms a uncontrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
@@ -284,7 +265,7 @@ class CorrCholeskyTransform(Transform):
         # we interchange step 1 and step 2.a for a better performance
         eps = np.finfo(x.dtype).eps
         t = np.clip(np.tanh(x), a_min=(-1 + eps), a_max=(1 - eps))
-        return _signed_stick_breaking_tril(t)
+        return signed_stick_breaking_tril(t)
 
     def inv(self, y):
         # inverse stick-breaking
