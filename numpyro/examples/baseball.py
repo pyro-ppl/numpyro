@@ -14,8 +14,8 @@ from numpyro.mcmc import hmc
 from numpyro.util import fori_collect
 
 """
-Original example from Pyro: 
-https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py 
+Original example from Pyro:
+https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py
 
 Example has been adapted from [1]. It demonstrates how to do Bayesian inference using
 NUTS (or, HMC) in Pyro, and use of some common inference utilities.
