@@ -13,9 +13,9 @@ from jax import grad, lax
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import biject_to, matrix_to_tril_vec, vec_to_tril_matrix
+from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
-from numpyro.distributions.util import multinomial, poisson
+from numpyro.distributions.util import multinomial, poisson, matrix_to_tril_vec, vec_to_tril_matrix
 
 
 def _identity(x): return x
@@ -74,6 +74,12 @@ CONTINUOUS = [
     T(dist.LogNormal, 1., 0.2),
     T(dist.LogNormal, -1., np.array([0.5, 1.3])),
     T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+    T(dist.LKJCholesky, 2, 0.5, "cvine"),
+    T(dist.LKJCholesky, 2, 0.5, "onion"),
+    T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "cvine"),
+    T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "onion"),
+    T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
+    T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),

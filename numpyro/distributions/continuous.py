@@ -266,7 +266,7 @@ class LKJCholesky(Distribution):
             raise ValueError("Dimension must be greater than or equal to 2.")
         self.dimension = dimension
         self.concentration = concentration
-        batch_shape = concentration.shape
+        batch_shape = np.shape(concentration)
         event_shape = (dimension, dimension)
 
         # We construct base distributions to generate samples for each method.
@@ -327,10 +327,10 @@ class LKJCholesky(Distribution):
         # a hypershere (ref: http://mathworld.wolfram.com/HyperspherePointPicking.html)
         normal_sample = random.normal(
             key_normal,
-            shape=self.batch_shape + (self.dimension * (self.dimension - 1) // 2,)
+            shape=size + self.batch_shape + (self.dimension * (self.dimension - 1) // 2,)
         )
         normal_sample = vec_to_tril_matrix(normal_sample, diagonal=0)
-        u_hypershere = normal_sample / np.norm(normal_sample, dim=-1, keepdims=True)
+        u_hypershere = normal_sample / np.linalg.norm(normal_sample, axis=-1, keepdims=True)
         w = np.expand_dims(np.sqrt(beta_sample), axis=-1) * u_hypershere
 
         # put w into the off-diagonal triangular part
@@ -343,9 +343,9 @@ class LKJCholesky(Distribution):
 
     def sample(self, key, size=()):
         if self.sample_method == "cvine":
-            return self._rsample_cvine(key, size)
+            return self._cvine(key, size)
         else:
-            return self._rsample_onion(key, size)
+            return self._onion(key, size)
 
     def log_prob(self, value):
         # Note about computing Jacobain of the transformation from Cholesky factor to
@@ -478,7 +478,7 @@ class Uniform(Distribution):
 
     def sample(self, key, size=()):
         size = size + self.batch_shape
-        return self.low + random.uniform(key, shape=size) * (self.high - self.low)
+        return self.low + random.uniform(key, shape=size + self.batch_shape) * (self.high - self.low)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -504,9 +504,11 @@ class StudentT(Distribution):
     reparametrized_params = ['loc', 'scale']
 
     def __init__(self, df, loc=0., scale=1., validate_args=None):
-        self.df, self.loc, self.scale = promote_shapes(df, loc, scale)
-        self._chi2 = Chi2(self.df)
-        batch_shape = lax.broadcast_shapes(np.shape(self.df), np.shape(self.loc), np.shape(self.scale))
+        batch_shape = lax.broadcast_shapes(np.shape(df), np.shape(loc), np.shape(scale))
+        self.df = np.broadcast_to(df, batch_shape)
+        self.loc = np.broadcast_to(loc, batch_shape)
+        self.scale = np.broadcast_to(scale, batch_shape)
+        self._chi2 = Chi2(self.df)        
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
