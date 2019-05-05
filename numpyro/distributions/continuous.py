@@ -257,11 +257,10 @@ class LKJCholesky(Distribution):
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
-    reparametrized_params = ['concentration']
     arg_constraints = {'concentration': constraints.positive}
     support = constraints.corr_cholesky
 
-    def __init__(self, dimension, concentration, sample_method="onion", validate_args=None):
+    def __init__(self, dimension, concentration, sample_method='onion', validate_args=None):
         if dimension < 2:
             raise ValueError("Dimension must be greater than or equal to 2.")
         self.dimension = dimension
@@ -274,22 +273,23 @@ class LKJCholesky(Distribution):
         # correlation matrices which is propotional to `det(M)^{\eta - 1}`.
         # (note that this is not a unique way to define base distribution)
         # Both of the following methods have marginal distribution of each off-diagonal
-        # element of sampled correlation matrices is Beta(eta + (D-2) / 2, eta + (D-2) / 2).
+        # element of sampled correlation matrices is Beta(eta + (D-2) / 2, eta + (D-2) / 2)
+        # (up to a linear transform: x -> 2x - 1)
         Dm1 = self.dimension - 1
         marginal_concentration = concentration + 0.5 * (self.dimension - 2)
         offset = 0.5 * np.arange(Dm1)
-        if sample_method == "cvine":
-            # The following construction follows from the algorithm in Section 2.4 of [1]:
-            # offset_tril is [0, 1, 1, 2, 2, 2,...] / 2
-            offset_tril = matrix_to_tril_vec(np.broadcast_to(offset, (Dm1, Dm1)))
-            beta_concentration = np.expand_dims(marginal_concentration, axis=-1) - offset_tril
-            self._beta = Beta(beta_concentration, beta_concentration)
-        elif sample_method == "onion":
+        if sample_method == 'onion':
             # The following construction follows from the algorithm in Section 3.2 of [1]:
             # NB: in [1], the method for case k > 1 can also work for the case k = 1.
             beta_concentration0 = np.expand_dims(marginal_concentration, axis=-1) - offset
             beta_concentration1 = offset + 0.5
             self._beta = Beta(beta_concentration1, beta_concentration0)
+        elif sample_method == 'cvine':
+            # The following construction follows from the algorithm in Section 2.4 of [1]:
+            # offset_tril is [0, 1, 1, 2, 2, 2,...] / 2
+            offset_tril = matrix_to_tril_vec(np.broadcast_to(offset, (Dm1, Dm1)))
+            beta_concentration = np.expand_dims(marginal_concentration, axis=-1) - offset_tril
+            self._beta = Beta(beta_concentration, beta_concentration)
         else:
             raise ValueError("`method` should be one of 'cvine' or 'onion'.")
         self.sample_method = sample_method
@@ -334,20 +334,23 @@ class LKJCholesky(Distribution):
         w = np.expand_dims(np.sqrt(beta_sample), axis=-1) * u_hypershere
 
         # put w into the off-diagonal triangular part
-        cholesky = ops.index_add(np.zeros(self.batch_shape + self.event_shape),
+        cholesky = ops.index_add(np.zeros(size + self.batch_shape + self.event_shape),
                                  ops.index[..., 1:, :-1], w)
         # correct the diagonal
-        diag = np.sqrt(1 - np.sum(cholesky ** 2, axis=-1))
+        # NB: we clip due to numerical precision
+        diag = np.sqrt(np.clip(1 - np.sum(cholesky ** 2, axis=-1), a_min=0.))
         cholesky = cholesky + np.expand_dims(diag, axis=-1) * np.identity(self.dimension)
         return cholesky
 
     def sample(self, key, size=()):
-        if self.sample_method == "cvine":
-            return self._cvine(key, size)
-        else:
+        if self.sample_method == "onion":
             return self._onion(key, size)
+        else:
+            return self._cvine(key, size)
 
     def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
         # Note about computing Jacobain of the transformation from Cholesky factor to
         # correlation matrix:
         #
@@ -370,16 +373,17 @@ class LKJCholesky(Distribution):
         # with order_i = 2 * concentration - 2 + D - i,
         # i = 2..D (we omit the element i = 1 because L_11 = 1)
 
-        Dm1 = self.dimension - 1
         # Compute `order` vector (note that we need to reindex i -> i-2):
-        order_offset = self.dimension - 4 - np.arange(Dm1)
+        one_to_D = np.arange(1, self.dimension)
+        order_offset = (3 - self.dimension) + one_to_D
         order = 2 * np.expand_dims(self.concentration, axis=-1) - order_offset
 
         # Compute unnormalized log_prob:
-        unnormalized = np.sum(order * np.log(np.diagonal(value, dim1=-2, dim2=-1)[..., 1:]),
-                              axis=-1)
+        value_diag = value[..., one_to_D, one_to_D]
+        unnormalized = np.sum(order * np.log(value_diag), axis=-1)
 
         # Compute normalization constant (on the first proof of page 1999 of [1])
+        Dm1 = self.dimension - 1
         alpha = self.concentration + 0.5 * Dm1
         denominator = gammaln(alpha) * Dm1
         numerator = multigammaln(alpha - 0.5, Dm1)
@@ -478,7 +482,7 @@ class Uniform(Distribution):
 
     def sample(self, key, size=()):
         size = size + self.batch_shape
-        return self.low + random.uniform(key, shape=size + self.batch_shape) * (self.high - self.low)
+        return self.low + random.uniform(key, shape=size) * (self.high - self.low)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -508,7 +512,7 @@ class StudentT(Distribution):
         self.df = np.broadcast_to(df, batch_shape)
         self.loc = np.broadcast_to(loc, batch_shape)
         self.scale = np.broadcast_to(scale, batch_shape)
-        self._chi2 = Chi2(self.df)        
+        self._chi2 = Chi2(self.df)
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):

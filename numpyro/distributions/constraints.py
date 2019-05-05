@@ -263,8 +263,7 @@ class CorrCholeskyTransform(Transform):
 
     def __call__(self, x):
         # we interchange step 1 and step 2.a for a better performance
-        eps = np.finfo(x.dtype).eps
-        t = np.clip(np.tanh(x), a_min=(-1 + eps), a_max=(1 - eps))
+        t = np.tanh(x)
         return signed_stick_breaking_tril(t)
 
     def inv(self, y):
