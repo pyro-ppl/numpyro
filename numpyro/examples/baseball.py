@@ -4,6 +4,7 @@ import numpy as onp
 
 import jax.numpy as np
 import jax.random as random
+from jax.config import config as jax_config
 from jax.scipy.misc import logsumexp
 
 import numpyro.distributions as dist
@@ -51,9 +52,6 @@ hyper-parameters) of running HMC on different problems.
 [4] Hoffman, M. D. and Gelman, A. (2014), "The No-U-turn sampler: Adaptively setting
     path lengths in Hamiltonian Monte Carlo", (https://arxiv.org/abs/1111.4246)
 """
-
-
-DATA_URL = "https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt"
 
 
 # TODO: Remove broadcasting logic when support for `pyro.plate` is
@@ -184,6 +182,7 @@ def print_results(header, preds, player_names, at_bats, hits):
 
 
 def main(args):
+    jax_config.update('jax_platform_name', args.device)
     _, fetch_train = load_dataset(BASEBALL, split='train', shuffle=False)
     train, player_names = fetch_train()
     _, fetch_test = load_dataset(BASEBALL, split='test', shuffle=False)
@@ -195,8 +194,8 @@ def main(args):
                                partially_pooled,
                                partially_pooled_with_logit,
                                )):
-        rng, rng_predict = random.split(random.PRNGKey(i))
-        zs = run_inference(model, at_bats, hits, random.PRNGKey(i), args)
+        rng, rng_predict = random.split(random.PRNGKey(i + 1))
+        zs = run_inference(model, at_bats, hits, rng, args)
         predict(model, at_bats, hits, zs, rng_predict, player_names)
         predict(model, season_at_bats, season_hits, zs, rng_predict, player_names, train=False)
 

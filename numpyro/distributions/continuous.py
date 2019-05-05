@@ -224,6 +224,31 @@ class HalfCauchy(TransformedDistribution):
         return np.full(self.batch_shape, np.inf)
 
 
+class HalfNormal(TransformedDistribution):
+    reparametrized_params = ['scale']
+    arg_constraints = {'scale': constraints.positive}
+    support = constraints.positive
+
+    def __init__(self, scale, validate_args=None):
+        base_dist = Normal(0, scale)
+        self.scale = scale
+        super(HalfNormal, self).__init__(base_dist, AbsTransform(),
+                                         validate_args=validate_args)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return self.base_dist.log_prob(value) + np.log(2)
+
+    @property
+    def mean(self):
+        return np.sqrt(2 / np.pi) * self.scale
+
+    @property
+    def variance(self):
+        return (1 - 2 / np.pi) * self.scale ** 2
+
+
 class LKJCholesky(Distribution):
     r"""
     LKJ distribution for lower Cholesky factors of correlation matrices. The distribution is
@@ -255,7 +280,7 @@ class LKJCholesky(Distribution):
     arg_constraints = {'concentration': constraints.positive}
     support = constraints.corr_cholesky
 
-    def __init__(self, dimension, concentration, sample_method='onion', validate_args=None):
+    def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
         if dimension < 2:
             raise ValueError("Dimension must be greater than or equal to 2.")
         self.dimension = dimension

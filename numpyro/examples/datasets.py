@@ -27,7 +27,11 @@ MNIST = dset('mnist', [
 ])
 
 BASEBALL = dset('baseball', [
-    "https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt",
+    'https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt',
+])
+
+UCBADMIT = dset('ucbadmit', [
+    'https://raw.githubusercontent.com/rmcelreath/rethinking/master/data/UCBadmit.csv',
 ])
 
 
@@ -82,11 +86,33 @@ def _load_baseball():
             'test': (test, player_names)}
 
 
+def _load_ucbadmit():
+    _download(UCBADMIT)
+
+    dept, male, applications, admit = [], [], [], []
+    with open('numpyro/examples/.data/UCBadmit.csv') as f:
+        csv_reader = csv.DictReader(
+            f,
+            delimiter=';',
+            fieldnames=['index', 'dept', 'gender', 'admit', 'reject', 'applications']
+        )
+        next(csv_reader)  # skip the first row
+        for row in csv_reader:
+            dept.append(ord(row['dept']) - ord('A'))
+            male.append(row['gender'] == 'male')
+            applications.append(int(row['applications']))
+            admit.append(int(row['admit']))
+
+    return {'train': (np.stack(dept), np.stack(male), np.stack(applications), np.stack(admit))}
+
+
 def _load(dset):
     if dset == MNIST:
         return _load_mnist()
     elif dset == BASEBALL:
         return _load_baseball()
+    elif dset == UCBADMIT:
+        return _load_ucbadmit()
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
