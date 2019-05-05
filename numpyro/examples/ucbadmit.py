@@ -38,7 +38,7 @@ the data contain evidence of gender biased in admissions accross departments. Th
 Generalized Linear Mixed Models for binomial regression problem, which models
  - varying intercepts accross departments,
  - varying slopes (or the effects of being male) accross departments,
- - varying correlations between intercepts and slopes accross departments,
+ - correlation between intercepts and slopes,
 and uses non-centered parameterization (or whitening).
 
 A more comprehensive explanation for binomial regression and non-centered parameterization can be
