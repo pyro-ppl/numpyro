@@ -21,7 +21,7 @@ def sigmoid(x):
 
 # TODO: move to JAX
 def _elemwise_no_params(fun, **kwargs):
-    def init_fun(input_shape): return input_shape, ()
+    def init_fun(rng, input_shape): return input_shape, ()
 
     def apply_fun(params, inputs, rng=None): return fun(inputs, **kwargs)
 
@@ -88,8 +88,9 @@ def main(args):
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
     num_train, train_idx = train_init()
-    _, encoder_params = encoder_init((args.batch_size, 28 * 28))
-    _, decoder_params = decoder_init((args.batch_size, args.z_dim))
+    rng, rng_enc, rng_dec = random.split(rng, 3)
+    _, encoder_params = encoder_init(rng_enc, (args.batch_size, 28 * 28))
+    _, decoder_params = decoder_init(rng_dec, (args.batch_size, args.z_dim))
     params = {'encoder': encoder_params, 'decoder': decoder_params}
     rng, sample_batch = binarize(rng, train_fetch(0, train_idx)[0])
     opt_state = svi_init(rng, (sample_batch,), (sample_batch,), params)
