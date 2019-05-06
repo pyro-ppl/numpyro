@@ -396,9 +396,6 @@ def matrix_to_tril_vec(x, diagonal=0):
 
 
 def vec_to_tril_matrix(t, diagonal=0):
-    # make sure that t in (-1, 1)
-    eps = np.finfo(t.dtype).eps
-    t = np.clip(t, a_min=(-1 + eps), a_max=(1 - eps))
     # NB: the following formula only works for diagonal <= 0
     n = round((math.sqrt(1 + 8 * t.shape[-1]) - 1) / 2) - diagonal
     n2 = n * n
@@ -411,6 +408,9 @@ def vec_to_tril_matrix(t, diagonal=0):
 
 
 def signed_stick_breaking_tril(t):
+    # make sure that t in (-1, 1)
+    eps = np.finfo(t.dtype).eps
+    t = np.clip(t, a_min=(-1 + eps), a_max=(1 - eps))
     # transform t to tril matrix with identity diagonal
     r = vec_to_tril_matrix(t, diagonal=-1)
 
