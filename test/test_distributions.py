@@ -344,7 +344,7 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     expected_log_prob = beta_log_prob - affine_logdet - signed_stick_breaking_logdet
     assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
 
-    assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample))
+    assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=1e-7)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
@@ -539,7 +539,7 @@ def test_biject_to(constraint, shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-6)
+    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
 
     # test domain, currently all is constraints.real
     assert_array_equal(transform.domain(z), np.ones(shape))
