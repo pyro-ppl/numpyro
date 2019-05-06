@@ -299,14 +299,18 @@ class StudentT(Distribution):
     reparametrized_params = ['loc', 'scale']
 
     def __init__(self, df, loc=0., scale=1., validate_args=None):
-        self.df, self.loc, self.scale = promote_shapes(df, loc, scale)
+        batch_shape = lax.broadcast_shapes(np.shape(df), np.shape(loc), np.shape(scale))
+        self.df = np.broadcast_to(df, batch_shape)
+        self.loc = np.broadcast_to(loc, batch_shape)
+        self.scale = np.broadcast_to(scale, batch_shape)
         self._chi2 = Chi2(self.df)
         batch_shape = lax.broadcast_shapes(np.shape(self.df), np.shape(self.loc), np.shape(self.scale))
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
-        std_normal = random.normal(key, shape=size + self.batch_shape)
-        z = self._chi2.sample(key, size)
+        key_normal, key_chi2 = random.split(key)
+        std_normal = random.normal(key_normal, shape=size + self.batch_shape)
+        z = self._chi2.sample(key_chi2, size)
         y = std_normal * np.sqrt(self.df / z)
         return self.loc + self.scale * y
 

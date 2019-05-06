@@ -81,7 +81,7 @@ CONTINUOUS = [
     T(dist.Pareto, np.array([0.3, 2.]), np.array([1., 0.5])),
     T(dist.Pareto, np.array([1., 0.5]), np.array([[1.], [3.]])),
     T(dist.StudentT, 1., 1., 0.5),
-    T(dist.StudentT, 1.5, np.array([1., 2.]), 2.),
+    T(dist.StudentT, 2., np.array([1., 2.]), 2.),
     T(dist.StudentT, np.array([3, 5]), np.array([[1.], [2.]]), 2.),
     T(dist.Uniform, 0., 2.),
     T(dist.Uniform, 1., np.array([2., 3.])),
