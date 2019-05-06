@@ -8,7 +8,7 @@ import tqdm
 import jax.numpy as np
 from jax import jit, lax, ops, vmap
 from jax.flatten_util import ravel_pytree
-from jax.tree_util import register_pytree_node, tree_flatten, tree_map, tree_multimap
+from jax.tree_util import register_pytree_node
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False

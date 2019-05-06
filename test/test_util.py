@@ -1,8 +1,5 @@
-from numpy.testing import assert_allclose
-
 import jax.numpy as np
 from jax.test_util import check_eq
-from jax.tree_util import tree_map
 
 from numpyro.util import fori_collect
 
