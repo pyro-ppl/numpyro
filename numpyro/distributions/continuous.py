@@ -499,8 +499,7 @@ class StudentT(Distribution):
     def __init__(self, df, loc=0., scale=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(df), np.shape(loc), np.shape(scale))
         self.df = np.broadcast_to(df, batch_shape)
-        self.loc = np.broadcast_to(loc, batch_shape)
-        self.scale = np.broadcast_to(scale, batch_shape)
+        self.loc, self.scale = promote_shapes(loc, scale, shape=batch_shape)
         self._chi2 = Chi2(self.df)
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 

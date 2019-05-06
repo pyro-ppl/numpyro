@@ -31,7 +31,7 @@ BASEBALL = dset('baseball', [
 ])
 
 UCBADMIT = dset('ucbadmit', [
-    'https://raw.githubusercontent.com/rmcelreath/rethinking/master/data/UCBadmit.csv',
+    'https://d2fefpcigoriu7.cloudfront.net/datasets/UCBadmit.csv',
 ])
 
 
