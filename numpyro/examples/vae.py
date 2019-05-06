@@ -80,8 +80,8 @@ def binarize(rng, batch):
 def main(args):
     encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
     decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
-    opt_init, opt_update = optimizers.adam(args.learning_rate)
-    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update,
+    opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
+    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_params,
                                          encode=encode, decode=decode, z_dim=args.z_dim)
     svi_update = jit(svi_update)
     rng = PRNGKey(0)
@@ -125,7 +125,7 @@ def main(args):
         img = test_fetch(0, test_idx)[0][0]
         plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), img, cmap='gray')
         _, test_sample = binarize(rng, img)
-        params = optimizers.get_params(opt_state)
+        params = get_params(opt_state)
         z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
         z = dist.Normal(z_mean, z_var).sample(rng)
         img_loc = decode(params['decoder'], z).reshape([28, 28])

@@ -1,5 +1,4 @@
 from jax import random, value_and_grad
-from jax.experimental import optimizers
 
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.hmc_util import log_density
@@ -12,7 +11,7 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-def svi(model, guide, loss, optim_init, optim_update, **kwargs):
+def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
@@ -31,7 +30,7 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
 
     def update_fn(i, opt_state, rng, model_args=(), guide_args=()):
         model_init, guide_init = _seed(model, guide, rng)
-        params = optimizers.get_params(opt_state)
+        params = get_params(opt_state)
         loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args, guide_args, kwargs)
         opt_state = optim_update(i, grads, opt_state)
         rng, = random.split(rng, 1)
@@ -39,7 +38,7 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
 
     def evaluate(opt_state, rng, model_args=(), guide_args=()):
         model_init, guide_init = _seed(model, guide, rng)
-        params = optimizers.get_params(opt_state)
+        params = get_params(opt_state)
         return loss(params, model_init, guide_init, model_args, guide_args, kwargs)
 
     return init_fn, update_fn, evaluate
