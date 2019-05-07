@@ -1,6 +1,6 @@
 import math
 import os
-from collections import namedtuple
+from collections import OrderedDict, namedtuple
 
 import tqdm
 
@@ -200,8 +200,16 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                                                    warmup_update,
                                                                    (hmc_state, wa_state))
             else:
-                for i in tqdm.trange(num_warmup):
-                    hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
+                with tqdm.trange(num_warmup, desc='warmup') as t:
+                    sum_acc_prob = 0.
+                    for i in t:
+                        hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
+                        sum_acc_prob += hmc_state.accept_prob
+                        t.set_postfix(OrderedDict([
+                            ('acc. prob', '{:.2e}'.format(sum_acc_prob / float(i + 1))),
+                            ('step size', '{:.3f}'.format(hmc_state.step_size)),
+                            ('num steps', '{:4d}'.format(hmc_state.num_steps))
+                        ]), refresh=True)
             return hmc_state
         else:
             return hmc_state, wa_state, warmup_update

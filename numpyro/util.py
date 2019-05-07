@@ -100,7 +100,7 @@ def _identity(x):
     return x
 
 
-def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True):
+def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True, diagnostics_fn=None):
     # works like lax.fori_loop but ignores i in body_fn, supports
     # postprocessing `transform`, and collects values during the loop
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
