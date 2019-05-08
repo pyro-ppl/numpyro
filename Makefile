@@ -12,4 +12,7 @@ test: lint FORCE
 clean: FORCE
 	git clean -dfx -e numpyro.egg-info
 
+docs: FORCE
+	$(MAKE) -C docs html
+
 FORCE:
