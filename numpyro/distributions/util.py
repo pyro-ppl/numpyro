@@ -9,6 +9,7 @@ import jax.numpy as np
 from jax import canonicalize_dtype, custom_transforms, jit, lax, random, vmap
 from jax.interpreters import ad
 from jax.numpy.lax_numpy import _promote_args_like
+from jax.scipy.special import gammaln
 from jax.util import partial
 
 
@@ -340,6 +341,12 @@ def entr(p):
     return np.where(p < 0, -np.inf, -xlogy(p))
 
 
+def multigammaln(a, d):
+    constant = 0.25 * d * (d - 1) * np.log(np.pi)
+    res = np.sum(gammaln(np.expand_dims(a, axis=-1) - 0.5 * np.arange(d)), axis=-1)
+    return res + constant
+
+
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
@@ -398,6 +405,28 @@ def vec_to_tril_matrix(t, diagonal=0):
                                                     inserted_window_dims=(t.ndim - 1,),
                                                     scatter_dims_to_operand_dims=(t.ndim - 1,)))
     return np.reshape(x, x.shape[:-1] + (n, n))
+
+
+def signed_stick_breaking_tril(t):
+    # make sure that t in (-1, 1)
+    eps = np.finfo(t.dtype).eps
+    t = np.clip(t, a_min=(-1 + eps), a_max=(1 - eps))
+    # transform t to tril matrix with identity diagonal
+    r = vec_to_tril_matrix(t, diagonal=-1)
+
+    # apply stick-breaking on the squared values;
+    # we omit the step of computing s = z * z_cumprod by using the fact:
+    #     y = sign(r) * s = sign(r) * sqrt(z * z_cumprod) = r * sqrt(z_cumprod)
+    z = r ** 2
+    z1m_cumprod = cumprod(1 - z)
+    z1m_cumprod_sqrt = np.sqrt(z1m_cumprod)
+
+    pad_width = [(0, 0)] * z.ndim
+    pad_width[-1] = (1, 0)
+    z1m_cumprod_sqrt_shifted = np.pad(z1m_cumprod_sqrt[..., :-1], pad_width,
+                                      mode="constant", constant_values=1.)
+    y = (r + np.identity(r.shape[-1])) * z1m_cumprod_sqrt_shifted
+    return y
 
 
 # The is sourced from: torch.distributions.util.py

@@ -4,9 +4,9 @@ import time
 import numpy as onp
 from sklearn.datasets import fetch_covtype
 
-import jax
 import jax.numpy as np
 from jax import random
+from jax.config import config as jax_config
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample
@@ -84,7 +84,7 @@ def benchmark_hmc(args, features, labels):
 
 
 def main(args):
-    jax.config.update("jax_platform_name", args.device)
+    jax_config.update("jax_platform_name", args.device)
     features, labels = load_dataset()
     benchmark_hmc(args, features, labels)
 
