@@ -371,7 +371,7 @@ class LKJCholesky(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        # Note about computing Jacobain of the transformation from Cholesky factor to
+        # Note about computing Jacobian of the transformation from Cholesky factor to
         # correlation matrix:
         #
         #   Assume C = L@Lt and L = (1 0 0; a \sqrt(1-a^2) 0; b c \sqrt(1-b^2-c^2)), we have

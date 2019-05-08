@@ -90,7 +90,7 @@ def _load_ucbadmit():
     _download(UCBADMIT)
 
     dept, male, applications, admit = [], [], [], []
-    with open('numpyro/examples/.data/UCBadmit.csv') as f:
+    with open(os.path.join(DATA_DIR, 'UCBadmit.csv')) as f:
         csv_reader = csv.DictReader(
             f,
             delimiter=';',
