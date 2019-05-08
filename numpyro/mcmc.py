@@ -55,6 +55,11 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         given input parameters. The input parameters to `potential_fn` can be
         any python collection type, provided that ``init_samples`` argument to
         ``init_kernel`` has the same type.
+    :param kinetic_fn: Python callable that returns the kinetic energy given
+        inverse mass matrix and momentum. If not provided, the default is
+        euclidean kinetic energy.
+    :param str algo: Whether to run ``HMC`` with fixed number of steps or ``NUTS``
+        with adaptive path length. Default is ``NUTS``.
     :return init_kernel, sample_kernel: Returns a tuple of callables, the first
         one to initialize the sampler, and the second one to generate samples
         given an existing one.
