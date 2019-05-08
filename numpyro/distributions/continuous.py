@@ -491,6 +491,27 @@ class Pareto(TransformedDistribution):
         return constraints.greater_than(self.scale)
 
 
+class GaussianRandomWalk(Distribution):
+    arg_constraints = {'num_steps': constraints.positive, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['num_steps', 'scale']
+
+    def __init__(self, scale, num_steps=1):
+        self.scale = scale
+        batch_shape, event_shape = scale.shape,
+        super(GaussianRandomWalk, self).__init__(batch_shape, event_shape)
+
+    def rsample(self, sample_shape=torch.Size()):
+        shape = sample_shape + self.batch_shape + self.event_shape
+        walks = self.scale.new_empty(shape).normal_()
+        return walks.cumsum(-1) * self.scale.unsqueeze(-1)
+
+    def log_prob(self, x):
+        init_prob = dist.Normal(self.scale.new_tensor(0.), self.scale).log_prob(x[..., 0])
+        step_probs = dist.Normal(x[..., :-1], self.scale).log_prob(x[..., 1:])
+        return init_prob + step_probs.sum(-1)
+
+
 class StudentT(Distribution):
     arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
