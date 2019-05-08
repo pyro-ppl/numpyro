@@ -25,3 +25,6 @@ numpyro/examples/.data
 
 # tmp files
 .*.swp
+
+# docs
+docs/build

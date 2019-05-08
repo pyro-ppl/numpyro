@@ -16,6 +16,7 @@ setup(
         'tqdm',
     ],
     extras_require={
+        'doc': ['sphinx', 'sphinx_rtd_theme'],
         'test': ['flake8', 'pytest>=4.1'],
         'dev': ['ipython'],
     },

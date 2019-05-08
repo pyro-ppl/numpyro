@@ -40,6 +40,25 @@ def _euclidean_ke(inverse_mass_matrix, r):
 
 
 def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
+    r"""
+    Hamiltonian Monte Carlo inference, using either fixed number of 
+    steps or the No U-Turn Sampler (NUTS) with adaptive path length.
+
+    **References**
+
+    [1] `MCMC Using Hamiltonian Dynamics`,
+    Radford M. Neal
+    [2] `The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo`,
+    Matthew D. Hoffman, and Andrew Gelman.
+    
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that ``init_samples`` argument to
+        ``init_kernel`` has the same type.
+    :return init_kernel, sample_kernel: Returns a tuple of callables, the first
+        one to initialize the sampler, and the second one to generate samples
+        given an existing one.
+    """
     if kinetic_fn is None:
         kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
@@ -61,6 +80,41 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     progbar=True,
                     heuristic_step_size=True,
                     rng=PRNGKey(0)):
+        r"""
+        Initializes the HMC sampler.
+
+        :param init_samples: Initial parameters to begin sampling. The type can
+            must be consistent with the input type to ``potential_fn``.
+        :param int num_warmup_steps: Number of warmup steps; samples generated
+            during warmup are discarded.
+        :param float step_size: Determines the size of a single step taken by the
+            verlet integrator while computing the trajectory using Hamiltonian
+            dynamics. If not specified, it will be set to 1.
+        :param bool adapt_step_size: A flag to decide if we want to adapt step_size
+            during warm-up phase using Dual Averaging scheme.
+        :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
+            matrix during warm-up phase using Welford scheme.
+        :param bool diag_mass: A flag to decide if mass matrix is diagonal (default)
+            or dense (if set to ``False``).
+        :param float target_accept_prob: Target acceptance probability for step size
+            adaptation using Dual Averaging. Increasing this value will lead to a smaller
+            step size, hence the sampling will be slower but more robust. Default to 0.8.
+        :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+            value is :math:`2\pi`.
+        :param int max_tree_depth: Max depth of the binary tree created during the doubling
+            scheme of NUTS sampler. Default to 10.
+        :param bool run_warmup: Flag to decide whether warmup is run. If ``True``,
+            `init_kernel` returns an initial :func:`~numpyro.mcmc.HMCState` that
+            can be used to generate samples using MCMC. Else, returns the arguments
+            and callable that does the initial adaptation.
+        :param bool progbar: Whether to enable progress bar updates. Defaults to
+            ``True``.
+        :param bool heuristic_step_size: If ``True``, a coarse grained adjustment of
+            step size is done at the beginning of each adaptation window to achieve
+            `target_acceptance_prob`.
+        :param jax.random.PRNGKey rng: random key to be used as the source of
+            randomness.
+        """
         step_size = float(step_size)
         nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth
         trajectory_len = float(trajectory_length)
@@ -143,6 +197,14 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     @jit
     def sample_kernel(hmc_state):
+        r"""
+        Given a :func:`~numpyro.mcmc.HMCState`, run HMC with fixed (possibly
+        adapted) step size and return :func:`~numpyro.mcmc.HMCState`.
+
+        :param hmc_state: Current sample (and associated state).
+        :return: new proposed :func:`~numpyro.mcmc.HMCState` from simulating
+            Hamiltonian dynamics given existing state.
+        """
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
         r = momentum_generator(hmc_state.inverse_mass_matrix, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
