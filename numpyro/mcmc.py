@@ -41,7 +41,7 @@ def _euclidean_ke(inverse_mass_matrix, r):
 
 def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     r"""
-    Hamiltonian Monte Carlo inference, using either fixed number of 
+    Hamiltonian Monte Carlo inference, using either fixed number of
     steps or the No U-Turn Sampler (NUTS) with adaptive path length.
 
     **References**
@@ -50,7 +50,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     Radford M. Neal
     [2] `The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo`,
     Matthew D. Hoffman, and Andrew Gelman.
-    
+
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
         any python collection type, provided that ``init_samples`` argument to
