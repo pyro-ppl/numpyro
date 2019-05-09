@@ -66,7 +66,7 @@ def glmm(dept, male, applications, admit):
                    axis=-1)
 
     logits = v_mu[..., :1] + v[..., dept, 0] + (v_mu[..., 1:] + v[..., dept, 1]) * male
-    sample('admit', dist.BinomialWithLogits(logits, applications), obs=admit)
+    sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
 
 
 def run_inference(dept, male, applications, admit, rng, args):

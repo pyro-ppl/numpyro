@@ -58,7 +58,7 @@ def model(data, labels):
     N, dim = data.shape
     coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
     logits = np.dot(data, coefs)
-    return sample('obs', dist.BernoulliWithLogits(logits), obs=labels)
+    return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
 
 def benchmark_hmc(args, features, labels):

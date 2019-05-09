@@ -75,7 +75,7 @@ def fully_pooled(at_bats, hits=None):
     """
     phi_prior = dist.Uniform(np.array([0.]), np.array([1.]))
     phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(phi, at_bats), obs=hits)
+    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def not_pooled(at_bats, hits=None):
@@ -91,7 +91,7 @@ def not_pooled(at_bats, hits=None):
     phi_prior = dist.Uniform(np.zeros((num_players,)),
                              np.ones((num_players,)))
     phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(phi, at_bats), obs=hits)
+    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def partially_pooled(at_bats, hits=None):
@@ -113,7 +113,7 @@ def partially_pooled(at_bats, hits=None):
     phi_prior = dist.Beta(np.broadcast_to(m * kappa, shape),
                           np.broadcast_to((1 - m) * kappa, shape))
     phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(phi, at_bats), obs=hits)
+    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def partially_pooled_with_logit(at_bats, hits=None):
@@ -132,7 +132,7 @@ def partially_pooled_with_logit(at_bats, hits=None):
     shape = np.shape(loc)[:np.ndim(loc) - 1] + (num_players,)
     alpha = sample("alpha", dist.Normal(np.broadcast_to(loc, shape),
                                         np.broadcast_to(scale, shape)))
-    return sample("obs", dist.BinomialWithLogits(alpha, at_bats), obs=hits)
+    return sample("obs", dist.Binomial(at_bats, logits=alpha), obs=hits)
 
 
 def run_inference(model, at_bats, hits, rng, args):
