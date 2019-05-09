@@ -1,3 +1,4 @@
+import csv
 import gzip
 import os
 import struct
@@ -8,6 +9,7 @@ from urllib.request import urlretrieve
 import numpy as np
 
 from jax import device_put, lax
+from jax.interpreters.xla import DeviceArray
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                                         '.data'))
@@ -22,6 +24,14 @@ MNIST = dset('mnist', [
     'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/train-labels-idx1-ubyte.gz',
     'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/t10k-images-idx3-ubyte.gz',
     'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz',
+])
+
+BASEBALL = dset('baseball', [
+    'https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt',
+])
+
+UCBADMIT = dset('ucbadmit', [
+    'https://d2fefpcigoriu7.cloudfront.net/datasets/UCBadmit.csv',
 ])
 
 
@@ -56,9 +66,53 @@ def _load_mnist():
             'test': (read_img(files[2]), read_label(files[3]))}
 
 
+def _load_baseball():
+    _download(BASEBALL)
+
+    def train_test_split(file):
+        train, test, player_names = [], [], []
+        with open(file, 'r') as f:
+            csv_reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
+            for row in csv_reader:
+                player_names.append(row['FirstName'] + ' ' + row['LastName'])
+                at_bats, hits = row['At-Bats'], row['Hits']
+                train.append(np.array([int(at_bats), int(hits)]))
+                season_at_bats, season_hits = row['SeasonAt-Bats'], row['SeasonHits']
+                test.append(np.array([int(season_at_bats), int(season_hits)]))
+        return np.stack(train), np.stack(test), np.array(player_names)
+
+    train, test, player_names = train_test_split(os.path.join(DATA_DIR, 'EfronMorrisBB.txt'))
+    return {'train': (train, player_names),
+            'test': (test, player_names)}
+
+
+def _load_ucbadmit():
+    _download(UCBADMIT)
+
+    dept, male, applications, admit = [], [], [], []
+    with open(os.path.join(DATA_DIR, 'UCBadmit.csv')) as f:
+        csv_reader = csv.DictReader(
+            f,
+            delimiter=';',
+            fieldnames=['index', 'dept', 'gender', 'admit', 'reject', 'applications']
+        )
+        next(csv_reader)  # skip the first row
+        for row in csv_reader:
+            dept.append(ord(row['dept']) - ord('A'))
+            male.append(row['gender'] == 'male')
+            applications.append(int(row['applications']))
+            admit.append(int(row['admit']))
+
+    return {'train': (np.stack(dept), np.stack(male), np.stack(applications), np.stack(admit))}
+
+
 def _load(dset):
     if dset == MNIST:
         return _load_mnist()
+    elif dset == BASEBALL:
+        return _load_baseball()
+    elif dset == UCBADMIT:
+        return _load_ucbadmit()
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
@@ -86,8 +140,9 @@ def load_dataset(dset, batch_size=None, split='train', shuffle=True):
     def init():
         return num_records // batch_size, np.random.permutation(idxs) if shuffle else idxs
 
-    def get_batch(i, idxs):
-        ret_idx = lax.dynamic_slice_in_dim(idxs, (i + 1) * batch_size, batch_size)
-        return tuple(lax.index_take(a, (ret_idx,), axes=(0,)) for a in arrays)
+    def get_batch(i=0, idxs=idxs):
+        ret_idx = lax.dynamic_slice_in_dim(idxs, i * batch_size, batch_size)
+        return tuple(lax.index_take(a, (ret_idx,), axes=(0,)) if isinstance(a, DeviceArray)
+                     else np.take(a, ret_idx, axis=0) for a in arrays)
 
     return init, get_batch

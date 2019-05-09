@@ -5,7 +5,6 @@ sudo: false
 env:
     global:
         - PYTHONPATH=$PWD:$PYTHONPATH
-        - XLA_FLAGS=--xla_cpu_enable_fast_math=false
 
 cache:
     directories:

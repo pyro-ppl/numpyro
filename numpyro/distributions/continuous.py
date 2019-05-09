@@ -1,441 +1,561 @@
-# Source code modified from scipy.stats._continous_distns.py
+# The implementation largely follows the design in PyTorch's `torch.distributions`
 #
-# Copyright (c) 2001, 2002 Enthought, Inc.
-# All rights reserved.
+# Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
+# Copyright (c) 2014-     Facebook, Inc            (Soumith Chintala)
+# Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
+# Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
+# Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
+# Copyright (c) 2011-2013 NYU                      (Clement Farabet)
+# Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou, Iain Melvin, Jason Weston)
+# Copyright (c) 2006      Idiap Research Institute (Samy Bengio)
+# Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
 #
-# Copyright (c) 2003-2019 SciPy Developers.
-# All rights reserved.
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
+
 
 import jax.numpy as np
 import jax.random as random
-from jax.numpy.lax_numpy import _promote_dtypes
-from jax.scipy.special import digamma, gammaln, log_ndtr, ndtr, ndtri
+from jax import lax, ops
+from jax.scipy.special import gammaln
 
 from numpyro.distributions import constraints
-from numpyro.distributions.distribution import jax_continuous
-from numpyro.distributions.util import standard_gamma
+from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
+from numpyro.distributions.distribution import Distribution, TransformedDistribution
+from numpyro.distributions.util import (
+    matrix_to_tril_vec,
+    multigammaln,
+    promote_shapes,
+    signed_stick_breaking_tril,
+    standard_gamma,
+    vec_to_tril_matrix
+)
+
+
+class Beta(Distribution):
+    arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive}
+    support = constraints.unit_interval
+
+    def __init__(self, concentration1, concentration0, validate_args=None):
+        batch_shape = lax.broadcast_shapes(np.shape(concentration1), np.shape(concentration0))
+        self.concentration1 = np.broadcast_to(concentration1, batch_shape)
+        self.concentration0 = np.broadcast_to(concentration0, batch_shape)
+        self._dirichlet = Dirichlet(np.stack([self.concentration1, self.concentration0],
+                                             axis=-1))
+        super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        return self._dirichlet.sample(key, size=size)[..., 0]
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return self._dirichlet.log_prob(np.stack([value, 1. - value], -1))
+
+    @property
+    def mean(self):
+        return self.concentration1 / (self.concentration1 + self.concentration0)
+
+    @property
+    def variance(self):
+        total = self.concentration1 + self.concentration0
+        return self.concentration1 * self.concentration0 / (total ** 2 * (total + 1))
+
+
+class Cauchy(Distribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['loc', 'scale']
+
+    def __init__(self, loc, scale, validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
+        super(Cauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        eps = random.cauchy(key, shape=size + self.batch_shape)
+        return self.loc + eps * self.scale
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return - np.log(np.pi) - np.log(self.scale) - np.log1p(((value - self.loc) / self.scale) ** 2)
+
+    @property
+    def mean(self):
+        return np.full(self.batch_shape, np.nan)
+
+    @property
+    def variance(self):
+        return np.full(self.batch_shape, np.nan)
+
+
+class Dirichlet(Distribution):
+    arg_constraints = {'concentration': constraints.positive}
+    support = constraints.simplex
+
+    def __init__(self, concentration, validate_args=None):
+        if np.ndim(concentration) < 1:
+            raise ValueError("`concentration` parameter must be at least one-dimensional.")
+        self.concentration = concentration
+        batch_shape, event_shape = concentration.shape[:-1], concentration.shape[-1:]
+        super(Dirichlet, self).__init__(batch_shape=batch_shape,
+                                        event_shape=event_shape,
+                                        validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        shape = size + self.batch_shape + self.event_shape
+        gamma_samples = standard_gamma(key, self.concentration, shape=shape)
+        return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        normalize_term = (np.sum(gammaln(self.concentration), axis=-1) -
+                          gammaln(np.sum(self.concentration, axis=-1)))
+        return np.sum(np.log(value) * (self.concentration - 1.), axis=-1) - normalize_term
+
+    @property
+    def mean(self):
+        return self.concentration / np.sum(self.concentration, axis=-1, keepdims=True)
+
+    @property
+    def variance(self):
+        con0 = np.sum(self.concentration, axis=-1, keepdims=True)
+        return self.concentration * (con0 - self.concentration) / (con0 ** 2 * (con0 + 1))
 
 
-class beta_gen(jax_continuous):
-    arg_constraints = {'a': constraints.positive, 'b': constraints.positive}
-    _support_mask = constraints.unit_interval
+class Exponential(Distribution):
+    reparametrized_params = ['rate']
+    arg_constraints = {'rate': constraints.positive}
+    support = constraints.positive
 
-    def _rvs(self, a, b):
-        # TODO: use upstream implementation when available
-        # XXX the implementation is different from PyTorch's one
-        # in PyTorch, a sample is generated from dirichlet distribution
-        key_a, key_b = random.split(self._random_state)
-        gamma_a = standard_gamma(key_a, a, shape=self._size)
-        gamma_b = standard_gamma(key_b, b, shape=self._size)
-        return gamma_a / (gamma_a + gamma_b)
+    def __init__(self, rate, validate_args=None):
+        self.rate = rate
+        super(Exponential, self).__init__(batch_shape=np.shape(rate), validate_args=validate_args)
 
-    def _cdf(self, x, a, b):
-        raise NotImplementedError('Missing jax.scipy.special.btdtr')
+    def sample(self, key, size=()):
+        return random.exponential(key, shape=size + self.batch_shape) / self.rate
 
-    def _ppf(self, q, a, b):
-        raise NotImplementedError('Missing jax.scipy.special.btdtri')
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return np.log(self.rate) - self.rate * value
 
-    def _stats(self, a, b):
-        mn = a * 1.0 / (a + b)
-        var = (a * b * 1.0) / (a + b + 1.0) / (a + b) ** 2.0
-        g1 = 2.0 * (b - a) * np.sqrt((1.0 + a + b) / (a * b)) / (2 + a + b)
-        g2 = 6.0 * (a ** 3 + a ** 2 * (1 - 2 * b) + b ** 2 * (1 + b) - 2 * a * b * (2 + b))
-        g2 = g2 / (a * b * (a + b + 2) * (a + b + 3))
-        return mn, var, g1, g2
+    @property
+    def mean(self):
+        return np.reciprocal(self.rate)
 
+    @property
+    def variance(self):
+        return np.reciprocal(self.rate ** 2)
 
-class cauchy_gen(jax_continuous):
-    _support_mask = constraints.real
 
-    def _rvs(self):
-        return random.cauchy(self._random_state, shape=self._size)
+class Gamma(Distribution):
+    arg_constraints = {'concentration': constraints.positive,
+                       'rate': constraints.positive}
+    support = constraints.positive
 
-    def _cdf(self, x):
-        return 0.5 + 1.0 / np.pi * np.arctan(x)
+    def __init__(self, concentration, rate, validate_args=None):
+        self.concentration, self.rate = promote_shapes(concentration, rate)
+        batch_shape = lax.broadcast_shapes(np.shape(concentration), np.shape(rate))
+        super(Gamma, self).__init__(batch_shape=batch_shape,
+                                    validate_args=validate_args)
 
-    def _ppf(self, q):
-        return np.tan(np.pi * q - np.pi / 2.0)
+    def sample(self, key, size=()):
+        shape = size + self.batch_shape + self.event_shape
+        return standard_gamma(key, self.concentration, shape=shape) / self.rate
 
-    def _sf(self, x):
-        return 0.5 - 1.0 / np.pi * np.arctan(x)
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        normalize_term = (gammaln(self.concentration) -
+                          self.concentration * np.log(self.rate))
+        return (self.concentration - 1) * np.log(value) - self.rate * value - normalize_term
 
-    def _isf(self, q):
-        return np.tan(np.pi / 2.0 - np.pi * q)
+    @property
+    def mean(self):
+        return self.concentration / self.rate
 
-    def _stats(self):
-        return np.nan, np.nan, np.nan, np.nan
+    @property
+    def variance(self):
+        return self.concentration / np.power(self.rate, 2)
 
-    def _entropy(self):
-        return np.log(4 * np.pi)
 
-
-class expon_gen(jax_continuous):
-    _support_mask = constraints.positive
-
-    def _rvs(self):
-        return random.exponential(self._random_state, shape=self._size)
-
-    def _cdf(self, x):
-        return -np.expm1(-x)
-
-    def _ppf(self, q):
-        return -np.log1p(-q)
-
-    def _sf(self, x):
-        return np.exp(-x)
-
-    def _logsf(self, x):
-        return -x
-
-    def _isf(self, q):
-        return -np.log(q)
-
-    def _stats(self):
-        return 1.0, 1.0, 2.0, 6.0
-
-    def _entropy(self):
-        return 1.0
-
-
-class gamma_gen(jax_continuous):
-    arg_constraints = {'a': constraints.positive}
-    _support_mask = constraints.positive
-
-    def _rvs(self, a):
-        return standard_gamma(self._random_state, a, shape=self._size)
-
-    def _cdf(self, x, a):
-        raise NotImplementedError('Missing jax.scipy.special.gammainc')
-
-    def _sf(self, x, a):
-        raise NotImplementedError('Missing jax.scipy.special.gammainc')
-
-    def _ppf(self, q, a):
-        raise NotImplementedError('Missing jax.scipy.special.gammaincinv')
-
-    def _stats(self, a):
-        return a, a, 2.0 / np.sqrt(a), 6.0 / a
-
-    def _entropy(self, a):
-        return digamma(a) * (1 - a) + a + gammaln(a)
-
-
-class halfcauchy_gen(jax_continuous):
-    _support_mask = constraints.positive
-
-    def _rvs(self):
-        return np.abs(random.cauchy(self._random_state, shape=self._size))
-
-    def _pdf(self, x):
-        return 2.0 / np.pi / (1.0 + x * x)
-
-    def _logpdf(self, x):
-        return np.log(2.0 / np.pi) - np.log1p(x * x)
-
-    def _cdf(self, x):
-        return 2.0 / np.pi * np.arctan(x)
-
-    def _ppf(self, q):
-        return np.tan(np.pi / 2 * q)
-
-    def _stats(self):
-        return np.inf, np.inf, np.nan, np.nan
-
-    def _entropy(self):
-        return np.log(2 * np.pi)
-
-
-class halfnorm_gen(jax_continuous):
-    _support_mask = constraints.positive
-
-    def _rvs(self):
-        return np.abs(random.normal(self._random_state, shape=self._size))
-
-    def _pdf(self, x):
-        # halfnorm.pdf(x) = sqrt(2/pi) * exp(-x**2/2)
-        return np.sqrt(2.0 / np.pi) * np.exp(-x * x / 2.0)
-
-    def _logpdf(self, x):
-        return 0.5 * np.log(2.0 / np.pi) - x * x / 2.0
-
-    def _cdf(self, x):
-        return norm._cdf(x) * 2 - 1.0
-
-    def _ppf(self, q):
-        return norm._ppf((1 + q) / 2.0)
-
-    def _stats(self):
-        return (np.sqrt(2.0 / np.pi), 1 - 2.0 / np.pi,
-                np.sqrt(2) * (4 - np.pi) / (np.pi - 2) ** 1.5, 8 * (np.pi - 3) / (np.pi - 2) ** 2)
-
-    def _entropy(self):
-        return 0.5 * np.log(np.pi / 2.0) + 0.5
-
-
-class lognorm_gen(jax_continuous):
-    arg_constraints = {'s': constraints.positive}
-    _support_mask = constraints.positive
-
-    def _rvs(self, s):
-        # TODO: use upstream implementation when available
-        return np.exp(s * random.normal(self._random_state, shape=self._size))
-
-    def _pdf(self, x, s):
-        # lognorm.pdf(x, s) = 1 / (s*x*sqrt(2*pi)) * exp(-1/2*(log(x)/s)**2)
-        return np.exp(self._logpdf(x, s))
-
-    def _logpdf(self, x, s):
-        return np.where(x != 0,
-                        -np.log(x) ** 2 / (2 * s ** 2) - np.log(s * x * np.sqrt(2 * np.pi)),
-                        -np.inf)
-
-    def _cdf(self, x, s):
-        return norm._cdf(np.log(x) / s)
-
-    def _logcdf(self, x, s):
-        return norm._logcdf(np.log(x) / s)
-
-    def _ppf(self, q, s):
-        return np.exp(s * norm._ppf(q))
-
-    def _sf(self, x, s):
-        return norm._sf(np.log(x) / s)
-
-    def _logsf(self, x, s):
-        return norm._logsf(-np.log(x) / s)
-
-    def _stats(self, s):
-        p = np.exp(s * s)
-        mu = np.sqrt(p)
-        mu2 = p * (p - 1)
-        g1 = np.sqrt(p - 1) * (2 + p)
-        g2 = np.polyval([1, 2, 3, 0, -6.0], p)
-        return mu, mu2, g1, g2
-
-    def _entropy(self, s):
-        return 0.5 * (1 + np.log(2 * np.pi) + 2 * np.log(s))
-
-
-class norm_gen(jax_continuous):
-    _support_mask = constraints.real
-
-    def _rvs(self):
-        return random.normal(self._random_state, shape=self._size)
-
-    def _pdf(self, x):
-        # norm.pdf(x) = exp(-x**2/2)/sqrt(2*pi)
-        return np.exp(-x**2 / 2.0) / np.sqrt(2 * np.pi)
-
-    def _logpdf(self, x):
-        return -(x ** 2 + np.log(2 * np.pi)) / 2.0
-
-    def _cdf(self, x):
-        return ndtr(x)
-
-    def _logcdf(self, x):
-        return log_ndtr(x)
-
-    def _sf(self, x):
-        return ndtr(-x)
-
-    def _logsf(self, x):
-        return log_ndtr(-x)
-
-    def _ppf(self, q):
-        return ndtri(q)
-
-    def _isf(self, q):
-        return -ndtri(q)
-
-    def _stats(self):
-        return 0.0, 1.0, 0.0, 0.0
-
-    def _entropy(self):
-        return 0.5 * (np.log(2 * np.pi) + 1)
-
-
-class pareto_gen(jax_continuous):
-    arg_constraints = {'b': constraints.positive}
-    _support_mask = constraints.greater_than(1)
-
-    def _rvs(self, b):
-        return random.pareto(self._random_state, b, shape=self._size)
-
-    def _cdf(self, x, b):
-        return 1 - x ** (-b)
-
-    def _ppf(self, q, b):
-        return np.pow(1 - q, -1.0 / b)
-
-    def _sf(self, x, b):
-        return x ** (-b)
-
-    def _stats(self, b, moments='mv'):
-        mu, mu2, g1, g2 = None, None, None, None
-        if 'm' in moments:
-            mask = b > 1
-            bt = np.extract(mask, b)
-            mu = np.where(mask, bt / (bt - 1.0), np.inf)
-        if 'v' in moments:
-            mask = b > 2
-            bt = np.extract(mask, b)
-            mu2 = np.where(mask, bt / (bt - 2.0) / (bt - 1.0) ** 2, np.inf)
-        if 's' in moments:
-            mask = b > 3
-            bt = np.extract(mask, b)
-            vals = 2 * (bt + 1.0) * np.sqrt(bt - 2.0) / ((bt - 3.0) * np.sqrt(bt))
-            g1 = np.where(mask, vals, np.nan)
-        if 'k' in moments:
-            mask = b > 4
-            bt = np.extract(mask, b)
-            vals = (6.0 * np.polyval([1.0, 1.0, -6, -2], bt)
-                    / np.polyval([1.0, -7.0, 12.0, 0.0], bt))
-            g2 = np.where(mask, vals, np.nan)
-        return mu, mu2, g1, g2
-
-    def _entropy(self, c):
-        return 1 + 1.0 / c - np.log(c)
-
-
-class t_gen(jax_continuous):
+class Chi2(Gamma):
     arg_constraints = {'df': constraints.positive}
-    _support_mask = constraints.real
 
-    def _rvs(self, df):
-        # TODO: use upstream implementation when available
-        key_n, key_g = random.split(self._random_state)
-        normal = random.normal(key_n, shape=self._size)
-        half_df = df / 2.0
-        gamma = standard_gamma(key_n, half_df, shape=self._size)
-        return normal * np.sqrt(half_df / gamma)
-
-    def _cdf(self, x, df):
-        raise NotImplementedError('Missing jax.scipy.special.stdtr')
-
-    def _sf(self, x, df):
-        raise NotImplementedError('Missing jax.scipy.special.stdtr')
-
-    def _ppf(self, q, df):
-        raise NotImplementedError('Missing jax.scipy.special.stdtrit')
-
-    def _isf(self, q, df):
-        raise NotImplementedError('Missing jax.scipy.special.stdtrit')
-
-    def _stats(self, df):
-        mu = np.where(df > 1, 0.0, np.inf)
-        mu2 = np.where(df > 2, df / (df - 2.0), np.inf)
-        mu2 = np.where(df <= 1, np.nan, mu2)
-        g1 = np.where(df > 3, 0.0, np.nan)
-        g2 = np.where(df > 4, 6.0 / (df - 4.0), np.inf)
-        g2 = np.where(df <= 2, np.nan, g2)
-        return mu, mu2, g1, g2
+    def __init__(self, df, validate_args=None):
+        self.df = df
+        super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
-class trunccauchy_gen(jax_continuous):
-    # TODO: override _argcheck with the constraint that a < b
+class HalfCauchy(TransformedDistribution):
+    reparametrized_params = ['scale']
+    arg_constraints = {'scale': constraints.positive}
+    support = constraints.positive
 
-    def _support(self, *args, **kwargs):
-        (a, b), loc, scale = self._parse_args(*args, **kwargs)
-        # TODO: make constraints.less_than and support a == -np.inf
-        if b == np.inf:
-            return constraints.greater_than((a - loc) * scale)
+    def __init__(self, scale, validate_args=None):
+        base_dist = Cauchy(0, scale)
+        self.scale = scale
+        super(HalfCauchy, self).__init__(base_dist, AbsTransform(),
+                                         validate_args=validate_args)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return self.base_dist.log_prob(value) + np.log(2)
+
+    @property
+    def mean(self):
+        return np.full(self.batch_shape, np.inf)
+
+    @property
+    def variance(self):
+        return np.full(self.batch_shape, np.inf)
+
+
+class HalfNormal(TransformedDistribution):
+    reparametrized_params = ['scale']
+    arg_constraints = {'scale': constraints.positive}
+    support = constraints.positive
+
+    def __init__(self, scale, validate_args=None):
+        base_dist = Normal(0, scale)
+        self.scale = scale
+        super(HalfNormal, self).__init__(base_dist, AbsTransform(),
+                                         validate_args=validate_args)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return self.base_dist.log_prob(value) + np.log(2)
+
+    @property
+    def mean(self):
+        return np.sqrt(2 / np.pi) * self.scale
+
+    @property
+    def variance(self):
+        return (1 - 2 / np.pi) * self.scale ** 2
+
+
+class LKJCholesky(Distribution):
+    r"""
+    LKJ distribution for lower Cholesky factors of correlation matrices. The distribution is
+    controlled by ``concentration`` parameter :math:`\eta` to make the probability of the
+    correlation matrix :math:`M` generated from a Cholesky factor propotional to
+    :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
+    uniform distribution over Cholesky factors of correlation matrices.
+
+    When ``concentration > 1``, the distribution favors samples with large diagonal entries
+    (hence large determinent). This is useful when we know a priori that the underlying
+    variables are not correlated.
+
+    When ``concentration < 1``, the distribution favors samples with small diagonal entries
+    (hence small determinent). This is useful when we know a priori that some underlying
+    variables are correlated.
+
+    :param int dimension: dimension of the matrices
+    :param ndarray concentration: concentration/shape parameter of the
+        distribution (often referred to as eta)
+    :param str sample_method: Either "cvine" or "onion". Both methods are proposed in [1] and
+        offer the same distribution over correlation matrices. But they are different in how
+        to generate samples. Defaults to "onion".
+
+    **References**
+
+    [1] `Generating random correlation matrices based on vines and extended onion method`,
+    Daniel Lewandowski, Dorota Kurowicka, Harry Joe
+    """
+    arg_constraints = {'concentration': constraints.positive}
+    support = constraints.corr_cholesky
+
+    def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
+        if dimension < 2:
+            raise ValueError("Dimension must be greater than or equal to 2.")
+        self.dimension = dimension
+        self.concentration = concentration
+        batch_shape = np.shape(concentration)
+        event_shape = (dimension, dimension)
+
+        # We construct base distributions to generate samples for each method.
+        # The purpose of this base distribution is to generate a distribution for
+        # correlation matrices which is propotional to `det(M)^{\eta - 1}`.
+        # (note that this is not a unique way to define base distribution)
+        # Both of the following methods have marginal distribution of each off-diagonal
+        # element of sampled correlation matrices is Beta(eta + (D-2) / 2, eta + (D-2) / 2)
+        # (up to a linear transform: x -> 2x - 1)
+        Dm1 = self.dimension - 1
+        marginal_concentration = concentration + 0.5 * (self.dimension - 2)
+        offset = 0.5 * np.arange(Dm1)
+        if sample_method == 'onion':
+            # The following construction follows from the algorithm in Section 3.2 of [1]:
+            # NB: in [1], the method for case k > 1 can also work for the case k = 1.
+            beta_concentration0 = np.expand_dims(marginal_concentration, axis=-1) - offset
+            beta_concentration1 = offset + 0.5
+            self._beta = Beta(beta_concentration1, beta_concentration0)
+        elif sample_method == 'cvine':
+            # The following construction follows from the algorithm in Section 2.4 of [1]:
+            # offset_tril is [0, 1, 1, 2, 2, 2,...] / 2
+            offset_tril = matrix_to_tril_vec(np.broadcast_to(offset, (Dm1, Dm1)))
+            beta_concentration = np.expand_dims(marginal_concentration, axis=-1) - offset_tril
+            self._beta = Beta(beta_concentration, beta_concentration)
         else:
-            return constraints.interval((a - loc) * scale, (b - loc) * scale)
+            raise ValueError("`method` should be one of 'cvine' or 'onion'.")
+        self.sample_method = sample_method
 
-    def _rvs(self, a, b):
-        # We use inverse transform method:
-        # z ~ ppf(U), where U ~ Uniform(cdf(a), cdf(b)).
-        #                     ~ Uniform(arctan(a), arctan(b)) / pi + 1/2
-        u = random.uniform(self._random_state, shape=self._size,
-                           minval=np.arctan(a), maxval=np.arctan(b))
-        return np.tan(u)
+        super(LKJCholesky, self).__init__(batch_shape=batch_shape,
+                                          event_shape=event_shape,
+                                          validate_args=validate_args)
 
-    def _pdf(self, x, a, b):
-        return np.reciprocal((1 + x * x) * (np.arctan(b) - np.arctan(a)))
+    def _cvine(self, key, size):
+        # C-vine method first uses beta_dist to generate partial correlations,
+        # then apply signed stick breaking to transform to cholesky factor.
+        # Here is an attempt to prove that using signed stick breaking to
+        # generate correlation matrices is the same as the C-vine method in [1]
+        # for the entry r_32.
+        #
+        # With notations follow from [1], we define
+        #   p: partial correlation matrix,
+        #   c: cholesky factor,
+        #   r: correlation matrix.
+        # From recursive formula (2) in [1], we have
+        #   r_32 = p_32 * sqrt{(1 - p_21^2)*(1 - p_31^2)} + p_21 * p_31 =: I
+        # On the other hand, signed stick breaking process gives:
+        #   l_21 = p_21, l_31 = p_31, l_22 = sqrt(1 - p_21^2), l_32 = p_32 * sqrt(1 - p_31^2)
+        #   r_32 = l_21 * l_31 + l_22 * l_32
+        #        = p_21 * p_31 + p_32 * sqrt{(1 - p_21^2)*(1 - p_31^2)} = I
+        beta_sample = self._beta.sample(key, size)
+        partial_correlation = 2 * beta_sample - 1  # scale to domain to (-1, 1)
+        return signed_stick_breaking_tril(partial_correlation)
 
-    def _logpdf(self, x, a, b):
-        # trunc_pdf(x) = pdf(x) / (cdf(b) - cdf(a))
-        #              = 1 / (1 + x^2) / (arctan(b) - arctan(a))
-        normalizer = np.log(np.arctan(b) - np.arctan(a))
-        return -(np.log(1 + x * x) + normalizer)
+    def _onion(self, key, size):
+        key_beta, key_normal = random.split(key)
+        # Now we generate w term in Algorithm 3.2 of [1].
+        beta_sample = self._beta.sample(key_beta, size)
+        # The following Normal distribution is used to create a uniform distribution on
+        # a hypershere (ref: http://mathworld.wolfram.com/HyperspherePointPicking.html)
+        normal_sample = random.normal(
+            key_normal,
+            shape=size + self.batch_shape + (self.dimension * (self.dimension - 1) // 2,)
+        )
+        normal_sample = vec_to_tril_matrix(normal_sample, diagonal=0)
+        u_hypershere = normal_sample / np.linalg.norm(normal_sample, axis=-1, keepdims=True)
+        w = np.expand_dims(np.sqrt(beta_sample), axis=-1) * u_hypershere
 
+        # put w into the off-diagonal triangular part
+        cholesky = ops.index_add(np.zeros(size + self.batch_shape + self.event_shape),
+                                 ops.index[..., 1:, :-1], w)
+        # correct the diagonal
+        # NB: we clip due to numerical precision
+        diag = np.sqrt(np.clip(1 - np.sum(cholesky ** 2, axis=-1), a_min=0.))
+        cholesky = cholesky + np.expand_dims(diag, axis=-1) * np.identity(self.dimension)
+        return cholesky
 
-class truncnorm_gen(jax_continuous):
-    # TODO: override _argcheck with the constraint that a < b
-
-    def _support(self, *args, **kwargs):
-        (a, b), loc, scale = self._parse_args(*args, **kwargs)
-        # TODO: make constraints.less_than and support a == -np.inf
-        if b == np.inf:
-            return constraints.greater_than((a - loc) * scale)
+    def sample(self, key, size=()):
+        if self.sample_method == "onion":
+            return self._onion(key, size)
         else:
-            return constraints.interval((a - loc) * scale, (b - loc) * scale)
+            return self._cvine(key, size)
 
-    def _rvs(self, a, b):
-        # We use inverse transform method:
-        # z ~ ppf(U), where U ~ Uniform(0, 1).
-        u = random.uniform(self._random_state, shape=self._size)
-        return self._ppf(u, a, b)
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        # Note about computing Jacobian of the transformation from Cholesky factor to
+        # correlation matrix:
+        #
+        #   Assume C = L@Lt and L = (1 0 0; a \sqrt(1-a^2) 0; b c \sqrt(1-b^2-c^2)), we have
+        #   Then off-diagonal lower triangular vector of L is transformed to the off-diagonal
+        #   lower triangular vector of C by the transform:
+        #       (a, b, c) -> (a, b, ab + c\sqrt(1-a^2))
+        #   Hence, Jacobian = 1 * 1 * \sqrt(1 - a^2) = \sqrt(1 - a^2) = L22, where L22
+        #       is the 2th diagonal element of L
+        #   Generally, for a D dimensional matrix, we have:
+        #       Jacobian = L22^(D-2) * L33^(D-3) * ... * Ldd^0
+        #
+        # From [1], we know that probability of a correlation matrix is propotional to
+        #   determinant ** (concentration - 1) = prod(L_ii ^ 2(concentration - 1))
+        # On the other hand, Jabobian of the transformation from Cholesky factor to
+        # correlation matrix is:
+        #   prod(L_ii ^ (D - i))
+        # So the probability of a Cholesky factor is propotional to
+        #   prod(L_ii ^ (2 * concentration - 2 + D - i)) =: prod(L_ii ^ order_i)
+        # with order_i = 2 * concentration - 2 + D - i,
+        # i = 2..D (we omit the element i = 1 because L_11 = 1)
 
-    def _pdf(self, x, a, b):
-        delta = norm._sf(a) - norm._sf(b)
-        return norm._pdf(x) / delta
+        # Compute `order` vector (note that we need to reindex i -> i-2):
+        one_to_D = np.arange(1, self.dimension)
+        order_offset = (3 - self.dimension) + one_to_D
+        order = 2 * np.expand_dims(self.concentration, axis=-1) - order_offset
 
-    def _logpdf(self, x, a, b):
-        x, a, b = _promote_dtypes(x, a, b)
-        # XXX: consider to use norm._cdf(b) - norm._cdf(a) when a, b < 0
-        delta = norm._sf(a) - norm._sf(b)
-        return norm._logpdf(x) - np.log(delta)
+        # Compute unnormalized log_prob:
+        value_diag = value[..., one_to_D, one_to_D]
+        unnormalized = np.sum(order * np.log(value_diag), axis=-1)
 
-    def _cdf(self, x, a, b):
-        delta = norm._sf(a) - norm._sf(b)
-        return (norm._cdf(x) - norm._cdf(a)) / delta
-
-    def _ppf(self, q, a, b):
-        q, a, b = _promote_dtypes(q, a, b)
-        # XXX: consider to use norm._ppf(q * norm._cdf(b) + norm._cdf(a) * (1.0 - q))
-        # when a, b < 0
-        ppf = norm._isf(q * norm._sf(b) + norm._sf(a) * (1.0 - q))
-        return ppf
-
-    def _stats(self, a, b):
-        nA, nB = norm._cdf(a), norm._cdf(b)
-        d = nB - nA
-        pA, pB = norm._pdf(a), norm._pdf(b)
-        mu = (pA - pB) / d   # correction sign
-        mu2 = 1 + (a * pA - b * pB) / d - mu * mu
-        return mu, mu2, None, None
-
-
-class uniform_gen(jax_continuous):
-    _support_mask = constraints.unit_interval
-
-    def _rvs(self):
-        return random.uniform(self._random_state, shape=self._size)
-
-    def _cdf(self, x):
-        return x
-
-    def _ppf(self, q):
-        return q
-
-    def _stats(self):
-        return 0.5, 1.0 / 12, 0, -1.2
-
-    def _entropy(self):
-        return 0.0
+        # Compute normalization constant (on the first proof of page 1999 of [1])
+        Dm1 = self.dimension - 1
+        alpha = self.concentration + 0.5 * Dm1
+        denominator = gammaln(alpha) * Dm1
+        numerator = multigammaln(alpha - 0.5, Dm1)
+        # pi_constant in [1] is D * (D - 1) / 4 * log(pi)
+        # pi_constant in multigammaln is (D - 1) * (D - 2) / 4 * log(pi)
+        # hence, we need to add a pi_constant = (D - 1) * log(pi) / 2
+        pi_constant = 0.5 * Dm1 * np.log(np.pi)
+        normalize_term = pi_constant + numerator - denominator
+        return unnormalized - normalize_term
 
 
-beta = beta_gen(a=0.0, b=1.0, name='beta')
-cauchy = cauchy_gen(name='cauchy')
-expon = expon_gen(a=0.0, name='expon')
-gamma = gamma_gen(a=0.0, name='gamma')
-halfcauchy = halfcauchy_gen(a=0.0, name='halfcauchy')
-halfnorm = halfnorm_gen(a=0.0, name='halfnorm')
-lognorm = lognorm_gen(a=0.0, name='lognorm')
-norm = norm_gen(name='norm')
-pareto = pareto_gen(a=1.0, name="pareto")
-t = t_gen(name='t')
-trunccauchy = trunccauchy_gen(name='trunccauchy')
-truncnorm = truncnorm_gen(name='truncnorm')
-uniform = uniform_gen(a=0.0, b=1.0, name='uniform')
+class Normal(Distribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['loc', 'scale']
+
+    def __init__(self, loc, scale, validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
+        super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        eps = random.normal(key, shape=size + self.batch_shape)
+        return self.loc + eps * self.scale
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        normalize_term = np.log(self.scale) + np.log(np.sqrt(2 * np.pi))
+        return -((value - self.loc) ** 2) / (2.0 * self.scale ** 2) - normalize_term
+
+    @property
+    def mean(self):
+        return np.broadcast_to(self.loc, self.batch_shape)
+
+    @property
+    def variance(self):
+        return np.broadcast_to(self.scale ** 2, self.batch_shape)
+
+
+class LogNormal(TransformedDistribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.positive
+    reparametrized_params = ['loc', 'scale']
+
+    def __init__(self, loc, scale, validate_args=None):
+        base_dist = Normal(loc, scale)
+        self.loc, self.scale = base_dist.loc, base_dist.scale
+        super(LogNormal, self).__init__(base_dist, ExpTransform(), validate_args=validate_args)
+
+    @property
+    def mean(self):
+        return np.exp(self.loc + self.scale ** 2 / 2)
+
+    @property
+    def variance(self):
+        return (np.exp(self.scale ** 2) - 1) * np.exp(2 * self.loc + self.scale ** 2)
+
+
+class Pareto(TransformedDistribution):
+    arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
+    support = constraints.real
+
+    def __init__(self, scale, alpha, validate_args=None):
+        batch_shape = lax.broadcast_shapes(np.shape(scale), np.shape(alpha))
+        self.scale, self.alpha = np.broadcast_to(scale, batch_shape), np.broadcast_to(alpha, batch_shape)
+        base_dist = Exponential(self.alpha)
+        transforms = [ExpTransform(), AffineTransform(loc=0, scale=self.scale)]
+        super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
+
+    @property
+    def mean(self):
+        # mean is inf for alpha <= 1
+        a = lax.div(self.alpha * self.scale, (self.alpha - 1))
+        return np.where(self.alpha <= 1, np.inf, a)
+
+    @property
+    def variance(self):
+        # var is inf for alpha <= 2
+        a = lax.div((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
+        return np.where(self.alpha <= 2, np.inf, a)
+
+    @property
+    def support(self):
+        return constraints.greater_than(self.scale)
+
+
+class StudentT(Distribution):
+    arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['loc', 'scale']
+
+    def __init__(self, df, loc=0., scale=1., validate_args=None):
+        batch_shape = lax.broadcast_shapes(np.shape(df), np.shape(loc), np.shape(scale))
+        self.df = np.broadcast_to(df, batch_shape)
+        self.loc, self.scale = promote_shapes(loc, scale, shape=batch_shape)
+        self._chi2 = Chi2(self.df)
+        super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        key_normal, key_chi2 = random.split(key)
+        std_normal = random.normal(key_normal, shape=size + self.batch_shape)
+        z = self._chi2.sample(key_chi2, size)
+        y = std_normal * np.sqrt(self.df / z)
+        return self.loc + self.scale * y
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        y = (value - self.loc) / self.scale
+        z = (np.log(self.scale) + 0.5 * np.log(self.df) + 0.5 * np.log(np.pi) +
+             gammaln(0.5 * self.df) - gammaln(0.5 * (self.df + 1.)))
+        return -0.5 * (self.df + 1.) * np.log1p(y ** 2. / self.df) - z
+
+    @property
+    def mean(self):
+        # for df <= 1. should be np.nan (keeping np.inf for consistency with scipy)
+        return np.broadcast_to(np.where(self.df <= 1, np.inf, self.loc), self.batch_shape)
+
+    @property
+    def variance(self):
+        var = np.where(self.df > 2, self.scale ** 2 * self.df / (self.df - 2.0), np.inf)
+        var = np.where(self.df <= 1, np.nan, var)
+        return np.broadcast_to(var, self.batch_shape)
+
+
+class Uniform(Distribution):
+    arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
+    reparametrized_params = ['low', 'high']
+
+    def __init__(self, low, high, validate_args=None):
+        self.low, self.high = promote_shapes(low, high)
+        batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
+        super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        size = size + self.batch_shape
+        return self.low + random.uniform(key, shape=size) * (self.high - self.low)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        return - np.broadcast_to(np.log(self.high - self.low), np.shape(value))
+
+    @property
+    def mean(self):
+        return self.low + (self.high - self.low) / 2.
+
+    @property
+    def variance(self):
+        return (self.high - self.low) ** 2 / 12.
+
+    @property
+    def support(self):
+        return constraints.interval(self.low, self.high)

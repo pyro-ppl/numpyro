@@ -22,7 +22,7 @@ def _get_num_steps(step_size, trajectory_length):
 
 def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
     if inverse_mass_matrix.ndim == 1:
-        r = dist.norm(0., np.sqrt(np.reciprocal(inverse_mass_matrix))).rvs(random_state=rng)
+        r = dist.Normal(0., np.sqrt(np.reciprocal(inverse_mass_matrix))).sample(rng)
         return unpack_fn(r)
     elif inverse_mass_matrix.ndim == 2:
         raise NotImplementedError
@@ -40,6 +40,77 @@ def _euclidean_ke(inverse_mass_matrix, r):
 
 
 def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
+    r"""
+    Hamiltonian Monte Carlo inference, using either fixed number of
+    steps or the No U-Turn Sampler (NUTS) with adaptive path length.
+
+    **References:**
+
+    1. *MCMC Using Hamiltonian Dynamics*, Radford M. Neal
+    2. *The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo*,
+       Matthew D. Hoffman, and Andrew Gelman.
+
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that ``init_samples`` argument to
+        ``init_kernel`` has the same type.
+    :param kinetic_fn: Python callable that returns the kinetic energy given
+        inverse mass matrix and momentum. If not provided, the default is
+        euclidean kinetic energy.
+    :param str algo: Whether to run ``HMC`` with fixed number of steps or ``NUTS``
+        with adaptive path length. Default is ``NUTS``.
+    :return init_kernel, sample_kernel: Returns a tuple of callables, the first
+        one to initialize the sampler, and the second one to generate samples
+        given an existing one.
+
+    The arguments taken by `init_kernel` and `sample_kernel` are as follows:
+
+    .. function:: init_kernel
+
+    Initializes the HMC sampler.
+
+    :param init_samples: Initial parameters to begin sampling. The type can
+        must be consistent with the input type to ``potential_fn``.
+    :param int num_warmup_steps: Number of warmup steps; samples generated
+        during warmup are discarded.
+    :param float step_size: Determines the size of a single step taken by the
+        verlet integrator while computing the trajectory using Hamiltonian
+        dynamics. If not specified, it will be set to 1.
+    :param bool adapt_step_size: A flag to decide if we want to adapt step_size
+        during warm-up phase using Dual Averaging scheme.
+    :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
+        matrix during warm-up phase using Welford scheme.
+    :param bool diag_mass: A flag to decide if mass matrix is diagonal (default)
+        or dense (if set to ``False``).
+    :param float target_accept_prob: Target acceptance probability for step size
+        adaptation using Dual Averaging. Increasing this value will lead to a smaller
+        step size, hence the sampling will be slower but more robust. Default to 0.8.
+    :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+        value is :math:`2\pi`.
+    :param int max_tree_depth: Max depth of the binary tree created during the doubling
+        scheme of NUTS sampler. Defaults to 10.
+    :param bool run_warmup: Flag to decide whether warmup is run. If ``True``,
+        `init_kernel` returns an initial :func:`~numpyro.mcmc.HMCState` that
+        can be used to generate samples using MCMC. Else, returns the arguments
+        and callable that does the initial adaptation.
+    :param bool progbar: Whether to enable progress bar updates. Defaults to
+        ``True``.
+    :param bool heuristic_step_size: If ``True``, a coarse grained adjustment of
+        step size is done at the beginning of each adaptation window to achieve
+        `target_acceptance_prob`.
+    :param jax.random.PRNGKey rng: random key to be used as the source of
+        randomness.
+
+
+    .. function:: sample_kernel
+
+    Given a :func:`~numpyro.mcmc.HMCState`, run HMC with fixed (possibly
+    adapted) step size and return :func:`~numpyro.mcmc.HMCState`.
+
+    :param hmc_state: Current sample (and associated state).
+    :return: new proposed :func:`~numpyro.mcmc.HMCState` from simulating
+        Hamiltonian dynamics given existing state.
+    """
     if kinetic_fn is None:
         kinetic_fn = _euclidean_ke
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
@@ -58,7 +129,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
                     run_warmup=True,
-                    use_prims=True,
                     progbar=True,
                     heuristic_step_size=True,
                     rng=PRNGKey(0)):
@@ -93,13 +163,13 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
         wa_update = jit(wa_update)
         if run_warmup:
-            if use_prims:
+            # JIT if progress bar updates not required
+            if not progbar:
                 hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps,
                                                                    warmup_update,
                                                                    (hmc_state, wa_state))
             else:
-                n_iter = tqdm.trange(num_warmup_steps) if progbar else range(num_warmup_steps)
-                for i in n_iter:
+                for i in tqdm.trange(num_warmup_steps):
                     hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
             return hmc_state
         else:
@@ -152,5 +222,10 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                                  vv_state, rng_transition)
         return HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
                         accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix, rng)
+
+    # populate docs for `init_kernel` and `sample_kernel`
+    component_docs = hmc.__doc__.split('.. function::')
+    init_kernel.__doc__ = '\n'.join(component_docs[1].split('\n')[1:])
+    sample_kernel.__doc__ = '\n'.join(component_docs[2].split('\n')[1:])
 
     return init_kernel, sample_kernel

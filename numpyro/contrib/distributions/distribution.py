@@ -1,132 +1,241 @@
-# The implementation follows the design in PyTorch: torch.distributions.distribution.py
+# Source code modified from scipy.stats._distn_infrastructure.py
 #
-# Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
-# Copyright (c) 2014-     Facebook, Inc            (Soumith Chintala)
-# Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
-# Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
-# Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
-# Copyright (c) 2011-2013 NYU                      (Clement Farabet)
-# Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou, Iain Melvin, Jason Weston)
-# Copyright (c) 2006      Idiap Research Institute (Samy Bengio)
-# Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
+# Copyright (c) 2001, 2002 Enthought, Inc.
+# All rights reserved.
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
-# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
+# Copyright (c) 2003-2019 SciPy Developers.
+# All rights reserved.
+from contextlib import contextmanager
+
+import scipy.stats as osp_stats
+from scipy._lib._util import getargspec_no_self
+from scipy.stats._distn_infrastructure import instancemethod, rv_frozen, rv_generic
 
 import jax.numpy as np
+from jax import lax
+from jax.random import _is_prng_key
+from jax.scipy import stats
 
 from numpyro.distributions import constraints
-from numpyro.distributions.transforms import Transform
-from numpyro.distributions.util import sum_rightmost
+from numpyro.distributions.constraints import AffineTransform
 
 
-class Distribution(object):
-    arg_constraints = {}
-    support = None
-    reparametrized_params = []
+class jax_frozen(rv_frozen):
     _validate_args = False
 
-    def __init__(self, batch_shape=(), event_shape=(), validate_args=None):
-        self._batch_shape = batch_shape
-        self._event_shape = event_shape
-        if validate_args is None:
-            self._validate_args = validate_args
+    def __init__(self, dist, *args, **kwargs):
+        self.args = args
+        self.kwds = kwargs
+
+        # create a new instance
+        self.dist = dist.__class__(**dist._updated_ctor_param())
+
+        shapes, _, scale = self.dist._parse_args(*args, **kwargs)
         if self._validate_args:
-            for param, constraint in self.arg_constraints.items():
-                if constraints.is_dependent(constraint):
-                    continue  # skip constraints that cannot be checked
-                if not constraint.check(getattr(self, param)).all():
-                    raise ValueError("The parameter {} has invalid values".format(param))
-        super(Distribution, self).__init__()
+            # TODO: check more concretely for each parameter
+            if not np.all(self.dist._argcheck(*shapes)):
+                raise ValueError('Invalid parameters provided to the distribution.')
+            if not np.all(scale > 0):
+                raise ValueError('Invalid scale parameter provided to the distribution.')
+
+        self.a, self.b = self.dist.a, self.dist.b
 
     @property
-    def batch_shape(self):
-        return self._batch_shape
+    def support(self):
+        return self.dist._support(*self.args, **self.kwds)
 
-    @property
-    def event_shape(self):
-        return self._event_shape
+    def __call__(self, size=None, random_state=None):
+        return self.rvs(size, random_state)
 
-    def sample(self, key, size=()):
-        raise NotImplementedError
+    def log_prob(self, x):
+        if isinstance(self.dist, jax_continuous):
+            return self.logpdf(x)
+        else:
+            return self.logpmf(x)
 
-    def log_prob(self, value):
-        raise NotImplementedError
+    def logpdf(self, x):
+        if self._validate_args:
+            self._validate_sample(x)
+        return self.dist.logpdf(x, *self.args, **self.kwds)
 
-    @property
-    def mean(self):
-        raise NotImplementedError
+    def logpmf(self, k):
+        if self._validate_args:
+            self._validate_sample(k)
+        return self.dist.logpmf(k, *self.args, **self.kwds)
 
-    @property
-    def variance(self):
-        raise NotImplementedError
-
-    def _validate_sample(self, value):
-        if not np.all(self.support(value)):
+    def _validate_sample(self, x):
+        if not np.all(self.support(x)):
             raise ValueError('Invalid values provided to log prob method. '
                              'The value argument must be within the support.')
 
 
-class TransformedDistribution(Distribution):
+class jax_generic(rv_generic):
     arg_constraints = {}
 
-    def __init__(self, base_distribution, transforms, validate_args=None):
-        self.base_dist = base_distribution
-        if isinstance(transforms, Transform):
-            self.transforms = [transforms, ]
-        elif isinstance(transforms, list):
-            if not all(isinstance(t, Transform) for t in transforms):
-                raise ValueError("transforms must be a Transform or a list of Transforms")
-            self.transforms = transforms
+    def freeze(self, *args, **kwargs):
+        return jax_frozen(self, *args, **kwargs)
+
+    def _argcheck(self, *args):
+        cond = 1
+        constraints = self.arg_constraints
+        if args:
+            for arg, arg_name in zip(args, self.shapes.split(', ')):
+                if arg_name in constraints:
+                    cond = np.logical_and(cond, constraints[arg_name](arg))
+        return cond
+
+
+class jax_continuous(jax_generic, osp_stats.rv_continuous):
+    def _support(self, *args, **kwargs):
+        # support of the transformed distribution
+        _, loc, scale = self._parse_args(*args, **kwargs)
+        return AffineTransform(loc, scale, domain=self._support_mask).codomain
+
+    def rvs(self, *args, **kwargs):
+        rng = kwargs.pop('random_state')
+        if rng is None:
+            rng = self.random_state
+        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
+        assert _is_prng_key(rng)
+
+        args = list(args)
+        # If 'size' is not in kwargs, then it is either the last element of args
+        # or it will take default value (which is None).
+        # Note: self.numargs is the number of shape parameters.
+        size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 2) else None)
+        # XXX when args is not empty, parse_args requires either _pdf or _cdf method is implemented
+        # to recognize valid arg signatures (e.g. `a` in `gamma` or `s` in lognormal)
+        args, loc, scale = self._parse_args(*args, **kwargs)
+        if not size:
+            shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
+            size = lax.broadcast_shapes(*shapes)
+        elif isinstance(size, int):
+            size = (size,)
+
+        self._random_state = rng
+        self._size = size
+        vals = self._rvs(*args)
+        return vals * scale + loc
+
+    def pdf(self, x, *args, **kwargs):
+        if hasattr(stats, self.name):
+            return getattr(stats, self.name).pdf(x, *args, **kwargs)
         else:
-            raise ValueError("transforms must be a Transform or list, but was {}".format(transforms))
-        shape = self.base_dist.batch_shape + self.base_dist.event_shape
-        event_dim = max([len(self.base_dist.event_shape)] + [t.event_dim for t in self.transforms])
-        batch_shape = shape[:len(shape) - event_dim]
-        event_shape = shape[len(shape) - event_dim:]
-        super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+            return super(jax_continuous, self).pdf(x, *args, **kwargs)
 
-    @property
-    def support(self):
-        return self.transforms[-1].codomain if self.transforms else self.base_dist.support
+    def logpdf(self, x, *args, **kwargs):
+        if hasattr(stats, self.name):
+            return getattr(stats, self.name).logpdf(x, *args, **kwargs)
+        else:
+            args, loc, scale = self._parse_args(*args, **kwargs)
+            y = (x - loc) / scale
+            return self._logpdf(y, *args) - np.log(scale)
 
-    @property
-    def is_reparametrized(self):
-        return self.base_dist.reparametrized
 
-    def sample(self, key, size=()):
-        x = self.base_dist.sample(key, size)
-        for transform in self.transforms:
-            x = transform(x)
-        return x
+class jax_discrete(jax_generic, osp_stats.rv_discrete):
+    def __new__(cls, *args, **kwargs):
+        return super(jax_discrete, cls).__new__(cls)
 
-    def log_prob(self, value):
-        event_dim = len(self.event_shape)
-        log_prob = 0.0
-        y = value
-        for transform in reversed(self.transforms):
-            x = transform.inv(y)
-            log_prob = log_prob - sum_rightmost(transform.log_abs_det_jacobian(x, y),
-                                                event_dim - transform.event_dim)
-            y = x
+    def __init__(self, *args, **kwargs):
+        self.is_logits = kwargs.pop("is_logits", False)
+        super(jax_discrete, self).__init__(*args, **kwargs)
 
-        log_prob = log_prob + sum_rightmost(self.base_dist.log_prob(y),
-                                            event_dim - len(self.base_dist.event_shape))
-        return log_prob
+    def freeze(self, *args, **kwargs):
+        self._ctor_param.update(is_logits=kwargs.pop("is_logits", False))
+        return super(jax_discrete, self).freeze(*args, **kwargs)
 
-    @property
-    def mean(self):
-        raise NotImplementedError
+    def _support(self, *args, **kwargs):
+        args, loc, _ = self._parse_args(*args, **kwargs)
+        support_mask = self._support_mask
+        if isinstance(support_mask, constraints.integer_interval):
+            return constraints.integer_interval(loc + support_mask.lower_bound,
+                                                loc + support_mask.upper_bound)
+        elif isinstance(support_mask, constraints.integer_greater_than):
+            return constraints.integer_greater_than(loc + support_mask.lower_bound)
+        else:
+            raise NotImplementedError
 
-    @property
-    def variance(self):
-        raise NotImplementedError
+    def rvs(self, *args, **kwargs):
+        rng = kwargs.pop('random_state')
+        if rng is None:
+            rng = self.random_state
+        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
+        assert _is_prng_key(rng)
+
+        args = list(args)
+        size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 1) else None)
+        args, loc, _ = self._parse_args(*args, **kwargs)
+        if not size:
+            shapes = [np.shape(arg) for arg in args] + [np.shape(loc)]
+            size = lax.broadcast_shapes(*shapes)
+        elif isinstance(size, int):
+            size = (size,)
+
+        self._random_state = rng
+        self._size = size
+        vals = self._rvs(*args)
+        return vals + loc
+
+    def logpmf(self, k, *args, **kwargs):
+        args, loc, _ = self._parse_args(*args, **kwargs)
+        k = k - loc
+        return self._logpmf(k, *args)
+
+
+_parse_arg_template = """
+def _parse_args(self, {shape_arg_str}):
+    return ({shape_arg_str}), 0, 1
+"""
+
+
+class jax_multivariate(jax_generic):
+    def _construct_argparser(self, *args, **kwargs):
+        if self.shapes:
+            shapes = self.shapes.replace(',', ' ').split()
+        else:
+            shapes = getargspec_no_self(self._rvs).args
+
+        # have the arguments, construct the method from template
+        shapes_str = ', '.join(shapes) + ', ' if shapes else ''  # NB: not None
+        dct = dict(shape_arg_str=shapes_str)
+        ns = {}
+        exec(_parse_arg_template.format(**dct), ns)
+        # NB: attach to the instance, not class
+        for name in ['_parse_args']:
+            setattr(self, name, instancemethod(ns[name], self, self.__class__))
+
+        self.shapes = ', '.join(shapes) if shapes else None
+        if not hasattr(self, 'numargs'):
+            self.numargs = len(shapes)
+
+    def _support(self, *args, **kwargs):
+        return self._support_mask
+
+    def rvs(self, *args, **kwargs):
+        rng = kwargs.pop('random_state')
+        if rng is None:
+            rng = self.random_state
+        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
+        assert _is_prng_key(rng)
+
+        args = list(args)
+        size = kwargs.pop('size', args.pop() if len(args) > self.numargs else None)
+        args, _, _ = self._parse_args(*args, **kwargs)
+        if not size:
+            size = self._batch_shape(*args)
+        elif isinstance(size, int):
+            size = (size,)
+
+        self._random_state = rng
+        self._size = size
+        return self._rvs(*args)
+
+
+@contextmanager
+def validation_enabled():
+    jax_frozen_flag = jax_frozen._validate_args
+    try:
+        jax_frozen._validate_args = True
+        yield
+    finally:
+        jax_frozen._validate_args = jax_frozen_flag
