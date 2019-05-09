@@ -295,9 +295,9 @@ class CategoricalLogits(Distribution):
 
 def Categorical(probs=None, logits=None, validate_args=None):
     if probs is not None:
-        return BernoulliProbs(probs, validate_args=validate_args)
+        return CategoricalProbs(probs, validate_args=validate_args)
     elif logits is not None:
-        return BernoulliLogits(logits, validate_args=validate_args)
+        return CategoricalLogits(logits, validate_args=validate_args)
     else:
         raise ValueError('One of `probs` or `logits` must be specified.')
 
