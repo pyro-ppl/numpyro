@@ -52,6 +52,7 @@ __all__ = [
     'HalfNormal',
     'LogNormal',
     'LKJCholesky',
+    'Multinomial',
     'MultinomialLogits',
     'MultinomialProbs',
     'Normal',
