@@ -9,13 +9,19 @@ from numpy.testing import assert_allclose, assert_array_equal
 import jax
 import jax.numpy as np
 import jax.random as random
-from jax import grad, lax
+from jax import grad, lax, vmap
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import biject_to, matrix_to_tril_vec, vec_to_tril_matrix
+from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
-from numpyro.distributions.util import multinomial, poisson
+from numpyro.distributions.util import (
+    matrix_to_tril_vec,
+    multinomial,
+    poisson,
+    signed_stick_breaking_tril,
+    vec_to_tril_matrix
+)
 
 
 def _identity(x): return x
@@ -41,6 +47,7 @@ _DIST_MAP = {
     dist.Exponential: lambda rate: osp.expon(scale=np.reciprocal(rate)),
     dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1./rate),
     dist.HalfCauchy: lambda scale: osp.halfcauchy(scale=scale),
+    dist.HalfNormal: lambda scale: osp.halfnorm(scale=scale),
     dist.LogNormal: lambda loc, scale: osp.lognorm(s=scale, scale=np.exp(loc)),
     dist.Multinomial: lambda probs, total_count: osp.multinomial(n=total_count, p=probs),
     dist.MultinomialWithLogits: lambda logits, total_count: osp.multinomial(n=total_count,
@@ -71,9 +78,17 @@ CONTINUOUS = [
     T(dist.Gamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
     T(dist.HalfCauchy, 1.),
     T(dist.HalfCauchy, np.array([1., 2.])),
+    T(dist.HalfNormal, 1.),
+    T(dist.HalfNormal, np.array([1., 2.])),
     T(dist.LogNormal, 1., 0.2),
     T(dist.LogNormal, -1., np.array([0.5, 1.3])),
     T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+    T(dist.LKJCholesky, 2, 0.5, "onion"),
+    T(dist.LKJCholesky, 2, 0.5, "cvine"),
+    T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "onion"),
+    T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "cvine"),
+    T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
+    T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),
@@ -81,7 +96,7 @@ CONTINUOUS = [
     T(dist.Pareto, np.array([0.3, 2.]), np.array([1., 0.5])),
     T(dist.Pareto, np.array([1., 0.5]), np.array([[1.], [3.]])),
     T(dist.StudentT, 1., 1., 0.5),
-    T(dist.StudentT, 1.5, np.array([1., 2.]), 2.),
+    T(dist.StudentT, 2., np.array([1., 2.]), 2.),
     T(dist.StudentT, np.array([3, 5]), np.array([[1.], [2.]]), 2.),
     T(dist.Uniform, 0., 2.),
     T(dist.Uniform, 1., np.array([2., 3.])),
@@ -138,6 +153,10 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
         return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
+    elif isinstance(constraint, constraints._CorrCholesky):
+        return signed_stick_breaking_tril(
+            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
+                           minval=-1, maxval=1))
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -162,6 +181,10 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
         return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1
+    elif isinstance(constraint, constraints._CorrCholesky):
+        return signed_stick_breaking_tril(
+            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
+                           minval=-1, maxval=1)) + 1e-2
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -227,6 +250,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     jax_dist = jax_dist(*params)
     rng = random.PRNGKey(0)
     samples = jax_dist.sample(key=rng, size=prepend_shape)
+    assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
     if not sp_dist:
         pytest.skip('no corresponding scipy distn.')
     if _is_batched_multivariate(jax_dist):
@@ -253,8 +277,80 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
+def _tril_cholesky_to_tril_corr(x):
+    w = vec_to_tril_matrix(x, diagonal=-1)
+    diag = np.sqrt(1 - np.sum(w ** 2, axis=-1))
+    cholesky = w + np.expand_dims(diag, axis=-1) * np.identity(w.shape[-1])
+    corr = np.matmul(cholesky, cholesky.T)
+    return matrix_to_tril_vec(corr, diagonal=-1)
+
+
+@pytest.mark.parametrize('dimension', [2, 3, 5])
+def test_log_prob_LKJCholesky_uniform(dimension):
+    # When concentration=1, the distribution of correlation matrices is uniform.
+    # We will test that fact here.
+    d = dist.LKJCholesky(dimension=dimension, concentration=1)
+    N = 5
+    corr_log_prob = []
+    for i in range(N):
+        sample = d.sample(random.PRNGKey(i))
+        log_prob = d.log_prob(sample)
+        sample_tril = matrix_to_tril_vec(sample, diagonal=-1)
+        cholesky_to_corr_jac = onp.linalg.slogdet(
+            jax.jacobian(_tril_cholesky_to_tril_corr)(sample_tril))[1]
+        corr_log_prob.append(log_prob - cholesky_to_corr_jac)
+
+    corr_log_prob = np.array(corr_log_prob)
+    # test if they are constant
+    assert_allclose(corr_log_prob, np.broadcast_to(corr_log_prob[0], corr_log_prob.shape))
+
+    if dimension == 2:
+        # when concentration = 1, LKJ gives a uniform distribution over correlation matrix,
+        # hence for the case dimension = 2,
+        # density of a correlation matrix will be Uniform(-1, 1) = 0.5.
+        # In addition, jacobian of the transformation from cholesky -> corr is 1 (hence its
+        # log value is 0) because the off-diagonal lower triangular element does not change
+        # in the transform.
+        # So target_log_prob = log(0.5)
+        assert_allclose(corr_log_prob[0], np.log(0.5), rtol=1e-6)
+
+
+@pytest.mark.parametrize("dimension", [2, 3, 5])
+@pytest.mark.parametrize("concentration", [0.6, 2.2])
+def test_log_prob_LKJCholesky(dimension, concentration):
+    # We will test against the fact that LKJCorrCholesky can be seen as a
+    # TransformedDistribution with base distribution is a distribution of partial
+    # correlations in C-vine method (modulo an affine transform to change domain from (0, 1)
+    # to (1, 0)) and transform is a signed stick-breaking process.
+    d = dist.LKJCholesky(dimension, concentration, sample_method="cvine")
+
+    beta_sample = d._beta.sample(random.PRNGKey(0))
+    beta_log_prob = np.sum(d._beta.log_prob(beta_sample))
+    partial_correlation = 2 * beta_sample - 1
+    affine_logdet = beta_sample.shape[-1] * np.log(2)
+    sample = signed_stick_breaking_tril(partial_correlation)
+
+    # compute signed stick breaking logdet
+    inv_tanh = lambda t: np.log((1 + t) / (1 - t)) / 2  # noqa: E731
+    inv_tanh_logdet = np.sum(np.log(vmap(grad(inv_tanh))(partial_correlation)))
+    unconstrained = inv_tanh(partial_correlation)
+    corr_cholesky_logdet = biject_to(constraints.corr_cholesky).log_abs_det_jacobian(
+        unconstrained,
+        sample,
+    )
+    signed_stick_breaking_logdet = corr_cholesky_logdet + inv_tanh_logdet
+
+    actual_log_prob = d.log_prob(sample)
+    expected_log_prob = beta_log_prob - affine_logdet - signed_stick_breaking_logdet
+    assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
+
+    assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=1e-7)
+
+
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_log_prob_gradient(jax_dist, sp_dist, params):
+    if jax_dist is dist.LKJCholesky:
+        pytest.skip('we have separated tests for LKJCholesky distribution')
     rng = random.PRNGKey(0)
 
     def fn(args, value):
@@ -302,6 +398,25 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
         if np.all(np.isfinite(sp_var)):
             assert_allclose(np.std(samples, 0), np.sqrt(d_jax.variance), rtol=0.05, atol=1e-2)
+    elif jax_dist is dist.LKJCholesky:
+        corr_samples = np.matmul(samples, np.swapaxes(samples, -2, -1))
+        dimension, concentration, _ = params
+        # marginal of off-diagonal entries
+        marginal = dist.Beta(concentration + 0.5 * (dimension - 2),
+                             concentration + 0.5 * (dimension - 2))
+        # scale statistics due to linear mapping
+        marginal_mean = 2 * marginal.mean - 1
+        marginal_std = 2 * np.sqrt(marginal.variance)
+        expected_mean = np.broadcast_to(np.reshape(marginal_mean, np.shape(marginal_mean) + (1, 1)),
+                                        np.shape(marginal_mean) + d_jax.event_shape)
+        expected_std = np.broadcast_to(np.reshape(marginal_std, np.shape(marginal_std) + (1, 1)),
+                                       np.shape(marginal_std) + d_jax.event_shape)
+        # diagonal elements of correlation matrices are 1
+        expected_mean = expected_mean * (1 - np.identity(dimension)) + np.identity(dimension)
+        expected_std = expected_std * (1 - np.identity(dimension))
+
+        assert_allclose(np.mean(corr_samples, axis=0), expected_mean, atol=0.005)
+        assert_allclose(np.std(corr_samples, axis=0), expected_std, atol=0.005)
     else:
         if np.all(np.isfinite(d_jax.mean)):
             assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
@@ -322,6 +437,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     key = random.PRNGKey(1)
     dependent_constraint = False
     for i in range(len(params)):
+        if jax_dist is dist.LKJCholesky and dist_args[i] != "concentration":
+            continue
         constraint = jax_dist.arg_constraints[dist_args[i]]
         if isinstance(constraint, constraints._Dependent):
             dependent_constraint = True
@@ -422,7 +539,7 @@ def test_biject_to(constraint, shape):
 
     # test inv
     z = transform.inv(y)
-    assert_allclose(x, z, atol=1e-6)
+    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
 
     # test domain, currently all is constraints.real
     assert_array_equal(transform.domain(z), np.ones(shape))

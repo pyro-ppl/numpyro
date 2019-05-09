@@ -8,7 +8,7 @@ import tqdm
 import jax.numpy as np
 from jax import jit, lax, ops, vmap
 from jax.flatten_util import ravel_pytree
-from jax.tree_util import register_pytree_node, tree_flatten, tree_map, tree_multimap
+from jax.tree_util import register_pytree_node
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -96,27 +96,11 @@ def fori_loop(lower, upper, body_fun, init_val):
         return lax.fori_loop(lower, upper, body_fun, init_val)
 
 
-def scan(f, a, bs):
-    if _DISABLE_CONTROL_FLOW_PRIM:
-        length = tree_flatten(bs)[0][0].shape[0]
-        for i in range(length):
-            b = tree_map(lambda x: x[i], bs)
-            a = f(a, b)
-            a_out = tree_map(lambda x: np.expand_dims(x, axis=0), a)
-            if i == 0:
-                out = a_out
-            else:
-                out = tree_multimap(lambda x, y: np.concatenate((x, y)), out, a_out)
-        return out
-    else:
-        return lax.scan(f, a, bs)
-
-
 def _identity(x):
     return x
 
 
-def fori_collect(n, body_fun, init_val, transform=_identity, progbar=False):
+def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True):
     # works like lax.fori_loop but ignores i in body_fn, supports
     # postprocessing `transform`, and collects values during the loop
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))

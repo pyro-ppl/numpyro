@@ -1,8 +1,3 @@
-import jax
-import jax.interpreters.partial_eval as pe
-import jax.linear_util as lu
-
-
 def patch_dependency(target, root_module):
     parts = target.split('.')
     assert parts[0] == root_module.__name__
@@ -20,9 +15,3 @@ def patch_dependency(target, root_module):
         return new_fn
 
     return decorator
-
-
-# TODO: Remove with jax v0.1.26
-@patch_dependency('jax.interpreters.partial_eval.trace_unwrapped_to_jaxpr', jax)
-def _trace_unwrapped_to_jaxpr(fun, pvals, **kwargs):
-    return pe.trace_to_jaxpr(lu.wrap_init(fun, kwargs), pvals)
