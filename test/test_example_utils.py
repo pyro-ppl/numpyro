@@ -1,7 +1,7 @@
 import jax.numpy as np
 from jax import lax
 
-from numpyro.examples.datasets import BASEBALL, MNIST, load_dataset
+from numpyro.examples.datasets import BASEBALL, MNIST, SP500, load_dataset
 
 
 def test_mnist_data_load():
@@ -20,3 +20,9 @@ def test_baseball_data_load():
     dataset = fetch(0, idx)
     assert np.shape(dataset[0]) == (18, 2)
     assert np.shape(dataset[1]) == (18,)
+
+
+def test_sp500_data_load():
+    _, fetch = load_dataset(SP500, split='train', shuffle=False)
+    date, value = fetch()
+    assert np.shape(date) == np.shape(date) == (2427,)

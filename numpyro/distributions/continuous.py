@@ -498,18 +498,18 @@ class GaussianRandomWalk(Distribution):
 
     def __init__(self, scale, num_steps=1):
         self.scale = scale
-        batch_shape, event_shape = scale.shape,
+        batch_shape, event_shape = np.shape(scale), (num_steps,)
         super(GaussianRandomWalk, self).__init__(batch_shape, event_shape)
 
-    def rsample(self, sample_shape=torch.Size()):
-        shape = sample_shape + self.batch_shape + self.event_shape
-        walks = self.scale.new_empty(shape).normal_()
-        return walks.cumsum(-1) * self.scale.unsqueeze(-1)
+    def sample(self, key, size=()):
+        shape = size + self.batch_shape + self.event_shape
+        walks = random.normal(key, shape=shape)
+        return np.cumsum(walks, axis=-1) * self.scale
 
     def log_prob(self, x):
-        init_prob = dist.Normal(self.scale.new_tensor(0.), self.scale).log_prob(x[..., 0])
-        step_probs = dist.Normal(x[..., :-1], self.scale).log_prob(x[..., 1:])
-        return init_prob + step_probs.sum(-1)
+        init_prob = Normal(0., self.scale).log_prob(x[..., 0])
+        step_probs = Normal(x[..., :-1], self.scale).log_prob(x[..., 1:])
+        return init_prob + np.sum(step_probs, axis=-1)
 
 
 class StudentT(Distribution):

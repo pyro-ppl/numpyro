@@ -34,6 +34,10 @@ UCBADMIT = dset('ucbadmit', [
     'https://d2fefpcigoriu7.cloudfront.net/datasets/UCBadmit.csv',
 ])
 
+SP500 = dset('SP500', [
+    'https://d2fefpcigoriu7.cloudfront.net/datasets/SP500.csv',
+])
+
 
 def _download(dset):
     for url in dset.urls:
@@ -86,6 +90,21 @@ def _load_baseball():
             'test': (test, player_names)}
 
 
+def _load_sp500():
+    _download(SP500)
+
+    date, value = [], []
+    with open(os.path.join(DATA_DIR, 'SP500.csv'), 'r') as f:
+        csv_reader = csv.DictReader(f, quoting=csv.QUOTE_NONE)
+        for row in csv_reader:
+            date.append(row['DATE'])
+            value.append(float(row['VALUE']))
+    date = np.stack(date)
+    value = np.stack(value)
+
+    return {'train': (date, value)}
+
+
 def _load_ucbadmit():
     _download(UCBADMIT)
 
@@ -111,6 +130,8 @@ def _load(dset):
         return _load_mnist()
     elif dset == BASEBALL:
         return _load_baseball()
+    elif dset == SP500:
+        return _load_sp500()
     elif dset == UCBADMIT:
         return _load_ucbadmit()
     raise ValueError('Dataset - {} not found.'.format(dset.name))
