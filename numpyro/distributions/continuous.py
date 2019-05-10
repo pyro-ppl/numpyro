@@ -37,8 +37,8 @@ from numpyro.distributions.util import (
     promote_shapes,
     signed_stick_breaking_tril,
     standard_gamma,
-    vec_to_tril_matrix
-)
+    vec_to_tril_matrix,
+    cumsum)
 
 
 class Beta(Distribution):
@@ -494,22 +494,37 @@ class Pareto(TransformedDistribution):
 class GaussianRandomWalk(Distribution):
     arg_constraints = {'num_steps': constraints.positive, 'scale': constraints.positive}
     support = constraints.real
-    reparametrized_params = ['num_steps', 'scale']
+    # FIXME: cannot take grad through random.normal with dynamic shape
+    reparametrized_params = []
 
-    def __init__(self, scale, num_steps=1):
+    def __init__(self, scale, num_steps=1, validate_args=None):
+        assert np.shape(num_steps) == ()
         self.scale = scale
+        self.num_steps = num_steps
         batch_shape, event_shape = np.shape(scale), (num_steps,)
-        super(GaussianRandomWalk, self).__init__(batch_shape, event_shape)
+        super(GaussianRandomWalk, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
         shape = size + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
-        return np.cumsum(walks, axis=-1) * np.expand_dims(self.scale, axis=-1)
+        return cumsum(walks) * np.expand_dims(self.scale, axis=-1)
 
-    def log_prob(self, x):
-        init_prob = Normal(0., self.scale).log_prob(x[..., 0])
-        step_probs = Normal(x[..., :-1], self.scale).log_prob(x[..., 1:])
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        init_prob = Normal(0., self.scale).log_prob(value[..., 0])
+        scale = np.expand_dims(self.scale, -1)
+        step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
         return init_prob + np.sum(step_probs, axis=-1)
+
+    @property
+    def mean(self):
+        return np.zeros(self.batch_shape + self.event_shape)
+
+    @property
+    def variance(self):
+        return np.broadcast_to(np.expand_dims(self.scale, -1) ** 2 * np.arange(1, self.num_steps + 1),
+                               self.batch_shape + self.event_shape)
 
 
 class StudentT(Distribution):

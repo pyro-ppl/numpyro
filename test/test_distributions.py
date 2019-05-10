@@ -76,6 +76,8 @@ CONTINUOUS = [
     T(dist.Exponential, np.array([4., 2.])),
     T(dist.Gamma, np.array([1.7]), np.array([[2.], [3.]])),
     T(dist.Gamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
+    T(dist.GaussianRandomWalk, 0.1, 10),
+    T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
     T(dist.HalfCauchy, 1.),
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
