@@ -22,12 +22,12 @@ nu ~ Exponential(.1)
 s_i ~ Normal(s_{i-1}, sigma - 2)
 r_i ~ StudentT(nu, 0, exp(-2 s_i))
 
-This example is from PyMC3 [1], which itself is adapted from the original experiment 
-from [2]. A discussion about translating this in Pyro appears in [3]. 
+This example is from PyMC3 [1], which itself is adapted from the original experiment
+from [2]. A discussion about translating this in Pyro appears in [3].
 
 For more details, refer to:
  1. *Stochastic Volatility Model*, https://docs.pymc.io/notebooks/stochastic_volatility.html
- 2. *The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo*, 
+ 2. *The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo*,
     https://arxiv.org/pdf/1111.4246.pdf
  3. Forum discussion, https://forum.pyro.ai/t/problems-transforming-a-pymc3-model-to-pyro-mcmc/208/14
 
@@ -38,8 +38,8 @@ def model(returns):
     step_size = sample('sigma', dist.Exponential(50.))
     s = sample('s', dist.GaussianRandomWalk(scale=step_size, num_steps=np.shape(returns)[0]))
     nu = sample('nu', dist.Exponential(.1))
-    r = sample('r', dist.StudentT(df=nu, loc=0., scale=np.exp(-2*s)),
-               obs=returns)
+    return sample('r', dist.StudentT(df=nu, loc=0., scale=np.exp(-2*s)),
+                  obs=returns)
 
 
 def print_results(posterior, dates):
