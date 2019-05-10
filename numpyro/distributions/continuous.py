@@ -504,7 +504,7 @@ class GaussianRandomWalk(Distribution):
     def sample(self, key, size=()):
         shape = size + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
-        return np.cumsum(walks, axis=-1) * self.scale
+        return np.cumsum(walks, axis=-1) * np.expand_dims(self.scale, axis=-1)
 
     def log_prob(self, x):
         init_prob = Normal(0., self.scale).log_prob(x[..., 0])
