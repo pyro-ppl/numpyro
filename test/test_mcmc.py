@@ -40,12 +40,12 @@ def test_logistic_regression(algo):
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
     logits = np.sum(true_coefs * data, axis=-1)
-    labels = dist.BernoulliWithLogits(logits).sample(random.PRNGKey(1))
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(labels):
         coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
         logits = np.sum(coefs * data, axis=-1)
-        return sample('obs', dist.BernoulliWithLogits(logits), obs=labels)
+        return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, (labels,), {})
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
@@ -149,9 +149,9 @@ def test_binomial_stable(with_logits):
         p = sample('p', dist.Beta(1., 1.))
         if with_logits:
             logits = logit(p)
-            sample('obs', dist.BinomialWithLogits(logits, data['n']), obs=data['x'])
+            sample('obs', dist.Binomial(data['n'], logits=logits), obs=data['x'])
         else:
-            sample('obs', dist.Binomial(p, data['n']), obs=data['x'])
+            sample('obs', dist.Binomial(data['n'], probs=p), obs=data['x'])
 
     data = {'n': 5000000, 'x': 3849}
     init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, (data,), {})

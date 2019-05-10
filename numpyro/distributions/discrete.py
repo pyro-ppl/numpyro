@@ -64,13 +64,13 @@ def _to_logits_multinom(probs):
     return np.clip(np.log(probs), a_min=minval)
 
 
-class Bernoulli(Distribution):
+class BernoulliProbs(Distribution):
     arg_constraints = {'probs': constraints.unit_interval}
     support = constraints.boolean
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
-        super(Bernoulli, self).__init__(batch_shape=np.shape(self.probs), validate_args=validate_args)
+        super(BernoulliProbs, self).__init__(batch_shape=np.shape(self.probs), validate_args=validate_args)
 
     def sample(self, key, size=()):
         return random.bernoulli(key, self.probs, shape=size + self.batch_shape)
@@ -89,13 +89,13 @@ class Bernoulli(Distribution):
         return self.probs * (1 - self.probs)
 
 
-class BernoulliWithLogits(Distribution):
+class BernoulliLogits(Distribution):
     arg_constraints = {'logits': constraints.real}
     support = constraints.boolean
 
     def __init__(self, logits=None, validate_args=None):
         self.logits = logits
-        super(BernoulliWithLogits, self).__init__(batch_shape=np.shape(self.logits), validate_args=validate_args)
+        super(BernoulliLogits, self).__init__(batch_shape=np.shape(self.logits), validate_args=validate_args)
 
     def sample(self, key, size=()):
         return random.bernoulli(key, self.probs, shape=size + self.batch_shape)
@@ -120,14 +120,23 @@ class BernoulliWithLogits(Distribution):
         return self.probs * (1 - self.probs)
 
 
-class Binomial(Distribution):
+def Bernoulli(probs=None, logits=None, validate_args=None):
+    if probs is not None:
+        return BernoulliProbs(probs, validate_args=validate_args)
+    elif logits is not None:
+        return BernoulliLogits(logits, validate_args=validate_args)
+    else:
+        raise ValueError('One of `probs` or `logits` must be specified.')
+
+
+class BinomialProbs(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'probs': constraints.unit_interval}
 
     def __init__(self, probs, total_count=1, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
         batch_shape = lax.broadcast_shapes(np.shape(probs), np.shape(total_count))
-        super(Binomial, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+        super(BinomialProbs, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
         return binomial(key, self.probs, n=self.total_count, shape=size + self.batch_shape)
@@ -157,14 +166,14 @@ class Binomial(Distribution):
         return constraints.integer_interval(0, self.total_count)
 
 
-class BinomialWithLogits(Distribution):
+class BinomialLogits(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'logits': constraints.real}
 
     def __init__(self, logits, total_count=1, validate_args=None):
         self.logits, self.total_count = promote_shapes(logits, total_count)
         batch_shape = lax.broadcast_shapes(np.shape(logits), np.shape(total_count))
-        super(BinomialWithLogits, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+        super(BinomialLogits, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
         return binomial(key, self.probs, n=self.total_count, shape=size + self.batch_shape)
@@ -200,15 +209,24 @@ class BinomialWithLogits(Distribution):
         return constraints.integer_interval(0, self.total_count)
 
 
-class Categorical(Distribution):
+def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
+    if probs is not None:
+        return BinomialProbs(probs, total_count, validate_args=validate_args)
+    elif logits is not None:
+        return BinomialLogits(logits, total_count, validate_args=validate_args)
+    else:
+        raise ValueError('One of `probs` or `logits` must be specified.')
+
+
+class CategoricalProbs(Distribution):
     arg_constraints = {'probs': constraints.simplex}
 
     def __init__(self, probs, validate_args=None):
         if np.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         self.probs = probs
-        super(Categorical, self).__init__(batch_shape=np.shape(self.probs)[:-1],
-                                          validate_args=validate_args)
+        super(CategoricalProbs, self).__init__(batch_shape=np.shape(self.probs)[:-1],
+                                               validate_args=validate_args)
 
     def sample(self, key, size=()):
         return categorical(key, self.probs, shape=size + self.batch_shape)
@@ -236,7 +254,7 @@ class Categorical(Distribution):
         return constraints.integer_interval(0, np.shape(self.probs)[-1])
 
 
-class CategoricalWithLogits(Distribution):
+class CategoricalLogits(Distribution):
     arg_constraints = {'logits': constraints.real}
 
     def __init__(self, logits, validate_args=None):
@@ -244,8 +262,8 @@ class CategoricalWithLogits(Distribution):
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         logits = logits - logsumexp(logits)
         self.logits = logits
-        super(CategoricalWithLogits, self).__init__(batch_shape=np.shape(logits)[:-1],
-                                                    validate_args=validate_args)
+        super(CategoricalLogits, self).__init__(batch_shape=np.shape(logits)[:-1],
+                                                validate_args=validate_args)
 
     def sample(self, key, size=()):
         return categorical(key, self.probs, shape=size + self.batch_shape)
@@ -275,7 +293,16 @@ class CategoricalWithLogits(Distribution):
         return constraints.integer_interval(0, np.shape(self.logits)[-1])
 
 
-class Multinomial(Distribution):
+def Categorical(probs=None, logits=None, validate_args=None):
+    if probs is not None:
+        return CategoricalProbs(probs, validate_args=validate_args)
+    elif logits is not None:
+        return CategoricalLogits(logits, validate_args=validate_args)
+    else:
+        raise ValueError('One of `probs` or `logits` must be specified.')
+
+
+class MultinomialProbs(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'probs': constraints.simplex}
 
@@ -285,9 +312,9 @@ class Multinomial(Distribution):
         batch_shape = lax.broadcast_shapes(np.shape(probs)[:-1], np.shape(total_count))
         self.probs = promote_shapes(probs, shape=batch_shape + np.shape(probs)[-1:])[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
-        super(Multinomial, self).__init__(batch_shape=batch_shape,
-                                          event_shape=np.shape(self.probs)[-1:],
-                                          validate_args=validate_args)
+        super(MultinomialProbs, self).__init__(batch_shape=batch_shape,
+                                               event_shape=np.shape(self.probs)[-1:],
+                                               validate_args=validate_args)
 
     def sample(self, key, size=()):
         return multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
@@ -313,7 +340,7 @@ class Multinomial(Distribution):
         return constraints.multinomial(self.total_count)
 
 
-class MultinomialWithLogits(Distribution):
+class MultinomialLogits(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'logits': constraints.real}
 
@@ -324,9 +351,9 @@ class MultinomialWithLogits(Distribution):
         logits = logits - logsumexp(logits)
         self.logits = promote_shapes(logits, shape=batch_shape + np.shape(logits)[-1:])[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
-        super(MultinomialWithLogits, self).__init__(batch_shape=batch_shape,
-                                                    event_shape=np.shape(self.logits)[-1:],
-                                                    validate_args=validate_args)
+        super(MultinomialLogits, self).__init__(batch_shape=batch_shape,
+                                                event_shape=np.shape(self.logits)[-1:],
+                                                validate_args=validate_args)
 
     def sample(self, key, size=()):
         return multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
@@ -354,6 +381,15 @@ class MultinomialWithLogits(Distribution):
     @property
     def support(self):
         return constraints.multinomial(self.total_count)
+
+
+def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
+    if probs is not None:
+        return MultinomialProbs(probs, total_count, validate_args=validate_args)
+    elif logits is not None:
+        return MultinomialLogits(logits, total_count, validate_args=validate_args)
+    else:
+        raise ValueError('One of `probs` or `logits` must be specified.')
 
 
 class Poisson(Distribution):
