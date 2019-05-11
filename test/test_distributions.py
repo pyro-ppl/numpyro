@@ -360,7 +360,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
     actual_grad = jax.grad(fn)(params, value)
     assert len(actual_grad) == len(params)
 
-    eps = 1e-4
+    eps = 1e-3
     for i in range(len(params)):
         if np.result_type(params[i]) in (np.int32, np.int64):
             continue
@@ -371,7 +371,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert np.shape(actual_grad[i]) == np.shape(params[i])
-        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.10, atol=1e-3)
+        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.01, atol=1e-3)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
