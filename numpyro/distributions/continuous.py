@@ -32,13 +32,14 @@ from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (
+    cumsum,
     matrix_to_tril_vec,
     multigammaln,
     promote_shapes,
     signed_stick_breaking_tril,
     standard_gamma,
     vec_to_tril_matrix,
-    cumsum)
+)
 
 
 class Beta(Distribution):
