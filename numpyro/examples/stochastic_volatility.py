@@ -67,13 +67,12 @@ def main(args):
     jax_config.update('jax_platform_name', args.device)
     _, fetch = load_dataset(SP500, shuffle=False)
     dates, returns = fetch()
-    rng = random.PRNGKey(args.rng)
-    init_params, potential_fn, transform_fn = initialize_model(rng, model, (returns,), {})
+    init_rng, sample_rng = random.split(random.PRNGKey(args.rng))
+    init_params, potential_fn, transform_fn = initialize_model(init_rng, model, (returns,), {})
     init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-    hmc_state = init_kernel(init_params, args.num_warmup_steps)
+    hmc_state = init_kernel(init_params, args.num_warmup_steps, rng=sample_rng)
     hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
-                              transform=lambda hmc_state: transform_fn(hmc_state.z),
-                              progbar=True)
+                              transform=lambda hmc_state: transform_fn(hmc_state.z))
     print_results(hmc_states, dates)
 
 
@@ -82,6 +81,6 @@ if __name__ == "__main__":
     parser.add_argument('-n', '--num-samples', nargs='?', default=3000, type=int)
     parser.add_argument('--num-warmup-steps', nargs='?', default=1500, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
-    parser.add_argument('--rng', default=0, type=int, help='random number generator seed')
+    parser.add_argument('--rng', default=21, type=int, help='random number generator seed')
     args = parser.parse_args()
     main(args)
