@@ -127,18 +127,25 @@ def run_inference(transition_prior, emission_prior, supervised_categories, super
     return hmc_states
 
 
-def print_results(posterior, transition_prob):
+def print_results(posterior, transition_prob, emission_prob):
     header = semi_supervised_hmm.__name__ + ' - TRAIN'
     columns = ['', 'ActualProb', 'Pred(p25)', 'Pred(p50)', 'Pred(p75)']
     header_format = '{:>20} {:>10} {:>10} {:>10} {:>10}'
     row_format = '{:>20} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f}'
-    quantiles = onp.quantile(posterior, [0.25, 0.5, 0.75], axis=0)
     print('\n', '=' * 20 + header + '=' * 20, '\n')
     print(header_format.format(*columns))
+
+    quantiles = onp.quantile(posterior['transition_prob'], [0.25, 0.5, 0.75], axis=0)
     for i in range(transition_prob.shape[0]):
         for j in range(transition_prob.shape[1]):
             idx = 'transition[{},{}]'.format(i, j)
             print(row_format.format(idx, transition_prob[i, j], *quantiles[:, i, j]), '\n')
+
+    quantiles = onp.quantile(posterior['emission_prob'], [0.25, 0.5, 0.75], axis=0)
+    for i in range(emission_prob.shape[0]):
+        for j in range(emission_prob.shape[1]):
+            idx = 'emission[{},{}]'.format(i, j)
+            print(row_format.format(idx, emission_prob[i, j], *quantiles[:, i, j]), '\n')
 
 
 def main(args):
@@ -156,7 +163,7 @@ def main(args):
     zs = run_inference(transition_prior, emission_prior,
                        supervised_categories, supervised_words, unsupervised_words,
                        random.PRNGKey(2), args)
-    print_results(zs['transition_prob'], transition_prob)
+    print_results(zs, transition_prob, emission_prob)
 
 
 if __name__ == '__main__':
