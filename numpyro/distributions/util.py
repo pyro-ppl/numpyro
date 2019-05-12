@@ -6,7 +6,7 @@ import numpy as onp
 import scipy.special as osp_special
 
 import jax.numpy as np
-from jax import canonicalize_dtype, custom_transforms, jit, lax, random, vmap
+from jax import canonicalize_dtype, custom_transforms, device_get, jit, lax, random, vmap
 from jax.interpreters import ad
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.special import gammaln
@@ -206,6 +206,7 @@ def _binomial(key, p, n=1, shape=()):
 
 
 def binomial(key, p, n=1, shape=()):
+    n = device_get(n)
     return _binomial(key, p, n, shape)
 
 
@@ -284,6 +285,7 @@ def _multinomial(key, p, n, shape=()):
 
 
 def multinomial(key, p, n, shape=()):
+    n = device_get(n)
     return _multinomial(key, p, n, shape)
 
 

@@ -569,38 +569,6 @@ class StudentT(Distribution):
         return np.broadcast_to(var, self.batch_shape)
 
 
-class TruncatedCauchy(Distribution):
-    arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
-    reparametrized_params = ['low', 'loc', 'scale']
-
-    # TODO: support `high` arg
-    def __init__(self, low, loc=0., scale=1., validate_args=None):
-        self.low, self.high = promote_shapes(low, high, loc, scale)
-        batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
-        super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
-
-    def sample(self, key, size=()):
-        size = size + self.batch_shape
-        return self.low + random.uniform(key, shape=size) * (self.high - self.low)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        return - np.broadcast_to(np.log(self.high - self.low), np.shape(value))
-
-    @property
-    def mean(self):
-        return self.low + (self.high - self.low) / 2.
-
-    @property
-    def variance(self):
-        return (self.high - self.low) ** 2 / 12.
-
-    @property
-    def support(self):
-        return constraints.interval(self.low, self.high)
-
-
 class Uniform(Distribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
     reparametrized_params = ['low', 'high']
