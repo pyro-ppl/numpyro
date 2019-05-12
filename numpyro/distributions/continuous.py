@@ -203,10 +203,9 @@ class Chi2(Gamma):
 class GaussianRandomWalk(Distribution):
     arg_constraints = {'num_steps': constraints.positive_integer, 'scale': constraints.positive}
     support = constraints.real
-    # FIXME: cannot take grad through random.normal with dynamic shape
-    reparametrized_params = []
+    reparametrized_params = ['scale']
 
-    def __init__(self, num_steps=1, scale=1., validate_args=None):
+    def __init__(self, scale=1., num_steps=1, validate_args=None):
         assert np.shape(num_steps) == ()
         self.scale = scale
         self.num_steps = num_steps

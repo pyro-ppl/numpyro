@@ -216,27 +216,30 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         pytest.skip('{} not reparametrized.'.format(jax_dist.__name__))
 
     dist_args = [p.name for p in inspect.signature(jax_dist).parameters.values()]
+    params_dict = dict(zip(dist_args[:len(params)], params))
+    nonrepara_params_dict = {k: v for k, v in params_dict.items()
+                             if k not in jax_dist.reparametrized_params}
+    repara_params = tuple(v for k, v in params_dict.items()
+                          if k in jax_dist.reparametrized_params)
 
     rng = random.PRNGKey(0)
 
     def fn(args):
-        return np.sum(jax_dist(*args).sample(key=rng))
+        args_dict = dict(zip(jax_dist.reparametrized_params, args))
+        return np.sum(jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng))
 
-    actual_grad = jax.grad(fn)(params)
-    assert len(actual_grad) == len(params)
+    actual_grad = jax.grad(fn)(repara_params)
+    assert len(actual_grad) == len(repara_params)
 
     eps = 1e-5
-    for i in range(len(params)):
-        if np.result_type(params[i]) in (np.int32, np.int64) or \
-                dist_args[i] not in jax_dist.reparametrized_params:
-            continue
+    for i in range(len(repara_params)):
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
         fn_lhs = fn(args_lhs)
         fn_rhs = fn(args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
-        assert np.shape(actual_grad[i]) == np.shape(params[i])
+        assert np.shape(actual_grad[i]) == np.shape(repara_params[i])
         assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.10)
 
 
