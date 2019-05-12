@@ -141,8 +141,7 @@ def run_inference(model, at_bats, hits, rng, args):
     init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
     hmc_state = init_kernel(init_params, args.num_warmup_steps)
     hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
-                              transform=lambda hmc_state: transform_fn(hmc_state.z),
-                              progbar=True)
+                              transform=lambda hmc_state: transform_fn(hmc_state.z))
     return hmc_states
 
 
