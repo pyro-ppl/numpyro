@@ -63,7 +63,7 @@ def model(data, labels):
 
 def benchmark_hmc(args, features, labels):
     trajectory_length = step_size * args.num_steps
-    _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, (features, labels,), {})
+    _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, features, labels)
     init_kernel, sample_kernel = hmc(potential_fn, algo=args.algo)
     t0 = time.time()
     # TODO: Use init_params from `initialize_model` instead of fixed params.

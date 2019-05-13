@@ -38,7 +38,7 @@ from numpyro.distributions.util import (
     promote_shapes,
     signed_stick_breaking_tril,
     standard_gamma,
-    vec_to_tril_matrix,
+    vec_to_tril_matrix
 )
 
 

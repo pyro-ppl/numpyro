@@ -11,8 +11,12 @@ import numpy as np
 from jax import device_put, lax
 from jax.interpreters.xla import DeviceArray
 
-DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
-                                        '.data'))
+
+if 'CI' in os.environ:
+    DATA_DIR = os.path.expanduser('~/.data')
+else:
+    DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                            '.data'))
 os.makedirs(DATA_DIR, exist_ok=True)
 
 
