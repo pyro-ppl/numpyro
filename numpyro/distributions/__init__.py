@@ -13,6 +13,8 @@ from numpyro.distributions.continuous import (
     Normal,
     Pareto,
     StudentT,
+    TruncatedCauchy,
+    TruncatedNormal,
     Uniform
 )
 from numpyro.distributions.discrete import (
@@ -62,5 +64,7 @@ __all__ = [
     'Poisson',
     'StudentT',
     'TransformedDistribution',
+    'TruncatedCauchy',
+    'TruncatedNormal',
     'Uniform',
 ]
