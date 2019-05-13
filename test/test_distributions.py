@@ -100,6 +100,12 @@ CONTINUOUS = [
     T(dist.StudentT, 1., 1., 0.5),
     T(dist.StudentT, 2., np.array([1., 2.]), 2.),
     T(dist.StudentT, np.array([3, 5]), np.array([[1.], [2.]]), 2.),
+    T(dist.TruncatedCauchy, -1., 0., 1.),
+    T(dist.TruncatedCauchy, 1., 0., np.array([1., 2.])),
+    T(dist.TruncatedCauchy, np.array([-2., 2.]), np.array([0., 1.]), np.array([[1.], [2.]])),
+    T(dist.TruncatedNormal, -1., 0., 1.),
+    T(dist.TruncatedNormal, 1., -1., np.array([1., 2.])),
+    T(dist.TruncatedNormal, np.array([-2., 2.]), np.array([0., 1.]), np.array([[1.], [2.]])),
     T(dist.Uniform, 0., 2.),
     T(dist.Uniform, 1., np.array([2., 3.])),
     T(dist.Uniform, np.array([0., 0.]), np.array([[2.], [3.]])),
@@ -231,7 +237,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     actual_grad = jax.grad(fn)(repara_params)
     assert len(actual_grad) == len(repara_params)
 
-    eps = 1e-5
+    eps = 1e-3
     for i in range(len(repara_params)):
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
@@ -240,7 +246,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert np.shape(actual_grad[i]) == np.shape(repara_params[i])
-        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.10)
+        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.01)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
@@ -257,6 +263,14 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     samples = jax_dist.sample(key=rng, size=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
     if not sp_dist:
+        if isinstance(jax_dist, dist.TruncatedCauchy) or isinstance(jax_dist, dist.TruncatedNormal):
+            low, loc, scale = params
+            high = np.inf
+            sp_dist = osp.cauchy if isinstance(jax_dist, dist.TruncatedCauchy) else osp.norm
+            sp_dist = sp_dist(loc, scale)
+            expected = sp_dist.logpdf(samples) - np.log(sp_dist.cdf(high) - sp_dist.cdf(low))
+            assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
+            return
         pytest.skip('no corresponding scipy distn.')
     if _is_batched_multivariate(jax_dist):
         pytest.skip('batching not allowed in multivariate distns.')
