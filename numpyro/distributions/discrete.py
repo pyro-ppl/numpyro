@@ -260,7 +260,6 @@ class CategoricalLogits(Distribution):
     def __init__(self, logits, validate_args=None):
         if np.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
-        logits = logits - logsumexp(logits)
         self.logits = logits
         super(CategoricalLogits, self).__init__(batch_shape=np.shape(logits)[:-1],
                                                 validate_args=validate_args)
@@ -272,7 +271,8 @@ class CategoricalLogits(Distribution):
         if self._validate_args:
             self._validate_sample(value)
         value = np.expand_dims(value, -1)
-        value, log_pmf = promote_shapes(value, self.logits)
+        log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
+        value, log_pmf = promote_shapes(value, log_pmf)
         value = value[..., :1]
         return np.take_along_axis(log_pmf, value, -1)[..., 0]
 
@@ -348,7 +348,6 @@ class MultinomialLogits(Distribution):
         if np.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         batch_shape = lax.broadcast_shapes(np.shape(logits)[:-1], np.shape(total_count))
-        logits = logits - logsumexp(logits)
         self.logits = promote_shapes(logits, shape=batch_shape + np.shape(logits)[-1:])[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
         super(MultinomialLogits, self).__init__(batch_shape=batch_shape,
@@ -364,7 +363,8 @@ class MultinomialLogits(Distribution):
         dtype = get_dtypes(self.logits)[0]
         value = lax.convert_element_type(value, dtype)
         total_count = lax.convert_element_type(self.total_count, dtype)
-        return gammaln(total_count + 1) + np.sum(value * self.logits - gammaln(value + 1), axis=-1)
+        normalize_term = total_count * logsumexp(self.logits, axis=-1) - gammaln(total_count + 1)
+        return np.sum(value * self.logits - gammaln(value + 1), axis=-1) - normalize_term
 
     @lazy_property
     def probs(self):
