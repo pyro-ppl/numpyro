@@ -19,6 +19,7 @@ setup(
         'doc': ['sphinx', 'sphinx_rtd_theme'],
         'test': ['flake8', 'pytest>=4.1'],
         'dev': ['ipython'],
+        'examples': ['matplotlib'],
     },
     tests_require=['flake8', 'pytest>=4.1'],
     keywords='probabilistic machine learning bayesian statistics',

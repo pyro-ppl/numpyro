@@ -11,7 +11,6 @@ import numpy as np
 from jax import device_put, lax
 from jax.interpreters.xla import DeviceArray
 
-
 if 'CI' in os.environ:
     DATA_DIR = os.path.expanduser('~/.data')
 else:
@@ -23,6 +22,16 @@ os.makedirs(DATA_DIR, exist_ok=True)
 dset = namedtuple('dset', ['name', 'urls'])
 
 
+BASEBALL = dset('baseball', [
+    'https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt',
+])
+
+
+COVTYPE = dset('covtype', [
+    'https://d2fefpcigoriu7.cloudfront.net/datasets/covtype.data.gz',
+])
+
+
 MNIST = dset('mnist', [
     'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz',
     'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/train-labels-idx1-ubyte.gz',
@@ -30,16 +39,14 @@ MNIST = dset('mnist', [
     'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz',
 ])
 
-BASEBALL = dset('baseball', [
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt',
-])
-
-UCBADMIT = dset('ucbadmit', [
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/UCBadmit.csv',
-])
 
 SP500 = dset('SP500', [
     'https://d2fefpcigoriu7.cloudfront.net/datasets/SP500.csv',
+])
+
+
+UCBADMIT = dset('ucbadmit', [
+    'https://d2fefpcigoriu7.cloudfront.net/datasets/UCBadmit.csv',
 ])
 
 
@@ -51,6 +58,37 @@ def _download(dset):
             print('Downloading - {}.'.format(url))
             urlretrieve(url, out_path)
             print('Download complete.')
+
+
+def _load_baseball():
+    _download(BASEBALL)
+
+    def train_test_split(file):
+        train, test, player_names = [], [], []
+        with open(file, 'r') as f:
+            csv_reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
+            for row in csv_reader:
+                player_names.append(row['FirstName'] + ' ' + row['LastName'])
+                at_bats, hits = row['At-Bats'], row['Hits']
+                train.append(np.array([int(at_bats), int(hits)]))
+                season_at_bats, season_hits = row['SeasonAt-Bats'], row['SeasonHits']
+                test.append(np.array([int(season_at_bats), int(season_hits)]))
+        return np.stack(train), np.stack(test), np.array(player_names)
+
+    train, test, player_names = train_test_split(os.path.join(DATA_DIR, 'EfronMorrisBB.txt'))
+    return {'train': (train, player_names),
+            'test': (test, player_names)}
+
+
+def _load_covtype():
+    _download(COVTYPE)
+
+    file_path = os.path.join(DATA_DIR, 'covtype.data.gz')
+    data = np.genfromtxt(gzip.GzipFile(file_path), delimiter=',')
+
+    return {
+        'train': (data[:, :-1], data[:, -1].astype(np.int32))
+    }
 
 
 def _load_mnist():
@@ -72,26 +110,6 @@ def _load_mnist():
              for url in MNIST.urls]
     return {'train': (read_img(files[0]), read_label(files[1])),
             'test': (read_img(files[2]), read_label(files[3]))}
-
-
-def _load_baseball():
-    _download(BASEBALL)
-
-    def train_test_split(file):
-        train, test, player_names = [], [], []
-        with open(file, 'r') as f:
-            csv_reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
-            for row in csv_reader:
-                player_names.append(row['FirstName'] + ' ' + row['LastName'])
-                at_bats, hits = row['At-Bats'], row['Hits']
-                train.append(np.array([int(at_bats), int(hits)]))
-                season_at_bats, season_hits = row['SeasonAt-Bats'], row['SeasonHits']
-                test.append(np.array([int(season_at_bats), int(season_hits)]))
-        return np.stack(train), np.stack(test), np.array(player_names)
-
-    train, test, player_names = train_test_split(os.path.join(DATA_DIR, 'EfronMorrisBB.txt'))
-    return {'train': (train, player_names),
-            'test': (test, player_names)}
 
 
 def _load_sp500():
@@ -130,10 +148,12 @@ def _load_ucbadmit():
 
 
 def _load(dset):
-    if dset == MNIST:
-        return _load_mnist()
-    elif dset == BASEBALL:
+    if dset == BASEBALL:
         return _load_baseball()
+    elif dset == COVTYPE:
+        return _load_covtype()
+    elif dset == MNIST:
+        return _load_mnist()
     elif dset == SP500:
         return _load_sp500()
     elif dset == UCBADMIT:

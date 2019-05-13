@@ -2,13 +2,13 @@ import argparse
 import time
 
 import numpy as onp
-from sklearn.datasets import fetch_covtype
 
 import jax.numpy as np
 from jax import random
 from jax.config import config as jax_config
 
 import numpyro.distributions as dist
+from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
@@ -32,11 +32,9 @@ init_params = {"coefs": onp.array(
      -1.59496680e-01, -1.88516974e-01, -1.20889175e+00])}
 
 
-# TODO: add to datasets.py so as to avoid dependency on scikit-learn
-def load_dataset():
-    data = fetch_covtype()
-    features = data.data
-    labels = data.target
+def _load_dataset():
+    _, fetch = load_dataset(COVTYPE, shuffle=False)
+    features, labels = fetch()
 
     # normalize features and add intercept
     features = (features - features.mean(0)) / features.std(0)
@@ -84,7 +82,7 @@ def benchmark_hmc(args, features, labels):
 
 def main(args):
     jax_config.update("jax_platform_name", args.device)
-    features, labels = load_dataset()
+    features, labels = _load_dataset()
     benchmark_hmc(args, features, labels)
 
 
