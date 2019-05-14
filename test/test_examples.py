@@ -19,6 +19,7 @@ EXAMPLES = [
 
 
 @pytest.mark.parametrize('example', EXAMPLES)
+@pytest.mark.test_examples
 def test_cpu(example):
     print('Running:\npython examples/{}'.format(example))
     example = example.split()
