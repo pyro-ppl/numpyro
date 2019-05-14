@@ -80,7 +80,7 @@ def forward_log_prob(init_log_prob, words, transition_lob_prob, emission_log_pro
     # >>> for word in words:
     # ...     log_prob = forward_one_step(log_prob, word, transition_log_prob, emission_log_prob)
     def scan_fn(log_prob, word):
-        return forward_one_step(log_prob, word, transition_lob_prob, emission_log_prob), np.ones(())
+        return forward_one_step(log_prob, word, transition_lob_prob, emission_log_prob), np.zeros((0,))
 
     log_prob, _ = lax.scan(scan_fn, init_log_prob, words)
     return log_prob
@@ -121,7 +121,7 @@ def run_inference(transition_prior, emission_prior, supervised_categories, super
         supervised_words, unsupervised_words,
     )
     init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-    hmc_state = init_kernel(init_params, args.num_warmup_steps)
+    hmc_state = init_kernel(init_params, args.num_warmup)
     hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
                               transform=lambda state: transform_fn(state.z))
     return hmc_states
@@ -154,10 +154,10 @@ def main(args):
     (transition_prior, emission_prior, transition_prob, emission_prob,
      supervised_categories, supervised_words, unsupervised_words) = simulate_data(
         random.PRNGKey(1),
-        num_categories=3,
-        num_words=10,
-        num_supervised_data=100,
-        num_unsupervised_data=500,
+        num_categories=args.num_categories,
+        num_words=args.num_words,
+        num_supervised_data=args.num_supervised,
+        num_unsupervised_data=args.num_unsupervised,
     )
     print('Starting inference...')
     zs = run_inference(transition_prior, emission_prior,
@@ -168,8 +168,12 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Semi-supervised Hidden Markov Model')
+    parser.add_argument('--num-categories', default=3, type=int)
+    parser.add_argument('--num-words', default=10, type=int)
+    parser.add_argument('--num-supervised', default=100, type=int)
+    parser.add_argument('--num-unsupervised', default=500, type=int)
     parser.add_argument('-n', '--num-samples', nargs='?', default=1000, type=int)
-    parser.add_argument('--num-warmup-steps', nargs='?', default=500, type=int)
+    parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
