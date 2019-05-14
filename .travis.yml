@@ -31,7 +31,7 @@ jobs:
         - stage: unit
           name: "unit tests"
           python: 3.6
-          script: make test -m "not test_examples"
+          script: pytest -vs -m "not test_examples"
         - name: "examples"
           python: 3.6
-          script: make test -m test_examples
+          script: pytest -vs -m test_examples
