@@ -566,7 +566,7 @@ def transform_fn(transforms, params, invert=False):
             for k, v in params.items()}
 
 
-def initialize_model(rng, model, model_args, model_kwargs):
+def initialize_model(rng, model, *model_args, **model_kwargs):
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}

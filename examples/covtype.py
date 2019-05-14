@@ -2,13 +2,13 @@ import argparse
 import time
 
 import numpy as onp
-from sklearn.datasets import fetch_covtype
 
 import jax.numpy as np
 from jax import random
 from jax.config import config as jax_config
 
 import numpyro.distributions as dist
+from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
@@ -32,11 +32,9 @@ init_params = {"coefs": onp.array(
      -1.59496680e-01, -1.88516974e-01, -1.20889175e+00])}
 
 
-# TODO: add to datasets.py so as to avoid dependency on scikit-learn
-def load_dataset():
-    data = fetch_covtype()
-    features = data.data
-    labels = data.target
+def _load_dataset():
+    _, fetch = load_dataset(COVTYPE, shuffle=False)
+    features, labels = fetch()
 
     # normalize features and add intercept
     features = (features - features.mean(0)) / features.std(0)
@@ -63,7 +61,7 @@ def model(data, labels):
 
 def benchmark_hmc(args, features, labels):
     trajectory_length = step_size * args.num_steps
-    _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, (features, labels,), {})
+    _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, features, labels)
     init_kernel, sample_kernel = hmc(potential_fn, algo=args.algo)
     t0 = time.time()
     # TODO: Use init_params from `initialize_model` instead of fixed params.
@@ -76,8 +74,7 @@ def benchmark_hmc(args, features, labels):
     def transform(state): return {'coefs': state.z['coefs'],
                                   'num_steps': state.num_steps}
 
-    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform,
-                              progbar=True)
+    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform)
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
     print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)
@@ -85,7 +82,7 @@ def benchmark_hmc(args, features, labels):
 
 def main(args):
     jax_config.update("jax_platform_name", args.device)
-    features, labels = load_dataset()
+    features, labels = _load_dataset()
     benchmark_hmc(args, features, labels)
 
 

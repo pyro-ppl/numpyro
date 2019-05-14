@@ -12,13 +12,14 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         'jax>=0.1.26',
-        'jaxlib>=0.1.13',
+        'jaxlib>=0.1.14',
         'tqdm',
     ],
     extras_require={
         'doc': ['sphinx', 'sphinx_rtd_theme'],
         'test': ['flake8', 'pytest>=4.1'],
         'dev': ['ipython'],
+        'examples': ['matplotlib'],
     },
     tests_require=['flake8', 'pytest>=4.1'],
     keywords='probabilistic machine learning bayesian statistics',

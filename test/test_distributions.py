@@ -76,6 +76,8 @@ CONTINUOUS = [
     T(dist.Exponential, np.array([4., 2.])),
     T(dist.Gamma, np.array([1.7]), np.array([[2.], [3.]])),
     T(dist.Gamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
+    T(dist.GaussianRandomWalk, 0.1, 10),
+    T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
     T(dist.HalfCauchy, 1.),
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
@@ -98,6 +100,12 @@ CONTINUOUS = [
     T(dist.StudentT, 1., 1., 0.5),
     T(dist.StudentT, 2., np.array([1., 2.]), 2.),
     T(dist.StudentT, np.array([3, 5]), np.array([[1.], [2.]]), 2.),
+    T(dist.TruncatedCauchy, -1., 0., 1.),
+    T(dist.TruncatedCauchy, 1., 0., np.array([1., 2.])),
+    T(dist.TruncatedCauchy, np.array([-2., 2.]), np.array([0., 1.]), np.array([[1.], [2.]])),
+    T(dist.TruncatedNormal, -1., 0., 1.),
+    T(dist.TruncatedNormal, 1., -1., np.array([1., 2.])),
+    T(dist.TruncatedNormal, np.array([-2., 2.]), np.array([0., 1.]), np.array([[1.], [2.]])),
     T(dist.Uniform, 0., 2.),
     T(dist.Uniform, 1., np.array([2., 3.])),
     T(dist.Uniform, np.array([0., 0.]), np.array([[2.], [3.]])),
@@ -214,28 +222,31 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         pytest.skip('{} not reparametrized.'.format(jax_dist.__name__))
 
     dist_args = [p.name for p in inspect.signature(jax_dist).parameters.values()]
+    params_dict = dict(zip(dist_args[:len(params)], params))
+    nonrepara_params_dict = {k: v for k, v in params_dict.items()
+                             if k not in jax_dist.reparametrized_params}
+    repara_params = tuple(v for k, v in params_dict.items()
+                          if k in jax_dist.reparametrized_params)
 
     rng = random.PRNGKey(0)
 
     def fn(args):
-        return np.sum(jax_dist(*args).sample(key=rng))
+        args_dict = dict(zip(jax_dist.reparametrized_params, args))
+        return np.sum(jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng))
 
-    actual_grad = jax.grad(fn)(params)
-    assert len(actual_grad) == len(params)
+    actual_grad = jax.grad(fn)(repara_params)
+    assert len(actual_grad) == len(repara_params)
 
-    eps = 1e-5
-    for i in range(len(params)):
-        if np.result_type(params[i]) in (np.int32, np.int64) or \
-                dist_args[i] not in jax_dist.reparametrized_params:
-            continue
+    eps = 1e-3
+    for i in range(len(repara_params)):
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
         fn_lhs = fn(args_lhs)
         fn_rhs = fn(args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
-        assert np.shape(actual_grad[i]) == np.shape(params[i])
-        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.10)
+        assert np.shape(actual_grad[i]) == np.shape(repara_params[i])
+        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.02)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
@@ -252,6 +263,14 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     samples = jax_dist.sample(key=rng, size=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
     if not sp_dist:
+        if isinstance(jax_dist, dist.TruncatedCauchy) or isinstance(jax_dist, dist.TruncatedNormal):
+            low, loc, scale = params
+            high = np.inf
+            sp_dist = osp.cauchy if isinstance(jax_dist, dist.TruncatedCauchy) else osp.norm
+            sp_dist = sp_dist(loc, scale)
+            expected = sp_dist.logpdf(samples) - np.log(sp_dist.cdf(high) - sp_dist.cdf(low))
+            assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
+            return
         pytest.skip('no corresponding scipy distn.')
     if _is_batched_multivariate(jax_dist):
         pytest.skip('batching not allowed in multivariate distns.')

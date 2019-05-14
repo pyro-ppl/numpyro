@@ -26,12 +26,13 @@
 import jax.numpy as np
 import jax.random as random
 from jax import lax, ops
-from jax.scipy.special import gammaln
+from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (
+    cumsum,
     matrix_to_tril_vec,
     multigammaln,
     promote_shapes,
@@ -76,7 +77,7 @@ class Cauchy(Distribution):
     support = constraints.real
     reparametrized_params = ['loc', 'scale']
 
-    def __init__(self, loc, scale, validate_args=None):
+    def __init__(self, loc=0., scale=1., validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
         super(Cauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
@@ -139,7 +140,7 @@ class Exponential(Distribution):
     arg_constraints = {'rate': constraints.positive}
     support = constraints.positive
 
-    def __init__(self, rate, validate_args=None):
+    def __init__(self, rate=1., validate_args=None):
         self.rate = rate
         super(Exponential, self).__init__(batch_shape=np.shape(rate), validate_args=validate_args)
 
@@ -165,7 +166,7 @@ class Gamma(Distribution):
                        'rate': constraints.positive}
     support = constraints.positive
 
-    def __init__(self, concentration, rate, validate_args=None):
+    def __init__(self, concentration, rate=1., validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
         batch_shape = lax.broadcast_shapes(np.shape(concentration), np.shape(rate))
         super(Gamma, self).__init__(batch_shape=batch_shape,
@@ -199,13 +200,48 @@ class Chi2(Gamma):
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
+class GaussianRandomWalk(Distribution):
+    arg_constraints = {'num_steps': constraints.positive_integer, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['scale']
+
+    def __init__(self, scale=1., num_steps=1, validate_args=None):
+        assert np.shape(num_steps) == ()
+        self.scale = scale
+        self.num_steps = num_steps
+        batch_shape, event_shape = np.shape(scale), (num_steps,)
+        super(GaussianRandomWalk, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        shape = size + self.batch_shape + self.event_shape
+        walks = random.normal(key, shape=shape)
+        return cumsum(walks) * np.expand_dims(self.scale, axis=-1)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        init_prob = Normal(0., self.scale).log_prob(value[..., 0])
+        scale = np.expand_dims(self.scale, -1)
+        step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
+        return init_prob + np.sum(step_probs, axis=-1)
+
+    @property
+    def mean(self):
+        return np.zeros(self.batch_shape + self.event_shape)
+
+    @property
+    def variance(self):
+        return np.broadcast_to(np.expand_dims(self.scale, -1) ** 2 * np.arange(1, self.num_steps + 1),
+                               self.batch_shape + self.event_shape)
+
+
 class HalfCauchy(TransformedDistribution):
     reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
     support = constraints.positive
 
-    def __init__(self, scale, validate_args=None):
-        base_dist = Cauchy(0, scale)
+    def __init__(self, scale=1., validate_args=None):
+        base_dist = Cauchy(0., scale)
         self.scale = scale
         super(HalfCauchy, self).__init__(base_dist, AbsTransform(),
                                          validate_args=validate_args)
@@ -229,8 +265,8 @@ class HalfNormal(TransformedDistribution):
     arg_constraints = {'scale': constraints.positive}
     support = constraints.positive
 
-    def __init__(self, scale, validate_args=None):
-        base_dist = Normal(0, scale)
+    def __init__(self, scale=1., validate_args=None):
+        base_dist = Normal(0., scale)
         self.scale = scale
         super(HalfNormal, self).__init__(base_dist, AbsTransform(),
                                          validate_args=validate_args)
@@ -420,7 +456,7 @@ class Normal(Distribution):
     support = constraints.real
     reparametrized_params = ['loc', 'scale']
 
-    def __init__(self, loc, scale, validate_args=None):
+    def __init__(self, loc=0., scale=1., validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
         super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
@@ -449,7 +485,7 @@ class LogNormal(TransformedDistribution):
     support = constraints.positive
     reparametrized_params = ['loc', 'scale']
 
-    def __init__(self, loc, scale, validate_args=None):
+    def __init__(self, loc=0., scale=1., validate_args=None):
         base_dist = Normal(loc, scale)
         self.loc, self.scale = base_dist.loc, base_dist.scale
         super(LogNormal, self).__init__(base_dist, ExpTransform(), validate_args=validate_args)
@@ -467,6 +503,8 @@ class Pareto(TransformedDistribution):
     arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
     support = constraints.real
 
+    # FIXME: should we use `concentration` and `scale` for consistence with other distributions
+    # tensorflow uses `concentration` and `scale` though
     def __init__(self, scale, alpha, validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(scale), np.shape(alpha))
         self.scale, self.alpha = np.broadcast_to(scale, batch_shape), np.broadcast_to(alpha, batch_shape)
@@ -530,11 +568,101 @@ class StudentT(Distribution):
         return np.broadcast_to(var, self.batch_shape)
 
 
+class TruncatedCauchy(Distribution):
+    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
+                       'scale': constraints.positive}
+    reparametrized_params = ['low', 'loc', 'scale']
+
+    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
+        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
+        batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(loc), np.shape(scale))
+        super(TruncatedCauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        # We use inverse transform method:
+        # z ~ inv_cdf(U), where U ~ Uniform(cdf(low), cdf(high)).
+        #                         ~ Uniform(arctan(low), arctan(high)) / pi + 1/2
+        size = size + self.batch_shape
+        low = (self.low - self.loc) / self.scale
+        minval = np.arctan(low)
+        maxval = np.pi / 2
+        u = minval + random.uniform(key, shape=size) * (maxval - minval)
+        return self.loc + np.tan(u) * self.scale
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        low = (self.low - self.loc) / self.scale
+        # pi / 2 is arctan of self.high when that arg is supported
+        normalize_term = np.log(np.pi / 2 - np.arctan(low)) + np.log(self.scale)
+        return - np.log1p(((value - self.loc) / self.scale) ** 2) - normalize_term
+
+    # NB: these stats do not apply when arg `high` is supported
+    @property
+    def mean(self):
+        return np.full(self.batch_shape, np.nan)
+
+    @property
+    def variance(self):
+        return np.full(self.batch_shape, np.nan)
+
+    @property
+    def support(self):
+        return constraints.greater_than(self.low)
+
+
+class TruncatedNormal(Distribution):
+    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
+                       'scale': constraints.positive}
+    reparametrized_params = ['low', 'loc', 'scale']
+
+    # TODO: support `high` arg
+    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
+        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
+        batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(loc), np.shape(scale))
+        self._normal = Normal(self.loc, self.scale)
+        super(TruncatedNormal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, size=()):
+        size = size + self.batch_shape
+        # We use inverse transform method:
+        # z ~ icdf(U), where U ~ Uniform(0, 1).
+        u = random.uniform(key, shape=size)
+        low = (self.low - self.loc) / self.scale
+        # Ref: https://en.wikipedia.org/wiki/Truncated_normal_distribution#Simulating
+        # icdf[cdf_a + u * (1 - cdf_a)] = icdf[1 - (1 - cdf_a)(1 - u)]
+        #                                 = - icdf[(1 - cdf_a)(1 - u)]
+        return self.loc - ndtri(ndtr(-low) * (1 - u)) * self.scale
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        # log(cdf(high) - cdf(low)) = log(1 - cdf(low)) = log(cdf(-low))
+        low = (self.low - self.loc) / self.scale
+        return self._normal.log_prob(value) - log_ndtr(-low)
+
+    @property
+    def mean(self):
+        low = (self.low - self.loc) / self.scale
+        low_prob_scaled = np.exp(self._normal.log_prob(self.low)) * self.scale / ndtr(-low)
+        return self.loc + low_prob_scaled * self.scale
+
+    @property
+    def variance(self):
+        low = (self.low - self.loc) / self.scale
+        low_prob_scaled = np.exp(self._normal.log_prob(self.low)) * self.scale / ndtr(-low)
+        return self._normal.variance * (1 + low * low_prob_scaled - low_prob_scaled ** 2)
+
+    @property
+    def support(self):
+        return constraints.greater_than(self.low)
+
+
 class Uniform(Distribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
     reparametrized_params = ['low', 'high']
 
-    def __init__(self, low, high, validate_args=None):
+    def __init__(self, low=0., high=1., validate_args=None):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
         super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)

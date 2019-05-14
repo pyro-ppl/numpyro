@@ -5,6 +5,7 @@ from numpyro.distributions.continuous import (
     Dirichlet,
     Exponential,
     Gamma,
+    GaussianRandomWalk,
     HalfCauchy,
     HalfNormal,
     LKJCholesky,
@@ -12,6 +13,8 @@ from numpyro.distributions.continuous import (
     Normal,
     Pareto,
     StudentT,
+    TruncatedCauchy,
+    TruncatedNormal,
     Uniform
 )
 from numpyro.distributions.discrete import (
@@ -48,6 +51,7 @@ __all__ = [
     'Distribution',
     'Exponential',
     'Gamma',
+    'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
     'LogNormal',
@@ -60,5 +64,7 @@ __all__ = [
     'Poisson',
     'StudentT',
     'TransformedDistribution',
+    'TruncatedCauchy',
+    'TruncatedNormal',
     'Uniform',
 ]
