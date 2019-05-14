@@ -25,5 +25,13 @@ branches:
 
 jobs:
     include:
-        - python: 3.6
-          script: make test
+        - stage: lint
+          python: 3.6
+          script: make lint
+        - stage: unit
+          name: "unit tests"
+          python: 3.6
+          script: make test -m "not test_examples"
+        - name: "examples"
+          python: 3.6
+          script: make test -m test_examples
