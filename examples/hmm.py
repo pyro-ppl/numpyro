@@ -25,8 +25,8 @@ marginalization.
 The semi-supervised problem is chosen instead of an unsupervised one because it
 is hard to make the inference works for an unsupervised model (see the
 discussion [4]). On the other hand, this example also illustrates the usage of
-JAX's `lax.scan` primitive. The primitive will greatly improve compiling and
-sampling speed for the model.
+JAX's `lax.scan` primitive. The primitive will greatly improve compiling for the
+model.
 
 [1] https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html
 [2] http://pyro.ai/examples/hmm.html
@@ -72,7 +72,7 @@ def forward_one_step(prev_log_prob, curr_word, transition_log_prob, emission_log
     return logsumexp(log_prob, axis=0)
 
 
-def forward_log_prob(init_log_prob, words, transition_lob_prob, emission_log_prob):
+def forward_log_prob(init_log_prob, words, transition_log_prob, emission_log_prob):
     # Note: The following naive implementation will make it very slow to compile
     # and do inference. So we use lax.scan instead.
     #
@@ -80,7 +80,7 @@ def forward_log_prob(init_log_prob, words, transition_lob_prob, emission_log_pro
     # >>> for word in words:
     # ...     log_prob = forward_one_step(log_prob, word, transition_log_prob, emission_log_prob)
     def scan_fn(log_prob, word):
-        return forward_one_step(log_prob, word, transition_lob_prob, emission_log_prob), np.zeros((0,))
+        return forward_one_step(log_prob, word, transition_log_prob, emission_log_prob), np.zeros((0,))
 
     log_prob, _ = lax.scan(scan_fn, init_log_prob, words)
     return log_prob
@@ -95,7 +95,9 @@ def semi_supervised_hmm(transition_prior, emission_prior,
     emission_prob = sample('emission_prob', dist.Dirichlet(
         np.broadcast_to(emission_prior, (num_categories, num_words))))
 
-    # models supervised data
+    # models supervised data;
+    # here we don't make any assumption about the first supervised category, in other words,
+    # we place a flat/uniform prior on it.
     sample('supervised_categories', dist.Categorical(transition_prob[supervised_categories[:-1]]),
            obs=supervised_categories[1:])
     sample('supervised_words', dist.Categorical(emission_prob[supervised_categories]),
@@ -109,6 +111,8 @@ def semi_supervised_hmm(transition_prior, emission_prior,
                                 transition_log_prob, emission_log_prob)
     log_prob = logsumexp(log_prob, axis=0, keepdims=True)
     # inject log_prob to potential function
+    # NB: This is a trick (uses an invalid value `0` of Multinomial distribution) to add an
+    # additional term to potential energy.
     return sample('forward_log_prob', dist.Multinomial(logits=-log_prob), obs=0)
 
 
