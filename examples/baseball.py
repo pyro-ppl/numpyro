@@ -108,7 +108,7 @@ def partially_pooled(at_bats, hits=None):
     """
     num_players = at_bats.shape[0]
     m = sample("m", dist.Uniform(np.array([0.]), np.array([1.])))
-    kappa = sample("kappa", dist.Pareto(np.array([1.]), np.array([1.5])))
+    kappa = sample("kappa", dist.Pareto(np.array([1.5])))
     shape = np.shape(kappa)[:np.ndim(kappa) - 1] + (num_players,)
     phi_prior = dist.Beta(np.broadcast_to(m * kappa, shape),
                           np.broadcast_to((1 - m) * kappa, shape))
