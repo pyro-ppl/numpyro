@@ -408,8 +408,9 @@ def _transform_to_greater_than(constraint):
 
 @biject_to.register(interval)
 def _transform_to_interval(constraint):
+    scale = constraint.upper_bound - constraint.lower_bound
     return ComposeTransform([SigmoidTransform(),
-                             AffineTransform(constraint.lower_bound, constraint.upper_bound,
+                             AffineTransform(constraint.lower_bound, scale,
                                              domain=unit_interval)])
 
 
