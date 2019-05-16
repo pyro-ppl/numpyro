@@ -503,9 +503,7 @@ class Pareto(TransformedDistribution):
     arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
     support = constraints.real
 
-    # FIXME: should we use `concentration` and `scale` for consistence with other distributions
-    # tensorflow uses `concentration` and `scale` though
-    def __init__(self, scale, alpha, validate_args=None):
+    def __init__(self, alpha, scale=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(scale), np.shape(alpha))
         self.scale, self.alpha = np.broadcast_to(scale, batch_shape), np.broadcast_to(alpha, batch_shape)
         base_dist = Exponential(self.alpha)
