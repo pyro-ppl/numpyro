@@ -361,8 +361,11 @@ class StickBreakingTransform(Transform):
     def log_abs_det_jacobian(self, x, y):
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
         # |det|(J) = Product(y * (1 - z))
-        z = _clipped_expit(x - np.log(x.shape[-1] - np.arange(x.shape[-1])))
-        return np.sum(np.log(y[..., :-1] * (1 - z)), axis=-1)
+        z = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
+        z = np.clip(z, a_min=np.finfo(x.dtype).tiny)
+        # XXX we use the identity 1 - z = z * exp(-x) to not worry about
+        # the case z ~ 1
+        return np.sum(np.log(y[..., :-1]) + np.log(z) - x, axis=-1)
 
 
 ##########################################################
