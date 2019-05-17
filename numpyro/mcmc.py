@@ -53,8 +53,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
-        any python collection type, provided that ``init_samples`` argument to
-        ``init_kernel`` has the same type.
+        any python collection type, provided that `init_samples` argument to
+        `init_kernel` has the same type.
     :param kinetic_fn: Python callable that returns the kinetic energy given
         inverse mass matrix and momentum. If not provided, the default is
         euclidean kinetic energy.
@@ -125,7 +125,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         Initializes the HMC sampler.
 
         :param init_samples: Initial parameters to begin sampling. The type can
-            must be consistent with the input type to ``potential_fn``.
+            must be consistent with the input type to `potential_fn`.
         :param int num_warmup_steps: Number of warmup steps; samples generated
             during warmup are discarded.
         :param float step_size: Determines the size of a single step taken by the
