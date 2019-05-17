@@ -53,7 +53,7 @@ _DIST_MAP = {
     dist.MultinomialLogits: lambda logits, total_count: osp.multinomial(n=total_count,
                                                                         p=_to_probs_multinom(logits)),
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
-    dist.Pareto: lambda scale, alpha: osp.pareto(alpha, scale=scale),
+    dist.Pareto: lambda alpha, scale: osp.pareto(alpha, scale=scale),
     dist.Poisson: lambda rate: osp.poisson(rate),
     dist.StudentT: lambda df, loc, scale: osp.t(df=df, loc=loc, scale=scale),
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
