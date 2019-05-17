@@ -3,8 +3,6 @@ import sys
 
 import sphinx_rtd_theme
 
-from numpyro.mcmc import hmc
-
 # import pkg_resources
 
 # -*- coding: utf-8 -*-
@@ -22,6 +20,11 @@ from numpyro.mcmc import hmc
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
 sys.path.insert(0, os.path.abspath('../..'))
+
+# HACK: This is to ensure that local functions are documented by sphinx.
+from numpyro.mcmc import hmc  # noqa: E402
+
+hmc(None, None)
 
 # -- Project information -----------------------------------------------------
 
@@ -63,7 +66,7 @@ autodoc_default_options = {
     'show-inheritance': True,
     'special-members': True,
     'undoc-members': True,
-    'exclude-members': '__dict__,__module__,__weakref__',
+    # 'exclude-members': '__dict__,__module__,__weakref__',
 }
 
 # Add any paths that contain templates here, relative to this directory.
@@ -192,10 +195,3 @@ intersphinx_mapping = {
     'jax': ('https://jax.readthedocs.io/en/latest/', None),
     'pyro': ('http://docs.pyro.ai/en/stable/', None),
 }
-
-
-# HACK: This is to ensure that local functions are documented by sphinx.
-
-
-
-hmc(None, None)

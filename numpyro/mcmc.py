@@ -63,6 +63,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         one to initialize the sampler, and the second one to generate samples
         given an existing one.
 
+    Example
+    -------
+
     .. testsetup::
 
         import jax
@@ -93,6 +96,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         ...                         num_warmup_steps=300)
         >>> hmc_states = fori_collect(500, sample_kernel, hmc_state,
         ...                           transform=lambda x: transform_fn(x.z))
+        >>> print(np.mean(hmc_states['beta'], axis=0))
+        [0.9153987 2.0754058 2.9621222]
     """
     if kinetic_fn is None:
         kinetic_fn = _euclidean_ke
@@ -135,7 +140,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Default to 0.8.
         :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
-            value is :math:`2\pi`.
+            value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10.
         :param bool run_warmup: Flag to decide whether warmup is run. If ``True``,
