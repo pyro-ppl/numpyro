@@ -1,4 +1,5 @@
 import math
+import os
 
 import tqdm
 
@@ -256,8 +257,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
-
-    hmc.init_kernel = init_kernel
-    hmc.sample_kernel = sample_kernel
+    if 'SPHINX_BUILD' in os.environ:
+        hmc.init_kernel = init_kernel
+        hmc.sample_kernel = sample_kernel
 
     return init_kernel, sample_kernel

@@ -567,6 +567,24 @@ def transform_fn(transforms, params, invert=False):
 
 
 def initialize_model(rng, model, *model_args, **model_kwargs):
+    """
+    Given a model with Pyro primitives, returns a function which, given
+    unconstrained parameters, evaluates the potential energy (negative
+    joint density). In addition, this also returns initial parameters
+    sampled from the prior to initiate MCMC sampling and functions to
+    transform unconstrained values at sample sites to constrained values
+    within their respective support.
+
+    :param jax.random.PRNGKey rng: random number generator seed to
+        sample from the prior.
+    :param model: Python callable containing Pyro primitives.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
+    :return: tuple of (`init_params`, `potential_fn`, `transforms`)
+        `init_params` are values from the prior used to initiate MCMC.
+        `transforms` are useful to convert unconstrained HMC samples
+        to constrained values that lie within the site's support.
+    """
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
