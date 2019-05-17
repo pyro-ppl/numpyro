@@ -71,7 +71,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     :param init_samples: Initial parameters to begin sampling. The type can
         must be consistent with the input type to ``potential_fn``.
-    :param int num_warmup_steps: Number of warmup steps; samples generated
+    :param int num_warmup: Number of warmup steps; samples generated
         during warmup are discarded.
     :param float step_size: Determines the size of a single step taken by the
         verlet integrator while computing the trajectory using Hamiltonian
@@ -120,7 +120,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     wa_update = None
 
     def init_kernel(init_samples,
-                    num_warmup_steps,
+                    num_warmup,
                     step_size=1.0,
                     adapt_step_size=True,
                     adapt_mass_matrix=True,
@@ -130,7 +130,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     max_tree_depth=10,
                     run_warmup=True,
                     progbar=True,
-                    heuristic_step_size=True,
                     rng=PRNGKey(0)):
         step_size = float(step_size)
         nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth
@@ -140,19 +139,16 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
 
-        wa_kwargs = {}
-        # FIXME: compiling find_reasonable_step_size is so slow for some models
-        if heuristic_step_size:
-            wa_kwargs["find_reasonable_step_size"] = partial(find_reasonable_step_size,
-                                                             potential_fn, kinetic_fn,
-                                                             momentum_generator)
+        find_reasonable_ss = partial(find_reasonable_step_size,
+                                     potential_fn, kinetic_fn,
+                                     momentum_generator)
 
-        wa_init, wa_update = warmup_adapter(num_warmup_steps,
+        wa_init, wa_update = warmup_adapter(num_warmup,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
                                             diag_mass=diag_mass,
                                             target_accept_prob=target_accept_prob,
-                                            **wa_kwargs)
+                                            find_reasonable_step_size=find_reasonable_ss)
 
         rng_hmc, rng_wa = random.split(rng)
         wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
@@ -165,11 +161,11 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         if run_warmup:
             # JIT if progress bar updates not required
             if not progbar:
-                hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup_steps,
+                hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup,
                                                                    warmup_update,
                                                                    (hmc_state, wa_state))
             else:
-                for i in tqdm.trange(num_warmup_steps):
+                for i in tqdm.trange(num_warmup):
                     hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
             return hmc_state
         else:
