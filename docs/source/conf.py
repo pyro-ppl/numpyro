@@ -3,6 +3,8 @@ import sys
 
 import sphinx_rtd_theme
 
+from numpyro.mcmc import hmc
+
 # import pkg_resources
 
 # -*- coding: utf-8 -*-
@@ -190,3 +192,10 @@ intersphinx_mapping = {
     'jax': ('https://jax.readthedocs.io/en/latest/', None),
     'pyro': ('http://docs.pyro.ai/en/stable/', None),
 }
+
+
+# HACK: This is to ensure that local functions are documented by sphinx.
+
+
+
+hmc(None, None)
