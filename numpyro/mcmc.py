@@ -95,9 +95,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         and callable that does the initial adaptation.
     :param bool progbar: Whether to enable progress bar updates. Defaults to
         ``True``.
-    :param bool heuristic_step_size: If ``True``, a coarse grained adjustment of
-        step size is done at the beginning of each adaptation window to achieve
-        `target_acceptance_prob`.
     :param jax.random.PRNGKey rng: random key to be used as the source of
         randomness.
 
