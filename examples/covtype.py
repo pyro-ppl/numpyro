@@ -65,7 +65,7 @@ def benchmark_hmc(args, features, labels):
     init_kernel, sample_kernel = hmc(potential_fn, algo=args.algo)
     t0 = time.time()
     # TODO: Use init_params from `initialize_model` instead of fixed params.
-    hmc_state, _, _ = init_kernel(init_params, num_warmup_steps=0, step_size=step_size,
+    hmc_state, _, _ = init_kernel(init_params, num_warmup=0, step_size=step_size,
                                   trajectory_length=trajectory_length,
                                   adapt_step_size=False, run_warmup=False)
     t1 = time.time()
