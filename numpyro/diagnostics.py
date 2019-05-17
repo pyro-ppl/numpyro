@@ -9,12 +9,12 @@ def _compute_chain_variance_stats(x):
     # compute within-chain variance and variance estimator
     # input has shape C x N x sample_shape
     C, N = x.shape[:2]
-    chain_var = x.var(axis=1) * N / (N - 1)
+    chain_var = x.var(axis=1, ddof=1)
     var_within = chain_var.mean(axis=0)
     var_estimator = var_within * (N - 1) / N
     if x.shape[0] > 1:
         chain_mean = x.mean(axis=1)
-        var_between = chain_mean.var(axis=0) * C / (C - 1)
+        var_between = chain_mean.var(axis=0, ddof=1)
         var_estimator = var_estimator + var_between
     else:
         var_within = var_estimator
@@ -23,9 +23,9 @@ def _compute_chain_variance_stats(x):
 
 def gelman_rubin(x):
     """
-    Computes R-hat over chains of samples ``x``, where the first dimension of ``x`` is chain
-    dimension and the second dimension of ``x`` is draw dimension. It is required that
-    ``input.shape[0] >= 2`` and ``input.shape[1] >= 2``.
+    Computes R-hat over chains of samples ``x``, where the first dimension of
+    ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
+    It is required that ``input.shape[0] >= 2`` and ``input.shape[1] >= 2``.
 
     :param numpy.ndarray x: the input array.
     :returns numpy.ndarray: R-hat of ``x``.
@@ -40,8 +40,9 @@ def gelman_rubin(x):
 
 def split_gelman_rubin(x):
     """
-    Computes R-hat over chains of samples. It is required that
-    ``input.shape[1] >= 4``.
+    Computes split R-hat over chains of samples ``x``, where the first dimension
+    of ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
+    It is required that ``input.shape[1] >= 4``.
 
     :param numpy.ndarray x: the input array.
     :returns numpy.ndarray: split R-hat of ``x``.
@@ -59,7 +60,7 @@ def _fft_next_fast_len(target):
     # find the smallest number >= N such that the only divisors are 2, 3, 5
     # works just like scipy.fftpack.next_fast_len
     if target <= 2:
-        return 2
+        return target
     while True:
         m = target
         while m % 2 == 0:
@@ -73,15 +74,15 @@ def _fft_next_fast_len(target):
         target += 1
 
 
-def autocorrelation(x, axis=-1):
+def autocorrelation(x, axis=0):
     """
-    Computes the autocorrelation of samples at dimension ``dim``.
-    Reference: https://en.wikipedia.org/wiki/Autocorrelation#Efficient_computation
+    Computes the autocorrelation of samples at dimension ``axis``.
 
     :param torch.Tensor input: the input tensor.
     :param int dim: the dimension to calculate autocorrelation.
     :returns torch.Tensor: autocorrelation of ``input``.
     """
+    # Ref: https://en.wikipedia.org/wiki/Autocorrelation#Efficient_computation
     # Adapted from Stan implementation
     # https://github.com/stan-dev/math/blob/develop/stan/math/prim/mat/fun/autocorrelation.hpp
     N = x.shape[axis]
@@ -108,9 +109,9 @@ def autocorrelation(x, axis=-1):
     return onp.swapaxes(autocorr, axis, -1)
 
 
-def autocovariance(x, axis=-1):
+def autocovariance(x, axis=0):
     """
-    Computes the autocovariance of samples at dimension ``dim``.
+    Computes the autocovariance of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocorrelation.
@@ -202,7 +203,7 @@ def summary(samples, prob=0.89):
     for name, value in samples.items():
         value = device_get(value)
         mean = value.mean(axis=0)
-        sd = value.std(axis=0) * onp.sqrt(value.shape[0] / (value.shape[0] - 1.))
+        sd = value.std(axis=0, ddof=1)
         hpd = hpdi(value, prob=prob)
         n_eff = effective_sample_size(value[None, ...])
         r_hat = split_gelman_rubin(value[None, ...])

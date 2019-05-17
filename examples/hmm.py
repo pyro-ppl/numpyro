@@ -8,6 +8,7 @@ from jax.config import config as jax_config
 from jax.scipy.special import logsumexp
 
 import numpyro.distributions as dist
+from numpyro.diagnostics import summary
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
@@ -167,6 +168,7 @@ def main(args):
     zs = run_inference(transition_prior, emission_prior,
                        supervised_categories, supervised_words, unsupervised_words,
                        random.PRNGKey(2), args)
+    summary(zs)
     print_results(zs, transition_prob, emission_prob)
 
 
