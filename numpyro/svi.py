@@ -26,7 +26,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
     :param optim_update: update function for the optimizer
     :param get_params: function to get current parameters values given the
         optimizer state.
-    :param kwargs: static arguments for the model / guide, i.e. arguments
+    :param `**kwargs`: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """

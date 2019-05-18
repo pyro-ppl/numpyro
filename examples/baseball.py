@@ -5,7 +5,7 @@ import numpy as onp
 import jax.numpy as np
 import jax.random as random
 from jax.config import config as jax_config
-from jax.scipy.misc import logsumexp
+from jax.scipy.special import logsumexp
 
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset

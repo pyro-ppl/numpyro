@@ -561,8 +561,8 @@ def potential_energy(model, model_args, model_kwargs, transforms):
     return _potential_energy
 
 
-def transform_fn(transforms, params, invert=False):
-    return {k: transforms[k](v) if not invert else transforms[k].inv(v)
+def transform_fn(inv_transforms, params, unconstrained=True):
+    return {k: inv_transforms[k](v) if unconstrained else inv_transforms[k].inv(v)
             for k, v in params.items()}
 
 
@@ -580,15 +580,16 @@ def initialize_model(rng, model, *model_args, **model_kwargs):
     :param model: Python callable containing Pyro primitives.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
-    :return: tuple of (`init_params`, `potential_fn`, `transforms`)
+    :return: tuple of (`init_params`, `potential_fn`, `inv_transforms`)
         `init_params` are values from the prior used to initiate MCMC.
-        `transforms` are useful to convert unconstrained HMC samples
-        to constrained values that lie within the site's support.
+        `inv_transforms` are inverse transform functions that are useful
+        to convert unconstrained HMC samples to constrained values that
+        lie within the site's support.
     """
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
     transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-    init_params = transform_fn(transforms, {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+    init_params = transform_fn(transforms, {k: v['value'] for k, v in sample_sites.items()})
     return init_params, potential_energy(model, model_args, model_kwargs, transforms), \
-        jax.partial(transform_fn, transforms)
+        jax.partial(transform_fn, transforms, unconstrained=False)
