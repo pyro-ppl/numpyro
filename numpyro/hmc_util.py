@@ -578,8 +578,8 @@ def initialize_model(rng, model, *model_args, **model_kwargs):
     :param jax.random.PRNGKey rng: random number generator seed to
         sample from the prior.
     :param model: Python callable containing Pyro primitives.
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs: kwargs provided to the model.
+    :param `*model_args`: args provided to the model.
+    :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `inv_transforms`)
         `init_params` are values from the prior used to initiate MCMC.
         `inv_transforms` are inverse transform functions that are useful

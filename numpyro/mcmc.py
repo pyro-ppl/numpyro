@@ -64,8 +64,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         one to initialize the sampler, and the second one to generate samples
         given an existing one.
 
-    Example
-    -------
+    **Example**
 
     .. testsetup::
 
