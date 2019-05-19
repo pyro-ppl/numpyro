@@ -561,16 +561,35 @@ def potential_energy(model, model_args, model_kwargs, transforms):
     return _potential_energy
 
 
-def transform_fn(transforms, params, invert=False):
-    return {k: transforms[k](v) if not invert else transforms[k].inv(v)
+def transform_fn(inv_transforms, params, constrain=True):
+    return {k: inv_transforms[k](v) if constrain else inv_transforms[k].inv(v)
             for k, v in params.items()}
 
 
 def initialize_model(rng, model, *model_args, **model_kwargs):
+    """
+    Given a model with Pyro primitives, returns a function which, given
+    unconstrained parameters, evaluates the potential energy (negative
+    joint density). In addition, this also returns initial parameters
+    sampled from the prior to initiate MCMC sampling and functions to
+    transform unconstrained values at sample sites to constrained values
+    within their respective support.
+
+    :param jax.random.PRNGKey rng: random number generator seed to
+        sample from the prior.
+    :param model: Python callable containing Pyro primitives.
+    :param `*model_args`: args provided to the model.
+    :param `**model_kwargs`: kwargs provided to the model.
+    :return: tuple of (`init_params`, `potential_fn`, `inv_transform_fn`)
+        `init_params` are values from the prior used to initiate MCMC.
+        `inv_transform_fn` is a callable that uses inverse transforms
+        to convert unconstrained HMC samples to constrained values that
+        lie within the site's support.
+    """
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
-    transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-    init_params = transform_fn(transforms, {k: v['value'] for k, v in sample_sites.items()}, invert=True)
-    return init_params, potential_energy(model, model_args, model_kwargs, transforms), \
-        jax.partial(transform_fn, transforms)
+    inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
+    init_params = transform_fn(inv_transforms, {k: v['value'] for k, v in sample_sites.items()}, constrain=False)
+    return init_params, potential_energy(model, model_args, model_kwargs, inv_transforms), \
+        jax.partial(transform_fn, inv_transforms, constrain=True)

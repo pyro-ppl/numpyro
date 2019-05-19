@@ -1,8 +1,10 @@
 Stochastic Variational Inference (SVI)
 ======================================
 
-.. automodule:: numpyro.svi
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
+.. autofunction:: numpyro.svi.svi
+
+.. autofunction:: numpyro.svi.svi.init_fn
+
+.. autofunction:: numpyro.svi.svi.update_fn
+
+.. autofunction:: numpyro.svi.svi.evaluate

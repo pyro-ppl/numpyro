@@ -1,4 +1,5 @@
 import math
+import os
 
 import tqdm
 
@@ -52,8 +53,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
-        any python collection type, provided that ``init_samples`` argument to
-        ``init_kernel`` has the same type.
+        any python collection type, provided that `init_samples` argument to
+        `init_kernel` has the same type.
     :param kinetic_fn: Python callable that returns the kinetic energy given
         inverse mass matrix and momentum. If not provided, the default is
         euclidean kinetic energy.
@@ -63,50 +64,40 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         one to initialize the sampler, and the second one to generate samples
         given an existing one.
 
-    The arguments taken by `init_kernel` and `sample_kernel` are as follows:
+    **Example**
 
-    .. function:: init_kernel
+    .. testsetup::
 
-    Initializes the HMC sampler.
+        import jax
+        from jax import random
+        import jax.numpy as np
+        import numpyro.distributions as dist
+        from numpyro.handlers import sample
+        from numpyro.hmc_util import initialize_model
+        from numpyro.mcmc import hmc
+        from numpyro.util import fori_collect
 
-    :param init_samples: Initial parameters to begin sampling. The type can
-        must be consistent with the input type to ``potential_fn``.
-    :param int num_warmup: Number of warmup steps; samples generated
-        during warmup are discarded.
-    :param float step_size: Determines the size of a single step taken by the
-        verlet integrator while computing the trajectory using Hamiltonian
-        dynamics. If not specified, it will be set to 1.
-    :param bool adapt_step_size: A flag to decide if we want to adapt step_size
-        during warm-up phase using Dual Averaging scheme.
-    :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
-        matrix during warm-up phase using Welford scheme.
-    :param bool diag_mass: A flag to decide if mass matrix is diagonal (default)
-        or dense (if set to ``False``).
-    :param float target_accept_prob: Target acceptance probability for step size
-        adaptation using Dual Averaging. Increasing this value will lead to a smaller
-        step size, hence the sampling will be slower but more robust. Default to 0.8.
-    :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
-        value is :math:`2\pi`.
-    :param int max_tree_depth: Max depth of the binary tree created during the doubling
-        scheme of NUTS sampler. Defaults to 10.
-    :param bool run_warmup: Flag to decide whether warmup is run. If ``True``,
-        `init_kernel` returns an initial :func:`~numpyro.mcmc.HMCState` that
-        can be used to generate samples using MCMC. Else, returns the arguments
-        and callable that does the initial adaptation.
-    :param bool progbar: Whether to enable progress bar updates. Defaults to
-        ``True``.
-    :param jax.random.PRNGKey rng: random key to be used as the source of
-        randomness.
+    .. doctest::
 
-
-    .. function:: sample_kernel
-
-    Given a :func:`~numpyro.mcmc.HMCState`, run HMC with fixed (possibly
-    adapted) step size and return :func:`~numpyro.mcmc.HMCState`.
-
-    :param hmc_state: Current sample (and associated state).
-    :return: new proposed :func:`~numpyro.mcmc.HMCState` from simulating
-        Hamiltonian dynamics given existing state.
+        >>> true_coefs = np.array([1., 2., 3.])
+        >>> data = random.normal(random.PRNGKey(2), (2000, 3))
+        >>> dim = 3
+        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(3))
+        >>>
+        >>> def model(data, labels):
+        ...     coefs_mean = np.zeros(dim)
+        ...     coefs = sample('beta', dist.Normal(coefs_mean, np.ones(3)))
+        ...     return sample('y', dist.Bernoulli(logits=(coefs * data).sum(-1)), obs=labels)
+        >>>
+        >>> init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(0), model, data, labels)
+        >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
+        >>> hmc_state = init_kernel(init_params,
+        ...                         trajectory_length=10,
+        ...                         num_warmup_steps=300)
+        >>> hmc_states = fori_collect(500, sample_kernel, hmc_state,
+        ...                           transform=lambda x: transform_fn(x.z))
+        >>> print(np.mean(hmc_states['beta'], axis=0))
+        [0.9153987 2.0754058 2.9621222]
     """
     if kinetic_fn is None:
         kinetic_fn = _euclidean_ke
@@ -128,6 +119,41 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     run_warmup=True,
                     progbar=True,
                     rng=PRNGKey(0)):
+        """
+        Initializes the HMC sampler.
+
+        :param init_samples: Initial parameters to begin sampling. The type can
+            must be consistent with the input type to `potential_fn`.
+        :param int num_warmup_steps: Number of warmup steps; samples generated
+            during warmup are discarded.
+        :param float step_size: Determines the size of a single step taken by the
+            verlet integrator while computing the trajectory using Hamiltonian
+            dynamics. If not specified, it will be set to 1.
+        :param bool adapt_step_size: A flag to decide if we want to adapt step_size
+            during warm-up phase using Dual Averaging scheme.
+        :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
+            matrix during warm-up phase using Welford scheme.
+        :param bool diag_mass: A flag to decide if mass matrix is diagonal (default)
+            or dense (if set to ``False``).
+        :param float target_accept_prob: Target acceptance probability for step size
+            adaptation using Dual Averaging. Increasing this value will lead to a smaller
+            step size, hence the sampling will be slower but more robust. Default to 0.8.
+        :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+            value is :math:`2\\pi`.
+        :param int max_tree_depth: Max depth of the binary tree created during the doubling
+            scheme of NUTS sampler. Defaults to 10.
+        :param bool run_warmup: Flag to decide whether warmup is run. If ``True``,
+            `init_kernel` returns an initial :data:`HMCState` that can be used to
+            generate samples using MCMC. Else, returns the arguments and callable
+            that does the initial adaptation.
+        :param bool progbar: Whether to enable progress bar updates. Defaults to
+            ``True``.
+        :param bool heuristic_step_size: If ``True``, a coarse grained adjustment of
+            step size is done at the beginning of each adaptation window to achieve
+            `target_acceptance_prob`.
+        :param jax.random.PRNGKey rng: random key to be used as the source of
+            randomness.
+        """
         step_size = float(step_size)
         nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth
         trajectory_len = float(trajectory_length)
@@ -207,6 +233,14 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     @jit
     def sample_kernel(hmc_state):
+        """
+        Given an existing :data:`HMCState`, run HMC with fixed (possibly adapted)
+        step size and return a new :data:`HMCState`.
+
+        :param hmc_state: Current sample (and associated state).
+        :return: new proposed :data:`HMCState` from simulating
+            Hamiltonian dynamics given existing state.
+        """
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
         r = momentum_generator(hmc_state.inverse_mass_matrix, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
@@ -216,9 +250,10 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         return HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
                         accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix, rng)
 
-    # populate docs for `init_kernel` and `sample_kernel`
-    component_docs = hmc.__doc__.split('.. function::')
-    init_kernel.__doc__ = '\n'.join(component_docs[1].split('\n')[1:])
-    sample_kernel.__doc__ = '\n'.join(component_docs[2].split('\n')[1:])
+    # Make `init_kernel` and `sample_kernel` visible from the global scope once
+    # `hmc` is called for sphinx doc generation.
+    if 'SPHINX_BUILD' in os.environ:
+        hmc.init_kernel = init_kernel
+        hmc.sample_kernel = sample_kernel
 
     return init_kernel, sample_kernel
