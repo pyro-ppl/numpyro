@@ -6,6 +6,9 @@ lint: FORCE
 format: FORCE
 	isort -rc .
 
+doctest: FORCE
+	$(MAKE) -C docs doctest
+
 test: lint FORCE
 	pytest -v test
 
