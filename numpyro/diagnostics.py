@@ -78,9 +78,9 @@ def autocorrelation(x, axis=0):
     """
     Computes the autocorrelation of samples at dimension ``axis``.
 
-    :param torch.Tensor input: the input tensor.
-    :param int dim: the dimension to calculate autocorrelation.
-    :returns torch.Tensor: autocorrelation of ``input``.
+    :param numpy.array x: the input array.
+    :param int axis: the dimension to calculate autocorrelation.
+    :returns numpy.array: autocorrelation of ``x``.
     """
     # Ref: https://en.wikipedia.org/wiki/Autocorrelation#Efficient_computation
     # Adapted from Stan implementation
@@ -114,8 +114,8 @@ def autocovariance(x, axis=0):
     Computes the autocovariance of samples at dimension ``axis``.
 
     :param numpy.ndarray x: the input array.
-    :param int axis: the dimension to calculate autocorrelation.
-    :returns numpy.ndarray: autocorrelation of ``x``.
+    :param int axis: the dimension to calculate autocovariance.
+    :returns numpy.ndarray: autocovariance of ``x``.
     """
     return autocorrelation(x, axis) * x.var(axis=axis, keepdims=True)
 
