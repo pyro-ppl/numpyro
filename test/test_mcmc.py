@@ -7,7 +7,6 @@ from jax import random
 from jax.scipy.special import logit
 
 import numpyro.distributions as dist
-from numpyro.diagnostics import summary
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
