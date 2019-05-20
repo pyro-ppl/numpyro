@@ -1,5 +1,6 @@
 import math
 import os
+from collections import namedtuple
 
 import tqdm
 
@@ -7,13 +8,24 @@ import jax.numpy as np
 from jax import jit, partial, random
 from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
+from jax.tree_util import register_pytree_node
 
 import numpyro.distributions as dist
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
-from numpyro.util import cond, fori_loop, laxtuple
+from numpyro.util import cond, fori_loop
 
-HMCState = laxtuple('HMCState', ['z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
-                                 'step_size', 'inverse_mass_matrix', 'rng'])
+HMCState = namedtuple('HMCState', ['z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
+                                   'step_size', 'inverse_mass_matrix', 'rng'])
+
+
+register_pytree_node(
+    HMCState,
+    lambda xs: (tuple(xs), None),
+    lambda _, xs: HMCState(*xs)
+)
+
+
+HMCState.update = HMCState._replace
 
 
 def _get_num_steps(step_size, trajectory_length):
