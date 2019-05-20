@@ -605,6 +605,6 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
     elif init_strategy == 'prior':
         init_params = prior_params
     else:
-        raise ValueError('initialize={} is not a valid initialization strategy.'.format(initialize))
+        raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
     return init_params, potential_energy(model, model_args, model_kwargs, inv_transforms), \
         jax.partial(constrain_fn, inv_transforms)
