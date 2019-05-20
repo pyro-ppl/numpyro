@@ -161,16 +161,18 @@ def effective_sample_size(x):
     return n_eff
 
 
-def hpdi(x, prob=0.89):
+def hpdi(x, prob=0.89, axis=0):
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
     interval with probability mass ``prob``.
 
     :param numpy.ndarray x: the input array.
     :param float prob: the probability mass of samples within the interval.
+    :param int axis: the dimension to calculate hpdi.
     :returns numpy.ndarray: quantiles of ``input`` at ``(1 - probs) / 2`` and
         ``(1 + probs) / 2``.
     """
+    x = onp.swapaxes(x, axis, 0)
     sorted_x = onp.sort(x, axis=0)
     mass = x.shape[0]
     index_length = int(prob * mass)
@@ -179,9 +181,11 @@ def hpdi(x, prob=0.89):
     intervals_length = intervals_right - intervals_left
     index_start = intervals_length.argmin(axis=0)
     index_end = index_start + index_length
-    hpd_left = onp.take_along_axis(sorted_x, index_start[None, ...], axis=0).squeeze(axis=0)
-    hpd_right = onp.take_along_axis(sorted_x, index_end[None, ...], axis=0).squeeze(axis=0)
-    return onp.stack([hpd_left, hpd_right])
+    hpd_left = onp.take_along_axis(sorted_x, index_start[None, ...], axis=0)
+    hpd_left = onp.swapaxes(hpd_left, axis, 0)
+    hpd_right = onp.take_along_axis(sorted_x, index_end[None, ...], axis=0)
+    hpd_right = onp.swapaxes(hpd_right, axis, 0)
+    return onp.concatenate([hpd_left, hpd_right], axis=axis)
 
 
 def summary(samples, prob=0.89):
