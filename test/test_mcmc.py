@@ -126,7 +126,8 @@ def test_change_point():
         12,  35,  17,  23,  17,   4,   2,  31,  30,  13,  27,   0,  39,  37,
         5,  14,  13,  22,
     ])
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, count_data)
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, count_data,
+                                                               initialize='prior')
     init_kernel, sample_kernel = hmc(potential_fn)
     hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,

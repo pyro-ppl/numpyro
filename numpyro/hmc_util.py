@@ -595,15 +595,15 @@ def initialize_model(rng, model, *model_args, initialize='uniform', **model_kwar
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
     inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-    prior_samples = constrain_fn(inv_transforms,
-                                 {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+    prior_params = constrain_fn(inv_transforms,
+                                {k: v['value'] for k, v in sample_sites.items()}, invert=True)
     if initialize == 'uniform':
         init_params = {}
-        for k, v in prior_samples.items():
+        for k, v in prior_params.items():
             rng, = random.split(rng, 1)
             init_params[k] = random.uniform(rng, shape=np.shape(v), minval=-2, maxval=2)
     elif initialize == 'prior':
-        init_params = prior_samples
+        init_params = prior_params
     else:
         raise ValueError('initialize={} is not a valid initialization strategy.'.format(initialize))
     return init_params, potential_energy(model, model_args, model_kwargs, inv_transforms), \
