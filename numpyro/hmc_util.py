@@ -586,10 +586,13 @@ def initialize_model(rng, model, *model_args, **model_kwargs):
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
+    dtype = model_kwargs.pop('dtype', np.float32)
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
     inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-    init_params = transform_fn(inv_transforms, {k: v['value'] for k, v in sample_sites.items()}, constrain=False)
+    init_params = transform_fn(inv_transforms,
+                               {k: v['value'].astype(dtype) for k, v in sample_sites.items()},
+                               constrain=False)
     return init_params, potential_energy(model, model_args, model_kwargs, inv_transforms), \
         jax.partial(transform_fn, inv_transforms, constrain=True)
