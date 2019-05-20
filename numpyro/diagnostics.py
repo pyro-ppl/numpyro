@@ -199,7 +199,7 @@ def summary(samples, prob=0.89):
     header_format = '{:>20} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}'
     columns = ['', 'mean', 'sd', '{:.1f}%'.format(50 * (1 - prob)),
                '{:.1f}%'.format(50 * (1 + prob)), 'n_eff', 'Rhat']
-    print(header_format.format(*columns))
+    print('\n', header_format.format(*columns))
 
     # FIXME: maybe allow a `digits` arg to set how many floatting points are needed?
     row_format = '{:>20} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f}'
