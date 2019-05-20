@@ -108,7 +108,7 @@ def test_dirichlet_categorical(algo):
 
 def test_change_point():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
-    warmup_steps, num_samples = 500, 1000
+    warmup_steps, num_samples = 500, 3000
 
     def model(data):
         alpha = 1 / np.mean(data)
