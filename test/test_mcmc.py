@@ -47,13 +47,13 @@ def test_logistic_regression(algo):
         logits = np.sum(coefs * data, axis=-1)
         return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, labels)
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, labels)
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             trajectory_length=10,
                             num_warmup_steps=warmup_steps)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: transform_fn(x.z))
+                              transform=lambda x: constrain_fn(x.z))
     assert_allclose(np.mean(hmc_states['coefs'], 0), true_coefs, atol=0.2)
 
 
@@ -70,14 +70,14 @@ def test_beta_bernoulli(algo):
 
     true_probs = np.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), size=(1000, 2))
-    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, data)
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
                             num_warmup_steps=warmup_steps,
                             progbar=False)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: transform_fn(x.z),
+                              transform=lambda x: constrain_fn(x.z),
                               progbar=False)
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.05)
 
@@ -94,14 +94,14 @@ def test_dirichlet_categorical(algo):
 
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), size=(2000,))
-    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, data)
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
                             num_warmup_steps=warmup_steps,
                             progbar=False)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: transform_fn(x.z),
+                              transform=lambda x: constrain_fn(x.z),
                               progbar=False)
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.02)
 
@@ -126,11 +126,11 @@ def test_change_point():
         12,  35,  17,  23,  17,   4,   2,  31,  30,  13,  27,   0,  39,  37,
         5,  14,  13,  22,
     ])
-    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, count_data)
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, count_data)
     init_kernel, sample_kernel = hmc(potential_fn)
     hmc_state = init_kernel(init_params, num_warmup_steps=warmup_steps)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: transform_fn(x.z))
+                              transform=lambda x: constrain_fn(x.z))
     tau_posterior = (hmc_states['tau'] * len(count_data)).astype("int")
     tau_values, counts = onp.unique(tau_posterior, return_counts=True)
     mode_ind = np.argmax(counts)
@@ -153,10 +153,10 @@ def test_binomial_stable(with_logits):
             sample('obs', dist.Binomial(data['n'], probs=p), obs=data['x'])
 
     data = {'n': 5000000, 'x': 3849}
-    init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(2), model, data)
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
     init_kernel, sample_kernel = hmc(potential_fn)
     hmc_state = init_kernel(init_params, num_warmup_steps=warmup_steps)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: transform_fn(x.z))
+                              transform=lambda x: constrain_fn(x.z))
 
     assert_allclose(np.mean(hmc_states['p'], 0), data['x'] / data['n'], rtol=0.05)

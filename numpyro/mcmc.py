@@ -89,13 +89,13 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         ...     coefs = sample('beta', dist.Normal(coefs_mean, np.ones(3)))
         ...     return sample('y', dist.Bernoulli(logits=(coefs * data).sum(-1)), obs=labels)
         >>>
-        >>> init_params, potential_fn, transform_fn = initialize_model(random.PRNGKey(0), model, data, labels)
+        >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), model, data, labels)
         >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(init_params,
         ...                         trajectory_length=10,
         ...                         num_warmup_steps=300)
         >>> hmc_states = fori_collect(500, sample_kernel, hmc_state,
-        ...                           transform=lambda x: transform_fn(x.z))
+        ...                           transform=lambda x: constrain_fn(x.z))
         >>> print(np.mean(hmc_states['beta'], axis=0))
         [0.9153987 2.0754058 2.9621222]
     """
