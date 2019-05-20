@@ -550,19 +550,19 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
-def potential_energy(model, model_args, model_kwargs, transforms):
+def potential_energy(model, model_args, model_kwargs, inv_transforms):
     def _potential_energy(params):
-        params_constrained = {k: transforms[k](v) for k, v in params.items()}
+        params_constrained = constrain_fn(inv_transforms, params)
         log_joint = jax.partial(log_density, model, model_args, model_kwargs)(params_constrained)[0]
-        for name, t in transforms.items():
+        for name, t in inv_transforms.items():
             log_joint = log_joint + np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
         return - log_joint
 
     return _potential_energy
 
 
-def transform_fn(inv_transforms, params, constrain=True):
-    return {k: inv_transforms[k](v) if constrain else inv_transforms[k].inv(v)
+def constrain_fn(inv_transforms, params, invert=False):
+    return {k: inv_transforms[k](v) if not invert else inv_transforms[k].inv(v)
             for k, v in params.items()}
 
 
@@ -580,9 +580,9 @@ def initialize_model(rng, model, *model_args, **model_kwargs):
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
     :param `**model_kwargs`: kwargs provided to the model.
-    :return: tuple of (`init_params`, `potential_fn`, `inv_transform_fn`)
+    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`)
         `init_params` are values from the prior used to initiate MCMC.
-        `inv_transform_fn` is a callable that uses inverse transforms
+        `constrain_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
@@ -590,6 +590,6 @@ def initialize_model(rng, model, *model_args, **model_kwargs):
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
     inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-    init_params = transform_fn(inv_transforms, {k: v['value'] for k, v in sample_sites.items()}, constrain=False)
+    init_params = constrain_fn(inv_transforms, {k: v['value'] for k, v in sample_sites.items()}, invert=True)
     return init_params, potential_energy(model, model_args, model_kwargs, inv_transforms), \
-        jax.partial(transform_fn, inv_transforms, constrain=True)
+        jax.partial(constrain_fn, inv_transforms)

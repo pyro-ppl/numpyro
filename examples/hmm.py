@@ -119,7 +119,7 @@ def semi_supervised_hmm(transition_prior, emission_prior,
 
 def run_inference(transition_prior, emission_prior, supervised_categories, supervised_words,
                   unsupervised_words, rng, args):
-    init_params, potential_fn, transform_fn = initialize_model(
+    init_params, potential_fn, constrain_fn = initialize_model(
         rng,
         semi_supervised_hmm,
         transition_prior, emission_prior, supervised_categories,
@@ -128,7 +128,7 @@ def run_inference(transition_prior, emission_prior, supervised_categories, super
     init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
     hmc_state = init_kernel(init_params, args.num_warmup)
     hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
-                              transform=lambda state: transform_fn(state.z))
+                              transform=lambda state: constrain_fn(state.z))
     return hmc_states
 
 
