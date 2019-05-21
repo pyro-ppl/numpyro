@@ -566,7 +566,7 @@ def constrain_fn(inv_transforms, params, invert=False):
             for k, v in params.items()}
 
 
-def initialize_model(rng, model, *model_args, **model_kwargs):
+def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative
@@ -579,6 +579,11 @@ def initialize_model(rng, model, *model_args, **model_kwargs):
         sample from the prior.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
+    :param str init_strategy: initialization strategy - `uniform`
+        initializes the unconstrained parameters by drawing from
+        a `Uniform(-2, 2)` distribution (as used by Stan), whereas
+        `prior` initializes the parameters by sampling from the prior
+        for each of the sample sites.
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`)
         `init_params` are values from the prior used to initiate MCMC.
@@ -590,6 +595,16 @@ def initialize_model(rng, model, *model_args, **model_kwargs):
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
     inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-    init_params = constrain_fn(inv_transforms, {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+    prior_params = constrain_fn(inv_transforms,
+                                {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+    if init_strategy == 'uniform':
+        init_params = {}
+        for k, v in prior_params.items():
+            rng, = random.split(rng, 1)
+            init_params[k] = random.uniform(rng, shape=np.shape(v), minval=-2, maxval=2)
+    elif init_strategy == 'prior':
+        init_params = prior_params
+    else:
+        raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
     return init_params, potential_energy(model, model_args, model_kwargs, inv_transforms), \
         jax.partial(constrain_fn, inv_transforms)
