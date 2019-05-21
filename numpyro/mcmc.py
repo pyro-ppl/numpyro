@@ -11,11 +11,12 @@ from jax.random import PRNGKey
 from jax.tree_util import register_pytree_node
 
 import numpyro.distributions as dist
+from numpyro.diagnostics import summary
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
-from numpyro.util import cond, fori_loop
+from numpyro.util import cond, fori_loop, fori_collect
 
-HMCState = namedtuple('HMCState', ['z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
-                                   'step_size', 'inverse_mass_matrix', 'rng'])
+HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
+                                   'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'rng'])
 
 
 register_pytree_node(
@@ -50,6 +51,14 @@ def _euclidean_ke(inverse_mass_matrix, r):
         v = np.multiply(inverse_mass_matrix, r)
 
     return 0.5 * np.dot(v, r)
+
+
+def diagnostics_str(hmc_state):
+    return OrderedDict([
+        ('acc. prob', '{:.2e}'.format(hmc_state.mean_accept_prob)),
+        ('step size', '{:.3f}'.format(hmc_state.step_size)),
+        ('num steps', '{:4d}'.format(hmc_state.num_steps))
+    ])
 
 
 def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
@@ -189,8 +198,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
         r = momentum_generator(wa_state.inverse_mass_matrix, rng)
         vv_state = vv_init(z, r)
-        hmc_state = HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
-                             wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
+        hmc_state = HMCState(1, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
+                             0., wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
 
         wa_update = jit(wa_update)
         if run_warmup:
@@ -201,15 +210,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                                                    (hmc_state, wa_state))
             else:
                 with tqdm.trange(num_warmup, desc='warmup') as t:
-                    sum_acc_prob = 0.
                     for i in t:
                         hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
-                        sum_acc_prob += hmc_state.accept_prob
-                        t.set_postfix(OrderedDict([
-                            ('acc. prob', '{:.2e}'.format(sum_acc_prob / float(i + 1))),
-                            ('step size', '{:.3f}'.format(hmc_state.step_size)),
-                            ('num steps', '{:4d}'.format(hmc_state.num_steps))
-                        ]), refresh=True)
+                        t.set_postfix(diagnostics_str(hmc_state), refresh=True)
             return hmc_state
         else:
             return hmc_state, wa_state, warmup_update
@@ -267,8 +270,10 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         vv_state, num_steps, accept_prob = _next(hmc_state.step_size,
                                                  hmc_state.inverse_mass_matrix,
                                                  vv_state, rng_transition)
-        return HMCState(vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
-                        accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix, rng)
+        itr = hmc_state.i + 1
+        mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / itr
+        return HMCState(hmc_state.i + 1, vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
+                        accept_prob, mean_accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix, rng)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
@@ -277,3 +282,24 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc.sample_kernel = sample_kernel
 
     return init_kernel, sample_kernel
+
+
+def mcmc(num_warmup, num_samples, init_samples, sampler='hmc',
+         constrain_fn=None, print_summary=True, **kwargs):
+    if sampler == 'hmc':
+        potential_fn = kwargs.pop('potential_fn')
+        kinetic_fn = kwargs.pop('kinetic_fn', None)
+        algo = kwargs.pop('algo', 'NUTS')
+        progbar = kwargs.pop('progbar', True)
+
+        init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
+        hmc_state = init_kernel(init_samples, num_warmup, progbar=progbar, **kwargs)
+        hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
+                                  transform=lambda x: constrain_fn(x.z),
+                                  progbar=progbar, diagnostics_fn=diagnostics_str,
+                                  progbar_desc='sample')
+        if print_summary:
+            print(summary(hmc_states))
+        return hmc_states
+    else:
+        raise ValueError('sampler: {} not recognized'.format(sampler))
