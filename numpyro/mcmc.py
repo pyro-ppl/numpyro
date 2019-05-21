@@ -133,7 +133,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         ...                         num_warmup=300)
         >>> hmc_states = fori_collect(500, sample_kernel, hmc_state,
         ...                           transform=lambda x: constrain_fn(x.z))
-        >>> print(np.mean(hmc_states['beta'], axis=0))
+        >>> print(np.mean(hmc_states['beta'], axis=0))  # doctest: +SKIP
         [0.9153987 2.0754058 2.9621222]
     """
     if kinetic_fn is None:
