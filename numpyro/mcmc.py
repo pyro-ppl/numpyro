@@ -1,6 +1,6 @@
 import math
 import os
-from collections import OrderedDict, namedtuple
+from collections import namedtuple
 
 import tqdm
 
@@ -54,11 +54,9 @@ def _euclidean_ke(inverse_mass_matrix, r):
 
 
 def diagnostics_str(hmc_state):
-    return OrderedDict([
-        ('acc. prob', '{:.2e}'.format(hmc_state.mean_accept_prob)),
-        ('step size', '{:.3f}'.format(hmc_state.step_size)),
-        ('num steps', '{:4d}'.format(hmc_state.num_steps))
-    ])
+    return '{} steps of size {:.2f}. E[p(acc.)]={:.2f}'.format(hmc_state.num_steps,
+                                                               hmc_state.step_size,
+                                                               hmc_state.mean_accept_prob)
 
 
 def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
@@ -212,7 +210,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                 with tqdm.trange(num_warmup, desc='warmup') as t:
                     for i in t:
                         hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
-                        t.set_postfix(diagnostics_str(hmc_state), refresh=True)
+                        t.set_postfix_str(diagnostics_str(hmc_state), refresh=True)
             return hmc_state
         else:
             return hmc_state, wa_state, warmup_update
@@ -285,21 +283,37 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
 
 def mcmc(num_warmup, num_samples, init_samples, sampler='hmc',
-         constrain_fn=None, print_summary=True, **kwargs):
+         constrain_fn=None, print_summary=True, **sampler_kwargs):
+    """
+    Convenience wrapper for MCMC samplers -- runs warmup, prints
+    diagnostic summary and returns a collections of samples
+    from the posterior.
+
+    :param num_warmup: Number of warmup steps.
+    :param num_samples: Number of samples to generate from the Markov chain.
+    :param init_samples: Initial parameters to begin sampling. The type can
+        must be consistent with the input type to `potential_fn`.
+    :param sampler: currently, only `hmc` is implemented (default).
+    :param constrain_fn: When given a
+    :param print_summary: Whether to print diagnostics summary for
+        each sample site. Default is ``True``.
+    :param `**sampler_kwargs`: Sampler specific keyword arguments.
+    :return: collection of samples from the posterior.
+    """
     if sampler == 'hmc':
-        potential_fn = kwargs.pop('potential_fn')
-        kinetic_fn = kwargs.pop('kinetic_fn', None)
-        algo = kwargs.pop('algo', 'NUTS')
-        progbar = kwargs.pop('progbar', True)
+        potential_fn = sampler_kwargs.pop('potential_fn')
+        kinetic_fn = sampler_kwargs.pop('kinetic_fn', None)
+        algo = sampler_kwargs.pop('algo', 'NUTS')
+        progbar = sampler_kwargs.pop('progbar', True)
 
         init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
-        hmc_state = init_kernel(init_samples, num_warmup, progbar=progbar, **kwargs)
+        hmc_state = init_kernel(init_samples, num_warmup, progbar=progbar, **sampler_kwargs)
         hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
                                   transform=lambda x: constrain_fn(x.z),
                                   progbar=progbar, diagnostics_fn=diagnostics_str,
                                   progbar_desc='sample')
         if print_summary:
-            print(summary(hmc_states))
+            summary(hmc_states)
         return hmc_states
     else:
         raise ValueError('sampler: {} not recognized'.format(sampler))
