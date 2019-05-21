@@ -19,21 +19,21 @@ HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_
                                    'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'rng'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
- - ``i`` - iteration. This is reset to 0 after warmup.
- - ``z`` - Python collection representing values (unconstrained samples from 
+ - **i** - iteration. This is reset to 0 after warmup.
+ - **z** - Python collection representing values (unconstrained samples from 
    the posterior) at latent sites.
- - ``z_grad`` - Gradient of potential energy w.r.t. latent sample sites.
- - ``potential_energy`` - Potential energy computed at the given value of ``z``.
- - ``num_steps`` - Number of steps in the Hamiltonian trajectory (for diagnostics).
- - ``accept_prob`` - Acceptance probability of the proposal. Note that ``z``
+ - **z_grad** - Gradient of potential energy w.r.t. latent sample sites.
+ - **potential_energy** - Potential energy computed at the given value of ``z``.
+ - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
+ - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
    does not correspond to the proposal if it is rejected.
- - ``mean_accept_prob`` - Mean acceptance probability until current iteration 
+ - **mean_accept_prob** - Mean acceptance probability until current iteration 
    during warmup adaptation or sampling (for diagnostics).
- - ``step_size`` - Step size to be used by the integrator in the next iteration.
+ - **step_size** - Step size to be used by the integrator in the next iteration.
    This is adapted during warmup.   
- - ``inverse_mass_matrix`` - The inverse mass matrix to be be used for the next 
+ - **inverse_mass_matrix** - The inverse mass matrix to be be used for the next 
    iteration. This is adapted during warmup. 
- - ``rng`` - random number generator seed used for the iteration.   
+ - **rng** - random number generator seed used for the iteration.   
 """
 
 
@@ -159,8 +159,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         """
         Initializes the HMC sampler.
 
-        :param init_params: Initial parameters to begin sampling. The type can
-            must be consistent with the input type to `potential_fn`.
+        :param init_params: Initial parameters to begin sampling. The type must
+            be consistent with the input type to `potential_fn`.
         :param int num_warmup_steps: Number of warmup steps; samples generated
             during warmup are discarded.
         :param float step_size: Determines the size of a single step taken by the
