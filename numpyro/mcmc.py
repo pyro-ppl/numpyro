@@ -13,10 +13,28 @@ from jax.tree_util import register_pytree_node
 import numpyro.distributions as dist
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
-from numpyro.util import cond, fori_loop, fori_collect
+from numpyro.util import cond, fori_loop, fori_collect, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'rng'])
+"""
+A :func:`~collections.namedtuple` consisting of the following fields:
+ - ``i`` - iteration. This is reset to 0 after warmup.
+ - ``z`` - Python collection representing values (unconstrained samples from 
+   the posterior) at latent sites.
+ - ``z_grad`` - Gradient of potential energy w.r.t. latent sample sites.
+ - ``potential_energy`` - Potential energy computed at the given value of ``z``.
+ - ``num_steps`` - Number of steps in the Hamiltonian trajectory (for diagnostics).
+ - ``accept_prob`` - Acceptance probability of the proposal. Note that ``z``
+   does not correspond to the proposal if it is rejected.
+ - ``mean_accept_prob`` - Mean acceptance probability until current iteration 
+   during warmup adaptation or sampling (for diagnostics).
+ - ``step_size`` - Step size to be used by the integrator in the next iteration.
+   This is adapted during warmup.   
+ - ``inverse_mass_matrix`` - The inverse mass matrix to be be used for the next 
+   iteration. This is adapted during warmup. 
+ - ``rng`` - random number generator seed used for the iteration.   
+"""
 
 
 register_pytree_node(
@@ -53,10 +71,10 @@ def _euclidean_ke(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def diagnostics_str(hmc_state):
-    return '{} steps of size {:.2f}. E[p(acc.)]={:.2f}'.format(hmc_state.num_steps,
-                                                               hmc_state.step_size,
-                                                               hmc_state.mean_accept_prob)
+def get_diagnostics_str(hmc_state):
+    return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(hmc_state.num_steps,
+                                                              hmc_state.step_size,
+                                                              hmc_state.mean_accept_prob)
 
 
 def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
@@ -72,7 +90,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
-        any python collection type, provided that `init_samples` argument to
+        any python collection type, provided that `init_params` argument to
         `init_kernel` has the same type.
     :param kinetic_fn: Python callable that returns the kinetic energy given
         inverse mass matrix and momentum. If not provided, the default is
@@ -126,7 +144,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     momentum_generator = None
     wa_update = None
 
-    def init_kernel(init_samples,
+    def init_kernel(init_params,
                     num_warmup,
                     step_size=1.0,
                     adapt_step_size=True,
@@ -141,7 +159,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         """
         Initializes the HMC sampler.
 
-        :param init_samples: Initial parameters to begin sampling. The type can
+        :param init_params: Initial parameters to begin sampling. The type can
             must be consistent with the input type to `potential_fn`.
         :param int num_warmup_steps: Number of warmup steps; samples generated
             during warmup are discarded.
@@ -177,7 +195,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth
         trajectory_len = float(trajectory_length)
         max_treedepth = max_tree_depth
-        z = init_samples
+        z = init_params
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
 
@@ -196,8 +214,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
         r = momentum_generator(wa_state.inverse_mass_matrix, rng)
         vv_state = vv_init(z, r)
-        hmc_state = HMCState(1, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0.,
-                             0., wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
+        hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0., 0.,
+                             wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
 
         wa_update = jit(wa_update)
         if run_warmup:
@@ -210,7 +228,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                 with tqdm.trange(num_warmup, desc='warmup') as t:
                     for i in t:
                         hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
-                        t.set_postfix_str(diagnostics_str(hmc_state), refresh=True)
+                        t.set_postfix_str(get_diagnostics_str(hmc_state), refresh=True)
+            # Reset `i` and `mean_accept_prob` for fresh diagnostics.
+            hmc_state.update(i=0, mean_accept_prob=0)
             return hmc_state
         else:
             return hmc_state, wa_state, warmup_update
@@ -270,8 +290,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                                  vv_state, rng_transition)
         itr = hmc_state.i + 1
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / itr
-        return HMCState(hmc_state.i + 1, vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
-                        accept_prob, mean_accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix, rng)
+        return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
+                        accept_prob, mean_accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix,
+                        rng)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
@@ -282,7 +303,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     return init_kernel, sample_kernel
 
 
-def mcmc(num_warmup, num_samples, init_samples, sampler='hmc',
+def mcmc(num_warmup, num_samples, init_params, sampler='hmc',
          constrain_fn=None, print_summary=True, **sampler_kwargs):
     """
     Convenience wrapper for MCMC samplers -- runs warmup, prints
@@ -291,7 +312,7 @@ def mcmc(num_warmup, num_samples, init_samples, sampler='hmc',
 
     :param num_warmup: Number of warmup steps.
     :param num_samples: Number of samples to generate from the Markov chain.
-    :param init_samples: Initial parameters to begin sampling. The type can
+    :param init_params: Initial parameters to begin sampling. The type can
         must be consistent with the input type to `potential_fn`.
     :param sampler: currently, only `hmc` is implemented (default).
     :param constrain_fn: Callable that converts a collection of unconstrained
@@ -300,22 +321,30 @@ def mcmc(num_warmup, num_samples, init_samples, sampler='hmc',
     :param print_summary: Whether to print diagnostics summary for
         each sample site. Default is ``True``.
     :param `**sampler_kwargs`: Sampler specific keyword arguments.
+
+         - *HMC*: Refer to :func:`~numpyro.mcmc.hmc` and
+           :func:`~numpyro.mcmc.hmc.init_kernel` for accepted arguments. Note
+           that all arguments must be provided as keywords.
+
     :return: collection of samples from the posterior.
     """
     if sampler == 'hmc':
+        if constrain_fn is None:
+            constrain_fn = identity
         potential_fn = sampler_kwargs.pop('potential_fn')
         kinetic_fn = sampler_kwargs.pop('kinetic_fn', None)
         algo = sampler_kwargs.pop('algo', 'NUTS')
         progbar = sampler_kwargs.pop('progbar', True)
 
         init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
-        hmc_state = init_kernel(init_samples, num_warmup, progbar=progbar, **sampler_kwargs)
-        hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                                  transform=lambda x: constrain_fn(x.z),
-                                  progbar=progbar, diagnostics_fn=diagnostics_str,
-                                  progbar_desc='sample')
+        hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, **sampler_kwargs)
+        samples = fori_collect(num_samples, sample_kernel, hmc_state,
+                               transform=lambda x: constrain_fn(x.z),
+                               progbar=progbar,
+                               diagnostics_fn=get_diagnostics_str,
+                               progbar_desc='sample')
         if print_summary:
-            summary(hmc_states)
-        return hmc_states
+            summary(samples)
+        return samples
     else:
         raise ValueError('sampler: {} not recognized'.format(sampler))

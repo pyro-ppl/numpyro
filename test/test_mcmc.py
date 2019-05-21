@@ -23,8 +23,8 @@ def test_unnormalized_normal(algo):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
-    init_samples = np.array(0.)
-    hmc_state = init_kernel(init_samples,
+    init_params = np.array(0.)
+    hmc_state = init_kernel(init_params,
                             trajectory_length=10,
                             num_warmup=warmup_steps)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
