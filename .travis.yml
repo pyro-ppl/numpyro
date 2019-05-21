@@ -25,9 +25,12 @@ branches:
 
 jobs:
     include:
-        - stage: lint
+        - stage: lint / docs
           python: 3.6
-          script: make lint
+          script:
+            - make lint
+            - make docs
+            - make doctest
         - stage: unit
           name: "unit tests"
           python: 3.6

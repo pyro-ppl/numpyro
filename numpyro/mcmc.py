@@ -130,7 +130,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(init_params,
         ...                         trajectory_length=10,
-        ...                         num_warmup_steps=300)
+        ...                         num_warmup=300)
         >>> hmc_states = fori_collect(500, sample_kernel, hmc_state,
         ...                           transform=lambda x: constrain_fn(x.z))
         >>> print(np.mean(hmc_states['beta'], axis=0))
