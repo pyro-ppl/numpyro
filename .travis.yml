@@ -26,6 +26,7 @@ branches:
 jobs:
     include:
         - stage: lint / docs
+          before_install: pip install .[doc]
           python: 3.6
           script:
             - make lint

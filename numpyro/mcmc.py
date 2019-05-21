@@ -20,20 +20,20 @@ HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **i** - iteration. This is reset to 0 after warmup.
- - **z** - Python collection representing values (unconstrained samples from 
+ - **z** - Python collection representing values (unconstrained samples from
    the posterior) at latent sites.
  - **z_grad** - Gradient of potential energy w.r.t. latent sample sites.
  - **potential_energy** - Potential energy computed at the given value of ``z``.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
  - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
    does not correspond to the proposal if it is rejected.
- - **mean_accept_prob** - Mean acceptance probability until current iteration 
+ - **mean_accept_prob** - Mean acceptance probability until current iteration
    during warmup adaptation or sampling (for diagnostics).
  - **step_size** - Step size to be used by the integrator in the next iteration.
-   This is adapted during warmup.   
- - **inverse_mass_matrix** - The inverse mass matrix to be be used for the next 
-   iteration. This is adapted during warmup. 
- - **rng** - random number generator seed used for the iteration.   
+   This is adapted during warmup.
+ - **inverse_mass_matrix** - The inverse mass matrix to be be used for the next
+   iteration. This is adapted during warmup.
+ - **rng** - random number generator seed used for the iteration.
 """
 
 
