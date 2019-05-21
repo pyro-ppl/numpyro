@@ -294,7 +294,9 @@ def mcmc(num_warmup, num_samples, init_samples, sampler='hmc',
     :param init_samples: Initial parameters to begin sampling. The type can
         must be consistent with the input type to `potential_fn`.
     :param sampler: currently, only `hmc` is implemented (default).
-    :param constrain_fn: When given a
+    :param constrain_fn: Callable that converts a collection of unconstrained
+        sample values returned from the sampler to constrained values that
+        lie within the support of the sample sites.
     :param print_summary: Whether to print diagnostics summary for
         each sample site. Default is ``True``.
     :param `**sampler_kwargs`: Sampler specific keyword arguments.

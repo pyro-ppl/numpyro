@@ -105,8 +105,6 @@ def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True, **pro
     # postprocessing `transform`, and collects values during the loop
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
-    diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
-    progbar_desc = progbar_opts.pop('progbar_desc', '')
 
     if not progbar:
         collection = np.zeros((n,) + init_val_flat.shape, dtype=init_val_flat.dtype)
@@ -120,6 +118,8 @@ def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True, **pro
         _, collection = jit(lax.fori_loop, static_argnums=(2,))(0, n, _body_fn,
                                                                 (init_val, collection))
     else:
+        diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
+        progbar_desc = progbar_opts.pop('progbar_desc', '')
         collection = []
 
         val = init_val
