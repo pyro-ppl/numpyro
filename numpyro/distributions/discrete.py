@@ -24,11 +24,10 @@
 
 
 import jax.numpy as np
-import jax.random as random
 from jax import lax
 from jax.scipy.special import gammaln, logsumexp
 
-from numpyro.distributions import constraints
+from numpyro.distributions import constraints, random
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,

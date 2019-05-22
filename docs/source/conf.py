@@ -64,13 +64,13 @@ extensions = [
 
 autodoc_inherit_docstrings = False
 
-autodoc_default_options = {
-    'member-order': 'bysource',
-    'show-inheritance': True,
-    'special-members': True,
-    'undoc-members': True,
-    # 'exclude-members': '__dict__,__module__,__weakref__',
-}
+# autodoc_default_options = {
+#     'member-order': 'bysource',
+#     'show-inheritance': True,
+#     'special-members': True,
+#     'undoc-members': True,
+#     'exclude-members': '__dict__,__module__,__weakref__',
+# }
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

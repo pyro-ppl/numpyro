@@ -1,11 +1,12 @@
 import jax
 import jax.numpy as np
-from jax import grad, jit, partial, random, value_and_grad
+from jax import grad, jit, partial, value_and_grad
 from jax.flatten_util import ravel_pytree
 from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
+from numpyro.distributions import random
 from numpyro.distributions.constraints import biject_to
 from numpyro.handlers import seed, substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
@@ -550,23 +551,23 @@ def log_density(model, model_args, model_kwargs, params):
     return log_joint, model_trace
 
 
-def potential_energy(model, model_args, model_kwargs, transforms):
+def potential_energy(model, model_args, model_kwargs, inv_transforms):
     def _potential_energy(params):
-        params_constrained = {k: transforms[k](v) for k, v in params.items()}
+        params_constrained = constrain_fn(inv_transforms, params)
         log_joint = jax.partial(log_density, model, model_args, model_kwargs)(params_constrained)[0]
-        for name, t in transforms.items():
+        for name, t in inv_transforms.items():
             log_joint = log_joint + np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
         return - log_joint
 
     return _potential_energy
 
 
-def transform_fn(inv_transforms, params, constrain=True):
-    return {k: inv_transforms[k](v) if constrain else inv_transforms[k].inv(v)
+def constrain_fn(inv_transforms, params, invert=False):
+    return {k: inv_transforms[k](v) if not invert else inv_transforms[k].inv(v)
             for k, v in params.items()}
 
 
-def initialize_model(rng, model, *model_args, **model_kwargs):
+def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative
@@ -579,20 +580,32 @@ def initialize_model(rng, model, *model_args, **model_kwargs):
         sample from the prior.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
+    :param str init_strategy: initialization strategy - `uniform`
+        initializes the unconstrained parameters by drawing from
+        a `Uniform(-2, 2)` distribution (as used by Stan), whereas
+        `prior` initializes the parameters by sampling from the prior
+        for each of the sample sites.
     :param `**model_kwargs`: kwargs provided to the model.
-    :return: tuple of (`init_params`, `potential_fn`, `inv_transform_fn`)
+    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`)
         `init_params` are values from the prior used to initiate MCMC.
-        `inv_transform_fn` is a callable that uses inverse transforms
+        `constrain_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    dtype = model_kwargs.pop('dtype', np.float32)
     model = seed(model, rng)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
     inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-    init_params = transform_fn(inv_transforms,
-                               {k: v['value'].astype(dtype) for k, v in sample_sites.items()},
-                               constrain=False)
+    prior_params = constrain_fn(inv_transforms,
+                                {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+    if init_strategy == 'uniform':
+        init_params = {}
+        for k, v in prior_params.items():
+            rng, = random.split(rng, 1)
+            init_params[k] = random.uniform(rng, shape=np.shape(v), minval=-2, maxval=2)
+    elif init_strategy == 'prior':
+        init_params = prior_params
+    else:
+        raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
     return init_params, potential_energy(model, model_args, model_kwargs, inv_transforms), \
-        jax.partial(transform_fn, inv_transforms, constrain=True)
+        jax.partial(constrain_fn, inv_transforms)

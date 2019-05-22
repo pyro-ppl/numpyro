@@ -1,7 +1,8 @@
 import os
 
-from jax import random, value_and_grad
+from jax import value_and_grad
 
+from numpyro.distributions import random
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.hmc_util import log_density
 

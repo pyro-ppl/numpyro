@@ -24,11 +24,10 @@
 
 
 import jax.numpy as np
-import jax.random as random
 from jax import lax, ops
 from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
 
-from numpyro.distributions import constraints
+from numpyro.distributions import constraints, random
 from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (

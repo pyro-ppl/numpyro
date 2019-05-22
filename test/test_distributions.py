@@ -546,6 +546,11 @@ def test_constraints(constraint, x, expected):
 ])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
+    if isinstance(constraint, constraints._Interval):
+        assert transform.codomain.upper_bound == constraint.upper_bound
+        assert transform.codomain.lower_bound == constraint.lower_bound
+    elif isinstance(constraint, constraints._GreaterThan):
+        assert transform.codomain.lower_bound == constraint.lower_bound
     if len(shape) < transform.event_dim:
         return
     rng = random.PRNGKey(0)

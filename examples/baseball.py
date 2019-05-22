@@ -11,8 +11,7 @@ import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
 from numpyro.handlers import sample, seed, substitute, trace
 from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import hmc
-from numpyro.util import fori_collect
+from numpyro.mcmc import mcmc
 
 """
 Original example from Pyro:
@@ -136,11 +135,9 @@ def partially_pooled_with_logit(at_bats, hits=None):
 
 
 def run_inference(model, at_bats, hits, rng, args):
-    init_params, potential_fn, transform_fn = initialize_model(rng, model, at_bats, hits)
-    init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-    hmc_state = init_kernel(init_params, args.num_warmup)
-    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
-                              transform=lambda hmc_state: transform_fn(hmc_state.z))
+    init_params, potential_fn, constrain_fn = initialize_model(rng, model, at_bats, hits)
+    hmc_states = mcmc(args.num_warmup, args.num_samples, init_params,
+                      sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
     return hmc_states
 
 

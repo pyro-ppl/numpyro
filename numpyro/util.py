@@ -96,11 +96,11 @@ def fori_loop(lower, upper, body_fun, init_val):
         return lax.fori_loop(lower, upper, body_fun, init_val)
 
 
-def _identity(x):
+def identity(x):
     return x
 
 
-def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True):
+def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
     # works like lax.fori_loop but ignores i in body_fn, supports
     # postprocessing `transform`, and collects values during the loop
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
@@ -118,12 +118,17 @@ def fori_collect(n, body_fun, init_val, transform=_identity, progbar=True):
         _, collection = jit(lax.fori_loop, static_argnums=(2,))(0, n, _body_fn,
                                                                 (init_val, collection))
     else:
+        diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
+        progbar_desc = progbar_opts.pop('progbar_desc', '')
         collection = []
 
         val = init_val
-        for _ in tqdm.trange(n):
-            val = body_fun(val)
-            collection.append(jit(ravel_fn)(val))
+        with tqdm.trange(n, desc=progbar_desc) as t:
+            for _ in t:
+                val = body_fun(val)
+                collection.append(jit(ravel_fn)(val))
+                if diagnostics_fn:
+                    t.set_postfix_str(diagnostics_fn(val), refresh=True)
 
         # XXX: jax.numpy.stack/concatenate is currently so slow
         collection = onp.stack(collection)
