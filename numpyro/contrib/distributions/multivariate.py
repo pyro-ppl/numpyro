@@ -14,11 +14,8 @@ from jax.scipy.special import digamma, gammaln, logsumexp
 
 from numpyro.contrib.distributions.discrete import binom
 from numpyro.contrib.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
-from numpyro.distributions import constraints
-from numpyro.distributions.util import categorical as categorical_rvs
-from numpyro.distributions.util import entr
-from numpyro.distributions.util import multinomial as multinomial_rvs
-from numpyro.distributions.util import standard_gamma, xlogy
+from numpyro.distributions import constraints, random
+from numpyro.distributions.util import entr, xlogy
 
 
 def _lnB(alpha):
@@ -67,7 +64,7 @@ class categorical_gen(jax_multivariate, jax_discrete):
     def _rvs(self, p):
         if self.is_logits:
             p = softmax(p)
-        return categorical_rvs(self._random_state, p, self._size)
+        return random.categorical(self._random_state, p, self._size)
 
 
 class dirichlet_gen(jax_multivariate, jax_continuous):
@@ -102,7 +99,7 @@ class dirichlet_gen(jax_multivariate, jax_continuous):
 
     def _rvs(self, alpha):
         K = alpha.shape[-1]
-        gamma_samples = standard_gamma(self._random_state, alpha, shape=self._size + (K,))
+        gamma_samples = random.gamma(self._random_state, alpha, shape=self._size + (K,))
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
 
@@ -153,7 +150,7 @@ class multinomial_gen(jax_multivariate, jax_discrete):
     def _rvs(self, n, p):
         if self.is_logits:
             p = softmax(p)
-        return multinomial_rvs(self._random_state, p, n, self._size)
+        return random.multinomial(self._random_state, p, n, self._size)
 
 
 categorical = categorical_gen(name='categorical')

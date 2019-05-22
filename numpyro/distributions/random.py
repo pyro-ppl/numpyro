@@ -28,6 +28,10 @@ def normal(key, shape=(), dtype=np.float64):
     return random.normal(key, shape, dtype)
 
 
+def pareto(key, b, shape=(), dtype=np.float64):
+    return random.pareto(key, b, shape, dtype)
+
+
 def uniform(key, shape=(), dtype=np.float64, minval=0., maxval=1.):
     return random.uniform(key, shape, dtype, minval, maxval)
 

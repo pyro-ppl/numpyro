@@ -11,13 +11,11 @@ from jax import grad, jacobian, jit, lax, random
 from jax.scipy.special import expit
 from jax.util import partial
 
+from numpyro.distributions.random import categorical, gamma, multinomial
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
-    categorical,
     cumprod,
     cumsum,
-    multinomial,
-    standard_gamma,
     vec_to_tril_matrix,
     xlog1py,
     xlogy
@@ -130,26 +128,26 @@ def test_cumprod_jac(shape):
     (np.array([1., 2.]), ()),
     (np.array([1., 2.]), (3, 2)),
 ])
-def test_standard_gamma_shape(alpha, shape):
+def test_gamma_shape(alpha, shape):
     rng = random.PRNGKey(0)
     expected_shape = lax.broadcast_shapes(np.shape(alpha), shape)
-    assert np.shape(standard_gamma(rng, alpha, shape=shape)) == expected_shape
+    assert np.shape(gamma(rng, alpha, shape=shape)) == expected_shape
 
 
 @pytest.mark.parametrize("alpha", [0.6, 2., 10.])
-def test_standard_gamma_stats(alpha):
+def test_gamma_stats(alpha):
     rng = random.PRNGKey(0)
-    z = standard_gamma(rng, np.full((1000,), alpha))
+    z = gamma(rng, np.full((1000,), alpha))
     assert_allclose(np.mean(z), alpha, rtol=0.06)
     assert_allclose(np.var(z), alpha, rtol=0.2)
 
 
 @pytest.mark.parametrize("alpha", [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4])
-def test_standard_gamma_grad(alpha):
+def test_gamma_grad(alpha):
     rng = random.PRNGKey(0)
     alphas = np.full((100,), alpha)
-    z = standard_gamma(rng, alphas)
-    actual_grad = grad(lambda x: np.sum(standard_gamma(rng, x)))(alphas)
+    z = gamma(rng, alphas)
+    actual_grad = grad(lambda x: np.sum(gamma(rng, x)))(alphas)
 
     eps = 0.01 * alpha / (1.0 + np.sqrt(alpha))
     cdf_dot = (osp_stats.gamma.cdf(z, alpha + eps)
