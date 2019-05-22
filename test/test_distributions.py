@@ -8,17 +8,14 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 import jax
 import jax.numpy as np
-import jax.random as random
 from jax import grad, lax, vmap
 
 import numpyro.distributions as dist
-import numpyro.distributions.constraints as constraints
+from numpyro.distributions import constraints, random
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
-    multinomial,
-    poisson,
     signed_stick_breaking_tril,
     vec_to_tril_matrix
 )
@@ -149,7 +146,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.randint(key, size, lower_bound, upper_bound + 1)
     elif isinstance(constraint, constraints._IntegerGreaterThan):
-        return constraint.lower_bound + poisson(key, 5, shape=size)
+        return constraint.lower_bound + random.poisson(key, 5, shape=size)
     elif isinstance(constraint, constraints._Interval):
         lower_bound = np.broadcast_to(constraint.lower_bound, size)
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
@@ -160,7 +157,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1])
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
-        return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
+        return random.multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
     elif isinstance(constraint, constraints._CorrCholesky):
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
@@ -178,7 +175,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         lower_bound = np.broadcast_to(constraint.lower_bound, size)
         return random.randint(key, size, lower_bound - 1, lower_bound)
     elif isinstance(constraint, constraints._IntegerGreaterThan):
-        return constraint.lower_bound - poisson(key, 5, shape=size)
+        return constraint.lower_bound - random.poisson(key, 5, shape=size)
     elif isinstance(constraint, constraints._Interval):
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.)
@@ -188,7 +185,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1]) + 1e-2
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
-        return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1
+        return random.multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1
     elif isinstance(constraint, constraints._CorrCholesky):
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
