@@ -2,10 +2,22 @@ from numbers import Number
 
 import jax.numpy as np
 from jax import custom_transforms, device_get, jit, lax, random, vmap
+from jax.config import config
 from jax.interpreters import ad
 from jax.util import partial
 
 from numpyro.distributions.util import cumsum, promote_shapes
+
+
+_DEFAULT_DTYPE = None  # depending on when the config is updated we can probably just assign the 
+                       # dtype here or check from jax config.
+
+def _get_default_dtype():
+    global _DEFAULT_DTYPE
+    if not _DEFAULT_DTYPE: 
+        _DEFAULT_DTYPE = np.float64 if config.values['jax_enable_x64'] else np.float32
+    return _DEFAULT_DTYPE
+
 
 randint = random.randint
 split = random.split
@@ -13,32 +25,32 @@ PRNGKey = random.PRNGKey
 
 
 def bernoulli(key, p=0.5, shape=()):
-    dtype = np.zeros((0,)).dtype
+    dtype = _get_default_dtype()
     return random.bernoulli(key, lax.convert_element_type(p, dtype), shape)
 
 
 def cauchy(key, shape=()):
-    dtype = np.zeros((0,)).dtype
+    dtype = _get_default_dtype()
     return random.cauchy(key, shape, dtype)
 
 
 def exponential(key, shape=()):
-    dtype = np.zeros((0,)).dtype
+    dtype = _get_default_dtype()
     return random.exponential(key, shape, dtype)
 
 
 def normal(key, shape=()):
-    dtype = np.zeros((0,)).dtype
+    dtype = _get_default_dtype()
     return random.normal(key, shape, dtype)
 
 
 def pareto(key, b, shape=()):
-    dtype = np.zeros((0,)).dtype
+    dtype = _get_default_dtype()
     return random.pareto(key, b, shape, dtype)
 
 
 def uniform(key, shape=(), minval=0., maxval=1.):
-    dtype = np.zeros((0,)).dtype
+    dtype = _get_default_dtype()
     return random.uniform(key, shape, dtype, minval, maxval)
 
 
@@ -216,7 +228,7 @@ def _gamma(key, alpha, shape, dtype):
 
 
 def gamma(key, alpha, shape=()):
-    dtype = np.zeros((0,)).dtype
+    dtype = _get_default_dtype()
     return _gamma(key, alpha, shape, dtype)
 
 
