@@ -7,7 +7,6 @@ from jax.util import partial
 
 from numpyro.distributions.util import cumsum, promote_shapes
 
-
 split = random.split
 PRNGKey = random.PRNGKey
 

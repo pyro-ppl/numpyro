@@ -86,7 +86,7 @@ def test_beta_bernoulli(algo):
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.05)
 
     if 'JAX_ENABLE_x64' in os.environ:
-        assert hmc_states['samples'].dtype == np.float64
+        assert hmc_states['p_latent'].dtype == np.float64
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
