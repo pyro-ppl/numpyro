@@ -9,12 +9,12 @@ from jax.util import partial
 from numpyro.distributions.util import cumsum, promote_shapes
 
 
-_DEFAULT_DTYPE = None  # depending on when the config is updated we can probably just assign the 
-                       # dtype here or check from jax config.
+_DEFAULT_DTYPE = None
+
 
 def _get_default_dtype():
     global _DEFAULT_DTYPE
-    if not _DEFAULT_DTYPE: 
+    if not _DEFAULT_DTYPE:
         _DEFAULT_DTYPE = np.float64 if config.values['jax_enable_x64'] else np.float32
     return _DEFAULT_DTYPE
 
