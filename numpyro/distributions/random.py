@@ -12,27 +12,33 @@ split = random.split
 PRNGKey = random.PRNGKey
 
 
-def bernoulli(key, p=0.5, shape=(), dtype=np.float64):
+def bernoulli(key, p=0.5, shape=()):
+    dtype = np.zeros((0,)).dtype
     return random.bernoulli(key, lax.convert_element_type(p, dtype), shape)
 
 
-def cauchy(key, shape=(), dtype=np.float64):
+def cauchy(key, shape=()):
+    dtype = np.zeros((0,)).dtype
     return random.cauchy(key, shape, dtype)
 
 
-def exponential(key, shape=(), dtype=np.float64):
+def exponential(key, shape=()):
+    dtype = np.zeros((0,)).dtype
     return random.exponential(key, shape, dtype)
 
 
-def normal(key, shape=(), dtype=np.float64):
+def normal(key, shape=()):
+    dtype = np.zeros((0,)).dtype
     return random.normal(key, shape, dtype)
 
 
-def pareto(key, b, shape=(), dtype=np.float64):
+def pareto(key, b, shape=()):
+    dtype = np.zeros((0,)).dtype
     return random.pareto(key, b, shape, dtype)
 
 
-def uniform(key, shape=(), dtype=np.float64, minval=0., maxval=1.):
+def uniform(key, shape=(), minval=0., maxval=1.):
+    dtype = np.zeros((0,)).dtype
     return random.uniform(key, shape, dtype, minval, maxval)
 
 
@@ -209,7 +215,8 @@ def _gamma(key, alpha, shape, dtype):
     return _gamma_p(key, alpha)
 
 
-def gamma(key, alpha, shape=(), dtype=np.float64):
+def gamma(key, alpha, shape=()):
+    dtype = np.zeros((0,)).dtype
     return _gamma(key, alpha, shape, dtype)
 
 
