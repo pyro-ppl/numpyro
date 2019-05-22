@@ -9,7 +9,7 @@ from jax.scipy.special import logit
 import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import hmc
+from numpyro.mcmc import hmc, mcmc
 from numpyro.util import fori_collect
 
 
@@ -23,8 +23,8 @@ def test_unnormalized_normal(algo):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
-    init_samples = np.array(0.)
-    hmc_state = init_kernel(init_samples,
+    init_params = np.array(0.)
+    hmc_state = init_kernel(init_params,
                             trajectory_length=10,
                             num_warmup=warmup_steps)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
@@ -48,12 +48,8 @@ def test_logistic_regression(algo):
         return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, labels)
-    init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
-    hmc_state = init_kernel(init_params,
-                            trajectory_length=10,
-                            num_warmup=warmup_steps)
-    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: constrain_fn(x.z))
+    hmc_states = mcmc(warmup_steps, num_samples, init_params, sampler='hmc',
+                      potential_fn=potential_fn, trajectory_length=10, constrain_fn=constrain_fn)
     assert_allclose(np.mean(hmc_states['coefs'], 0), true_coefs, atol=0.2)
 
 

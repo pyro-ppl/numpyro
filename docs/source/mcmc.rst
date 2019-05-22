@@ -1,6 +1,8 @@
 Markov Chain Monte Carlo (MCMC)
 ===============================
 
+.. autofunction:: numpyro.mcmc.mcmc
+
 .. autofunction:: numpyro.mcmc.hmc
 
 .. autofunction:: numpyro.mcmc.hmc.init_kernel
