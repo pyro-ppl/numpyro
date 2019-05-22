@@ -31,13 +31,9 @@ from numpyro.distributions import constraints, random
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
-    binomial,
-    categorical,
     clamp_probs,
     get_dtypes,
     lazy_property,
-    multinomial,
-    poisson,
     promote_shapes,
     xlog1py,
     xlogy
@@ -138,7 +134,7 @@ class BinomialProbs(Distribution):
         super(BinomialProbs, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return binomial(key, self.probs, n=self.total_count, shape=size + self.batch_shape)
+        return random.binomial(key, self.probs, n=self.total_count, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -175,7 +171,7 @@ class BinomialLogits(Distribution):
         super(BinomialLogits, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return binomial(key, self.probs, n=self.total_count, shape=size + self.batch_shape)
+        return random.binomial(key, self.probs, n=self.total_count, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -228,7 +224,7 @@ class CategoricalProbs(Distribution):
                                                validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return categorical(key, self.probs, shape=size + self.batch_shape)
+        return random.categorical(key, self.probs, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -264,7 +260,7 @@ class CategoricalLogits(Distribution):
                                                 validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return categorical(key, self.probs, shape=size + self.batch_shape)
+        return random.categorical(key, self.probs, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -316,7 +312,7 @@ class MultinomialProbs(Distribution):
                                                validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
+        return random.multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -354,7 +350,7 @@ class MultinomialLogits(Distribution):
                                                 validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
+        return random.multinomial(key, self.probs, self.total_count, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -400,7 +396,7 @@ class Poisson(Distribution):
         super(Poisson, self).__init__(np.shape(rate), validate_args=validate_args)
 
     def sample(self, key, size=()):
-        return poisson(key, self.rate, shape=size + self.batch_shape)
+        return random.poisson(key, self.rate, shape=size + self.batch_shape)
 
     def log_prob(self, value):
         if self._validate_args:
