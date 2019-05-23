@@ -25,7 +25,7 @@ def test_unnormalized_normal(algo):
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     init_params = np.array(0.)
     hmc_state = init_kernel(init_params,
-                            trajectory_length=10,
+                            trajectory_length=9,
                             num_warmup=warmup_steps)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
                               transform=lambda x: x.z)
