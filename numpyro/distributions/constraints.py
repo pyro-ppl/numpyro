@@ -296,6 +296,8 @@ class CorrCholeskyTransform(Transform):
 
 
 class ExpTransform(Transform):
+    # TODO: refine domain/codomain logic through setters, especially when
+    # transforms for inverses are supported
     def __init__(self, domain=real):
         self.domain = domain
 

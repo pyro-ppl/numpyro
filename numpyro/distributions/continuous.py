@@ -503,8 +503,7 @@ class Pareto(TransformedDistribution):
         batch_shape = lax.broadcast_shapes(np.shape(scale), np.shape(alpha))
         self.scale, self.alpha = np.broadcast_to(scale, batch_shape), np.broadcast_to(alpha, batch_shape)
         base_dist = Exponential(self.alpha)
-        transforms = [ExpTransform(domain=constraints.positive),
-                      AffineTransform(loc=0, scale=self.scale, domain=constraints.greater_than(1.))]
+        transforms = [ExpTransform(), AffineTransform(loc=0, scale=self.scale)]
         super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
 
     @property
@@ -518,6 +517,11 @@ class Pareto(TransformedDistribution):
         # var is inf for alpha <= 2
         a = lax.div((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
         return np.where(self.alpha <= 2, np.inf, a)
+
+    # override the default behaviour to save computations
+    @property
+    def support(self):
+        return constraints.greater_than(self.scale)
 
 
 class StudentT(Distribution):
