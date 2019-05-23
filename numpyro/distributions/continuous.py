@@ -121,8 +121,9 @@ class Dirichlet(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        normalize_term = (np.sum(gammaln(self.concentration), axis=-1) -
-                          gammaln(np.sum(self.concentration, axis=-1)))
+        concentration = lax.convert_element_type(self.concentration, value.dtype)
+        normalize_term = (np.sum(gammaln(concentration), axis=-1) -
+                          gammaln(np.sum(concentration, axis=-1)))
         return np.sum(np.log(value) * (self.concentration - 1.), axis=-1) - normalize_term
 
     @property
