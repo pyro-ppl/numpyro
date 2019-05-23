@@ -1,4 +1,6 @@
-# NumPyro ![unstable](https://img.shields.io/badge/status-unstable-red.svg)
+# NumPyro 
+
+[![Build Status](https://travis-ci.com/pyro-ppl/numpyro.svg?branch=master)](https://travis-ci.com/pyro-ppl/numpyro)
 
 [Pyro](https://github.com/pyro-ppl/pyro) on Numpy. This uses 
 [JAX](https://github.com/google/jax) for autograd and JIT support. This is an 

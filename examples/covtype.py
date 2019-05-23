@@ -2,17 +2,17 @@ import argparse
 import time
 
 import numpy as onp
-from sklearn.datasets import fetch_covtype
 
-import jax
 import jax.numpy as np
 from jax import random
+from jax.config import config as jax_config
 
 import numpyro.distributions as dist
+from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
-from numpyro.util import fori_append, fori_collect
+from numpyro.util import fori_collect
 
 step_size = 0.00167132
 init_params = {"coefs": onp.array(
@@ -32,11 +32,9 @@ init_params = {"coefs": onp.array(
      -1.59496680e-01, -1.88516974e-01, -1.20889175e+00])}
 
 
-# TODO: add to datasets.py so as to avoid dependency on scikit-learn
-def load_dataset():
-    data = fetch_covtype()
-    features = data.data
-    labels = data.target
+def _load_dataset():
+    _, fetch = load_dataset(COVTYPE, shuffle=False)
+    features, labels = fetch()
 
     # normalize features and add intercept
     features = (features - features.mean(0)) / features.std(0)
@@ -56,18 +54,18 @@ def load_dataset():
 
 def model(data, labels):
     N, dim = data.shape
-    coefs = sample('coefs', dist.norm(np.zeros(dim), np.ones(dim)))
+    coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
     logits = np.dot(data, coefs)
-    return sample('obs', dist.bernoulli(logits, is_logits=True), obs=labels)
+    return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
 
 def benchmark_hmc(args, features, labels):
     trajectory_length = step_size * args.num_steps
-    _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, (features, labels,), {})
+    _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, features, labels)
     init_kernel, sample_kernel = hmc(potential_fn, algo=args.algo)
     t0 = time.time()
     # TODO: Use init_params from `initialize_model` instead of fixed params.
-    hmc_state, _, _ = init_kernel(init_params, num_warmup_steps=0, step_size=step_size,
+    hmc_state, _, _ = init_kernel(init_params, num_warmup=0, step_size=step_size,
                                   trajectory_length=trajectory_length,
                                   adapt_step_size=False, run_warmup=False)
     t1 = time.time()
@@ -76,19 +74,15 @@ def benchmark_hmc(args, features, labels):
     def transform(state): return {'coefs': state.z['coefs'],
                                   'num_steps': state.num_steps}
 
-    if args.fori_method == "append":
-        hmc_states = fori_append(sample_kernel, hmc_state, args.num_samples, transform=transform)
-    else:
-        hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform,
-                                  use_prims=False)
+    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform)
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
     print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)
 
 
 def main(args):
-    jax.config.update("jax_platform_name", args.device)
-    features, labels = load_dataset()
+    jax_config.update("jax_platform_name", args.device)
+    features, labels = _load_dataset()
     benchmark_hmc(args, features, labels)
 
 
@@ -97,8 +91,6 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--num-samples', default=100, type=int, help='number of samples')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--algo', default='NUTS', type=str, help='whether to run "HMC" or "NUTS"')
-    parser.add_argument('--fori-method', default='append', type=str,
-                        help='whether to use "append" or "collect"')
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)

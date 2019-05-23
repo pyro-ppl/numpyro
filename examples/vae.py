@@ -21,7 +21,7 @@ def sigmoid(x):
 
 # TODO: move to JAX
 def _elemwise_no_params(fun, **kwargs):
-    def init_fun(input_shape): return input_shape, ()
+    def init_fun(rng, input_shape): return input_shape, ()
 
     def apply_fun(params, inputs, rng=None): return fun(inputs, **kwargs)
 
@@ -57,9 +57,9 @@ def model(batch, **kwargs):
     decoder_params = param('decoder', None)
     z_dim = kwargs['z_dim']
     batch = np.reshape(batch, (batch.shape[0], -1))
-    z = sample('z', dist.norm(np.zeros((z_dim,)), np.ones((z_dim,))))
+    z = sample('z', dist.Normal(np.zeros((z_dim,)), np.ones((z_dim,))))
     img_loc = decode(decoder_params, z)
-    return sample('obs', dist.bernoulli(img_loc), obs=batch)
+    return sample('obs', dist.Bernoulli(img_loc), obs=batch)
 
 
 def guide(batch, **kwargs):
@@ -67,7 +67,7 @@ def guide(batch, **kwargs):
     encoder_params = param('encoder', None)
     batch = np.reshape(batch, (batch.shape[0], -1))
     z_loc, z_std = encode(encoder_params, batch)
-    z = sample('z', dist.norm(z_loc, z_std))
+    z = sample('z', dist.Normal(z_loc, z_std))
     return z
 
 
@@ -80,16 +80,17 @@ def binarize(rng, batch):
 def main(args):
     encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
     decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
-    opt_init, opt_update = optimizers.adam(args.learning_rate)
-    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update,
+    opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
+    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_params,
                                          encode=encode, decode=decode, z_dim=args.z_dim)
     svi_update = jit(svi_update)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
     num_train, train_idx = train_init()
-    _, encoder_params = encoder_init((args.batch_size, 28 * 28))
-    _, decoder_params = decoder_init((args.batch_size, args.z_dim))
+    rng, rng_enc, rng_dec = random.split(rng, 3)
+    _, encoder_params = encoder_init(rng_enc, (args.batch_size, 28 * 28))
+    _, decoder_params = decoder_init(rng_dec, (args.batch_size, args.z_dim))
     params = {'encoder': encoder_params, 'decoder': decoder_params}
     rng, sample_batch = binarize(rng, train_fetch(0, train_idx)[0])
     opt_state = svi_init(rng, (sample_batch,), (sample_batch,), params)
@@ -124,9 +125,9 @@ def main(args):
         img = test_fetch(0, test_idx)[0][0]
         plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), img, cmap='gray')
         _, test_sample = binarize(rng, img)
-        params = optimizers.get_params(opt_state)
+        params = get_params(opt_state)
         z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
-        z = dist.norm(z_mean, z_var).rvs(random_state=rng)
+        z = dist.Normal(z_mean, z_var).sample(rng)
         img_loc = decode(params['decoder'], z).reshape([28, 28])
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 

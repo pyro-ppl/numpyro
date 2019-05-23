@@ -10,12 +10,15 @@ import jax.numpy as np
 from jax import lax
 from jax.experimental.stax import softmax
 from jax.numpy.lax_numpy import _promote_dtypes
-from jax.scipy.special import digamma, gammaln
+from jax.scipy.special import digamma, gammaln, logsumexp
 
+from numpyro.contrib.distributions.discrete import binom
+from numpyro.contrib.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
 from numpyro.distributions import constraints
-from numpyro.distributions.discrete import binom
-from numpyro.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
-from numpyro.distributions.util import categorical_rvs, entr, multinomial_rvs, standard_gamma, xlogy
+from numpyro.distributions.util import categorical as categorical_rvs
+from numpyro.distributions.util import entr
+from numpyro.distributions.util import multinomial as multinomial_rvs
+from numpyro.distributions.util import standard_gamma, xlogy
 
 
 def _lnB(alpha):
@@ -51,6 +54,8 @@ class categorical_gen(jax_multivariate, jax_discrete):
         x = np.broadcast_to(x, batch_shape + (1,))
         p = np.broadcast_to(p, batch_shape + p.shape[-1:])
         if self.is_logits:
+            # normalize log prob
+            p = p - logsumexp(p, axis=-1, keepdims=True)
             # gather and remove the trailing dimension
             return np.take_along_axis(p, x, axis=-1)[..., 0]
         else:
@@ -124,7 +129,7 @@ class multinomial_gen(jax_multivariate, jax_discrete):
     def logpmf(self, x, n, p):
         x, n, p = _promote_dtypes(x, n, p)
         if self.is_logits:
-            return gammaln(n + 1) + np.sum(x * p - gammaln(x + 1), axis=-1)
+            return gammaln(n + 1) + np.sum(x * p - gammaln(x + 1), axis=-1) - n * logsumexp(p, axis=-1)
         else:
             return gammaln(n + 1) + np.sum(xlogy(x, p) - gammaln(x + 1), axis=-1)
 
@@ -148,7 +153,7 @@ class multinomial_gen(jax_multivariate, jax_discrete):
     def _rvs(self, n, p):
         if self.is_logits:
             p = softmax(p)
-        return multinomial_rvs(self._random_state, n, p, self._size)
+        return multinomial_rvs(self._random_state, p, n, self._size)
 
 
 categorical = categorical_gen(name='categorical')

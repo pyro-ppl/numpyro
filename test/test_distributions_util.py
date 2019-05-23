@@ -13,11 +13,12 @@ from jax.util import partial
 
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
-    categorical_rvs,
+    categorical,
     cumprod,
     cumsum,
-    multinomial_rvs,
+    multinomial,
     standard_gamma,
+    vec_to_tril_matrix,
     xlog1py,
     xlogy
 )
@@ -156,7 +157,7 @@ def test_standard_gamma_grad(alpha):
     pdf = osp_stats.gamma.pdf(z, alpha)
     expected_grad = -cdf_dot / pdf
 
-    assert_allclose(actual_grad, expected_grad, rtol=0.0005)
+    assert_allclose(actual_grad, expected_grad, atol=1e-8, rtol=0.0005)
 
 
 @pytest.mark.parametrize('p, shape', [
@@ -168,7 +169,7 @@ def test_standard_gamma_grad(alpha):
 def test_categorical_shape(p, shape):
     rng = random.PRNGKey(0)
     expected_shape = lax.broadcast_shapes(p.shape[:-1], shape)
-    assert np.shape(categorical_rvs(rng, p, shape)) == expected_shape
+    assert np.shape(categorical(rng, p, shape)) == expected_shape
 
 
 @pytest.mark.parametrize("p", [
@@ -178,7 +179,7 @@ def test_categorical_shape(p, shape):
 def test_categorical_stats(p):
     rng = random.PRNGKey(0)
     n = 10000
-    z = categorical_rvs(rng, p, (n,))
+    z = categorical(rng, p, (n,))
     _, counts = onp.unique(z, return_counts=True)
     assert_allclose(counts / float(n), p, atol=0.01)
 
@@ -193,7 +194,7 @@ def test_multinomial_shape(p, shape):
     rng = random.PRNGKey(0)
     n = 10000
     expected_shape = lax.broadcast_shapes(p.shape[:-1], shape) + p.shape[-1:]
-    assert np.shape(multinomial_rvs(rng, n, p, shape)) == expected_shape
+    assert np.shape(multinomial(rng, p, n, shape)) == expected_shape
 
 
 @pytest.mark.parametrize("p", [
@@ -206,7 +207,27 @@ def test_multinomial_shape(p, shape):
 ])
 def test_multinomial_stats(p, n):
     rng = random.PRNGKey(0)
-    z = multinomial_rvs(rng, n, p)
+    z = multinomial(rng, p, n)
     n = float(n) if isinstance(n, Number) else np.expand_dims(n.astype(p.dtype), -1)
     p = np.broadcast_to(p, z.shape)
     assert_allclose(z / n, p, atol=0.01)
+
+
+@pytest.mark.parametrize("shape", [
+    (6,),
+    (5, 10),
+    (3, 4, 3),
+])
+@pytest.mark.parametrize("diagonal", [
+    0,
+    -1,
+    -2,
+])
+def test_vec_to_tril_matrix(shape, diagonal):
+    rng = random.PRNGKey(0)
+    x = random.normal(rng, shape)
+    actual = vec_to_tril_matrix(x, diagonal)
+    expected = onp.zeros(shape[:-1] + actual.shape[-2:])
+    tril_idxs = onp.tril_indices(expected.shape[-1], diagonal)
+    expected[..., tril_idxs[0], tril_idxs[1]] = x
+    assert_allclose(actual, expected)

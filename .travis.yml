@@ -5,7 +5,6 @@ sudo: false
 env:
     global:
         - PYTHONPATH=$PWD:$PYTHONPATH
-        - XLA_FLAGS=--xla_cpu_enable_fast_math=false
 
 cache:
     directories:
@@ -17,7 +16,7 @@ install:
     - pip install -U pip
     - pip install jaxlib
     - pip install jax
-    - pip install .[test]
+    - pip install .[examples,test]
     - pip freeze
 
 branches:
@@ -26,5 +25,17 @@ branches:
 
 jobs:
     include:
-        - python: 3.6
-          script: make test
+        - stage: lint / docs
+          before_install: pip install .[doc]
+          python: 3.6
+          script:
+            - make lint
+            - make docs
+            - make doctest
+        - stage: unit
+          name: "unit tests"
+          python: 3.6
+          script: pytest -vs -m "not test_examples"
+        - name: "examples"
+          python: 3.6
+          script: pytest -vs -m test_examples
