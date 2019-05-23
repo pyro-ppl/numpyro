@@ -13,7 +13,7 @@ from jax.tree_util import register_pytree_node
 import numpyro.distributions as dist
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
-from numpyro.util import cond, fori_loop, fori_collect, identity
+from numpyro.util import cond, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'rng'])
