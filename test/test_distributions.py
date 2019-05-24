@@ -9,7 +9,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 import jax
 import jax.numpy as np
 import jax.random as random
-from jax import grad, lax, vmap
+from jax import grad, jacfwd, lax, vmap
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
@@ -249,37 +249,29 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.02)
 
 
-@pytest.mark.parametrize('jax_dist, rtol', [
-    (dist.Dirichlet, 0.04),
-    (dist.gamma, 0.0005),
-    (dist.lognorm, 0.0005),
-    (dist.t, 1.0),
-], ids=idfn)
-@pytest.mark.parametrize('arg', [0.5, 1.0, 2.0])
-def test_pathwise_gradient(jax_dist, rtol, arg):
+@pytest.mark.parametrize('jax_dist, sp_dist, params', [
+    (dist.Gamma, osp.gamma, (1.,)),
+    (dist.Gamma, osp.gamma, (0.1,)),
+    (dist.Gamma, osp.gamma, (10.,)),
+    # TODO: add more test cases for Beta/StudentT (and Dirichlet too) when
+    # their pathwise grad (independent of standard_gamma grad) is implemented.
+    pytest.param(dist.Beta, osp.beta, (1., 1.), marks=pytest.mark.xfail(
+        reason='currently, variance of grad of beta sampler is large')),
+    pytest.param(dist.StudentT, osp.t, (1.,), marks=pytest.mark.xfail(
+        reason='currently, variance of grad of t sampler is large')),
+])
+def test_pathwise_gradient(jax_dist, sp_dist, params):
     rng = random.PRNGKey(0)
-    num_args = jax_dist.numargs
-    num_samples = 100
-    sp_dist = getattr(sp, jax_dist.name)
-    arg = np.full((num_samples,), arg)
-
-    def _make_args(i, val):
-        # create a list with i-th value is val
-        return [1 if j != i else val for j in range(num_args)]
-
-    for i in range(num_args):
-        args = _make_args(i, arg)
-        z = jax_dist.rvs(*args, random_state=rng)
-        actual_grad = grad(lambda x: np.sum(jax_dist.rvs(*_make_args(i, x), random_state=rng)))(arg)
-
-        eps = 0.01 * arg / (1.0 + np.sqrt(arg))
-        cdf_dot = ((sp_dist.cdf(z, *_make_args(i, arg + eps)) - sp_dist.cdf(z, *_make_args(i, arg - eps)))
-                   / (2 * eps))
-        pdf = sp_dist.pdf(z, *args)
-        expected_grad = -cdf_dot / pdf
-
-        assert_allclose(actual_grad, expected_grad, rtol=rtol,
-                        err_msg="mismatch w.r.t. {}-th arg".format(i))
+    N = 100
+    z = jax_dist(*params).sample(key=rng, size=(N,))
+    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng, size=(N,)))(params)
+    eps = 1e-3
+    for i in range(len(params)):
+        args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
+        args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
+        cdf_dot = (sp_dist(*args_rhs).cdf(z) - sp_dist(*args_lhs).cdf(z)) / (2 * eps)
+        expected_grad = -cdf_dot / sp_dist(*params).pdf(z)
+        assert_allclose(actual_grad[i], expected_grad, rtol=0.005)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
