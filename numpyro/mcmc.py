@@ -16,7 +16,8 @@ from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_s
 from numpyro.util import cond, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
-                                   'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'rng'])
+                                   'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                   'rng'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **i** - iteration. This is reset to 0 after warmup.
@@ -54,12 +55,15 @@ def _get_num_steps(step_size, trajectory_length):
     return num_steps.astype(np.int64)
 
 
-def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
-    if inverse_mass_matrix.ndim == 1:
-        r = dist.Normal(0., np.sqrt(np.reciprocal(inverse_mass_matrix))).sample(rng)
+def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng):
+    if mass_matrix_sqrt.ndim == 1:
+        r = dist.Normal(0., mass_matrix_sqrt).sample(rng)
         return unpack_fn(r)
-    elif inverse_mass_matrix.ndim == 2:
-        raise NotImplementedError
+    elif mass_matrix_sqrt.ndim == 2:
+        r = np.dot(mass_matrix_sqrt, dist.Normal(0., 1).sample(rng))
+        return unpack_fn(r)
+    else:
+        raise ValueError("Mass matrix has incorrect dims.")
 
 
 def _euclidean_ke(inverse_mass_matrix, r):
@@ -214,10 +218,11 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
         rng_hmc, rng_wa = random.split(rng)
         wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
-        r = momentum_generator(wa_state.inverse_mass_matrix, rng)
+        r = momentum_generator(wa_state.mass_matrix_sqrt, rng)
         vv_state = vv_init(z, r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0., 0.,
-                             wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
+                             wa_state.step_size, wa_state.inverse_mass_matrix, wa_state.mass_matrix_sqrt,
+                             rng_hmc)
 
         wa_update = jit(wa_update)
         if run_warmup:
@@ -242,7 +247,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc_state = sample_kernel(hmc_state)
         wa_state = wa_update(t, hmc_state.accept_prob, hmc_state.z, wa_state)
         hmc_state = hmc_state.update(step_size=wa_state.step_size,
-                                     inverse_mass_matrix=wa_state.inverse_mass_matrix)
+                                     inverse_mass_matrix=wa_state.inverse_mass_matrix,
+                                     mass_matrix_sqrt=wa_state.mass_matrix_sqrt)
         return hmc_state, wa_state
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng):
@@ -285,7 +291,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             Hamiltonian dynamics given existing state.
         """
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
-        r = momentum_generator(hmc_state.inverse_mass_matrix, rng_momentum)
+        r = momentum_generator(hmc_state.mass_matrix_sqrt, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, num_steps, accept_prob = _next(hmc_state.step_size,
                                                  hmc_state.inverse_mass_matrix,
@@ -294,7 +300,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / itr
         return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
                         accept_prob, mean_accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix,
-                        rng)
+                        hmc_state.mass_matrix_sqrt, rng)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
