@@ -1,8 +1,5 @@
-<<<<<<< HEAD
 import os
 
-=======
->>>>>>> upstream/master
 from jax.config import config
 
 from numpyro.util import set_rng_seed
