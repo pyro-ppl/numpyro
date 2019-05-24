@@ -11,7 +11,7 @@ EXAMPLES_DIR = os.path.join(os.path.dirname(TESTS_DIR), 'examples')
 EXAMPLES = [
     'baseball.py --num-samples 100 --num-warmup 100',
     'covtype.py --algo hmc --num-samples 10',
-    'hmm.py --num-samples 100 --num-warmup 100',
+    'hmm.py --num-samples 10 --num-warmup 10 --num-data 7',
     'minipyro.py',
     'stochastic_volatility.py --num-samples 100 --num-warmup 100',
     'ucbadmit.py',

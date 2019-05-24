@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import argparse
 
 import numpy as onp
+from jax import vmap
 import jax.numpy as np
 import jax.random as random
 
@@ -29,8 +30,7 @@ def nonlin(x):
 # given by D_X => D_H => D_H => D_Y where D_H is the number of
 # hidden units. (note we indicate tensor dimensions in the comments)
 def model(X, Y, D_H):
-    D_X = X.shape[1]
-    D_Y = 1
+    D_X, D_Y = X.shape[1], 1
 
     # sample first layer (we put unit normal priors on all weights)
     w1 = sample("w1", dist.Normal(np.zeros((D_X, D_H)), np.ones((D_X, D_H))))  # D_X D_H
@@ -55,28 +55,25 @@ def model(X, Y, D_H):
 # helper function for HMC inference
 def run_inference(model, args, rng, X, Y, D_H):
     init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y, D_H)
-    hmc_states = mcmc(args.num_warmup, args.num_samples, init_params,
-                      sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
-    return hmc_states
+    samples = mcmc(args.num_warmup, args.num_samples, init_params,
+                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
+    return samples
 
 
 # helper function for prediction
-def predict(model, rng, latents, X, D_H):
-    # we need to expand prec_obs so that the (hmc) samples dimension doesn't
-    # conflict with the data dimension in the final model sample statement
-    latents['prec_obs'] = latents['prec_obs'][:, None, None]
-    model = substitute(seed(model, rng), latents)
+def predict(model, rng, samples, X, D_H):
+    model = substitute(seed(model, rng), samples)
     # note that Y will be sampled in the model because we pass Y=None here
     model_trace = trace(model).get_trace(X=X, Y=None, D_H=D_H)
     return model_trace['Y']['value']
 
 
 # create artificial regression dataset
-def get_data(N=50, D_X=3, sigma_obs=0.05, N_test=400):
+def get_data(N=50, D_X=3, sigma_obs=0.05, N_test=500):
     D_Y = 1  # create 1d outputs
     onp.random.seed(0)
-    X = 2.0 * np.arange(N) / N - 1.0
-    X = np.power(X[:, None], np.arange(D_X))
+    X = np.linspace(-1, 1, N)
+    X = np.power(X[:, onp.newaxis], np.arange(D_X))
     W = 0.5 * onp.random.randn(D_X)
     Y = np.dot(X, W) + 0.5 * np.power(0.5 + X[:, 1], 2.0) * np.sin(4.0 * X[:, 1])
     Y += sigma_obs * onp.random.randn(N)
@@ -87,8 +84,8 @@ def get_data(N=50, D_X=3, sigma_obs=0.05, N_test=400):
     assert X.shape == (N, D_X)
     assert Y.shape == (N, D_Y)
 
-    X_test = 2.0 * np.arange(N_test) / N_test - 1.0
-    X_test = np.power(X_test[:, None], np.arange(D_X))
+    X_test = np.linspace(-1.3, 1.3, N_test)
+    X_test = np.power(X_test[:, onp.newaxis], np.arange(D_X))
 
     return X, Y, X_test
 
@@ -99,14 +96,19 @@ def main(args):
 
     # do inference
     rng, rng_predict = random.split(random.PRNGKey(0))
-    latents = run_inference(model, args, rng, X, Y, D_H)
-    predictions = predict(model, rng_predict, latents, X_test, D_H)[:, :, 0]
+    samples = run_inference(model, args, rng, X, Y, D_H)
+
+    # predict Y_test at inputs X_test
+    vmap_args = (samples, random.split(rng_predict, args.num_samples))
+    predictions = vmap(lambda samples, rng: predict(model, rng, samples, X_test, D_H))(*vmap_args)
+    predictions = predictions[..., 0]
+
+    # compute mean prediction and confidence interval around median
+    mean_prediction = np.mean(predictions, axis=0)
+    percentiles = onp.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
     fig, ax = plt.subplots(1, 1)
-
-    mean_prediction = np.mean(predictions, axis=0)
-    percentiles = onp.percentile(predictions, [5.0, 95.0], axis=0)
 
     # plot training data
     ax.plot(X[:, 1], Y[:, 0], 'kx')
@@ -114,6 +116,7 @@ def main(args):
     ax.fill_between(X_test[:, 1], percentiles[0, :], percentiles[1, :], color='lightblue')
     # plot mean prediction
     ax.plot(X_test[:, 1], mean_prediction, 'blue', ls='solid', lw=2.0)
+    ax.set(xlabel="X", ylabel="Y", title="Mean predictions with 90% CI")
 
     plt.savefig('bnn_plot.pdf')
     plt.close()
