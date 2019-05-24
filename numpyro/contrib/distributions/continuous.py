@@ -7,11 +7,13 @@
 # All rights reserved.
 
 import jax.numpy as np
+import jax.random as random
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import digamma, gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.contrib.distributions.distribution import jax_continuous
-from numpyro.distributions import constraints, random
+from numpyro.distributions import constraints
+from numpyro.distributions.util import standard_gamma
 
 
 class beta_gen(jax_continuous):
@@ -23,8 +25,8 @@ class beta_gen(jax_continuous):
         # XXX the implementation is different from PyTorch's one
         # in PyTorch, a sample is generated from dirichlet distribution
         key_a, key_b = random.split(self._random_state)
-        gamma_a = random.gamma(key_a, a, shape=self._size)
-        gamma_b = random.gamma(key_b, b, shape=self._size)
+        gamma_a = standard_gamma(key_a, a, shape=self._size)
+        gamma_b = standard_gamma(key_b, b, shape=self._size)
         return gamma_a / (gamma_a + gamma_b)
 
     def _cdf(self, x, a, b):
@@ -100,7 +102,7 @@ class gamma_gen(jax_continuous):
     _support_mask = constraints.positive
 
     def _rvs(self, a):
-        return random.gamma(self._random_state, a, shape=self._size)
+        return standard_gamma(self._random_state, a, shape=self._size)
 
     def _cdf(self, x, a):
         raise NotImplementedError('Missing jax.scipy.special.gammainc')
@@ -304,7 +306,7 @@ class t_gen(jax_continuous):
         key_n, key_g = random.split(self._random_state)
         normal = random.normal(key_n, shape=self._size)
         half_df = df / 2.0
-        gamma = random.gamma(key_n, half_df, shape=self._size)
+        gamma = standard_gamma(key_n, half_df, shape=self._size)
         return normal * np.sqrt(half_df / gamma)
 
     def _cdf(self, x, df):

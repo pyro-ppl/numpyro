@@ -100,7 +100,11 @@ class TransformedDistribution(Distribution):
 
     @property
     def support(self):
-        return self.transforms[-1].codomain if self.transforms else self.base_dist.support
+        domain = self.base_dist.support
+        for t in self.transforms:
+            t.domain = domain
+            domain = t.codomain
+        return domain
 
     @property
     def is_reparametrized(self):

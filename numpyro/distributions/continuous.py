@@ -24,10 +24,11 @@
 
 
 import jax.numpy as np
+import jax.random as random
 from jax import lax, ops
 from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
 
-from numpyro.distributions import constraints, random
+from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (
@@ -36,6 +37,7 @@ from numpyro.distributions.util import (
     multigammaln,
     promote_shapes,
     signed_stick_breaking_tril,
+    standard_gamma,
     vec_to_tril_matrix
 )
 
@@ -113,7 +115,7 @@ class Dirichlet(Distribution):
 
     def sample(self, key, size=()):
         shape = size + self.batch_shape + self.event_shape
-        gamma_samples = random.gamma(key, self.concentration, shape=shape)
+        gamma_samples = standard_gamma(key, self.concentration, shape=shape)
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
     def log_prob(self, value):
@@ -172,7 +174,7 @@ class Gamma(Distribution):
 
     def sample(self, key, size=()):
         shape = size + self.batch_shape + self.event_shape
-        return random.gamma(key, self.concentration, shape=shape) / self.rate
+        return standard_gamma(key, self.concentration, shape=shape) / self.rate
 
     def log_prob(self, value):
         if self._validate_args:
@@ -236,7 +238,6 @@ class GaussianRandomWalk(Distribution):
 class HalfCauchy(TransformedDistribution):
     reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
-    support = constraints.positive
 
     def __init__(self, scale=1., validate_args=None):
         base_dist = Cauchy(0., scale)
@@ -261,7 +262,6 @@ class HalfCauchy(TransformedDistribution):
 class HalfNormal(TransformedDistribution):
     reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
-    support = constraints.positive
 
     def __init__(self, scale=1., validate_args=None):
         base_dist = Normal(0., scale)
@@ -480,7 +480,6 @@ class Normal(Distribution):
 
 class LogNormal(TransformedDistribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
-    support = constraints.positive
     reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc=0., scale=1., validate_args=None):
@@ -499,7 +498,6 @@ class LogNormal(TransformedDistribution):
 
 class Pareto(TransformedDistribution):
     arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
-    support = constraints.real
 
     def __init__(self, alpha, scale=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(scale), np.shape(alpha))
@@ -520,6 +518,7 @@ class Pareto(TransformedDistribution):
         a = lax.div((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
         return np.where(self.alpha <= 2, np.inf, a)
 
+    # override the default behaviour to save computations
     @property
     def support(self):
         return constraints.greater_than(self.scale)
