@@ -7,7 +7,7 @@ import scipy.stats as osp_stats
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import grad, jacobian, jit, lax, random
+from jax import grad, jacobian, jit, lax, random, vmap
 from jax.scipy.special import expit
 from jax.util import partial
 
@@ -158,6 +158,16 @@ def test_standard_gamma_grad(alpha):
     expected_grad = -cdf_dot / pdf
 
     assert_allclose(actual_grad, expected_grad, atol=1e-8, rtol=0.0005)
+
+
+def test_standard_gamma_batch():
+    rng = random.PRNGKey(0)
+    alphas = np.array([1., 2., 3.])
+    rngs = random.split(rng, 3)
+
+    samples = vmap(lambda rng, alpha: standard_gamma(rng, alpha))(rngs, alphas)
+    for i in range(3):
+        assert_allclose(samples[i], standard_gamma(rngs[i], alphas[i]))
 
 
 @pytest.mark.parametrize('p, shape', [
