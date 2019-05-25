@@ -124,7 +124,7 @@ class Dirichlet(Distribution):
         concentration = lax.convert_element_type(self.concentration, value.dtype)
         normalize_term = (np.sum(gammaln(concentration), axis=-1) -
                           gammaln(np.sum(concentration, axis=-1)))
-        return np.sum(np.log(value) * (self.concentration - 1.), axis=-1) - normalize_term
+        return np.sum(np.log(value) * (concentration - 1.), axis=-1) - normalize_term
 
     @property
     def mean(self):
@@ -239,7 +239,6 @@ class GaussianRandomWalk(Distribution):
 class HalfCauchy(TransformedDistribution):
     reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
-    support = constraints.positive
 
     def __init__(self, scale=1., validate_args=None):
         base_dist = Cauchy(0., scale)
@@ -264,7 +263,6 @@ class HalfCauchy(TransformedDistribution):
 class HalfNormal(TransformedDistribution):
     reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
-    support = constraints.positive
 
     def __init__(self, scale=1., validate_args=None):
         base_dist = Normal(0., scale)
@@ -483,7 +481,6 @@ class Normal(Distribution):
 
 class LogNormal(TransformedDistribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
-    support = constraints.positive
     reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc=0., scale=1., validate_args=None):
@@ -502,7 +499,6 @@ class LogNormal(TransformedDistribution):
 
 class Pareto(TransformedDistribution):
     arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
-    support = constraints.real
 
     def __init__(self, alpha, scale=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(scale), np.shape(alpha))
@@ -523,6 +519,7 @@ class Pareto(TransformedDistribution):
         a = lax.div((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
         return np.where(self.alpha <= 2, np.inf, a)
 
+    # override the default behaviour to save computations
     @property
     def support(self):
         return constraints.greater_than(self.scale)

@@ -126,10 +126,10 @@ interval = _Interval
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 positive_integer = _IntegerGreaterThan(1)
-positive = _GreaterThan(0)
+positive = _GreaterThan(0.)
 real = _Real()
 simplex = _Simplex()
-unit_interval = _Interval(0, 1)
+unit_interval = _Interval(0., 1.)
 
 
 ##########################################################
@@ -181,10 +181,10 @@ class AffineTransform(Transform):
         if self.domain is real:
             return real
         elif isinstance(self.domain, greater_than):
-            return greater_than(self.loc + self.scale * self.domain.lower_bound)
+            return greater_than(self.__call__(self.domain.lower_bound))
         elif isinstance(self.domain, interval):
-            return interval(self.loc + self.scale * self.domain.lower_bound,
-                            self.loc + self.scale * self.domain.upper_bound)
+            return interval(self.__call__(self.domain.lower_bound),
+                            self.__call__(self.domain.upper_bound))
         else:
             raise NotImplementedError
 
@@ -296,7 +296,22 @@ class CorrCholeskyTransform(Transform):
 
 
 class ExpTransform(Transform):
-    codomain = positive
+    # TODO: refine domain/codomain logic through setters, especially when
+    # transforms for inverses are supported
+    def __init__(self, domain=real):
+        self.domain = domain
+
+    @property
+    def codomain(self):
+        if self.domain is real:
+            return positive
+        elif isinstance(self.domain, greater_than):
+            return greater_than(self.__call__(self.domain.lower_bound))
+        elif isinstance(self.domain, interval):
+            return interval(self.__call__(self.domain.lower_bound),
+                            self.__call__(self.domain.upper_bound))
+        else:
+            raise NotImplementedError
 
     def __call__(self, x):
         # XXX consider to clamp from below for stability if necessary
