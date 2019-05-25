@@ -361,8 +361,8 @@ def binary_cross_entropy_with_logits(x, y):
 
 
 def softmax(x, axis=-1):
-    unnormalized = np.exp(x - x.max(axis, keepdims=True))
-    return unnormalized / unnormalized.sum(axis, keepdims=True)
+    unnormalized = np.exp(x - np.max(x, axis, keepdims=True))
+    return unnormalized / np.sum(unnormalized, axis, keepdims=True)
 
 
 @custom_transforms
