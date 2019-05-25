@@ -123,15 +123,12 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
         collection = []
 
         val = init_val
-        #with tqdm.trange(n, desc=progbar_desc) as t:
-        t = range(n)
-        if True:
+        with tqdm.trange(n, desc=progbar_desc) as t:
             for _ in t:
                 val = body_fun(val)
                 collection.append(jit(ravel_fn)(val))
                 if diagnostics_fn:
-                    pass
-                    #t.set_postfix_str(diagnostics_fn(val), refresh=True)
+                    t.set_postfix_str(diagnostics_fn(val), refresh=True)
 
         # XXX: jax.numpy.stack/concatenate is currently so slow
         collection = onp.stack(collection)
