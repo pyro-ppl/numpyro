@@ -7,7 +7,7 @@ import scipy.special as osp_special
 
 import jax.numpy as np
 from jax import canonicalize_dtype, custom_transforms, device_get, jit, lax, random, vmap
-from jax.interpreters import ad
+from jax.interpreters import ad, batching
 from jax.lib import xla_bridge
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.special import gammaln
@@ -55,8 +55,12 @@ def _standard_gamma_one(key, alpha):
 
 # TODO: use upstream implementation when available because it is 2x faster
 def _standard_gamma_impl(key, alpha):
+    if key.ndim > 1:
+        keys = vmap(lambda k: random.split(k, np.size(alpha[0])))(key)
+    else:
+        keys = random.split(key, alpha.size)
     alphas = np.reshape(alpha, -1)
-    keys = random.split(key, alphas.size)
+    keys = np.reshape(keys, (-1, 2))
     samples = vmap(_standard_gamma_one)(keys, alphas)
     return samples.reshape(alpha.shape)
 
@@ -176,6 +180,7 @@ def _standard_gamma_p(key, alpha):
 
 ad.defjvp2(_standard_gamma_p.primitive, None,
            lambda tangent, sample, key, alpha, **kwargs: tangent * _standard_gamma_grad(sample, alpha))
+batching.defvectorized(_standard_gamma_p.primitive)
 
 
 @partial(jit, static_argnums=(2, 3))
