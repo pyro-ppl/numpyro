@@ -35,7 +35,9 @@ jobs:
         - stage: unit
           name: "unit tests"
           python: 3.6
-          script: pytest -vs -m "not test_examples"
+          script:
+              - pytest -vs -m "not test_examples"
+              - JAX_ENABLE_x64=1 pytest -vs test/test_mcmc.py
         - name: "examples"
           python: 3.6
           script: pytest -vs -m test_examples

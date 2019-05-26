@@ -48,8 +48,10 @@ HMCState.update = HMCState._replace
 
 
 def _get_num_steps(step_size, trajectory_length):
-    num_steps = np.array(trajectory_length / step_size, dtype=np.int32)
-    return np.where(num_steps < 1, np.array(1, dtype=np.int32), num_steps)
+    num_steps = np.clip(trajectory_length / step_size, a_min=1)
+    # NB: casting to np.int64 does not take effect (returns np.int32 instead)
+    # if jax_enable_x64 is False
+    return num_steps.astype(np.int64)
 
 
 def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):

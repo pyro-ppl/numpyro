@@ -8,6 +8,7 @@ import scipy.special as osp_special
 import jax.numpy as np
 from jax import canonicalize_dtype, custom_transforms, device_get, jit, lax, random, vmap
 from jax.interpreters import ad, batching
+from jax.lib import xla_bridge
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.special import gammaln
 from jax.util import partial
@@ -183,7 +184,7 @@ batching.defvectorized(_standard_gamma_p.primitive)
 
 
 @partial(jit, static_argnums=(2, 3))
-def _standard_gamma(key, alpha, shape=(), dtype=np.float32):
+def _standard_gamma(key, alpha, shape, dtype):
     shape = shape or np.shape(alpha)
     alpha = lax.convert_element_type(alpha, dtype)
     if np.shape(alpha) != shape:
@@ -191,14 +192,15 @@ def _standard_gamma(key, alpha, shape=(), dtype=np.float32):
     return _standard_gamma_p(key, alpha)
 
 
-def standard_gamma(key, alpha, shape=(), dtype=np.float32):
+def standard_gamma(key, alpha, shape=(), dtype=np.float64):
+    dtype = xla_bridge.canonicalize_dtype(dtype)
     return _standard_gamma(key, alpha, shape, dtype)
 
 
 # TODO: inefficient implementation; jit currently fails due to
 # dynamic size of random.uniform.
 @partial(jit, static_argnums=(2, 3))
-def _binomial(key, p, n=1, shape=()):
+def _binomial(key, p, n, shape):
     p, n = promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
     n_max = int(np.max(n))
@@ -216,7 +218,7 @@ def binomial(key, p, n=1, shape=()):
 
 
 @partial(jit, static_argnums=(2,))
-def _categorical(key, p, shape=()):
+def _categorical(key, p, shape):
     # this implementation is fast when event shape is small, and slow otherwise
     # Ref: https://stackoverflow.com/a/34190035
     shape = shape or p.shape[:-1]
@@ -232,7 +234,7 @@ def categorical(key, p, shape=()):
 
 
 @partial(jit, static_argnums=(2,))
-def _poisson(key, rate, shape=()):
+def _poisson(key, rate, shape):
     # Ref: https://en.wikipedia.org/wiki/Poisson_distribution#Generating_Poisson-distributed_random_variables
     shape = shape or np.shape(rate)
     L = np.exp(-rate)

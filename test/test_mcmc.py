@@ -1,3 +1,5 @@
+import os
+
 import numpy as onp
 import pytest
 from numpy.testing import assert_allclose
@@ -32,6 +34,9 @@ def test_unnormalized_normal(algo):
     assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
     assert_allclose(np.std(hmc_states), true_std, rtol=0.05)
 
+    if 'JAX_ENABLE_x64' in os.environ:
+        assert hmc_states.dtype == np.float64
+
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_logistic_regression(algo):
@@ -48,9 +53,12 @@ def test_logistic_regression(algo):
         return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, labels)
-    hmc_states = mcmc(warmup_steps, num_samples, init_params, sampler='hmc',
-                      potential_fn=potential_fn, trajectory_length=10, constrain_fn=constrain_fn)
-    assert_allclose(np.mean(hmc_states['coefs'], 0), true_coefs, atol=0.2)
+    samples = mcmc(warmup_steps, num_samples, init_params, sampler='hmc',
+                   potential_fn=potential_fn, trajectory_length=10, constrain_fn=constrain_fn)
+    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
+
+    if 'JAX_ENABLE_x64' in os.environ:
+        assert samples['coefs'].dtype == np.float64
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
@@ -77,6 +85,9 @@ def test_beta_bernoulli(algo):
                               progbar=False)
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.05)
 
+    if 'JAX_ENABLE_x64' in os.environ:
+        assert hmc_states['p_latent'].dtype == np.float64
+
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_dirichlet_categorical(algo):
@@ -101,6 +112,9 @@ def test_dirichlet_categorical(algo):
                               progbar=False)
     assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.02)
 
+    if 'JAX_ENABLE_x64' in os.environ:
+        assert hmc_states['p_latent'].dtype == np.float64
+
 
 def test_change_point():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
@@ -122,8 +136,7 @@ def test_change_point():
         12,  35,  17,  23,  17,   4,   2,  31,  30,  13,  27,   0,  39,  37,
         5,  14,  13,  22,
     ])
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, count_data,
-                                                               init_strategy='prior')
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(4), model, count_data)
     init_kernel, sample_kernel = hmc(potential_fn)
     hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
@@ -133,6 +146,11 @@ def test_change_point():
     mode_ind = np.argmax(counts)
     mode = tau_values[mode_ind]
     assert mode == 44
+
+    if 'JAX_ENABLE_x64' in os.environ:
+        assert hmc_states['lambda1'].dtype == np.float64
+        assert hmc_states['lambda2'].dtype == np.float64
+        assert hmc_states['tau'].dtype == np.float64
 
 
 @pytest.mark.parametrize('with_logits', ['True', 'False'])
@@ -156,3 +174,6 @@ def test_binomial_stable(with_logits):
                               transform=lambda x: constrain_fn(x.z))
 
     assert_allclose(np.mean(hmc_states['p'], 0), data['x'] / data['n'], rtol=0.05)
+
+    if 'JAX_ENABLE_x64' in os.environ:
+        assert hmc_states['p'].dtype == np.float64
