@@ -56,7 +56,7 @@ def _to_logits_bernoulli(probs):
 
 
 def _to_probs_multinom(logits):
-    return softmax(x, axis=-1)
+    return softmax(logits, axis=-1)
 
 
 def _to_logits_multinom(probs):
