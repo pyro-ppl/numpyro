@@ -38,6 +38,27 @@ def test_unnormalized_normal(algo):
         assert hmc_states.dtype == np.float64
 
 
+@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
+def test_correlated_mvn():
+    # This requires dense mass matrix estimation.
+    D = 5
+
+    warmup_steps, num_samples = 5000, 8000
+
+    true_mean = 0.
+    a = np.tril(0.5 * np.fliplr(np.eye(D)) + 0.1 * np.exp(random.normal(random.PRNGKey(0), shape=(D, D))))
+    true_cov = np.dot(a, a.T)
+    true_prec = np.linalg.inv(true_cov)
+
+    def potential_fn(z):
+        return 0.5 * np.dot(z.T, np.dot(true_prec, z))
+
+    init_params = np.zeros(D)
+    samples = mcmc(warmup_steps, num_samples, init_params, potential_fn=potential_fn, diag_mass=False)
+    assert_allclose(np.mean(samples), true_mean, rtol=0.05, atol=0.01)
+    assert onp.sum(onp.abs(onp.cov(samples.T) - true_cov)) / D**2 < 0.02
+
+
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_logistic_regression(algo):
     N, dim = 3000, 3
@@ -116,7 +137,9 @@ def test_dirichlet_categorical(algo):
         assert hmc_states['p_latent'].dtype == np.float64
 
 
-def test_change_point():
+@pytest.mark.parametrize('diag_mass', [False, True])
+@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
+def test_change_point(diag_mass):
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
     warmup_steps, num_samples = 500, 3000
 
@@ -138,10 +161,10 @@ def test_change_point():
     ])
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(4), model, count_data)
     init_kernel, sample_kernel = hmc(potential_fn)
-    hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
-    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: constrain_fn(x.z))
-    tau_posterior = (hmc_states['tau'] * len(count_data)).astype("int")
+    hmc_state = init_kernel(init_params, num_warmup=warmup_steps, diag_mass=diag_mass)
+    samples = fori_collect(num_samples, sample_kernel, hmc_state,
+                           transform=lambda x: constrain_fn(x.z))
+    tau_posterior = (samples['tau'] * len(count_data)).astype("int")
     tau_values, counts = onp.unique(tau_posterior, return_counts=True)
     mode_ind = np.argmax(counts)
     mode = tau_values[mode_ind]

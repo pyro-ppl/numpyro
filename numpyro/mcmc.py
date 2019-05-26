@@ -60,10 +60,10 @@ def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng):
         r = dist.Normal(0., mass_matrix_sqrt).sample(rng)
         return unpack_fn(r)
     elif mass_matrix_sqrt.ndim == 2:
-        r = np.dot(mass_matrix_sqrt, dist.Normal(0., 1).sample(rng))
+        r = np.dot(mass_matrix_sqrt, dist.Normal(0., 1.).sample(rng, np.shape(mass_matrix_sqrt)[:1]))
         return unpack_fn(r)
     else:
-        raise ValueError("Mass matrix has incorrect dims.")
+        raise ValueError("Mass matrix has incorrect number of dims.")
 
 
 def _euclidean_ke(inverse_mass_matrix, r):
