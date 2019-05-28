@@ -57,7 +57,7 @@ def test_correlated_mvn():
 
     init_params = np.zeros(D)
     samples = mcmc(warmup_steps, num_samples, init_params, potential_fn=potential_fn, dense_mass=True)
-    assert_allclose(np.mean(samples), true_mean, rtol=0.05, atol=0.01)
+    assert_allclose(np.mean(samples), true_mean, atol=0.02)
     assert onp.sum(onp.abs(onp.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
