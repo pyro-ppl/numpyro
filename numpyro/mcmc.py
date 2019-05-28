@@ -10,7 +10,6 @@ from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 from jax.tree_util import register_pytree_node
 
-import numpyro.distributions as dist
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
 from numpyro.util import cond, fori_collect, fori_loop, identity
