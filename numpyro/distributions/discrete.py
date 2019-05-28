@@ -40,6 +40,7 @@ from numpyro.distributions.util import (
     multinomial,
     poisson,
     promote_shapes,
+    softmax,
     xlog1py,
     xlogy
 )
@@ -55,8 +56,7 @@ def _to_logits_bernoulli(probs):
 
 
 def _to_probs_multinom(logits):
-    x = np.exp(logits - np.max(logits, -1, keepdims=True))
-    return x / x.sum(-1, keepdims=True)
+    return softmax(logits, axis=-1)
 
 
 def _to_logits_multinom(probs):
