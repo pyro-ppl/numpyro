@@ -28,7 +28,8 @@ def gelman_rubin(x):
     It is required that ``input.shape[0] >= 2`` and ``input.shape[1] >= 2``.
 
     :param numpy.ndarray x: the input array.
-    :returns numpy.ndarray: R-hat of ``x``.
+    :return: R-hat of ``x``.
+    :rtype: numpy.ndarray
     """
     assert x.ndim >= 2
     assert x.shape[0] >= 2
@@ -45,7 +46,8 @@ def split_gelman_rubin(x):
     It is required that ``input.shape[1] >= 4``.
 
     :param numpy.ndarray x: the input array.
-    :returns numpy.ndarray: split R-hat of ``x``.
+    :return: split R-hat of ``x``.
+    :rtype: numpy.ndarray
     """
     assert x.ndim >= 2
     assert x.shape[1] >= 4
@@ -80,7 +82,8 @@ def autocorrelation(x, axis=0):
 
     :param numpy.array x: the input array.
     :param int axis: the dimension to calculate autocorrelation.
-    :returns numpy.array: autocorrelation of ``x``.
+    :return: autocorrelation of ``x``.
+    :rtype: numpy.ndarray
     """
     # Ref: https://en.wikipedia.org/wiki/Autocorrelation#Efficient_computation
     # Adapted from Stan implementation
@@ -115,7 +118,8 @@ def autocovariance(x, axis=0):
 
     :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocovariance.
-    :returns numpy.ndarray: autocovariance of ``x``.
+    :return: autocovariance of ``x``.
+    :rtype: numpy.ndarray
     """
     return autocorrelation(x, axis) * x.var(axis=axis, keepdims=True)
 
@@ -126,13 +130,15 @@ def effective_sample_size(x):
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
 
     **References:**
-    [1] `Introduction to Markov Chain Monte Carlo`,
-        Charles J. Geyer
-    [2] `Stan Reference Manual version 2.18`,
-        Stan Development Team
+
+    1. *Introduction to Markov Chain Monte Carlo*,
+       Charles J. Geyer
+    2. *Stan Reference Manual version 2.18*,
+       Stan Development Team
 
     :param numpy.ndarray x: the input array.
-    :returns numpy.ndarray: effective sample size of ``x``.
+    :return: effective sample size of ``x``.
+    :rtype: numpy.ndarray
     """
     assert x.ndim >= 2
     assert x.shape[1] >= 2
@@ -169,8 +175,9 @@ def hpdi(x, prob=0.89, axis=0):
     :param numpy.ndarray x: the input array.
     :param float prob: the probability mass of samples within the interval.
     :param int axis: the dimension to calculate hpdi.
-    :returns numpy.ndarray: quantiles of ``input`` at ``(1 - probs) / 2`` and
+    :return: quantiles of ``input`` at ``(1 - probs) / 2`` and
         ``(1 + probs) / 2``.
+    :rtype: numpy.ndarray
     """
     x = onp.swapaxes(x, axis, 0)
     sorted_x = onp.sort(x, axis=0)

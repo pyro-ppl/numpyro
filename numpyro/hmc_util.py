@@ -231,9 +231,9 @@ def _identity_step_size(inverse_mass_matrix, z, rng, step_size):
 
 def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_size,
                    adapt_step_size=True, adapt_mass_matrix=True,
-                   diag_mass=True, target_accept_prob=0.8):
+                   dense_mass=False, target_accept_prob=0.8):
     ss_init, ss_update = dual_averaging()
-    mm_init, mm_update, mm_final = welford_covariance(diagonal=diag_mass)
+    mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
     num_windows = len(adaptation_schedule)
 
@@ -241,16 +241,16 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         rng, rng_ss = random.split(rng)
         if inverse_mass_matrix is None:
             assert mass_matrix_size is not None
-            if diag_mass:
-                inverse_mass_matrix = np.ones(mass_matrix_size)
-            else:
+            if dense_mass:
                 inverse_mass_matrix = np.identity(mass_matrix_size)
+            else:
+                inverse_mass_matrix = np.ones(mass_matrix_size)
             mass_matrix_sqrt = inverse_mass_matrix
         else:
-            if diag_mass:
-                mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
-            else:
+            if dense_mass:
                 mass_matrix_sqrt = np.linalg.cholesky(np.linalg.inv(inverse_mass_matrix))
+            else:
+                mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)

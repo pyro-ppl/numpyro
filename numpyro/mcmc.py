@@ -56,11 +56,12 @@ def _get_num_steps(step_size, trajectory_length):
 
 
 def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng):
+    eps = random.normal(rng, np.shape(mass_matrix_sqrt)[:1])
     if mass_matrix_sqrt.ndim == 1:
-        r = dist.Normal(0., mass_matrix_sqrt).sample(rng)
+        r = np.multiply(mass_matrix_sqrt, eps)
         return unpack_fn(r)
     elif mass_matrix_sqrt.ndim == 2:
-        r = np.dot(mass_matrix_sqrt, dist.Normal(0., 1.).sample(rng, np.shape(mass_matrix_sqrt)[:1]))
+        r = np.dot(mass_matrix_sqrt, eps)
         return unpack_fn(r)
     else:
         raise ValueError("Mass matrix has incorrect number of dims.")
@@ -155,7 +156,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     step_size=1.0,
                     adapt_step_size=True,
                     adapt_mass_matrix=True,
-                    diag_mass=True,
+                    dense_mass=False,
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
@@ -176,8 +177,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             during warm-up phase using Dual Averaging scheme.
         :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
             matrix during warm-up phase using Welford scheme.
-        :param bool diag_mass: A flag to decide if mass matrix is diagonal (default)
-            or dense (if set to ``False``).
+        :param bool dense_mass: A flag to decide if mass matrix is dense or
+            diagonal (default when ``dense_mass=False``)
         :param float target_accept_prob: Target acceptance probability for step size
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Default to 0.8.
@@ -212,7 +213,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         wa_init, wa_update = warmup_adapter(num_warmup,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
-                                            diag_mass=diag_mass,
+                                            dense_mass=dense_mass,
                                             target_accept_prob=target_accept_prob,
                                             find_reasonable_step_size=find_reasonable_ss)
 
