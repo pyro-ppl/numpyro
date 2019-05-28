@@ -1,7 +1,3 @@
-import scipy
-import scipy.stats
-
-
 def patch_dependency(target, root_module):
     parts = target.split('.')
     assert parts[0] == root_module.__name__
@@ -19,8 +15,3 @@ def patch_dependency(target, root_module):
         return new_fn
 
     return decorator
-
-
-@patch_dependency('scipy.stats._distn_infrastructure.rv_frozen.__call__', scipy)
-def _rv_frozen_call(self, *args, **kwargs):
-    return self.rvs(*args, **kwargs)

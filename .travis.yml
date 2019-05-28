@@ -14,7 +14,9 @@ dist: xenial
 
 install:
     - pip install -U pip
-    - pip install .[test]
+    - pip install jaxlib
+    - pip install jax
+    - pip install .[examples,test]
     - pip freeze
 
 branches:
@@ -23,5 +25,19 @@ branches:
 
 jobs:
     include:
-        - python: 3.6
-          script: make test
+        - stage: lint / docs
+          before_install: pip install .[doc]
+          python: 3.6
+          script:
+            - make lint
+            - make docs
+            - make doctest
+        - stage: unit
+          name: "unit tests"
+          python: 3.6
+          script:
+              - pytest -vs -m "not test_examples"
+              - JAX_ENABLE_x64=1 pytest -vs test/test_mcmc.py
+        - name: "examples"
+          python: 3.6
+          script: pytest -vs -m test_examples

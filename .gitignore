@@ -14,7 +14,7 @@ __pycache__/
 
 # data files
 numpyro/examples/.data
-numpyro/examples/.results
+examples/.results
 numpyro/.DS_Store
 
 # test related
@@ -25,3 +25,7 @@ numpyro/examples/.data
 
 # tmp files
 .*.swp
+
+# docs
+docs/build
+docs/.DS_Store

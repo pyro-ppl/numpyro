@@ -1,10 +1,9 @@
-import jax.numpy as np
-from jax import random, value_and_grad
-from jax.experimental import optimizers
+import os
 
-from numpyro.distributions.distribution import jax_continuous
-from numpyro.distributions.util import validation_disabled
+from jax import random, value_and_grad
+
 from numpyro.handlers import replay, seed, substitute, trace
+from numpyro.hmc_util import log_density
 
 
 def _seed(model, guide, rng):
@@ -14,8 +13,35 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-def svi(model, guide, loss, optim_init, optim_update, **kwargs):
+def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
+    """
+    Stochastic Variational Inference given an ELBo loss objective.
+
+    :param model: Python callable with Pyro primitives for the model.
+    :param guide: Python callable with Pyro primitives for the guide
+        (recognition network).
+    :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
+    :param optim_init: initialization function returned by a JAX optimizer.
+        see: :mod:`jax.experimental.optimizers`.
+    :param optim_update: update function for the optimizer
+    :param get_params: function to get current parameters values given the
+        optimizer state.
+    :param `**kwargs`: static arguments for the model / guide, i.e. arguments
+        that remain constant during fitting.
+    :return: tuple of `(init_fn, update_fn, evaluate)`.
+    """
     def init_fn(rng, model_args=(), guide_args=(), params=None):
+        """
+
+        :param jax.random.PRNGKey rng: random number generator seed.
+        :param tuple model_args: arguments to the model (these can possibly vary during
+            the course of fitting).
+        :param tuple guide_args: arguments to the guide (these can possibly vary during
+            the course of fitting).
+        :param dict params: initial parameter values to condition on. This can be
+            useful forx
+        :return: initial optimizer state.
+        """
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
         model_init, guide_init = _seed(model, guide, rng)
@@ -32,50 +58,78 @@ def svi(model, guide, loss, optim_init, optim_update, **kwargs):
         return optim_init(params)
 
     def update_fn(i, opt_state, rng, model_args=(), guide_args=()):
+        """
+        Take a single step of SVI (possibly on a batch / minibatch of data),
+        using the optimizer.
+
+        :param int i: represents the i'th iteration over the epoch, passed as an
+            argument to the optimizer's update function.
+        :param opt_state: current optimizer state.
+        :param jax.random.PRNGKey rng: random number generator seed.
+        :param tuple model_args: dynamic arguments to the model.
+        :param tuple guide_args: dynamic arguments to the guide.
+        :return: tuple of `(loss_val, opt_state, rng)`.
+        """
         model_init, guide_init = _seed(model, guide, rng)
-        params = optimizers.get_params(opt_state)
+        params = get_params(opt_state)
         loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args, guide_args, kwargs)
         opt_state = optim_update(i, grads, opt_state)
         rng, = random.split(rng, 1)
         return loss_val, opt_state, rng
 
     def evaluate(opt_state, rng, model_args=(), guide_args=()):
+        """
+        Take a single step of SVI (possibly on a batch / minibatch of data).
+
+        :param opt_state: current optimizer state.
+        :param jax.random.PRNGKey rng: random number generator seed.
+        :param tuple model_args: arguments to the model (these can possibly vary during
+            the course of fitting).
+        :param tuple guide_args: arguments to the guide (these can possibly vary during
+            the course of fitting).
+        :return: evaluate ELBo loss given the current parameter values
+            (held within `opt_state`).
+        """
         model_init, guide_init = _seed(model, guide, rng)
-        params = optimizers.get_params(opt_state)
+        params = get_params(opt_state)
         return loss(params, model_init, guide_init, model_args, guide_args, kwargs)
+
+    # Make local functions visible from the global scope once
+    # `svi` is called for sphinx doc generation.
+    if 'SPHINX_BUILD' in os.environ:
+        svi.init_fn = init_fn
+        svi.update_fn = update_fn
+        svi.evaluate = evaluate
 
     return init_fn, update_fn, evaluate
 
 
-# This is a basic implementation of the Evidence Lower Bound, which is the
-# fundamental objective in Variational Inference.
-# See http://pyro.ai/examples/svi_part_i.html for details.
-# This implementation has various limitations (for example it only supports
-# random variablbes with reparameterized samplers), but all the ELBO
-# implementations in Pyro share the same basic logic.
 def elbo(param_map, model, guide, model_args, guide_args, kwargs):
-    model = substitute(model, param_map)
-    guide = substitute(guide, param_map)
-    guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
-    model_trace = trace(replay(model, guide_trace)).get_trace(*model_args, **kwargs)
-    elbo = 0.
-    # Loop over all the sample sites in the model and add the corresponding
-    # log p(z) term to the ELBO. Note that this will also include any observed
-    # data, i.e. sample sites with the keyword `obs=...`.
+    """
+    This is the most basic implementation of the Evidence Lower Bound, which is the
+    fundamental objective in Variational Inference. This implementation has various
+    limitations (for example it only supports random variablbes with reparameterized
+    samplers) but can be used as a template to build more sophisticated loss
+    objectives.
 
-    def logp(d, val):
-        # TODO: Find alternatives to this anti-pattern.
-        with validation_disabled():
-            return d.logpdf(val) if isinstance(d.dist, jax_continuous) else d.logpmf(val)
+    For more details, refer to http://pyro.ai/examples/svi_part_i.html.
 
-    for site in model_trace.values():
-        if site["type"] == "sample":
-            elbo = elbo + np.sum(logp(site["fn"], site["value"]))
-    # Loop over all the sample sites in the guide and add the corresponding
-    # -log q(z) term to the ELBO.
-    for site in guide_trace.values():
-        if site["type"] == "sample":
-            elbo = elbo - np.sum(logp(site["fn"], site["value"]))
+    :param dict param_map: dictionary of current parameter values keyed by site
+        name.
+    :param model: Python callable with Pyro primitives for the model.
+    :param guide: Python callable with Pyro primitives for the guide
+        (recognition network).
+    :param tuple model_args: arguments to the model (these can possibly vary during
+        the course of fitting).
+    :param tuple guide_args: arguments to the guide (these can possibly vary during
+        the course of fitting).
+    :param dict kwargs: static keyword arguments to the model / guide.
+    :return: negative of the Evidence Lower Bound (ELBo) to be minimized.
+    """
+    guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
+    model_log_density, _ = log_density(replay(model, guide_trace), model_args, kwargs, param_map)
+    # log p(z) - log q(z)
+    elbo = model_log_density - guide_log_density
     # Return (-elbo) since by convention we do gradient descent on a loss and
     # the ELBO is a lower bound that needs to be maximized.
     return -elbo

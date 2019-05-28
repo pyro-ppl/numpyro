@@ -1,78 +1,141 @@
-# Source code modified from scipy.stats._distn_infrastructure.py
+# The implementation follows the design in PyTorch: torch.distributions.distribution.py
 #
-# Copyright (c) 2001, 2002 Enthought, Inc.
-# All rights reserved.
+# Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
+# Copyright (c) 2014-     Facebook, Inc            (Soumith Chintala)
+# Copyright (c) 2011-2014 Idiap Research Institute (Ronan Collobert)
+# Copyright (c) 2012-2014 Deepmind Technologies    (Koray Kavukcuoglu)
+# Copyright (c) 2011-2012 NEC Laboratories America (Koray Kavukcuoglu)
+# Copyright (c) 2011-2013 NYU                      (Clement Farabet)
+# Copyright (c) 2006-2010 NEC Laboratories America (Ronan Collobert, Leon Bottou, Iain Melvin, Jason Weston)
+# Copyright (c) 2006      Idiap Research Institute (Samy Bengio)
+# Copyright (c) 2001-2004 Idiap Research Institute (Ronan Collobert, Samy Bengio, Johnny Mariethoz)
 #
-# Copyright (c) 2003-2019 SciPy Developers.
-# All rights reserved.
-
-import numpy as onp
-import scipy.stats as osp_stats
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
 
 import jax.numpy as np
-from jax import device_put, lax
-from jax.numpy.lax_numpy import _promote_args
-from jax.random import _is_prng_key
-from jax.scipy import stats
+
+from numpyro.distributions.constraints import Transform, is_dependent
+from numpyro.distributions.util import sum_rightmost
 
 
-class jax_continuous(osp_stats.rv_continuous):
-    def rvs(self, *args, **kwargs):
-        rng = kwargs.pop('random_state')
-        if rng is None:
-            rng = self.random_state
-        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
-        assert _is_prng_key(rng)
-        args = list(args)
-        # If 'size' is not in kwargs, then it is either the last element of args
-        # or it will take default value (which is None).
-        # Note: self.numargs is the number of shape parameters.
-        size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 2) else None)
-        # TODO: when args is not empty, parse_args requires either _pdf or _cdf method is implemented
-        # to recognize valid arg signatures (e.g. `a` in `gamma` or `s` in lognormal)
-        args, loc, scale = self._parse_args(*args, **kwargs)
-        # FIXME(fehiepsi): Using _promote_args_like requires calling `super(jax_continuous, self).rvs` but
-        # it will call `self._rvs` (which is written using JAX and requires JAX random state).
-        loc, scale, *args = _promote_args("rvs", loc, scale, *args)
-        if not size:
-            shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
-            size = lax.broadcast_shapes(*shapes)
-        self._random_state = rng
-        self._size = size
-        vals = self._rvs(*args)
-        return vals * scale + loc
+class Distribution(object):
+    arg_constraints = {}
+    support = None
+    reparametrized_params = []
+    _validate_args = False
 
-    def pdf(self, x, *args, **kwargs):
-        if hasattr(stats, self.name):
-            return getattr(stats, self.name).pdf(x, *args, **kwargs)
+    def __init__(self, batch_shape=(), event_shape=(), validate_args=None):
+        self._batch_shape = batch_shape
+        self._event_shape = event_shape
+        if validate_args is not None:
+            self._validate_args = validate_args
+        if self._validate_args:
+            for param, constraint in self.arg_constraints.items():
+                if is_dependent(constraint):
+                    continue  # skip constraints that cannot be checked
+                if not np.all(constraint(getattr(self, param))):
+                    raise ValueError("The parameter {} has invalid values".format(param))
+        super(Distribution, self).__init__()
+
+    @property
+    def batch_shape(self):
+        return self._batch_shape
+
+    @property
+    def event_shape(self):
+        return self._event_shape
+
+    def sample(self, key, size=()):
+        raise NotImplementedError
+
+    def log_prob(self, value):
+        raise NotImplementedError
+
+    @property
+    def mean(self):
+        raise NotImplementedError
+
+    @property
+    def variance(self):
+        raise NotImplementedError
+
+    def _validate_sample(self, value):
+        if not np.all(self.support(value)):
+            raise ValueError('Invalid values provided to log prob method. '
+                             'The value argument must be within the support.')
+
+    def __call__(self, *args, **kwargs):
+        key = kwargs.pop('random_state')
+        return self.sample(key, *args, **kwargs)
+
+
+class TransformedDistribution(Distribution):
+    arg_constraints = {}
+
+    def __init__(self, base_distribution, transforms, validate_args=None):
+        self.base_dist = base_distribution
+        if isinstance(transforms, Transform):
+            self.transforms = [transforms, ]
+        elif isinstance(transforms, list):
+            if not all(isinstance(t, Transform) for t in transforms):
+                raise ValueError("transforms must be a Transform or a list of Transforms")
+            self.transforms = transforms
         else:
-            return super(jax_continuous, self).pdf(x, *args, **kwargs)
+            raise ValueError("transforms must be a Transform or list, but was {}".format(transforms))
+        shape = self.base_dist.batch_shape + self.base_dist.event_shape
+        event_dim = max([len(self.base_dist.event_shape)] + [t.event_dim for t in self.transforms])
+        batch_shape = shape[:len(shape) - event_dim]
+        event_shape = shape[len(shape) - event_dim:]
+        super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
-    def logpdf(self, x, *args, **kwargs):
-        if hasattr(stats, self.name):
-            return getattr(stats, self.name).logpdf(x, *args, **kwargs)
-        else:
-            return super(jax_continuous, self).logpdf(x, *args, **kwargs)
+    @property
+    def support(self):
+        domain = self.base_dist.support
+        for t in self.transforms:
+            t.domain = domain
+            domain = t.codomain
+        return domain
 
+    @property
+    def is_reparametrized(self):
+        return self.base_dist.reparametrized
 
-class jax_discrete(osp_stats.rv_discrete):
-    args_check = True
+    def sample(self, key, size=()):
+        x = self.base_dist.sample(key, size)
+        for transform in self.transforms:
+            x = transform(x)
+        return x
 
-    # Discrete distribution instances use scipy samplers directly
-    # and put the samples on device later.
-    def rvs(self, *args, **kwargs):
-        kwargs['random_state'] = onp.random.RandomState(kwargs['random_state'])
-        sample = super(osp_stats.rv_discrete, self).rvs(*args, **kwargs)
-        return device_put(sample)
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        event_dim = len(self.event_shape)
+        log_prob = 0.0
+        y = value
+        for transform in reversed(self.transforms):
+            x = transform.inv(y)
+            log_prob = log_prob - sum_rightmost(transform.log_abs_det_jacobian(x, y),
+                                                event_dim - transform.event_dim)
+            y = x
 
-    def logpmf(self, k, *args, **kwds):
-        args, loc, _ = self._parse_args(*args, **kwds)
-        k = k - loc
-        if self.args_check:
-            cond0 = self._argcheck(*args)
-            cond1 = (k >= self.a) & (k <= self.b) & (np.floor(k) == k)
-            if not np.all(cond0):
-                raise ValueError('Invalid distribution arguments provided to {}.logpmf'.format(self))
-            if not np.all(cond1):
-                raise ValueError('Invalid values provided to {}.logpmf'.format(self))
-        return self._logpmf(k, *args)
+        log_prob = log_prob + sum_rightmost(self.base_dist.log_prob(y),
+                                            event_dim - len(self.base_dist.event_shape))
+        return log_prob
+
+    @property
+    def mean(self):
+        raise NotImplementedError
+
+    @property
+    def variance(self):
+        raise NotImplementedError
