@@ -11,8 +11,8 @@ from numpyro.handlers import seed, substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
-AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "ss_state", "mm_state",
-                                     "window_idx", "rng"])
+AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "mass_matrix_sqrt",
+                                     "ss_state", "mm_state", "window_idx", "rng"])
 IntegratorState = laxtuple("IntegratorState", ["z", "r", "potential_energy", "z_grad"])
 
 TreeInfo = laxtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
@@ -20,6 +20,14 @@ TreeInfo = laxtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
                                  'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
                                  'depth', 'weight', 'r_sum', 'turning', 'diverging',
                                  'sum_accept_probs', 'num_proposals'])
+
+
+def _cholesky_inverse(matrix):
+    # This formulation only takes the inverse of a triangular matrix
+    # which is more numerically stable.
+    # Refer to:
+    # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
+    return np.linalg.inv(np.linalg.cholesky(matrix[::-1, ::-1])[::-1, ::-1]).T
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
@@ -138,7 +146,11 @@ def welford_covariance(diagonal=True):
                 cov = scaled_cov + shrinkage
             else:
                 cov = scaled_cov + shrinkage * np.identity(mean.shape[0], dtype=mean.dtype)
-        return cov
+        if np.ndim(cov) == 2:
+            cov_inv_sqrt = _cholesky_inverse(cov)
+        else:
+            cov_inv_sqrt = np.sqrt(np.reciprocal(cov))
+        return cov, cov_inv_sqrt
 
     return init_fn, update_fn, final_fn
 
@@ -250,9 +262,9 @@ def _identity_step_size(inverse_mass_matrix, z, rng, step_size):
 
 def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_size,
                    adapt_step_size=True, adapt_mass_matrix=True,
-                   diag_mass=True, target_accept_prob=0.8):
+                   dense_mass=False, target_accept_prob=0.8):
     ss_init, ss_update = dual_averaging()
-    mm_init, mm_update, mm_final = welford_covariance(diagonal=diag_mass)
+    mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
     num_windows = len(adaptation_schedule)
 
@@ -260,10 +272,16 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         rng, rng_ss = random.split(rng)
         if inverse_mass_matrix is None:
             assert mass_matrix_size is not None
-            if diag_mass:
-                inverse_mass_matrix = np.ones(mass_matrix_size)
-            else:
+            if dense_mass:
                 inverse_mass_matrix = np.identity(mass_matrix_size)
+            else:
+                inverse_mass_matrix = np.ones(mass_matrix_size)
+            mass_matrix_sqrt = inverse_mass_matrix
+        else:
+            if dense_mass:
+                mass_matrix_sqrt = _cholesky_inverse(inverse_mass_matrix)
+            else:
+                mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
@@ -272,23 +290,25 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         window_idx = 0
-        return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng)
+        return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                          ss_state, mm_state, window_idx, rng)
 
     def _update_at_window_end(z, rng_ss, state):
-        step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng = state
+        step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng = state
 
         if adapt_mass_matrix:
-            inverse_mass_matrix = mm_final(mm_state, regularize=True)
+            inverse_mass_matrix, mass_matrix_sqrt = mm_final(mm_state, regularize=True)
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
             ss_state = ss_init(np.log(10 * step_size))
 
-        return AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng)
+        return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                          ss_state, mm_state, window_idx, rng)
 
     def update_fn(t, accept_prob, z, state):
-        step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng = state
+        step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng = state
         rng, rng_ss = random.split(rng)
 
         # update step size state
@@ -310,7 +330,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
-        state = AdaptState(step_size, inverse_mass_matrix, ss_state, mm_state, window_idx, rng)
+        state = AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                           ss_state, mm_state, window_idx, rng)
         state = cond(t_at_window_end & is_middle_window,
                      (z, rng_ss, state), lambda args: _update_at_window_end(*args),
                      state, lambda x: x)

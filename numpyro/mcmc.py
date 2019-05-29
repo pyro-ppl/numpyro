@@ -10,13 +10,13 @@ from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 from jax.tree_util import register_pytree_node
 
-import numpyro.distributions as dist
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
 from numpyro.util import cond, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
-                                   'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'rng'])
+                                   'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                   'rng'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
 
@@ -55,12 +55,16 @@ def _get_num_steps(step_size, trajectory_length):
     return num_steps.astype(np.int64)
 
 
-def _sample_momentum(unpack_fn, inverse_mass_matrix, rng):
-    if inverse_mass_matrix.ndim == 1:
-        r = dist.Normal(0., np.sqrt(np.reciprocal(inverse_mass_matrix))).sample(rng)
+def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng):
+    eps = random.normal(rng, np.shape(mass_matrix_sqrt)[:1])
+    if mass_matrix_sqrt.ndim == 1:
+        r = np.multiply(mass_matrix_sqrt, eps)
         return unpack_fn(r)
-    elif inverse_mass_matrix.ndim == 2:
-        raise NotImplementedError
+    elif mass_matrix_sqrt.ndim == 2:
+        r = np.dot(mass_matrix_sqrt, eps)
+        return unpack_fn(r)
+    else:
+        raise ValueError("Mass matrix has incorrect number of dims.")
 
 
 def _euclidean_ke(inverse_mass_matrix, r):
@@ -153,7 +157,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     step_size=1.0,
                     adapt_step_size=True,
                     adapt_mass_matrix=True,
-                    diag_mass=True,
+                    dense_mass=False,
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
@@ -174,8 +178,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             during warm-up phase using Dual Averaging scheme.
         :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
             matrix during warm-up phase using Welford scheme.
-        :param bool diag_mass: A flag to decide if mass matrix is diagonal (default)
-            or dense (if set to ``False``).
+        :param bool dense_mass: A flag to decide if mass matrix is dense or
+            diagonal (default when ``dense_mass=False``)
         :param float target_accept_prob: Target acceptance probability for step size
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Default to 0.8.
@@ -210,16 +214,17 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         wa_init, wa_update = warmup_adapter(num_warmup,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
-                                            diag_mass=diag_mass,
+                                            dense_mass=dense_mass,
                                             target_accept_prob=target_accept_prob,
                                             find_reasonable_step_size=find_reasonable_ss)
 
         rng_hmc, rng_wa = random.split(rng)
         wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
-        r = momentum_generator(wa_state.inverse_mass_matrix, rng)
+        r = momentum_generator(wa_state.mass_matrix_sqrt, rng)
         vv_state = vv_init(z, r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0., 0.,
-                             wa_state.step_size, wa_state.inverse_mass_matrix, rng_hmc)
+                             wa_state.step_size, wa_state.inverse_mass_matrix, wa_state.mass_matrix_sqrt,
+                             rng_hmc)
 
         wa_update = jit(wa_update)
         if run_warmup:
@@ -245,7 +250,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc_state = sample_kernel(hmc_state)
         wa_state = wa_update(t, hmc_state.accept_prob, hmc_state.z, wa_state)
         hmc_state = hmc_state.update(step_size=wa_state.step_size,
-                                     inverse_mass_matrix=wa_state.inverse_mass_matrix)
+                                     inverse_mass_matrix=wa_state.inverse_mass_matrix,
+                                     mass_matrix_sqrt=wa_state.mass_matrix_sqrt)
         return hmc_state, wa_state
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng):
@@ -288,7 +294,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             Hamiltonian dynamics given existing state.
         """
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
-        r = momentum_generator(hmc_state.inverse_mass_matrix, rng_momentum)
+        r = momentum_generator(hmc_state.mass_matrix_sqrt, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, num_steps, accept_prob = _next(hmc_state.step_size,
                                                  hmc_state.inverse_mass_matrix,
@@ -297,7 +303,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / itr
         return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
                         accept_prob, mean_accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix,
-                        rng)
+                        hmc_state.mass_matrix_sqrt, rng)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.

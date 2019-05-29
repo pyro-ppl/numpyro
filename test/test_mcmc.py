@@ -15,9 +15,10 @@ from numpyro.mcmc import hmc, mcmc
 from numpyro.util import fori_collect
 
 
-# TODO: add test for diag_mass=False
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_unnormalized_normal(algo):
+@pytest.mark.parametrize('dense_mass', [False, True])
+@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
+def test_unnormalized_normal(algo, dense_mass):
     true_mean, true_std = 1., 2.
     warmup_steps, num_samples = 1000, 8000
 
@@ -28,7 +29,8 @@ def test_unnormalized_normal(algo):
     init_params = np.array(0.)
     hmc_state = init_kernel(init_params,
                             trajectory_length=9,
-                            num_warmup=warmup_steps)
+                            num_warmup=warmup_steps,
+                            dense_mass=dense_mass)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
                               transform=lambda x: x.z)
     assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
@@ -36,6 +38,27 @@ def test_unnormalized_normal(algo):
 
     if 'JAX_ENABLE_x64' in os.environ:
         assert hmc_states.dtype == np.float64
+
+
+@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
+def test_correlated_mvn():
+    # This requires dense mass matrix estimation.
+    D = 5
+
+    warmup_steps, num_samples = 5000, 8000
+
+    true_mean = 0.
+    a = np.tril(0.5 * np.fliplr(np.eye(D)) + 0.1 * np.exp(random.normal(random.PRNGKey(0), shape=(D, D))))
+    true_cov = np.dot(a, a.T)
+    true_prec = np.linalg.inv(true_cov)
+
+    def potential_fn(z):
+        return 0.5 * np.dot(z.T, np.dot(true_prec, z))
+
+    init_params = np.zeros(D)
+    samples = mcmc(warmup_steps, num_samples, init_params, potential_fn=potential_fn, dense_mass=True)
+    assert_allclose(np.mean(samples), true_mean, atol=0.02)
+    assert onp.sum(onp.abs(onp.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
@@ -90,7 +113,9 @@ def test_beta_bernoulli(algo):
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_dirichlet_categorical(algo):
+@pytest.mark.parametrize('dense_mass', [False, True])
+@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
+def test_dirichlet_categorical(algo, dense_mass):
     warmup_steps, num_samples = 100, 20000
 
     def model(data):
@@ -106,7 +131,8 @@ def test_dirichlet_categorical(algo):
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
                             num_warmup=warmup_steps,
-                            progbar=False)
+                            progbar=False,
+                            dense_mass=dense_mass)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
                               transform=lambda x: constrain_fn(x.z),
                               progbar=False)
@@ -116,6 +142,7 @@ def test_dirichlet_categorical(algo):
         assert hmc_states['p_latent'].dtype == np.float64
 
 
+@pytest.mark.xfail(reason='TODO: Fix this flaky test.')
 def test_change_point():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
     warmup_steps, num_samples = 500, 3000
@@ -139,18 +166,18 @@ def test_change_point():
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(4), model, count_data)
     init_kernel, sample_kernel = hmc(potential_fn)
     hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
-    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: constrain_fn(x.z))
-    tau_posterior = (hmc_states['tau'] * len(count_data)).astype("int")
+    samples = fori_collect(num_samples, sample_kernel, hmc_state,
+                           transform=lambda x: constrain_fn(x.z))
+    tau_posterior = (samples['tau'] * len(count_data)).astype("int")
     tau_values, counts = onp.unique(tau_posterior, return_counts=True)
     mode_ind = np.argmax(counts)
     mode = tau_values[mode_ind]
     assert mode == 44
 
     if 'JAX_ENABLE_x64' in os.environ:
-        assert hmc_states['lambda1'].dtype == np.float64
-        assert hmc_states['lambda2'].dtype == np.float64
-        assert hmc_states['tau'].dtype == np.float64
+        assert samples['lambda1'].dtype == np.float64
+        assert samples['lambda2'].dtype == np.float64
+        assert samples['tau'].dtype == np.float64
 
 
 @pytest.mark.parametrize('with_logits', ['True', 'False'])
