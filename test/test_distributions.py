@@ -9,7 +9,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 import jax
 import jax.numpy as np
 import jax.random as random
-from jax import grad, lax, vmap
+from jax import grad, jacfwd, lax, vmap
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
@@ -247,6 +247,31 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert np.shape(actual_grad[i]) == np.shape(repara_params[i])
         assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.02)
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', [
+    (dist.Gamma, osp.gamma, (1.,)),
+    (dist.Gamma, osp.gamma, (0.1,)),
+    (dist.Gamma, osp.gamma, (10.,)),
+    # TODO: add more test cases for Beta/StudentT (and Dirichlet too) when
+    # their pathwise grad (independent of standard_gamma grad) is implemented.
+    pytest.param(dist.Beta, osp.beta, (1., 1.), marks=pytest.mark.xfail(
+        reason='currently, variance of grad of beta sampler is large')),
+    pytest.param(dist.StudentT, osp.t, (1.,), marks=pytest.mark.xfail(
+        reason='currently, variance of grad of t sampler is large')),
+])
+def test_pathwise_gradient(jax_dist, sp_dist, params):
+    rng = random.PRNGKey(0)
+    N = 100
+    z = jax_dist(*params).sample(key=rng, size=(N,))
+    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng, size=(N,)))(params)
+    eps = 1e-3
+    for i in range(len(params)):
+        args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
+        args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
+        cdf_dot = (sp_dist(*args_rhs).cdf(z) - sp_dist(*args_lhs).cdf(z)) / (2 * eps)
+        expected_grad = -cdf_dot / sp_dist(*params).pdf(z)
+        assert_allclose(actual_grad[i], expected_grad, rtol=0.005)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
