@@ -19,6 +19,7 @@ HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_
                                    'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'rng'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
+
  - **i** - iteration. This is reset to 0 after warmup.
  - **z** - Python collection representing values (unconstrained samples from
    the posterior) at latent sites.
@@ -99,7 +100,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         euclidean kinetic energy.
     :param str algo: Whether to run ``HMC`` with fixed number of steps or ``NUTS``
         with adaptive path length. Default is ``NUTS``.
-    :return init_kernel, sample_kernel: Returns a tuple of callables, the first
+    :returns: a tuple of callables (`init_kernel`, `sample_kernel`): the first
         one to initialize the sampler, and the second one to generate samples
         given an existing one.
 
@@ -128,14 +129,15 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         ...     coefs = sample('beta', dist.Normal(coefs_mean, np.ones(3)))
         ...     return sample('y', dist.Bernoulli(logits=(coefs * data).sum(-1)), obs=labels)
         >>>
-        >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), model, data, labels)
+        >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0),
+        ...                                                            model, data, labels)
         >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(init_params,
         ...                         trajectory_length=10,
         ...                         num_warmup=300)
-        >>> hmc_states = fori_collect(500, sample_kernel, hmc_state,
-        ...                           transform=lambda x: constrain_fn(x.z))
-        >>> print(np.mean(hmc_states['beta'], axis=0))  # doctest: +SKIP
+        >>> samples = fori_collect(500, sample_kernel, hmc_state,
+        ...                        transform=lambda state: constrain_fn(state.z))
+        >>> print(np.mean(samples['beta'], axis=0))  # doctest: +SKIP
         [0.9153987 2.0754058 2.9621222]
     """
     if kinetic_fn is None:

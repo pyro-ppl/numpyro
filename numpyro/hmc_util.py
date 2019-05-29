@@ -15,37 +15,54 @@ AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "ss_sta
                                      "window_idx", "rng"])
 IntegratorState = laxtuple("IntegratorState", ["z", "r", "potential_energy", "z_grad"])
 
-_TreeInfo = laxtuple('_TreeInfo', ['z_left', 'r_left', 'z_left_grad',
-                                   'z_right', 'r_right', 'z_right_grad',
-                                   'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
-                                   'depth', 'weight', 'r_sum', 'turning', 'diverging',
-                                   'sum_accept_probs', 'num_proposals'])
+TreeInfo = laxtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
+                                 'z_right', 'r_right', 'z_right_grad',
+                                 'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
+                                 'depth', 'weight', 'r_sum', 'turning', 'diverging',
+                                 'sum_accept_probs', 'num_proposals'])
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
     """
-    Dual Averaging is a scheme to solve convex optimization problems. It belongs
-    to a class of subgradient methods which uses subgradients to update parameters
-    (in primal space) of a model. Under some conditions, the averages of generated
-    parameters during the scheme are guaranteed to converge to an optimal value.
-    However, a counter-intuitive aspect of traditional subgradient methods is
-    "new subgradients enter the model with decreasing weights" (see :math:`[1]`).
-    Dual Averaging scheme solves that phenomenon by updating parameters using
-    weights equally for subgradients (which lie in a dual space), hence we have
-    the name "dual averaging".
-    This class implements a dual averaging scheme which is adapted for Markov chain
-    Monte Carlo (MCMC) algorithms. To be more precise, we will replace subgradients
-    by some statistics calculated during an MCMC trajectory. In addition,
-    introducing some free parameters such as ``t0`` and ``kappa`` is helpful and
-    still guarantees the convergence of the scheme.
+    Dual Averaging is a scheme to solve convex optimization problems. It
+    belongs to a class of subgradient methods which uses subgradients (which
+    lie in a dual space) to update states (in primal space) of a model. Under
+    some conditions, the averages of generated parameters during the scheme are
+    guaranteed to converge to an optimal value. However, a counter-intuitive
+    aspect of traditional subgradient methods is "new subgradients enter the
+    model with decreasing weights" (see reference [1]). Dual Averaging scheme
+    resolves that issue by updating parameters using weights equally for
+    subgradients, hence we have the name "dual averaging".
 
-    **References**
-    [1] `Primal-dual subgradient methods for convex problems`,
-    Yurii Nesterov
-    [2] `The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo`,
-    Matthew D. Hoffman, Andrew Gelman
+    This class implements a dual averaging scheme which is adapted for Markov
+    chain Monte Carlo (MCMC) algorithms. To be more precise, we will replace
+    subgradients by some statistics calculated at the end of MCMC trajectories.
+    Following [2], we introduce some free parameters such as ``t0`` and
+    ``kappa``, which is helpful and still guarantees the convergence of the
+    scheme.
+
+    :param int t0: A free parameter introduced in reference [2] that stabilizes
+        the initial steps of the scheme. Defaults to 10.
+    :param float kappa: A free parameter introduced in reference [2] that
+        controls the weights of steps of the scheme. For a small ``kappa``, the
+        scheme will quickly forget states from early steps. This should be a
+        number in :math:`(0.5, 1]`. Defaults to 0.75.
+    :param float gamma: A free parameter introduced in reference [1] which
+        controls the speed of the convergence of the scheme. Defaults to 0.05.
+    :returns: a (`init_fn`, `update_fn`) pair
+
+    **References:**
+
+    [1] *Primal-dual subgradient methods for convex problems*,
+        Yurii Nesterov
+    [2] *The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo*,
+        Matthew D. Hoffman, Andrew Gelman
     """
     def init_fn(prox_center=0.):
+        """
+        :param float prox_center: A parameter introduced in reference [1] which
+            pulls the primal sequence towards it. Defaults to 0.
+        """
         x_t = 0.
         x_avg = 0.  # average of primal sequence
         g_avg = 0.  # average of dual sequence
@@ -53,6 +70,10 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         return x_t, x_avg, g_avg, t, prox_center
 
     def update_fn(g, state):
+        """
+        :param float g: The current subgradient or statistics calculated during
+            an MCMC trajectory.
+        """
         x_t, x_avg, g_avg, t, prox_center = state
         t = t + 1
         # g_avg = (g_1 + ... + g_t) / t
@@ -75,12 +96,12 @@ def welford_covariance(diagonal=True):
     Implements Welford's online method for estimating (co)variance (see :math:`[1]`).
     Useful for adapting diagonal and dense mass structures for HMC.
 
-    **References**
-    [1] `The Art of Computer Programming`,
-    Donald E. Knuth
+    **References:**
+
+    [1] *The Art of Computer Programming*,
+        Donald E. Knuth
     """
     def init_fn(size):
-        # TODO: replace by a better pattern
         mean = np.zeros(size)
         if diagonal:
             m2 = np.zeros(size)
@@ -102,9 +123,12 @@ def welford_covariance(diagonal=True):
         return mean, m2, n
 
     def final_fn(state, regularize=False):
+        """
+        :param state: the current state.
+        :param bool regularize: whether to use 
+        """
         mean, m2, n = state
-        # TODO: when n=1, return 0; we temporarily do not check for that case
-        # because lax.cond is not yet available
+        # XXX it is not necessary to check for the case n=1
         cov = m2 / (n - 1)
         if regularize:
             # Regularization from Stan
@@ -125,7 +149,6 @@ def velocity_verlet(potential_fn, kinetic_fn):
     for position `z` and momentum `r`.
     """
     def init_fn(z, r):
-        # TODO: init using the cache of potential_energy and z_grad?
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         return IntegratorState(z, r, potential_energy, z_grad)
 
@@ -272,7 +295,6 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         if adapt_step_size:
             ss_state = ss_update(target_accept_prob - accept_prob, ss_state)
             # note: at the end of warmup phase, use average of log step_size
-            # TODO: should we make sure that we won't update step_size if t >= num_steps?
             log_step_size, log_step_size_avg, *_ = ss_state
             step_size = np.where(t == (num_adapt_steps - 1),
                                  np.exp(log_step_size_avg),
@@ -370,10 +392,10 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
     sum_accept_probs = current_tree.sum_accept_probs + new_tree.sum_accept_probs
     num_proposals = current_tree.num_proposals + new_tree.num_proposals
 
-    return _TreeInfo(z_left, r_left, z_left_grad, z_right, r_right, r_right_grad,
-                     z_proposal, z_proposal_pe, z_proposal_grad,
-                     tree_depth, tree_weight, r_sum, turning, diverging,
-                     sum_accept_probs, num_proposals)
+    return TreeInfo(z_left, r_left, z_left_grad, z_right, r_right, r_right_grad,
+                    z_proposal, z_proposal_pe, z_proposal_grad,
+                    tree_depth, tree_weight, r_sum, turning, diverging,
+                    sum_accept_probs, num_proposals)
 
 
 def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size, going_right,
@@ -393,10 +415,10 @@ def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, st
 
     diverging = delta_energy > max_delta_energy
     accept_prob = np.clip(np.exp(-delta_energy), a_max=1.0)
-    return _TreeInfo(z_new, r_new, z_new_grad, z_new, r_new, z_new_grad,
-                     z_new, potential_energy_new, z_new_grad,
-                     depth=0, weight=tree_weight, r_sum=r_new, turning=False,
-                     diverging=diverging, sum_accept_probs=accept_prob, num_proposals=1)
+    return TreeInfo(z_new, r_new, z_new_grad, z_new, r_new, z_new_grad,
+                    z_new, potential_energy_new, z_new_grad,
+                    depth=0, weight=tree_weight, r_sum=r_new, turning=False,
+                    diverging=diverging, sum_accept_probs=accept_prob, num_proposals=1)
 
 
 def _get_leaf(tree, going_right):
@@ -495,11 +517,11 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         (basetree, False, r_ckpts, r_sum_ckpts, rng)
     )
     # update depth and turning condition
-    return _TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
-                     tree.z_right, tree.r_right, tree.z_right_grad,
-                     tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad,
-                     depth, tree.weight, tree.r_sum, turning, tree.diverging,
-                     tree.sum_accept_probs, tree.num_proposals)
+    return TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
+                    tree.z_right, tree.r_right, tree.z_right_grad,
+                    tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad,
+                    depth, tree.weight, tree.r_sum, turning, tree.diverging,
+                    tree.sum_accept_probs, tree.num_proposals)
 
 
 def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, step_size, rng,
@@ -518,9 +540,9 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     r_sum_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
                            dtype=inverse_mass_matrix.dtype)
 
-    tree = _TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,
-                     depth=0, weight=0., r_sum=r, turning=False, diverging=False,
-                     sum_accept_probs=0., num_proposals=0)
+    tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,
+                    depth=0, weight=0., r_sum=r, turning=False, diverging=False,
+                    sum_accept_probs=0., num_proposals=0)
 
     def _cond_fn(state):
         tree, _ = state
@@ -585,8 +607,8 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         `prior` initializes the parameters by sampling from the prior
         for each of the sample sites.
     :param `**model_kwargs`: kwargs provided to the model.
-    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`)
-        `init_params` are values from the prior used to initiate MCMC.
+    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`):
+        `init_params` are values from the prior used to initiate MCMC,
         `constrain_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
