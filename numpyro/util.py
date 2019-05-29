@@ -128,7 +128,8 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
                 val = body_fun(val)
                 collection.append(jit(ravel_fn)(val))
                 if diagnostics_fn:
-                    t.set_postfix_str(diagnostics_fn(val), refresh=True)
+                    # TODO: set refresh=True when its performance issue is resolved
+                    t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
         # XXX: jax.numpy.stack/concatenate is currently so slow
         collection = onp.stack(collection)

@@ -230,7 +230,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                 with tqdm.trange(num_warmup, desc='warmup') as t:
                     for i in t:
                         hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
-                        t.set_postfix_str(get_diagnostics_str(hmc_state), refresh=True)
+                        # TODO: set refresh=True when its performance issue is resolved
+                        t.set_postfix_str(get_diagnostics_str(hmc_state), refresh=False)
             # Reset `i` and `mean_accept_prob` for fresh diagnostics.
             hmc_state.update(i=0, mean_accept_prob=0)
             return hmc_state
