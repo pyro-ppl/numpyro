@@ -142,6 +142,7 @@ def test_dirichlet_categorical(algo, dense_mass):
         assert hmc_states['p_latent'].dtype == np.float64
 
 
+@pytest.mark.xfail(reason='TODO: Fix this flaky test.')
 def test_change_point():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
     warmup_steps, num_samples = 500, 3000
