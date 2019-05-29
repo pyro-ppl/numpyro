@@ -8,11 +8,9 @@ from jax.config import config as jax_config
 from jax.scipy.special import logsumexp
 
 import numpyro.distributions as dist
-from numpyro.diagnostics import summary
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import hmc
-from numpyro.util import fori_collect
+from numpyro.mcmc import mcmc
 
 
 """
@@ -117,21 +115,6 @@ def semi_supervised_hmm(transition_prior, emission_prior,
     return sample('forward_log_prob', dist.Multinomial(logits=-log_prob), obs=0)
 
 
-def run_inference(transition_prior, emission_prior, supervised_categories, supervised_words,
-                  unsupervised_words, rng, args):
-    init_params, potential_fn, constrain_fn = initialize_model(
-        rng,
-        semi_supervised_hmm,
-        transition_prior, emission_prior, supervised_categories,
-        supervised_words, unsupervised_words,
-    )
-    init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-    hmc_state = init_kernel(init_params, args.num_warmup)
-    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
-                              transform=lambda state: constrain_fn(state.z))
-    return hmc_states
-
-
 def print_results(posterior, transition_prob, emission_prob):
     header = semi_supervised_hmm.__name__ + ' - TRAIN'
     columns = ['', 'ActualProb', 'Pred(p25)', 'Pred(p50)', 'Pred(p75)']
@@ -165,11 +148,15 @@ def main(args):
         num_unsupervised_data=args.num_unsupervised,
     )
     print('Starting inference...')
-    zs = run_inference(transition_prior, emission_prior,
-                       supervised_categories, supervised_words, unsupervised_words,
-                       random.PRNGKey(2), args)
-    summary(zs)
-    print_results(zs, transition_prob, emission_prob)
+    init_params, potential_fn, constrain_fn = initialize_model(
+        random.PRNGKey(2),
+        semi_supervised_hmm,
+        transition_prior, emission_prior, supervised_categories,
+        supervised_words, unsupervised_words,
+    )
+    samples = mcmc(args.num_warmup, args.num_samples, init_params,
+                   potential_fn=potential_fn, constrain_fn=constrain_fn)
+    print_results(samples, transition_prob, emission_prob)
 
 
 if __name__ == '__main__':
