@@ -3,7 +3,7 @@ import argparse
 import numpy as onp
 
 import jax.numpy as np
-import jax.random as random
+from jax import random, vmap
 from jax.config import config as jax_config
 
 import numpyro.distributions as dist
@@ -52,20 +52,18 @@ found in Chapter 10 (Counting and Classification) and Chapter 13 (Adventures in 
 """
 
 
-# TODO: Remove broadcasting logic when support for `pyro.plate` is available.
 def glmm(dept, male, applications, admit):
     v_mu = sample('v_mu', dist.Normal(0, np.array([4., 1.])))
 
     sigma = sample('sigma', dist.HalfNormal(np.ones(2)))
     L_Rho = sample('L_Rho', dist.LKJCholesky(2))
-    scale_tril = np.expand_dims(sigma, axis=-1) * L_Rho
+    scale_tril = sigma[..., np.newaxis] * L_Rho
     # non-centered parameterization
     num_dept = len(onp.unique(dept))
     z = sample('z', dist.Normal(np.zeros((num_dept, 2)), 1))
-    v = np.squeeze(np.matmul(np.expand_dims(scale_tril, axis=-3), np.expand_dims(z, axis=-1)),
-                   axis=-1)
+    v = np.dot(scale_tril, z.T).T
 
-    logits = v_mu[..., :1] + v[..., dept, 0] + (v_mu[..., 1:] + v[..., dept, 1]) * male
+    logits = v_mu[0] + v[dept, 0] + (v_mu[1] + v[dept, 1]) * male
     sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
 
 
@@ -79,13 +77,10 @@ def run_inference(dept, male, applications, admit, rng, args):
     return hmc_states
 
 
-def predict(dept, male, applications, admit, z, rng):
-    header = glmm.__name__ + ' - TRAIN'
+def predict(dept, male, applications, z, rng):
     model = substitute(seed(glmm, rng), z)
     model_trace = trace(model).get_trace(dept, male, applications, admit=None)
-    predictions = model_trace['admit']['fn'].probs
-    probs = admit / applications
-    print_results('=' * 30 + header + '=' * 30, predictions, dept, male, probs)
+    return model_trace['admit']['fn'].probs
 
 
 def print_results(header, preds, dept, male, probs):
@@ -105,7 +100,10 @@ def main(args):
     dept, male, applications, admit = fetch_train()
     rng, rng_predict = random.split(random.PRNGKey(1))
     zs = run_inference(dept, male, applications, admit, rng, args)
-    predict(dept, male, applications, admit, zs, rng_predict)
+    rngs = random.split(rng_predict, args.num_samples)
+    pred_probs = vmap(lambda z, rng: predict(dept, male, applications, z, rng))(zs, rngs)
+    header = '=' * 30 + 'glmm - TRAIN' + '=' * 30
+    print_results(header, pred_probs, dept, male, admit / applications)
 
 
 if __name__ == '__main__':
