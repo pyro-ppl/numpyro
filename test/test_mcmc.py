@@ -113,7 +113,9 @@ def test_beta_bernoulli(algo):
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_dirichlet_categorical(algo):
+@pytest.mark.parametrize('dense_mass', [False, True])
+@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
+def test_dirichlet_categorical(algo, dense_mass):
     warmup_steps, num_samples = 100, 20000
 
     def model(data):
@@ -129,7 +131,8 @@ def test_dirichlet_categorical(algo):
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
                             num_warmup=warmup_steps,
-                            progbar=False)
+                            progbar=False,
+                            dense_mass=dense_mass)
     hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
                               transform=lambda x: constrain_fn(x.z),
                               progbar=False)
@@ -139,9 +142,7 @@ def test_dirichlet_categorical(algo):
         assert hmc_states['p_latent'].dtype == np.float64
 
 
-@pytest.mark.parametrize('dense_mass', [False, True])
-@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
-def test_change_point(dense_mass):
+def test_change_point():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
     warmup_steps, num_samples = 500, 3000
 
@@ -163,7 +164,7 @@ def test_change_point(dense_mass):
     ])
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(4), model, count_data)
     init_kernel, sample_kernel = hmc(potential_fn)
-    hmc_state = init_kernel(init_params, num_warmup=warmup_steps, dense_mass=dense_mass)
+    hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
     samples = fori_collect(num_samples, sample_kernel, hmc_state,
                            transform=lambda x: constrain_fn(x.z))
     tau_posterior = (samples['tau'] * len(count_data)).astype("int")
