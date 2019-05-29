@@ -80,7 +80,7 @@ def autocorrelation(x, axis=0):
     """
     Computes the autocorrelation of samples at dimension ``axis``.
 
-    :param numpy.array x: the input array.
+    :param numpy.ndarray x: the input array.
     :param int axis: the dimension to calculate autocorrelation.
     :return: autocorrelation of ``x``.
     :rtype: numpy.ndarray

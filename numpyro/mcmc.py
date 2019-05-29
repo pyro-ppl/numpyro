@@ -91,9 +91,12 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     **References:**
 
-    1. *MCMC Using Hamiltonian Dynamics*, Radford M. Neal
+    1. *MCMC Using Hamiltonian Dynamics*,
+       Radford M. Neal
     2. *The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo*,
        Matthew D. Hoffman, and Andrew Gelman.
+    3. *A Conceptual Introduction to Hamiltonian Monte Carlo`*,
+       Michael Betancourt
 
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be

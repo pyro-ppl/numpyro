@@ -49,6 +49,13 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
     ``kappa``, which is helpful and still guarantees the convergence of the
     scheme.
 
+    **References:**
+
+    1. *Primal-dual subgradient methods for convex problems*,
+       Yurii Nesterov
+    2. *The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo*,
+       Matthew D. Hoffman, Andrew Gelman
+
     :param int t0: A free parameter introduced in reference [2] that stabilizes
         the initial steps of the scheme. Defaults to 10.
     :param float kappa: A free parameter introduced in reference [2] that
@@ -57,19 +64,13 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         number in :math:`(0.5, 1]`. Defaults to 0.75.
     :param float gamma: A free parameter introduced in reference [1] which
         controls the speed of the convergence of the scheme. Defaults to 0.05.
-    :returns: a (`init_fn`, `update_fn`) pair
-
-    **References:**
-
-    [1] *Primal-dual subgradient methods for convex problems*,
-        Yurii Nesterov
-    [2] *The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo*,
-        Matthew D. Hoffman, Andrew Gelman
+    :returns: a (`init_fn`, `update_fn`) pair.
     """
     def init_fn(prox_center=0.):
         """
         :param float prox_center: A parameter introduced in reference [1] which
             pulls the primal sequence towards it. Defaults to 0.
+        :returns: initial state for the scheme.
         """
         x_t = 0.
         x_avg = 0.  # average of primal sequence
@@ -81,6 +82,8 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         """
         :param float g: The current subgradient or statistics calculated during
             an MCMC trajectory.
+        :param state: Current state of the scheme.
+        :returns: new state for the scheme.
         """
         x_t, x_avg, g_avg, t, prox_center = state
         t = t + 1
@@ -101,15 +104,24 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
 
 def welford_covariance(diagonal=True):
     """
-    Implements Welford's online method for estimating (co)variance (see :math:`[1]`).
-    Useful for adapting diagonal and dense mass structures for HMC.
+    Implements Welford's online method for estimating (co)variance. Useful for
+    adapting diagonal and dense mass structures for HMC. It is required that
+    each sample is a 1-dimensional array.
 
     **References:**
 
-    [1] *The Art of Computer Programming*,
-        Donald E. Knuth
+    1. *The Art of Computer Programming*,
+       Donald E. Knuth
+
+    :param bool diagonal: If True, we estimate the variance of samples.
+        Otherwise, we estimate the covariance of the samples. Defaults to True.
+    :returns: a (`init_fn`, `update_fn`, `final_fn`) triple.
     """
     def init_fn(size):
+        """
+        :param int size: size of each sample.
+        :returns: initial state for the scheme.
+        """
         mean = np.zeros(size)
         if diagonal:
             m2 = np.zeros(size)
@@ -119,6 +131,11 @@ def welford_covariance(diagonal=True):
         return mean, m2, n
 
     def update_fn(sample, state):
+        """
+        :param sample: A new sample.
+        :param state: Current state of the scheme.
+        :returns: new state for the scheme.
+        """
         mean, m2, n = state
         n = n + 1
         delta_pre = sample - mean
@@ -132,8 +149,9 @@ def welford_covariance(diagonal=True):
 
     def final_fn(state, regularize=False):
         """
-        :param state: the current state.
-        :param bool regularize: whether to use 
+        :param state: Current state of the scheme.
+        :param bool regularize: Whether to adjust diagonal for numerical stability.
+        :returns: a pair of estimated covariance and the square root of precision.
         """
         mean, m2, n = state
         # XXX it is not necessary to check for the case n=1
@@ -145,7 +163,7 @@ def welford_covariance(diagonal=True):
             if diagonal:
                 cov = scaled_cov + shrinkage
             else:
-                cov = scaled_cov + shrinkage * np.identity(mean.shape[0], dtype=mean.dtype)
+                cov = scaled_cov + shrinkage * np.identity(mean.shape[0])
         if np.ndim(cov) == 2:
             cov_inv_sqrt = _cholesky_inverse(cov)
         else:
@@ -159,14 +177,30 @@ def velocity_verlet(potential_fn, kinetic_fn):
     r"""
     Second order symplectic integrator that uses the velocity verlet algorithm
     for position `z` and momentum `r`.
+
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type.
+    :param kinetic_fn: Python callable that returns the kinetic energy given
+        inverse mass matrix and momentum.
+    :returns: a pair of (`init_fn`, `update_fn`).
     """
     def init_fn(z, r):
+        """
+        :param z: Position of the particle.
+        :param r: Momentum of the particle.
+        :returns: initial state for the integrator.
+        """
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         return IntegratorState(z, r, potential_energy, z_grad)
 
     def update_fn(step_size, inverse_mass_matrix, state):
         """
-        Single step velocity verlet.
+        :param float step_size: Size of a single step.
+        :param inverse_mass_matrix: Inverse of mass matrix, which is used to
+            calculate kinetic energy.
+        :param state: Current state of the integrator.
+        :returns: new state for the integrator.
         """
         z, r, _, z_grad = state
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
@@ -181,6 +215,25 @@ def velocity_verlet(potential_fn, kinetic_fn):
 
 def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
                               position, rng, init_step_size):
+    """
+    Finds a reasonable step size by tuning `init_step_size`. This function is used
+    to avoid working with a too large or too small step size in HMC.
+
+    **References:**
+
+    1. *The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo*,
+       Matthew D. Hoffman, Andrew Gelman
+
+    :param potential_fn: A callable to compute potential energy.
+    :param kinetic_fn: A callable to compute kinetic energy.
+    :param momentum_generator: A generator to get a random momentum variable.
+    :param inverse_mass_matrix: Inverse of mass matrix.
+    :param position: Current position of the particle.
+    :param jax.random.PRNGKey rng: Random key to be used as the source of randomness.
+    :param float init_step_size: Initial step size to be tuned.
+    :returns: a reasonable value for step size.
+    :rtype: float
+    """
     # We are going to find a step_size which make accept_prob (Metropolis correction)
     # near the target_accept_prob. If accept_prob:=exp(-delta_energy) is small,
     # then we have to decrease step_size; otherwise, increase step_size.
@@ -217,6 +270,18 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
 
 
 def build_adaptation_schedule(num_steps):
+    """
+    Builds a window adaptation schedule to be used during warmup phase of HMC.
+
+    :param int num_steps: Number of warmup steps.
+    :returns: a list of contiguous windows, each has attributes `start` and `end`,
+        where `start` is the starting index and `end` is the ending index of the window.
+
+    **References:**
+
+    1. *Stan Reference Manual version 2.18*,
+       Stan Development Team
+    """
     adaptation_schedule = []
     # from Stan, for small num_steps
     if num_steps < 20:
@@ -263,12 +328,40 @@ def _identity_step_size(inverse_mass_matrix, z, rng, step_size):
 def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_size,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    dense_mass=False, target_accept_prob=0.8):
+    """
+    A scheme to adapt tunable parameters, namely step size and mass matrix, during
+    the warmup phase of HMC.
+
+    :param int num_adapt_steps: Number of warmup steps.
+    :param find_reasonable_step_size: A callable to find a reasonable step size
+        at the beginning of each adaptation window.
+    :param bool adapt_step_size: A flag to decide if we want to adapt step_size
+        during warm-up phase using Dual Averaging scheme (defaults to ``True``).
+    :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
+        matrix during warm-up phase using Welford scheme (defaults to ``True``).
+    :param bool dense_mass: A flag to decide if mass matrix is dense or
+        diagonal (defaults to ``False``).
+    :param float target_accept_prob: Target acceptance probability for step size
+        adaptation using Dual Averaging. Increasing this value will lead to a smaller
+        step size, hence the sampling will be slower but more robust. Default to 0.8.
+    :returns: a pair of (`init_fn`, `update_fn`)
+    """
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
     num_windows = len(adaptation_schedule)
 
     def init_fn(z, rng, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
+        """
+        :param z: Initial position of the integrator.
+        :param jax.random.PRNGKey rng: Random key to be used as the source of randomness.
+        :param float step_size: Initial step size.
+        :param inverse_mass_matrix: Inverse of the initial mass matrix. If ``None``,
+            inverse of mass matrix will be an identity matrix with size is decided
+            by the argument `mass_matrix_size`.
+        :param int mass_matrix_size: Size of the mass matrix.
+        :returns: initial state of the adapt scheme.
+        """
         rng, rng_ss = random.split(rng)
         if inverse_mass_matrix is None:
             assert mass_matrix_size is not None
@@ -308,6 +401,13 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
                           ss_state, mm_state, window_idx, rng)
 
     def update_fn(t, accept_prob, z, state):
+        """
+        :param int t: The current time step.
+        :param float accept_prob: Acceptance probability of the current trajectory.
+        :param z: New position drawn at the end of the current trajectory.
+        :param state: Current state of the adapt scheme.
+        :returns: new state of the adapt scheme.
+        """
         step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng = state
         rng, rng_ss = random.split(rng)
 
@@ -548,18 +648,32 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
 def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, step_size, rng,
                max_delta_energy=1000., max_tree_depth=10):
     """
+    Builds a binary tree from the `verlet_state`. This is used in NUTS sampler.
+
     **References:**
-    [1] `The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo`,
-    Matthew D. Hoffman, Andrew Gelman
-    [2] `A Conceptual Introduction to Hamiltonian Monte Carlo`,
-    Michael Betancourt
+
+    1. *The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo*,
+       Matthew D. Hoffman, Andrew Gelman
+    2. *A Conceptual Introduction to Hamiltonian Monte Carlo*,
+       Michael Betancourt
+
+    :param verlet_update: A callable to get a new integrator state given a current
+        integrator state.
+    :param kinetic_fn: A callable to compute kinetic energy.
+    :param verlet_state: Initial integrator state.
+    :param inverse_mass_matrix: Inverse of the mass matrix.
+    :param float step_size: Step size for the current trajectory.
+    :param jax.random.PRNGKey rng: random key to be used as the source of
+        randomness.
+    :param float max_delta_energy: A threshold to decide if the new state diverges
+        (based on the energy difference) too much from the initial integrator state.
+    :returns: information of the tree.
+    :rtype: :data:`TreeInfo`
     """
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
-    r_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
-                       dtype=inverse_mass_matrix.dtype)
-    r_sum_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]),
-                           dtype=inverse_mass_matrix.dtype)
+    r_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
+    r_sum_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
 
     tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,
                     depth=0, weight=0., r_sum=r, turning=False, diverging=False,
