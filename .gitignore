@@ -15,6 +15,7 @@ __pycache__/
 # data files
 numpyro/examples/.data
 examples/.results
+examples/*.pdf
 numpyro/.DS_Store
 
 # test related
