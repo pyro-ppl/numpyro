@@ -344,7 +344,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
-    :return: a pair of (`init_fn`, `update_fn`)
+    :return: a pair of (`init_fn`, `update_fn`).
     """
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
