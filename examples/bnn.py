@@ -123,7 +123,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Stochastic network")
+    parser = argparse.ArgumentParser(description="Bayesian neural network example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
