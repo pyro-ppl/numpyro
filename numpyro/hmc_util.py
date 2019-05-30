@@ -64,13 +64,13 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         number in :math:`(0.5, 1]`. Defaults to 0.75.
     :param float gamma: A free parameter introduced in reference [1] which
         controls the speed of the convergence of the scheme. Defaults to 0.05.
-    :returns: a (`init_fn`, `update_fn`) pair.
+    :return: a (`init_fn`, `update_fn`) pair.
     """
     def init_fn(prox_center=0.):
         """
         :param float prox_center: A parameter introduced in reference [1] which
             pulls the primal sequence towards it. Defaults to 0.
-        :returns: initial state for the scheme.
+        :return: initial state for the scheme.
         """
         x_t = 0.
         x_avg = 0.  # average of primal sequence
@@ -83,7 +83,7 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
         :param float g: The current subgradient or statistics calculated during
             an MCMC trajectory.
         :param state: Current state of the scheme.
-        :returns: new state for the scheme.
+        :return: new state for the scheme.
         """
         x_t, x_avg, g_avg, t, prox_center = state
         t = t + 1
@@ -115,12 +115,12 @@ def welford_covariance(diagonal=True):
 
     :param bool diagonal: If True, we estimate the variance of samples.
         Otherwise, we estimate the covariance of the samples. Defaults to True.
-    :returns: a (`init_fn`, `update_fn`, `final_fn`) triple.
+    :return: a (`init_fn`, `update_fn`, `final_fn`) triple.
     """
     def init_fn(size):
         """
         :param int size: size of each sample.
-        :returns: initial state for the scheme.
+        :return: initial state for the scheme.
         """
         mean = np.zeros(size)
         if diagonal:
@@ -134,7 +134,7 @@ def welford_covariance(diagonal=True):
         """
         :param sample: A new sample.
         :param state: Current state of the scheme.
-        :returns: new state for the scheme.
+        :return: new state for the scheme.
         """
         mean, m2, n = state
         n = n + 1
@@ -151,7 +151,7 @@ def welford_covariance(diagonal=True):
         """
         :param state: Current state of the scheme.
         :param bool regularize: Whether to adjust diagonal for numerical stability.
-        :returns: a pair of estimated covariance and the square root of precision.
+        :return: a pair of estimated covariance and the square root of precision.
         """
         mean, m2, n = state
         # XXX it is not necessary to check for the case n=1
@@ -183,13 +183,13 @@ def velocity_verlet(potential_fn, kinetic_fn):
         any python collection type.
     :param kinetic_fn: Python callable that returns the kinetic energy given
         inverse mass matrix and momentum.
-    :returns: a pair of (`init_fn`, `update_fn`).
+    :return: a pair of (`init_fn`, `update_fn`).
     """
     def init_fn(z, r):
         """
         :param z: Position of the particle.
         :param r: Momentum of the particle.
-        :returns: initial state for the integrator.
+        :return: initial state for the integrator.
         """
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         return IntegratorState(z, r, potential_energy, z_grad)
@@ -200,7 +200,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
         :param inverse_mass_matrix: Inverse of mass matrix, which is used to
             calculate kinetic energy.
         :param state: Current state of the integrator.
-        :returns: new state for the integrator.
+        :return: new state for the integrator.
         """
         z, r, _, z_grad = state
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
@@ -231,7 +231,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     :param position: Current position of the particle.
     :param jax.random.PRNGKey rng: Random key to be used as the source of randomness.
     :param float init_step_size: Initial step size to be tuned.
-    :returns: a reasonable value for step size.
+    :return: a reasonable value for step size.
     :rtype: float
     """
     # We are going to find a step_size which make accept_prob (Metropolis correction)
@@ -274,7 +274,7 @@ def build_adaptation_schedule(num_steps):
     Builds a window adaptation schedule to be used during warmup phase of HMC.
 
     :param int num_steps: Number of warmup steps.
-    :returns: a list of contiguous windows, each has attributes `start` and `end`,
+    :return: a list of contiguous windows, each has attributes `start` and `end`,
         where `start` is the starting index and `end` is the ending index of the window.
 
     **References:**
@@ -344,7 +344,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
-    :returns: a pair of (`init_fn`, `update_fn`)
+    :return: a pair of (`init_fn`, `update_fn`)
     """
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
@@ -360,7 +360,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             inverse of mass matrix will be an identity matrix with size is decided
             by the argument `mass_matrix_size`.
         :param int mass_matrix_size: Size of the mass matrix.
-        :returns: initial state of the adapt scheme.
+        :return: initial state of the adapt scheme.
         """
         rng, rng_ss = random.split(rng)
         if inverse_mass_matrix is None:
@@ -406,7 +406,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         :param float accept_prob: Acceptance probability of the current trajectory.
         :param z: New position drawn at the end of the current trajectory.
         :param state: Current state of the adapt scheme.
-        :returns: new state of the adapt scheme.
+        :return: new state of the adapt scheme.
         """
         step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng = state
         rng, rng_ss = random.split(rng)
@@ -667,7 +667,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
         randomness.
     :param float max_delta_energy: A threshold to decide if the new state diverges
         (based on the energy difference) too much from the initial integrator state.
-    :returns: information of the tree.
+    :return: information of the tree.
     :rtype: :data:`TreeInfo`
     """
     z, r, potential_energy, z_grad = verlet_state
@@ -742,7 +742,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         `prior` initializes the parameters by sampling from the prior
         for each of the sample sites.
     :param `**model_kwargs`: kwargs provided to the model.
-    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`):
+    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
         `init_params` are values from the prior used to initiate MCMC,
         `constrain_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that

@@ -107,7 +107,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         euclidean kinetic energy.
     :param str algo: Whether to run ``HMC`` with fixed number of steps or ``NUTS``
         with adaptive path length. Default is ``NUTS``.
-    :returns: a tuple of callables (`init_kernel`, `sample_kernel`): the first
+    :return: a tuple of callables (`init_kernel`, `sample_kernel`), the first
         one to initialize the sampler, and the second one to generate samples
         given an existing one.
 
