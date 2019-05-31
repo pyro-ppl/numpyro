@@ -57,7 +57,7 @@ class Beta(Distribution):
         super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return self._dirichlet.sample(key, size=size)[..., 0]
+        return self._dirichlet.sample(key, sample_shape)[..., 0]
 
     def log_prob(self, value):
         if self._validate_args:
@@ -86,7 +86,7 @@ class Cauchy(Distribution):
         super(Cauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        eps = random.cauchy(key, shape=size + self.batch_shape)
+        eps = random.cauchy(key, shape=sample_shape + self.batch_shape)
         return self.loc + eps * self.scale
 
     def log_prob(self, value):
@@ -118,7 +118,7 @@ class Dirichlet(Distribution):
                                         validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        shape = size + self.batch_shape + self.event_shape
+        shape = sample_shape + self.batch_shape + self.event_shape
         gamma_samples = standard_gamma(key, self.concentration, shape=shape)
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
@@ -151,7 +151,7 @@ class Exponential(Distribution):
         super(Exponential, self).__init__(batch_shape=np.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return random.exponential(key, shape=size + self.batch_shape) / self.rate
+        return random.exponential(key, shape=sample_shape + self.batch_shape) / self.rate
 
     def log_prob(self, value):
         if self._validate_args:
@@ -180,7 +180,7 @@ class Gamma(Distribution):
                                     validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        shape = size + self.batch_shape + self.event_shape
+        shape = sample_shape + self.batch_shape + self.event_shape
         return standard_gamma(key, self.concentration, shape=shape) / self.rate
 
     def log_prob(self, value):
@@ -222,7 +222,7 @@ class GaussianRandomWalk(Distribution):
         super(GaussianRandomWalk, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        shape = size + self.batch_shape + self.event_shape
+        shape = sample_shape + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
         return cumsum(walks) * np.expand_dims(self.scale, axis=-1)
 
@@ -410,9 +410,9 @@ class LKJCholesky(Distribution):
 
     def sample(self, key, sample_shape=()):
         if self.sample_method == "onion":
-            return self._onion(key, size)
+            return self._onion(key, sample_shape)
         else:
-            return self._cvine(key, size)
+            return self._cvine(key, sample_shape)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -473,7 +473,7 @@ class Normal(Distribution):
         super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        eps = random.normal(key, shape=size + self.batch_shape)
+        eps = random.normal(key, shape=sample_shape + self.batch_shape)
         return self.loc + eps * self.scale
 
     def log_prob(self, value):
@@ -554,8 +554,8 @@ class StudentT(Distribution):
 
     def sample(self, key, sample_shape=()):
         key_normal, key_chi2 = random.split(key)
-        std_normal = random.normal(key_normal, shape=size + self.batch_shape)
-        z = self._chi2.sample(key_chi2, size)
+        std_normal = random.normal(key_normal, shape=sample_shape + self.batch_shape)
+        z = self._chi2.sample(key_chi2, sample_shape)
         y = std_normal * np.sqrt(self.df / z)
         return self.loc + self.scale * y
 
@@ -594,7 +594,7 @@ class TruncatedCauchy(Distribution):
         # We use inverse transform method:
         # z ~ inv_cdf(U), where U ~ Uniform(cdf(low), cdf(high)).
         #                         ~ Uniform(arctan(low), arctan(high)) / pi + 1/2
-        size = size + self.batch_shape
+        size = sample_shape + self.batch_shape
         low = (self.low - self.loc) / self.scale
         minval = np.arctan(low)
         maxval = np.pi / 2
@@ -637,7 +637,7 @@ class TruncatedNormal(Distribution):
         super(TruncatedNormal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        size = size + self.batch_shape
+        size = sample_shape + self.batch_shape
         # We use inverse transform method:
         # z ~ icdf(U), where U ~ Uniform(0, 1).
         u = random.uniform(key, shape=size)
@@ -682,7 +682,7 @@ class Uniform(Distribution):
         super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        size = size + self.batch_shape
+        size = sample_shape + self.batch_shape
         return self.low + random.uniform(key, shape=size) * (self.high - self.low)
 
     def log_prob(self, value):

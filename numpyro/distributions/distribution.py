@@ -187,8 +187,8 @@ class TransformedDistribution(Distribution):
     def is_reparametrized(self):
         return self.base_dist.reparametrized
 
-    def sample(self, key, size=()):
-        x = self.base_dist.sample(key, size)
+    def sample(self, key, sample_shape=()):
+        x = self.base_dist.sample(key, sample_shape)
         for transform in self.transforms:
             x = transform(x)
         return x
