@@ -7,7 +7,7 @@ Probabilistic programming with Numpy powered by [JAX](https://github.com/google/
 
 ## What is NumPyro?
  
-NumPyro is a small probabilistic programming library built on [JAX](https://github.com/google/jax). It essentially provides a NumPy backend for [Pyro](https://github.com/pyro-ppl/pyro), with some minor changes to the inference API and syntax. Since we use JAX, we get autograd and JIT compilation to GPU / CPU for free. This is an alpha release, and the API is subject to change as the design evolves.
+NumPyro is a small probabilistic programming library built on [JAX](https://github.com/google/jax). It essentially provides a NumPy backend for [Pyro](https://github.com/pyro-ppl/pyro), with some minor changes to the inference API and syntax. Since we use JAX, we get autograd and JIT compilation to GPU / CPU for free. This is an alpha release under active development, so beware of brittleness, bugs, and changes to the API as the design evolves.
  
 NumPyro is designed to be *lightweight* and focuses on providing a flexible substrate that users can build on:
 
@@ -40,7 +40,7 @@ pip install -e .[dev]
 
 For some examples on specifying models and doing inference in NumPyro:
 
- - [Bayesian Regression in Numpyro](https://nbviewer.jupyter.org/github/pyro-ppl/numpyro/blob/master/notebooks/bayesian_regression.ipynb) - Start here to get acquainted with writing a simple model in NumPyro, MCMC inference API, effect handlers and writing custom inference utilities.
+ - [Bayesian Regression in NumPyro](https://nbviewer.jupyter.org/github/pyro-ppl/numpyro/blob/master/notebooks/bayesian_regression.ipynb) - Start here to get acquainted with writing a simple model in NumPyro, MCMC inference API, effect handlers and writing custom inference utilities.
  - [Time Series Forecasting](https://nbviewer.jupyter.org/github/pyro-ppl/numpyro/blob/master/notebooks/time_series_forecasting.ipynb) - Illustrates how to convert for loops in the model to JAX's `lax.scan` primitive for fast inference.
  - [Baseball example](https://github.com/pyro-ppl/numpyro/blob/master/examples/baseball.py) - Using NUTS for a simple hierarchical model. Compare this with the baseball example in [Pyro](https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py).
  - [Hidden Markov Model](https://github.com/pyro-ppl/numpyro/blob/master/examples/hmm.py) in NumPyro as compared to [Stan](https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html).
@@ -53,6 +53,7 @@ Users will note that the API for model specification is largely the same as Pyro
  
 In the near term, we plan to work on the following. Please open new issues for feature requests and enhancements:
 
+ - Improving robustness of inference on different models, profiling and performance tuning.
  - More inference algorithms, particularly those that require second order derivaties or use HMC.
  - Integration with [Funsor](https://github.com/pyro-ppl/funsor) to support inference algorithms with delayed sampling.
  - Supporting more distributions, extending the distributions API, and adding more samplers to JAX.
