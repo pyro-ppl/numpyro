@@ -1,3 +1,8 @@
+"""
+We demonstrate how to use NUTS to do inference on a simple (small)
+Bayesian neural network with two hidden layers.
+"""
+
 import argparse
 
 import matplotlib
@@ -14,15 +19,6 @@ from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
 matplotlib.use('Agg')  # noqa: E402
-
-
-
-
-
-"""
-We demonstrate how to use NUTS to do inference on a simple (small)
-Bayesian neural network with two hidden layers.
-"""
 
 
 # the non-linearity we use in our neural network
