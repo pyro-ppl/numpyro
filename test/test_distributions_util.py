@@ -170,6 +170,42 @@ def test_standard_gamma_batch():
         assert_allclose(samples[i], standard_gamma(rngs[i], alphas[i]))
 
 
+@pytest.mark.parametrize('prim', [
+    xlogy,
+    xlog1py,
+])
+def test_binop_batch_rule(prim):
+    bx = np.array([1., 2., 3.])
+    by = np.array([2., 3., 4.])
+    x = np.array(1.)
+    y = np.array(2.)
+
+    actual_bx_by = vmap(lambda x, y: prim(x, y))(bx, by)
+    for i in range(3):
+        assert_allclose(actual_bx_by[i], prim(bx[i], by[i]))
+
+    actual_x_by = vmap(lambda y: prim(x, y))(by)
+    for i in range(3):
+        assert_allclose(actual_x_by[i], prim(x, by[i]))
+
+    actual_bx_y = vmap(lambda x: prim(x, y))(bx)
+    for i in range(3):
+        assert_allclose(actual_bx_y[i], prim(bx[i], y))
+
+
+@pytest.mark.parametrize('prim', [
+    cumsum,
+    cumprod,
+])
+def test_unop_batch_rule(prim):
+    rng = random.PRNGKey(0)
+    bx = random.normal(rng, (3, 5))
+
+    actual = vmap(prim)(bx)
+    for i in range(3):
+        assert_allclose(actual[i], prim(bx[i]))
+
+
 @pytest.mark.parametrize('p, shape', [
     (np.array([0.1, 0.9]), ()),
     (np.array([0.2, 0.8]), (2,)),
