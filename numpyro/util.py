@@ -116,7 +116,7 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
         be any Python collection type containing `np.ndarray` objects.
     :param transform: A callable
     :param progbar: whether to post progress bar updates.
-    :param \**progbar_opts: optional additional progress bar arguments. A
+    :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
         from `body_fun` returns a string that is used to update the progress
         bar postfix. Also a `progbar_desc` keyword argument can be supplied
