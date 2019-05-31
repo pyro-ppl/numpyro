@@ -18,6 +18,9 @@ except Exception as e:
     sys.stderr.flush()
     long_description = open('README.md').read()
 
+# TODO: More intelligent way to parse this.
+long_description = '\n'.join([str(line) for line in long_description.split('\n')])
+
 setup(
     name='numpyro',
     version='0.1.0',
@@ -38,6 +41,8 @@ setup(
         'dev': ['ipython'],
         'examples': ['matplotlib'],
     },
+    long_description=long_description,
+    long_description_content_type='rst',
     tests_require=['flake8', 'pytest>=4.1'],
     keywords='probabilistic machine learning bayesian statistics',
     license='MIT License',
