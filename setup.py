@@ -5,18 +5,14 @@ import sys
 from setuptools import find_packages, setup
 
 
-# Convert README.md to rst for display at https://pypi.python.org/pypi/pyro-ppl
-# When releasing on pypi, make sure pandoc is on your system:
-# $ brew install pandoc          # OS X
-# $ sudo apt-get install pandoc  # Ubuntu Linux
+# READ README.md for long description on PyPi.
 try:
-    import pypandoc
-    long_description = pypandoc.convert('README.md', 'rst')
-    print(long_description)
+    long_description = open('README.md', encoding='utf-8').read()
 except Exception as e:
     sys.stderr.write('Failed to convert README.md to rst:\n  {}\n'.format(e))
     sys.stderr.flush()
-    long_description = open('README.md').read()
+    long_description = ''
+
 
 setup(
     name='numpyro',
@@ -39,7 +35,7 @@ setup(
         'examples': ['matplotlib'],
     },
     long_description=long_description,
-    long_description_content_type='rst',
+    long_description_content_type='text/markdown',
     tests_require=['flake8', 'pytest>=4.1'],
     keywords='probabilistic machine learning bayesian statistics',
     license='MIT License',
