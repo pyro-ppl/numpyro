@@ -332,9 +332,9 @@ def _xlogy_batching_rule(batched_args, batch_dims):
     bx = bx + nd - len(sx) if bx is not None else nd - len(sx) - 1
     by = by + nd - len(sy) if by is not None else nd - len(sy) - 1
     # move bx, by to front
-    px = batching.move_dim_to_front(x, bx)
-    py = batching.move_dim_to_front(y, by)
-    return xlogy(px, py), 0
+    x = batching.move_dim_to_front(x, bx)
+    y = batching.move_dim_to_front(y, by)
+    return xlogy(x, y), 0
 
 
 ad.defjvp(xlogy.primitive, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
@@ -371,9 +371,9 @@ def _xlog1py_batching_rule(batched_args, batch_dims):
     bx = bx + nd - len(sx) if bx is not None else nd - len(sx) - 1
     by = by + nd - len(sy) if by is not None else nd - len(sy) - 1
     # move bx, by to front
-    px = batching.move_dim_to_front(x, bx)
-    py = batching.move_dim_to_front(y, by)
-    return xlog1py(px, py), 0
+    x = batching.move_dim_to_front(x, bx)
+    y = batching.move_dim_to_front(y, by)
+    return xlog1py(x, y), 0
 
 
 @custom_transforms
