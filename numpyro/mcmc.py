@@ -134,7 +134,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         >>> def model(data, labels):
         ...     coefs_mean = np.zeros(dim)
         ...     coefs = sample('beta', dist.Normal(coefs_mean, np.ones(3)))
-        ...     return sample('y', dist.Bernoulli(logits=(coefs * data).sum(-1)), obs=labels)
+        ...     intercept = sample('intercept', dist.Normal(0., 10.))
+        ...     return sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
         >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0),
         ...                                                            model, data, labels)
@@ -154,6 +155,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     max_treedepth = None
     momentum_generator = None
     wa_update = None
+    if algo not in {'HMC', 'NUTS'}:
+        raise ValueError('`algo` must be one of `HMC` or `NUTS`.')
 
     def init_kernel(init_params,
                     num_warmup,
@@ -341,6 +344,46 @@ def mcmc(num_warmup, num_samples, init_params, sampler='hmc',
            that all arguments must be provided as keywords.
 
     :return: collection of samples from the posterior.
+
+    .. testsetup::
+
+       import jax
+       from jax import random
+       import jax.numpy as np
+       import numpyro.distributions as dist
+       from numpyro.handlers import sample
+       from numpyro.hmc_util import initialize_model
+       from numpyro.mcmc import hmc
+       from numpyro.util import fori_collect
+
+    .. doctest::
+
+        >>> true_coefs = np.array([1., 2., 3.])
+        >>> data = random.normal(random.PRNGKey(2), (2000, 3))
+        >>> dim = 3
+        >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(3))
+        >>>
+        >>> def model(data, labels):
+        ...     coefs_mean = np.zeros(dim)
+        ...     coefs = sample('beta', dist.Normal(coefs_mean, np.ones(3)))
+        ...     intercept = sample('intercept', dist.Normal(0., 10.))
+        ...     return sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
+        >>>
+        >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), model,
+        ...                                                            data, labels)
+        >>> num_warmup, num_samples = 1000, 1000
+        >>> samples = mcmc(num_warmup, num_samples, init_params,
+        ...                potential_fn=potential_fn,
+        ...                constrain_fn=constrain_fn)  # doctest: +SKIP
+        warmup: 100%|██████████| 1000/1000 [00:09<00:00, 109.40it/s, 1 steps of size 5.83e-01. acc. prob=0.79]
+        sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
+
+
+                           mean         sd       5.5%      94.5%      n_eff       Rhat
+            coefs[0]       0.96       0.07       0.85       1.07     455.35       1.01
+            coefs[1]       2.05       0.09       1.91       2.20     332.00       1.01
+            coefs[2]       3.18       0.13       2.96       3.37     320.27       1.00
+           intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
     """
     if sampler == 'hmc':
         if constrain_fn is None:

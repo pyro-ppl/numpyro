@@ -96,7 +96,7 @@ def test_beta_bernoulli(algo):
         return p_latent
 
     true_probs = np.array([0.9, 0.1])
-    data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), size=(1000, 2))
+    data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
@@ -125,7 +125,7 @@ def test_dirichlet_categorical(algo, dense_mass):
         return p_latent
 
     true_probs = np.array([0.1, 0.6, 0.3])
-    data = dist.Categorical(true_probs).sample(random.PRNGKey(1), size=(2000,))
+    data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,

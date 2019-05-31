@@ -101,8 +101,29 @@ def identity(x):
 
 
 def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
-    # works like lax.fori_loop but ignores i in body_fn, supports
-    # postprocessing `transform`, and collects values during the loop
+    """
+    This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
+    effect of collecting values from the loop body. In addition, this allows for
+    post-processing of these samples via `transform`, and progress bar updates.
+    Note that, in some cases, `progbar=False` can be faster, when collecting a
+    lot of samples.
+
+    :param int n: number of times to run the loop body.
+    :param body_fun: a callable that takes a collection of
+        `np.ndarray` and returns a collection with the same shape and
+        `dtype`.
+    :param init_val: initial value to pass as argument to `body_fun`. Can
+        be any Python collection type containing `np.ndarray` objects.
+    :param transform: A callable
+    :param progbar: whether to post progress bar updates.
+    :param `**progbar_opts`: optional additional progress bar arguments. A
+        `diagnostics_fn` can be supplied which when passed the current value
+        from `body_fun` returns a string that is used to update the progress
+        bar postfix. Also a `progbar_desc` keyword argument can be supplied
+        which is used to label the progress bar.
+    :return: collection with the same type as `init_val` with values
+        collected along the leading axis of `np.ndarray` objects.
+    """
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
@@ -135,3 +156,41 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
         collection = onp.stack(collection)
 
     return vmap(unravel_fn)(collection)
+
+
+def copy_docs_from(source_class, full_text=False):
+    """
+    Decorator to copy class and method docs from source to destin class.
+    """
+
+    def decorator(destin_class):
+        # This works only in python 3.3+:
+        # if not destin_class.__doc__:
+        #     destin_class.__doc__ = source_class.__doc__
+        for name in dir(destin_class):
+            if name.startswith('_'):
+                continue
+            destin_attr = getattr(destin_class, name)
+            destin_attr = getattr(destin_attr, '__func__', destin_attr)
+            source_attr = getattr(source_class, name, None)
+            source_doc = getattr(source_attr, '__doc__', None)
+            if source_doc and not getattr(destin_attr, '__doc__', None):
+                if full_text or source_doc.startswith('See '):
+                    destin_doc = source_doc
+                else:
+                    destin_doc = 'See :meth:`{}.{}.{}`'.format(
+                        source_class.__module__, source_class.__name__, name)
+                if isinstance(destin_attr, property):
+                    # Set docs for object properties.
+                    # Since __doc__ is read-only, we need to reset the property
+                    # with the updated doc.
+                    updated_property = property(destin_attr.fget,
+                                                destin_attr.fset,
+                                                destin_attr.fdel,
+                                                destin_doc)
+                    setattr(destin_class, name, updated_property)
+                else:
+                    destin_attr.__doc__ = destin_doc
+        return destin_class
+
+    return decorator
