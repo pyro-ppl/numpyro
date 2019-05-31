@@ -41,8 +41,9 @@ def simulate_data(rng, num_categories, num_words, num_supervised_data, num_unsup
     emission_prior = np.repeat(0.1, num_words)
 
     transition_prob = dist.Dirichlet(transition_prior).sample(key=rng_transition,
-                                                              size=(num_categories,))
-    emission_prob = dist.Dirichlet(emission_prior).sample(key=rng_emission, size=(num_categories,))
+                                                              sample_shape=(num_categories,))
+    emission_prob = dist.Dirichlet(emission_prior).sample(key=rng_emission,
+                                                          sample_shape=(num_categories,))
 
     start_prob = np.repeat(1. / num_categories, num_categories)
     categories, words = [], []

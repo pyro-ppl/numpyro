@@ -1,8 +1,27 @@
-Diagnostics
-===========
+Autocorrelation
+---------------
+.. autofunction:: numpyro.diagnostics.autocorrelation
 
-.. automodule:: numpyro.diagnostics
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
+Autocovariance
+--------------
+.. autofunction:: numpyro.diagnostics.autocovariance
+
+Effective Sample Size
+---------------------
+.. autofunction:: numpyro.diagnostics.effective_sample_size
+
+Gelman Rubin
+------------
+.. autofunction:: numpyro.diagnostics.gelman_rubin
+
+Split Gelman Rubin
+------------------
+.. autofunction:: numpyro.diagnostics.split_gelman_rubin
+
+HPDI
+----
+.. autofunction:: numpyro.diagnostics.hpdi
+
+Summary
+-------
+.. autofunction:: numpyro.diagnostics.summary
