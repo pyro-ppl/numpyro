@@ -157,7 +157,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._Real):
         return random.normal(key, size)
     elif isinstance(constraint, constraints._Simplex):
-        return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), sample_shape=size[:-1])
+        return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1])
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
         return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
@@ -185,7 +185,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._Real):
         return lax.full(size, np.nan)
     elif isinstance(constraint, constraints._Simplex):
-        return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), sample_shape=size[:-1]) + 1e-2
+        return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1]) + 1e-2
     elif isinstance(constraint, constraints._Multinomial):
         n = size[-1]
         return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1
