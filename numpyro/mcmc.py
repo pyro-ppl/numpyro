@@ -368,7 +368,7 @@ def mcmc(num_warmup, num_samples, init_params, sampler='hmc',
         ...     return sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
         >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), model,
-                                                                       data, labels)
+        ...                                                            data, labels)
         >>> num_warmup, num_samples = 1000, 1000
         >>> samples = mcmc(num_warmup, num_samples, init_params,
         ...                potential_fn=potential_fn,
