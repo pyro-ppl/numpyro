@@ -505,7 +505,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     if sp_dist and \
             not _is_batched_multivariate(d) and \
             not (d.event_shape and prepend_shape):
-        valid_samples = gen_values_within_bounds(d.support, sample_shape=prepend_shape + d.batch_shape + d.event_shape)
+        valid_samples = gen_values_within_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
         try:
             expected = sp_dist(*valid_params).logpdf(valid_samples)
         except AttributeError:
@@ -513,7 +513,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         assert_allclose(d.log_prob(valid_samples), expected, atol=1e-5)
 
     # Out of support samples throw ValueError
-    oob_samples = gen_values_outside_bounds(d.support, sample_shape=prepend_shape + d.batch_shape + d.event_shape)
+    oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
     with pytest.raises(ValueError):
         d.log_prob(oob_samples)
 
