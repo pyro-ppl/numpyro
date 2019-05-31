@@ -101,8 +101,29 @@ def identity(x):
 
 
 def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
-    # works like lax.fori_loop but ignores i in body_fn, supports
-    # postprocessing `transform`, and collects values during the loop
+    """
+    This looping construct works like :func:`lax.fori_loop` but with the additional
+    effect of collecting values from the loop body. In addition, this allows for
+    post-processing of these samples via `transform`, and progress bar updates.
+    Note that, in some cases, `progbar=False` can be faster, when collecting a
+    lot of samples.
+
+    :param int n: number of times to run the loop body.
+    :param body_fun: a callable that takes a collection of
+        `np.ndarray` and returns a collection with the same shape and
+        `dtype`.
+    :param init_val: initial value to pass as argument to `body_fun`. Can
+        be any Python collection type containing `np.ndarray` objects.
+    :param transform: A callable
+    :param progbar: whether to post progress bar updates.
+    :param \**progbar_opts: optional additional progress bar arguments. A
+        `diagnostics_fn` can be supplied which when passed the current value
+        from `body_fun` returns a string that is used to update the progress
+        bar postfix. Also a `progbar_desc` keyword argument can be supplied
+        which is used to label the progress bar.
+    :return: collection with the same type as `init_val` with values
+        collected along the leading axis of `np.ndarray` objects.
+    """
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 

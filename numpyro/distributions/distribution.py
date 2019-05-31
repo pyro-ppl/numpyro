@@ -101,7 +101,7 @@ class Distribution(object):
     def sample(self, key, sample_shape=()):
         """
         Returns a sample from the distribution having shape given by
-        `size + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
+        `sample_shape + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
         leading dimensions (of size `sample_shape`) of the returned sample will
         be filled with iid draws from the distribution instance.
 

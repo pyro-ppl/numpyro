@@ -147,7 +147,7 @@ class trace(Messenger):
 
     def get_trace(self, *args, **kwargs):
         """
-        Run the wrapped callable and eturn the recorded trace.
+        Run the wrapped callable and return the recorded trace.
 
         :param `*args`: arguments to the callable.
         :param `**kwargs`: keyword arguments to the callable.
@@ -265,7 +265,7 @@ class substitute(Messenger):
     values from `param_map` whose key matches the site name. If the
     site name is not present in `param_map`, there is no side effect.
 
-    :param callable fn: Python callable with NumPyro primitives.
+    :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
        site names.
 
@@ -321,13 +321,13 @@ def sample(name, fn, obs=None):
     :class:`~numpyro.handlers.substitute`.
 
     :param str name: name of the sample site
-    :param callable fn: Python callable
-    :param np.ndarray obs: observed value
+    :param fn: Python callable
+    :param numpy.ndarray obs: observed value
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        return fn.rvs()
+        return fn()
 
     # Otherwise, we initialize a message...
     initial_msg = {
@@ -356,11 +356,11 @@ def param(name, init_value):
     can be used in inference algorithms, refer to :func:`~numpyro.svi.svi`.
 
     :param str name: name of site.
-    :param np.ndarray init_value: initial value specified by the user. Note that
+    :param numpy.ndarray init_value: initial value specified by the user. Note that
         the onus of using this to initialize the optimizer is on the user /
         inference algorithm, since there is no global parameter store in
         NumPyro.
-    :return: return the value for the parameter. Unless wrapped inside a
+    :return: value for the parameter. Unless wrapped inside a
         handler like :class:`~numpyro.handlers.substitute`, this will simply
         return the initial value.
     """

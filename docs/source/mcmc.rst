@@ -20,5 +20,7 @@ MCMC Utilities
 
 .. autofunction:: numpyro.hmc_util.initialize_model
 
+.. autofunction:: numpyro.util.fori_collect
+
 .. autofunction:: numpyro.diagnostics.summary
    :noindex:
