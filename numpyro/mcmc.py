@@ -155,6 +155,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     max_treedepth = None
     momentum_generator = None
     wa_update = None
+    if algo not in {'HMC', 'NUTS'}:
+        raise ValueError('`algo` must be one of `HMC` or `NUTS`.')
 
     def init_kernel(init_params,
                     num_warmup,
