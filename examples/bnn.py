@@ -1,18 +1,22 @@
-import matplotlib
-matplotlib.use('Agg')  # noqa: E402
-import matplotlib.pyplot as plt
-
 import argparse
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as onp
-from jax import vmap
+
 import jax.numpy as np
 import jax.random as random
+from jax import vmap
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample, seed, substitute, trace
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
+
+matplotlib.use('Agg')  # noqa: E402
+
+
+
 
 
 """
