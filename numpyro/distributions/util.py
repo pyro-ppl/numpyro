@@ -321,8 +321,6 @@ def xlogy(x, y):
 def _xlogy_batching_rule(batched_args, batch_dims):
     x, y = batched_args
     bx, by = batch_dims
-    size = next(t.shape[i] for t, i in zip(batched_args, batch_dims)
-                if i is not None)
     # promote shapes
     sx, sy = np.shape(x), np.shape(y)
     nx = len(sx) + int(bx is None)
@@ -362,8 +360,6 @@ def _xlog1py_jvp_rhs(g, x, y):
 def _xlog1py_batching_rule(batched_args, batch_dims):
     x, y = batched_args
     bx, by = batch_dims
-    size = next(t.shape[i] for t, i in zip(batched_args, batch_dims)
-                if i is not None)
     # promote shapes
     sx, sy = np.shape(x), np.shape(y)
     nx = len(sx) + int(bx is None)
