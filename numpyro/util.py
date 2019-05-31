@@ -102,7 +102,7 @@ def identity(x):
 
 def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
     """
-    This looping construct works like :func:`lax.fori_loop` but with the additional
+    This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
     post-processing of these samples via `transform`, and progress bar updates.
     Note that, in some cases, `progbar=False` can be faster, when collecting a

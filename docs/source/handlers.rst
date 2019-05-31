@@ -1,9 +1,3 @@
-Handlers
-========
-
-.. automodule:: numpyro.handlers
-
-
 Pyro Primitives
 ---------------
 
@@ -12,6 +6,8 @@ Pyro Primitives
 
 Effect Handlers
 ---------------
+
+.. automodule:: numpyro.handlers
 
 .. autoclass:: numpyro.handlers.block
     :members:
