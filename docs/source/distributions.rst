@@ -3,7 +3,7 @@ Base Distribution
 
 Distribution
 ------------
-.. autoclass:: numpyro.distributions.Distribution
+.. autoclass:: numpyro.distributions.distribution.Distribution
     :members:
     :undoc-members:
     :show-inheritance:
@@ -11,7 +11,7 @@ Distribution
 
 TransformedDistribution
 -----------------------
-.. autoclass:: numpyro.distributions.TransformedDistribution
+.. autoclass:: numpyro.distributions.distribution.TransformedDistribution
     :members:
     :undoc-members:
     :show-inheritance:

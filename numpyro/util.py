@@ -106,7 +106,7 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
     effect of collecting values from the loop body. In addition, this allows for
     post-processing of these samples via `transform`, and progress bar updates.
     Note that, in some cases, `progbar=False` can be faster, when collecting a
-    lot of samples.
+    lot of samples. Refer to example usage in :func:`~numpyro.mcmc.hmc`.
 
     :param int n: number of times to run the loop body.
     :param body_fun: a callable that takes a collection of
