@@ -1,9 +1,16 @@
 from __future__ import absolute_import, division, print_function
 
+import os
 import sys
 
 from setuptools import find_packages, setup
 
+PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
+
+# Find version
+for line in open(os.path.join(PROJECT_PATH, 'numpyro', 'version.py')):
+    if line.startswith('__version__ = '):
+        version = line.strip().split()[2][1:-1]
 
 # READ README.md for long description on PyPi.
 try:
