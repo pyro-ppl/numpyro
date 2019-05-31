@@ -40,8 +40,10 @@ from numpyro.distributions.util import (
     standard_gamma,
     vec_to_tril_matrix
 )
+from numpyro.util import copy_docs_from
 
 
+@copy_docs_from(Distribution)
 class Beta(Distribution):
     arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive}
     support = constraints.unit_interval
@@ -54,7 +56,7 @@ class Beta(Distribution):
                                              axis=-1))
         super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         return self._dirichlet.sample(key, size=size)[..., 0]
 
     def log_prob(self, value):
@@ -72,6 +74,7 @@ class Beta(Distribution):
         return self.concentration1 * self.concentration0 / (total ** 2 * (total + 1))
 
 
+@copy_docs_from(Distribution)
 class Cauchy(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -82,7 +85,7 @@ class Cauchy(Distribution):
         batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
         super(Cauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         eps = random.cauchy(key, shape=size + self.batch_shape)
         return self.loc + eps * self.scale
 
@@ -100,6 +103,7 @@ class Cauchy(Distribution):
         return np.full(self.batch_shape, np.nan)
 
 
+@copy_docs_from(Distribution)
 class Dirichlet(Distribution):
     arg_constraints = {'concentration': constraints.positive}
     support = constraints.simplex
@@ -113,7 +117,7 @@ class Dirichlet(Distribution):
                                         event_shape=event_shape,
                                         validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         shape = size + self.batch_shape + self.event_shape
         gamma_samples = standard_gamma(key, self.concentration, shape=shape)
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
@@ -136,6 +140,7 @@ class Dirichlet(Distribution):
         return self.concentration * (con0 - self.concentration) / (con0 ** 2 * (con0 + 1))
 
 
+@copy_docs_from(Distribution)
 class Exponential(Distribution):
     reparametrized_params = ['rate']
     arg_constraints = {'rate': constraints.positive}
@@ -145,7 +150,7 @@ class Exponential(Distribution):
         self.rate = rate
         super(Exponential, self).__init__(batch_shape=np.shape(rate), validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         return random.exponential(key, shape=size + self.batch_shape) / self.rate
 
     def log_prob(self, value):
@@ -162,6 +167,7 @@ class Exponential(Distribution):
         return np.reciprocal(self.rate ** 2)
 
 
+@copy_docs_from(Distribution)
 class Gamma(Distribution):
     arg_constraints = {'concentration': constraints.positive,
                        'rate': constraints.positive}
@@ -173,7 +179,7 @@ class Gamma(Distribution):
         super(Gamma, self).__init__(batch_shape=batch_shape,
                                     validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         shape = size + self.batch_shape + self.event_shape
         return standard_gamma(key, self.concentration, shape=shape) / self.rate
 
@@ -193,6 +199,7 @@ class Gamma(Distribution):
         return self.concentration / np.power(self.rate, 2)
 
 
+@copy_docs_from(Distribution)
 class Chi2(Gamma):
     arg_constraints = {'df': constraints.positive}
 
@@ -201,6 +208,7 @@ class Chi2(Gamma):
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
+@copy_docs_from(Distribution)
 class GaussianRandomWalk(Distribution):
     arg_constraints = {'num_steps': constraints.positive_integer, 'scale': constraints.positive}
     support = constraints.real
@@ -213,7 +221,7 @@ class GaussianRandomWalk(Distribution):
         batch_shape, event_shape = np.shape(scale), (num_steps,)
         super(GaussianRandomWalk, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         shape = size + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
         return cumsum(walks) * np.expand_dims(self.scale, axis=-1)
@@ -236,6 +244,7 @@ class GaussianRandomWalk(Distribution):
                                self.batch_shape + self.event_shape)
 
 
+@copy_docs_from(Distribution)
 class HalfCauchy(TransformedDistribution):
     reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
@@ -260,6 +269,7 @@ class HalfCauchy(TransformedDistribution):
         return np.full(self.batch_shape, np.inf)
 
 
+@copy_docs_from(Distribution)
 class HalfNormal(TransformedDistribution):
     reparametrized_params = ['scale']
     arg_constraints = {'scale': constraints.positive}
@@ -284,6 +294,7 @@ class HalfNormal(TransformedDistribution):
         return (1 - 2 / np.pi) * self.scale ** 2
 
 
+@copy_docs_from(Distribution)
 class LKJCholesky(Distribution):
     r"""
     LKJ distribution for lower Cholesky factors of correlation matrices. The distribution is
@@ -397,7 +408,7 @@ class LKJCholesky(Distribution):
         cholesky = cholesky + np.expand_dims(diag, axis=-1) * np.identity(self.dimension)
         return cholesky
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         if self.sample_method == "onion":
             return self._onion(key, size)
         else:
@@ -450,6 +461,7 @@ class LKJCholesky(Distribution):
         return unnormalized - normalize_term
 
 
+@copy_docs_from(Distribution)
 class Normal(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -460,7 +472,7 @@ class Normal(Distribution):
         batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
         super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         eps = random.normal(key, shape=size + self.batch_shape)
         return self.loc + eps * self.scale
 
@@ -479,6 +491,7 @@ class Normal(Distribution):
         return np.broadcast_to(self.scale ** 2, self.batch_shape)
 
 
+@copy_docs_from(Distribution)
 class LogNormal(TransformedDistribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     reparametrized_params = ['loc', 'scale']
@@ -497,6 +510,7 @@ class LogNormal(TransformedDistribution):
         return (np.exp(self.scale ** 2) - 1) * np.exp(2 * self.loc + self.scale ** 2)
 
 
+@copy_docs_from(Distribution)
 class Pareto(TransformedDistribution):
     arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
 
@@ -525,6 +539,7 @@ class Pareto(TransformedDistribution):
         return constraints.greater_than(self.scale)
 
 
+@copy_docs_from(Distribution)
 class StudentT(Distribution):
     arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -537,7 +552,7 @@ class StudentT(Distribution):
         self._chi2 = Chi2(self.df)
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         key_normal, key_chi2 = random.split(key)
         std_normal = random.normal(key_normal, shape=size + self.batch_shape)
         z = self._chi2.sample(key_chi2, size)
@@ -564,6 +579,7 @@ class StudentT(Distribution):
         return np.broadcast_to(var, self.batch_shape)
 
 
+@copy_docs_from(Distribution)
 class TruncatedCauchy(Distribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
@@ -574,7 +590,7 @@ class TruncatedCauchy(Distribution):
         batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(loc), np.shape(scale))
         super(TruncatedCauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         # We use inverse transform method:
         # z ~ inv_cdf(U), where U ~ Uniform(cdf(low), cdf(high)).
         #                         ~ Uniform(arctan(low), arctan(high)) / pi + 1/2
@@ -607,6 +623,7 @@ class TruncatedCauchy(Distribution):
         return constraints.greater_than(self.low)
 
 
+@copy_docs_from(Distribution)
 class TruncatedNormal(Distribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
@@ -619,7 +636,7 @@ class TruncatedNormal(Distribution):
         self._normal = Normal(self.loc, self.scale)
         super(TruncatedNormal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         size = size + self.batch_shape
         # We use inverse transform method:
         # z ~ icdf(U), where U ~ Uniform(0, 1).
@@ -654,6 +671,7 @@ class TruncatedNormal(Distribution):
         return constraints.greater_than(self.low)
 
 
+@copy_docs_from(Distribution)
 class Uniform(Distribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
     reparametrized_params = ['low', 'high']
@@ -663,7 +681,7 @@ class Uniform(Distribution):
         batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
         super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
         size = size + self.batch_shape
         return self.low + random.uniform(key, shape=size) * (self.high - self.low)
 

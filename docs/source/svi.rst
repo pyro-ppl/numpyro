@@ -8,3 +8,7 @@ Stochastic Variational Inference (SVI)
 .. autofunction:: numpyro.svi.svi.update_fn
 
 .. autofunction:: numpyro.svi.svi.evaluate
+
+ELBo
+----
+.. autofunction:: numpyro.svi.elbo

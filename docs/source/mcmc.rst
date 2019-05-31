@@ -1,6 +1,9 @@
 Markov Chain Monte Carlo (MCMC)
 ===============================
 
+Hamiltonian Monte Carlo
+-----------------------
+
 .. autofunction:: numpyro.mcmc.mcmc
 
 .. autofunction:: numpyro.mcmc.hmc
@@ -16,3 +19,6 @@ MCMC Utilities
 --------------
 
 .. autofunction:: numpyro.hmc_util.initialize_model
+
+.. autofunction:: numpyro.diagnostics.summary
+   :noindex:

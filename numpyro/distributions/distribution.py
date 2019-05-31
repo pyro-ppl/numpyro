@@ -29,6 +29,36 @@ from numpyro.distributions.util import sum_rightmost
 
 
 class Distribution(object):
+    """
+    Base class for probability distributions in NumPyro. The design largely
+    follows from :mod:`torch.distributions`.
+
+    :param batch_shape: The batch shape for the distribution. This designates
+        independent (possibly non-identical) dimensions of a sample from the
+        distribution. This is fixed for a distribution instance and is inferred
+        from the shape of the distribution parameters.
+    :param event_shape: The event shape for the distribution. This designates
+        the dependent dimensions of a sample from the distribution. These are
+        collapsed when we evaluate the log probability density of a batch of
+        samples using `.log_prob`.
+    :param validate_args: Whether to enable validation of distribution
+        parameters and arguments to `.log_prob` method.
+
+    As an example:
+
+    .. testsetup::
+
+       import jax.numpy as np
+       import numpyro.distributions as dist
+
+    .. doctest::
+
+       >>> d = dist.Dirichlet(np.ones((2, 3, 4)))
+       >>> d.batch_shape
+       (2, 3)
+       >>> d.event_shape
+       (4,)
+    """
     arg_constraints = {}
     support = None
     reparametrized_params = []
@@ -49,24 +79,60 @@ class Distribution(object):
 
     @property
     def batch_shape(self):
+        """
+        Returns the shape over which the distribution parameters are batched.
+
+        :return: batch shape of the distribution.
+        :rtype: tuple
+        """
         return self._batch_shape
 
     @property
     def event_shape(self):
+        """
+        Returns the shape of a single sample from the distribution without
+        batching.
+
+        :return: event shape of the distribution.
+        :rtype: tuple
+        """
         return self._event_shape
 
-    def sample(self, key, size=()):
+    def sample(self, key, sample_shape=()):
+        """
+        Returns a sample from the distribution having shape given by
+        `size + batch_shape + event_shape`. Note that when `sample_shape` is non-empty,
+        leading dimensions (of size `sample_shape`) of the returned sample will
+        be filled with iid draws from the distribution instance.
+
+        :param jax.random.PRNGKey key: the rng key to be used for the distribution.
+        :param size: the sample shape for the distribution.
+        :return: a `numpy.ndarray` of shape `sample_shape + batch_shape + event_shape`
+        """
         raise NotImplementedError
 
     def log_prob(self, value):
+        """
+        Evaluates the log probability density for a batch of samples given by
+        `value`.
+
+        :param value: A batch of samples from the distribution.
+        :return: a `numpy.ndarray` with shape `value.shape[:-self.event_shape]`
+        """
         raise NotImplementedError
 
     @property
     def mean(self):
+        """
+        Mean of the distribution.
+        """
         raise NotImplementedError
 
     @property
     def variance(self):
+        """
+        Variance of the distribution.
+        """
         raise NotImplementedError
 
     def _validate_sample(self, value):
@@ -80,6 +146,17 @@ class Distribution(object):
 
 
 class TransformedDistribution(Distribution):
+    """
+    Returns a distribution instance obtained as a result of applying
+    a sequence of transforms to a base distribution. For an example,
+    see :class:`~numpyro.distributions.LogNormal` and
+    :class:`~numpyro.distributions.HalfNormal`.
+
+    :param base_distribution: the base distribution over which to apply transforms.
+    :param transforms: a single transform or a list of transforms.
+    :param validate_args: Whether to enable validation of distribution
+        parameters and arguments to `.log_prob` method.
+    """
     arg_constraints = {}
 
     def __init__(self, base_distribution, transforms, validate_args=None):
