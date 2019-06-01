@@ -197,7 +197,10 @@ def hpdi(x, prob=0.89, axis=0):
 
 def summary(samples, prob=0.89):
     """
-    Prints a summary table for diagnostics of ``samples``.
+    Prints a summary table displaying diagnostics of ``samples`` from the
+    posterior. The diagnostics displayed are mean, standard deviation,
+    the 89% Credibility Interval, :func:`~numpyro.diagnostics.effective_sample_size`
+    :func:`~numpyro.diagnostics.split_gelman_rubin`.
 
     :param samples: a collection of input samples.
     :param float prob: the probability mass of samples within the HPDI interval.

@@ -1,24 +1,24 @@
-import matplotlib
-matplotlib.use('Agg')  # noqa: E402
-import matplotlib.pyplot as plt
+"""
+We demonstrate how to use NUTS to do inference on a simple (small)
+Bayesian neural network with two hidden layers.
+"""
 
 import argparse
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as onp
-from jax import vmap
+
 import jax.numpy as np
 import jax.random as random
+from jax import vmap
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample, seed, substitute, trace
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
-
-"""
-We demonstrate how to use NUTS to do inference on a simple (small)
-Bayesian neural network with two hidden layers.
-"""
+matplotlib.use('Agg')  # noqa: E402
 
 
 # the non-linearity we use in our neural network
