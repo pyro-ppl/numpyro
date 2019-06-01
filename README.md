@@ -1,6 +1,6 @@
 [![Build Status](https://travis-ci.com/pyro-ppl/numpyro.svg?branch=master)](https://travis-ci.com/pyro-ppl/numpyro)
 [![Documentation Status](https://readthedocs.org/projects/numpyro/badge/?version=latest)](https://numpyro.readthedocs.io/en/latest/?badge=latest)
-
+[![Latest Version](https://badge.fury.io/py/numpyro.svg)](https://pypi.python.org/pypi/numpyro)
 # NumPyro
 
 Probabilistic programming with Numpy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/CPU.
