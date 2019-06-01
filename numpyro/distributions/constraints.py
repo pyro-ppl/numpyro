@@ -95,6 +95,14 @@ class _Interval(Constraint):
         return (value > self.lower_bound) & (value < self.upper_bound)
 
 
+class _LowerCholesky(Constraint):
+    def __call__(self, x):
+        tril = np.tril(x)
+        lower_triangular = np.all(np.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        positive_diagonal = np.all(np.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
+        return lower_triangular & positive_diagonal
+
+
 class _Multinomial(Constraint):
     def __init__(self, upper_bound):
         self.upper_bound = upper_bound
@@ -123,6 +131,7 @@ greater_than = _GreaterThan
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
+lower_cholesky = _LowerCholesky
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 positive_integer = _IntegerGreaterThan(1)
