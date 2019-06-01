@@ -44,7 +44,7 @@ def run_inference(model, args, rng, X, Y):
     init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y)
     samples = mcmc(args.num_warmup, args.num_samples, init_params,
                    sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn,
-                   algo='nuts')
+                   algo='NUTS')
     return samples
 
 
