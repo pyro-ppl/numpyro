@@ -45,11 +45,11 @@ setup(
     long_description_content_type='text/markdown',
     tests_require=['flake8', 'pytest>=4.1'],
     keywords='probabilistic machine learning bayesian statistics',
-    license='MIT License',
     classifiers=[
         'Intended Audience :: Developers',
         'Intended Audience :: Education',
         'Intended Audience :: Science/Research',
+        'License :: OSI Approved :: MIT License',
         'Operating System :: POSIX :: Linux',
         'Operating System :: MacOS :: MacOS X',
         'Programming Language :: Python :: 3.6',
