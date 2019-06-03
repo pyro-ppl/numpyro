@@ -9,7 +9,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 import jax
 import jax.numpy as np
 import jax.random as random
-from jax import grad, jacfwd, lax, vmap
+from jax import device_get, grad, jacfwd, lax, vmap
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
@@ -35,6 +35,13 @@ class T(namedtuple('TestCase', ['jax_dist', 'sp_dist', 'params'])):
         return super(cls, T).__new__(cls, jax_dist, sp_dist, params)
 
 
+def _mvn_to_scipy(loc, cov, prec, tril):
+    jax_dist = dist.MultivariateNormal(loc, cov, prec, tril)
+    mean = device_get(jax_dist.mean)
+    cov = device_get(jax_dist.covariance_matrix)
+    return osp.multivariate_normal(mean=mean, cov=cov)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -52,6 +59,7 @@ _DIST_MAP = {
     dist.MultinomialProbs: lambda probs, total_count: osp.multinomial(n=total_count, p=probs),
     dist.MultinomialLogits: lambda logits, total_count: osp.multinomial(n=total_count,
                                                                         p=_to_probs_multinom(logits)),
+    dist.MultivariateNormal: _mvn_to_scipy,
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
     dist.Pareto: lambda alpha, scale: osp.pareto(alpha, scale=scale),
     dist.Poisson: lambda rate: osp.poisson(rate),
@@ -82,15 +90,19 @@ CONTINUOUS = [
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
     T(dist.HalfNormal, np.array([1., 2.])),
-    T(dist.LogNormal, 1., 0.2),
-    T(dist.LogNormal, -1., np.array([0.5, 1.3])),
-    T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
     T(dist.LKJCholesky, 2, 0.5, "onion"),
     T(dist.LKJCholesky, 2, 0.5, "cvine"),
     T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "onion"),
     T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "cvine"),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
+    T(dist.LogNormal, 1., 0.2),
+    T(dist.LogNormal, -1., np.array([0.5, 1.3])),
+    T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+    T(dist.MultivariateNormal, 0., np.array([[1., 0.5], [0.5, 1.]]), None, None),
+    T(dist.MultivariateNormal, np.array([1., 3.]), None, np.array([[1., 0.5], [0.5, 1.]]), None),
+    T(dist.MultivariateNormal, np.array([2.]), None, None, np.array([[1., 0.], [0.5, 1.]])),
+    T(dist.MultivariateNormal, np.arange(6).reshape((3, 2)), None, None, np.array([[1., 0.], [0., 1.]])),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),

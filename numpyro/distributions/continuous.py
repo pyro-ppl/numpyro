@@ -518,24 +518,28 @@ def _batch_mahalanobis(bL, bx):
     permute_inv_dims = tuple(range(sample_ndim))
     for i in range(bL.ndim - 2):
         permute_inv_dims += (sample_ndim + i, len(out_shape) + i)
-    M = np.tranpose(M, permute_inv_dims)
+    M = np.transpose(M, permute_inv_dims)
     return np.reshape(M, out_shape)
 
 
 @copy_docs_from(Distribution)
 class MultivariateNormal(Distribution):
-    arg_constraints = {'loc': constraints.real, 'scale_tril': constraints.lower_cholesky}
+    arg_constraints = {'loc': constraints.real,
+                       'covariance_matrix': constraints.positive_definite,
+                       'precision_matrix': constraints.positive_definite,
+                       'scale_tril': constraints.lower_cholesky}
     support = constraints.real
     reparametrized_params = ['loc', 'scale_tril']
 
     def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
                  validate_args=None):
         if np.isscalar(loc):
-            loc = loc[np.newaxis]
+            loc = np.expand_dims(loc, axis=-1)
+        # temporary append a new axis to loc
         loc = loc[..., np.newaxis]
         if covariance_matrix is not None:
-            loc, covariance_matrix = promote_shapes(loc, covariance_matrix)
-            self.scale_tril = np.linalg.cholesky(covariance_matrix)
+            loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
+            self.scale_tril = np.linalg.cholesky(self.covariance_matrix)
         elif precision_matrix is not None:
             loc, self.precision_matrix = promote_shapes(loc, precision_matrix)
             self.scale_tril = cholesky_inverse(self.precision_matrix)
@@ -544,9 +548,9 @@ class MultivariateNormal(Distribution):
         else:
             raise ValueError('One of `covariance_matrix`, `precision_matrix`, `scale_tril`'
                              ' must be specified.')
-        self.loc = np.squeeze(loc, axis=-1)
-        batch_shape = lax.broadcast_shapes(np.shape(self.loc)[:-1], np.shape(self.scale_tril)[:-2])
+        batch_shape = lax.broadcast_shapes(np.shape(loc)[:-2], np.shape(self.scale_tril)[:-2])
         event_shape = np.shape(self.scale_tril)[-1:]
+        self.loc = np.broadcast_to(np.squeeze(loc, axis=-1), batch_shape + event_shape)
         super(MultivariateNormal, self).__init__(batch_shape=batch_shape,
                                                  event_shape=event_shape,
                                                  validate_args=validate_args)
@@ -558,9 +562,7 @@ class MultivariateNormal(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        diff = value - self.loc
-        diff = np.broadcast_to(diff, diff[:-self.loc.ndim] + self.batch_shape + self.event_shape)
-        M = _batch_mahalanobis(self.scale_tril, diff)
+        M = _batch_mahalanobis(self.scale_tril, value - self.loc)
         half_log_det = np.log(np.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
         normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * np.log(2 * np.pi)
         return -M - normalize_term
@@ -576,7 +578,7 @@ class MultivariateNormal(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.loc, self.batch_shape + self.event_shape)
+        return self.loc
 
     @property
     def variance(self):

@@ -38,8 +38,8 @@ class Constraint(object):
 
 
 class _Boolean(Constraint):
-    def __call__(self, value):
-        return (value == 0) | (value == 1)
+    def __call__(self, x):
+        return (x == 0) | (x == 1)
 
 
 class _CorrCholesky(Constraint):
@@ -82,8 +82,8 @@ class _IntegerGreaterThan(Constraint):
     def __init__(self, lower_bound):
         self.lower_bound = lower_bound
 
-    def __call__(self, value):
-        return (value % 1 == 0) & (value >= self.lower_bound)
+    def __call__(self, x):
+        return (x % 1 == 0) & (x >= self.lower_bound)
 
 
 class _Interval(Constraint):
@@ -91,8 +91,8 @@ class _Interval(Constraint):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
-    def __call__(self, value):
-        return (value > self.lower_bound) & (value < self.upper_bound)
+    def __call__(self, x):
+        return (x > self.lower_bound) & (x < self.upper_bound)
 
 
 class _LowerCholesky(Constraint):
@@ -107,8 +107,13 @@ class _Multinomial(Constraint):
     def __init__(self, upper_bound):
         self.upper_bound = upper_bound
 
-    def __call__(self, value):
-        return np.all(value >= 0, axis=-1) & (np.sum(value, -1) == self.upper_bound)
+    def __call__(self, x):
+        return np.all(x >= 0, axis=-1) & (np.sum(x, -1) == self.upper_bound)
+
+
+class _PositiveDefinite(Constraint):
+    def __call__(self, x):
+        return np.linalg.eigh(x)[0][..., 0] > 0
 
 
 class _Real(Constraint):
@@ -136,6 +141,7 @@ multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 positive_integer = _IntegerGreaterThan(1)
 positive = _GreaterThan(0.)
+positive_definite = _PositiveDefinite()
 real = _Real()
 simplex = _Simplex()
 unit_interval = _Interval(0., 1.)
