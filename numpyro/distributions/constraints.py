@@ -113,6 +113,7 @@ class _Multinomial(Constraint):
 
 class _PositiveDefinite(Constraint):
     def __call__(self, x):
+        # check for the smallest eigenvalue is positive
         return np.linalg.eigh(x)[0][..., 0] > 0
 
 

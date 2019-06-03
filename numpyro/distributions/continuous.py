@@ -529,7 +529,7 @@ class MultivariateNormal(Distribution):
                        'precision_matrix': constraints.positive_definite,
                        'scale_tril': constraints.lower_cholesky}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale_tril']
+    reparametrized_params = ['loc', 'covariance_matrix', 'precision_matrix', 'scale_tril']
 
     def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
                  validate_args=None):
@@ -557,7 +557,7 @@ class MultivariateNormal(Distribution):
 
     def sample(self, key, sample_shape=()):
         eps = random.normal(key, shape=sample_shape + self.batch_shape + self.event_shape)
-        return self.loc + np.squeeze(np.dot(self.scale_tril, eps[..., np.newaxis]), axis=-1)
+        return self.loc + np.squeeze(np.matmul(self.scale_tril, eps[..., np.newaxis]), axis=-1)
 
     def log_prob(self, value):
         if self._validate_args:
@@ -565,7 +565,7 @@ class MultivariateNormal(Distribution):
         M = _batch_mahalanobis(self.scale_tril, value - self.loc)
         half_log_det = np.log(np.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
         normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * np.log(2 * np.pi)
-        return -M - normalize_term
+        return - 0.5 * M - normalize_term
 
     @lazy_property
     def covariance_matrix(self):

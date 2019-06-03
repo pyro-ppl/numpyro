@@ -251,8 +251,10 @@ def test_sample_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(repara_params)):
-        args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
-        args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
+        if repara_params[i] is None:
+            continue
+        args_lhs = [p if j != i else p - eps for j, p in enumerate(repara_params)]
+        args_rhs = [p if j != i else p + eps for j, p in enumerate(repara_params)]
         fn_lhs = fn(args_lhs)
         fn_rhs = fn(args_rhs)
         # finite diff approximation
@@ -418,7 +420,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
-        if np.result_type(params[i]) in (np.int32, np.int64):
+        if params[i] is None or np.result_type(params[i]) in (np.int32, np.int64):
             continue
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
@@ -439,11 +441,16 @@ def test_mean_var(jax_dist, sp_dist, params):
     # check with suitable scipy implementation if available
     if sp_dist and not _is_batched_multivariate(d_jax):
         d_sp = sp_dist(*params)
-        sp_mean = d_sp.mean()
+        try:
+            sp_mean = d_sp.mean()
+        except TypeError:  # mvn does not have .mean() method
+            sp_mean = d_sp.mean
         # for multivariate distns try .cov first
         if d_jax.event_shape:
             try:
                 sp_var = np.diag(d_sp.cov())
+            except TypeError:  # mvn does not have .cov() method
+                sp_var = np.diag(d_sp.cov)
             except AttributeError:
                 sp_var = d_sp.var()
         else:
