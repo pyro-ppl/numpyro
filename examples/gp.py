@@ -105,7 +105,7 @@ def main(args):
     means, predictions = vmap(lambda rng, log_var, log_length, log_noise:
                               predict(rng, X, Y, X_test, log_var, log_length, log_noise))(*vmap_args)
 
-    mean_prediction = np.mean(means, axis=0)
+    mean_prediction = onp.mean(means, axis=0)
     percentiles = onp.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
