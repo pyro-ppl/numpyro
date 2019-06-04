@@ -1,23 +1,20 @@
-import matplotlib
-matplotlib.use('Agg')  # noqa: E402
-import matplotlib.pyplot as plt
-import jax
-
 import argparse
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as onp
-from jax import vmap
+
+import jax
 import jax.numpy as np
 import jax.random as random
+from jax import vmap
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
-from jax.config import config
-# we use double precision to minimize any possible numerical instabilities in jax linear algebra
-config.update('jax_enable_x64', True)
+matplotlib.use('Agg')  # noqa: E402
 
 """
 In this example we show how to use NUTS to sample from the posterior

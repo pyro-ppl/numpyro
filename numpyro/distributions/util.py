@@ -10,6 +10,7 @@ from jax import canonicalize_dtype, custom_transforms, device_get, jit, lax, ran
 from jax.interpreters import ad, batching
 from jax.lib import xla_bridge
 from jax.numpy.lax_numpy import _promote_args_like
+from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln
 from jax.util import partial
 
@@ -391,7 +392,9 @@ def cholesky_inverse(matrix):
     # which is more numerically stable.
     # Refer to:
     # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
-    return np.swapaxes(np.linalg.inv(np.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1]), -2, -1)
+    tril_inv = np.swapaxes(np.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
+    identity = np.broadcast_to(np.identity(matrix.shape[-1]), tril_inv.shape)
+    return solve_triangular(identity, tril_inv, lower=True)
 
 
 def entr(p):
