@@ -7,6 +7,7 @@ from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
 from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, substitute, trace
 from numpyro.util import cond, laxtuple, while_loop
 
@@ -20,14 +21,6 @@ TreeInfo = laxtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
                                  'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
                                  'depth', 'weight', 'r_sum', 'turning', 'diverging',
                                  'sum_accept_probs', 'num_proposals'])
-
-
-def _cholesky_inverse(matrix):
-    # This formulation only takes the inverse of a triangular matrix
-    # which is more numerically stable.
-    # Refer to:
-    # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
-    return np.linalg.inv(np.linalg.cholesky(matrix[::-1, ::-1])[::-1, ::-1]).T
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
@@ -165,7 +158,7 @@ def welford_covariance(diagonal=True):
             else:
                 cov = scaled_cov + shrinkage * np.identity(mean.shape[0])
         if np.ndim(cov) == 2:
-            cov_inv_sqrt = _cholesky_inverse(cov)
+            cov_inv_sqrt = cholesky_inverse(cov)
         else:
             cov_inv_sqrt = np.sqrt(np.reciprocal(cov))
         return cov, cov_inv_sqrt
@@ -372,7 +365,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             mass_matrix_sqrt = inverse_mass_matrix
         else:
             if dense_mass:
-                mass_matrix_sqrt = _cholesky_inverse(inverse_mass_matrix)
+                mass_matrix_sqrt = cholesky_inverse(inverse_mass_matrix)
             else:
                 mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 

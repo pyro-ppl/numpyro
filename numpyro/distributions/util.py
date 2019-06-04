@@ -386,6 +386,14 @@ ad.defjvp(xlog1py.primitive, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
 batching.primitive_batchers[xlog1py.primitive] = _xlog1py_batching_rule
 
 
+def cholesky_inverse(matrix):
+    # This formulation only takes the inverse of a triangular matrix
+    # which is more numerically stable.
+    # Refer to:
+    # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
+    return np.swapaxes(np.linalg.inv(np.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1]), -2, -1)
+
+
 def entr(p):
     return np.where(p < 0, -np.inf, -xlogy(p))
 

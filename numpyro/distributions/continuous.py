@@ -26,13 +26,16 @@
 import jax.numpy as np
 import jax.random as random
 from jax import lax, ops
+from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (
+    cholesky_inverse,
     cumsum,
+    lazy_property,
     matrix_to_tril_vec,
     multigammaln,
     promote_shapes,
@@ -462,6 +465,128 @@ class LKJCholesky(Distribution):
 
 
 @copy_docs_from(Distribution)
+class LogNormal(TransformedDistribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    reparametrized_params = ['loc', 'scale']
+
+    def __init__(self, loc=0., scale=1., validate_args=None):
+        base_dist = Normal(loc, scale)
+        self.loc, self.scale = base_dist.loc, base_dist.scale
+        super(LogNormal, self).__init__(base_dist, ExpTransform(), validate_args=validate_args)
+
+    @property
+    def mean(self):
+        return np.exp(self.loc + self.scale ** 2 / 2)
+
+    @property
+    def variance(self):
+        return (np.exp(self.scale ** 2) - 1) * np.exp(2 * self.loc + self.scale ** 2)
+
+
+def _batch_mahalanobis(bL, bx):
+    # NB: The following procedure handles the case: bL.shape = (i, 1, n, n), bx.shape = (i, j, n)
+    # because we don't want to broadcast bL to the shape (i, j, n).
+
+    # Assume that bL.shape = (i, 1, n, n), bx.shape = (..., i, j, n),
+    # we are going to make bx have shape (..., 1, j,  i, 1, n) to apply batched tril_solve
+    sample_ndim = bx.ndim - bL.ndim + 1  # size of sample_shape
+    out_shape = np.shape(bx)[:-1]  # shape of output
+    # Reshape bx with the shape (..., 1, i, j, 1, n)
+    bx_new_shape = out_shape[:sample_ndim]
+    for (sL, sx) in zip(bL.shape[:-2], out_shape[sample_ndim:]):
+        bx_new_shape += (sx // sL, sL)
+    bx_new_shape += (-1,)
+    bx = np.reshape(bx, bx_new_shape)
+    # Permute bx to make it have shape (..., 1, j, i, 1, n)
+    permute_dims = (tuple(range(sample_ndim))
+                    + tuple(range(sample_ndim, bx.ndim - 1, 2))
+                    + tuple(range(sample_ndim + 1, bx.ndim - 1, 2))
+                    + (bx.ndim - 1,))
+    bx = np.transpose(bx, permute_dims)
+
+    # reshape to (-1, i, 1, n)
+    xt = np.reshape(bx, (-1,) + bL.shape[:-1])
+    # permute to (i, 1, n, -1)
+    xt = np.moveaxis(xt, 0, -1)
+    solve_bL_bx = solve_triangular(bL, xt, lower=True)  # shape: (i, 1, n, -1)
+    M = np.sum(solve_bL_bx ** 2, axis=-2)  # shape: (i, 1, -1)
+    # permute back to (-1, i, 1)
+    M = np.moveaxis(M, -1, 0)
+    # reshape back to (..., 1, j, i, 1)
+    M = np.reshape(M, bx.shape[:-1])
+    # permute back to (..., 1, i, j, 1)
+    permute_inv_dims = tuple(range(sample_ndim))
+    for i in range(bL.ndim - 2):
+        permute_inv_dims += (sample_ndim + i, len(out_shape) + i)
+    M = np.transpose(M, permute_inv_dims)
+    return np.reshape(M, out_shape)
+
+
+@copy_docs_from(Distribution)
+class MultivariateNormal(Distribution):
+    arg_constraints = {'loc': constraints.real,
+                       'covariance_matrix': constraints.positive_definite,
+                       'precision_matrix': constraints.positive_definite,
+                       'scale_tril': constraints.lower_cholesky}
+    support = constraints.real
+    reparametrized_params = ['loc', 'covariance_matrix', 'precision_matrix', 'scale_tril']
+
+    def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
+                 validate_args=None):
+        if np.isscalar(loc):
+            loc = np.expand_dims(loc, axis=-1)
+        # temporary append a new axis to loc
+        loc = loc[..., np.newaxis]
+        if covariance_matrix is not None:
+            loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
+            self.scale_tril = np.linalg.cholesky(self.covariance_matrix)
+        elif precision_matrix is not None:
+            loc, self.precision_matrix = promote_shapes(loc, precision_matrix)
+            self.scale_tril = cholesky_inverse(self.precision_matrix)
+        elif scale_tril is not None:
+            loc, self.scale_tril = promote_shapes(loc, scale_tril)
+        else:
+            raise ValueError('One of `covariance_matrix`, `precision_matrix`, `scale_tril`'
+                             ' must be specified.')
+        batch_shape = lax.broadcast_shapes(np.shape(loc)[:-2], np.shape(self.scale_tril)[:-2])
+        event_shape = np.shape(self.scale_tril)[-1:]
+        self.loc = np.broadcast_to(np.squeeze(loc, axis=-1), batch_shape + event_shape)
+        super(MultivariateNormal, self).__init__(batch_shape=batch_shape,
+                                                 event_shape=event_shape,
+                                                 validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        eps = random.normal(key, shape=sample_shape + self.batch_shape + self.event_shape)
+        return self.loc + np.squeeze(np.matmul(self.scale_tril, eps[..., np.newaxis]), axis=-1)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        M = _batch_mahalanobis(self.scale_tril, value - self.loc)
+        half_log_det = np.log(np.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
+        normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * np.log(2 * np.pi)
+        return - 0.5 * M - normalize_term
+
+    @lazy_property
+    def covariance_matrix(self):
+        return np.dot(self.scale_tril, self.scale_tril.T)
+
+    @lazy_property
+    def precision_matrix(self):
+        scale_tril_inv = np.linalg.inv(self.scale_tril)
+        return np.dot(scale_tril_inv.T, scale_tril_inv)
+
+    @property
+    def mean(self):
+        return self.loc
+
+    @property
+    def variance(self):
+        return np.broadcast_to(np.sum(self.scale_tril ** 2, axis=-1),
+                               self.batch_shape + self.event_shape)
+
+
+@copy_docs_from(Distribution)
 class Normal(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -479,8 +604,9 @@ class Normal(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        normalize_term = np.log(self.scale) + np.log(np.sqrt(2 * np.pi))
-        return -((value - self.loc) ** 2) / (2.0 * self.scale ** 2) - normalize_term
+        normalize_term = np.log(np.sqrt(2 * np.pi) * self.scale)
+        value_scaled = (value - self.loc) / self.scale
+        return -0.5 * value_scaled ** 2 - normalize_term
 
     @property
     def mean(self):
@@ -489,25 +615,6 @@ class Normal(Distribution):
     @property
     def variance(self):
         return np.broadcast_to(self.scale ** 2, self.batch_shape)
-
-
-@copy_docs_from(Distribution)
-class LogNormal(TransformedDistribution):
-    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
-    reparametrized_params = ['loc', 'scale']
-
-    def __init__(self, loc=0., scale=1., validate_args=None):
-        base_dist = Normal(loc, scale)
-        self.loc, self.scale = base_dist.loc, base_dist.scale
-        super(LogNormal, self).__init__(base_dist, ExpTransform(), validate_args=validate_args)
-
-    @property
-    def mean(self):
-        return np.exp(self.loc + self.scale ** 2 / 2)
-
-    @property
-    def variance(self):
-        return (np.exp(self.scale ** 2) - 1) * np.exp(2 * self.loc + self.scale ** 2)
 
 
 @copy_docs_from(Distribution)

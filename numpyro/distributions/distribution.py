@@ -25,7 +25,7 @@
 import jax.numpy as np
 
 from numpyro.distributions.constraints import Transform, is_dependent
-from numpyro.distributions.util import sum_rightmost
+from numpyro.distributions.util import lazy_property, sum_rightmost
 
 
 class Distribution(object):
@@ -71,6 +71,8 @@ class Distribution(object):
             self._validate_args = validate_args
         if self._validate_args:
             for param, constraint in self.arg_constraints.items():
+                if param not in self.__dict__ and isinstance(getattr(type(self), param), lazy_property):
+                    continue
                 if is_dependent(constraint):
                     continue  # skip constraints that cannot be checked
                 if not np.all(constraint(getattr(self, param))):
