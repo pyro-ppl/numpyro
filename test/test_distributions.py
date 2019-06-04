@@ -177,6 +177,11 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
                            minval=-1, maxval=1))
+    elif isinstance(constraint, constraints._LowerCholesky):
+        return np.tril(random.uniform(key, size))
+    elif isinstance(constraint, constraints._PositiveDefinite):
+        x = random.normal(key, size)
+        return np.matmul(x, x.T)
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -205,6 +210,10 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
                            minval=-1, maxval=1)) + 1e-2
+    elif isinstance(constraint, constraints._LowerCholesky):
+        return random.uniform(key, size)
+    elif isinstance(constraint, constraints._PositiveDefinite):
+        return random.normal(key, size)
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -502,6 +511,10 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     for i in range(len(params)):
         if jax_dist is dist.LKJCholesky and dist_args[i] != "concentration":
             continue
+        if params[i] is None:
+            oob_params[i] = None
+            valid_params[i] = None
+            continue
         constraint = jax_dist.arg_constraints[dist_args[i]]
         if isinstance(constraint, constraints._Dependent):
             dependent_constraint = True
@@ -517,6 +530,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
+    if jax_dist is dist.MultivariateNormal and (prepend_shape or np.ndim(params[0]) >= 2):
+        pytest.xfail('numpy.linalg.eigh batch rule is not available yet.')
     d = jax_dist(*valid_params, validate_args=True)
 
     # Test agreement of log density evaluation on randomly generated samples
