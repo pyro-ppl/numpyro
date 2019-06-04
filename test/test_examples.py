@@ -13,6 +13,7 @@ EXAMPLES = [
     'covtype.py --algo hmc --num-samples 10',
     'hmm.py --num-samples 100 --num-warmup 100',
     'bnn.py --num-samples 10 --num-warmup 10 --num-data 7',
+    'gp.py --num-samples 10 --num-warmup 10',
     'minipyro.py',
     'stochastic_volatility.py --num-samples 100 --num-warmup 100',
     'ucbadmit.py',
