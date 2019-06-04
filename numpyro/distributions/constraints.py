@@ -22,10 +22,19 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import math
+
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
-from numpyro.distributions.util import cumprod, cumsum, matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost
+from numpyro.distributions.util import (
+    cumprod,
+    cumsum,
+    matrix_to_tril_vec,
+    signed_stick_breaking_tril,
+    sum_rightmost,
+    vec_to_tril_matrix
+)
 
 ##########################################################
 # CONSTRAINTS
@@ -352,6 +361,26 @@ class IdentityTransform(Transform):
         return np.full(np.shape(x), 0.)
 
 
+class LowerCholeskyTransform(Transform):
+    codomain = lower_cholesky
+    event_dim = 1
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = np.exp(x[..., -n:])
+        return z + np.expand_dims(diag, axis=-1) * np.identity(n)
+
+    def inv(self, y):
+        z = matrix_to_tril_vec(y, diagonal=-1)
+        return np.concatenate([z, np.log(np.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y):
+        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        return x[..., -n:].sum(-1)
+
+
 class SigmoidTransform(Transform):
     codomain = unit_interval
 
@@ -447,6 +476,11 @@ def _transform_to_interval(constraint):
     return ComposeTransform([SigmoidTransform(),
                              AffineTransform(constraint.lower_bound, scale,
                                              domain=unit_interval)])
+
+
+@biject_to.register(lower_cholesky)
+def _transform_to_lower_cholesky(constraint):
+    return LowerCholeskyTransform()
 
 
 @biject_to.register(real)

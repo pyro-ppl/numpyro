@@ -573,10 +573,18 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     (constraints.interval(-3, 5), 0, True),
     (constraints.interval(-3, 5), np.array([-5, -3, 0, 5, 7]),
      np.array([False, False, True, False, False])),
+    (constraints.lower_cholesky, np.array([[1., 0.], [-2., 0.1]]), True),
+    (constraints.lower_cholesky, np.array([[[1., 0.], [-2., -0.1]], [[1., 0.1], [2., 0.2]]]),
+     np.array([False, False])),
     (constraints.nonnegative_integer, 3, True),
     (constraints.nonnegative_integer, np.array([-1., 0., 5.]), np.array([False, True, True])),
     (constraints.positive, 3, True),
     (constraints.positive, np.array([-1, 0, 5]), np.array([False, False, True])),
+    (constraints.positive_definite, np.array([[1., 0.3], [0.3, 1.]]), True),
+    pytest.param(constraints.positive_definite,
+                 np.array([[[2., 0.4], [0.3, 2.]], [[1., 0.1], [0.1, 0.]]]),
+                 np.array([False, False]),
+                 marks=pytest.mark.xfail(reason="np.linalg.eigh batching rule is not available yet")),
     (constraints.positive_integer, 3, True),
     (constraints.positive_integer, np.array([-1., 0., 5.]), np.array([False, False, True])),
     (constraints.real, -1, True),
@@ -598,6 +606,7 @@ def test_constraints(constraint, x, expected):
     constraints.corr_cholesky,
     constraints.greater_than(2),
     constraints.interval(-3, 5),
+    constraints.lower_cholesky,
     constraints.positive,
     constraints.real,
     constraints.simplex,
@@ -638,6 +647,12 @@ def test_biject_to(constraint, shape):
             vec_transform = lambda x: matrix_to_tril_vec(transform(x), diagonal=-1)  # noqa: E731
             y_tril = matrix_to_tril_vec(y, diagonal=-1)
             inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x, diagonal=-1))  # noqa: E731
+            expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
+        elif constraint is constraints.lower_cholesky:
+            vec_transform = lambda x: matrix_to_tril_vec(transform(x))  # noqa: E731
+            y_tril = matrix_to_tril_vec(y)
+            inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x))  # noqa: E731
             expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         else:
