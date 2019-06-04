@@ -207,7 +207,7 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     jax_dist = jax_dist(*params)
     rng = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
-    samples = jax_dist.sample(key=rng, size=prepend_shape)
+    samples = jax_dist.sample(key=rng, sample_shape=prepend_shape)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
     assert np.shape(samples) == expected_shape
     if sp_dist and not _is_batched_multivariate(jax_dist):
@@ -263,8 +263,8 @@ def test_sample_gradient(jax_dist, sp_dist, params):
 def test_pathwise_gradient(jax_dist, sp_dist, params):
     rng = random.PRNGKey(0)
     N = 100
-    z = jax_dist(*params).sample(key=rng, size=(N,))
-    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng, size=(N,)))(params)
+    z = jax_dist(*params).sample(key=rng, sample_shape=(N,))
+    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng, sample_shape=(N,)))(params)
     eps = 1e-3
     for i in range(len(params)):
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
@@ -285,7 +285,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     jit_fn = _identity if not jit else jax.jit
     jax_dist = jax_dist(*params)
     rng = random.PRNGKey(0)
-    samples = jax_dist.sample(key=rng, size=prepend_shape)
+    samples = jax_dist.sample(key=rng, sample_shape=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
     if not sp_dist:
         if isinstance(jax_dist, dist.TruncatedCauchy) or isinstance(jax_dist, dist.TruncatedNormal):
@@ -423,7 +423,7 @@ def test_mean_var(jax_dist, sp_dist, params):
     n = 200000
     d_jax = jax_dist(*params)
     k = random.PRNGKey(0)
-    samples = d_jax.sample(k, size=(n,))
+    samples = d_jax.sample(k, sample_shape=(n,))
     # check with suitable scipy implementation if available
     if sp_dist and not _is_batched_multivariate(d_jax):
         d_sp = sp_dist(*params)

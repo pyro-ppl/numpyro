@@ -71,7 +71,7 @@ def run_inference(dept, male, applications, admit, rng, args):
     init_params, potential_fn, constrain_fn = initialize_model(
         rng, glmm, dept, male, applications, admit)
     init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-    hmc_state = init_kernel(init_params, args.num_warmup_steps)
+    hmc_state = init_kernel(init_params, args.num_warmup)
     hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
                               transform=lambda hmc_state: constrain_fn(hmc_state.z))
     return hmc_states
@@ -109,7 +109,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='UCBadmit gender discrimination using HMC')
     parser.add_argument('-n', '--num-samples', nargs='?', default=2000, type=int)
-    parser.add_argument('--num-warmup-steps', nargs='?', default=500, type=int)
+    parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)

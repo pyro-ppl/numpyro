@@ -16,14 +16,6 @@ Numpyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
-   :caption: Diagnostics:
-
-   diagnostics
-
-
-.. toctree::
-   :glob:
-   :maxdepth: 2
    :caption: Distributions:
 
    distributions
@@ -32,9 +24,17 @@ Numpyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
-   :caption: Utilities:
+   :caption: Inference Primitives:
 
    handlers
+
+
+.. toctree::
+   :glob:
+   :maxdepth: 2
+   :caption: Diagnostics:
+
+   diagnostics
 
 
 Indices and tables

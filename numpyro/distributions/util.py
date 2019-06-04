@@ -318,7 +318,27 @@ def xlogy(x, y):
     return lax._safe_mul(x, np.log(y))
 
 
+def _xlogy_batching_rule(batched_args, batch_dims):
+    x, y = batched_args
+    bx, by = batch_dims
+    # promote shapes
+    sx, sy = np.shape(x), np.shape(y)
+    nx = len(sx) + int(bx is None)
+    ny = len(sy) + int(by is None)
+    nd = max(nx, ny)
+    x = np.reshape(x, (1,) * (nd - len(sx)) + sx)
+    y = np.reshape(y, (1,) * (nd - len(sy)) + sy)
+    # correct bx, by due to promoting
+    bx = bx + nd - len(sx) if bx is not None else nd - len(sx) - 1
+    by = by + nd - len(sy) if by is not None else nd - len(sy) - 1
+    # move bx, by to front
+    x = batching.move_dim_to_front(x, bx)
+    y = batching.move_dim_to_front(y, by)
+    return xlogy(x, y), 0
+
+
 ad.defjvp(xlogy.primitive, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
+batching.primitive_batchers[xlogy.primitive] = _xlogy_batching_rule
 
 
 def _xlog1py_jvp_lhs(g, x, y):
@@ -337,6 +357,25 @@ def _xlog1py_jvp_rhs(g, x, y):
     return g * lax._safe_mul(x, np.reciprocal(1 + y))
 
 
+def _xlog1py_batching_rule(batched_args, batch_dims):
+    x, y = batched_args
+    bx, by = batch_dims
+    # promote shapes
+    sx, sy = np.shape(x), np.shape(y)
+    nx = len(sx) + int(bx is None)
+    ny = len(sy) + int(by is None)
+    nd = max(nx, ny)
+    x = np.reshape(x, (1,) * (nd - len(sx)) + sx)
+    y = np.reshape(y, (1,) * (nd - len(sy)) + sy)
+    # correct bx, by due to promoting
+    bx = bx + nd - len(sx) if bx is not None else nd - len(sx) - 1
+    by = by + nd - len(sy) if by is not None else nd - len(sy) - 1
+    # move bx, by to front
+    x = batching.move_dim_to_front(x, bx)
+    y = batching.move_dim_to_front(y, by)
+    return xlog1py(x, y), 0
+
+
 @custom_transforms
 def xlog1py(x, y):
     x, y = _promote_args_like(osp_special.xlog1py, x, y)
@@ -344,6 +383,7 @@ def xlog1py(x, y):
 
 
 ad.defjvp(xlog1py.primitive, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
+batching.primitive_batchers[xlog1py.primitive] = _xlog1py_batching_rule
 
 
 def entr(p):
@@ -373,6 +413,7 @@ def cumsum(x):
 
 
 ad.defjvp(cumsum.primitive, lambda g, x: np.cumsum(g, axis=-1))
+batching.defvectorized(cumsum.primitive)
 
 
 @custom_transforms
@@ -383,6 +424,7 @@ def cumprod(x):
 # XXX this implementation does not address the case x=0, hence the result in that case will be nan
 # Ref: https://stackoverflow.com/questions/40916955/how-to-compute-gradient-of-cumprod-safely
 ad.defjvp2(cumprod.primitive, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
+batching.defvectorized(cumprod.primitive)
 
 
 def promote_shapes(*args, shape=()):
