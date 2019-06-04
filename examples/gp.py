@@ -16,6 +16,7 @@ from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
 from jax.config import config
+# we use double precision to minimize any possible numerical instabilities in jax linear algebra
 config.update('jax_enable_x64', True)
 
 """
@@ -42,14 +43,9 @@ def model(X, Y):
     # compute kernel
     k = kernel(X, X, var, length, noise)
 
-    # there is currently no multivariate normal distribution so we whiten the data with L
-    # and do some hacks to make sure the correct log probability is computed
-    #L = np.linalg.cholesky(k)
-    #sigma = np.exp(np.trace(np.log(L)) / X.shape[0])
-    #Y_whitened = sigma * np.matmul(np.linalg.inv(L), Y)
-    #sample("Y", dist.Normal(np.zeros(X.shape[0]), sigma * np.ones(X.shape[0])), obs=Y_whitened)
-    sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=kernel),
-           obs=Y_whitened)
+    # sample Y according to the standard gaussian process formula
+    sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
+           obs=Y)
 
 
 # helper function for doing hmc inference
