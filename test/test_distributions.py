@@ -9,7 +9,7 @@ from numpy.testing import assert_allclose, assert_array_equal
 import jax
 import jax.numpy as np
 import jax.random as random
-from jax import device_get, grad, jacfwd, lax, vmap
+from jax import grad, jacfwd, lax, vmap
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
@@ -37,8 +37,8 @@ class T(namedtuple('TestCase', ['jax_dist', 'sp_dist', 'params'])):
 
 def _mvn_to_scipy(loc, cov, prec, tril):
     jax_dist = dist.MultivariateNormal(loc, cov, prec, tril)
-    mean = device_get(jax_dist.mean)
-    cov = device_get(jax_dist.covariance_matrix)
+    mean = jax_dist.mean
+    cov = jax_dist.covariance_matrix
     return osp.multivariate_normal(mean=mean, cov=cov)
 
 
