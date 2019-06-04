@@ -17,7 +17,6 @@ from numpyro.util import fori_collect
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 @pytest.mark.parametrize('dense_mass', [False, True])
-@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
 def test_unnormalized_normal(algo, dense_mass):
     true_mean, true_std = 1., 2.
     warmup_steps, num_samples = 1000, 8000
@@ -40,7 +39,6 @@ def test_unnormalized_normal(algo, dense_mass):
         assert hmc_states.dtype == np.float64
 
 
-@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
 def test_correlated_mvn():
     # This requires dense mass matrix estimation.
     D = 5
@@ -114,7 +112,6 @@ def test_beta_bernoulli(algo):
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 @pytest.mark.parametrize('dense_mass', [False, True])
-@pytest.mark.filterwarnings('ignore:numpy.linalg support is experimental:UserWarning')
 def test_dirichlet_categorical(algo, dense_mass):
     warmup_steps, num_samples = 100, 20000
 

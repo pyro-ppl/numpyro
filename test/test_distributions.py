@@ -35,6 +35,13 @@ class T(namedtuple('TestCase', ['jax_dist', 'sp_dist', 'params'])):
         return super(cls, T).__new__(cls, jax_dist, sp_dist, params)
 
 
+def _mvn_to_scipy(loc, cov, prec, tril):
+    jax_dist = dist.MultivariateNormal(loc, cov, prec, tril)
+    mean = jax_dist.mean
+    cov = jax_dist.covariance_matrix
+    return osp.multivariate_normal(mean=mean, cov=cov)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -52,6 +59,7 @@ _DIST_MAP = {
     dist.MultinomialProbs: lambda probs, total_count: osp.multinomial(n=total_count, p=probs),
     dist.MultinomialLogits: lambda logits, total_count: osp.multinomial(n=total_count,
                                                                         p=_to_probs_multinom(logits)),
+    dist.MultivariateNormal: _mvn_to_scipy,
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
     dist.Pareto: lambda alpha, scale: osp.pareto(alpha, scale=scale),
     dist.Poisson: lambda rate: osp.poisson(rate),
@@ -82,15 +90,20 @@ CONTINUOUS = [
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
     T(dist.HalfNormal, np.array([1., 2.])),
-    T(dist.LogNormal, 1., 0.2),
-    T(dist.LogNormal, -1., np.array([0.5, 1.3])),
-    T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
     T(dist.LKJCholesky, 2, 0.5, "onion"),
     T(dist.LKJCholesky, 2, 0.5, "cvine"),
     T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "onion"),
     T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "cvine"),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
+    T(dist.LogNormal, 1., 0.2),
+    T(dist.LogNormal, -1., np.array([0.5, 1.3])),
+    T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
+    T(dist.MultivariateNormal, 0., np.array([[1., 0.5], [0.5, 1.]]), None, None),
+    T(dist.MultivariateNormal, np.array([1., 3.]), None, np.array([[1., 0.5], [0.5, 1.]]), None),
+    T(dist.MultivariateNormal, np.array([2.]), None, None, np.array([[1., 0.], [0.5, 1.]])),
+    T(dist.MultivariateNormal, np.arange(6).reshape((3, 2)), None, None, np.array([[1., 0.], [0., 1.]])),
+    T(dist.MultivariateNormal, 0., None, np.broadcast_to(np.identity(3), (2, 3, 3)), None),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),
@@ -165,6 +178,11 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
                            minval=-1, maxval=1))
+    elif isinstance(constraint, constraints._LowerCholesky):
+        return np.tril(random.uniform(key, size))
+    elif isinstance(constraint, constraints._PositiveDefinite):
+        x = random.normal(key, size)
+        return np.matmul(x, np.swapaxes(x, -2, -1))
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -193,6 +211,10 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
                            minval=-1, maxval=1)) + 1e-2
+    elif isinstance(constraint, constraints._LowerCholesky):
+        return random.uniform(key, size)
+    elif isinstance(constraint, constraints._PositiveDefinite):
+        return random.normal(key, size)
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -239,8 +261,10 @@ def test_sample_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(repara_params)):
-        args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
-        args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
+        if repara_params[i] is None:
+            continue
+        args_lhs = [p if j != i else p - eps for j, p in enumerate(repara_params)]
+        args_rhs = [p if j != i else p + eps for j, p in enumerate(repara_params)]
         fn_lhs = fn(args_lhs)
         fn_rhs = fn(args_rhs)
         # finite diff approximation
@@ -406,7 +430,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
-        if np.result_type(params[i]) in (np.int32, np.int64):
+        if params[i] is None or np.result_type(params[i]) in (np.int32, np.int64):
             continue
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
@@ -427,11 +451,16 @@ def test_mean_var(jax_dist, sp_dist, params):
     # check with suitable scipy implementation if available
     if sp_dist and not _is_batched_multivariate(d_jax):
         d_sp = sp_dist(*params)
-        sp_mean = d_sp.mean()
+        try:
+            sp_mean = d_sp.mean()
+        except TypeError:  # mvn does not have .mean() method
+            sp_mean = d_sp.mean
         # for multivariate distns try .cov first
         if d_jax.event_shape:
             try:
                 sp_var = np.diag(d_sp.cov())
+            except TypeError:  # mvn does not have .cov() method
+                sp_var = np.diag(d_sp.cov)
             except AttributeError:
                 sp_var = d_sp.var()
         else:
@@ -483,6 +512,10 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     for i in range(len(params)):
         if jax_dist is dist.LKJCholesky and dist_args[i] != "concentration":
             continue
+        if params[i] is None:
+            oob_params[i] = None
+            valid_params[i] = None
+            continue
         constraint = jax_dist.arg_constraints[dist_args[i]]
         if isinstance(constraint, constraints._Dependent):
             dependent_constraint = True
@@ -498,6 +531,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
+    if jax_dist is dist.MultivariateNormal and jax_dist(*valid_params).batch_shape:
+        pytest.xfail('numpy.linalg.eigh batch rule is not available yet.')
     d = jax_dist(*valid_params, validate_args=True)
 
     # Test agreement of log density evaluation on randomly generated samples
@@ -539,10 +574,18 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     (constraints.interval(-3, 5), 0, True),
     (constraints.interval(-3, 5), np.array([-5, -3, 0, 5, 7]),
      np.array([False, False, True, False, False])),
+    (constraints.lower_cholesky, np.array([[1., 0.], [-2., 0.1]]), True),
+    (constraints.lower_cholesky, np.array([[[1., 0.], [-2., -0.1]], [[1., 0.1], [2., 0.2]]]),
+     np.array([False, False])),
     (constraints.nonnegative_integer, 3, True),
     (constraints.nonnegative_integer, np.array([-1., 0., 5.]), np.array([False, True, True])),
     (constraints.positive, 3, True),
     (constraints.positive, np.array([-1, 0, 5]), np.array([False, False, True])),
+    (constraints.positive_definite, np.array([[1., 0.3], [0.3, 1.]]), True),
+    pytest.param(constraints.positive_definite,
+                 np.array([[[2., 0.4], [0.3, 2.]], [[1., 0.1], [0.1, 0.]]]),
+                 np.array([False, False]),
+                 marks=pytest.mark.xfail(reason="np.linalg.eigh batching rule is not available yet")),
     (constraints.positive_integer, 3, True),
     (constraints.positive_integer, np.array([-1., 0., 5.]), np.array([False, False, True])),
     (constraints.real, -1, True),
@@ -564,6 +607,7 @@ def test_constraints(constraint, x, expected):
     constraints.corr_cholesky,
     constraints.greater_than(2),
     constraints.interval(-3, 5),
+    constraints.lower_cholesky,
     constraints.positive,
     constraints.real,
     constraints.simplex,
@@ -604,6 +648,12 @@ def test_biject_to(constraint, shape):
             vec_transform = lambda x: matrix_to_tril_vec(transform(x), diagonal=-1)  # noqa: E731
             y_tril = matrix_to_tril_vec(y, diagonal=-1)
             inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x, diagonal=-1))  # noqa: E731
+            expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
+        elif constraint is constraints.lower_cholesky:
+            vec_transform = lambda x: matrix_to_tril_vec(transform(x))  # noqa: E731
+            y_tril = matrix_to_tril_vec(y)
+            inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x))  # noqa: E731
             expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         else:

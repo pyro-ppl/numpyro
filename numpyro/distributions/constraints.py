@@ -22,10 +22,19 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import math
+
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
-from numpyro.distributions.util import cumprod, cumsum, matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost
+from numpyro.distributions.util import (
+    cumprod,
+    cumsum,
+    matrix_to_tril_vec,
+    signed_stick_breaking_tril,
+    sum_rightmost,
+    vec_to_tril_matrix
+)
 
 ##########################################################
 # CONSTRAINTS
@@ -38,8 +47,8 @@ class Constraint(object):
 
 
 class _Boolean(Constraint):
-    def __call__(self, value):
-        return (value == 0) | (value == 1)
+    def __call__(self, x):
+        return (x == 0) | (x == 1)
 
 
 class _CorrCholesky(Constraint):
@@ -82,8 +91,8 @@ class _IntegerGreaterThan(Constraint):
     def __init__(self, lower_bound):
         self.lower_bound = lower_bound
 
-    def __call__(self, value):
-        return (value % 1 == 0) & (value >= self.lower_bound)
+    def __call__(self, x):
+        return (x % 1 == 0) & (x >= self.lower_bound)
 
 
 class _Interval(Constraint):
@@ -91,16 +100,30 @@ class _Interval(Constraint):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
-    def __call__(self, value):
-        return (value > self.lower_bound) & (value < self.upper_bound)
+    def __call__(self, x):
+        return (x > self.lower_bound) & (x < self.upper_bound)
+
+
+class _LowerCholesky(Constraint):
+    def __call__(self, x):
+        tril = np.tril(x)
+        lower_triangular = np.all(np.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        positive_diagonal = np.all(np.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
+        return lower_triangular & positive_diagonal
 
 
 class _Multinomial(Constraint):
     def __init__(self, upper_bound):
         self.upper_bound = upper_bound
 
-    def __call__(self, value):
-        return np.all(value >= 0, axis=-1) & (np.sum(value, -1) == self.upper_bound)
+    def __call__(self, x):
+        return np.all(x >= 0, axis=-1) & (np.sum(x, -1) == self.upper_bound)
+
+
+class _PositiveDefinite(Constraint):
+    def __call__(self, x):
+        # check for the smallest eigenvalue is positive
+        return np.linalg.eigh(x)[0][..., 0] > 0
 
 
 class _Real(Constraint):
@@ -123,10 +146,12 @@ greater_than = _GreaterThan
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
+lower_cholesky = _LowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 positive_integer = _IntegerGreaterThan(1)
 positive = _GreaterThan(0.)
+positive_definite = _PositiveDefinite()
 real = _Real()
 simplex = _Simplex()
 unit_interval = _Interval(0., 1.)
@@ -336,6 +361,26 @@ class IdentityTransform(Transform):
         return np.full(np.shape(x), 0.)
 
 
+class LowerCholeskyTransform(Transform):
+    codomain = lower_cholesky
+    event_dim = 1
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = np.exp(x[..., -n:])
+        return z + np.expand_dims(diag, axis=-1) * np.identity(n)
+
+    def inv(self, y):
+        z = matrix_to_tril_vec(y, diagonal=-1)
+        return np.concatenate([z, np.log(np.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y):
+        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        return x[..., -n:].sum(-1)
+
+
 class SigmoidTransform(Transform):
     codomain = unit_interval
 
@@ -431,6 +476,11 @@ def _transform_to_interval(constraint):
     return ComposeTransform([SigmoidTransform(),
                              AffineTransform(constraint.lower_bound, scale,
                                              domain=unit_interval)])
+
+
+@biject_to.register(lower_cholesky)
+def _transform_to_lower_cholesky(constraint):
+    return LowerCholeskyTransform()
 
 
 @biject_to.register(real)
