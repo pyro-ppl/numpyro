@@ -103,6 +103,7 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, np.array([1., 3.]), None, np.array([[1., 0.5], [0.5, 1.]]), None),
     T(dist.MultivariateNormal, np.array([2.]), None, None, np.array([[1., 0.], [0.5, 1.]])),
     T(dist.MultivariateNormal, np.arange(6).reshape((3, 2)), None, None, np.array([[1., 0.], [0., 1.]])),
+    T(dist.MultivariateNormal, 0., None, np.broadcast_to(np.identity(3), (2, 3, 3)), None),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),

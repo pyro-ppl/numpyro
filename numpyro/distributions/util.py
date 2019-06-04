@@ -391,7 +391,7 @@ def cholesky_inverse(matrix):
     # which is more numerically stable.
     # Refer to:
     # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
-    return np.linalg.inv(np.linalg.cholesky(matrix[::-1, ::-1])[::-1, ::-1]).T
+    return np.swapaxes(np.linalg.inv(np.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1]), -2, -1)
 
 
 def entr(p):
