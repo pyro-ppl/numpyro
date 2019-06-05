@@ -100,7 +100,7 @@ def main(args):
                               predict(rng, X, Y, X_test, var, length, noise))(*vmap_args)
 
     mean_prediction = onp.mean(means, axis=0)
-    percentiles = onp.percentile(predictions, [5.0, 95.0], axis=0)
+    percentiles = onp.nanpercentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
     fig, ax = plt.subplots(1, 1)
