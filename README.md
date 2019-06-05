@@ -6,9 +6,9 @@
 Probabilistic programming with Numpy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/CPU.
 
 ## What is NumPyro?
- 
+
 NumPyro is a small probabilistic programming library built on [JAX](https://github.com/google/jax). It essentially provides a NumPy backend for [Pyro](https://github.com/pyro-ppl/pyro), with some minor changes to the inference API and syntax. Since we use JAX, we get autograd and JIT compilation to GPU / CPU for free. This is an alpha release under active development, so beware of brittleness, bugs, and changes to the API as the design evolves.
- 
+
 NumPyro is designed to be *lightweight* and focuses on providing a flexible substrate that users can build on:
 
  - **Pyro Primitives:** NumPyro programs can contain regular Python and NumPy code, in addition to [Pyro primitives](http://pyro.ai/examples/intro_part_i.html) like `sample` and `param`. The model code should look very similar to Pyro except for some minor differences between PyTorch and Numpy's API. See [Examples](https://github.com/pyro-ppl/numpyro/#Examples).
@@ -47,10 +47,10 @@ For some examples on specifying models and doing inference in NumPyro:
  - [Variational Autoencoder](https://github.com/pyro-ppl/numpyro/blob/master/examples/vae.py) - As a simple example that uses Variational Inference. [Pyro implementation](https://github.com/pyro-ppl/pyro/blob/dev/examples/vae/vae.py) for comparison.
  - Other model examples can be found in the [examples](https://github.com/pyro-ppl/numpyro/tree/master/examples) folder.
 
-Users will note that the API for model specification is largely the same as Pyro including the distributions API, by design. The interface for inference algorithms and other utility functions might deviate from Pyro in favor of a more *functional* style that works better with JAX. e.g. there is no global parameter store or random state. 
- 
- ## Future Work
- 
+Users will note that the API for model specification is largely the same as Pyro including the distributions API, by design. The interface for inference algorithms and other utility functions might deviate from Pyro in favor of a more *functional* style that works better with JAX. e.g. there is no global parameter store or random state.
+
+## Future Work
+
 In the near term, we plan to work on the following. Please open new issues for feature requests and enhancements:
 
  - Improving robustness of inference on different models, profiling and performance tuning.
@@ -58,4 +58,3 @@ In the near term, we plan to work on the following. Please open new issues for f
  - Integration with [Funsor](https://github.com/pyro-ppl/funsor) to support inference algorithms with delayed sampling.
  - Supporting more distributions, extending the distributions API, and adding more samplers to JAX.
  - Other areas motivated by Pyro's research goals and application focus, and interest from the community.
- 
