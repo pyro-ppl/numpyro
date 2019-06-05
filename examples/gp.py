@@ -23,7 +23,7 @@ over the hyperparameters of a gaussian process.
 
 
 # squared exponential kernel with diagonal noise term
-def kernel(X, Z, var, length, noise, jitter=1.0e-5, include_noise=True):
+def kernel(X, Z, var, length, noise, jitter=1.0e-6, include_noise=True):
     deltaXsq = np.power((X[:, None] - Z) / length, 2.0)
     k = var * np.exp(-0.5 * deltaXsq)
     if include_noise:
