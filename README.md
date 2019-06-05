@@ -49,7 +49,7 @@ For some examples on specifying models and doing inference in NumPyro:
 
 Users will note that the API for model specification is largely the same as Pyro including the distributions API, by design. The interface for inference algorithms and other utility functions might deviate from Pyro in favor of a more *functional* style that works better with JAX. e.g. there is no global parameter store or random state. 
  
- ## Future Work
+## Future Work
  
 In the near term, we plan to work on the following. Please open new issues for feature requests and enhancements:
 
