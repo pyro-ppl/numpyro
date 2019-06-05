@@ -26,7 +26,7 @@ setup(
     version='0.1.0',
     description='Pyro PPL on Numpy',
     packages=find_packages(include=['numpyro', 'numpyro.*']),
-    url='https://github.com/neerajprad/numpyro',
+    url='https://github.com/pyro-ppl/numpyro',
     author='Uber AI Labs',
     author_email='npradhan@uber.com',
     install_requires=[
