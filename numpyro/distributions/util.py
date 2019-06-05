@@ -394,7 +394,7 @@ def cholesky_inverse(matrix):
     # https://nbviewer.jupyter.org/gist/fehiepsi/5ef8e09e61604f10607380467eb82006#Precision-to-scale_tril
     tril_inv = np.swapaxes(np.linalg.cholesky(matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
     identity = np.broadcast_to(np.identity(matrix.shape[-1]), tril_inv.shape)
-    return solve_triangular(identity, tril_inv, lower=True)
+    return solve_triangular(tril_inv, identity, lower=True)
 
 
 def entr(p):
