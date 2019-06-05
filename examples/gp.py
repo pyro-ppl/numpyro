@@ -62,7 +62,7 @@ def predict(rng, X, Y, X_test, var, length, noise):
     k_XX = kernel(X, X, var, length, noise, include_noise=True)
     K_xx_inv = np.linalg.inv(k_XX)
     K = k_pp - np.matmul(k_pX, np.matmul(K_xx_inv, np.transpose(k_pX)))
-    sigma_noise = np.sqrt(np.diag(K)) * jax.random.normal(rng, (X_test.shape[0],))
+    sigma_noise = np.sqrt(np.clip(np.diag(K), a_min=0.)) * jax.random.normal(rng, X_test.shape[:1])
     mean = np.matmul(k_pX, np.matmul(K_xx_inv, Y))
     # we return both the mean function and a sample from the posterior predictive for the
     # given set of hyperparameters
@@ -100,7 +100,7 @@ def main(args):
                               predict(rng, X, Y, X_test, var, length, noise))(*vmap_args)
 
     mean_prediction = onp.mean(means, axis=0)
-    percentiles = onp.nanpercentile(predictions, [5.0, 95.0], axis=0)
+    percentiles = onp.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
     fig, ax = plt.subplots(1, 1)
