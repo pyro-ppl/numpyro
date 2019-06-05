@@ -1,23 +1,20 @@
-import matplotlib
-matplotlib.use('Agg')  # noqa: E402
-import matplotlib.pyplot as plt
-import jax
-
 import argparse
 
+import matplotlib
+import matplotlib.pyplot as plt
 import numpy as onp
-from jax import vmap
+
+import jax
 import jax.numpy as np
 import jax.random as random
+from jax import vmap
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
-from jax.config import config
-# we use double precision to minimize any possible numerical instabilities in jax linear algebra
-config.update('jax_enable_x64', True)
+matplotlib.use('Agg')  # noqa: E402
 
 """
 In this example we show how to use NUTS to sample from the posterior
@@ -26,7 +23,7 @@ over the hyperparameters of a gaussian process.
 
 
 # squared exponential kernel with diagonal noise term
-def kernel(X, Z, var, length, noise, jitter=1.0e-5, include_noise=True):
+def kernel(X, Z, var, length, noise, jitter=1.0e-6, include_noise=True):
     deltaXsq = np.power((X[:, None] - Z) / length, 2.0)
     k = var * np.exp(-0.5 * deltaXsq)
     if include_noise:
@@ -65,7 +62,7 @@ def predict(rng, X, Y, X_test, var, length, noise):
     k_XX = kernel(X, X, var, length, noise, include_noise=True)
     K_xx_inv = np.linalg.inv(k_XX)
     K = k_pp - np.matmul(k_pX, np.matmul(K_xx_inv, np.transpose(k_pX)))
-    sigma_noise = np.sqrt(np.diag(K)) * jax.random.normal(rng, (X_test.shape[0],))
+    sigma_noise = np.sqrt(np.clip(np.diag(K), a_min=0.)) * jax.random.normal(rng, X_test.shape[:1])
     mean = np.matmul(k_pX, np.matmul(K_xx_inv, Y))
     # we return both the mean function and a sample from the posterior predictive for the
     # given set of hyperparameters
