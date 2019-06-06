@@ -19,7 +19,7 @@ NumPyro is designed to be *lightweight* and focuses on providing a flexible subs
 
 ## Installation
 
-> **Limited Windows Support:** Note that NumPyro is untested on Windows, and will require building jaxlib from source. See https://github.com/google/jax/issues/438 for more details. 
+> **Limited Windows Support:** Note that NumPyro is untested on Windows, and will require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details.
 
 To install NumPyro with a CPU version of JAX, you can use pip:
 
