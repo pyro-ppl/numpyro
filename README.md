@@ -3,7 +3,7 @@
 [![Latest Version](https://badge.fury.io/py/numpyro.svg)](https://pypi.python.org/pypi/numpyro)
 # NumPyro
 
-Probabilistic programming with Numpy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/CPU.
+Probabilistic programming with NumPy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/CPU.
 
 ## What is NumPyro?
 
@@ -18,6 +18,8 @@ NumPyro is designed to be *lightweight* and focuses on providing a flexible subs
 
 
 ## Installation
+
+> **Limited Windows Support:** Note that NumPyro is untested on Windows, and will require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details.
 
 To install NumPyro with a CPU version of JAX, you can use pip:
 
