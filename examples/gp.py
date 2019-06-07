@@ -8,6 +8,7 @@ import jax
 import jax.numpy as np
 import jax.random as random
 from jax import vmap
+from jax.config import config as jax_config
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample
@@ -87,7 +88,8 @@ def get_data(N=30, sigma_obs=0.15, N_test=400):
 
 
 def main(args):
-    X, Y, X_test = get_data(N=25)
+    jax_config.update('jax_platform_name', args.device)
+    X, Y, X_test = get_data(N=args.num_data)
 
     # do inference
     rng, rng_predict = random.split(random.PRNGKey(0))
@@ -118,8 +120,10 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
+    parser.add_argument("--num-data", nargs='?', default=25, type=int)
+    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
