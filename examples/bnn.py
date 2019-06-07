@@ -12,6 +12,7 @@ import numpy as onp
 import jax.numpy as np
 import jax.random as random
 from jax import vmap
+from jax.config import config as jax_config
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample, seed, substitute, trace
@@ -91,6 +92,7 @@ def get_data(N=50, D_X=3, sigma_obs=0.05, N_test=500):
 
 
 def main(args):
+    jax_config.update('jax_platform_name', args.device)
     N, D_X, D_H = args.num_data, 3, args.num_hidden
     X, Y, X_test = get_data(N=N, D_X=D_X)
 
@@ -128,5 +130,6 @@ if __name__ == "__main__":
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
     parser.add_argument("--num-hidden", nargs='?', default=5, type=int)
+    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
