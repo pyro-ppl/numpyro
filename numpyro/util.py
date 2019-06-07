@@ -136,8 +136,7 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
             collection = ops.index_update(collection, i, ravel_fn(val))
             return val, collection
 
-        _, collection = jit(lax.fori_loop, static_argnums=(2,))(0, n, _body_fn,
-                                                                (init_val, collection))
+        _, collection = fori_loop(0, n, _body_fn, (init_val, collection))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', '')
@@ -149,11 +148,9 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
                 val = body_fun(val)
                 collection.append(jit(ravel_fn)(val))
                 if diagnostics_fn:
-                    # TODO: set refresh=True when its performance issue is resolved
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
-        # XXX: jax.numpy.stack/concatenate is currently so slow
-        collection = onp.stack(collection)
+        collection = np.stack(collection)
 
     return vmap(unravel_fn)(collection)
 
