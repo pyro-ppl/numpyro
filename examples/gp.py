@@ -123,7 +123,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
-    parser.add_argument("--num-data", nargs='?', default=400, type=int)
+    parser.add_argument("--num-data", nargs='?', default=25, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
