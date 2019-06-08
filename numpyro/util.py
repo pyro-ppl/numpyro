@@ -128,7 +128,7 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
     if not progbar:
-        collection = np.zeros((n,) + init_val_flat.shape, dtype=init_val_flat.dtype)
+        collection = np.zeros((n,) + init_val_flat.shape)
 
         def _body_fn(i, vals):
             val, collection = vals
@@ -136,7 +136,14 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
             collection = ops.index_update(collection, i, ravel_fn(val))
             return val, collection
 
-        _, collection = fori_loop(0, n, _body_fn, (init_val, collection))
+        # PERF: jitting the for loop may be faster on certain models or high
+        # number of samples.
+        # TODO: remove this condition when the issue is resolved
+        if progbar is None:  # NB: if progbar=None, we jit fori_loop
+            _, collection = jit(fori_loop, static_argnums=(2,))(0, n, _body_fn,
+                                                                (init_val, collection))
+        else:
+            _, collection = fori_loop(0, n, _body_fn, (init_val, collection))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', '')
@@ -150,7 +157,8 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
-        collection = np.stack(collection)
+        # XXX: jax.numpy.stack/concatenate is currently slow
+        collection = onp.stack(collection)
 
     return vmap(unravel_fn)(collection)
 

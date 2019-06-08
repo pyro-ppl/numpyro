@@ -236,7 +236,14 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         if run_warmup:
             # JIT if progress bar updates not required
             if not progbar:
-                hmc_state, _ = fori_loop(0, num_warmup, warmup_update, (hmc_state, wa_state))
+                # PERF: jitting the for loop may be faster on certain models or high
+                # number of samples.
+                # TODO: remove this condition when the issue is resolved
+                if progbar is None:  # NB: if progbar=None, we jit fori_loop
+                    hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup, warmup_update,
+                                                                       (hmc_state, wa_state))
+                else:
+                    hmc_state, _ = fori_loop(0, num_warmup, warmup_update, (hmc_state, wa_state))
             else:
                 with tqdm.trange(num_warmup, desc='warmup') as t:
                     for i in t:
