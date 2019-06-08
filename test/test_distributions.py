@@ -531,8 +531,6 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
-    if jax_dist is dist.MultivariateNormal and jax_dist(*valid_params).batch_shape:
-        pytest.xfail('numpy.linalg.eigh batch rule is not available yet.')
     d = jax_dist(*valid_params, validate_args=True)
 
     # Test agreement of log density evaluation on randomly generated samples
@@ -582,10 +580,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     (constraints.positive, 3, True),
     (constraints.positive, np.array([-1, 0, 5]), np.array([False, False, True])),
     (constraints.positive_definite, np.array([[1., 0.3], [0.3, 1.]]), True),
-    pytest.param(constraints.positive_definite,
-                 np.array([[[2., 0.4], [0.3, 2.]], [[1., 0.1], [0.1, 0.]]]),
-                 np.array([False, False]),
-                 marks=pytest.mark.xfail(reason="np.linalg.eigh batching rule is not available yet")),
+    (constraints.positive_definite, np.array([[[2., 0.4], [0.3, 2.]], [[1., 0.1], [0.1, 0.]]]),
+     np.array([False, False])),
     (constraints.positive_integer, 3, True),
     (constraints.positive_integer, np.array([-1., 0., 5.]), np.array([False, False, True])),
     (constraints.real, -1, True),
