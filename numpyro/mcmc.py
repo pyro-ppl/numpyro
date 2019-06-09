@@ -5,7 +5,7 @@ from collections import namedtuple
 import tqdm
 
 import jax.numpy as np
-from jax import jit, partial, random
+from jax import jit, ops, partial, random, vmap
 from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 from jax.tree_util import register_pytree_node
@@ -406,3 +406,39 @@ def mcmc(num_warmup, num_samples, init_params, sampler='hmc',
         return samples
     else:
         raise ValueError('sampler: {} not recognized'.format(sampler))
+
+
+# TODO: merge into mcmc
+def _mcmc2(num_warmup, num_samples, init_params, constrain_fn=None, **sampler_kwargs):
+    if constrain_fn is None:
+        constrain_fn = identity
+    potential_fn = sampler_kwargs.pop('potential_fn')
+    kinetic_fn = sampler_kwargs.pop('kinetic_fn', None)
+    algo = sampler_kwargs.pop('algo', 'NUTS')
+
+    init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
+    hmc_state = init_kernel(init_params, num_warmup, run_warmup=False,
+                            **sampler_kwargs)
+
+    # work like fori_collect but skip the first num_warmup samples
+    transform = lambda x: constrain_fn(x.z)  # noqa: E731
+    body_fun = sample_kernel
+    init_val = hmc_state
+    init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
+    ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
+
+    collection = np.zeros((num_samples,) + init_val_flat.shape)
+
+    def _body_fn(i, vals):
+        val, collection = vals
+        val = body_fun(val)
+        i = np.where(i >= num_warmup, i - num_warmup, 0)
+        collection = ops.index_update(collection, i, ravel_fn(val))
+        return val, collection
+
+    n = num_warmup + num_samples
+    _, collection = jit(fori_loop, static_argnums=(2,))(0, n, _body_fn,
+                                                        (init_val, collection))
+    samples = vmap(unravel_fn)(collection)
+    summary(samples)
+    return samples
