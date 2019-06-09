@@ -15,8 +15,7 @@ from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_s
 from numpyro.util import cond, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
-                                   'mean_accept_prob', 'step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
-                                   'rng'])
+                                   'mean_accept_prob', 'adapt_state', 'rng'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
 
@@ -80,7 +79,7 @@ def _euclidean_ke(inverse_mass_matrix, r):
 
 def get_diagnostics_str(hmc_state):
     return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(hmc_state.num_steps,
-                                                              hmc_state.step_size,
+                                                              hmc_state.adapt_state.step_size,
                                                               hmc_state.mean_accept_prob)
 
 
@@ -155,6 +154,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     max_treedepth = None
     momentum_generator = None
     wa_update = None
+    wa_steps = None
     if algo not in {'HMC', 'NUTS'}:
         raise ValueError('`algo` must be one of `HMC` or `NUTS`.')
 
@@ -206,7 +206,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             randomness.
         """
         step_size = float(step_size)
-        nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth
+        nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth, wa_steps
+        wa_steps = num_warmup
         trajectory_len = float(trajectory_length)
         max_treedepth = max_tree_depth
         z = init_params
@@ -229,10 +230,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         r = momentum_generator(wa_state.mass_matrix_sqrt, rng)
         vv_state = vv_init(z, r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0., 0.,
-                             wa_state.step_size, wa_state.inverse_mass_matrix, wa_state.mass_matrix_sqrt,
-                             rng_hmc)
+                             wa_state, rng_hmc)
 
-        wa_update = jit(wa_update)
         if run_warmup:
             # JIT if progress bar updates not required
             if not progbar:
@@ -240,29 +239,16 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                 # number of samples.
                 # TODO: remove this condition when the issue is resolved
                 if progbar is None:  # NB: if progbar=None, we jit fori_loop
-                    hmc_state, _ = jit(fori_loop, static_argnums=(2,))(0, num_warmup, warmup_update,
-                                                                       (hmc_state, wa_state))
+                    hmc_state = jit(fori_loop, static_argnums=(2,))(0, num_warmup,
+                                                                    sample_kernel, hmc_state)
                 else:
-                    hmc_state, _ = fori_loop(0, num_warmup, warmup_update, (hmc_state, wa_state))
+                    hmc_state = fori_loop(0, num_warmup, sample_kernel, hmc_state)
             else:
                 with tqdm.trange(num_warmup, desc='warmup') as t:
                     for i in t:
-                        hmc_state, wa_state = warmup_update(i, (hmc_state, wa_state))
+                        hmc_state = sample_kernel(hmc_state)
                         t.set_postfix_str(get_diagnostics_str(hmc_state), refresh=False)
-            # Reset `i` and `mean_accept_prob` for fresh diagnostics.
-            hmc_state.update(i=0, mean_accept_prob=0)
-            return hmc_state
-        else:
-            return hmc_state, wa_state, warmup_update
-
-    def warmup_update(t, states):
-        hmc_state, wa_state = states
-        hmc_state = sample_kernel(hmc_state)
-        wa_state = wa_update(t, hmc_state.accept_prob, hmc_state.z, wa_state)
-        hmc_state = hmc_state.update(step_size=wa_state.step_size,
-                                     inverse_mass_matrix=wa_state.inverse_mass_matrix,
-                                     mass_matrix_sqrt=wa_state.mass_matrix_sqrt)
-        return hmc_state, wa_state
+        return hmc_state
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng):
         num_steps = _get_num_steps(step_size, trajectory_len)
@@ -304,16 +290,26 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             Hamiltonian dynamics given existing state.
         """
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
-        r = momentum_generator(hmc_state.mass_matrix_sqrt, rng_momentum)
+        r = momentum_generator(hmc_state.adapt_state.mass_matrix_sqrt, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
-        vv_state, num_steps, accept_prob = _next(hmc_state.step_size,
-                                                 hmc_state.inverse_mass_matrix,
+        vv_state, num_steps, accept_prob = _next(hmc_state.adapt_state.step_size,
+                                                 hmc_state.adapt_state.inverse_mass_matrix,
                                                  vv_state, rng_transition)
+        # not update adapt_state after warmup phase
+        adapt_state = cond(hmc_state.i < wa_steps,
+                           (hmc_state.i, accept_prob, vv_state.z, hmc_state.adapt_state),
+                           lambda args: wa_update(*args),
+                           hmc_state.adapt_state,
+                           lambda x: x)
+
         itr = hmc_state.i + 1
-        mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / itr
+        n = np.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
+        # Reset `mean_accept_prob` for fresh diagnostics.
+        mean_accept_prob = np.where(hmc_state.i == wa_steps, 0., hmc_state.mean_accept_prob)
+        mean_accept_prob = mean_accept_prob + (accept_prob - mean_accept_prob) / n
+
         return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
-                        accept_prob, mean_accept_prob, hmc_state.step_size, hmc_state.inverse_mass_matrix,
-                        hmc_state.mass_matrix_sqrt, rng)
+                        accept_prob, mean_accept_prob, adapt_state, rng)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
