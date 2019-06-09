@@ -300,7 +300,8 @@ def test_warmup_adapter(jitted):
     # the second window.
     welford_regularize_term = 1e-3 * (5 / (window.end + 1 - window.start + 5))
     assert_allclose(inverse_mass_matrix,
-                    np.full((mass_matrix_size,), welford_regularize_term))
+                    np.full((mass_matrix_size,), welford_regularize_term),
+                    atol=1e-7)
 
     window = adaptation_schedule[2]
     for t in range(window.start, window.end + 1):

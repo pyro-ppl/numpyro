@@ -5,7 +5,8 @@ import pytest
 from numpy.testing import assert_allclose
 
 import jax.numpy as np
-from jax import random
+from jax import pmap, random
+from jax.lib import xla_bridge
 from jax.scipy.special import logit
 
 import numpyro.distributions as dist
@@ -201,3 +202,30 @@ def test_binomial_stable(with_logits):
 
     if 'JAX_ENABLE_x64' in os.environ:
         assert hmc_states['p'].dtype == np.float64
+
+
+@pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
+def test_pmap(algo):
+    if xla_bridge.device_count() == 1:
+        pytest.skip('pmap test requires device_count greater than 1.')
+
+    true_mean, true_std = 1., 2.
+    warmup_steps, num_samples = 1000, 8000
+
+    def potential_fn(z):
+        return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
+
+    init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
+    init_params = np.array([0., -1.])
+    rngs = random.split(random.PRNGKey(0), 2)
+
+    init_kernel_pmap = pmap(lambda init_param, rng: init_kernel(
+        init_param, trajectory_length=9, num_warmup=warmup_steps, progbar=False, rng=rng))
+    init_states = init_kernel_pmap(init_params, rngs)
+
+    fori_collect_pmap = pmap(lambda hmc_state: fori_collect(num_samples, sample_kernel, hmc_state,
+                                                            transform=lambda x: x.z, progbar=False))
+    chain_samples = fori_collect_pmap(init_states)
+
+    assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.05)
+    assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)

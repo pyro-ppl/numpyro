@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import numpy as onp
 
@@ -155,8 +156,11 @@ def main(args):
         transition_prior, emission_prior, supervised_categories,
         supervised_words, unsupervised_words,
     )
+    start = time.time()
     samples = mcmc(args.num_warmup, args.num_samples, init_params,
-                   potential_fn=potential_fn, constrain_fn=constrain_fn)
+                   potential_fn=potential_fn, constrain_fn=constrain_fn,
+                   progbar=True)
+    print('\nMCMC elapsed time:', time.time() - start)
     print_results(samples, transition_prob, emission_prob)
 
 

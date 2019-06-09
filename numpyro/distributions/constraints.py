@@ -122,8 +122,11 @@ class _Multinomial(Constraint):
 
 class _PositiveDefinite(Constraint):
     def __call__(self, x):
+        # check for symmetric
+        symmetric = np.all(np.all(x == np.swapaxes(x, -2, -1), axis=-1), axis=-1)
         # check for the smallest eigenvalue is positive
-        return np.linalg.eigh(x)[0][..., 0] > 0
+        positive = np.linalg.eigh(x)[0][..., 0] > 0
+        return symmetric & positive
 
 
 class _Real(Constraint):
