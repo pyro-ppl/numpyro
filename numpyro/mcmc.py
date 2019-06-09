@@ -239,10 +239,11 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                 # number of samples.
                 # TODO: remove this condition when the issue is resolved
                 if progbar is None:  # NB: if progbar=None, we jit fori_loop
-                    hmc_state = jit(fori_loop, static_argnums=(2,))(0, num_warmup,
-                                                                    sample_kernel, hmc_state)
+                    hmc_state = jit(fori_loop, static_argnums=(2,))(
+                        0, num_warmup, lambda *args: sample_kernel(args[1]), hmc_state)
                 else:
-                    hmc_state = fori_loop(0, num_warmup, sample_kernel, hmc_state)
+                    hmc_state = fori_loop(
+                        0, num_warmup, lambda *args: sample_kernel(args[1]), hmc_state)
             else:
                 with tqdm.trange(num_warmup, desc='warmup') as t:
                     for i in t:
