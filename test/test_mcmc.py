@@ -102,7 +102,7 @@ def test_beta_bernoulli(algo):
                             trajectory_length=1.,
                             num_warmup=warmup_steps,
                             progbar=False)
-    samples = fori_collect(num_samples, sample_kernel, hmc_state,
+    samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
                            transform=lambda x: constrain_fn(x.z),
                            progbar=False)
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
@@ -160,7 +160,7 @@ def test_change_point():
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(4), model, count_data)
     init_kernel, sample_kernel = hmc(potential_fn)
     hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
-    samples = fori_collect(num_samples, sample_kernel, hmc_state,
+    samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
                            transform=lambda x: constrain_fn(x.z))
     tau_posterior = (samples['tau'] * len(count_data)).astype("int")
     tau_values, counts = onp.unique(tau_posterior, return_counts=True)
@@ -219,7 +219,7 @@ def test_pmap(algo):
         init_param, trajectory_length=9, num_warmup=warmup_steps, progbar=False, rng=rng))
     init_states = init_kernel_pmap(init_params, rngs)
 
-    fori_collect_pmap = pmap(lambda hmc_state: fori_collect(num_samples, sample_kernel, hmc_state,
+    fori_collect_pmap = pmap(lambda hmc_state: fori_collect(0, num_samples, sample_kernel, hmc_state,
                                                             transform=lambda x: x.z, progbar=False))
     chain_samples = fori_collect_pmap(init_states)
 

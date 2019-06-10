@@ -72,7 +72,7 @@ def run_inference(dept, male, applications, admit, rng, args):
         rng, glmm, dept, male, applications, admit)
     init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
     hmc_state = init_kernel(init_params, args.num_warmup)
-    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
+    hmc_states = fori_collect(0, args.num_samples, sample_kernel, hmc_state,
                               transform=lambda hmc_state: constrain_fn(hmc_state.z))
     return hmc_states
 
