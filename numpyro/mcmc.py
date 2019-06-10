@@ -36,7 +36,8 @@ A :func:`~collections.namedtuple` consisting of the following fields:
    + **inverse_mass_matrix** - The inverse mass matrix to be used for the next
      iteration.
    + **mass_matrix_sqrt** - The square root of mass matrix to be used for the next
-     iteration.
+     iteration. In case of dense mass, this is the Cholesky factorization of the
+     mass matrix.
 
  - **rng** - random number generator seed used for the iteration.
 """
