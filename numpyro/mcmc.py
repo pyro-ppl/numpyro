@@ -237,7 +237,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0., 0.,
                              wa_state, rng_hmc)
 
-        if run_warmup:
+        if run_warmup and num_warmup > 0:
             # JIT if progress bar updates not required
             if not progbar:
                 # TODO: keep jit version and remove non-jit version for the next jax release
