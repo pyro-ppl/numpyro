@@ -106,8 +106,6 @@ class BernoulliLogits(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        dtype = get_dtypes(self.logits)[0]
-        value = lax.convert_element_type(value, dtype)
         return -binary_cross_entropy_with_logits(self.logits, value)
 
     @lazy_property
@@ -148,14 +146,11 @@ class BinomialProbs(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        dtype = get_dtypes(self.probs)[0]
-        value = lax.convert_element_type(value, dtype)
-        total_count = lax.convert_element_type(self.total_count, dtype)
-        log_factorial_n = gammaln(total_count + 1)
+        log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
-        log_factorial_nmk = gammaln(total_count - value + 1)
+        log_factorial_nmk = gammaln(self.total_count - value + 1)
         return (log_factorial_n - log_factorial_k - log_factorial_nmk +
-                xlogy(value, self.probs) + xlog1py(total_count - value, -self.probs))
+                xlogy(value, self.probs) + xlog1py(self.total_count - value, -self.probs))
 
     @property
     def mean(self):
@@ -186,14 +181,11 @@ class BinomialLogits(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        dtype = get_dtypes(self.logits)[0]
-        value = lax.convert_element_type(value, dtype)
-        total_count = lax.convert_element_type(self.total_count, dtype)
-        log_factorial_n = gammaln(total_count + 1)
+        log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
-        log_factorial_nmk = gammaln(total_count - value + 1)
-        normalize_term = (total_count * np.clip(self.logits, 0) +
-                          xlog1py(total_count, np.exp(-np.abs(self.logits))) -
+        log_factorial_nmk = gammaln(self.total_count - value + 1)
+        normalize_term = (self.total_count * np.clip(self.logits, 0) +
+                          xlog1py(self.total_count, np.exp(-np.abs(self.logits))) -
                           log_factorial_n)
         return value * self.logits - log_factorial_k - log_factorial_nmk - normalize_term
 
@@ -330,10 +322,8 @@ class MultinomialProbs(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        dtype = get_dtypes(self.probs)[0]
-        value = lax.convert_element_type(value, dtype)
-        total_count = lax.convert_element_type(self.total_count, dtype)
-        return gammaln(total_count + 1) + np.sum(xlogy(value, self.probs) - gammaln(value + 1), axis=-1)
+        return gammaln(self.total_count + 1) \
+            + np.sum(xlogy(value, self.probs) - gammaln(value + 1), axis=-1)
 
     @property
     def mean(self):
@@ -369,10 +359,8 @@ class MultinomialLogits(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        dtype = get_dtypes(self.logits)[0]
-        value = lax.convert_element_type(value, dtype)
-        total_count = lax.convert_element_type(self.total_count, dtype)
-        normalize_term = total_count * logsumexp(self.logits, axis=-1) - gammaln(total_count + 1)
+        normalize_term = self.total_count * logsumexp(self.logits, axis=-1) \
+            - gammaln(self.total_count + 1)
         return np.sum(value * self.logits - gammaln(value + 1), axis=-1) - normalize_term
 
     @lazy_property
@@ -416,7 +404,6 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = lax.convert_element_type(value, get_dtypes(self.rate)[0])
         return (np.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
