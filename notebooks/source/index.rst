@@ -19,7 +19,6 @@ Welcome to NumPyro Examples and Tutorials!
 
    bnn
    gp
-   minipyro
    ucbadmit
    baseball
    hmm
