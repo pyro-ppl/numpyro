@@ -225,3 +225,26 @@ def test_pmap(algo):
 
     assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.05)
     assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)
+
+
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+def test_chain():
+    N, dim = 3000, 3
+    num_warmup, num_samples = 5000, 5000
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1., dim + 1.)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    def model(labels):
+        coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
+        logits = np.sum(coefs * data, axis=-1)
+        return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+
+    rngs = random.split(random.PRNGKey(2), 2)
+    init_params, potential_fn, constrain_fn = initialize_model(rngs, model, labels)
+    samples = mcmc(num_warmup, num_samples, init_params, num_chains=2,
+                   potential_fn=potential_fn, constrain_fn=constrain_fn)
+
+    assert samples['coefs'].shape[0] == 2 * num_samples
+    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)

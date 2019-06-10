@@ -1,6 +1,6 @@
 import jax
 import jax.numpy as np
-from jax import grad, jit, partial, random, value_and_grad
+from jax import grad, jit, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 from jax.ops import index_update
 from jax.scipy.special import expit
@@ -726,7 +726,8 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
     within their respective support.
 
     :param jax.random.PRNGKey rng: random number generator seed to
-        sample from the prior.
+        sample from the prior. The returned `init_params` will have the
+        batch shape ``rng.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
     :param str init_strategy: initialization strategy - `uniform`
@@ -741,20 +742,33 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    model = seed(model, rng)
-    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
-    inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-    prior_params = constrain_fn(inv_transforms,
-                                {k: v['value'] for k, v in sample_sites.items()}, invert=True)
-    if init_strategy == 'uniform':
-        init_params = {}
-        for k, v in prior_params.items():
-            rng, = random.split(rng, 1)
-            init_params[k] = random.uniform(rng, shape=np.shape(v), minval=-2, maxval=2)
-    elif init_strategy == 'prior':
-        init_params = prior_params
+    def initialize_one(key, only_params=False):
+        seeded_model = seed(model, key)
+        model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+        sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
+        inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
+        prior_params = constrain_fn(inv_transforms,
+                                    {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+        if init_strategy == 'uniform':
+            init_params = {}
+            for k, v in prior_params.items():
+                key, = random.split(key, 1)
+                init_params[k] = random.uniform(key, shape=np.shape(v), minval=-2, maxval=2)
+        elif init_strategy == 'prior':
+            init_params = prior_params
+        else:
+            raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
+
+        if only_params:
+            return init_params
+        else:
+            return (init_params,
+                    potential_energy(seeded_model, model_args, model_kwargs, inv_transforms),
+                    jax.partial(constrain_fn, inv_transforms))
+
+    if rng.ndim == 1:
+        return initialize_one(rng)
     else:
-        raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
-    return init_params, potential_energy(model, model_args, model_kwargs, inv_transforms), \
-        jax.partial(constrain_fn, inv_transforms)
+        _, potential_fn, constrain_fun = initialize_one(rng[0])
+        init_params = vmap(lambda rng: initialize_one(rng, only_params=True))(rng)
+        return init_params, potential_fn, constrain_fun
