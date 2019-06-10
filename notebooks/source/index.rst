@@ -11,8 +11,20 @@ Welcome to NumPyro Examples and Tutorials!
    :caption: Examples:
 
    bayesian_regression
-   logistic_regression
    time_series_forecasting
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Code Examples:
+
+   bnn
+   gp
+   minipyro
+   ucbadmit
+   baseball
+   hmm
+   stochastic_volatility
+   vae
 
 
 Indices and tables
