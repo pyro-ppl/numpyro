@@ -420,9 +420,8 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                                            progbar=progbar,
                                            diagnostics_fn=get_diagnostics_str,
                                            progbar_desc='sample')
-            samples = tree_map(lambda x: x[np.new_axis, ...], flatten_samples)
+            samples = tree_map(lambda x: x[np.newaxis, ...], flatten_samples)
         else:
-            @jit
             def sampling_one(rng, init_params):
                 hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, **sampler_kwargs)
                 samples = fori_collect(num_warmup, num_warmup + num_samples, sample_kernel, hmc_state,
@@ -431,15 +430,16 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                 return samples
 
             if num_chains == 1:
+                # TODO: benchmark to see if we need to jit sampling_one for num_chains==1
                 flatten_samples = sampling_one(rng, init_params)
-                samples = tree_map(lambda x: x[np.new_axis, ...], flatten_samples)
+                samples = tree_map(lambda x: x[np.newaxis, ...], flatten_samples)
             else:
                 rngs = random.split(rng, num_chains)
                 if sequential_chain:
                     samples = []
                     for i in range(num_chains):
                         init_params_i = tree_map(lambda x: x[i], init_params)
-                        samples.append(sampling_one(rngs[i], init_params_i))
+                        samples.append(jit(sampling_one)(rngs[i], init_params_i))
                     samples = tree_multimap(lambda *args: np.stack(args), *samples)
                 else:
                     samples = pmap(sampling_one)(rngs, init_params)
