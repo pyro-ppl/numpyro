@@ -65,16 +65,16 @@ def benchmark_hmc(args, features, labels):
     init_kernel, sample_kernel = hmc(potential_fn, algo=args.algo)
     t0 = time.time()
     # TODO: Use init_params from `initialize_model` instead of fixed params.
-    hmc_state, _, _ = init_kernel(init_params, num_warmup=0, step_size=step_size,
-                                  trajectory_length=trajectory_length,
-                                  adapt_step_size=False, run_warmup=False)
+    hmc_state = init_kernel(init_params, num_warmup=0, step_size=step_size,
+                            trajectory_length=trajectory_length,
+                            adapt_step_size=False, run_warmup=False)
     t1 = time.time()
     print("time for hmc_init: ", t1 - t0)
 
     def transform(state): return {'coefs': state.z['coefs'],
                                   'num_steps': state.num_steps}
 
-    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state, transform=transform)
+    hmc_states = fori_collect(0, args.num_samples, sample_kernel, hmc_state, transform=transform)
     num_leapfrogs = np.sum(hmc_states['num_steps'])
     print('number of leapfrog steps: ', num_leapfrogs)
     print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)
