@@ -227,10 +227,8 @@ def test_pmap(algo):
     assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)
 
 
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
 def test_chain():
-    if xla_bridge.device_count() == 1:
-        pytest.skip('pmap test requires device_count greater than 1.')
-
     N, dim = 3000, 3
     num_warmup, num_samples = 5000, 5000
     data = random.normal(random.PRNGKey(0), (N, dim))
