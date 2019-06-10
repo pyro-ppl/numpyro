@@ -5,7 +5,7 @@ from collections import namedtuple
 import tqdm
 
 import jax.numpy as np
-from jax import jit, ops, partial, random, vmap
+from jax import jit, partial, random
 from jax.flatten_util import ravel_pytree
 from jax.random import PRNGKey
 from jax.tree_util import register_pytree_node
@@ -29,10 +29,15 @@ A :func:`~collections.namedtuple` consisting of the following fields:
    does not correspond to the proposal if it is rejected.
  - **mean_accept_prob** - Mean acceptance probability until current iteration
    during warmup adaptation or sampling (for diagnostics).
- - **step_size** - Step size to be used by the integrator in the next iteration.
-   This is adapted during warmup.
- - **inverse_mass_matrix** - The inverse mass matrix to be be used for the next
-   iteration. This is adapted during warmup.
+ - **adapt_state** - A ``AdaptState`` namedtuple which contains adaptation information
+   during warmup:
+
+   + **step_size** - Step size to be used by the integrator in the next iteration.
+   + **inverse_mass_matrix** - The inverse mass matrix to be used for the next
+     iteration.
+   + **mass_matrix_sqrt** - The square root of mass matrix to be used for the next
+     iteration.
+
  - **rng** - random number generator seed used for the iteration.
 """
 
@@ -142,7 +147,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         >>> hmc_state = init_kernel(init_params,
         ...                         trajectory_length=10,
         ...                         num_warmup=300)
-        >>> samples = fori_collect(500, sample_kernel, hmc_state,
+        >>> samples = fori_collect(0, 500, sample_kernel, hmc_state,
         ...                        transform=lambda state: constrain_fn(state.z))
         >>> print(np.mean(samples['beta'], axis=0))  # doctest: +SKIP
         [0.9153987 2.0754058 2.9621222]
@@ -235,9 +240,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         if run_warmup:
             # JIT if progress bar updates not required
             if not progbar:
-                # PERF: jitting the for loop may be faster on certain models or high
-                # number of samples.
-                # TODO: remove this condition when the issue is resolved
+                # TODO: keep jit version and remove non-jit version for the next jax release
                 if progbar is None:  # NB: if progbar=None, we jit fori_loop
                     hmc_state = jit(fori_loop, static_argnums=(2,))(
                         0, num_warmup, lambda *args: sample_kernel(args[1]), hmc_state)
@@ -395,50 +398,20 @@ def mcmc(num_warmup, num_samples, init_params, sampler='hmc',
         progbar = sampler_kwargs.pop('progbar', True)
 
         init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
-        hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, **sampler_kwargs)
-        samples = fori_collect(num_samples, sample_kernel, hmc_state,
-                               transform=lambda x: constrain_fn(x.z),
-                               progbar=progbar,
-                               diagnostics_fn=get_diagnostics_str,
-                               progbar_desc='sample')
+        if progbar:
+            hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, **sampler_kwargs)
+            samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
+                                   transform=lambda x: constrain_fn(x.z),
+                                   progbar=progbar,
+                                   diagnostics_fn=get_diagnostics_str,
+                                   progbar_desc='sample')
+        else:
+            hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, **sampler_kwargs)
+            samples = fori_collect(num_warmup, num_warmup + num_samples, sample_kernel, hmc_state,
+                                   transform=lambda x: constrain_fn(x.z),
+                                   progbar=progbar)
         if print_summary:
             summary(samples)
         return samples
     else:
         raise ValueError('sampler: {} not recognized'.format(sampler))
-
-
-# TODO: merge into mcmc
-def _mcmc2(num_warmup, num_samples, init_params, constrain_fn=None, **sampler_kwargs):
-    if constrain_fn is None:
-        constrain_fn = identity
-    potential_fn = sampler_kwargs.pop('potential_fn')
-    kinetic_fn = sampler_kwargs.pop('kinetic_fn', None)
-    algo = sampler_kwargs.pop('algo', 'NUTS')
-
-    init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
-    hmc_state = init_kernel(init_params, num_warmup, run_warmup=False,
-                            **sampler_kwargs)
-
-    # work like fori_collect but skip the first num_warmup samples
-    transform = lambda x: constrain_fn(x.z)  # noqa: E731
-    body_fun = sample_kernel
-    init_val = hmc_state
-    init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
-    ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
-
-    collection = np.zeros((num_samples,) + init_val_flat.shape)
-
-    def _body_fn(i, vals):
-        val, collection = vals
-        val = body_fun(val)
-        i = np.where(i >= num_warmup, i - num_warmup, 0)
-        collection = ops.index_update(collection, i, ravel_fn(val))
-        return val, collection
-
-    n = num_warmup + num_samples
-    _, collection = jit(fori_loop, static_argnums=(2,))(0, n, _body_fn,
-                                                        (init_val, collection))
-    samples = vmap(unravel_fn)(collection)
-    summary(samples)
-    return samples
