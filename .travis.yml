@@ -42,4 +42,6 @@ jobs:
               - XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_mcmc.py -k chain
         - name: "examples"
           python: 3.6
-          script: pytest -vs -m test_examples
+          script:
+              - pytest -vs -m test_examples
+              - XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -m test_examples

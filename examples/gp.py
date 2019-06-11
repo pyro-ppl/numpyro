@@ -48,8 +48,10 @@ def model(X, Y):
 
 # helper function for doing hmc inference
 def run_inference(model, args, rng, X, Y):
+    if args.num_chains > 1:
+        rng = random.split(rng, args.num_chains)
     init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y)
-    samples = mcmc(args.num_warmup, args.num_samples, init_params,
+    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
                    sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
     return samples
 
@@ -96,7 +98,7 @@ def main(args):
     samples = run_inference(model, args, rng, X, Y)
 
     # do prediction
-    vmap_args = (random.split(rng_predict, args.num_samples), samples['kernel_var'],
+    vmap_args = (random.split(rng_predict, args.num_samples * args.num_chains), samples['kernel_var'],
                  samples['kernel_length'], samples['kernel_noise'])
     means, predictions = vmap(lambda rng, var, length, noise:
                               predict(rng, X, Y, X_test, var, length, noise))(*vmap_args)
@@ -123,6 +125,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
+    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--num-data", nargs='?', default=25, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
