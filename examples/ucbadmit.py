@@ -99,7 +99,7 @@ def main(args):
     dept, male, applications, admit = fetch_train()
     rng, rng_predict = random.split(random.PRNGKey(1))
     zs = run_inference(dept, male, applications, admit, rng, args)
-    rngs = random.split(rng_predict, args.num_samples)
+    rngs = random.split(rng_predict, args.num_samples * args.num_chains)
     pred_probs = vmap(lambda z, rng: predict(dept, male, applications, z, rng))(zs, rngs)
     header = '=' * 30 + 'glmm - TRAIN' + '=' * 30
     print_results(header, pred_probs, dept, male, admit / applications)
