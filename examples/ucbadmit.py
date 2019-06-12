@@ -10,8 +10,7 @@ import numpyro.distributions as dist
 from numpyro.examples.datasets import UCBADMIT, load_dataset
 from numpyro.handlers import sample, seed, substitute, trace
 from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import hmc
-from numpyro.util import fori_collect
+from numpyro.mcmc import mcmc
 
 
 """
@@ -68,13 +67,13 @@ def glmm(dept, male, applications, admit):
 
 
 def run_inference(dept, male, applications, admit, rng, args):
+    if args.num_chains > 1:
+        rng = random.split(rng, args.num_chains)
     init_params, potential_fn, constrain_fn = initialize_model(
         rng, glmm, dept, male, applications, admit)
-    init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-    hmc_state = init_kernel(init_params, args.num_warmup)
-    hmc_states = fori_collect(0, args.num_samples, sample_kernel, hmc_state,
-                              transform=lambda hmc_state: constrain_fn(hmc_state.z))
-    return hmc_states
+    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
+                   potential_fn=potential_fn, constrain_fn=constrain_fn)
+    return samples
 
 
 def predict(dept, male, applications, z, rng):
@@ -100,7 +99,7 @@ def main(args):
     dept, male, applications, admit = fetch_train()
     rng, rng_predict = random.split(random.PRNGKey(1))
     zs = run_inference(dept, male, applications, admit, rng, args)
-    rngs = random.split(rng_predict, args.num_samples)
+    rngs = random.split(rng_predict, args.num_samples * args.num_chains)
     pred_probs = vmap(lambda z, rng: predict(dept, male, applications, z, rng))(zs, rngs)
     header = '=' * 30 + 'glmm - TRAIN' + '=' * 30
     print_results(header, pred_probs, dept, male, admit / applications)
@@ -110,6 +109,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='UCBadmit gender discrimination using HMC')
     parser.add_argument('-n', '--num-samples', nargs='?', default=2000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
+    parser.add_argument('--num-chains', nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)

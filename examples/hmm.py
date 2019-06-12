@@ -150,14 +150,17 @@ def main(args):
         num_unsupervised_data=args.num_unsupervised,
     )
     print('Starting inference...')
+    rng = random.PRNGKey(2)
+    if args.num_chains > 1:
+        rng = random.split(rng, args.num_chains)
     init_params, potential_fn, constrain_fn = initialize_model(
-        random.PRNGKey(2),
+        rng,
         semi_supervised_hmm,
         transition_prior, emission_prior, supervised_categories,
         supervised_words, unsupervised_words,
     )
     start = time.time()
-    samples = mcmc(args.num_warmup, args.num_samples, init_params,
+    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
                    potential_fn=potential_fn, constrain_fn=constrain_fn,
                    progbar=True)
     print('\nMCMC elapsed time:', time.time() - start)
@@ -172,6 +175,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-unsupervised', default=500, type=int)
     parser.add_argument('-n', '--num-samples', nargs='?', default=1000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
+    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)

@@ -4,6 +4,7 @@ Bayesian neural network with two hidden layers.
 """
 
 import argparse
+import time
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -55,9 +56,13 @@ def model(X, Y, D_H):
 
 # helper function for HMC inference
 def run_inference(model, args, rng, X, Y, D_H):
+    if args.num_chains > 1:
+        rng = random.split(rng, args.num_chains)
     init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y, D_H)
-    samples = mcmc(args.num_warmup, args.num_samples, init_params,
-                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
+    start = time.time()
+    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
+                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn, progbar=None)
+    print('\nMCMC elapsed time:', time.time() - start)
     return samples
 
 
@@ -101,7 +106,7 @@ def main(args):
     samples = run_inference(model, args, rng, X, Y, D_H)
 
     # predict Y_test at inputs X_test
-    vmap_args = (samples, random.split(rng_predict, args.num_samples))
+    vmap_args = (samples, random.split(rng_predict, args.num_samples * args.num_chains))
     predictions = vmap(lambda samples, rng: predict(model, rng, samples, X_test, D_H))(*vmap_args)
     predictions = predictions[..., 0]
 
@@ -128,6 +133,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bayesian neural network example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
+    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
     parser.add_argument("--num-hidden", nargs='?', default=5, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')

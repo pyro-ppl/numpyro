@@ -135,8 +135,10 @@ def partially_pooled_with_logit(at_bats, hits=None):
 
 
 def run_inference(model, at_bats, hits, rng, args):
+    if args.num_chains > 1:
+        rng = random.split(rng, args.num_chains)
     init_params, potential_fn, constrain_fn = initialize_model(rng, model, at_bats, hits)
-    hmc_states = mcmc(args.num_warmup, args.num_samples, init_params,
+    hmc_states = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
                       sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
     return hmc_states
 
@@ -199,6 +201,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Baseball batting average using HMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1500, type=int)
+    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)

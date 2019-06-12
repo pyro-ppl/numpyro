@@ -1,14 +1,16 @@
 import math
 import os
+import warnings
 from collections import namedtuple
 
 import tqdm
 
 import jax.numpy as np
-from jax import jit, partial, random
+from jax import jit, partial, pmap, random
 from jax.flatten_util import ravel_pytree
+from jax.lib import xla_bridge
 from jax.random import PRNGKey
-from jax.tree_util import register_pytree_node
+from jax.tree_util import register_pytree_node, tree_map, tree_multimap
 
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
@@ -320,7 +322,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     return init_kernel, sample_kernel
 
 
-def mcmc(num_warmup, num_samples, init_params, sampler='hmc',
+def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
          constrain_fn=None, print_summary=True, **sampler_kwargs):
     """
     Convenience wrapper for MCMC samplers -- runs warmup, prints
@@ -385,29 +387,60 @@ def mcmc(num_warmup, num_samples, init_params, sampler='hmc',
             coefs[2]       3.18       0.13       2.96       3.37     320.27       1.00
            intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
     """
+    sequential_chain = False
+    if xla_bridge.device_count() < num_chains:
+        sequential_chain = True
+        warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
+                      ' Chains will be drawn sequentially. If you are running `mcmc` in CPU,'
+                      ' consider to disable XLA intra-op parallelism by setting the environment'
+                      ' flag "XLA_FLAGS=--xla_force_host_platform_device_count={}".'
+                      .format(num_chains, xla_bridge.device_count(), num_chains))
+    progbar = sampler_kwargs.pop('progbar', True)
+    if num_chains > 1:
+        progbar = False
+
     if sampler == 'hmc':
         if constrain_fn is None:
             constrain_fn = identity
         potential_fn = sampler_kwargs.pop('potential_fn')
         kinetic_fn = sampler_kwargs.pop('kinetic_fn', None)
         algo = sampler_kwargs.pop('algo', 'NUTS')
-        progbar = sampler_kwargs.pop('progbar', True)
+        rng = sampler_kwargs.pop('rng', PRNGKey(0))
 
         init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
         if progbar:
             hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, **sampler_kwargs)
-            samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
-                                   transform=lambda x: constrain_fn(x.z),
-                                   progbar=progbar,
-                                   diagnostics_fn=get_diagnostics_str,
-                                   progbar_desc='sample')
+            samples_flat = fori_collect(0, num_samples, sample_kernel, hmc_state,
+                                        transform=lambda x: constrain_fn(x.z),
+                                        progbar=progbar,
+                                        diagnostics_fn=get_diagnostics_str,
+                                        progbar_desc='sample')
+            samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
-            hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, **sampler_kwargs)
-            samples = fori_collect(num_warmup, num_warmup + num_samples, sample_kernel, hmc_state,
-                                   transform=lambda x: constrain_fn(x.z),
-                                   progbar=progbar)
+            def single_chain_mcmc(rng, init_params):
+                hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, **sampler_kwargs)
+                samples = fori_collect(num_warmup, num_warmup + num_samples, sample_kernel, hmc_state,
+                                       transform=lambda x: constrain_fn(x.z),
+                                       progbar=progbar)
+                return samples
+
+            if num_chains == 1:
+                samples_flat = single_chain_mcmc(rng, init_params)
+                samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
+            else:
+                rngs = random.split(rng, num_chains)
+                if sequential_chain:
+                    samples = []
+                    for i in range(num_chains):
+                        init_params_i = tree_map(lambda x: x[i], init_params)
+                        samples.append(jit(single_chain_mcmc)(rngs[i], init_params_i))
+                    samples = tree_multimap(lambda *args: np.stack(args), *samples)
+                else:
+                    samples = pmap(single_chain_mcmc)(rngs, init_params)
+                samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
+
         if print_summary:
             summary(samples)
-        return samples
+        return samples_flat
     else:
         raise ValueError('sampler: {} not recognized'.format(sampler))

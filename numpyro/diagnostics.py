@@ -202,7 +202,8 @@ def summary(samples, prob=0.89):
     the 89% Credibility Interval, :func:`~numpyro.diagnostics.effective_sample_size`
     :func:`~numpyro.diagnostics.split_gelman_rubin`.
 
-    :param samples: a collection of input samples.
+    :param samples: a collection of input samples with left most dimension is chain
+        dimension and second to left most dimension is draw dimension.
     :param float prob: the probability mass of samples within the HPDI interval.
     """
     # FIXME: handle variable with str len > 20
@@ -216,15 +217,15 @@ def summary(samples, prob=0.89):
     row_format = '{:>20} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f}'
     if not isinstance(samples, dict):
         samples = {'Param:{}'.format(i): v for i, v in enumerate(tree_flatten(samples)[0])}
-    # TODO: support summary for chains of samples
     for name, value in samples.items():
         value = device_get(value)
-        mean = value.mean(axis=0)
-        sd = value.std(axis=0, ddof=1)
-        hpd = hpdi(value, prob=prob)
-        n_eff = effective_sample_size(value[None, ...])
-        r_hat = split_gelman_rubin(value[None, ...])
-        shape = value.shape[1:]
+        value_flat = onp.reshape(value, (-1,) + value.shape[2:])
+        mean = value_flat.mean(axis=0)
+        sd = value_flat.std(axis=0, ddof=1)
+        hpd = hpdi(value_flat, prob=prob)
+        n_eff = effective_sample_size(value)
+        r_hat = split_gelman_rubin(value)
+        shape = value_flat.shape[1:]
         if len(shape) == 0:
             print(row_format.format(name, mean, sd, hpd[0], hpd[1], n_eff, r_hat))
         else:

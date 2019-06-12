@@ -11,25 +11,7 @@ import numpyro.distributions as dist
 from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import hmc
-from numpyro.util import fori_collect
-
-step_size = 0.00167132
-init_params = {"coefs": onp.array(
-    [+2.03420663e+00, -3.53567265e-02, -1.49223924e-01, -3.07049364e-01,
-     -1.00028366e-01, -1.46827862e-01, -1.64167881e-01, -4.20344204e-01,
-     +9.47479829e-02, -1.12681836e-02, +2.64442056e-01, -1.22087866e-01,
-     -6.00568838e-02, -3.79419506e-01, -1.06668741e-01, -2.97053963e-01,
-     -2.05253899e-01, -4.69537191e-02, -2.78072730e-02, -1.43250525e-01,
-     -6.77954629e-02, -4.34899796e-03, +5.90927452e-02, +7.23133609e-02,
-     +1.38526391e-02, -1.24497898e-01, -1.50733739e-02, -2.68872194e-02,
-     -1.80925727e-02, +3.47936489e-02, +4.03552800e-02, -9.98773426e-03,
-     +6.20188080e-02, +1.15002751e-01, +1.32145107e-01, +2.69109547e-01,
-     +2.45785132e-01, +1.19035013e-01, -2.59744357e-02, +9.94279515e-04,
-     +3.39266285e-02, -1.44057125e-02, -6.95222765e-02, -7.52013028e-02,
-     +1.21171586e-01, +2.29205526e-02, +1.47308692e-01, -8.34354162e-02,
-     -9.34122875e-02, -2.97472421e-02, -3.03937674e-01, -1.70958012e-01,
-     -1.59496680e-01, -1.88516974e-01, -1.20889175e+00])}
+from numpyro.mcmc import mcmc
 
 
 def _load_dataset():
@@ -53,31 +35,24 @@ def _load_dataset():
 
 
 def model(data, labels):
-    N, dim = data.shape
+    dim = data.shape[1]
     coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
     logits = np.dot(data, coefs)
     return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
 
 def benchmark_hmc(args, features, labels):
+    step_size = np.sqrt(0.5 / features.shape[0])
     trajectory_length = step_size * args.num_steps
-    _, potential_fn, _ = initialize_model(random.PRNGKey(1), model, features, labels)
-    init_kernel, sample_kernel = hmc(potential_fn, algo=args.algo)
-    t0 = time.time()
-    # TODO: Use init_params from `initialize_model` instead of fixed params.
-    hmc_state = init_kernel(init_params, num_warmup=0, step_size=step_size,
-                            trajectory_length=trajectory_length,
-                            adapt_step_size=False, run_warmup=False)
-    t1 = time.time()
-    print("time for hmc_init: ", t1 - t0)
+    rng = random.PRNGKey(1)
+    if args.num_chains > 1:
+        rng = random.split(rng, args.num_chains)
+    init_params, potential_fn, _ = initialize_model(rng, model, features, labels)
 
-    def transform(state): return {'coefs': state.z['coefs'],
-                                  'num_steps': state.num_steps}
-
-    hmc_states = fori_collect(0, args.num_samples, sample_kernel, hmc_state, transform=transform)
-    num_leapfrogs = np.sum(hmc_states['num_steps'])
-    print('number of leapfrog steps: ', num_leapfrogs)
-    print('avg. time for each step: ', (time.time() - t1) / num_leapfrogs)
+    start = time.time()
+    mcmc(0, args.num_samples, init_params, num_chains=args.num_chains,
+         potential_fn=potential_fn, trajectory_length=trajectory_length)
+    print('\nMCMC elapsed time:', time.time() - start)
 
 
 def main(args):
@@ -90,6 +65,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('-n', '--num-samples', default=100, type=int, help='number of samples')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
+    parser.add_argument('--num-chains', nargs='?', default=1, type=int)
     parser.add_argument('--algo', default='NUTS', type=str, help='whether to run "HMC" or "NUTS"')
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
