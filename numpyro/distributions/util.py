@@ -6,8 +6,8 @@ import numpy as onp
 import scipy.special as osp_special
 
 import jax.numpy as np
-from jax import canonicalize_dtype, custom_transforms, device_get, jit, lax, random, vmap
-from jax.interpreters import ad, batching
+from jax import canonicalize_dtype, core, custom_transforms, defjvp, device_get, jit, lax, random, vmap
+from jax.interpreters import ad, batching, partial_eval, xla
 from jax.lib import xla_bridge
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.linalg import solve_triangular
@@ -56,10 +56,7 @@ def _standard_gamma_one(key, alpha):
 
 # TODO: use upstream implementation when available because it is 2x faster
 def _standard_gamma_impl(key, alpha):
-    if key.ndim > 1:
-        keys = vmap(lambda k: random.split(k, np.size(alpha[0])))(key)
-    else:
-        keys = random.split(key, alpha.size)
+    keys = random.split(key, alpha.size)
     alphas = np.reshape(alpha, -1)
     keys = np.reshape(keys, (-1, 2))
     samples = vmap(_standard_gamma_one)(keys, alphas)
@@ -174,24 +171,13 @@ def _standard_gamma_grad(sample, alpha):
     return grads.reshape(alpha.shape)
 
 
-def _standard_gamma_batching_rule(batched_args, batch_dims):
-    x, y = batched_args
-    bx, by = batch_dims
-    size = next(t.shape[i] for t, i in zip(batched_args, batch_dims)
-                if i is not None)
-    x = batching.bdim_at_front(x, bx, size, force_broadcast=True)
-    y = batching.bdim_at_front(y, by, size, force_broadcast=True)
-    return _standard_gamma_p(x, y), 0
-
-
 @custom_transforms
 def _standard_gamma_p(key, alpha):
     return _standard_gamma_impl(key, alpha)
 
 
-ad.defjvp2(_standard_gamma_p.primitive, None,
-           lambda tangent, sample, key, alpha, **kwargs: tangent * _standard_gamma_grad(sample, alpha))
-batching.primitive_batchers[_standard_gamma_p.primitive] = _standard_gamma_batching_rule
+defjvp(_standard_gamma_p, None,
+       lambda tangent, sample, key, alpha, **kwargs: tangent * _standard_gamma_grad(sample, alpha))
 
 
 @partial(jit, static_argnums=(2, 3))
@@ -307,7 +293,7 @@ def multinomial(key, p, n, shape=()):
     return _multinomial(key, p, n, shape)
 
 
-def _xlogy_jvp_lhs(g, x, y):
+def _xlogy_jvp_lhs(g, ans, x, y):
     shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
     g = np.broadcast_to(g, shape)
     y = np.broadcast_to(y, shape)
@@ -315,7 +301,7 @@ def _xlogy_jvp_lhs(g, x, y):
     return lax._safe_mul(g, np.log(y))
 
 
-def _xlogy_jvp_rhs(g, x, y):
+def _xlogy_jvp_rhs(g, ans, x, y):
     shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
     g = np.broadcast_to(g, shape)
     x = np.broadcast_to(x, shape)
@@ -329,30 +315,10 @@ def xlogy(x, y):
     return lax._safe_mul(x, np.log(y))
 
 
-def _xlogy_batching_rule(batched_args, batch_dims):
-    x, y = batched_args
-    bx, by = batch_dims
-    # promote shapes
-    sx, sy = np.shape(x), np.shape(y)
-    nx = len(sx) + int(bx is None)
-    ny = len(sy) + int(by is None)
-    nd = max(nx, ny)
-    x = np.reshape(x, (1,) * (nd - len(sx)) + sx)
-    y = np.reshape(y, (1,) * (nd - len(sy)) + sy)
-    # correct bx, by due to promoting
-    bx = bx + nd - len(sx) if bx is not None else nd - len(sx) - 1
-    by = by + nd - len(sy) if by is not None else nd - len(sy) - 1
-    # move bx, by to front
-    x = batching.move_dim_to_front(x, bx)
-    y = batching.move_dim_to_front(y, by)
-    return xlogy(x, y), 0
+defjvp(xlogy, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
 
 
-ad.defjvp(xlogy.primitive, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
-batching.primitive_batchers[xlogy.primitive] = _xlogy_batching_rule
-
-
-def _xlog1py_jvp_lhs(g, x, y):
+def _xlog1py_jvp_lhs(g, ans, x, y):
     shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
     g = np.broadcast_to(g, shape)
     y = np.broadcast_to(y, shape)
@@ -360,31 +326,12 @@ def _xlog1py_jvp_lhs(g, x, y):
     return lax._safe_mul(g, np.log1p(y))
 
 
-def _xlog1py_jvp_rhs(g, x, y):
+def _xlog1py_jvp_rhs(g, ans, x, y):
     shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
     g = np.broadcast_to(g, shape)
     x = np.broadcast_to(x, shape)
     x, y = _promote_args_like(osp_special.xlog1py, x, y)
     return g * lax._safe_mul(x, np.reciprocal(1 + y))
-
-
-def _xlog1py_batching_rule(batched_args, batch_dims):
-    x, y = batched_args
-    bx, by = batch_dims
-    # promote shapes
-    sx, sy = np.shape(x), np.shape(y)
-    nx = len(sx) + int(bx is None)
-    ny = len(sy) + int(by is None)
-    nd = max(nx, ny)
-    x = np.reshape(x, (1,) * (nd - len(sx)) + sx)
-    y = np.reshape(y, (1,) * (nd - len(sy)) + sy)
-    # correct bx, by due to promoting
-    bx = bx + nd - len(sx) if bx is not None else nd - len(sx) - 1
-    by = by + nd - len(sy) if by is not None else nd - len(sy) - 1
-    # move bx, by to front
-    x = batching.move_dim_to_front(x, bx)
-    y = batching.move_dim_to_front(y, by)
-    return xlog1py(x, y), 0
 
 
 @custom_transforms
@@ -393,8 +340,7 @@ def xlog1py(x, y):
     return lax._safe_mul(x, np.log1p(y))
 
 
-ad.defjvp(xlog1py.primitive, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
-batching.primitive_batchers[xlog1py.primitive] = _xlog1py_batching_rule
+defjvp(xlog1py, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
 
 
 def cholesky_inverse(matrix):
@@ -433,19 +379,27 @@ def cumsum(x):
     return np.cumsum(x, axis=-1)
 
 
-ad.defjvp(cumsum.primitive, lambda g, x: np.cumsum(g, axis=-1))
-batching.defvectorized(cumsum.primitive)
+defjvp(cumsum, lambda g, ans, x: np.cumsum(g, axis=-1))
 
 
-@custom_transforms
-def cumprod(x):
+# XXX work around the issue: batching rule for 'reduce_window' not implemented
+# when using @custom_transforms decorator
+def _cumprod_impl(x):
     return np.cumprod(x, axis=-1)
 
 
+cumprod_p = core.Primitive('cumprod')
+cumprod_p.def_impl(_cumprod_impl)
+cumprod_p.def_abstract_eval(partial(partial_eval.abstract_eval_fun, _cumprod_impl))
+xla.translations[cumprod_p] = partial(xla.lower_fun, _cumprod_impl)
 # XXX this implementation does not address the case x=0, hence the result in that case will be nan
 # Ref: https://stackoverflow.com/questions/40916955/how-to-compute-gradient-of-cumprod-safely
-ad.defjvp2(cumprod.primitive, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
-batching.defvectorized(cumprod.primitive)
+ad.defjvp2(cumprod_p, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
+batching.defvectorized(cumprod_p)
+
+
+def cumprod(x):
+    return cumprod_p.bind(x)
 
 
 def promote_shapes(*args, shape=()):
