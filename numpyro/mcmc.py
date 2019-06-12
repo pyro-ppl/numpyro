@@ -425,7 +425,6 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                 return samples
 
             if num_chains == 1:
-                # TODO: benchmark to see if we need to jit sampling_one for num_chains==1
                 samples_flat = single_chain_mcmc(rng, init_params)
                 samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
             else:
