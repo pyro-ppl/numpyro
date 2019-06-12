@@ -742,7 +742,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    def initialize_one(key, only_params=False):
+    def single_chain_init(key, only_params=False):
         seeded_model = seed(model, key)
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
         sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
@@ -767,8 +767,8 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
                     jax.partial(constrain_fn, inv_transforms))
 
     if rng.ndim == 1:
-        return initialize_one(rng)
+        return single_chain_init(rng)
     else:
-        _, potential_fn, constrain_fun = initialize_one(rng[0])
-        init_params = vmap(lambda rng: initialize_one(rng, only_params=True))(rng)
+        _, potential_fn, constrain_fun = single_chain_init(rng[0])
+        init_params = vmap(lambda rng: single_chain_init(rng, only_params=True))(rng)
         return init_params, potential_fn, constrain_fun

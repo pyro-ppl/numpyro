@@ -50,8 +50,8 @@ def benchmark_hmc(args, features, labels):
     init_params, potential_fn, _ = initialize_model(rng, model, features, labels)
 
     start = time.time()
-    samples = mcmc(0, args.num_samples, init_params, num_chains=args.num_chains,
-                   potential_fn=potential_fn, trajectory_length=trajectory_length)
+    mcmc(0, args.num_samples, init_params, num_chains=args.num_chains,
+         potential_fn=potential_fn, trajectory_length=trajectory_length)
     print('\nMCMC elapsed time:', time.time() - start)
 
 

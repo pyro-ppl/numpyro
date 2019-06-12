@@ -410,14 +410,14 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
         init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
         if progbar:
             hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, **sampler_kwargs)
-            flatten_samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
-                                           transform=lambda x: constrain_fn(x.z),
-                                           progbar=progbar,
-                                           diagnostics_fn=get_diagnostics_str,
-                                           progbar_desc='sample')
-            samples = tree_map(lambda x: x[np.newaxis, ...], flatten_samples)
+            samples_flat = fori_collect(0, num_samples, sample_kernel, hmc_state,
+                                        transform=lambda x: constrain_fn(x.z),
+                                        progbar=progbar,
+                                        diagnostics_fn=get_diagnostics_str,
+                                        progbar_desc='sample')
+            samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
-            def sampling_one(rng, init_params):
+            def single_chain_mcmc(rng, init_params):
                 hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, **sampler_kwargs)
                 samples = fori_collect(num_warmup, num_warmup + num_samples, sample_kernel, hmc_state,
                                        transform=lambda x: constrain_fn(x.z),
@@ -426,22 +426,22 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
 
             if num_chains == 1:
                 # TODO: benchmark to see if we need to jit sampling_one for num_chains==1
-                flatten_samples = sampling_one(rng, init_params)
-                samples = tree_map(lambda x: x[np.newaxis, ...], flatten_samples)
+                samples_flat = single_chain_mcmc(rng, init_params)
+                samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
             else:
                 rngs = random.split(rng, num_chains)
                 if sequential_chain:
                     samples = []
                     for i in range(num_chains):
                         init_params_i = tree_map(lambda x: x[i], init_params)
-                        samples.append(jit(sampling_one)(rngs[i], init_params_i))
+                        samples.append(jit(single_chain_mcmc)(rngs[i], init_params_i))
                     samples = tree_multimap(lambda *args: np.stack(args), *samples)
                 else:
-                    samples = pmap(sampling_one)(rngs, init_params)
-                flatten_samples = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
+                    samples = pmap(single_chain_mcmc)(rngs, init_params)
+                samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
 
         if print_summary:
             summary(samples)
-        return flatten_samples
+        return samples_flat
     else:
         raise ValueError('sampler: {} not recognized'.format(sampler))

@@ -219,13 +219,13 @@ def summary(samples, prob=0.89):
         samples = {'Param:{}'.format(i): v for i, v in enumerate(tree_flatten(samples)[0])}
     for name, value in samples.items():
         value = device_get(value)
-        flatten_value = onp.reshape(value, (-1,) + value.shape[2:])
-        mean = flatten_value.mean(axis=0)
-        sd = flatten_value.std(axis=0, ddof=1)
-        hpd = hpdi(flatten_value, prob=prob)
+        value_flat = onp.reshape(value, (-1,) + value.shape[2:])
+        mean = value_flat.mean(axis=0)
+        sd = value_flat.std(axis=0, ddof=1)
+        hpd = hpdi(value_flat, prob=prob)
         n_eff = effective_sample_size(value)
         r_hat = split_gelman_rubin(value)
-        shape = flatten_value.shape[1:]
+        shape = value_flat.shape[1:]
         if len(shape) == 0:
             print(row_format.format(name, mean, sd, hpd[0], hpd[1], n_eff, r_hat))
         else:
