@@ -174,6 +174,16 @@ def _standard_gamma_grad(sample, alpha):
     return grads.reshape(alpha.shape)
 
 
+def _standard_gamma_batching_rule(batched_args, batch_dims):
+    x, y = batched_args
+    bx, by = batch_dims
+    size = next(t.shape[i] for t, i in zip(batched_args, batch_dims)
+                if i is not None)
+    x = batching.bdim_at_front(x, bx, size, force_broadcast=True)
+    y = batching.bdim_at_front(y, by, size, force_broadcast=True)
+    return _standard_gamma_p(x, y), 0
+
+
 @custom_transforms
 def _standard_gamma_p(key, alpha):
     return _standard_gamma_impl(key, alpha)
@@ -181,7 +191,7 @@ def _standard_gamma_p(key, alpha):
 
 ad.defjvp2(_standard_gamma_p.primitive, None,
            lambda tangent, sample, key, alpha, **kwargs: tangent * _standard_gamma_grad(sample, alpha))
-batching.defvectorized(_standard_gamma_p.primitive)
+batching.primitive_batchers[_standard_gamma_p.primitive] = _standard_gamma_batching_rule
 
 
 @partial(jit, static_argnums=(2, 3))

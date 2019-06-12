@@ -100,21 +100,23 @@ def identity(x):
     return x
 
 
-def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
+def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
     post-processing of these samples via `transform`, and progress bar updates.
-    Note that, in some cases, `progbar=False` can be faster, when collecting a
+    Note that, `progbar=False` will be faster, especially when collecting a
     lot of samples. Refer to example usage in :func:`~numpyro.mcmc.hmc`.
 
-    :param int n: number of times to run the loop body.
+    :param int lower: the index to start the collective work. In other words,
+        we will skip collecting the first `lower` values.
+    :param int upper: number of times to run the loop body.
     :param body_fun: a callable that takes a collection of
         `np.ndarray` and returns a collection with the same shape and
         `dtype`.
     :param init_val: initial value to pass as argument to `body_fun`. Can
         be any Python collection type containing `np.ndarray` objects.
-    :param transform: A callable
+    :param transform: a callable to post-process the values returned by `body_fn`.
     :param progbar: whether to post progress bar updates.
     :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
@@ -124,36 +126,37 @@ def fori_collect(n, body_fun, init_val, transform=identity, progbar=True, **prog
     :return: collection with the same type as `init_val` with values
         collected along the leading axis of `np.ndarray` objects.
     """
+    assert lower < upper
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
     if not progbar:
-        collection = np.zeros((n,) + init_val_flat.shape)
+        collection = np.zeros((upper - lower,) + init_val_flat.shape)
 
         def _body_fn(i, vals):
             val, collection = vals
             val = body_fun(val)
+            i = np.where(i >= lower, i - lower, 0)
             collection = ops.index_update(collection, i, ravel_fn(val))
             return val, collection
 
-        # PERF: jitting the for loop may be faster on certain models or high
-        # number of samples.
-        # TODO: remove this condition when the issue is resolved
+        # TODO: keep jit version and remove non-jit version for the next jax release
         if progbar is None:  # NB: if progbar=None, we jit fori_loop
-            _, collection = jit(fori_loop, static_argnums=(2,))(0, n, _body_fn,
+            _, collection = jit(fori_loop, static_argnums=(2,))(0, upper, _body_fn,
                                                                 (init_val, collection))
         else:
-            _, collection = fori_loop(0, n, _body_fn, (init_val, collection))
+            _, collection = fori_loop(0, upper, _body_fn, (init_val, collection))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', '')
         collection = []
 
         val = init_val
-        with tqdm.trange(n, desc=progbar_desc) as t:
-            for _ in t:
+        with tqdm.trange(upper, desc=progbar_desc) as t:
+            for i in t:
                 val = body_fun(val)
-                collection.append(jit(ravel_fn)(val))
+                if i >= lower:
+                    collection.append(jit(ravel_fn)(val))
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 

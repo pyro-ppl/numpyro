@@ -31,7 +31,7 @@ def test_unnormalized_normal(algo, dense_mass):
                             trajectory_length=9,
                             num_warmup=warmup_steps,
                             dense_mass=dense_mass)
-    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
+    hmc_states = fori_collect(0, num_samples, sample_kernel, hmc_state,
                               transform=lambda x: x.z)
     assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
     assert_allclose(np.std(hmc_states), true_std, rtol=0.05)
@@ -102,13 +102,13 @@ def test_beta_bernoulli(algo):
                             trajectory_length=1.,
                             num_warmup=warmup_steps,
                             progbar=False)
-    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: constrain_fn(x.z),
-                              progbar=False)
-    assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.05)
+    samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
+                           transform=lambda x: constrain_fn(x.z),
+                           progbar=False)
+    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
     if 'JAX_ENABLE_x64' in os.environ:
-        assert hmc_states['p_latent'].dtype == np.float64
+        assert samples['p_latent'].dtype == np.float64
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
@@ -125,19 +125,15 @@ def test_dirichlet_categorical(algo, dense_mass):
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
-    init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
-    hmc_state = init_kernel(init_params,
-                            trajectory_length=1.,
-                            num_warmup=warmup_steps,
-                            progbar=False,
-                            dense_mass=dense_mass)
-    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: constrain_fn(x.z),
-                              progbar=False)
-    assert_allclose(np.mean(hmc_states['p_latent'], 0), true_probs, atol=0.02)
+    # TODO: having progbar=None just to test if that value works,
+    # change it to False when jit fori_loop issue is resolved
+    samples = mcmc(warmup_steps, num_samples, init_params, constrain_fn=constrain_fn, progbar=None,
+                   print_summary=False, potential_fn=potential_fn, algo=algo, trajectory_length=1.,
+                   dense_mass=dense_mass)
+    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
 
     if 'JAX_ENABLE_x64' in os.environ:
-        assert hmc_states['p_latent'].dtype == np.float64
+        assert samples['p_latent'].dtype == np.float64
 
 
 @pytest.mark.xfail(reason='TODO: Fix this flaky test.')
@@ -164,7 +160,7 @@ def test_change_point():
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(4), model, count_data)
     init_kernel, sample_kernel = hmc(potential_fn)
     hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
-    samples = fori_collect(num_samples, sample_kernel, hmc_state,
+    samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
                            transform=lambda x: constrain_fn(x.z))
     tau_posterior = (samples['tau'] * len(count_data)).astype("int")
     tau_values, counts = onp.unique(tau_posterior, return_counts=True)
@@ -195,13 +191,13 @@ def test_binomial_stable(with_logits):
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
     init_kernel, sample_kernel = hmc(potential_fn)
     hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
-    hmc_states = fori_collect(num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: constrain_fn(x.z))
+    samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
+                           transform=lambda x: constrain_fn(x.z))
 
-    assert_allclose(np.mean(hmc_states['p'], 0), data['x'] / data['n'], rtol=0.05)
+    assert_allclose(np.mean(samples['p'], 0), data['x'] / data['n'], rtol=0.05)
 
     if 'JAX_ENABLE_x64' in os.environ:
-        assert hmc_states['p'].dtype == np.float64
+        assert samples['p'].dtype == np.float64
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
@@ -223,7 +219,7 @@ def test_pmap(algo):
         init_param, trajectory_length=9, num_warmup=warmup_steps, progbar=False, rng=rng))
     init_states = init_kernel_pmap(init_params, rngs)
 
-    fori_collect_pmap = pmap(lambda hmc_state: fori_collect(num_samples, sample_kernel, hmc_state,
+    fori_collect_pmap = pmap(lambda hmc_state: fori_collect(0, num_samples, sample_kernel, hmc_state,
                                                             transform=lambda x: x.z, progbar=False))
     chain_samples = fori_collect_pmap(init_states)
 

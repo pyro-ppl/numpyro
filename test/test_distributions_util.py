@@ -169,6 +169,14 @@ def test_standard_gamma_batch():
     for i in range(3):
         assert_allclose(samples[i], standard_gamma(rngs[i], alphas[i]))
 
+    samples = vmap(lambda rng: standard_gamma(rng, alphas[:2]))(rngs)
+    for i in range(3):
+        assert_allclose(samples[i], standard_gamma(rngs[i], alphas[:2]))
+
+    samples = vmap(lambda alpha: standard_gamma(rng, alpha))(alphas)
+    for i in range(3):
+        assert_allclose(samples[i], standard_gamma(rng, alphas[i]))
+
 
 @pytest.mark.parametrize('prim', [
     xlogy,

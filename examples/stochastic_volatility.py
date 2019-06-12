@@ -71,7 +71,7 @@ def main(args):
     init_params, potential_fn, constrain_fn = initialize_model(init_rng, model, returns)
     init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
     hmc_state = init_kernel(init_params, args.num_warmup, rng=sample_rng)
-    hmc_states = fori_collect(args.num_samples, sample_kernel, hmc_state,
+    hmc_states = fori_collect(0, args.num_samples, sample_kernel, hmc_state,
                               transform=lambda hmc_state: constrain_fn(hmc_state.z))
     print_results(hmc_states, dates)
 
