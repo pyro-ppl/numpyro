@@ -417,7 +417,7 @@ def cumsum(x):
     return np.cumsum(x, axis=-1)
 
 
-defjvp(cumsum, lambda g, x: np.cumsum(g, axis=-1))
+defjvp(cumsum, lambda g, ans, x: np.cumsum(g, axis=-1))
 
 
 # XXX work around the issue: batching rule for 'reduce_window' not implemented
