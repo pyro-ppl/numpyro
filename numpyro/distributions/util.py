@@ -6,8 +6,8 @@ import numpy as onp
 import scipy.special as osp_special
 
 import jax.numpy as np
-from jax import canonicalize_dtype, custom_transforms, defjvp, device_get, jit, lax, random, vmap
-from jax.interpreters import ad, batching
+from jax import canonicalize_dtype, core, custom_transforms, defjvp, device_get, jit, lax, random, vmap
+from jax.interpreters import ad, batching, partial_eval, xla
 from jax.lib import xla_bridge
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.linalg import solve_triangular
@@ -420,15 +420,24 @@ def cumsum(x):
 defjvp(cumsum, lambda g, x: np.cumsum(g, axis=-1))
 
 
-@custom_transforms
-def cumprod(x):
+# XXX work around the issue: batching rule for 'reduce_window' not implemented
+# when using @custom_transforms decorator
+def _cumprod_impl(x):
     return np.cumprod(x, axis=-1)
 
 
+cumprod_p = core.Primitive('cumprod')
+cumprod_p.def_impl(_cumprod_impl)
+cumprod_p.def_abstract_eval(partial(partial_eval.abstract_eval_fun, _cumprod_impl))
+xla.translations[cumprod_p] = partial(xla.lower_fun, _cumprod_impl)
 # XXX this implementation does not address the case x=0, hence the result in that case will be nan
 # Ref: https://stackoverflow.com/questions/40916955/how-to-compute-gradient-of-cumprod-safely
-defjvp(cumprod, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
-batching.defvectorized(cumprod.prim)
+ad.defjvp2(cumprod_p, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
+batching.defvectorized(cumprod_p)
+
+
+def cumprod(x):
+    return cumprod_p.bind(x)
 
 
 def promote_shapes(*args, shape=()):
