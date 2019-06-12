@@ -413,7 +413,8 @@ def test_initialize_model_change_point(init_strategy):
         init_params_i, _, _ = initialize_model(rngs[i], model, count_data,
                                                init_strategy=init_strategy)
         for name, p in init_params.items():
-            assert_allclose(p[i], init_params_i[name])
+            # XXX: the result is equal if we disable fast-math-mode
+            assert_allclose(p[i], init_params_i[name], atol=1e-6)
 
 
 @pytest.mark.parametrize('init_strategy', ['prior', 'uniform'])
