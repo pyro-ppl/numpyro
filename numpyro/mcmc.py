@@ -243,13 +243,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         if run_warmup and num_warmup > 0:
             # JIT if progress bar updates not required
             if not progbar:
-                # TODO: keep jit version and remove non-jit version for the next jax release
-                if progbar is None:  # NB: if progbar=None, we jit fori_loop
-                    hmc_state = jit(fori_loop, static_argnums=(2,))(
-                        0, num_warmup, lambda *args: sample_kernel(args[1]), hmc_state)
-                else:
-                    hmc_state = fori_loop(
-                        0, num_warmup, lambda *args: sample_kernel(args[1]), hmc_state)
+                hmc_state = jit(fori_loop, static_argnums=(2,))(
+                    0, num_warmup, lambda *args: sample_kernel(args[1]), hmc_state)
             else:
                 with tqdm.trange(num_warmup, desc='warmup') as t:
                     for i in t:

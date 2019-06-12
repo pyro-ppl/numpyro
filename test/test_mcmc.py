@@ -125,9 +125,7 @@ def test_dirichlet_categorical(algo, dense_mass):
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
-    # TODO: having progbar=None just to test if that value works,
-    # change it to False when jit fori_loop issue is resolved
-    samples = mcmc(warmup_steps, num_samples, init_params, constrain_fn=constrain_fn, progbar=None,
+    samples = mcmc(warmup_steps, num_samples, init_params, constrain_fn=constrain_fn, progbar=False,
                    print_summary=False, potential_fn=potential_fn, algo=algo, trajectory_length=1.,
                    dense_mass=dense_mass)
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
