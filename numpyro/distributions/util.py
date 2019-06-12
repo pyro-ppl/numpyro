@@ -315,25 +315,6 @@ def xlogy(x, y):
     return lax._safe_mul(x, np.log(y))
 
 
-def _xlogy_batching_rule(batched_args, batch_dims):
-    x, y = batched_args
-    bx, by = batch_dims
-    # promote shapes
-    sx, sy = np.shape(x), np.shape(y)
-    nx = len(sx) + int(bx is None)
-    ny = len(sy) + int(by is None)
-    nd = max(nx, ny)
-    x = np.reshape(x, (1,) * (nd - len(sx)) + sx)
-    y = np.reshape(y, (1,) * (nd - len(sy)) + sy)
-    # correct bx, by due to promoting
-    bx = bx + nd - len(sx) if bx is not None else nd - len(sx) - 1
-    by = by + nd - len(sy) if by is not None else nd - len(sy) - 1
-    # move bx, by to front
-    x = batching.move_dim_to_front(x, bx)
-    y = batching.move_dim_to_front(y, by)
-    return xlogy(x, y), 0
-
-
 defjvp(xlogy, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
 
 
@@ -351,25 +332,6 @@ def _xlog1py_jvp_rhs(g, ans, x, y):
     x = np.broadcast_to(x, shape)
     x, y = _promote_args_like(osp_special.xlog1py, x, y)
     return g * lax._safe_mul(x, np.reciprocal(1 + y))
-
-
-def _xlog1py_batching_rule(batched_args, batch_dims):
-    x, y = batched_args
-    bx, by = batch_dims
-    # promote shapes
-    sx, sy = np.shape(x), np.shape(y)
-    nx = len(sx) + int(bx is None)
-    ny = len(sy) + int(by is None)
-    nd = max(nx, ny)
-    x = np.reshape(x, (1,) * (nd - len(sx)) + sx)
-    y = np.reshape(y, (1,) * (nd - len(sy)) + sy)
-    # correct bx, by due to promoting
-    bx = bx + nd - len(sx) if bx is not None else nd - len(sx) - 1
-    by = by + nd - len(sy) if by is not None else nd - len(sy) - 1
-    # move bx, by to front
-    x = batching.move_dim_to_front(x, bx)
-    y = batching.move_dim_to_front(y, by)
-    return xlog1py(x, y), 0
 
 
 @custom_transforms
