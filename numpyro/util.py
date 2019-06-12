@@ -140,8 +140,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
             collection = ops.index_update(collection, i, ravel_fn(val))
             return val, collection
 
-        # TODO: keep jit version and remove non-jit version for the next jax release
-        if progbar is None:  # NB: if progbar=None, we jit fori_loop
+        if progbar is None:
             _, collection = jit(fori_loop, static_argnums=(2,))(0, upper, _body_fn,
                                                                 (init_val, collection))
         else:
