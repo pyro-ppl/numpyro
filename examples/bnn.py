@@ -4,6 +4,7 @@ Bayesian neural network with two hidden layers.
 """
 
 import argparse
+import time
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -58,8 +59,10 @@ def run_inference(model, args, rng, X, Y, D_H):
     if args.num_chains > 1:
         rng = random.split(rng, args.num_chains)
     init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y, D_H)
+    start = time.time()
     samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
+                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn, progbar=None)
+    print('\nMCMC elapsed time:', time.time() - start)
     return samples
 
 
