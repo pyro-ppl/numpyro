@@ -28,7 +28,7 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     :param hidden_dims: the dimensionality of the hidden layers(s)
     :type hidden_dims: list[int]
     :param permutation: the order of the input variables
-    :type permutation: np.int64 array of length `input_dim`
+    :type permutation: numpy array of integers of length `input_dim`
     :param output_dim_multiplier: tiles the output (e.g. for when a separate mean and scale parameter are desired)
     :type output_dim_multiplier: int
     """
@@ -42,17 +42,17 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     output_indices = onp.tile(var_index + 1, output_dim_multiplier)
 
     # Create mask from input to output for the skips connections
-    mask_skip = onp.array((output_indices[:, None] > input_indices[None, :]), dtype=var_index.dtype)
+    mask_skip = output_indices[:, None] > input_indices[None, :]
 
     # Create mask from input to first hidden layer, and between subsequent hidden layers
     # NOTE: The masks created follow a slightly different pattern than that given in Germain et al. Figure 1
     # The output first in the order (e.g. x_2 in the figure) is connected to hidden units rather than being unattached
     # Tracing a path back through the network, however, this variable will still be unconnected to any input variables
-    masks = [onp.array(hidden_indices[0][:, None] > input_indices[None, :], dtype=var_index.dtype)]
+    masks = [hidden_indices[0][:, None] > input_indices[None, :]]
     for i in range(1, len(hidden_dims)):
-        masks.append(onp.array(hidden_indices[i][:, None] >= hidden_indices[i - 1][None, :], dtype=var_index.dtype))
+        masks.append(hidden_indices[i][:, None] >= hidden_indices[i - 1][None, :])
 
     # Create mask from last hidden layer to output layer
-    masks.append(onp.array(output_indices[:, None] >= hidden_indices[-1][None, :], dtype=var_index.dtype))
+    masks.append(output_indices[:, None] >= hidden_indices[-1][None, :])
 
     return masks, mask_skip
