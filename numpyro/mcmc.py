@@ -418,6 +418,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
             samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
             def single_chain_mcmc(rng, init_params):
+                sampler_kwargs['rng'] = rng
                 hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, **sampler_kwargs)
                 samples = fori_collect(num_warmup, num_warmup + num_samples, sample_kernel, hmc_state,
                                        transform=lambda x: constrain_fn(x.z),
