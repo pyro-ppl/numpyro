@@ -1,6 +1,5 @@
 import pytest
 import numpy as onp
-from numpy.testing import assert_array_equal
 from numpyro.contrib.nn.auto_reg_nn import create_mask
 from numpyro.contrib.nn import MaskedDense
 from jax.experimental.stax import serial
