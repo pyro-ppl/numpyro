@@ -14,6 +14,8 @@ def test_masks(input_dim, n_layers, output_dim_multiplier):
     hidden_dims = [hidden_dim] * n_layers
     permutation = onp.random.permutation(input_dim)
     masks, mask_skip = create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier)
+    masks = [onp.transpose(m) for m in masks]
+    mask_skip = onp.transpose(mask_skip)
 
     # First test that hidden layer masks are adequately connected
     # Tracing backwards, works out what inputs each output is connected to

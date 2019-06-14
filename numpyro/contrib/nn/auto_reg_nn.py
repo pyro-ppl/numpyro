@@ -35,6 +35,7 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     # Create mask indices for input, hidden layers, and final layer
     var_index = onp.zeros(permutation.shape[0])
     var_index[permutation] = onp.arange(input_dim)
+    dtype = var_index.dtype
 
     # Create the indices that are assigned to the neurons
     input_indices = 1 + var_index
@@ -42,17 +43,17 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     output_indices = onp.tile(var_index + 1, output_dim_multiplier)
 
     # Create mask from input to output for the skips connections
-    mask_skip = output_indices[:, None] > input_indices[None, :]
+    mask_skip = onp.transpose(output_indices[:, None] > input_indices[None, :]).astype(dtype)
 
     # Create mask from input to first hidden layer, and between subsequent hidden layers
     # NOTE: The masks created follow a slightly different pattern than that given in Germain et al. Figure 1
     # The output first in the order (e.g. x_2 in the figure) is connected to hidden units rather than being unattached
     # Tracing a path back through the network, however, this variable will still be unconnected to any input variables
-    masks = [hidden_indices[0][:, None] > input_indices[None, :]]
+    masks = [onp.transpose(hidden_indices[0][:, None] > input_indices[None, :]).astype(dtype)]
     for i in range(1, len(hidden_dims)):
-        masks.append(hidden_indices[i][:, None] >= hidden_indices[i - 1][None, :])
+        masks.append(onp.transpose(hidden_indices[i][:, None] >= hidden_indices[i - 1][None, :]).astype(dtype))
 
     # Create mask from last hidden layer to output layer
-    masks.append(output_indices[:, None] >= hidden_indices[-1][None, :])
+    masks.append(onp.transpose(output_indices[:, None] >= hidden_indices[-1][None, :]).astype(dtype))
 
     return masks, mask_skip
