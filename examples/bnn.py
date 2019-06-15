@@ -61,7 +61,7 @@ def run_inference(model, args, rng, X, Y, D_H):
     init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y, D_H)
     start = time.time()
     samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn, progbar=None)
+                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
     print('\nMCMC elapsed time:', time.time() - start)
     return samples
 

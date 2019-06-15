@@ -5,6 +5,10 @@
 
 Probabilistic programming with NumPy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/CPU.
 
+[Docs](https://numpyro.readthedocs.io/en/v0.1.0/) | [Examples](https://pyro.ai/numpyro/) | [Forum](https://forum.pyro.ai/)
+
+----------------------------------------------------------------------------------------------------
+
 ## What is NumPyro?
 
 NumPyro is a small probabilistic programming library built on [JAX](https://github.com/google/jax). It essentially provides a NumPy backend for [Pyro](https://github.com/pyro-ppl/pyro), with some minor changes to the inference API and syntax. Since we use JAX, we get autograd and JIT compilation to GPU / CPU for free. This is an alpha release under active development, so beware of brittleness, bugs, and changes to the API as the design evolves.
