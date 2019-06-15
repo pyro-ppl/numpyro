@@ -6,7 +6,7 @@ from collections import namedtuple
 import tqdm
 
 import jax.numpy as np
-from jax import jit, partial, pmap, random
+from jax import jit, partial, pmap, random, vmap
 from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 from jax.random import PRNGKey
