@@ -238,6 +238,24 @@ class block(Messenger):
             msg['stop'] = True
 
 
+class scale(Messenger):
+    """
+    This messenger rescales the log probability score.
+
+    This is typically used for data subsampling or for stratified sampling of data
+    (e.g. in fraud detection where negatives vastly outnumber positives).
+
+    :param scale: a positive scaling factor
+    :type scale: float or numpy.ndarray
+    """
+    def __init__(self, scale_value):
+        self.scale = scale_value
+        super(scale, self).__init__()
+
+    def process_message(self, msg):
+        msg["scale"] = self.scale * msg.get('scale', 1)
+
+
 class seed(Messenger):
     """
     JAX uses a functional pseudo random number generator that requires passing
