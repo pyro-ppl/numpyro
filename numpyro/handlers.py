@@ -245,11 +245,12 @@ class scale(Messenger):
     This is typically used for data subsampling or for stratified sampling of data
     (e.g. in fraud detection where negatives vastly outnumber positives).
 
-    :param scale: a positive scaling factor
-    :type scale: float or numpy.ndarray
+    :param float scale_factor: a positive scaling factor
     """
-    def __init__(self, scale_value):
-        self.scale = scale_value
+    def __init__(self, scale_factor):
+        if scale_factor <= 0:
+            raise ValueError("scale factor should be a positive number.")
+        self.scale = scale_factor
         super(scale, self).__init__()
 
     def process_message(self, msg):
