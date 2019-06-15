@@ -696,16 +696,22 @@ def log_density(model, model_args, model_kwargs, params):
     log_joint = 0.
     for site in model_trace.values():
         if site['type'] == 'sample':
-            log_joint = log_joint + np.sum(site['fn'].log_prob(site['value']))
+            log_prob = np.sum(site['fn'].log_prob(site['value']))
+            if 'scale' in site:
+                log_prob = site['scale'] * log_prob
+            log_joint = log_joint + log_prob
     return log_joint, model_trace
 
 
 def potential_energy(model, model_args, model_kwargs, inv_transforms):
     def _potential_energy(params):
         params_constrained = constrain_fn(inv_transforms, params)
-        log_joint = jax.partial(log_density, model, model_args, model_kwargs)(params_constrained)[0]
+        log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained)
         for name, t in inv_transforms.items():
-            log_joint = log_joint + np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
+            t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
+            if 'scale' in model_trace[name]:
+                t_log_det = model_trace[name]['scale'] * t_log_det
+            log_joint = log_joint + t_log_det
         return - log_joint
 
     return _potential_energy
