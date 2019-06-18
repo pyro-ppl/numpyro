@@ -23,9 +23,9 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
+from jax import lax, ops
 import jax.numpy as np
 import jax.random as random
-from jax import lax, ops
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
 

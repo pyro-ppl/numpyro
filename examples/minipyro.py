@@ -1,8 +1,8 @@
 import argparse
 
-import jax.numpy as np
 from jax import lax, random
 from jax.experimental import optimizers
+import jax.numpy as np
 from jax.random import PRNGKey
 
 import numpyro.distributions as dist

@@ -3,8 +3,10 @@
 from __future__ import absolute_import, division, print_function
 
 import numpy as onp
-import jax.numpy as np
+
 from jax import random
+import jax.numpy as np
+
 from numpyro.contrib.nn import MaskedDense
 
 
