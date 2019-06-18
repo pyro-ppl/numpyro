@@ -83,7 +83,7 @@ def main(args):
     opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
     svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_params,
                                          encode=encode, decode=decode, z_dim=args.z_dim)
-    svi_update = jit(svi_update)
+    svi_update = jit(svi_update, static_argnums=(3,))
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
@@ -93,7 +93,7 @@ def main(args):
     _, decoder_params = decoder_init(rng_dec, (args.batch_size, args.z_dim))
     params = {'encoder': encoder_params, 'decoder': decoder_params}
     rng, sample_batch = binarize(rng, train_fetch(0, train_idx)[0])
-    opt_state = svi_init(rng, (sample_batch,), (sample_batch,), params)
+    opt_state, constrain_fn = svi_init(rng, (sample_batch,), (sample_batch,), params)
     rng, = random.split(rng, 1)
 
     @jit
@@ -101,7 +101,7 @@ def main(args):
         def body_fn(i, val):
             loss_sum, opt_state, rng = val
             rng, batch = binarize(rng, train_fetch(i, train_idx)[0])
-            loss, opt_state, rng = svi_update(i, opt_state, rng, (batch,), (batch,),)
+            loss, opt_state, rng = svi_update(i, rng, opt_state, constrain_fn, (batch,), (batch,),)
             loss_sum += loss
             return loss_sum, opt_state, rng
 
@@ -113,7 +113,7 @@ def main(args):
             loss_sum, rng = val
             rng, = random.split(rng, 1)
             rng, batch = binarize(rng, test_fetch(i, test_idx)[0])
-            loss = svi_eval(opt_state, rng, (batch,), (batch,)) / len(batch)
+            loss = jit(svi_eval, static_argnums=(1,))(opt_state, constrain_fn, rng, (batch,), (batch,)) / len(batch)
             loss_sum += loss
             return loss_sum, rng
 
