@@ -85,7 +85,8 @@ class AutoRegressiveNN(object):
     :type param_dims: list[int]
     :param nonlinearity: The nonlinearity to use in the feedforward network such as ReLU. Note that no
         nonlinearity is applied to the final network output, so the output is an unbounded real number.
-    :type nonlinearity: callable. defaults to ReLU.
+        defaults to ReLU.
+    :type nonlinearity: callable.
 
     Reference:
 
@@ -120,13 +121,13 @@ class AutoRegressiveNN(object):
         :param input_shape: input shape
         :param permutation: an optional permutation that is applied to the inputs and controls the order of the
             autoregressive factorization. in particular for the identity permutation the autoregressive structure
-            is such that the Jacobian is upper triangular. By default this is chosen at random.
+            is such that the Jacobian is triangular. By default this is chosen at random.
         :type permutation: array of ints
         """
         if permutation is None:
             # By default set a random permutation of variables, which is important for performance with multiple steps
             rng, rng_perm = random.split(rng)
-            self.permutation = onp.array(random.shuffle(rng_perm, onp.arange(self.input_dim)))
+            self.permutation = onp.array(random.shuffle(rng_perm, np.arange(self.input_dim)))
         else:
             self.permutation = permutation
 
@@ -162,7 +163,7 @@ class AutoRegressiveNN(object):
         if self.output_multiplier == 1:
             return out
         else:
-            out = out.reshape(list(inputs.shape[:-1]) + [self.output_multiplier, self.input_dim])
+            out = np.reshape(out, list(inputs.shape[:-1]) + [self.output_multiplier, self.input_dim])
 
             # Squeeze dimension if all parameters are one dimensional
             if self.count_params == 1:
