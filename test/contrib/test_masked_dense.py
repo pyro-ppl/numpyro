@@ -11,7 +11,7 @@ def test_masked_dense(input_dim):
     hidden_dim = input_dim * 3
     output_dim_multiplier = input_dim - 4
     mask, _ = create_mask(input_dim, [hidden_dim], onp.random.permutation(input_dim), output_dim_multiplier)
-    init_random_params, masked_dense = serial(MaskedDense(hidden_dim, mask[0]))
+    init_random_params, masked_dense = serial(MaskedDense(mask[0]))
 
     rng = random.PRNGKey(0)
     batch_size = 4
