@@ -1,6 +1,6 @@
-import jax.numpy as np
 from jax import grad, jit
 from jax.experimental import optimizers
+import jax.numpy as np
 
 
 @jit

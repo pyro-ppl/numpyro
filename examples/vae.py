@@ -4,9 +4,9 @@ import time
 
 import matplotlib.pyplot as plt
 
-import jax.numpy as np
 from jax import jit, lax, random
 from jax.experimental import optimizers, stax
+import jax.numpy as np
 from jax.random import PRNGKey
 
 import numpyro.distributions as dist

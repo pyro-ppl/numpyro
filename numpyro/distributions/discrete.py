@@ -23,9 +23,9 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
+from jax import lax
 import jax.numpy as np
 import jax.random as random
-from jax import lax
 from jax.scipy.special import gammaln, logsumexp
 
 from numpyro.distributions import constraints

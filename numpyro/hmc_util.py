@@ -1,7 +1,7 @@
 import jax
-import jax.numpy as np
 from jax import grad, jit, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
+import jax.numpy as np
 from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap

@@ -8,8 +8,8 @@
 
 import numpy as onp
 
-import jax.numpy as np
 from jax import device_put, random
+import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import expit, gammaln
 

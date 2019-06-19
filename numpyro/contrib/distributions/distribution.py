@@ -7,12 +7,12 @@
 # All rights reserved.
 from contextlib import contextmanager
 
-import scipy.stats as osp_stats
 from scipy._lib._util import getargspec_no_self
+import scipy.stats as osp_stats
 from scipy.stats._distn_infrastructure import instancemethod, rv_frozen, rv_generic
 
-import jax.numpy as np
 from jax import lax
+import jax.numpy as np
 from jax.random import _is_prng_key
 from jax.scipy import stats
 

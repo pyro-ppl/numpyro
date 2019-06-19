@@ -1,14 +1,14 @@
-import math
 from functools import update_wrapper
+import math
 from numbers import Number
 
 import numpy as onp
 import scipy.special as osp_special
 
-import jax.numpy as np
 from jax import canonicalize_dtype, core, custom_transforms, defjvp, device_get, jit, lax, random, vmap
 from jax.interpreters import ad, batching, partial_eval, xla
 from jax.lib import xla_bridge
+import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln
