@@ -94,12 +94,14 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         rng, = random.split(rng, 1)
         return loss_val, opt_state, rng
 
-    def evaluate(opt_state, constrain_fn, rng, model_args=(), guide_args=()):
+    def evaluate(rng, opt_state, constrain_fn, model_args=(), guide_args=()):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data).
 
-        :param opt_state: current optimizer state.
         :param jax.random.PRNGKey rng: random number generator seed.
+        :param opt_state: current optimizer state.
+        :param constrain_fn: a callable that transforms unconstrained parameter values
+            from the optimizer to constrained values that lie within the site's support.
         :param tuple model_args: arguments to the model (these can possibly vary during
             the course of fitting).
         :param tuple guide_args: arguments to the guide (these can possibly vary during
