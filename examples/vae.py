@@ -113,7 +113,7 @@ def main(args):
             loss_sum, rng = val
             rng, = random.split(rng, 1)
             rng, batch = binarize(rng, test_fetch(i, test_idx)[0])
-            loss = jit(svi_eval, static_argnums=(1,))(opt_state, constrain_fn, rng, (batch,), (batch,)) / len(batch)
+            loss = jit(svi_eval, static_argnums=(2,))(rng, opt_state, constrain_fn, (batch,), (batch,)) / len(batch)
             loss_sum += loss
             return loss_sum, rng
 
