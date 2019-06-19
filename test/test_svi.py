@@ -28,7 +28,6 @@ def test_beta_bernoulli():
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
     rng_init, rng_train = random.split(random.PRNGKey(1))
     opt_state, constrain_fn = svi_init(rng_init, model_args=(data,))
-    svi_update = svi_update
 
     def body_fn(i, val):
         opt_state_, rng_ = val
