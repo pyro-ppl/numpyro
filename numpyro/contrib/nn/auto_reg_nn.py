@@ -7,7 +7,7 @@ import numpy as onp
 from jax import random
 import jax.numpy as np
 
-from numpyro.contrib.nn import MaskedDense
+from numpyro.contrib.nn.masked_dense import MaskedDense
 
 
 def sample_mask_indices(input_dim, hidden_dim):
