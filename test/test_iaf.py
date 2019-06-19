@@ -42,4 +42,3 @@ def test_auto_reg_nn(input_dim, hidden_dims):
     # make sure iaf.log_abs_det_jacobian is correct
     ldj = iaf.log_abs_det_jacobian(x, y)
     assert_allclose(ldj, onp.sum(onp.log(onp.diag(permuted_jac))), atol=1e-5)
-
