@@ -6,7 +6,7 @@ from jax import random, value_and_grad
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
 from numpyro.handlers import replay, seed, substitute, trace
-from numpyro.hmc_util import log_density
+from numpyro.infer_util import log_density
 
 
 def _seed(model, guide, rng):

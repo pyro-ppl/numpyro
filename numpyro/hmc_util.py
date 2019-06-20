@@ -8,8 +8,8 @@ from jax.tree_util import tree_multimap
 
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.util import cholesky_inverse
-from numpyro.handlers import seed, substitute, trace
-from numpyro.infer_util import transform_fn
+from numpyro.handlers import seed, trace
+from numpyro.infer_util import log_density, transform_fn
 from numpyro.util import cond, laxtuple, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
@@ -691,17 +691,15 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     return tree
 
 
-def log_density(model, model_args, model_kwargs, params):
-    model = substitute(model, params)
-    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = 0.
-    for site in model_trace.values():
-        if site['type'] == 'sample':
-            log_prob = np.sum(site['fn'].log_prob(site['value']))
-            if 'scale' in site:
-                log_prob = site['scale'] * log_prob
-            log_joint = log_joint + log_prob
-    return log_joint, model_trace
+def euclidean_kinetic_energy(inverse_mass_matrix, r):
+    r, _ = ravel_pytree(r)
+
+    if inverse_mass_matrix.ndim == 2:
+        v = np.matmul(inverse_mass_matrix, r)
+    elif inverse_mass_matrix.ndim == 1:
+        v = np.multiply(inverse_mass_matrix, r)
+
+    return 0.5 * np.dot(v, r)
 
 
 def potential_energy(model, model_args, model_kwargs, inv_transforms):
