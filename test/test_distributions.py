@@ -1,15 +1,15 @@
-import inspect
 from collections import namedtuple
+import inspect
 
 import numpy as onp
+from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 import scipy.stats as osp
-from numpy.testing import assert_allclose, assert_array_equal
 
 import jax
+from jax import grad, jacfwd, lax, vmap
 import jax.numpy as np
 import jax.random as random
-from jax import grad, jacfwd, lax, vmap
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints

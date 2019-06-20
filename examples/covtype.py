@@ -3,9 +3,9 @@ import time
 
 import numpy as onp
 
-import jax.numpy as np
 from jax import random
 from jax.config import config as jax_config
+import jax.numpy as np
 
 import numpyro.distributions as dist
 from numpyro.examples.datasets import COVTYPE, load_dataset

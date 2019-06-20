@@ -1,12 +1,12 @@
-import logging
 from collections import namedtuple
+import logging
 
 import numpy as onp
-import pytest
 from numpy.testing import assert_allclose
+import pytest
 
-import jax.numpy as np
 from jax import device_put, disable_jit, grad, jit, lax, random, tree_map
+import jax.numpy as np
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample

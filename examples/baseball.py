@@ -2,9 +2,9 @@ import argparse
 
 import numpy as onp
 
+from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
-from jax.config import config as jax_config
 from jax.scipy.special import logsumexp
 
 import numpyro.distributions as dist

@@ -1,12 +1,12 @@
 import os
 
 import numpy as onp
-import pytest
 from numpy.testing import assert_allclose
+import pytest
 
-import jax.numpy as np
 from jax import pmap, random
 from jax.lib import xla_bridge
+import jax.numpy as np
 from jax.scipy.special import logit
 
 import numpyro.distributions as dist

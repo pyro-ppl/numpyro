@@ -1,14 +1,14 @@
+from collections import namedtuple
 import math
 import os
 import warnings
-from collections import namedtuple
 
 import tqdm
 
-import jax.numpy as np
 from jax import jit, partial, pmap, random, vmap
 from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
+import jax.numpy as np
 from jax.random import PRNGKey
 from jax.tree_util import register_pytree_node, tree_map, tree_multimap
 
