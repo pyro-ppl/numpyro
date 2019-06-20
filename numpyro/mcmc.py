@@ -405,11 +405,14 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
         potential_fn = sampler_kwargs.pop('potential_fn')
         kinetic_fn = sampler_kwargs.pop('kinetic_fn', None)
         algo = sampler_kwargs.pop('algo', 'NUTS')
-        rngs = sampler_kwargs.pop('rng', vmap(PRNGKey)(np.arange(num_chains)))
+        if num_chains > 1:
+            rngs = sampler_kwargs.pop('rng', vmap(PRNGKey)(np.arange(num_chains)))
+        else:
+            rng = sampler_kwargs.pop('rng', PRNGKey(0))
 
         init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
         if progbar:
-            hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, rng=rngs[0],
+            hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, rng=rng,
                                     **sampler_kwargs)
             samples_flat = fori_collect(0, num_samples, sample_kernel, hmc_state,
                                         transform=lambda x: constrain_fn(x.z),
@@ -427,7 +430,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                 return samples
 
             if num_chains == 1:
-                samples_flat = single_chain_mcmc(rngs[0], init_params)
+                samples_flat = single_chain_mcmc(rng, init_params)
                 samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
             else:
                 if sequential_chain:
