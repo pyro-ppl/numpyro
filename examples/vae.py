@@ -93,7 +93,7 @@ def main(args):
     _, decoder_params = decoder_init(rng_dec, (args.batch_size, args.z_dim))
     params = {'encoder': encoder_params, 'decoder': decoder_params}
     rng, sample_batch = binarize(rng, train_fetch(0, train_idx)[0])
-    opt_state = svi_init(rng, (sample_batch,), (sample_batch,), params)
+    opt_state, constrain_fn = svi_init(rng, (sample_batch,), (sample_batch,), params)
     rng, = random.split(rng, 1)
 
     @jit
@@ -101,7 +101,7 @@ def main(args):
         def body_fn(i, val):
             loss_sum, opt_state, rng = val
             rng, batch = binarize(rng, train_fetch(i, train_idx)[0])
-            loss, opt_state, rng = svi_update(i, opt_state, rng, (batch,), (batch,),)
+            loss, opt_state, rng = svi_update(i, rng, opt_state, (batch,), (batch,),)
             loss_sum += loss
             return loss_sum, opt_state, rng
 
@@ -113,7 +113,7 @@ def main(args):
             loss_sum, rng = val
             rng, = random.split(rng, 1)
             rng, batch = binarize(rng, test_fetch(i, test_idx)[0])
-            loss = svi_eval(opt_state, rng, (batch,), (batch,)) / len(batch)
+            loss = svi_eval(rng, opt_state, (batch,), (batch,)) / len(batch)
             loss_sum += loss
             return loss_sum, rng
 

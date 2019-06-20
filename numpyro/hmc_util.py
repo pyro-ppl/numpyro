@@ -9,6 +9,7 @@ from jax.tree_util import tree_multimap
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, substitute, trace
+from numpyro.infer_util import transform_fn
 from numpyro.util import cond, laxtuple, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
@@ -705,7 +706,7 @@ def log_density(model, model_args, model_kwargs, params):
 
 def potential_energy(model, model_args, model_kwargs, inv_transforms):
     def _potential_energy(params):
-        params_constrained = constrain_fn(inv_transforms, params)
+        params_constrained = transform_fn(inv_transforms, params)
         log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained)
         for name, t in inv_transforms.items():
             t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
@@ -715,11 +716,6 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms):
         return - log_joint
 
     return _potential_energy
-
-
-def constrain_fn(inv_transforms, params, invert=False):
-    return {k: inv_transforms[k](v) if not invert else inv_transforms[k].inv(v)
-            for k, v in params.items()}
 
 
 def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
@@ -753,7 +749,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
         sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
         inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-        prior_params = constrain_fn(inv_transforms,
+        prior_params = transform_fn(inv_transforms,
                                     {k: v['value'] for k, v in sample_sites.items()}, invert=True)
         if init_strategy == 'uniform':
             init_params = {}
@@ -770,7 +766,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         else:
             return (init_params,
                     potential_energy(seeded_model, model_args, model_kwargs, inv_transforms),
-                    jax.partial(constrain_fn, inv_transforms))
+                    jax.partial(transform_fn, inv_transforms))
 
     if rng.ndim == 1:
         return single_chain_init(rng)

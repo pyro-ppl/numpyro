@@ -364,11 +364,11 @@ def sample(name, fn, obs=None):
     return msg['value']
 
 
-def identity(x):
+def identity(x, *args, **kwargs):
     return x
 
 
-def param(name, init_value):
+def param(name, init_value, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.experimental.optimizers`. For an example of how `param` statements
@@ -393,7 +393,7 @@ def param(name, init_value):
         'name': name,
         'fn': identity,
         'args': (init_value,),
-        'kwargs': {},
+        'kwargs': kwargs,
         'value': None,
     }
 
