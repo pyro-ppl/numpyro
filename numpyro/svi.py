@@ -84,8 +84,6 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
             argument to the optimizer's update function.
         :param jax.random.PRNGKey rng: random number generator seed.
         :param opt_state: current optimizer state.
-        :param constrain_fn: a callable that transforms unconstrained parameter values
-            from the optimizer to the specified constrained domain.
         :param tuple model_args: dynamic arguments to the model.
         :param tuple guide_args: dynamic arguments to the guide.
         :return: tuple of `(loss_val, opt_state, rng)`.
@@ -104,8 +102,6 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
 
         :param jax.random.PRNGKey rng: random number generator seed.
         :param opt_state: current optimizer state.
-        :param constrain_fn: a callable that transforms unconstrained parameter values
-            from the optimizer to the specified constrained domain.
         :param tuple model_args: arguments to the model (these can possibly vary during
             the course of fitting).
         :param tuple guide_args: arguments to the guide (these can possibly vary during
@@ -139,8 +135,6 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
 
     :param dict param_map: dictionary of current parameter values keyed by site
         name.
-    :param constrain_fn: a callable that transforms unconstrained parameter values
-        from the optimizer to the specified constrained domain.
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
@@ -149,6 +143,8 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
     :param tuple guide_args: arguments to the guide (these can possibly vary during
         the course of fitting).
     :param dict kwargs: static keyword arguments to the model / guide.
+    :param constrain_fn: a callable that transforms unconstrained parameter values
+        from the optimizer to the specified constrained domain.
     :return: negative of the Evidence Lower Bound (ELBo) to be minimized.
     """
     param_map = constrain_fn(param_map)
