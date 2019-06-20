@@ -1,8 +1,8 @@
 from numpy.testing import assert_allclose
 
-import jax.numpy as np
 from jax import lax, random
 from jax.experimental import optimizers
+import jax.numpy as np
 
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
@@ -31,7 +31,7 @@ def test_beta_bernoulli():
 
     def body_fn(i, val):
         opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, constrain_fn, model_args=(data,))
+        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,))
         return opt_state_, rng_
 
     opt_state, _ = lax.fori_loop(0, 300, body_fn, (opt_state, rng_train))

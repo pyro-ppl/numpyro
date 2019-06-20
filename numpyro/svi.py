@@ -17,6 +17,8 @@ def _seed(model, guide, rng):
 
 
 def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
+    constrain_fn = None
+
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -66,12 +68,14 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
                 inv_transforms[site['name']] = transform
                 params[site['name']] = transform.inv(site['value'])
 
-        def constrain_fn(inv_transforms, params):
+        def transform_constrained(inv_transforms, params):
             return {k: inv_transforms[k](v) for k, v in params.items()}
 
-        return optim_init(params), jax.partial(constrain_fn, inv_transforms)
+        nonlocal constrain_fn
+        constrain_fn = jax.partial(transform_constrained, inv_transforms)
+        return optim_init(params), constrain_fn
 
-    def update_fn(i, rng, opt_state, constrain_fn, model_args=(), guide_args=()):
+    def update_fn(i, rng, opt_state, model_args=(), guide_args=()):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data),
         using the optimizer.
@@ -94,7 +98,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         rng, = random.split(rng, 1)
         return loss_val, opt_state, rng
 
-    def evaluate(rng, opt_state, constrain_fn, model_args=(), guide_args=()):
+    def evaluate(rng, opt_state, model_args=(), guide_args=()):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data).
 

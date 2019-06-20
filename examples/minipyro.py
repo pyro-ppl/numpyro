@@ -39,7 +39,7 @@ def main(args):
 
     def body_fn(i, val):
         opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, constrain_fn, model_args=(data,))
+        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,))
         return opt_state_, rng_
 
     opt_state, _ = lax.fori_loop(0, args.num_steps, body_fn, (opt_state, rng))
