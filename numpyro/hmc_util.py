@@ -745,17 +745,17 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
     def single_chain_init(key, only_params=False):
         seeded_model = seed(model, key)
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-        sample_values, inv_transforms = {}, {}
+        constrained_values, inv_transforms = {}, {}
         for k, v in model_trace.items():
             if v['type'] == 'sample' and not v['is_observed']:
-                sample_values[k] = v['value']
+                constrained_values[k] = v['value']
                 inv_transforms[k] = biject_to(v['fn'].support)
             elif v['type'] == 'param':
-                sample_values[k] = v['value']
+                constrained_values[k] = v['value']
                 constraint = v['kwargs'].pop('constraint', real)
                 inv_transforms[k] = biject_to(constraint)
         prior_params = transform_fn(inv_transforms,
-                                    {k: v for k, v in sample_values.items()}, invert=True)
+                                    {k: v for k, v in constrained_values.items()}, invert=True)
         if init_strategy == 'uniform':
             init_params = {}
             for k, v in prior_params.items():
