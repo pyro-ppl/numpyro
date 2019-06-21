@@ -1,6 +1,6 @@
-import jax.numpy as np
-from jax.experimental.stax import glorot, randn
 from jax import random
+from jax.experimental.stax import glorot, randn
+import jax.numpy as np
 
 
 def MaskedDense(mask, W_init=glorot(), b_init=randn()):

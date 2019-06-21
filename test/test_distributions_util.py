@@ -1,13 +1,13 @@
 from numbers import Number
 
 import numpy as onp
+from numpy.testing import assert_allclose
 import pytest
 import scipy.special as osp_special
 import scipy.stats as osp_stats
-from numpy.testing import assert_allclose
 
-import jax.numpy as np
 from jax import grad, jacobian, jit, lax, random, vmap
+import jax.numpy as np
 from jax.scipy.special import expit
 from jax.util import partial
 

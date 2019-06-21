@@ -6,9 +6,9 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-import jax.numpy as np
 from jax import lax
 from jax.experimental.stax import softmax
+import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import digamma, gammaln, logsumexp
 

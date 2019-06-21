@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 import numpy as onp
 
 import jax
-import jax.numpy as np
-import jax.random as random
 from jax import vmap
 from jax.config import config as jax_config
+import jax.numpy as np
+import jax.random as random
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample

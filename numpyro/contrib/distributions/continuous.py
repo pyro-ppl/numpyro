@@ -7,8 +7,8 @@
 # All rights reserved.
 
 import jax.numpy as np
-import jax.random as random
 from jax.numpy.lax_numpy import _promote_dtypes
+import jax.random as random
 from jax.scipy.special import digamma, gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.contrib.distributions.distribution import jax_continuous

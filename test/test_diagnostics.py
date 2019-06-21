@@ -1,6 +1,6 @@
 import numpy as onp
-import pytest
 from numpy.testing import assert_allclose
+import pytest
 from scipy.fftpack import next_fast_len
 
 from numpyro.diagnostics import (

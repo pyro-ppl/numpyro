@@ -2,13 +2,13 @@ from functools import reduce
 from operator import mul
 
 import numpy as onp
+from numpy.testing import assert_allclose
 import pytest
 import scipy.stats as osp_stats
-from numpy.testing import assert_allclose
 
 import jax
-import jax.numpy as np
 from jax import grad, lax, random
+import jax.numpy as np
 from jax.scipy.special import logit
 
 import numpyro.contrib.distributions as dist

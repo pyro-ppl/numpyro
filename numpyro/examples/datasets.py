@@ -1,8 +1,8 @@
+from collections import namedtuple
 import csv
 import gzip
 import os
 import struct
-from collections import namedtuple
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 

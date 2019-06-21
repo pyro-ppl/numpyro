@@ -1,10 +1,12 @@
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/tests/nn/test_autoregressive.py
 
-import pytest
 import numpy as onp
 from numpy.testing import assert_array_equal
-from numpyro.contrib.nn.auto_reg_nn import create_mask, AutoregressiveNN
-from jax import random, jacfwd
+import pytest
+
+from jax import jacfwd, random
+
+from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
 
 
 @pytest.mark.parametrize('input_dim', [5])

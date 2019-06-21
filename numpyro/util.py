@@ -1,13 +1,13 @@
-import random
 from collections import namedtuple
 from contextlib import contextmanager
+import random
 
 import numpy as onp
 import tqdm
 
-import jax.numpy as np
 from jax import jit, lax, ops, vmap
 from jax.flatten_util import ravel_pytree
+import jax.numpy as np
 from jax.tree_util import register_pytree_node
 
 _DATA_TYPES = {}

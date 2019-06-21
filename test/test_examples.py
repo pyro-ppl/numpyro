@@ -1,6 +1,6 @@
 import os
-import sys
 from subprocess import check_call
+import sys
 
 import pytest
 

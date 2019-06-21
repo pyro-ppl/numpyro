@@ -1,14 +1,15 @@
 import jax
-import jax.numpy as np
 from jax import grad, jit, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
+import jax.numpy as np
 from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.util import cholesky_inverse
-from numpyro.handlers import seed, substitute, trace
+from numpyro.handlers import seed, trace
+from numpyro.infer_util import log_density, transform_fn
 from numpyro.util import cond, laxtuple, while_loop
 
 AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
@@ -690,22 +691,20 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     return tree
 
 
-def log_density(model, model_args, model_kwargs, params):
-    model = substitute(model, params)
-    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = 0.
-    for site in model_trace.values():
-        if site['type'] == 'sample':
-            log_prob = np.sum(site['fn'].log_prob(site['value']))
-            if 'scale' in site:
-                log_prob = site['scale'] * log_prob
-            log_joint = log_joint + log_prob
-    return log_joint, model_trace
+def euclidean_kinetic_energy(inverse_mass_matrix, r):
+    r, _ = ravel_pytree(r)
+
+    if inverse_mass_matrix.ndim == 2:
+        v = np.matmul(inverse_mass_matrix, r)
+    elif inverse_mass_matrix.ndim == 1:
+        v = np.multiply(inverse_mass_matrix, r)
+
+    return 0.5 * np.dot(v, r)
 
 
 def potential_energy(model, model_args, model_kwargs, inv_transforms):
     def _potential_energy(params):
-        params_constrained = constrain_fn(inv_transforms, params)
+        params_constrained = transform_fn(inv_transforms, params)
         log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained)
         for name, t in inv_transforms.items():
             t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
@@ -715,11 +714,6 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms):
         return - log_joint
 
     return _potential_energy
-
-
-def constrain_fn(inv_transforms, params, invert=False):
-    return {k: inv_transforms[k](v) if not invert else inv_transforms[k].inv(v)
-            for k, v in params.items()}
 
 
 def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
@@ -753,7 +747,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
         sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
         inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
-        prior_params = constrain_fn(inv_transforms,
+        prior_params = transform_fn(inv_transforms,
                                     {k: v['value'] for k, v in sample_sites.items()}, invert=True)
         if init_strategy == 'uniform':
             init_params = {}
@@ -770,7 +764,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         else:
             return (init_params,
                     potential_energy(seeded_model, model_args, model_kwargs, inv_transforms),
-                    jax.partial(constrain_fn, inv_transforms))
+                    jax.partial(transform_fn, inv_transforms))
 
     if rng.ndim == 1:
         return single_chain_init(rng)

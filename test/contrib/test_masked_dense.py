@@ -1,9 +1,11 @@
-import pytest
 import numpy as onp
-from numpyro.contrib.nn.auto_reg_nn import create_mask
-from numpyro.contrib.nn import MaskedDense
-from jax.experimental.stax import serial
+import pytest
+
 from jax import random
+from jax.experimental.stax import serial
+
+from numpyro.contrib.nn import MaskedDense
+from numpyro.contrib.nn.auto_reg_nn import create_mask
 
 
 @pytest.mark.parametrize('input_dim', [5, 7])
