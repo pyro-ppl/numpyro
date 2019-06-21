@@ -34,7 +34,7 @@ from numpyro.distributions.discrete import (
     Poisson
 )
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
-from numpyro.distributions.iaf import InverseAutoRegressiveTransform
+from numpyro.distributions.iaf import InverseAutoregressiveTransform
 
 __all__ = [
     'Bernoulli',
@@ -56,7 +56,7 @@ __all__ = [
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
-    'InverseAutoRegressiveTransform',
+    'InverseAutoregressiveTransform',
     'LKJCholesky',
     'LogNormal',
     'Multinomial',

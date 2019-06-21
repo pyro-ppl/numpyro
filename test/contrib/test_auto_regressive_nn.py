@@ -3,7 +3,7 @@
 import pytest
 import numpy as onp
 from numpy.testing import assert_array_equal
-from numpyro.contrib.nn.auto_reg_nn import create_mask, AutoRegressiveNN
+from numpyro.contrib.nn.auto_reg_nn import create_mask, AutoregressiveNN
 from jax import random, jacfwd
 
 
@@ -11,7 +11,7 @@ from jax import random, jacfwd
 @pytest.mark.parametrize('param_dims', [[1], [1, 1], [2, 3]])
 @pytest.mark.parametrize('hidden_dims', [[8], [6, 7]])
 def test_auto_reg_nn(input_dim, hidden_dims, param_dims):
-    arn = AutoRegressiveNN(input_dim, hidden_dims, param_dims=param_dims)
+    arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims)
 
     rng = random.PRNGKey(0)
     batch_size = 4

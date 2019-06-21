@@ -2,16 +2,16 @@
 
 from __future__ import absolute_import, division, print_function
 
-from numpyro.distributions.constraints import Transform, real
+from numpyro.distributions.constraints import Transform
 from jax.lax import stop_gradient
 import jax.numpy as np
 
 
-def clamp_preserve_gradients(x, min, max):
+def _clamp_preserve_gradients(x, min, max):
     return x + stop_gradient(np.clip(x, a_min=min, a_max=max) - x)
 
 
-class InverseAutoRegressiveTransform(Transform):
+class InverseAutoregressiveTransform(Transform):
     """
     An implementation of Inverse Autoregressive Flow, using Eq (10) from Kingma et al., 2016,
 
@@ -28,7 +28,7 @@ class InverseAutoRegressiveTransform(Transform):
     def __init__(self, autoregressive_nn, params, log_scale_min_clip=-5., log_scale_max_clip=3.):
         """
         :param autoregressive_nn: an autoregressive neural network whose forward call returns a real-valued
-            mean and logit-scale as a tuple
+            mean and log scale as a tuple
         :param params: the parameters for the autoregressive neural network
         :type list:
         """
@@ -37,9 +37,7 @@ class InverseAutoRegressiveTransform(Transform):
         self.log_scale_min_clip = log_scale_min_clip
         self.log_scale_max_clip = log_scale_max_clip
 
-    @property
-    def codomain(self):
-        return real
+        # TODO event_dim logic?
 
     def __call__(self, x):
         """
@@ -48,7 +46,7 @@ class InverseAutoRegressiveTransform(Transform):
         """
         out = self.arn.apply_fun(self.params, x)
         mean, log_scale = out[..., 0, :], out[..., 1, :]
-        log_scale = clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
+        log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
         scale = np.exp(log_scale)
         return scale * x + mean
 
@@ -63,7 +61,7 @@ class InverseAutoRegressiveTransform(Transform):
         for idx in self.arn.permutation:
             out = self.arn.apply_fun(self.params, np.stack(x, axis=-1))
             mean, log_scale = out[..., 0, :], out[..., 1, :]
-            inverse_scale = np.exp(-clamp_preserve_gradients(
+            inverse_scale = np.exp(-_clamp_preserve_gradients(
                 log_scale[..., idx], min=self.log_scale_min_clip, max=self.log_scale_max_clip))
             mean = mean[..., idx]
             x[idx] = (y[..., idx] - mean) * inverse_scale
@@ -80,5 +78,5 @@ class InverseAutoRegressiveTransform(Transform):
         :type y: numpy array
         """
         log_scale = self.arn.apply_fun(self.params, x)[..., 1, :]  # TODO: this shouldn't be recomputed here
-        log_scale = clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
+        log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
         return log_scale.sum(-1)

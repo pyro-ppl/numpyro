@@ -1,22 +1,22 @@
 import pytest
 import numpy as onp
 from numpy.testing import assert_allclose
-from numpyro.contrib.nn import AutoRegressiveNN
-from numpyro.distributions import InverseAutoRegressiveTransform
+from numpyro.contrib.nn import AutoregressiveNN
+from numpyro.distributions import InverseAutoregressiveTransform
 from jax import random, jacfwd
 
 
 @pytest.mark.parametrize('input_dim', [5, 7])
 @pytest.mark.parametrize('hidden_dims', [[8, 9], [10]])
 def test_iaf(input_dim, hidden_dims):
-    arn = AutoRegressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
+    arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
 
     rng = random.PRNGKey(0)
     batch_size = 4
     input_shape = (batch_size, input_dim)
     _, init_params = arn.init_fun(rng, input_shape)
 
-    iaf = InverseAutoRegressiveTransform(arn, init_params)
+    iaf = InverseAutoregressiveTransform(arn, init_params)
 
     # test inverse is correct
     x = onp.random.rand(*input_shape)
