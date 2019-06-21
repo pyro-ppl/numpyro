@@ -67,12 +67,12 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
 def relu(x): return np.maximum(x, 0.)
 
 
-class AutoRegressiveNN(object):
+class AutoregressiveNN(object):
     """
     An implementation of a MADE-like auto-regressive neural network.
 
     Similar to the purely functional layer implemented in jax.experimental.stax,
-    the `AutoRegressiveNN` class has `init_fun` and `apply_fun` methods,
+    the `AutoregressiveNN` class has `init_fun` and `apply_fun` methods,
     where `init_fun` takes an rng key and an input shape and returns an
     (output_shape, params) pair, and `apply_fun` takes params and inputs
     and applies the layer.
