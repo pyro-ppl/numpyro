@@ -10,7 +10,8 @@ import jax.numpy as np
 from jax.scipy.special import logit
 
 import numpyro.distributions as dist
-from numpyro.handlers import sample
+from numpyro.distributions import constraints
+from numpyro.handlers import param, sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc, mcmc
 from numpyro.util import fori_collect
@@ -196,6 +197,23 @@ def test_binomial_stable(with_logits):
 
     if 'JAX_ENABLE_x64' in os.environ:
         assert samples['p'].dtype == np.float64
+
+
+def test_improper_prior():
+    true_mean, true_std = 1., 2.
+    num_warmup, num_samples = 1000, 8000
+
+    def model(data):
+        mean = param('mean', 0.)
+        std = param('std', 1., constraint=constraints.positive)
+        return sample('obs', dist.Normal(mean, std), obs=data)
+
+    data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
+    samples = mcmc(num_warmup, num_samples, init_params, potential_fn=potential_fn,
+                   constrain_fn=constrain_fn)
+    assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
+    assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
