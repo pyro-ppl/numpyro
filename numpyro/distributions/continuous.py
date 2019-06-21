@@ -484,7 +484,7 @@ class LogNormal(TransformedDistribution):
 
 def _batch_mahalanobis(bL, bx):
     # NB: The following procedure handles the case: bL.shape = (i, 1, n, n), bx.shape = (i, j, n)
-    # because we don't want to broadcast bL to the shape (i, j, n).
+    # because we don't want to broadcast bL to the shape (i, j, n, n).
 
     # Assume that bL.shape = (i, 1, n, n), bx.shape = (..., i, j, n),
     # we are going to make bx have shape (..., 1, j,  i, 1, n) to apply batched tril_solve

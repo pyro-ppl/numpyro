@@ -24,6 +24,7 @@
 
 
 from jax import lax
+from jax.lib import xla_bridge
 import jax.numpy as np
 import jax.random as random
 from jax.scipy.special import gammaln, logsumexp
@@ -41,6 +42,7 @@ from numpyro.distributions.util import (
     poisson,
     promote_shapes,
     softmax,
+    sum_rightmost,
     xlog1py,
     xlogy
 )
@@ -299,6 +301,43 @@ def Categorical(probs=None, logits=None, validate_args=None):
         return CategoricalLogits(logits, validate_args=validate_args)
     else:
         raise ValueError('One of `probs` or `logits` must be specified.')
+
+
+@copy_docs_from(Distribution)
+class Delta(Distribution):
+    arg_constraints = {'value': constraints.real, 'log_density': constraints.real}
+    support = constraints.real
+
+    def __init__(self, value=0., log_density=0., event_dim=0, validate_args=None):
+        if event_dim > np.ndim(value):
+            raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
+                             .format(event_dim, np.ndim(value)))
+        batch_dim = np.ndim(value) - event_dim
+        batch_shape = np.shape(value)[:batch_dim]
+        event_shape = np.shape(value)[batch_dim:]
+        self.value = lax.convert_element_type(value, xla_bridge.canonicalize_dtype(np.float64))
+        # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
+        self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
+        super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        shape = sample_shape + self.batch_shape + self.event_shape
+        return np.broadcast_to(self.value, shape)
+
+    def log_prob(self, x):
+        if self._validate_args:
+            self._validate_sample(x)
+        log_prob = np.log(x == self.value)
+        log_prob = sum_rightmost(log_prob, len(self.event_shape))
+        return log_prob + self.log_density
+
+    @property
+    def mean(self):
+        return self.value
+
+    @property
+    def variance(self):
+        return np.zeros(self.batch_shape + self.event_shape)
 
 
 @copy_docs_from(Distribution)

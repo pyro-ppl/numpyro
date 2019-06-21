@@ -137,6 +137,9 @@ DISCRETE = [
     T(dist.CategoricalProbs, np.array([[0.1, 0.5, 0.4], [0.4, 0.4, 0.2]])),
     T(dist.CategoricalLogits, np.array([-5.])),
     T(dist.CategoricalLogits, np.array([1., 2., -2.])),
+    T(dist.Delta, 1),
+    T(dist.Delta, np.array([0., 2.])),
+    T(dist.Delta, np.array([0., 2.]), np.array([-2., -4.])),
     T(dist.CategoricalLogits, np.array([[-1, 2., 3.], [3., -4., -2.]])),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
@@ -439,6 +442,10 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert np.shape(actual_grad[i]) == np.shape(params[i])
+        if i == 0 and jax_dist is dist.Delta:
+            # grad w.r.t. `value` of Delta distribution will be 0
+            # but numerical value will give nan (= inf - inf)
+            expected_grad = 0.
         assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.01, atol=1e-3)
 
 
@@ -510,6 +517,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     key = random.PRNGKey(1)
     dependent_constraint = False
     for i in range(len(params)):
+        if i >= len(jax_dist.arg_constraints):
+            break
         if jax_dist is dist.LKJCholesky and dist_args[i] != "concentration":
             continue
         if params[i] is None:
