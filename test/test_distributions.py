@@ -517,8 +517,6 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     key = random.PRNGKey(1)
     dependent_constraint = False
     for i in range(len(params)):
-        if i >= len(jax_dist.arg_constraints):
-            break
         if jax_dist is dist.LKJCholesky and dist_args[i] != "concentration":
             continue
         if params[i] is None:
