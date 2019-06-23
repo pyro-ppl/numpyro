@@ -145,12 +145,12 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
 
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
-def analyze_dimension(samples, X, Y, dimension):
-    vmap_args = (samples['msq_inv'], samples['lambda'], samples['eta1'], samples['xisq_inv'],
-                 samples['prec_obs'])
+def analyze_dimension(samples, X, Y, dimension, hypers):
+    vmap_args = (samples['msq_inv'], samples['lambda'], samples['eta1'],
+                 samples['xisq_inv'], samples['prec_obs'])
     mus, variances = vmap(lambda msq_inv, lam, eta1, xisq_inv, prec_obs:
                           compute_mean_variance(X, Y, dimension, msq_inv, lam,
-                                                eta1, xisq_inv, 1.0, prec_obs))(*vmap_args)
+                                                eta1, xisq_inv, hypers['c'], prec_obs))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = np.sqrt(variance)
     return mean, std
@@ -171,7 +171,7 @@ def main(args):
     samples = run_inference(model, args, rng, X, Y, hypers)
 
     # compute the mean and square root variance of each coefficient theta_i
-    means, stds = vmap(lambda dimension: analyze_dimension(samples, X, Y, dimension))(np.arange(args.num_dimensions))
+    means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))
 
     print("Coefficients theta_1 to theta_%d used to generate the data:" % args.active_dimensions, expected_thetas)
     total_active_dimensions = 0
