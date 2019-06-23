@@ -63,12 +63,11 @@ def model(X, Y, hypers):
     lam = sample("lambda", dist.HalfCauchy(np.ones(P)))
     kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.power(eta1 * lam, 2.0))
 
-    kX = kappa * X
-
     # sample observation noise
     prec_obs = sample("prec_obs", dist.Gamma(3.0, 1.0))
 
     # compute kernel
+    kX = kappa * X
     k = kernel(kX, kX, eta1, eta2, hypers['c']) + np.eye(N) / prec_obs
     assert k.shape == (N, N)
 
@@ -168,7 +167,7 @@ def main(args):
               'alpha3': 1.0, 'c': 1.0}
 
     # do inference
-    rng, rng_predict = random.split(random.PRNGKey(0))
+    rng = random.PRNGKey(0)
     samples = run_inference(model, args, rng, X, Y, hypers)
 
     # compute the mean and square root variance of each coefficient theta_i

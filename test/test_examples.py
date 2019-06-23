@@ -13,7 +13,7 @@ EXAMPLES = [
     'covtype.py --algo HMC --num-samples 10',
     'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'bnn.py --num-samples 10 --num-warmup 10 --num-data 7 --num-chains 2',
-    'sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 5 --num-chains 2',
+    'sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
     'minipyro.py',
     'stochastic_volatility.py --num-samples 100 --num-warmup 100',
