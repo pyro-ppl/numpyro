@@ -36,6 +36,7 @@ def dot(X, Z):
 
 
 # The kernel that corresponds to our quadratic regressor.
+# (Note that we put the same prior on theta_ij for i=j as i!=j)
 def kernel(X, Z, eta1, eta2, c):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
