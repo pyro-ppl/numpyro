@@ -37,12 +37,12 @@ def dot(X, Z):
 
 # The kernel that corresponds to our quadratic regressor.
 def kernel(X, Z, eta1, eta2, c):
-    eta1sq = np.power(eta1, 2.0)
-    eta2sq = np.power(eta2, 2.0)
-    k1 = 0.5 * eta2sq * np.power(1.0 + dot(X, Z), 2.0)
-    k2 = 0.5 * eta2sq * dot(np.power(X, 2.0), np.power(Z, 2.0))
+    eta1sq = np.square(eta1)
+    eta2sq = np.square(eta2)
+    k1 = 0.5 * eta2sq * np.square(1.0 + dot(X, Z))
+    k2 = 0.5 * eta2sq * dot(np.square(X), np.square(Z))
     k3 = (eta1sq - eta2sq) * dot(X, Z)
-    k4 = np.power(c, 2.0) - 0.5 * eta2sq
+    k4 = np.square(c) - 0.5 * eta2sq
     return k1 + k2 + k3 + k4
 
 
@@ -58,13 +58,13 @@ def model(X, Y, hypers):
     msq = 1.0 / msq_inv
     xisq_inv = sample("xisq_inv", dist.Gamma(hypers['alpha2'], hypers['beta2']))
 
-    eta2 = np.power(eta1, 2.0) * msq_inv / np.sqrt(xisq_inv)
+    eta2 = np.square(eta1) * msq_inv / np.sqrt(xisq_inv)
 
     lam = sample("lambda", dist.HalfCauchy(np.ones(P)))
-    kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.power(eta1 * lam, 2.0))
+    kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
 
     # sample observation noise
-    prec_obs = sample("prec_obs", dist.Gamma(3.0, 1.0))
+    prec_obs = sample("prec_obs", dist.Gamma(hypers['alpha_obs'], hypers['beta_obs']))
 
     # compute kernel
     kX = kappa * X
@@ -84,9 +84,9 @@ def compute_mean_variance(X, Y, dimension, msq_inv, lam, eta1, xisq_inv, c, prec
     probe = np.zeros((2, P))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dimension], np.array([0.5, -0.5]))
 
-    eta2 = np.power(eta1, 2.0) * msq_inv / np.sqrt(xisq_inv)
+    eta2 = np.square(eta1) * msq_inv / np.sqrt(xisq_inv)
     msq = 1.0 / msq_inv
-    kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.power(eta1 * lam, 2.0))
+    kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
 
     kX = kappa * X
     kprobe = kappa * probe
@@ -121,14 +121,14 @@ def run_inference(model, args, rng, X, Y, hypers):
 # Get the mean and variance of a gaussian mixture
 def gaussian_mixture_stats(mus, variances):
     mean_mu = np.mean(mus)
-    mean_var = np.mean(variances) + np.mean(np.power(mus, 2.0)) - np.power(mean_mu, 2.0)
+    mean_var = np.mean(variances) + np.mean(np.square(mus)) - np.square(mean_mu)
     return mean_mu, mean_var
 
 
 # Create artificial regression dataset where only S out of P feature
 # dimensions contain signal.
 def get_data(N=20, S=2, P=10, sigma_obs=0.05):
-    assert S < P
+    assert S < P and P > 1 and S > 0
     onp.random.seed(0)
 
     X = onp.random.randn(N, P)
@@ -161,10 +161,11 @@ def main(args):
     X, Y, expected_thetas = get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
 
     # setup hyperparameters
-    hypers = {'expected_sparsity': int(args.num_dimensions / 10),
-              'alpha1': 10.0, 'beta1': 10.0,
-              'alpha2': 10.0, 'beta2': 10.0,
-              'alpha3': 1.0, 'c': 1.0}
+    hypers = {'expected_sparsity': max(1.0, args.num_dimensions / 10),
+              'alpha1': 3.0, 'beta1': 1.0,
+              'alpha2': 3.0, 'beta2': 1.0,
+              'alpha3': 1.0, 'c': 1.0,
+              'alpha_obs': 3.0, 'beta_obs': 1.0}
 
     # do inference
     rng = random.PRNGKey(0)
