@@ -6,7 +6,7 @@ from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_multimap
 
-from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.constraints import biject_to, real
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, trace
 from numpyro.infer_util import log_density, transform_fn
@@ -745,10 +745,17 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
     def single_chain_init(key, only_params=False):
         seeded_model = seed(model, key)
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-        sample_sites = {k: v for k, v in model_trace.items() if v['type'] == 'sample' and not v['is_observed']}
-        inv_transforms = {k: biject_to(v['fn'].support) for k, v in sample_sites.items()}
+        constrained_values, inv_transforms = {}, {}
+        for k, v in model_trace.items():
+            if v['type'] == 'sample' and not v['is_observed']:
+                constrained_values[k] = v['value']
+                inv_transforms[k] = biject_to(v['fn'].support)
+            elif v['type'] == 'param':
+                constrained_values[k] = v['value']
+                constraint = v['kwargs'].pop('constraint', real)
+                inv_transforms[k] = biject_to(constraint)
         prior_params = transform_fn(inv_transforms,
-                                    {k: v['value'] for k, v in sample_sites.items()}, invert=True)
+                                    {k: v for k, v in constrained_values.items()}, invert=True)
         if init_strategy == 'uniform':
             init_params = {}
             for k, v in prior_params.items():
