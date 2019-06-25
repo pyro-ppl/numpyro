@@ -30,7 +30,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform
+from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform, PowerTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (
     cholesky_inverse,
@@ -174,6 +174,7 @@ class Gamma(Distribution):
     arg_constraints = {'concentration': constraints.positive,
                        'rate': constraints.positive}
     support = constraints.positive
+    reparametrized_params = ['rate']
 
     def __init__(self, concentration, rate=1., validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
@@ -294,6 +295,35 @@ class HalfNormal(TransformedDistribution):
     @property
     def variance(self):
         return (1 - 2 / np.pi) * self.scale ** 2
+
+
+@copy_docs_from(Distribution)
+class InverseGamma(TransformedDistribution):
+    arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
+    support = constraints.positive
+    reparametrized_params = ['rate']
+
+    def __init__(self, concentration, rate=1., validate_args=None):
+        # NB: we keep the same notation `rate` as in Pyro and tensorflow but
+        # it plays the role of scale parameter of InverseGamma in literatures
+        # (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
+        base_dist = Gamma(concentration, rate)
+        self.concentration = concentration
+        self.rate = rate
+        super(InverseGamma, self).__init__(base_dist, PowerTransform(-1.0),
+                                           validate_args=validate_args)
+
+    @property
+    def mean(self):
+        # mean is inf for alpha <= 1
+        a = self.rate / (self.concentration - 1)
+        return np.where(self.concentration <= 1, np.inf, a)
+
+    @property
+    def variance(self):
+        # var is inf for alpha <= 2
+        a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
+        return np.where(self.concentration <= 2, np.inf, a)
 
 
 @copy_docs_from(Distribution)

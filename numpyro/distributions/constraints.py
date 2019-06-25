@@ -384,6 +384,23 @@ class LowerCholeskyTransform(Transform):
         return x[..., -n:].sum(-1)
 
 
+class PowerTransform(Transform):
+    domain = positive
+    codomain = positive
+
+    def __init__(self, exponent):
+        self.exponent = exponent
+
+    def __call__(self, x):
+        return np.power(x, self.exponent)
+
+    def inv(self, y):
+        return np.power(y, 1 / self.exponent)
+
+    def log_abs_det_jacobian(self, x, y):
+        return np.log(np.abs(self.exponent * y / x))
+
+
 class SigmoidTransform(Transform):
     codomain = unit_interval
 

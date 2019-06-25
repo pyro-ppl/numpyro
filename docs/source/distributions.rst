@@ -93,6 +93,14 @@ HalfNormal
     :show-inheritance:
     :member-order: bysource
 
+InverseGamma
+------------
+.. autoclass:: numpyro.distributions.continuous.InverseGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LKJCholesky
 -----------
 .. autoclass:: numpyro.distributions.continuous.LKJCholesky
