@@ -2,9 +2,10 @@
 
 from __future__ import absolute_import, division, print_function
 
-from numpyro.distributions.constraints import Transform
 from jax.lax import stop_gradient
 import jax.numpy as np
+
+from numpyro.distributions.constraints import Transform
 
 
 def _clamp_preserve_gradients(x, min, max):

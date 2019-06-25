@@ -1,9 +1,11 @@
-import pytest
 import numpy as onp
 from numpy.testing import assert_allclose
+import pytest
+
+from jax import jacfwd, random
+
 from numpyro.contrib.nn import AutoregressiveNN
 from numpyro.distributions import InverseAutoregressiveTransform
-from jax import random, jacfwd
 
 
 @pytest.mark.parametrize('input_dim', [5, 7])

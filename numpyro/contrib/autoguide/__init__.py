@@ -1,5 +1,6 @@
 # Adapted from pyro.contrib.autoguide
 
+import numpy as onp
 import scipy.stats as osp
 
 from jax.flatten_util import ravel_pytree
@@ -9,7 +10,46 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.util import sum_rightmost
-from numpyro.handlers import sample, substitute, trace, param
+from numpyro.handlers import param, sample, substitute, trace, seed, block
+
+__all__ = [
+    'AutoContinuous',
+    'AutoGuide',
+    'AutoDiagonalNormal',
+    'init_to_feasible',
+    'init_to_median',
+]
+
+
+def init_to_feasible(site):
+    """
+    Initialize to an arbitrary feasible point, ignoring distribution
+    parameters.
+    """
+    if site['is_observed']:
+        return None
+    value = sample('_init', site['fn'])
+    t = biject_to(site['fn'].support)
+    return t(np.zeros(np.shape(t.inv(value))))
+
+
+def init_to_median(site, num_samples=15):
+    """
+    Initialize to the prior median; fallback to a feasible point if median is
+    undefined.
+    """
+    if site['is_observed']:
+        return None
+    try:
+        # Try to compute empirical median.
+        samples = sample('_init', site['fn'], sample_shape=(num_samples,))
+        value = onp.median(samples, axis=0)
+        if np.isnan(value):
+            raise ValueError
+        return value
+    except ValueError:
+        # Fall back to feasible point.
+        return init_to_feasible(site)
 
 
 class AutoGuide(object):
@@ -22,7 +62,7 @@ class AutoGuide(object):
     :param str prefix: a prefix that will be prefixed to all param internal sites
     """
 
-    def __init__(self, model, get_params_fn, prefix="auto"):
+    def __init__(self, model, get_params_fn, prefix='auto'):
         self.model = model
         self.get_params = get_params_fn
         self.prefix = prefix
@@ -46,16 +86,7 @@ class AutoGuide(object):
 
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
-        self.prototype_trace = trace(self.model).get_trace(*args, **kwargs)
-
-    def median(self, *args, **kwargs):
-        """
-        Returns the posterior median value of each latent variable.
-
-        :return: A dict mapping sample site name to median tensor.
-        :rtype: dict
-        """
-        raise NotImplementedError
+        self.prototype_trace = block(trace(self.model).get_trace)(*args, **kwargs)
 
 
 class AutoContinuous(AutoGuide):
@@ -80,8 +111,8 @@ class AutoContinuous(AutoGuide):
     :param callable init_loc_fn: A per-site initialization function.
         See :ref:`autoguide-initialization` section for available functions.
     """
-    def __init__(self, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median):
-        model = substitute(model, substitute_fn=init_loc_fn)
+    def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median):
+        model = substitute(model, substitute_fn=block(seed(init_loc_fn, rng)))
         super(AutoContinuous, self).__init__(model, get_params_fn, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -89,11 +120,12 @@ class AutoContinuous(AutoGuide):
         self._unconstrained_values = {}
         self._inv_transforms = {}
         for name, site in self.prototype_trace.items():
-            if site['type'] == 'sample':
+            if site['type'] == 'sample' and not site['is_observed']:
                 # Collect the shapes of unconstrained values.
                 # These may differ from the shapes of constrained values.
                 transform = biject_to(site['fn'].support)
-                unconstrained_val = biject_to(site['fn'].support).inv(site['value'])
+                unconstrained_val = transform.inv(site['value'])
+                self._inv_transforms[name] = transform
                 self._unconstrained_values[name] = unconstrained_val
 
         self.latent_size = sum(np.size(x) for x in self._unconstrained_values.values())
@@ -101,25 +133,12 @@ class AutoContinuous(AutoGuide):
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
         _, self.unravel_fn = ravel_pytree(self._unconstrained_values)
 
-    def _init_loc(self):
-        """
-        Creates an initial latent vector using a per-site init function.
-        """
-        return ravel_pytree(self._unconstrained_values)[0]
-
-    def get_posterior(self, *args, **kwargs):
-        """
-        Returns the posterior distribution.
-        """
-        raise NotImplementedError
-
     def sample_latent(self, *args, **kwargs):
         """
         Samples an encoded latent given the same ``*args, **kwargs`` as the
         base ``model``.
         """
-        pos_dist = self.get_posterior(*args, **kwargs)
-        return sample("_{}_latent".format(self.prefix), pos_dist)
+        raise NotImplementedError
 
     def __call__(self, *args, **kwargs):
         """
@@ -128,7 +147,7 @@ class AutoContinuous(AutoGuide):
         :return: A dict mapping sample site name to sampled value.
         :rtype: dict
         """
-        # if we've never run the model before, do so now so we can inspect the model structure
+        # run model to inspect the model structure
         if self.prototype_trace is None:
             self._setup_prototype(*args, **kwargs)
 
@@ -137,53 +156,16 @@ class AutoContinuous(AutoGuide):
         # unpack continuous latent samples
         result = {}
 
-        for site, unconstrained_value in self.unravel_fn(latent):
-            name = site["name"]
-            transform = biject_to(site["fn"].support)
+        for name, unconstrained_value in self.unravel_fn(latent).items():
+            transform = self._inv_transforms[name]
+            site = self.prototype_trace[name]
             value = transform(unconstrained_value)
-            log_density = transform.inv.log_abs_det_jacobian(value, unconstrained_value)
+            log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
             log_density = sum_rightmost(log_density, np.ndim(log_density) - np.ndim(value) +
                                         len(site['fn'].event_shape))
             delta_dist = dist.Delta(value, log_density=log_density, event_ndim=len(site['fn'].event_shape))
             result[name] = sample(name, delta_dist)
 
-        return result
-
-    def _loc_scale(self, *args, **kwargs):
-        """
-        :returns: a tuple ``(loc, scale)`` used by :meth:`median` and
-            :meth:`quantiles`
-        """
-        raise NotImplementedError
-
-    def median(self, *args, **kwargs):
-        """
-        Returns the posterior median value of each latent variable.
-
-        :return: A dict mapping sample site name to median tensor.
-        :rtype: dict
-        """
-        loc, _ = self._loc_scale(*args, **kwargs)
-        return {site["name"]: biject_to(site["fn"].support)(unconstrained_value)
-                for site, unconstrained_value in self.unravel_fn(loc)}
-
-    def quantiles(self, opt_state, quantiles, *args, **kwargs):
-        """
-        Returns posterior quantiles each latent variable. Example::
-
-            print(guide.quantiles([0.05, 0.5, 0.95]))
-
-        :param quantiles: A list of requested quantiles between 0 and 1.
-        :type quantiles: torch.Tensor or list
-        :return: A dict mapping sample site name to a list of quantile values.
-        :rtype: dict
-        """
-        loc, scale = self._loc_scale(opt_state, *args, **kwargs)
-        latents = osp.norm(loc, scale).ppf(quantiles)
-        result = {}
-        for latent in latents:
-            for site, unconstrained_value in self.unravel_fn(latent):
-                result.setdefault(site["name"], []).append(biject_to(site["fn"].support)(unconstrained_value))
         return result
 
 
@@ -200,18 +182,49 @@ class AutoDiagonalNormal(AutoContinuous):
         svi_init, svi_update, _ = svi(model, guide, ...)
         opt_state, constrain_fn = svi_init(rng, model_args, guide_args, params)
     """
-    def get_posterior(self, *args, **kwargs):
-        """
-        Returns a diagonal Normal posterior distribution.
-        """
-        loc = param('{}_loc'.format(self.prefix), self._init_loc)
+    def sample_latent(self, *args, **kwargs):
+        init_loc = ravel_pytree(self._unconstrained_values)[0]
+        loc = param('{}_loc'.format(self.prefix), init_loc)
         scale = param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
                       constraint=constraints.positive)
         # TODO: Support for `.to_event()` to treat the batch dim as event dim.
-        return dist.Normal(loc, scale)
+        return sample("_{}_latent".format(self.prefix), dist.Normal(loc, scale))
 
-    def _loc_scale(self, opt_state, *args, **kwargs):
+    def _loc_scale(self, opt_state):
         params = self.get_params(opt_state)
-        loc = params["{}_loc".format(self.prefix)]
-        scale = params["{}_scale".format(self.prefix)]
+        loc = params['{}_loc'.format(self.prefix)]
+        scale = params['{}_scale'.format(self.prefix)]
         return loc, scale
+
+    def median(self, opt_state):
+        """
+        Returns the posterior median value of each latent variable.
+
+        :param opt_state: Current state of the optimizer.
+        :return: A dict mapping sample site name to median tensor.
+        :rtype: dict
+        """
+        loc, _ = self._loc_scale(opt_state)
+        return {name: self._inv_transforms[name](unconstrained_value)
+                for name, unconstrained_value in self.unravel_fn(loc).items()}
+
+    def quantiles(self, opt_state, quantiles):
+        """
+        Returns posterior quantiles each latent variable. Example::
+
+            print(guide.quantiles([0.05, 0.5, 0.95]))
+
+        :param opt_state: Current state of the optimizer.
+        :param quantiles: A list of requested quantiles between 0 and 1.
+        :type quantiles: torch.Tensor or list
+        :return: A dict mapping sample site name to a list of quantile values.
+        :rtype: dict
+        """
+        loc, scale = self._loc_scale(opt_state)
+        latents = osp.norm(loc, scale).ppf(quantiles)
+        result = {}
+        for latent in latents:
+            for site, unconstrained_value in self.unravel_fn(latent).items():
+                transform = self._inv_transforms[site]
+                result.setdefault(site["name"], []).append(transform(unconstrained_value))
+        return result

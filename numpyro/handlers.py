@@ -315,7 +315,9 @@ class substitute(Messenger):
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
         else:
-            msg['value'] = self.substitute_fn(msg)
+            value = self.substitute_fn(msg)
+            if value is not None:
+                msg['value'] = value
 
 
 def apply_stack(msg):
@@ -337,7 +339,7 @@ def apply_stack(msg):
     return msg
 
 
-def sample(name, fn, obs=None):
+def sample(name, fn, obs=None, sample_shape=()):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -346,11 +348,12 @@ def sample(name, fn, obs=None):
     :param str name: name of the sample site
     :param fn: Python callable
     :param numpy.ndarray obs: observed value
+    :param sample_shape: Shape of samples to be drawn.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        return fn()
+        return fn(sample_shape=sample_shape)
 
     # Otherwise, we initialize a message...
     initial_msg = {
@@ -358,7 +361,7 @@ def sample(name, fn, obs=None):
         'name': name,
         'fn': fn,
         'args': (),
-        'kwargs': {},
+        'kwargs': {'sample_shape': sample_shape},
         'value': obs,
         'is_observed': obs is not None,
     }
