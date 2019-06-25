@@ -418,7 +418,9 @@ def get_dtypes(*args):
 
 
 def sum_rightmost(x, dim):
-    return np.sum(x, axis=-1) if dim == 1 else x
+    out_dim = np.ndim(x) - dim
+    x = np.reshape(x[..., np.newaxis], np.shape(x)[:out_dim] + (-1,))
+    return np.sum(x, axis=-1)
 
 
 def matrix_to_tril_vec(x, diagonal=0):

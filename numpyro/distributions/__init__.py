@@ -28,12 +28,14 @@ from numpyro.distributions.discrete import (
     Categorical,
     CategoricalLogits,
     CategoricalProbs,
+    Delta,
     Multinomial,
     MultinomialLogits,
     MultinomialProbs,
     Poisson
 )
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
+from numpyro.distributions.iaf import InverseAutoregressiveTransform
 
 __all__ = [
     'Bernoulli',
@@ -48,6 +50,7 @@ __all__ = [
     'CategoricalProbs',
     'Cauchy',
     'Chi2',
+    'Delta',
     'Dirichlet',
     'Distribution',
     'Exponential',
@@ -55,6 +58,7 @@ __all__ = [
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
+    'InverseAutoregressiveTransform',
     'LKJCholesky',
     'LogNormal',
     'Multinomial',

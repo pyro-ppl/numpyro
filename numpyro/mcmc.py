@@ -13,7 +13,14 @@ from jax.random import PRNGKey
 from jax.tree_util import register_pytree_node, tree_map, tree_multimap
 
 from numpyro.diagnostics import summary
-from numpyro.hmc_util import IntegratorState, build_tree, find_reasonable_step_size, velocity_verlet, warmup_adapter
+from numpyro.hmc_util import (
+    IntegratorState,
+    build_tree,
+    euclidean_kinetic_energy,
+    find_reasonable_step_size,
+    velocity_verlet,
+    warmup_adapter
+)
 from numpyro.util import cond, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
@@ -72,17 +79,6 @@ def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng):
         return unpack_fn(r)
     else:
         raise ValueError("Mass matrix has incorrect number of dims.")
-
-
-def _euclidean_ke(inverse_mass_matrix, r):
-    r, _ = ravel_pytree(r)
-
-    if inverse_mass_matrix.ndim == 2:
-        v = np.matmul(inverse_mass_matrix, r)
-    elif inverse_mass_matrix.ndim == 1:
-        v = np.multiply(inverse_mass_matrix, r)
-
-    return 0.5 * np.dot(v, r)
 
 
 def get_diagnostics_str(hmc_state):
@@ -156,7 +152,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         [0.9153987 2.0754058 2.9621222]
     """
     if kinetic_fn is None:
-        kinetic_fn = _euclidean_ke
+        kinetic_fn = euclidean_kinetic_energy
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     trajectory_len = None
     max_treedepth = None
@@ -405,11 +401,14 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
         potential_fn = sampler_kwargs.pop('potential_fn')
         kinetic_fn = sampler_kwargs.pop('kinetic_fn', None)
         algo = sampler_kwargs.pop('algo', 'NUTS')
-        rngs = sampler_kwargs.pop('rng', vmap(PRNGKey)(np.arange(num_chains)))
+        if num_chains > 1:
+            rngs = sampler_kwargs.pop('rng', vmap(PRNGKey)(np.arange(num_chains)))
+        else:
+            rng = sampler_kwargs.pop('rng', PRNGKey(0))
 
         init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
         if progbar:
-            hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, rng=rngs[0],
+            hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, rng=rng,
                                     **sampler_kwargs)
             samples_flat = fori_collect(0, num_samples, sample_kernel, hmc_state,
                                         transform=lambda x: constrain_fn(x.z),
@@ -427,7 +426,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                 return samples
 
             if num_chains == 1:
-                samples_flat = single_chain_mcmc(rngs[0], init_params)
+                samples_flat = single_chain_mcmc(rng, init_params)
                 samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
             else:
                 if sequential_chain:

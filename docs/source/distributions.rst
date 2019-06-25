@@ -214,8 +214,16 @@ CategoricalLogits
     :member-order: bysource
 
 CategoricalProbs
------------------
+----------------
 .. autoclass:: numpyro.distributions.discrete.CategoricalProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Delta
+-----
+.. autoclass:: numpyro.distributions.discrete.Delta
     :members:
     :undoc-members:
     :show-inheritance:
@@ -234,7 +242,7 @@ MultinomialLogits
     :member-order: bysource
 
 MultinomialProbs
------------------
+----------------
 .. autoclass:: numpyro.distributions.discrete.MultinomialProbs
     :members:
     :undoc-members:
