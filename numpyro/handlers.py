@@ -305,13 +305,17 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None):
+    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+        self.substitute_fn = substitute_fn
         self.param_map = param_map
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['name'] in self.param_map:
-            msg['value'] = self.param_map[msg['name']]
+        if self.param_map:
+            if msg['name'] in self.param_map:
+                msg['value'] = self.param_map[msg['name']]
+        else:
+            msg['value'] = self.substitute_fn(msg)
 
 
 def apply_stack(msg):
