@@ -10,7 +10,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.util import sum_rightmost
-from numpyro.handlers import param, sample, substitute, trace, seed, block
+from numpyro.handlers import block, param, sample, seed, substitute, trace
 
 __all__ = [
     'AutoContinuous',
@@ -177,10 +177,8 @@ class AutoDiagonalNormal(AutoContinuous):
 
     Usage::
 
-        guide = AutoDiagonalNormal(model, get_params, ..)
-        params = guide.get_optimizable_params(*args, **kwargs)
+        guide = AutoDiagonalNormal(rng, model, get_params, ..)
         svi_init, svi_update, _ = svi(model, guide, ...)
-        opt_state, constrain_fn = svi_init(rng, model_args, guide_args, params)
     """
     def sample_latent(self, *args, **kwargs):
         init_loc = ravel_pytree(self._unconstrained_values)[0]
@@ -212,7 +210,7 @@ class AutoDiagonalNormal(AutoContinuous):
         """
         Returns posterior quantiles each latent variable. Example::
 
-            print(guide.quantiles([0.05, 0.5, 0.95]))
+            print(guide.quantiles(opt_state, [0.05, 0.5, 0.95]))
 
         :param opt_state: Current state of the optimizer.
         :param quantiles: A list of requested quantiles between 0 and 1.
