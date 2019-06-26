@@ -4,11 +4,13 @@ from abc import ABC, abstractmethod
 import numpy as onp
 import scipy.stats as osp
 
-from jax import vmap
+from jax import random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
+from jax.tree_util import tree_map
 
 import numpyro.distributions as dist
+from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.util import sum_rightmost
@@ -153,6 +155,14 @@ class AutoContinuous(AutoGuide):
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
         self._init_latent, self._unravel_fn = ravel_pytree(unconstrained_sites)
 
+    def _unpack_latent(self, latent_sample):
+        sample_shape = np.shape(latent_sample)[:-1]
+        latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
+        unpacked_samples = vmap(self._unravel_fn)(latent_sample)
+        unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
+                                    unpacked_samples)
+        return transform_fn(self._inv_transforms, unpacked_samples)
+
     def __call__(self, *args, **kwargs):
         """
         An automatic guide with the same ``*args, **kwargs`` as the base ``model``.
@@ -190,28 +200,19 @@ class AutoDiagonalNormal(AutoContinuous):
 
     Usage::
 
-        guide = AutoDiagonalNormal(rng, model, get_params, ..)
+        guide = AutoDiagonalNormal(rng, model, get_params, ...)
         svi_init, svi_update, _ = svi(model, guide, ...)
     """
     def sample_posterior(self, rng, opt_state, *args, **kwargs):
         sample_shape = kwargs.pop('sample_shape', ())
         loc, scale = self._loc_scale(opt_state)
-        num_samples = int(np.prod(sample_shape))
         latent_sample = dist.Normal(loc, scale).sample(rng, sample_shape)
-        if not sample_shape:
-            unpacked_samples = self._unravel_fn(latent_sample)
-        else:
-            latent_sample = np.reshape(latent_sample, (num_samples,) +
-                                       np.shape(latent_sample)[len(sample_shape):])
-            unpacked_samples = vmap(self._unravel_fn)(latent_sample)
-            unpacked_samples = {name: np.reshape(val, sample_shape + np.shape(val)[1:])
-                                for name, val in unpacked_samples.items()}
-        return transform_fn(self._inv_transforms, unpacked_samples)
+        return self._unpack_latent(latent_sample)
 
     def _sample_latent(self, *args, **kwargs):
         init_loc = self._init_latent
         loc = param('{}_loc'.format(self.prefix), init_loc)
-        scale = param('{}_scale'.format(self.prefix), np.ones(np.size(self._init_latent)),
+        scale = param('{}_scale'.format(self.prefix), np.ones(np.size(init_loc)),
                       constraint=constraints.positive)
         # TODO: Support for `.to_event()` to treat the batch dim as event dim.
         return sample("_{}_latent".format(self.prefix), dist.Normal(loc, scale))
@@ -253,3 +254,51 @@ class AutoDiagonalNormal(AutoContinuous):
                 transform = self._inv_transforms[name]
                 result.setdefault(name, []).append(transform(unconstrained_value))
         return result
+
+
+class AutoIAFNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a Diagonal Normal
+    distribution transformed via a
+    :class:`~numpyro.distributions.iaf.InverseAutoregressiveTransform`
+    to construct a guide over the entire latent space. The guide does not
+    depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[10], ...)
+        svi_init, svi_update, _ = svi(model, guide, ...)
+    """
+    def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median,
+                 **arn_kwargs):
+        self.arn_kwargs = arn_kwargs
+        self.arn = None
+        rng, self.rng_arn = random.split(rng)
+        super(AutoIAFNormal, self).__init__(rng, model, get_params_fn, prefix=prefix,
+                                            init_loc_fn=init_loc_fn)
+
+    def sample_posterior(self, rng, opt_state, *args, **kwargs):
+        sample_shape = kwargs.pop('sample_shape', ())
+        params = self.get_params(opt_state)
+        arn_params = params['{}_arn'.format(self.prefix)]
+        iaf = dist.InverseAutoregressiveTransform(self.arn, arn_params)
+        latent_size = np.size(self._init_latent)
+        iaf_dist = dist.TransformedDistribution(dist.Normal(np.zeros(latent_size), 1.), [iaf])
+        latent_sample = iaf_dist.sample(rng, sample_shape)
+        return self._unpack_latent(latent_sample)
+
+    def _sample_latent(self, *args, **kwargs):
+        latent_size = np.size(self._init_latent)
+        if latent_size == 1:
+            raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
+        hidden_dim = self.arn_kwargs.get('hidden_dim', latent_size)
+        if self.arn is None:
+            self.arn = AutoregressiveNN(latent_size, [hidden_dim])
+            _, init_params = self.arn.init_fun(self.rng_arn, (latent_size,))
+            arn_params = param('{}_arn'.format(self.prefix), init_params)
+        else:
+            arn_params = param('{}_arn'.format(self.prefix), None)
+
+        iaf = dist.InverseAutoregressiveTransform(self.arn, arn_params)
+        iaf_dist = dist.TransformedDistribution(dist.Normal(np.zeros(latent_size), 1.), [iaf])
+        return sample("_{}_latent".format(self.prefix), iaf_dist)
