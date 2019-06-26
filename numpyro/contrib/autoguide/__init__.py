@@ -2,8 +2,8 @@
 
 import numpy as onp
 import scipy.stats as osp
-from jax import vmap
 
+from jax import vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
