@@ -287,6 +287,9 @@ class substitute(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
        site names.
+    :param substitute_fn: callable that takes in a site dict and returns
+       a numpy array or `None` (in which case the handler has no side
+       effect).
 
     **Example:**
 
@@ -305,13 +308,19 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None):
+    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+        self.substitute_fn = substitute_fn
         self.param_map = param_map
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['name'] in self.param_map:
-            msg['value'] = self.param_map[msg['name']]
+        if self.param_map:
+            if msg['name'] in self.param_map:
+                msg['value'] = self.param_map[msg['name']]
+        else:
+            value = self.substitute_fn(msg)
+            if value is not None:
+                msg['value'] = value
 
 
 def apply_stack(msg):
@@ -333,7 +342,7 @@ def apply_stack(msg):
     return msg
 
 
-def sample(name, fn, obs=None):
+def sample(name, fn, obs=None, sample_shape=()):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -342,11 +351,12 @@ def sample(name, fn, obs=None):
     :param str name: name of the sample site
     :param fn: Python callable
     :param numpy.ndarray obs: observed value
+    :param sample_shape: Shape of samples to be drawn.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        return fn()
+        return fn(sample_shape=sample_shape)
 
     # Otherwise, we initialize a message...
     initial_msg = {
@@ -354,7 +364,7 @@ def sample(name, fn, obs=None):
         'name': name,
         'fn': fn,
         'args': (),
-        'kwargs': {},
+        'kwargs': {'sample_shape': sample_shape},
         'value': obs,
         'is_observed': obs is not None,
     }

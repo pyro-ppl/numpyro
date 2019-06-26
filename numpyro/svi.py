@@ -35,6 +35,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
+    constrain_fn = None
+
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         """
 
