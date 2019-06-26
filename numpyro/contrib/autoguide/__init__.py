@@ -1,4 +1,5 @@
 # Adapted from pyro.contrib.autoguide
+from abc import ABC, abstractmethod
 
 import numpy as onp
 import scipy.stats as osp
@@ -12,6 +13,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import block, param, sample, seed, substitute, trace
+from numpyro.infer_util import transform_fn
 
 __all__ = [
     'AutoContinuous',
@@ -53,7 +55,7 @@ def init_to_median(site, num_samples=15):
         return init_to_feasible(site)
 
 
-class AutoGuide(object):
+class AutoGuide(ABC):
     """
     Base class for automatic guides.
 
@@ -69,6 +71,7 @@ class AutoGuide(object):
         self.prefix = prefix
         self.prototype_trace = None
 
+    @abstractmethod
     def __call__(self, *args, **kwargs):
         """
         A guide with the same ``*args, **kwargs`` as the base ``model``.
@@ -78,18 +81,20 @@ class AutoGuide(object):
         """
         raise NotImplementedError
 
+    @abstractmethod
     def sample_posterior(self, rng, opt_state, *args, **kwargs):
         """
         Generate samples from the approximate posterior over the latent
         sites in the model.
 
         :param jax.random.PRNGKey rng: PRNG seed.
-        :param opt_state: Current state of the optmizer.
+        :param opt_state: Current state of the optimizer.
         :param sample_shape: (keyword argument) shape of samples to be drawn.
         :return: batch of samples from the approximate posterior.
         """
         raise NotImplementedError
 
+    @abstractmethod
     def _sample_latent(self, *args, **kwargs):
         """
         Samples an encoded latent given the same ``*args, **kwargs`` as the
@@ -125,13 +130,15 @@ class AutoContinuous(AutoGuide):
         See :ref:`autoguide-initialization` section for available functions.
     """
     def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median):
+        # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
+        # Use `block` to not record sample primitives in `init_loc_fn`.
         model = substitute(model, substitute_fn=block(seed(init_loc_fn, rng)))
         super(AutoContinuous, self).__init__(model, get_params_fn, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
-        self._unconstrained_values = {}
         self._inv_transforms = {}
+        unconstrained_sites = {}
         for name, site in self.prototype_trace.items():
             if site['type'] == 'sample' and not site['is_observed']:
                 # Collect the shapes of unconstrained values.
@@ -139,18 +146,12 @@ class AutoContinuous(AutoGuide):
                 transform = biject_to(site['fn'].support)
                 unconstrained_val = transform.inv(site['value'])
                 self._inv_transforms[name] = transform
-                self._unconstrained_values[name] = unconstrained_val
+                unconstrained_sites[name] = unconstrained_val
 
-        self.latent_size = sum(np.size(x) for x in self._unconstrained_values.values())
-        if self.latent_size == 0:
+        latent_size = sum(np.size(x) for x in unconstrained_sites.values())
+        if latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
-        _, self.unravel_fn = ravel_pytree(self._unconstrained_values)
-
-    def sample_posterior(self, rng, opt_state, *args, **kwargs):
-        raise NotImplementedError
-
-    def _sample_latent(self, *args, **kwargs):
-        raise NotImplementedError
+        self._init_latent, self._unravel_fn = ravel_pytree(unconstrained_sites)
 
     def __call__(self, *args, **kwargs):
         """
@@ -168,7 +169,7 @@ class AutoContinuous(AutoGuide):
         # unpack continuous latent samples
         result = {}
 
-        for name, unconstrained_value in self.unravel_fn(latent).items():
+        for name, unconstrained_value in self._unravel_fn(latent).items():
             transform = self._inv_transforms[name]
             site = self.prototype_trace[name]
             value = transform(unconstrained_value)
@@ -198,20 +199,19 @@ class AutoDiagonalNormal(AutoContinuous):
         num_samples = int(np.prod(sample_shape))
         latent_sample = dist.Normal(loc, scale).sample(rng, sample_shape)
         if not sample_shape:
-            unpacked_samples = self.unravel_fn(latent_sample)
+            unpacked_samples = self._unravel_fn(latent_sample)
         else:
             latent_sample = np.reshape(latent_sample, (num_samples,) +
                                        np.shape(latent_sample)[len(sample_shape):])
-            unpacked_samples = vmap(self.unravel_fn)(latent_sample)
+            unpacked_samples = vmap(self._unravel_fn)(latent_sample)
             unpacked_samples = {name: np.reshape(val, sample_shape + np.shape(val)[1:])
                                 for name, val in unpacked_samples.items()}
-        return {name: self._inv_transforms[name](unconstrained_value)
-                for name, unconstrained_value in unpacked_samples.items()}
+        return transform_fn(self._inv_transforms, unpacked_samples)
 
     def _sample_latent(self, *args, **kwargs):
-        init_loc = ravel_pytree(self._unconstrained_values)[0]
+        init_loc = self._init_latent
         loc = param('{}_loc'.format(self.prefix), init_loc)
-        scale = param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
+        scale = param('{}_scale'.format(self.prefix), np.ones(np.size(self._init_latent)),
                       constraint=constraints.positive)
         # TODO: Support for `.to_event()` to treat the batch dim as event dim.
         return sample("_{}_latent".format(self.prefix), dist.Normal(loc, scale))
@@ -231,8 +231,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         loc, _ = self._loc_scale(opt_state)
-        return {name: self._inv_transforms[name](unconstrained_value)
-                for name, unconstrained_value in self.unravel_fn(loc).items()}
+        return transform_fn(self._inv_transforms, self._unravel_fn(loc))
 
     def quantiles(self, opt_state, quantiles):
         """
@@ -250,7 +249,7 @@ class AutoDiagonalNormal(AutoContinuous):
         result = {}
         for q in quantiles:
             latent = osp.norm(loc, scale).ppf(q)
-            for name, unconstrained_value in self.unravel_fn(latent).items():
+            for name, unconstrained_value in self._unravel_fn(latent).items():
                 transform = self._inv_transforms[name]
                 result.setdefault(name, []).append(transform(unconstrained_value))
         return result
