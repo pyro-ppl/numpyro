@@ -70,3 +70,9 @@ def test_logistic_regression(auto_class):
     opt_state, _ = lax.fori_loop(0, 400, body_fn, (opt_state, rng_train))
     median = guide.median(opt_state)
     assert_allclose(median['coefs'], true_coefs, rtol=0.1)
+    # test .quantile method
+    median = guide.quantiles(opt_state, [0.2, 0.5])
+    assert_allclose(median['coefs'][1], true_coefs, rtol=0.1)
+    # test .sample_posterior method
+    posterior_samples = guide.sample_posterior(random.PRNGKey(1), opt_state, sample_shape=(1000,))
+    assert_allclose(np.mean(posterior_samples['coefs'], 0), true_coefs, rtol=0.1)

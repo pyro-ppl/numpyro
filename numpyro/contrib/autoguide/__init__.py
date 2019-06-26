@@ -2,6 +2,7 @@
 
 import numpy as onp
 import scipy.stats as osp
+from jax import vmap
 
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
@@ -77,7 +78,19 @@ class AutoGuide(object):
         """
         raise NotImplementedError
 
-    def sample_latent(self, *args, **kwargs):
+    def sample_posterior(self, rng, opt_state, *args, **kwargs):
+        """
+        Generate samples from the approximate posterior over the latent
+        sites in the model.
+
+        :param jax.random.PRNGKey rng: PRNG seed.
+        :param opt_state: Current state of the optmizer.
+        :param sample_shape: (keyword argument) shape of samples to be drawn.
+        :return: batch of samples from the approximate posterior.
+        """
+        raise NotImplementedError
+
+    def _sample_latent(self, *args, **kwargs):
         """
         Samples an encoded latent given the same ``*args, **kwargs`` as the
         base ``model``.
@@ -133,11 +146,10 @@ class AutoContinuous(AutoGuide):
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
         _, self.unravel_fn = ravel_pytree(self._unconstrained_values)
 
-    def sample_latent(self, *args, **kwargs):
-        """
-        Samples an encoded latent given the same ``*args, **kwargs`` as the
-        base ``model``.
-        """
+    def sample_posterior(self, rng, opt_state, *args, **kwargs):
+        raise NotImplementedError
+
+    def _sample_latent(self, *args, **kwargs):
         raise NotImplementedError
 
     def __call__(self, *args, **kwargs):
@@ -151,7 +163,7 @@ class AutoContinuous(AutoGuide):
         if self.prototype_trace is None:
             self._setup_prototype(*args, **kwargs)
 
-        latent = self.sample_latent(*args, **kwargs)
+        latent = self._sample_latent(*args, **kwargs)
 
         # unpack continuous latent samples
         result = {}
@@ -180,7 +192,23 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(rng, model, get_params, ..)
         svi_init, svi_update, _ = svi(model, guide, ...)
     """
-    def sample_latent(self, *args, **kwargs):
+    def sample_posterior(self, rng, opt_state, *args, **kwargs):
+        sample_shape = kwargs.pop('sample_shape', ())
+        loc, scale = self._loc_scale(opt_state)
+        num_samples = int(np.prod(sample_shape))
+        latent_sample = dist.Normal(loc, scale).sample(rng, sample_shape)
+        if not sample_shape:
+            unpacked_samples = self.unravel_fn(latent_sample)
+        else:
+            latent_sample = np.reshape(latent_sample, (num_samples,) +
+                                       np.shape(latent_sample)[len(sample_shape):])
+            unpacked_samples = vmap(self.unravel_fn)(latent_sample)
+            unpacked_samples = {name: np.reshape(val, sample_shape + np.shape(val)[1:])
+                                for name, val in unpacked_samples.items()}
+        return {name: self._inv_transforms[name](unconstrained_value)
+                for name, unconstrained_value in unpacked_samples.items()}
+
+    def _sample_latent(self, *args, **kwargs):
         init_loc = ravel_pytree(self._unconstrained_values)[0]
         loc = param('{}_loc'.format(self.prefix), init_loc)
         scale = param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
@@ -191,7 +219,7 @@ class AutoDiagonalNormal(AutoContinuous):
     def _loc_scale(self, opt_state):
         params = self.get_params(opt_state)
         loc = params['{}_loc'.format(self.prefix)]
-        scale = params['{}_scale'.format(self.prefix)]
+        scale = biject_to(constraints.positive)(params['{}_scale'.format(self.prefix)])
         return loc, scale
 
     def median(self, opt_state):
@@ -219,10 +247,10 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         loc, scale = self._loc_scale(opt_state)
-        latents = osp.norm(loc, scale).ppf(quantiles)
         result = {}
-        for latent in latents:
-            for site, unconstrained_value in self.unravel_fn(latent).items():
-                transform = self._inv_transforms[site]
-                result.setdefault(site["name"], []).append(transform(unconstrained_value))
+        for q in quantiles:
+            latent = osp.norm(loc, scale).ppf(q)
+            for name, unconstrained_value in self.unravel_fn(latent).items():
+                transform = self._inv_transforms[name]
+                result.setdefault(name, []).append(transform(unconstrained_value))
         return result
