@@ -428,6 +428,7 @@ class StickBreakingTransform(Transform):
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (0, 1)
         z_padded = np.pad(z, pad_width, mode="constant", constant_values=1.)
+        pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (1, 0)
         z1m_cumprod_shifted = np.pad(z1m_cumprod, pad_width, mode="constant", constant_values=1.)
         return z_padded * z1m_cumprod_shifted
