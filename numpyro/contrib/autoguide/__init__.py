@@ -256,6 +256,11 @@ class AutoDiagonalNormal(AutoContinuous):
         return result
 
 
+def elu(x):
+    # according to IAF paper, ELU works better than other nonlinearities
+    return np.where(x > 0, x, np.exp(x) - 1)
+
+
 class AutoIAFNormal(AutoContinuous):
     """
     This implementation of :class:`AutoContinuous` uses a Diagonal Normal
@@ -270,20 +275,23 @@ class AutoIAFNormal(AutoContinuous):
         svi_init, svi_update, _ = svi(model, guide, ...)
     """
     def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median,
-                 **arn_kwargs):
+                 num_flows=3, **arn_kwargs):
         self.arn_kwargs = arn_kwargs
-        self.arn = None
-        rng, self.rng_arn = random.split(rng)
+        self.arns = []
+        self.num_flows = num_flows
+        rng, *self.arn_rngs = random.split(rng, num_flows + 1)
         super(AutoIAFNormal, self).__init__(rng, model, get_params_fn, prefix=prefix,
                                             init_loc_fn=init_loc_fn)
 
     def sample_posterior(self, rng, opt_state, *args, **kwargs):
         sample_shape = kwargs.pop('sample_shape', ())
         params = self.get_params(opt_state)
-        arn_params = params['{}_arn'.format(self.prefix)]
-        iaf = dist.InverseAutoregressiveTransform(self.arn, arn_params)
+        flows = []
+        for i in range(self.num_flows):
+            arn_params = params['{}_arn__{}'.format(self.prefix, i)]
+            flows.append(dist.InverseAutoregressiveTransform(self.arns[i], arn_params))
         latent_size = np.size(self._init_latent)
-        iaf_dist = dist.TransformedDistribution(dist.Normal(np.zeros(latent_size), 1.), [iaf])
+        iaf_dist = dist.TransformedDistribution(dist.Normal(np.zeros(latent_size), 1.), flows)
         latent_sample = iaf_dist.sample(rng, sample_shape)
         return self._unpack_latent(latent_sample)
 
@@ -291,14 +299,23 @@ class AutoIAFNormal(AutoContinuous):
         latent_size = np.size(self._init_latent)
         if latent_size == 1:
             raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
-        hidden_dim = self.arn_kwargs.get('hidden_dim', latent_size)
-        if self.arn is None:
-            self.arn = AutoregressiveNN(latent_size, [hidden_dim])
-            _, init_params = self.arn.init_fun(self.rng_arn, (latent_size,))
-            arn_params = param('{}_arn'.format(self.prefix), init_params)
+        flows = []
+        if not self.arns:
+            # 2-layer by default following the experiments in IAF paper
+            # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
+            hidden_dims = self.arn_kwargs.get('hidden_dims', [latent_size, latent_size])
+            nonlinearity = self.arn_kwargs.get('nonlinearity', elu)
+            for i in range(self.num_flows):
+                arn = AutoregressiveNN(latent_size, hidden_dims, nonlinearity=nonlinearity)
+                permutation = onp.arange(latent_size) if i == 0 else onp.arange(latent_size)[::-1]
+                _, init_params = arn.init_fun(self.arn_rngs[i], (latent_size,), permutation)
+                arn_params = param('{}_arn__{}'.format(self.prefix, i), init_params)
+                self.arns.append(arn)
+                flows.append(dist.InverseAutoregressiveTransform(arn, arn_params))
         else:
-            arn_params = param('{}_arn'.format(self.prefix), None)
+            for i in range(self.num_flows):
+                arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
+                flows.append(dist.InverseAutoregressiveTransform(self.arns[i], arn_params))
 
-        iaf = dist.InverseAutoregressiveTransform(self.arn, arn_params)
-        iaf_dist = dist.TransformedDistribution(dist.Normal(np.zeros(latent_size), 1.), [iaf])
+        iaf_dist = dist.TransformedDistribution(dist.Normal(np.zeros(latent_size), 1.), flows)
         return sample("_{}_latent".format(self.prefix), iaf_dist)
