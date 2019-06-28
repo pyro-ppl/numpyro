@@ -305,10 +305,11 @@ class AutoIAFNormal(AutoContinuous):
             # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
             hidden_dims = self.arn_kwargs.get('hidden_dims', [latent_size, latent_size])
             nonlinearity = self.arn_kwargs.get('nonlinearity', elu)
+            permutation = self.arn_kwargs.get('permutation', onp.arange(latent_size))
             for i in range(self.num_flows):
                 arn = AutoregressiveNN(latent_size, hidden_dims, nonlinearity=nonlinearity)
-                permutation = onp.arange(latent_size) if i == 0 else onp.arange(latent_size)[::-1]
                 _, init_params = arn.init_fun(self.arn_rngs[i], (latent_size,), permutation)
+                permutation = onp.arange(latent_size)[::-1]  # reverse dims for the next flow
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), init_params)
                 self.arns.append(arn)
                 flows.append(dist.InverseAutoregressiveTransform(arn, arn_params))
