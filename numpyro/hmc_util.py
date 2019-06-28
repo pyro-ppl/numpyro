@@ -1,3 +1,5 @@
+from collections import namedtuple
+
 import jax
 from jax import grad, jit, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
@@ -10,18 +12,18 @@ from numpyro.distributions.constraints import biject_to, real
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, trace
 from numpyro.infer_util import log_density, transform_fn
-from numpyro.util import cond, laxtuple, while_loop
+from numpyro.util import cond, while_loop
 
-AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
-AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "mass_matrix_sqrt",
-                                     "ss_state", "mm_state", "window_idx", "rng"])
-IntegratorState = laxtuple("IntegratorState", ["z", "r", "potential_energy", "z_grad"])
+AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
+AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                       'ss_state', 'mm_state', 'window_idx', 'rng'])
+IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
 
-TreeInfo = laxtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
-                                 'z_right', 'r_right', 'z_right_grad',
-                                 'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
-                                 'depth', 'weight', 'r_sum', 'turning', 'diverging',
-                                 'sum_accept_probs', 'num_proposals'])
+TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
+                                   'z_right', 'r_right', 'z_right_grad',
+                                   'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
+                                   'depth', 'weight', 'r_sum', 'turning', 'diverging',
+                                   'sum_accept_probs', 'num_proposals'])
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
