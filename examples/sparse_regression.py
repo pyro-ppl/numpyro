@@ -55,21 +55,20 @@ def model(X, Y, hypers):
     phi = sigma * (S / np.sqrt(N)) / (P - S)
     eta1 = sample("eta1", dist.HalfCauchy(phi))
 
-    msq_inv = sample("msq_inv", dist.Gamma(hypers['alpha1'], hypers['beta1']))
-    msq = 1.0 / msq_inv
-    xisq_inv = sample("xisq_inv", dist.Gamma(hypers['alpha2'], hypers['beta2']))
+    msq = sample("msq", dist.InverseGamma(hypers['alpha1'], hypers['beta1']))
+    xisq = sample("xisq", dist.InverseGamma(hypers['alpha2'], hypers['beta2']))
 
-    eta2 = np.square(eta1) * msq_inv / np.sqrt(xisq_inv)
+    eta2 = np.square(eta1) * np.sqrt(xisq) / msq
 
     lam = sample("lambda", dist.HalfCauchy(np.ones(P)))
     kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
 
     # sample observation noise
-    prec_obs = sample("prec_obs", dist.Gamma(hypers['alpha_obs'], hypers['beta_obs']))
+    var_obs = sample("var_obs", dist.InverseGamma(hypers['alpha_obs'], hypers['beta_obs']))
 
     # compute kernel
     kX = kappa * X
-    k = kernel(kX, kX, eta1, eta2, hypers['c']) + np.eye(N) / prec_obs
+    k = kernel(kX, kX, eta1, eta2, hypers['c']) + var_obs * np.eye(N)
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
@@ -79,20 +78,19 @@ def model(X, Y, hypers):
 
 # Compute the mean and variance of coefficient theta_i (where i = dimension) for a
 # MCMC sample (eta1, xi, ...). Compare to theorem 5.1 in reference [1].
-def compute_mean_variance(X, Y, dimension, msq_inv, lam, eta1, xisq_inv, c, prec_obs):
+def compute_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, var_obs):
     P, N = X.shape[1], X.shape[0]
 
     probe = np.zeros((2, P))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dimension], np.array([0.5, -0.5]))
 
-    eta2 = np.square(eta1) * msq_inv / np.sqrt(xisq_inv)
-    msq = 1.0 / msq_inv
+    eta2 = np.square(eta1) * np.sqrt(xisq) / msq
     kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
 
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + np.eye(N) / prec_obs
+    k_xx = kernel(kX, kX, eta1, eta2, c) + var_obs * np.eye(N)
     k_xx_inv = np.linalg.inv(k_xx)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -147,11 +145,11 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
 def analyze_dimension(samples, X, Y, dimension, hypers):
-    vmap_args = (samples['msq_inv'], samples['lambda'], samples['eta1'],
-                 samples['xisq_inv'], samples['prec_obs'])
-    mus, variances = vmap(lambda msq_inv, lam, eta1, xisq_inv, prec_obs:
-                          compute_mean_variance(X, Y, dimension, msq_inv, lam,
-                                                eta1, xisq_inv, hypers['c'], prec_obs))(*vmap_args)
+    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'],
+                 samples['xisq'], samples['var_obs'])
+    mus, variances = vmap(lambda msq, lam, eta1, xisq, var_obs:
+                          compute_mean_variance(X, Y, dimension, msq, lam,
+                                                eta1, xisq, hypers['c'], var_obs))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = np.sqrt(variance)
     return mean, std
