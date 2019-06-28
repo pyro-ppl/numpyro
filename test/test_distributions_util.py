@@ -44,8 +44,8 @@ def test_xlogy(x, y, jit_fn):
      np.sum(np.log(np.array([1, 2, 3]))), np.array([1., 0.5, 1./3])),
     (np.array([1., 2., 3.]), np.array([2.]),
      np.log(np.array([2., 2., 2.])), np.array([3.])),
-    (np.array([0.]), np.array([0, 0]),
-     np.array([-float('inf')]), np.array([0, 0])),
+    (np.array([0.]), np.array([0., 0.]),
+     np.array([-float('inf')]), np.array([0., 0.])),
     (np.array([[0.], [0.]]), np.array([1., 2.]),
      np.array([[np.log(2.)], [np.log(2.)]]), np.array([0, 0])),
 ])
@@ -74,8 +74,8 @@ def test_xlog1py(x, y, jit_fn):
      np.sum(np.log(np.array([1, 2, 3]))), np.array([1., 0.5, 1./3])),
     (np.array([1., 2., 3.]), np.array([1.]),
      np.log(np.array([2., 2., 2.])), np.array([3.])),
-    (np.array([0.]), np.array([-1, -1]),
-     np.array([-float('inf')]), np.array([0, 0])),
+    (np.array([0.]), np.array([-1., -1.]),
+     np.array([-float('inf')]), np.array([0., 0.])),
     (np.array([[0.], [0.]]), np.array([1., 2.]),
      np.array([[np.log(6.)], [np.log(6.)]]), np.array([0, 0])),
 ])

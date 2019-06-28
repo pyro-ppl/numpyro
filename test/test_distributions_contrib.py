@@ -218,7 +218,7 @@ def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_samp
 ])
 def test_sample_gradient(jax_dist, loc, scale):
     rng = random.PRNGKey(0)
-    args = [i + 1 for i in range(jax_dist.numargs)]
+    args = [i + 1. for i in range(jax_dist.numargs)]
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
 
     def fn(args, loc, scale):
@@ -366,6 +366,8 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
             return np.sum(jax_dist.logpmf(sample, *args))
 
         for i in range(len(dist_args)):
+            if np.result_type(dist_args[i]) in (np.int32, np.int64):
+                continue
             logpmf_grad = grad(fn, i + 1)(samples, *dist_args)
             assert np.all(np.isfinite(logpmf_grad))
 

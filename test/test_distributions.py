@@ -105,7 +105,8 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, 0., np.array([[1., 0.5], [0.5, 1.]]), None, None),
     T(dist.MultivariateNormal, np.array([1., 3.]), None, np.array([[1., 0.5], [0.5, 1.]]), None),
     T(dist.MultivariateNormal, np.array([2.]), None, None, np.array([[1., 0.], [0.5, 1.]])),
-    T(dist.MultivariateNormal, np.arange(6).reshape((3, 2)), None, None, np.array([[1., 0.], [0., 1.]])),
+    T(dist.MultivariateNormal, np.arange(6, dtype=np.float32).reshape((3, 2)), None, None,
+      np.array([[1., 0.], [0., 1.]])),
     T(dist.MultivariateNormal, 0., None, np.broadcast_to(np.identity(3), (2, 3, 3)), None),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
@@ -427,29 +428,28 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         pytest.skip('we have separated tests for LKJCholesky distribution')
     rng = random.PRNGKey(0)
 
-    def fn(args, value):
-        return np.sum(jax_dist(*args).log_prob(value))
-
     value = jax_dist(*params).sample(rng)
-    actual_grad = jax.grad(fn)(params, value)
-    assert len(actual_grad) == len(params)
+
+    def fn(*args):
+        return np.sum(jax_dist(*args).log_prob(value))
 
     eps = 1e-3
     for i in range(len(params)):
         if params[i] is None or np.result_type(params[i]) in (np.int32, np.int64):
             continue
+        actual_grad = jax.grad(fn, i)(*params)
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
-        fn_lhs = fn(args_lhs, value)
-        fn_rhs = fn(args_rhs, value)
+        fn_lhs = fn(*args_lhs)
+        fn_rhs = fn(*args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
-        assert np.shape(actual_grad[i]) == np.shape(params[i])
+        assert np.shape(actual_grad) == np.shape(params[i])
         if i == 0 and jax_dist is dist.Delta:
             # grad w.r.t. `value` of Delta distribution will be 0
             # but numerical value will give nan (= inf - inf)
             expected_grad = 0.
-        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.01, atol=1e-3)
+        assert_allclose(np.sum(actual_grad), expected_grad, rtol=0.01, atol=1e-3)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
@@ -634,7 +634,7 @@ def test_biject_to(constraint, shape):
 
     # test codomain
     batch_shape = shape if transform.event_dim == 0 else shape[:-1]
-    assert_array_equal(transform.codomain(y), np.ones(batch_shape))
+    assert_array_equal(transform.codomain(y), np.ones(batch_shape, dtype=np.bool_))
 
     # test inv
     z = transform.inv(y)
