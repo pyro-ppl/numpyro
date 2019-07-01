@@ -462,6 +462,10 @@ def signed_stick_breaking_tril(t):
     return y
 
 
+def softplus(x):
+    return np.logaddexp(x, 0.)
+
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)

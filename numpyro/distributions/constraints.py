@@ -25,6 +25,7 @@
 import math
 
 import jax.numpy as np
+from jax import ops
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
@@ -382,6 +383,26 @@ class LowerCholeskyTransform(Transform):
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return x[..., -n:].sum(-1)
+
+
+class PermuteTransfrom(torch.nn.Module):
+    event_dim = 1
+
+    def __init__(self, permutation):
+        self.permutation = permutation
+
+    def __call__(self, x):
+        return x[..., self.permutation]
+
+    def inv(self, y):
+        size = self.permutation.size
+        permutation_inv = ops.index_update(np.zeros(size, dtype=np.int64),
+                                           np.arange(size),
+                                           np.arange(size))
+        return x[..., permutation_inv]
+
+    def log_abs_det_jacobian(self, x, y):
+        return np.full(np.shape(x)[:-1], 0.)
 
 
 class PowerTransform(Transform):

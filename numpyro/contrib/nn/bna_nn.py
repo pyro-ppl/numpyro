@@ -1,3 +1,6 @@
+from numpyro.distributions.util import softplus
+
+
 def MaskedBlockDense():
     def init_fun(rng, input_shape):
         return output_shape, params
@@ -10,11 +13,13 @@ def MaskedBlockDense():
 
 def Tanh():
     def init_fun(rng, input_shape):
-        return 
+        return input_shape, ()
 
     def apply_fun(params, inputs, **kwargs):
         x, logdet = inputs
-        return o, logdet
+        y = np.tanh(x)
+        tanh_logdet = - 2 * (x - np.log(2.) + softplus(-2 * x))
+        return y, logdet + tanh_logdet  # TODO: reshape?
 
 
 def stax_serial_with_jacobian(*layers):
