@@ -185,10 +185,6 @@ class TransformedDistribution(Distribution):
             domain = t.codomain
         return domain
 
-    @property
-    def is_reparametrized(self):
-        return self.base_dist.reparametrized
-
     def sample(self, key, sample_shape=()):
         x = self.base_dist.sample(key, sample_shape)
         for transform in self.transforms:
