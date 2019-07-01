@@ -397,9 +397,9 @@ class PermuteTransform(Transform):
     def inv(self, y):
         size = self.permutation.size
         permutation_inv = ops.index_update(np.zeros(size, dtype=np.int64),
-                                           np.arange(size),
+                                           self.permutation,
                                            np.arange(size))
-        return x[..., permutation_inv]
+        return y[..., permutation_inv]
 
     def log_abs_det_jacobian(self, x, y):
         return np.full(np.shape(x)[:-1], 0.)

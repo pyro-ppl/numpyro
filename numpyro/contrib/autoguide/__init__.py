@@ -266,8 +266,8 @@ class _Normal(dist.Normal):
     # work as Normal but has event_dim=1
     def __init__(self, *args, **kwargs):
         super(_Normal, self).__init__(*args, **kwargs)
-        self._batch_shape = self._batch_shape[:-1]
         self._event_shape = self._batch_shape[-1:]
+        self._batch_shape = self._batch_shape[:-1]
 
     def log_prob(self, value):
         return super(_Normal, self).log_prob(value).sum(-1)
@@ -298,12 +298,12 @@ class AutoIAFNormal(AutoContinuous):
     def sample_posterior(self, rng, opt_state, *args, **kwargs):
         sample_shape = kwargs.pop('sample_shape', ())
         params = self.get_params(opt_state)
+        latent_size = np.size(self._init_latent)
         flows = []
         for i in range(self.num_flows):
             arn_params = params['{}_arn__{}'.format(self.prefix, i)]
             flows.append(dist.InverseAutoregressiveTransform(self.arns[i], arn_params))
-        latent_size = np.size(self._init_latent)
-        iaf_dist = dist.TransformedDistribution(dist.Normal(np.zeros(latent_size), 1.), flows)
+        iaf_dist = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), flows)
         latent_sample = iaf_dist.sample(rng, sample_shape)
         return self._unpack_latent(latent_sample)
 
@@ -321,10 +321,9 @@ class AutoIAFNormal(AutoContinuous):
             for i in range(self.num_flows):
                 arn = AutoregressiveNN(latent_size, hidden_dims, nonlinearity=nonlinearity)
                 _, init_params = arn.init_fun(self.arn_rngs[i], (latent_size,), permutation)
+                permutation = onp.arange(latent_size)[::-1]
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), init_params)
                 self.arns.append(arn)
-                #if i > 0:
-                #    flows.append(PermuteTransform(np.arange(latent_size)))
                 flows.append(dist.InverseAutoregressiveTransform(arn, arn_params))
         else:
             for i in range(self.num_flows):
