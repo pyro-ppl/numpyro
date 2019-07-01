@@ -245,7 +245,7 @@ def main(args):
             continue
         lower, upper = mean - 3.0 * std, mean + 3.0 * std
         if not (lower < 0.0 and upper > 0.0):
-            format_str = "Identified pairwise interaction between dimensions %d and %d: %.3f +- %.3f"
+            format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
             print(format_str % (dim1 + 1, dim2 + 1, mean, std))
 
 
