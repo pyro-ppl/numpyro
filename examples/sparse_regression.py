@@ -236,17 +236,18 @@ def main(args):
 
     # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
     # Note that the resulting numbers are only correct for i != j.
-    dim_pairs = np.array(list(itertools.product(active_dimensions, active_dimensions)))
-    means, stds = vmap(lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y,
-                                                                   dim_pair[0], dim_pair[1], hypers))(dim_pairs)
-    for dim_pair, mean, std in zip(dim_pairs, means, stds):
-        dim1, dim2 = dim_pair
-        if dim1 >= dim2:
-            continue
-        lower, upper = mean - 3.0 * std, mean + 3.0 * std
-        if not (lower < 0.0 and upper > 0.0):
-            format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
-            print(format_str % (dim1 + 1, dim2 + 1, mean, std))
+    if len(active_dimensions) > 0:
+        dim_pairs = np.array(list(itertools.product(active_dimensions, active_dimensions)))
+        means, stds = vmap(lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y,
+                                                                       dim_pair[0], dim_pair[1], hypers))(dim_pairs)
+        for dim_pair, mean, std in zip(dim_pairs, means, stds):
+            dim1, dim2 = dim_pair
+            if dim1 >= dim2:
+                continue
+            lower, upper = mean - 3.0 * std, mean + 3.0 * std
+            if not (lower < 0.0 and upper > 0.0):
+                format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
+                print(format_str % (dim1 + 1, dim2 + 1, mean, std))
 
 
 if __name__ == "__main__":
