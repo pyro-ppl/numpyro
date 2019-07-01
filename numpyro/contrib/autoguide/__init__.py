@@ -12,7 +12,7 @@ from jax.tree_util import tree_map
 import numpyro.distributions as dist
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.constraints import biject_to, PermuteTransform
 from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import block, param, sample, seed, substitute, trace
 from numpyro.infer_util import transform_fn
@@ -261,6 +261,18 @@ def elu(x):
     return np.where(x > 0, x, np.exp(x) - 1)
 
 
+# TODO: remove when to_event is supported
+class _Normal(dist.Normal):
+    # work as Normal but has event_dim=1
+    def __init__(self, *args, **kwargs):
+        super(_Normal, self).__init__(*args, **kwargs)
+        self._batch_shape = self._batch_shape[:-1]
+        self._event_shape = self._batch_shape[-1:]
+
+    def log_prob(self, value):
+        return super(_Normal, self).log_prob(value).sum(-1)
+
+
 class AutoIAFNormal(AutoContinuous):
     """
     This implementation of :class:`AutoContinuous` uses a Diagonal Normal
@@ -309,14 +321,16 @@ class AutoIAFNormal(AutoContinuous):
             for i in range(self.num_flows):
                 arn = AutoregressiveNN(latent_size, hidden_dims, nonlinearity=nonlinearity)
                 _, init_params = arn.init_fun(self.arn_rngs[i], (latent_size,), permutation)
-                permutation = onp.arange(latent_size)[::-1]  # reverse dims for the next flow
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), init_params)
                 self.arns.append(arn)
+                #if i > 0:
+                #    flows.append(PermuteTransform(np.arange(latent_size)))
                 flows.append(dist.InverseAutoregressiveTransform(arn, arn_params))
         else:
             for i in range(self.num_flows):
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
                 flows.append(dist.InverseAutoregressiveTransform(self.arns[i], arn_params))
 
-        iaf_dist = dist.TransformedDistribution(dist.Normal(np.zeros(latent_size), 1.), flows)
+        # TODO: support to_event for distributions
+        iaf_dist = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), flows)
         return sample("_{}_latent".format(self.prefix), iaf_dist)

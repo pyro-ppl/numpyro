@@ -25,6 +25,7 @@
 import math
 
 import jax.numpy as np
+from jax import ops
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
@@ -384,6 +385,43 @@ class LowerCholeskyTransform(Transform):
         return x[..., -n:].sum(-1)
 
 
+class PermuteTransform(Transform):
+    event_dim = 1
+
+    def __init__(self, permutation):
+        self.permutation = permutation
+
+    def __call__(self, x):
+        return x[..., self.permutation]
+
+    def inv(self, y):
+        size = self.permutation.size
+        permutation_inv = ops.index_update(np.zeros(size, dtype=np.int64),
+                                           np.arange(size),
+                                           np.arange(size))
+        return x[..., permutation_inv]
+
+    def log_abs_det_jacobian(self, x, y):
+        return np.full(np.shape(x)[:-1], 0.)
+
+
+class PowerTransform(Transform):
+    domain = positive
+    codomain = positive
+
+    def __init__(self, exponent):
+        self.exponent = exponent
+
+    def __call__(self, x):
+        return np.power(x, self.exponent)
+
+    def inv(self, y):
+        return np.power(y, 1 / self.exponent)
+
+    def log_abs_det_jacobian(self, x, y):
+        return np.log(np.abs(self.exponent * y / x))
+
+
 class SigmoidTransform(Transform):
     codomain = unit_interval
 
@@ -411,6 +449,7 @@ class StickBreakingTransform(Transform):
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (0, 1)
         z_padded = np.pad(z, pad_width, mode="constant", constant_values=1.)
+        pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (1, 0)
         z1m_cumprod_shifted = np.pad(z1m_cumprod, pad_width, mode="constant", constant_values=1.)
         return z_padded * z1m_cumprod_shifted

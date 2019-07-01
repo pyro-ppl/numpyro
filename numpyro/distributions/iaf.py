@@ -26,6 +26,8 @@ class InverseAutoregressiveTransform(Transform):
     1. Improving Variational Inference with Inverse Autoregressive Flow [arXiv:1606.04934]
     Diederik P. Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, Max Welling
     """
+    event_dim = 1
+
     def __init__(self, autoregressive_nn, params, log_scale_min_clip=-5., log_scale_max_clip=3.):
         """
         :param autoregressive_nn: an autoregressive neural network whose forward call returns a real-valued

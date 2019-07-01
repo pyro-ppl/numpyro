@@ -597,7 +597,7 @@ class Normal(Distribution):
         super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        eps = random.normal(key, shape=sample_shape + self.batch_shape)
+        eps = random.normal(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + eps * self.scale
 
     def log_prob(self, value):
