@@ -1,5 +1,6 @@
 import argparse
 import time
+import itertools
 
 import numpy as onp
 
@@ -78,11 +79,11 @@ def model(X, Y, hypers):
 
 # Compute the mean and variance of coefficient theta_i (where i = dimension) for a
 # MCMC sample (eta1, xi, ...). Compare to theorem 5.1 in reference [1].
-def compute_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, var_obs):
+def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, var_obs):
     P, N = X.shape[1], X.shape[0]
 
     probe = np.zeros((2, P))
-    probe = jax.ops.index_update(probe, jax.ops.index[:, dimension], np.array([0.5, -0.5]))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dimension], np.array([1.0, -1.0]))
 
     eta2 = np.square(eta1) * np.sqrt(xisq) / msq
     kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
@@ -95,12 +96,44 @@ def compute_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, var_obs):
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
 
+    vec = np.array([0.50, -0.50])
     mu = np.matmul(k_probeX, np.matmul(k_xx_inv, Y))
-    mu = mu[0] - mu[1]
+    mu = np.dot(mu, vec)
 
     var = k_prbprb - np.matmul(k_probeX, np.matmul(k_xx_inv, np.transpose(k_probeX)))
-    var = np.matmul(var, np.array([1, -1]))
-    var = var[0] - var[1]
+    var = np.matmul(var, vec)
+    var = np.dot(var, vec)
+
+    return mu, var
+
+
+# Compute the mean and variance of coefficient theta_ij with i != j for a
+# MCMC sample (eta1, xi, ...). Compare to theorem 5.1 in reference [1].
+def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, var_obs):
+    P, N = X.shape[1], X.shape[0]
+
+    probe = np.zeros((4, P))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dim1], np.array([1.0, 1.0, -1.0, -1.0]))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dim2], np.array([1.0, -1.0, 1.0, -1.0]))
+
+    eta2 = np.square(eta1) * np.sqrt(xisq) / msq
+    kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
+
+    kX = kappa * X
+    kprobe = kappa * probe
+
+    k_xx = kernel(kX, kX, eta1, eta2, c) + var_obs * np.eye(N)
+    k_xx_inv = np.linalg.inv(k_xx)
+    k_probeX = kernel(kprobe, kX, eta1, eta2, c)
+    k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
+
+    vec = np.array([0.25, -0.25, -0.25, 0.25])
+    mu = np.matmul(k_probeX, np.matmul(k_xx_inv, Y))
+    mu = np.dot(mu, vec)
+
+    var = k_prbprb - np.matmul(k_probeX, np.matmul(k_xx_inv, np.transpose(k_probeX)))
+    var = np.matmul(var, vec)
+    var = np.dot(var, vec)
 
     return mu, var
 
@@ -125,7 +158,8 @@ def gaussian_mixture_stats(mus, variances):
 
 
 # Create artificial regression dataset where only S out of P feature
-# dimensions contain signal.
+# dimensions contain signal and where there is a single pairwise interaction
+# between the first and second dimensions.
 def get_data(N=20, S=2, P=10, sigma_obs=0.05):
     assert S < P and P > 1 and S > 0
     onp.random.seed(0)
@@ -133,23 +167,34 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
     X = onp.random.randn(N, P)
     # generate S coefficients with non-negligible magnitude
     W = 0.5 + 2.5 * onp.random.rand(S)
-    Y = onp.sum(X[:, 0:S] * W, axis=-1) + sigma_obs * onp.random.randn(N)
+    # generate data using the S coefficients and a single pairwise interaction
+    Y = onp.sum(X[:, 0:S] * W, axis=-1) + X[:, 0] * X[:, 1] + sigma_obs * onp.random.randn(N)
     Y -= np.mean(Y)
     Y_std = np.std(Y)
 
     assert X.shape == (N, P)
     assert Y.shape == (N,)
 
-    return X, Y / Y_std, W / Y_std
+    return X, Y / Y_std, W / Y_std, 1.0 / Y_std
 
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
 def analyze_dimension(samples, X, Y, dimension, hypers):
-    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'],
-                 samples['xisq'], samples['var_obs'])
+    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['var_obs'])
     mus, variances = vmap(lambda msq, lam, eta1, xisq, var_obs:
-                          compute_mean_variance(X, Y, dimension, msq, lam,
-                                                eta1, xisq, hypers['c'], var_obs))(*vmap_args)
+                          compute_singleton_mean_variance(X, Y, dimension, msq, lam,
+                                                          eta1, xisq, hypers['c'], var_obs))(*vmap_args)
+    mean, variance = gaussian_mixture_stats(mus, variances)
+    std = np.sqrt(variance)
+    return mean, std
+
+
+# Helper function for analyzing the posterior statistics for coefficient theta_ij for i!=j
+def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
+    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['var_obs'])
+    mus, variances = vmap(lambda msq, lam, eta1, xisq, var_obs:
+                          compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam,
+                                                         eta1, xisq, hypers['c'], var_obs))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = np.sqrt(variance)
     return mean, std
@@ -157,7 +202,8 @@ def analyze_dimension(samples, X, Y, dimension, hypers):
 
 def main(args):
     jax_config.update('jax_platform_name', args.device)
-    X, Y, expected_thetas = get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
+    X, Y, expected_thetas, expected_pairwise = get_data(N=args.num_data, P=args.num_dimensions,
+                                                        S=args.active_dimensions)
 
     # setup hyperparameters
     hypers = {'expected_sparsity': max(1.0, args.num_dimensions / 10),
@@ -174,18 +220,34 @@ def main(args):
     means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))
 
     print("Coefficients theta_1 to theta_%d used to generate the data:" % args.active_dimensions, expected_thetas)
-    total_active_dimensions = 0
+    print("The single quadratic coefficient theta_{1,2} used to generate the data:", expected_pairwise)
+    active_dimensions = []
 
     for dim, (mean, std) in enumerate(zip(means, stds)):
         # we mark the dimension as inactive if the interval [mean - 3 * std, mean + 3 * std] contains zero
         lower, upper = mean - 3.0 * std, mean + 3.0 * std
         inactive = "inactive" if lower < 0.0 and upper > 0.0 else "active"
         if inactive == "active":
-            total_active_dimensions += 1
+            active_dimensions.append(dim)
         print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, args.num_dimensions, inactive, mean, std))
 
-    print("Identified a total of %d active dimensions; expected %d." % (total_active_dimensions,
+    print("Identified a total of %d active dimensions; expected %d." % (len(active_dimensions),
                                                                         args.active_dimensions))
+
+    # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
+    # Note that the resulting numbers are only correct for i != j.
+    if len(active_dimensions) > 0:
+        dim_pairs = np.array(list(itertools.product(active_dimensions, active_dimensions)))
+        means, stds = vmap(lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y,
+                                                                       dim_pair[0], dim_pair[1], hypers))(dim_pairs)
+        for dim_pair, mean, std in zip(dim_pairs, means, stds):
+            dim1, dim2 = dim_pair
+            if dim1 >= dim2:
+                continue
+            lower, upper = mean - 3.0 * std, mean + 3.0 * std
+            if not (lower < 0.0 and upper > 0.0):
+                format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
+                print(format_str % (dim1 + 1, dim2 + 1, mean, std))
 
 
 if __name__ == "__main__":
