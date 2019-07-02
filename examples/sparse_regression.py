@@ -79,7 +79,8 @@ def model(X, Y, hypers):
 
 
 # Compute the mean and variance of coefficient theta_i (where i = dimension) for a
-# MCMC sample (eta1, xi, ...). Compare to theorem 5.1 in reference [1].
+# MCMC sample of the kernel hyperparameters (eta1, xisq, ...).
+# Compare to theorem 5.1 in reference [1].
 def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, var_obs):
     P, N = X.shape[1], X.shape[0]
 
