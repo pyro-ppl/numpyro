@@ -1,17 +1,14 @@
-# adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/distributions/transforms/iaf.py
-
-from __future__ import absolute_import, division, print_function
-
 from jax.lax import stop_gradient
 import jax.numpy as np
 
-from numpyro.distributions.constraints import Transform
+from numpyro.distributions.constraints import Transform, real_vector
 
 
 def _clamp_preserve_gradients(x, min, max):
     return x + stop_gradient(np.clip(x, a_min=min, a_max=max) - x)
 
 
+# adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/distributions/transforms/iaf.py
 class InverseAutoregressiveTransform(Transform):
     """
     An implementation of Inverse Autoregressive Flow, using Eq (10) from Kingma et al., 2016,
@@ -26,6 +23,10 @@ class InverseAutoregressiveTransform(Transform):
     1. Improving Variational Inference with Inverse Autoregressive Flow [arXiv:1606.04934]
     Diederik P. Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, Max Welling
     """
+    domain = real_vector
+    codomain = real_vector
+    event_dim = 1
+
     def __init__(self, autoregressive_nn, params, log_scale_min_clip=-5., log_scale_max_clip=3.):
         """
         :param autoregressive_nn: an autoregressive neural network whose forward call returns a real-valued
@@ -37,8 +38,6 @@ class InverseAutoregressiveTransform(Transform):
         self.params = params
         self.log_scale_min_clip = log_scale_min_clip
         self.log_scale_max_clip = log_scale_max_clip
-
-        # TODO event_dim logic?
 
     def __call__(self, x):
         """

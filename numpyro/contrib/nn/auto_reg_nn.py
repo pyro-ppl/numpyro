@@ -1,9 +1,5 @@
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/nn/auto_reg_nn.py
 
-from __future__ import absolute_import, division, print_function
-
-import numpy as onp
-
 from jax import random
 import jax.numpy as np
 
@@ -44,7 +40,7 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
 
     # Create the indices that are assigned to the neurons
     input_indices = 1 + var_index
-    hidden_indices = [sample_mask_indices(input_dim, h) for h in hidden_dims]
+    hidden_indices = [sample_mask_indices(input_dim - 1, h) for h in hidden_dims]
     output_indices = onp.tile(var_index + 1, output_dim_multiplier)
 
     # Create mask from input to output for the skips connections
@@ -54,12 +50,12 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     # NOTE: The masks created follow a slightly different pattern than that given in Germain et al. Figure 1
     # The output first in the order (e.g. x_2 in the figure) is connected to hidden units rather than being unattached
     # Tracing a path back through the network, however, this variable will still be unconnected to any input variables
-    masks = [onp.transpose(hidden_indices[0][:, None] > input_indices[None, :]).astype(dtype)]
+    masks = [onp.transpose(hidden_indices[0][:, None] >= input_indices[None, :]).astype(dtype)]
     for i in range(1, len(hidden_dims)):
         masks.append(onp.transpose(hidden_indices[i][:, None] >= hidden_indices[i - 1][None, :]).astype(dtype))
 
     # Create mask from last hidden layer to output layer
-    masks.append(onp.transpose(output_indices[:, None] >= hidden_indices[-1][None, :]).astype(dtype))
+    masks.append(onp.transpose(output_indices[:, None] > hidden_indices[-1][None, :]).astype(dtype))
 
     return masks, mask_skip
 
