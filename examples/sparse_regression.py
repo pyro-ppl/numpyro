@@ -308,9 +308,9 @@ def main(args):
                 format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
                 print(format_str % (dim1 + 1, dim2 + 1, mean, std))
 
-        # Draw a single sample of coefficients theta, where we return all singleton coefficients theta_i and
-        # pairwise coefficients theta_ij for i, j active dimensions. We use the final MCMC sample obtained from
-        # the HMC sampler.
+        # Draw a single sample of coefficients theta from the posterior, where we return all singleton
+        # coefficients theta_i and pairwise coefficients theta_ij for i, j active dimensions. We use the
+        # final MCMC sample obtained from the HMC sampler.
         thetas = sample_theta_space(X, Y, active_dimensions, samples['msq'][-1], samples['lambda'][-1],
                                     samples['eta1'][-1], samples['xisq'][-1], hypers['c'], samples['var_obs'][-1])
         print("Single posterior sample theta:\n", thetas)
