@@ -13,7 +13,7 @@ import jax.random as random
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.constraints import biject_to, PermuteTransform, PowerTransform
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
@@ -174,7 +174,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         lower_bound = np.broadcast_to(constraint.lower_bound, size)
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=lower_bound, maxval=upper_bound)
-    elif isinstance(constraint, constraints._Real):
+    elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
         return random.normal(key, size)
     elif isinstance(constraint, constraints._Simplex):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1])
@@ -207,7 +207,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._Interval):
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.)
-    elif isinstance(constraint, constraints._Real):
+    elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
         return lax.full(size, np.nan)
     elif isinstance(constraint, constraints._Simplex):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1]) + 1e-2
@@ -608,7 +608,6 @@ def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
 
-@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 @pytest.mark.parametrize('constraint', [
     constraints.corr_cholesky,
     constraints.greater_than(2),
@@ -619,6 +618,7 @@ def test_constraints(constraint, x, expected):
     constraints.simplex,
     constraints.unit_interval,
 ])
+@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
     if isinstance(constraint, constraints._Interval):
@@ -662,6 +662,43 @@ def test_biject_to(constraint, shape):
             inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x))  # noqa: E731
             expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
+        else:
+            expected = np.log(np.abs(grad(transform)(x)))
+            inv_expected = np.log(np.abs(grad(transform.inv)(y)))
+
+        assert_allclose(actual, expected, atol=1e-6)
+        assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+# NB: skip transforms which are tested in `test_biject_to`
+@pytest.mark.parametrize('transform, event_shape', [
+    (PermuteTransform(np.array([3, 1, 4, 0, 2])), (5,)),
+    (PowerTransform(2.), ()),
+])
+@pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
+def test_bijective_transforms(transform, event_shape, batch_shape):
+    shape = batch_shape + event_shape
+    rng = random.PRNGKey(0)
+    x = biject_to(transform.domain)(random.normal(rng, shape))
+    y = transform(x)
+
+    # test codomain
+    assert_array_equal(transform.codomain(y), np.ones(batch_shape))
+
+    # test inv
+    z = transform.inv(y)
+    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+
+    # test domain
+    assert_array_equal(transform.domain(z), np.ones(batch_shape))
+
+    # test log_abs_det_jacobian
+    actual = transform.log_abs_det_jacobian(x, y)
+    assert np.shape(actual) == batch_shape
+    if len(shape) == transform.event_dim:
+        if isinstance(transform, PermuteTransform):
+            expected = onp.linalg.slogdet(jax.jacobian(transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
         else:
             expected = np.log(np.abs(grad(transform)(x)))
             inv_expected = np.log(np.abs(grad(transform.inv)(y)))

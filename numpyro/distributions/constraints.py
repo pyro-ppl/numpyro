@@ -25,6 +25,7 @@
 import math
 
 import jax.numpy as np
+from jax import ops
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
@@ -134,6 +135,11 @@ class _Real(Constraint):
         return np.isfinite(x)
 
 
+class _RealVector(Constraint):
+    def __call__(self, x):
+        return np.all(np.isfinite(x), axis=-1)
+
+
 class _Simplex(Constraint):
     def __call__(self, x):
         x_sum = np.sum(x, axis=-1)
@@ -156,6 +162,7 @@ positive_integer = _IntegerGreaterThan(1)
 positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
 real = _Real()
+real_vector = _RealVector()
 simplex = _Simplex()
 unit_interval = _Interval(0., 1.)
 
@@ -354,6 +361,9 @@ class ExpTransform(Transform):
 
 class IdentityTransform(Transform):
 
+    def __init__(self, event_dim=0):
+        self.event_dim = event_dim
+
     def __call__(self, x):
         return x
 
@@ -361,7 +371,7 @@ class IdentityTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y):
-        return np.full(np.shape(x), 0.)
+        return np.full(np.shape(x) if self.event_dim == 0 else np.shape(x)[:-1], 0.)
 
 
 class LowerCholeskyTransform(Transform):
@@ -382,6 +392,28 @@ class LowerCholeskyTransform(Transform):
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return x[..., -n:].sum(-1)
+
+
+class PermuteTransform(Transform):
+    domain = real_vector
+    codomain = real_vector
+    event_dim = 1
+
+    def __init__(self, permutation):
+        self.permutation = permutation
+
+    def __call__(self, x):
+        return x[..., self.permutation]
+
+    def inv(self, y):
+        size = self.permutation.size
+        permutation_inv = ops.index_update(np.zeros(size, dtype=np.int64),
+                                           self.permutation,
+                                           np.arange(size))
+        return y[..., permutation_inv]
+
+    def log_abs_det_jacobian(self, x, y):
+        return np.full(np.shape(x)[:-1], 0.)
 
 
 class PowerTransform(Transform):
@@ -507,6 +539,11 @@ def _transform_to_lower_cholesky(constraint):
 @biject_to.register(real)
 def _transform_to_real(constraint):
     return IdentityTransform()
+
+
+@biject_to.register(real_vector)
+def _transform_to_real_vector(constraint):
+    return IdentityTransform(event_dim=1)
 
 
 @biject_to.register(simplex)

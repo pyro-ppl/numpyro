@@ -418,6 +418,9 @@ def get_dtypes(*args):
 
 
 def sum_rightmost(x, dim):
+    """
+    Sum out ``dim`` many rightmost dimensions of a given tensor.
+    """
     out_dim = np.ndim(x) - dim
     x = np.reshape(x[..., np.newaxis], np.shape(x)[:out_dim] + (-1,))
     return np.sum(x, axis=-1)

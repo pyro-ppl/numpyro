@@ -553,11 +553,11 @@ def _batch_mahalanobis(bL, bx):
 
 @copy_docs_from(Distribution)
 class MultivariateNormal(Distribution):
-    arg_constraints = {'loc': constraints.real,
+    arg_constraints = {'loc': constraints.real_vector,
                        'covariance_matrix': constraints.positive_definite,
                        'precision_matrix': constraints.positive_definite,
                        'scale_tril': constraints.lower_cholesky}
-    support = constraints.real
+    support = constraints.real_vector
     reparametrized_params = ['loc', 'covariance_matrix', 'precision_matrix', 'scale_tril']
 
     def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
@@ -627,7 +627,7 @@ class Normal(Distribution):
         super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        eps = random.normal(key, shape=sample_shape + self.batch_shape)
+        eps = random.normal(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + eps * self.scale
 
     def log_prob(self, value):
