@@ -375,6 +375,7 @@ class IdentityTransform(Transform):
 
 
 class LowerCholeskyTransform(Transform):
+    domain = real_vector
     codomain = lower_cholesky
     event_dim = 1
 
@@ -448,6 +449,7 @@ class SigmoidTransform(Transform):
 
 
 class StickBreakingTransform(Transform):
+    domain = real_vector
     codomain = simplex
     event_dim = 1
 
