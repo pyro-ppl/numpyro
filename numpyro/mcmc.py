@@ -10,7 +10,7 @@ from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
-from jax.tree_util import register_pytree_node, tree_map, tree_multimap
+from jax.tree_util import tree_map, tree_multimap
 
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import (
@@ -50,16 +50,6 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
  - **rng** - random number generator seed used for the iteration.
 """
-
-
-register_pytree_node(
-    HMCState,
-    lambda xs: (tuple(xs), None),
-    lambda _, xs: HMCState(*xs)
-)
-
-
-HMCState.update = HMCState._replace
 
 
 def _get_num_steps(step_size, trajectory_length):
@@ -270,7 +260,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                  max_tree_depth=max_treedepth)
         accept_prob = binary_tree.sum_accept_probs / binary_tree.num_proposals
         num_steps = binary_tree.num_proposals
-        vv_state = vv_state.update(z=binary_tree.z_proposal,
+        vv_state = IntegratorState(z=binary_tree.z_proposal,
+                                   r=vv_state.r,
                                    potential_energy=binary_tree.z_proposal_pe,
                                    z_grad=binary_tree.z_proposal_grad)
         return vv_state, num_steps, accept_prob
