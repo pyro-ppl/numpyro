@@ -92,6 +92,6 @@ class InverseAutoregressiveTransform(Transform):
         if self.caching:
             log_scale = self._cached_log_scale
         else:
-            log_scale = self.arn.apply_fun(self.params, x)[..., 1, :]  # TODO: this shouldn't be recomputed here
+            log_scale = self.arn.apply_fun(self.params, x)[..., 1, :]
             log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
         return log_scale.sum(-1)

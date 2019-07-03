@@ -14,7 +14,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import PermuteTransform, biject_to
 from numpyro.distributions.flows import InverseAutoregressiveTransform
-from numpyro.distributions.util import elu, sum_rightmost
+from numpyro.distributions.util import relu, sum_rightmost
 from numpyro.handlers import block, param, sample, seed, substitute, trace
 from numpyro.infer_util import transform_fn
 
@@ -279,7 +279,7 @@ class AutoIAFNormal(AutoContinuous):
 
     Usage::
 
-        guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[10], ...)
+        guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[20], skip_connections=True, ...)
         svi_init, svi_update, _ = svi(model, guide, ...)
     """
     def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median,
@@ -315,11 +315,10 @@ class AutoIAFNormal(AutoContinuous):
             # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
             hidden_dims = self.arn_kwargs.get('hidden_dims', [latent_size, latent_size])
             skip_connections = self.arn_kwargs.get('skip_connections', True)
-            # according to IAF paper, ELU works better than other nonlinearities
-            nonlinearity = self.arn_kwargs.get('nonlinearity', elu)
+            nonlinearity = self.arn_kwargs.get('nonlinearity', relu)
             for i in range(self.num_flows):
-                arn = AutoregressiveNN(latent_size, hidden_dims, skip_connections=skip_connections,
-                                       permutation=np.arange(latent_size))
+                arn = AutoregressiveNN(latent_size, hidden_dims, permutation=np.arange(latent_size),
+                                       skip_connections=skip_connections, nonlinearity=nonlinearity)
                 _, init_params = arn.init_fun(self.arn_rngs[i], (latent_size,))
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), init_params)
                 self.arns.append(arn)
