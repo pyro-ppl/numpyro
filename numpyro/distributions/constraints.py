@@ -24,8 +24,8 @@
 
 import math
 
-import jax.numpy as np
 from jax import ops
+import jax.numpy as np
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
