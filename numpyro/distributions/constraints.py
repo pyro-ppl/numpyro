@@ -24,6 +24,7 @@
 
 import math
 
+from jax import ops
 import jax.numpy as np
 from jax import ops
 from jax.scipy.special import expit, logit
@@ -135,6 +136,11 @@ class _Real(Constraint):
         return np.isfinite(x)
 
 
+class _RealVector(Constraint):
+    def __call__(self, x):
+        return np.all(np.isfinite(x), axis=-1)
+
+
 class _Simplex(Constraint):
     def __call__(self, x):
         x_sum = np.sum(x, axis=-1)
@@ -157,6 +163,7 @@ positive_integer = _IntegerGreaterThan(1)
 positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
 real = _Real()
+real_vector = _RealVector()
 simplex = _Simplex()
 unit_interval = _Interval(0., 1.)
 
@@ -287,6 +294,7 @@ class CorrCholeskyTransform(Transform):
         c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
         d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
     """
+    domain = real_vector
     codomain = corr_cholesky
     event_dim = 1
 
@@ -355,6 +363,9 @@ class ExpTransform(Transform):
 
 class IdentityTransform(Transform):
 
+    def __init__(self, event_dim=0):
+        self.event_dim = event_dim
+
     def __call__(self, x):
         return x
 
@@ -362,10 +373,11 @@ class IdentityTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y):
-        return np.full(np.shape(x), 0.)
+        return np.full(np.shape(x) if self.event_dim == 0 else np.shape(x)[:-1], 0.)
 
 
 class LowerCholeskyTransform(Transform):
+    domain = real_vector
     codomain = lower_cholesky
     event_dim = 1
 
@@ -386,6 +398,8 @@ class LowerCholeskyTransform(Transform):
 
 
 class PermuteTransform(Transform):
+    domain = real_vector
+    codomain = real_vector
     event_dim = 1
 
     def __init__(self, permutation):
@@ -437,6 +451,7 @@ class SigmoidTransform(Transform):
 
 
 class StickBreakingTransform(Transform):
+    domain = real_vector
     codomain = simplex
     event_dim = 1
 
@@ -528,6 +543,11 @@ def _transform_to_lower_cholesky(constraint):
 @biject_to.register(real)
 def _transform_to_real(constraint):
     return IdentityTransform()
+
+
+@biject_to.register(real_vector)
+def _transform_to_real_vector(constraint):
+    return IdentityTransform(event_dim=1)
 
 
 @biject_to.register(simplex)

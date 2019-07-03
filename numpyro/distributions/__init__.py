@@ -8,6 +8,7 @@ from numpyro.distributions.continuous import (
     GaussianRandomWalk,
     HalfCauchy,
     HalfNormal,
+    InverseGamma,
     LKJCholesky,
     LogNormal,
     MultivariateNormal,
@@ -35,7 +36,6 @@ from numpyro.distributions.discrete import (
     Poisson
 )
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
-from numpyro.distributions.iaf import InverseAutoregressiveTransform
 
 __all__ = [
     'Bernoulli',
@@ -58,7 +58,7 @@ __all__ = [
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
-    'InverseAutoregressiveTransform',
+    'InverseGamma',
     'LKJCholesky',
     'LogNormal',
     'Multinomial',

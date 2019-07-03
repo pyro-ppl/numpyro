@@ -13,7 +13,7 @@ import jax.random as random
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.constraints import PermuteTransform, PowerTransform, biject_to
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
@@ -55,6 +55,7 @@ _DIST_MAP = {
     dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1./rate),
     dist.HalfCauchy: lambda scale: osp.halfcauchy(scale=scale),
     dist.HalfNormal: lambda scale: osp.halfnorm(scale=scale),
+    dist.InverseGamma: lambda conc, rate: osp.invgamma(conc, scale=rate),
     dist.LogNormal: lambda loc, scale: osp.lognorm(s=scale, scale=np.exp(loc)),
     dist.MultinomialProbs: lambda probs, total_count: osp.multinomial(n=total_count, p=probs),
     dist.MultinomialLogits: lambda logits, total_count: osp.multinomial(n=total_count,
@@ -90,6 +91,8 @@ CONTINUOUS = [
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
     T(dist.HalfNormal, np.array([1., 2.])),
+    T(dist.InverseGamma, np.array([1.7]), np.array([[2.], [3.]])),
+    T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
     T(dist.LKJCholesky, 2, 0.5, "onion"),
     T(dist.LKJCholesky, 2, 0.5, "cvine"),
     T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "onion"),
@@ -102,7 +105,8 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, 0., np.array([[1., 0.5], [0.5, 1.]]), None, None),
     T(dist.MultivariateNormal, np.array([1., 3.]), None, np.array([[1., 0.5], [0.5, 1.]]), None),
     T(dist.MultivariateNormal, np.array([2.]), None, None, np.array([[1., 0.], [0.5, 1.]])),
-    T(dist.MultivariateNormal, np.arange(6).reshape((3, 2)), None, None, np.array([[1., 0.], [0., 1.]])),
+    T(dist.MultivariateNormal, np.arange(6, dtype=np.float32).reshape((3, 2)), None, None,
+      np.array([[1., 0.], [0., 1.]])),
     T(dist.MultivariateNormal, 0., None, np.broadcast_to(np.identity(3), (2, 3, 3)), None),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
@@ -170,7 +174,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         lower_bound = np.broadcast_to(constraint.lower_bound, size)
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=lower_bound, maxval=upper_bound)
-    elif isinstance(constraint, constraints._Real):
+    elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
         return random.normal(key, size)
     elif isinstance(constraint, constraints._Simplex):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1])
@@ -203,7 +207,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._Interval):
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.)
-    elif isinstance(constraint, constraints._Real):
+    elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
         return lax.full(size, np.nan)
     elif isinstance(constraint, constraints._Simplex):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1]) + 1e-2
@@ -424,29 +428,28 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         pytest.skip('we have separated tests for LKJCholesky distribution')
     rng = random.PRNGKey(0)
 
-    def fn(args, value):
-        return np.sum(jax_dist(*args).log_prob(value))
-
     value = jax_dist(*params).sample(rng)
-    actual_grad = jax.grad(fn)(params, value)
-    assert len(actual_grad) == len(params)
+
+    def fn(*args):
+        return np.sum(jax_dist(*args).log_prob(value))
 
     eps = 1e-3
     for i in range(len(params)):
         if params[i] is None or np.result_type(params[i]) in (np.int32, np.int64):
             continue
+        actual_grad = jax.grad(fn, i)(*params)
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
         args_rhs = [p if j != i else p + eps for j, p in enumerate(params)]
-        fn_lhs = fn(args_lhs, value)
-        fn_rhs = fn(args_rhs, value)
+        fn_lhs = fn(*args_lhs)
+        fn_rhs = fn(*args_rhs)
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
-        assert np.shape(actual_grad[i]) == np.shape(params[i])
+        assert np.shape(actual_grad) == np.shape(params[i])
         if i == 0 and jax_dist is dist.Delta:
             # grad w.r.t. `value` of Delta distribution will be 0
             # but numerical value will give nan (= inf - inf)
             expected_grad = 0.
-        assert_allclose(np.sum(actual_grad[i]), expected_grad, rtol=0.01, atol=1e-3)
+        assert_allclose(np.sum(actual_grad), expected_grad, rtol=0.01, atol=1e-3)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
@@ -605,7 +608,6 @@ def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
 
-@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 @pytest.mark.parametrize('constraint', [
     constraints.corr_cholesky,
     constraints.greater_than(2),
@@ -616,6 +618,7 @@ def test_constraints(constraint, x, expected):
     constraints.simplex,
     constraints.unit_interval,
 ])
+@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
     if isinstance(constraint, constraints._Interval):
@@ -631,14 +634,14 @@ def test_biject_to(constraint, shape):
 
     # test codomain
     batch_shape = shape if transform.event_dim == 0 else shape[:-1]
-    assert_array_equal(transform.codomain(y), np.ones(batch_shape))
+    assert_array_equal(transform.codomain(y), np.ones(batch_shape, dtype=np.bool_))
 
     # test inv
     z = transform.inv(y)
     assert_allclose(x, z, atol=1e-6, rtol=1e-6)
 
-    # test domain, currently all is constraints.real
-    assert_array_equal(transform.domain(z), np.ones(shape))
+    # test domain, currently all is constraints.real or constraints.real_vector
+    assert_array_equal(transform.domain(z), np.ones(batch_shape))
 
     # test log_abs_det_jacobian
     actual = transform.log_abs_det_jacobian(x, y)
@@ -659,6 +662,43 @@ def test_biject_to(constraint, shape):
             inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x))  # noqa: E731
             expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
+        else:
+            expected = np.log(np.abs(grad(transform)(x)))
+            inv_expected = np.log(np.abs(grad(transform.inv)(y)))
+
+        assert_allclose(actual, expected, atol=1e-6)
+        assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+# NB: skip transforms which are tested in `test_biject_to`
+@pytest.mark.parametrize('transform, event_shape', [
+    (PermuteTransform(np.array([3, 1, 4, 0, 2])), (5,)),
+    (PowerTransform(2.), ()),
+])
+@pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
+def test_bijective_transforms(transform, event_shape, batch_shape):
+    shape = batch_shape + event_shape
+    rng = random.PRNGKey(0)
+    x = biject_to(transform.domain)(random.normal(rng, shape))
+    y = transform(x)
+
+    # test codomain
+    assert_array_equal(transform.codomain(y), np.ones(batch_shape))
+
+    # test inv
+    z = transform.inv(y)
+    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+
+    # test domain
+    assert_array_equal(transform.domain(z), np.ones(batch_shape))
+
+    # test log_abs_det_jacobian
+    actual = transform.log_abs_det_jacobian(x, y)
+    assert np.shape(actual) == batch_shape
+    if len(shape) == transform.event_dim:
+        if isinstance(transform, PermuteTransform):
+            expected = onp.linalg.slogdet(jax.jacobian(transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
         else:
             expected = np.log(np.abs(grad(transform)(x)))
             inv_expected = np.log(np.abs(grad(transform.inv)(y)))

@@ -357,6 +357,10 @@ def entr(p):
     return np.where(p < 0, -np.inf, -xlogy(p))
 
 
+def relu(x):
+    return np.maximum(x, 0.)
+
+
 def multigammaln(a, d):
     constant = 0.25 * d * (d - 1) * np.log(np.pi)
     res = np.sum(gammaln(np.expand_dims(a, axis=-1) - 0.5 * np.arange(d)), axis=-1)
@@ -418,6 +422,9 @@ def get_dtypes(*args):
 
 
 def sum_rightmost(x, dim):
+    """
+    Sum out ``dim`` many rightmost dimensions of a given tensor.
+    """
     out_dim = np.ndim(x) - dim
     x = np.reshape(x[..., np.newaxis], np.shape(x)[:out_dim] + (-1,))
     return np.sum(x, axis=-1)

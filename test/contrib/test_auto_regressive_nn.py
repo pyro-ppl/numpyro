@@ -12,8 +12,10 @@ from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
 @pytest.mark.parametrize('input_dim', [5])
 @pytest.mark.parametrize('param_dims', [[1], [1, 1], [2, 3]])
 @pytest.mark.parametrize('hidden_dims', [[8], [6, 7]])
-def test_auto_reg_nn(input_dim, hidden_dims, param_dims):
-    arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims)
+@pytest.mark.parametrize('skip_connections', [True, False])
+def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
+    arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims,
+                           skip_connections=skip_connections)
 
     rng = random.PRNGKey(0)
     batch_size = 4
