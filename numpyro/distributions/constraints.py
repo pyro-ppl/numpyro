@@ -293,6 +293,7 @@ class CorrCholeskyTransform(Transform):
         c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
         d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
     """
+    domain = real_vector
     codomain = corr_cholesky
     event_dim = 1
 
