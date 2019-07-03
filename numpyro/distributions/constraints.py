@@ -26,7 +26,6 @@ import math
 
 from jax import ops
 import jax.numpy as np
-from jax import ops
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
@@ -406,6 +405,7 @@ class PermuteTransform(Transform):
         self.permutation = permutation
 
     def __call__(self, x):
+        self._cached_x = x
         return x[..., self.permutation]
 
     def inv(self, y):

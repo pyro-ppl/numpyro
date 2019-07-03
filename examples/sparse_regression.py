@@ -1,6 +1,6 @@
 import argparse
-import time
 import itertools
+import time
 
 import numpy as onp
 

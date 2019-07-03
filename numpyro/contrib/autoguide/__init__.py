@@ -9,11 +9,12 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.tree_util import tree_map
 
-import numpyro.distributions as dist
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
+import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import biject_to, PermuteTransform
-from numpyro.distributions.util import sum_rightmost
+from numpyro.distributions.constraints import PermuteTransform, biject_to
+from numpyro.distributions.flows import InverseAutoregressiveTransform
+from numpyro.distributions.util import elu, sum_rightmost
 from numpyro.handlers import block, param, sample, seed, substitute, trace
 from numpyro.infer_util import transform_fn
 
@@ -256,11 +257,6 @@ class AutoDiagonalNormal(AutoContinuous):
         return result
 
 
-def elu(x):
-    # according to IAF paper, ELU works better than other nonlinearities
-    return np.where(x > 0, x, np.exp(x) - 1)
-
-
 # TODO: remove when to_event is supported
 class _Normal(dist.Normal):
     # work as Normal but has event_dim=1
@@ -302,7 +298,9 @@ class AutoIAFNormal(AutoContinuous):
         flows = []
         for i in range(self.num_flows):
             arn_params = params['{}_arn__{}'.format(self.prefix, i)]
-            flows.append(dist.InverseAutoregressiveTransform(self.arns[i], arn_params))
+            if i > 0:
+                flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
+            flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
         iaf_dist = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), flows)
         latent_sample = iaf_dist.sample(rng, sample_shape)
         return self._unpack_latent(latent_sample)
@@ -316,19 +314,24 @@ class AutoIAFNormal(AutoContinuous):
             # 2-layer by default following the experiments in IAF paper
             # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
             hidden_dims = self.arn_kwargs.get('hidden_dims', [latent_size, latent_size])
+            skip_connections = self.arn_kwargs.get('skip_connections', True)
+            # according to IAF paper, ELU works better than other nonlinearities
             nonlinearity = self.arn_kwargs.get('nonlinearity', elu)
-            permutation = self.arn_kwargs.get('permutation', onp.arange(latent_size))
             for i in range(self.num_flows):
-                arn = AutoregressiveNN(latent_size, hidden_dims, nonlinearity=nonlinearity)
-                _, init_params = arn.init_fun(self.arn_rngs[i], (latent_size,), permutation)
-                permutation = onp.arange(latent_size)[::-1]
+                arn = AutoregressiveNN(latent_size, hidden_dims, skip_connections=skip_connections,
+                                       permutation=np.arange(latent_size))
+                _, init_params = arn.init_fun(self.arn_rngs[i], (latent_size,))
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), init_params)
                 self.arns.append(arn)
-                flows.append(dist.InverseAutoregressiveTransform(arn, arn_params))
+                if i > 0:
+                    flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
+                flows.append(InverseAutoregressiveTransform(arn, arn_params, caching=True))
         else:
             for i in range(self.num_flows):
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
-                flows.append(dist.InverseAutoregressiveTransform(self.arns[i], arn_params))
+                if i > 0:
+                    flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
+                flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params, caching=True))
 
         # TODO: support to_event for distributions
         iaf_dist = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), flows)
