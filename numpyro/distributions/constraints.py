@@ -215,6 +215,8 @@ class AffineTransform(Transform):
     def codomain(self):
         if self.domain is real:
             return real
+        elif self.domain is real_vector:
+            return real_vector
         elif isinstance(self.domain, greater_than):
             return greater_than(self.__call__(self.domain.lower_bound))
         elif isinstance(self.domain, interval):
@@ -223,6 +225,10 @@ class AffineTransform(Transform):
         else:
             raise NotImplementedError
 
+    @property
+    def event_dim(self):
+        return 1 if self.domain is real_vector else 0
+
     def __call__(self, x):
         return self.loc + self.scale * x
 
@@ -230,7 +236,7 @@ class AffineTransform(Transform):
         return (y - self.loc) / self.scale
 
     def log_abs_det_jacobian(self, x, y):
-        return np.broadcast_to(np.log(np.abs(self.scale)), x.shape)
+        return sum_rightmost(np.broadcast_to(np.log(np.abs(self.scale)), x.shape), self.event_dim)
 
 
 class ComposeTransform(Transform):

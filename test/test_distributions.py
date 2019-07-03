@@ -672,7 +672,7 @@ def test_biject_to(constraint, shape):
 
 # NB: skip transforms which are tested in `test_biject_to`
 @pytest.mark.parametrize('transform, event_shape', [
-    (PermuteTransform(np.array([3, 1, 4, 0, 2])), (5,)),
+    (PermuteTransform(np.array([3, 0, 4, 1, 2])), (5,)),
     (PowerTransform(2.), ()),
 ])
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
