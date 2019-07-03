@@ -1,11 +1,11 @@
-from jax.lax import stop_gradient
+from jax import lax, ops
 import jax.numpy as np
 
 from numpyro.distributions.constraints import Transform, real_vector
 
 
 def _clamp_preserve_gradients(x, min, max):
-    return x + stop_gradient(np.clip(x, a_min=min, a_max=max) - x)
+    return x + lax.stop_gradient(np.clip(x, a_min=min, a_max=max) - x)
 
 
 # adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/distributions/transforms/iaf.py
@@ -64,18 +64,21 @@ class InverseAutoregressiveTransform(Transform):
         if self.caching:
             return self._cached_x
 
-        x = [np.zeros(y.shape[:-1])] * y.shape[-1]
+        x = np.zeros(y.shape)
 
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
-        for idx in self.arn.permutation:
-            out = self.arn.apply_fun(self.params, np.stack(x, axis=-1))
+        def _update_x(i, x):
+            idx = self.arn.permutation[i]
+            out = self.arn.apply_fun(self.params, x)
             mean, log_scale = out[..., 0, :], out[..., 1, :]
             inverse_scale = np.exp(-_clamp_preserve_gradients(
                 log_scale[..., idx], min=self.log_scale_min_clip, max=self.log_scale_max_clip))
             mean = mean[..., idx]
-            x[idx] = (y[..., idx] - mean) * inverse_scale
+            x = ops.index_update(x, (..., idx), (y[..., idx] - mean) * inverse_scale)
+            return x
 
-        x = np.stack(x, axis=-1)
+        x = lax.fori_loop(0, y.shape[-1], _update_x, x)
+
         return x
 
     def log_abs_det_jacobian(self, x, y):
