@@ -640,8 +640,8 @@ def test_biject_to(constraint, shape):
     z = transform.inv(y)
     assert_allclose(x, z, atol=1e-6, rtol=1e-6)
 
-    # test domain, currently all is constraints.real
-    assert_array_equal(transform.domain(z), np.ones(shape))
+    # test domain, currently all is constraints.real or constraints.real_vector
+    assert_array_equal(transform.domain(z), np.ones(batch_shape))
 
     # test log_abs_det_jacobian
     actual = transform.log_abs_det_jacobian(x, y)
