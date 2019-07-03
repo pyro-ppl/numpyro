@@ -27,15 +27,18 @@ class InverseAutoregressiveTransform(Transform):
     codomain = real_vector
     event_dim = 1
 
-    def __init__(self, autoregressive_nn, params, log_scale_min_clip=-5., log_scale_max_clip=3.):
+    def __init__(self, autoregressive_nn, params, caching=False,
+                 log_scale_min_clip=-5., log_scale_max_clip=3.):
         """
         :param autoregressive_nn: an autoregressive neural network whose forward call returns a real-valued
             mean and log scale as a tuple
         :param params: the parameters for the autoregressive neural network
         :type list:
+        :param bool caching: where to cache results during forward pass
         """
         self.arn = autoregressive_nn
         self.params = params
+        self.caching = caching
         self.log_scale_min_clip = log_scale_min_clip
         self.log_scale_max_clip = log_scale_max_clip
 
@@ -48,6 +51,9 @@ class InverseAutoregressiveTransform(Transform):
         mean, log_scale = out[..., 0, :], out[..., 1, :]
         log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
         scale = np.exp(log_scale)
+        if self.caching:
+            self._cached_x = x
+            self._cached_log_scale = log_scale
         return scale * x + mean
 
     def inv(self, y):
@@ -55,6 +61,9 @@ class InverseAutoregressiveTransform(Transform):
         :param y: the output of the transform to be inverted
         :type y: numpy array
         """
+        if self.caching:
+            return self._cached_x
+
         x = [np.zeros(y.shape[:-1])] * y.shape[-1]
 
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
@@ -77,6 +86,9 @@ class InverseAutoregressiveTransform(Transform):
         :param y: the output of the transform
         :type y: numpy array
         """
-        log_scale = self.arn.apply_fun(self.params, x)[..., 1, :]  # TODO: this shouldn't be recomputed here
-        log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
+        if self.caching:
+            log_scale = self._cached_log_scale
+        else:
+            log_scale = self.arn.apply_fun(self.params, x)[..., 1, :]  # TODO: this shouldn't be recomputed here
+            log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
         return log_scale.sum(-1)
