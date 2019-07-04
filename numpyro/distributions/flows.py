@@ -34,7 +34,7 @@ class InverseAutoregressiveTransform(Transform):
             mean and log scale as a tuple
         :param params: the parameters for the autoregressive neural network
         :type list:
-        :param bool caching: where to cache results during forward pass
+        :param bool caching: whether to cache results during forward pass
         """
         self.arn = autoregressive_nn
         self.params = params

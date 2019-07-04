@@ -13,7 +13,7 @@ import jax.random as random
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import PermuteTransform, PowerTransform, biject_to
+from numpyro.distributions.constraints import biject_to, PermuteTransform, PowerTransform
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
@@ -672,7 +672,7 @@ def test_biject_to(constraint, shape):
 
 # NB: skip transforms which are tested in `test_biject_to`
 @pytest.mark.parametrize('transform, event_shape', [
-    (PermuteTransform(np.array([3, 1, 4, 0, 2])), (5,)),
+    (PermuteTransform(np.array([3, 0, 4, 1, 2])), (5,)),
     (PowerTransform(2.), ()),
 ])
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])

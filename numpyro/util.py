@@ -1,4 +1,3 @@
-from collections import namedtuple
 from contextlib import contextmanager
 import random
 
@@ -8,7 +7,6 @@ import tqdm
 from jax import jit, lax, ops, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
-from jax.tree_util import register_pytree_node
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -17,30 +15,6 @@ _DISABLE_CONTROL_FLOW_PRIM = False
 def set_rng_seed(rng_seed):
     random.seed(rng_seed)
     onp.random.seed(rng_seed)
-
-
-# let JAX recognize _TreeInfo structure
-# ref: https://github.com/google/jax/issues/446
-# TODO: remove this when namedtuple is supported in JAX
-def register_pytree(cls):
-    if not getattr(cls, '_registered', False):
-        register_pytree_node(
-            cls,
-            lambda xs: (tuple(xs), None),
-            lambda _, xs: cls(*xs)
-        )
-    cls._registered = True
-
-
-def laxtuple(name, fields):
-    key = (name,) + tuple(fields)
-    if key in _DATA_TYPES:
-        return _DATA_TYPES[key]
-    cls = namedtuple(name, fields)
-    register_pytree(cls)
-    cls.update = cls._replace
-    _DATA_TYPES[key] = cls
-    return cls
 
 
 @contextmanager
@@ -156,8 +130,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
-        # XXX: jax.numpy.stack/concatenate is currently slow
-        collection = onp.stack(collection)
+        collection = np.stack(collection)
 
     return vmap(unravel_fn)(collection)
 
