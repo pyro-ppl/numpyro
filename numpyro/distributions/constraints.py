@@ -26,7 +26,6 @@ import math
 
 from jax import ops
 import jax.numpy as np
-from jax import ops
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
