@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import grad, jit, partial, random, value_and_grad, vmap
+from jax import device_get, grad, jit, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
@@ -775,9 +775,30 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
                     potential_energy(seeded_model, model_args, model_kwargs, inv_transforms),
                     jax.partial(transform_fn, inv_transforms))
 
+    _, potential_fn, constrain_fn = single_chain_init(rng if rng.ndim == 1 else rng[0])
+
+    def single_chain_init_validated(key):
+        def cond_fn(state):
+            i, _, params = state
+            z = ravel_pytree(params)[0]
+            z_grad = ravel_pytree(grad(potential_fn)(params))[0]
+            return ~((i < 100) & np.all(np.isfinite(z)) & np.all(np.isfinite(z_grad)))
+
+        def body_fn(state):
+            i, key, _ = state
+            key, subkey = random.split(key)
+            params = single_chain_init(subkey, only_params=True)
+            return i + 1, key, params
+
+        init_params = single_chain_init(key, only_params=True)
+        num_tries, _, init_params = while_loop(cond_fn, body_fn, (0, key, init_params))
+        return init_params, num_tries
+
     if rng.ndim == 1:
-        return single_chain_init(rng)
+        init_params, num_tries = single_chain_init_validated(rng)
     else:
-        _, potential_fn, constrain_fun = single_chain_init(rng[0])
-        init_params = vmap(lambda rng: single_chain_init(rng, only_params=True))(rng)
-        return init_params, potential_fn, constrain_fun
+        init_params, num_tries = vmap(single_chain_init_validated)(rng)
+
+    if device_get(np.max(num_tries)) == 100:
+        raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
+    return init_params, potential_fn, constrain_fn
