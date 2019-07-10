@@ -373,6 +373,7 @@ def sample(name, fn, obs=None, sample_shape=()):
         'kwargs': {'sample_shape': sample_shape},
         'value': obs,
         'is_observed': obs is not None,
+        'intermediates': [],
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -411,21 +412,8 @@ def param(name, init_value, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
-        'intermediates': [],
     }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
     return msg['value']
-
-
-def log_density(trace):
-    log_probs = []
-    for site in trace.values():
-        if site["type"] == "sample":
-            value = site["value"]
-            intermediates = site["intermediates"]
-            log_prob = site["fn"].logpdf(value, intermediates) if intermediates \
-                else site["fn"].logpdf(value)
-            log_probs.append(log_prob)
-    return np.sum(log_probs)
