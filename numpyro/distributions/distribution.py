@@ -113,6 +113,17 @@ class Distribution(object):
         """
         raise NotImplementedError
 
+    def sample_with_intermediates(self, key, sample_shape=()):
+        """
+        Same as ``sample`` except that any intermediate computations are
+        returned (useful for `TransformedDistribution`).
+
+        :param jax.random.PRNGKey key: the rng key to be used for the distribution.
+        :param size: the sample shape for the distribution.
+        :return: a `numpy.ndarray` of shape `sample_shape + batch_shape + event_shape`
+        """
+        return self.sample(key, sample_shape=sample_shape), []
+
     def log_prob(self, value):
         """
         Evaluates the log probability density for a batch of samples given by
@@ -144,6 +155,9 @@ class Distribution(object):
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('random_state')
+        sample_intermediates = kwargs.pop('sample_intermediates', False)
+        if sample_intermediates:
+            return self.sample_with_intermediates(key, *args, **kwargs)
         return self.sample(key, *args, **kwargs)
 
 
@@ -191,14 +205,26 @@ class TransformedDistribution(Distribution):
             x = transform(x)
         return x
 
-    def log_prob(self, value):
+    def sample_with_intermediates(self, key, sample_shape=()):
+        x = self.base_dist.sample(key, sample_shape)
+        intermediates = []
+        for transform in self.transforms:
+            intermediates.append(x)
+            x = transform(x)
+        return x, intermediates
+
+    def log_prob(self, value, intermediates=None):
         if self._validate_args:
             self._validate_sample(value)
+        if intermediates is not None:
+            if len(intermediates) != len(self.transforms):
+                raise ValueError('Intermediates array has length = {}. Expected = {}.'
+                                 .format(len(intermediates), len(self.transforms)))
         event_dim = len(self.event_shape)
         log_prob = 0.0
         y = value
-        for transform in reversed(self.transforms):
-            x = transform.inv(y)
+        for i, transform in enumerate(reversed(self.transforms)):
+            x = transform.inv(y) if intermediates is None else intermediates[-i - 1]
             log_prob = log_prob - sum_rightmost(transform.log_abs_det_jacobian(x, y),
                                                 event_dim - transform.event_dim)
             y = x

@@ -705,3 +705,15 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
         assert_allclose(actual, expected, atol=1e-6)
         assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+@pytest.mark.parametrize('transformed_dist', [
+    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), constraints.ExpTransform()),
+    dist.TransformedDistribution(dist.Exponential(np.ones(2)), [
+        constraints.PowerTransform(0.7),
+        constraints.AffineTransform(0., np.ones(2) * 3)
+    ]),
+])
+def test_transformed_distribution_intermediates(transformed_dist):
+    sample, intermediates = transformed_dist.sample_with_intermediates(random.PRNGKey(1))
+    assert_allclose(transformed_dist.log_prob(sample, intermediates), transformed_dist.log_prob(sample))

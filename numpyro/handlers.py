@@ -80,6 +80,7 @@ from __future__ import absolute_import, division, print_function
 from collections import OrderedDict
 
 from jax import random
+import jax.numpy as np
 
 _PYRO_STACK = []
 
@@ -332,7 +333,12 @@ def apply_stack(msg):
         if msg.get("stop"):
             break
     if msg['value'] is None:
-        msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
+        if msg['type'] == 'sample':
+            msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
+                                                           sample_intermediates=True,
+                                                           **msg['kwargs'])
+        else:
+            msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
@@ -405,8 +411,21 @@ def param(name, init_value, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
+        'intermediates': [],
     }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
     return msg['value']
+
+
+def log_density(trace):
+    log_probs = []
+    for site in trace.values():
+        if site["type"] == "sample":
+            value = site["value"]
+            intermediates = site["intermediates"]
+            log_prob = site["fn"].logpdf(value, intermediates) if intermediates \
+                else site["fn"].logpdf(value)
+            log_probs.append(log_prob)
+    return np.sum(log_probs)
