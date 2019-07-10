@@ -132,6 +132,7 @@ class AutoContinuous(AutoGuide):
     def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median):
         # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
         # Use `block` to not record sample primitives in `init_loc_fn`.
+        # TODO: make sure that rng is not reused
         model = substitute(model, substitute_fn=block(seed(init_loc_fn, rng)))
         super(AutoContinuous, self).__init__(model, get_params_fn, prefix=prefix)
 

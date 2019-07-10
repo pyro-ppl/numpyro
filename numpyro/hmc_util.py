@@ -11,7 +11,7 @@ from jax.tree_util import tree_multimap
 from numpyro.distributions.constraints import biject_to, real
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, trace
-from numpyro.infer_util import log_density, transform_fn
+from numpyro.infer_util import find_valid_initial_params, potential_energy, transform_fn
 from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
@@ -704,20 +704,6 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def potential_energy(model, model_args, model_kwargs, inv_transforms):
-    def _potential_energy(params):
-        params_constrained = transform_fn(inv_transforms, params)
-        log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained)
-        for name, t in inv_transforms.items():
-            t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
-            if 'scale' in model_trace[name]:
-                t_log_det = model_trace[name]['scale'] * t_log_det
-            log_joint = log_joint + t_log_det
-        return - log_joint
-
-    return _potential_energy
-
-
 def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
@@ -744,61 +730,27 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    def single_chain_init(key, only_params=False):
-        seeded_model = seed(model, key)
-        model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-        constrained_values, inv_transforms = {}, {}
-        for k, v in model_trace.items():
-            if v['type'] == 'sample' and not v['is_observed']:
-                constrained_values[k] = v['value']
-                inv_transforms[k] = biject_to(v['fn'].support)
-            elif v['type'] == 'param':
-                constrained_values[k] = v['value']
-                constraint = v['kwargs'].pop('constraint', real)
-                inv_transforms[k] = biject_to(constraint)
-        prior_params = transform_fn(inv_transforms,
-                                    {k: v for k, v in constrained_values.items()}, invert=True)
-        if init_strategy == 'uniform':
-            init_params = {}
-            for k, v in prior_params.items():
-                key, = random.split(key, 1)
-                init_params[k] = random.uniform(key, shape=np.shape(v), minval=-2, maxval=2)
-        elif init_strategy == 'prior':
-            init_params = prior_params
-        else:
-            raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
+    def single_chain_init(key):
+        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
+                                         **model_kwargs)
 
-        if only_params:
-            return init_params
-        else:
-            return (init_params,
-                    potential_energy(seeded_model, model_args, model_kwargs, inv_transforms),
-                    jax.partial(transform_fn, inv_transforms))
+    seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
+    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    inv_transforms = {}
+    for k, v in model_trace.items():
+        if v['type'] == 'sample' and not v['is_observed']:
+            inv_transforms[k] = biject_to(v['fn'].support)
+        elif v['type'] == 'param':
+            constraint = v['kwargs'].pop('constraint', real)
+            inv_transforms[k] = biject_to(constraint)
 
-    _, potential_fn, constrain_fn = single_chain_init(rng if rng.ndim == 1 else rng[0])
-
-    def single_chain_init_validated(key):
-        def cond_fn(state):
-            i, _, params = state
-            z = ravel_pytree(params)[0]
-            z_grad = ravel_pytree(grad(potential_fn)(params))[0]
-            return ~((i < 100) & np.all(np.isfinite(z)) & np.all(np.isfinite(z_grad)))
-
-        def body_fn(state):
-            i, key, _ = state
-            key, subkey = random.split(key)
-            params = single_chain_init(subkey, only_params=True)
-            return i + 1, key, params
-
-        init_params = single_chain_init(key, only_params=True)
-        num_tries, _, init_params = while_loop(cond_fn, body_fn, (0, key, init_params))
-        return init_params, num_tries
+    potential_fn = potential_energy(seeded_model, model_args, model_kwargs, inv_transforms)
 
     if rng.ndim == 1:
-        init_params, num_tries = single_chain_init_validated(rng)
+        init_params, is_valid = single_chain_init(rng)
     else:
-        init_params, num_tries = vmap(single_chain_init_validated)(rng)
+        init_params, is_valid = vmap(single_chain_init)(rng)
 
-    if device_get(np.max(num_tries)) == 100:
+    if device_get(~np.all(is_valid)):
         raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return init_params, potential_fn, constrain_fn
+    return init_params, potential_fn, jax.partial(transform_fn, inv_transforms)
