@@ -4,7 +4,7 @@ from jax import random
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample, scale
-from numpyro.hmc_util import log_density
+from numpyro.infer_util import log_density
 
 
 def test_scale():
