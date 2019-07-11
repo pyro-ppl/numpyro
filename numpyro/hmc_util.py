@@ -11,7 +11,7 @@ from jax.tree_util import tree_multimap
 from numpyro.distributions.constraints import biject_to, real
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, trace
-from numpyro.infer_util import find_valid_initial_params, potential_energy, transform_fn
+from numpyro.infer_util import find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
 from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
@@ -704,7 +704,7 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
+def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative
@@ -718,11 +718,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         batch shape ``rng.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
-    :param str init_strategy: initialization strategy - `uniform`
-        initializes the unconstrained parameters by drawing from
-        a `Uniform(-2, 2)` distribution (as used by Stan), whereas
-        `prior` initializes the parameters by sampling from the prior
-        for each of the sample sites.
+    :param callable init_strategy: a per-site initialization function.
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
         `init_params` are values from the prior used to initiate MCMC,

@@ -1,9 +1,12 @@
+from functools import partial
+
 from jax import grad, random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
+import numpyro.distributions as dist
 from numpyro.distributions.constraints import biject_to, real
-from numpyro.handlers import seed, substitute, trace
+from numpyro.handlers import block, sample, seed, substitute, trace
 from numpyro.util import while_loop
 
 
@@ -59,7 +62,37 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms):
     return _potential_energy
 
 
-def find_valid_initial_params(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
+def init_to_uniform(site, radius=2):
+    """
+    Initialize to an arbitrary feasible point, ignoring distribution
+    parameters.
+    """
+    if site['is_observed']:
+        return None
+    value = sample('_init', site['fn'])
+    t = biject_to(site['fn'].support)
+    unconstrained_value = sample('_unconstrained_init', dist.Uniform(-radius, radius),
+                                 sample_shape=np.shape(t.inv(value)))
+    return t(unconstrained_value)
+
+
+def init_to_median(site, num_samples=15):
+    """
+    Initialize to the prior median.
+    """
+    if site['is_observed']:
+        return None
+    samples = sample('_init', site['fn'], sample_shape=(num_samples,))
+    value = np.quantile(samples, 0.5, axis=0)
+    return value
+
+
+init_to_feasible = lambda site: init_to_uniform(site, radius=0)
+init_to_prior = lambda site: init_to_median(site, num_samples=1)
+
+
+def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform,
+                              **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
     parameters. This function also returns an `is_valid` flag to say whether the
@@ -70,11 +103,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy='uniform', 
         batch shape ``rng.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
-    :param str init_strategy: initialization strategy - `uniform`
-        initializes the unconstrained parameters by drawing from
-        a `Uniform(-2, 2)` distribution (as used by Stan), whereas
-        `prior` initializes the parameters by sampling from the prior
-        for each of the sample sites.
+    :param callable init_strategy: a per-site initialization function.
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `is_valid`).
     """
@@ -85,8 +114,8 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy='uniform', 
     def body_fn(state):
         i, key, _, _ = state
         key, subkey = random.split(key)
-        # TODO: incorporate init_to_median here
-        seeded_model = seed(model, subkey)
+
+        seeded_model = substitute(model, substitute_fn=block(seed(init_strategy, subkey)))
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
         constrained_values, inv_transforms = {}, {}
         for k, v in model_trace.items():
@@ -97,19 +126,10 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy='uniform', 
                 constrained_values[k] = v['value']
                 constraint = v['kwargs'].pop('constraint', real)
                 inv_transforms[k] = biject_to(constraint)
-        prior_params = transform_fn(inv_transforms,
-                                    {k: v for k, v in constrained_values.items()}, invert=True)
-        if init_strategy == 'uniform':
-            params = {}
-            for k, v in prior_params.items():
-                key, = random.split(key, 1)
-                params[k] = random.uniform(key, shape=np.shape(v), minval=-2, maxval=2)
-        elif init_strategy == 'prior':
-            params = prior_params
-        else:
-            raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
+        params = transform_fn(inv_transforms,
+                              {k: v for k, v in constrained_values.items()}, invert=True)
 
-        potential_fn = potential_energy(seeded_model, model_args, model_kwargs, inv_transforms)
+        potential_fn = potential_energy(model, model_args, model_kwargs, inv_transforms)
         param_grads = grad(potential_fn)(params)
         z = ravel_pytree(params)[0]
         z_grad = ravel_pytree(param_grads)[0]
