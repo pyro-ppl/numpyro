@@ -728,7 +728,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
     """
     def single_chain_init(key):
         return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
-                                         **model_kwargs)
+                                         param_as_improper=True, **model_kwargs)
 
     seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)

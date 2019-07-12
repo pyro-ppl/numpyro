@@ -1,7 +1,6 @@
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
 
-import numpy as onp
 import scipy.stats as osp
 
 from jax import vmap
@@ -12,47 +11,14 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
 from numpyro.distributions.util import sum_rightmost
-from numpyro.handlers import block, param, sample, seed, substitute, trace
-from numpyro.infer_util import transform_fn
+from numpyro.handlers import block, param, sample, seed, trace
+from numpyro.infer_util import find_valid_initial_params, init_to_median, transform_fn
 
 __all__ = [
     'AutoContinuous',
     'AutoGuide',
     'AutoDiagonalNormal',
-    'init_to_feasible',
-    'init_to_median',
 ]
-
-
-def init_to_feasible(site):
-    """
-    Initialize to an arbitrary feasible point, ignoring distribution
-    parameters.
-    """
-    if site['is_observed']:
-        return None
-    value = sample('_init', site['fn'])
-    t = biject_to(site['fn'].support)
-    return t(np.zeros(np.shape(t.inv(value))))
-
-
-def init_to_median(site, num_samples=15):
-    """
-    Initialize to the prior median; fallback to a feasible point if median is
-    undefined.
-    """
-    if site['is_observed']:
-        return None
-    try:
-        # Try to compute empirical median.
-        samples = sample('_init', site['fn'], sample_shape=(num_samples,))
-        value = onp.median(samples, axis=0)
-        if np.isnan(value):
-            raise ValueError
-        return value
-    except ValueError:
-        # Fall back to feasible point.
-        return init_to_feasible(site)
 
 
 class AutoGuide(ABC):
@@ -126,32 +92,30 @@ class AutoContinuous(AutoGuide):
         Blei
 
     :param callable model: A Pyro model.
-    :param callable init_loc_fn: A per-site initialization function.
+    :param callable init_strategy: A per-site initialization function.
         See :ref:`autoguide-initialization` section for available functions.
     """
-    def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median):
-        # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
-        # Use `block` to not record sample primitives in `init_loc_fn`.
-        model = substitute(model, substitute_fn=block(seed(init_loc_fn, rng)))
+    def __init__(self, rng, model, get_params_fn, prefix="auto", init_strategy=init_to_median):
+        self.rng = rng
+        self.init_strategy = init_strategy
+        model = seed(model, rng)
         super(AutoContinuous, self).__init__(model, get_params_fn, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
+        # FIXME: without block statement, get AssertionError: all sites must have unique names
+        init_params, is_valid = block(find_valid_initial_params)(self.rng, self.model, *args,
+                                                                 init_strategy=self.init_strategy,
+                                                                 **kwargs)
         self._inv_transforms = {}
-        unconstrained_sites = {}
         for name, site in self.prototype_trace.items():
             if site['type'] == 'sample' and not site['is_observed']:
-                # Collect the shapes of unconstrained values.
-                # These may differ from the shapes of constrained values.
-                transform = biject_to(site['fn'].support)
-                unconstrained_val = transform.inv(site['value'])
-                self._inv_transforms[name] = transform
-                unconstrained_sites[name] = unconstrained_val
+                self._inv_transforms[name] = biject_to(site['fn'].support)
 
-        latent_size = sum(np.size(x) for x in unconstrained_sites.values())
+        latent_size = sum(np.size(x) for x in init_params.values())
         if latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
-        self._init_latent, self._unravel_fn = ravel_pytree(unconstrained_sites)
+        self._init_latent, self._unravel_fn = ravel_pytree(init_params)
 
     def __call__(self, *args, **kwargs):
         """

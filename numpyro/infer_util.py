@@ -1,5 +1,3 @@
-from functools import partial
-
 from jax import grad, random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
@@ -62,6 +60,26 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms):
     return _potential_energy
 
 
+def init_to_median(site, num_samples=15):
+    """
+    Initialize to the prior median.
+    """
+    if site['is_observed']:
+        return None
+    samples = sample('_init', site['fn'], sample_shape=(num_samples,))
+    value = np.quantile(samples, 0.5, axis=0)
+    return value
+
+
+def init_to_prior(site):
+    """
+    Initialize to a prior sample.
+    """
+    if site['is_observed']:
+        return None
+    return sample('_init', site['fn'])
+
+
 def init_to_uniform(site, radius=2):
     """
     Initialize to an arbitrary feasible point, ignoring distribution
@@ -76,23 +94,20 @@ def init_to_uniform(site, radius=2):
     return t(unconstrained_value)
 
 
-def init_to_median(site, num_samples=15):
+def init_to_feasible(site):
     """
-    Initialize to the prior median.
+    Initialize to an arbitrary feasible point, ignoring distribution
+    parameters.
     """
     if site['is_observed']:
         return None
-    samples = sample('_init', site['fn'], sample_shape=(num_samples,))
-    value = np.quantile(samples, 0.5, axis=0)
-    return value
-
-
-init_to_feasible = lambda site: init_to_uniform(site, radius=0)
-init_to_prior = lambda site: init_to_median(site, num_samples=1)
+    value = sample('_init', site['fn'])
+    t = biject_to(site['fn'].support)
+    return t(np.zeros(np.shape(t.inv(value))))
 
 
 def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform,
-                              **model_kwargs):
+                              param_as_improper=False, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
     parameters. This function also returns an `is_valid` flag to say whether the
@@ -104,6 +119,8 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
+    :param bool param_as_improper: a flag to decide whether to consider sites with
+        `param` statement as sites with improper priors.
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `is_valid`).
     """
@@ -115,6 +132,8 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         i, key, _, _ = state
         key, subkey = random.split(key)
 
+        # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
+        # Use `block` to not record sample primitives in `init_loc_fn`.
         seeded_model = substitute(model, substitute_fn=block(seed(init_strategy, subkey)))
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
         constrained_values, inv_transforms = {}, {}
@@ -122,7 +141,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
             if v['type'] == 'sample' and not v['is_observed']:
                 constrained_values[k] = v['value']
                 inv_transforms[k] = biject_to(v['fn'].support)
-            elif v['type'] == 'param':
+            elif v['type'] == 'param' and param_as_improper:
                 constrained_values[k] = v['value']
                 constraint = v['kwargs'].pop('constraint', real)
                 inv_transforms[k] = biject_to(constraint)

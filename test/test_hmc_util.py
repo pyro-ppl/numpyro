@@ -23,6 +23,12 @@ from numpyro.hmc_util import (
     warmup_adapter,
     welford_covariance
 )
+from numpyro.infer_util import (
+    init_to_prior,
+    init_to_uniform,
+    init_to_median,
+    init_to_feasible,
+)
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 
 logger = logging.getLogger(__name__)
@@ -387,7 +393,13 @@ def test_build_tree(step_size):
         assert tree.num_proposals > 10
 
 
-@pytest.mark.parametrize('init_strategy', ['prior', 'uniform'])
+@pytest.mark.parametrize('init_strategy', [
+    init_to_feasible,
+    pytest.param(init_to_median,
+                 marks=pytest.mark.xfail(reason="batching rule for quantile not implemented")),
+    init_to_prior,
+    init_to_uniform,
+])
 def test_initialize_model_change_point(init_strategy):
     def model(data):
         alpha = 1 / np.mean(data)
@@ -417,7 +429,13 @@ def test_initialize_model_change_point(init_strategy):
             assert_allclose(p[i], init_params_i[name], atol=1e-6)
 
 
-@pytest.mark.parametrize('init_strategy', ['prior', 'uniform'])
+@pytest.mark.parametrize('init_strategy', [
+    init_to_feasible,
+    pytest.param(init_to_median,
+                 marks=pytest.mark.xfail(reason="batching rule for quantile not implemented")),
+    init_to_prior,
+    init_to_uniform,
+])
 def test_initialize_model_dirichlet_categorical(init_strategy):
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
