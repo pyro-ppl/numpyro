@@ -228,7 +228,7 @@ class TransformedDistribution(Distribution):
             x = transform.inv(y) if intermediates is None else intermediates[-i - 1][0]
             t_inter = None if intermediates is None else intermediates[-i - 1][1]
             log_prob = log_prob - sum_rightmost(
-                transform.log_abs_det_jacobian_with_intermediate(x, y, t_inter),
+                transform.log_abs_det_jacobian_with_intermediates(x, y, t_inter),
                 event_dim - transform.event_dim
             )
             y = x
