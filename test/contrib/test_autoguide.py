@@ -38,7 +38,7 @@ def test_beta_bernoulli(auto_class):
     true_coefs = (np.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(random.PRNGKey(1), opt_state, sample_shape=(1000,))
-    assert_allclose(np.mean(posterior_samples['beta'], 0), true_coefs, atol=0.03)
+    assert_allclose(np.mean(posterior_samples['beta'], 0), true_coefs, atol=0.04)
 
 
 @pytest.mark.parametrize('auto_class', [

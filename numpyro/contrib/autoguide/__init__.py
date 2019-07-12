@@ -324,13 +324,13 @@ class AutoIAFNormal(AutoContinuous):
                 self.arns.append(arn)
                 if i > 0:
                     flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
-                flows.append(InverseAutoregressiveTransform(arn, arn_params, caching=True))
+                flows.append(InverseAutoregressiveTransform(arn, arn_params))
         else:
             for i in range(self.num_flows):
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
                 if i > 0:
                     flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
-                flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params, caching=True))
+                flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
 
         # TODO: support to_event for distributions
         iaf_dist = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), flows)
