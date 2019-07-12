@@ -672,7 +672,7 @@ def test_biject_to(constraint, shape):
 
 # NB: skip transforms which are tested in `test_biject_to`
 @pytest.mark.parametrize('transform, event_shape', [
-    (PermuteTransform(np.array([3, 1, 4, 0, 2])), (5,)),
+    (PermuteTransform(np.array([3, 0, 4, 1, 2])), (5,)),
     (PowerTransform(2.), ()),
 ])
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
@@ -705,3 +705,15 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
         assert_allclose(actual, expected, atol=1e-6)
         assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+@pytest.mark.parametrize('transformed_dist', [
+    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), constraints.ExpTransform()),
+    dist.TransformedDistribution(dist.Exponential(np.ones(2)), [
+        constraints.PowerTransform(0.7),
+        constraints.AffineTransform(0., np.ones(2) * 3)
+    ]),
+])
+def test_transformed_distribution_intermediates(transformed_dist):
+    sample, intermediates = transformed_dist.sample_with_intermediates(random.PRNGKey(1))
+    assert_allclose(transformed_dist.log_prob(sample, intermediates), transformed_dist.log_prob(sample))

@@ -83,7 +83,6 @@ def main(args):
     opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
     svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_params,
                                          encode=encode, decode=decode, z_dim=args.z_dim)
-    svi_update = jit(svi_update)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')

@@ -123,7 +123,8 @@ class AutoregressiveNN(object):
         :param input_shape: input shape
         """
         if self.permutation is None:
-            # By default set a random permutation of variables, which is important for performance with multiple steps
+            # By default set a random permutation of variables, which is
+            # important for performance with multiple steps
             rng, rng_perm = random.split(rng)
             self.permutation = random.shuffle(rng_perm, np.arange(self.input_dim))
 
@@ -176,6 +177,7 @@ class AutoregressiveNN(object):
         if self.output_multiplier == 1:
             return out
         else:
+            # TODO: revise the following logic to have param_dims at axis 0
             out = np.reshape(out, list(inputs.shape[:-1]) + [self.output_multiplier, self.input_dim])
 
             # Squeeze dimension if all parameters are one dimensional
