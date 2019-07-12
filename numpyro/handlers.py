@@ -332,7 +332,12 @@ def apply_stack(msg):
         if msg.get("stop"):
             break
     if msg['value'] is None:
-        msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
+        if msg['type'] == 'sample':
+            msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
+                                                           sample_intermediates=True,
+                                                           **msg['kwargs'])
+        else:
+            msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
@@ -367,6 +372,7 @@ def sample(name, fn, obs=None, sample_shape=()):
         'kwargs': {'sample_shape': sample_shape},
         'value': obs,
         'is_observed': obs is not None,
+        'intermediates': [],
     }
 
     # ...and use apply_stack to send it to the Messengers

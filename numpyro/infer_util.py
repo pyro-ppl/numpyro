@@ -19,7 +19,10 @@ def log_density(model, model_args, model_kwargs, params):
     log_joint = 0.
     for site in model_trace.values():
         if site['type'] == 'sample':
-            log_prob = np.sum(site['fn'].log_prob(site['value']))
+            value = site['value']
+            intermediates = site['intermediates']
+            log_prob = np.sum(site['fn'].log_prob(value, intermediates) if intermediates
+                              else site['fn'].log_prob(value))
             if 'scale' in site:
                 log_prob = site['scale'] * log_prob
             log_joint = log_joint + log_prob
