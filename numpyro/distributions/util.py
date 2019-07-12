@@ -357,6 +357,10 @@ def entr(p):
     return np.where(p < 0, -np.inf, -xlogy(p))
 
 
+def relu(x):
+    return np.maximum(x, 0.)
+
+
 def multigammaln(a, d):
     constant = 0.25 * d * (d - 1) * np.log(np.pi)
     res = np.sum(gammaln(np.expand_dims(a, axis=-1) - 0.5 * np.arange(d)), axis=-1)

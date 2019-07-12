@@ -13,7 +13,7 @@ import jax.random as random
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import biject_to, PermuteTransform, PowerTransform
+from numpyro.distributions.constraints import PermuteTransform, PowerTransform, biject_to
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.util import (
     matrix_to_tril_vec,

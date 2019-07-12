@@ -209,8 +209,9 @@ class TransformedDistribution(Distribution):
         x = self.base_dist.sample(key, sample_shape)
         intermediates = []
         for transform in self.transforms:
-            intermediates.append(x)
-            x = transform(x)
+            x_tmp = x
+            x, t_inter = transform.call_with_intermediates(x)
+            intermediates.append([x_tmp, t_inter])
         return x, intermediates
 
     def log_prob(self, value, intermediates=None):
@@ -224,9 +225,13 @@ class TransformedDistribution(Distribution):
         log_prob = 0.0
         y = value
         for i, transform in enumerate(reversed(self.transforms)):
-            x = transform.inv(y) if intermediates is None else intermediates[-i - 1]
-            log_prob = log_prob - sum_rightmost(transform.log_abs_det_jacobian(x, y),
-                                                event_dim - transform.event_dim)
+            x = transform.inv(y) if intermediates is None else intermediates[-i - 1][0]
+            t_inter = None if intermediates is None else intermediates[-i - 1][1]
+            if t_inter is None:
+                t_log_det = transform.log_abs_det_jacobian(x, y)
+            else:
+                t_log_det = transform.log_abs_det_jacobian(x, y, t_inter)
+            log_prob = log_prob - sum_rightmost(t_log_det, event_dim - transform.event_dim)
             y = x
 
         log_prob = log_prob + sum_rightmost(self.base_dist.log_prob(y),
