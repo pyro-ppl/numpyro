@@ -34,7 +34,6 @@ class InverseAutoregressiveTransform(Transform):
             mean and log scale as a tuple
         :param params: the parameters for the autoregressive neural network
         :type list:
-        :param bool caching: whether to cache results during forward pass
         """
         self.arn = autoregressive_nn
         self.params = params
@@ -76,7 +75,7 @@ class InverseAutoregressiveTransform(Transform):
         x = lax.fori_loop(0, y.shape[-1], _update_x, x)
         return x
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         """
         Calculates the elementwise determinant of the log jacobian
         :param x: the input to the transform
@@ -84,13 +83,10 @@ class InverseAutoregressiveTransform(Transform):
         :param y: the output of the transform
         :type y: numpy array
         """
-        log_scale = self.arn.apply_fun(self.params, x)[..., 1, :]
-        log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
-        return log_scale.sum(-1)
-
-    def log_abs_det_jacobian_with_intermediates(self, x, y, intermediates=None):
         if intermediates is None:
-            return self.log_abs_det_jacobian(x, y)
+            log_scale = self.arn.apply_fun(self.params, x)[..., 1, :]
+            log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
+            return log_scale.sum(-1)
         else:
             log_scale = intermediates
             return log_scale.sum(-1)

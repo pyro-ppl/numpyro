@@ -192,12 +192,6 @@ class Transform(object):
     def call_with_intermediates(self, x):
         return self(x), None
 
-    def log_abs_det_jacobian_with_intermediates(self, x, y, intermediates=None):
-        if intermediates is None:
-            return self.log_abs_det_jacobian(x, y)
-        else:
-            raise NotImplementedError
-
 
 class AbsTransform(Transform):
     domain = real
