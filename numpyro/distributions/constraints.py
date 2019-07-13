@@ -414,7 +414,6 @@ class PermuteTransform(Transform):
         self.permutation = permutation
 
     def __call__(self, x):
-        self._cached_x = x
         return x[..., self.permutation]
 
     def inv(self, y):
