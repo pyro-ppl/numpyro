@@ -293,9 +293,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
         itr = hmc_state.i + 1
         n = np.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
-        # Reset `mean_accept_prob` for fresh diagnostics.
-        mean_accept_prob = np.where(hmc_state.i == wa_steps, 0., hmc_state.mean_accept_prob)
-        mean_accept_prob = mean_accept_prob + (accept_prob - mean_accept_prob) / n
+        mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
 
         return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
                         accept_prob, mean_accept_prob, adapt_state, rng)
