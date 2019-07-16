@@ -9,8 +9,8 @@ from numpyro.distributions.flows import InverseAutoregressiveTransform
 
 
 def _make_iaf_args(input_dim, hidden_dims):
-    arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
-    _, init_params = arn.init_fun(random.PRNGKey(0), (input_dim,))
+    arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
+    _, init_params = arn_init(random.PRNGKey(0), (input_dim,))
     return arn, init_params
 
 
