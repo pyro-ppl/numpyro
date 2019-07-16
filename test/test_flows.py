@@ -40,9 +40,9 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
 
         # make sure jacobian is triangular, first permute jacobian as necessary
         if isinstance(transform, InverseAutoregressiveTransform):
-            arn = flow_args[0]
             permuted_jac = onp.zeros(jac.shape)
-            perm = arn.permutation
+            _, rng_perm = random.split(random.PRNGKey(0))
+            perm = random.shuffle(rng_perm, onp.arange(input_dim))
 
             for j in range(input_dim):
                 for k in range(input_dim):

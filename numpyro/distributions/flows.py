@@ -1,7 +1,8 @@
-from jax import lax, ops
+from jax import lax
 import jax.numpy as np
 
 from numpyro.distributions.constraints import Transform, real_vector
+from numpyro.util import fori_loop
 
 
 def _clamp_preserve_gradients(x, min, max):
@@ -58,18 +59,15 @@ class InverseAutoregressiveTransform(Transform):
         :param y: the output of the transform to be inverted
         :type y: numpy array
         """
-        x = np.zeros(y.shape)
-
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
         def _update_x(i, x):
             mean, log_scale = self.arn(self.params, x)
             inverse_scale = np.exp(-_clamp_preserve_gradients(
-                log_scale[..., i], min=self.log_scale_min_clip, max=self.log_scale_max_clip))
-            mean = mean[..., i]
-            x = ops.index_update(x, (..., i), (y[..., i] - mean) * inverse_scale)
+                log_scale, min=self.log_scale_min_clip, max=self.log_scale_max_clip))
+            x = (y - mean) * inverse_scale
             return x
 
-        x = lax.fori_loop(0, y.shape[-1], _update_x, x)
+        x = fori_loop(0, y.shape[-1], _update_x, np.zeros(y.shape))
         return x
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
