@@ -361,10 +361,6 @@ def relu(x):
     return np.maximum(x, 0.)
 
 
-def elu(x):
-    return np.where(x > 0, x, np.exp(x) - 1)
-
-
 def multigammaln(a, d):
     constant = 0.25 * d * (d - 1) * np.log(np.pi)
     res = np.sum(gammaln(np.expand_dims(a, axis=-1) - 0.5 * np.arange(d)), axis=-1)

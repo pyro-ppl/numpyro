@@ -281,6 +281,15 @@ class AutoIAFNormal(AutoContinuous):
 
         guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[20], skip_connections=True, ...)
         svi_init, svi_update, _ = svi(model, guide, ...)
+
+    :param jax.random.PRNGKey rng: random key to be used as the source of randomness
+        to initialize the guide.
+    :param callable model: a generative model.
+    :param callable get_params_fn: a function to get params from an optimization state.
+    :param str prefix: a prefix that will be prefixed to all param internal sites.
+    :param callable init_loc_fn: A per-site initialization function.
+    :param int num_flows: the number of flows to be used, defaults to 3.
+    :param `**arn_kwargs`: keywords for constructing autoregressive neural networks.
     """
     def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median,
                  num_flows=3, **arn_kwargs):
