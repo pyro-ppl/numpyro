@@ -248,6 +248,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
+        step_size = np.clip(step_size, a_min=np.finfo(step_size.dtype).tiny)
         r = momentum_generator(inverse_mass_matrix, rng_momentum)
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
