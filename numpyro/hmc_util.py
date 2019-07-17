@@ -792,7 +792,7 @@ def _cov(samples):
     return wc_final(state)[0]
 
 
-def consensus(subposteriors, num_draws, rng=None):
+def consensus(subposteriors, num_draws, diagonal=False, rng=None):
     """
     Merges subposteriors following consensus Monte Carlo algorithm.
 
@@ -802,36 +802,43 @@ def consensus(subposteriors, num_draws, rng=None):
        Steven L. Scott, Alexander W. Blocker, Fernando V. Bonassi, Hugh A. Chipman,
        Edward I. George, Robert E. McCulloch
 
-    :param list subposteriors: a list which each element is a collection of samples.
+    :param list subposteriors: a list in which each element is a collection of samples.
     :param int num_draws: number of draws from the merged posterior.
+    :param bool diagonal: whether to compute weights using variance or covariance, defaults to
+        `False` (using covariance).
     :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
     :return: a collection of `num_draws` samples with the same data structure as each subposterior.
     """
     rng = random.PRNGKey(0) if rng is None else rng
     # stack subposteriors
     joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
-    # shape = num_subposteriors x num_samples x sample_shape
+    # shape of joined_subposteriors: n_subs x n_samples x sample_shape
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
 
     # randomly gets num_draws from subposteriors
     n_subs = len(subposteriors)
     n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
+    # shape of draw_idxs: n_subs x num_draws x sample_shape
     draw_idxs = random.randint(rng, shape=(n_subs, num_draws), minval=0, maxval=n_samples)
     joined_subposteriors = vmap(lambda x, idx: x[idx])(joined_subposteriors, draw_idxs)
 
-    # compute weights for each subposterior (ref: Section 3.1 of [1])
-    weights = vmap(lambda x: np.linalg.inv(_cov(x)))(joined_subposteriors)
-    normalized_weights = np.matmul(np.linalg.inv(np.sum(weights, axis=0)), weights)
-
-    # get weighted samples
-    samples_flat = np.einsum('ijk,ilk->lj', normalized_weights, joined_subposteriors)
+    if diagonal:
+        # compute weights for each subposterior (ref: Section 3.1 of [1])
+        weights = vmap(lambda x: (1 - 1 / n_samples) / np.var(x, axis=0))(joined_subposteriors)
+        normalized_weights = weights / np.sum(weights, axis=0)
+        # get weighted samples
+        samples_flat = np.einsum('ij,ikj->kj', normalized_weights, joined_subposteriors)
+    else:
+        weights = vmap(lambda x: np.linalg.inv(_cov(x)))(joined_subposteriors)
+        normalized_weights = np.matmul(np.linalg.inv(np.sum(weights, axis=0)), weights)
+        samples_flat = np.einsum('ijk,ilk->lj', normalized_weights, joined_subposteriors)
 
     # unravel_fn acts on 1 sample of a subposterior
     _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
     return vmap(lambda x: unravel_fn(x))(samples_flat)
 
 
-def parametric(subposteriors, num_draws, rng=None):
+def parametric(subposteriors, num_draws, diagonal=False, rng=None, return_params=False):
     """
     Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
 
@@ -840,23 +847,41 @@ def parametric(subposteriors, num_draws, rng=None):
     1. *Asymptotically Exact, Embarrassingly Parallel MCMC*,
        Willie Neiswanger, Chong Wang, Eric Xing
 
-    :param list subposteriors: a list which each element is a collection of samples.
+    :param list subposteriors: a list in which each element is a collection of samples.
     :param int num_draws: number of draws from the merged posterior.
     :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :param bool return_params: whether to additionally return the estimated mean and
+        variance/covariance parameters of the joined posterior.
     :return: a collection of `num_draws` samples with the same data structure as each subposterior.
     """
     rng = random.PRNGKey(0) if rng is None else rng
     joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
 
-    weights = vmap(lambda x: np.linalg.inv(_cov(x)))(joined_subposteriors)
-    cov = np.linalg.inv(np.sum(weights, axis=0))
-    normalized_weights = np.matmul(cov, weights)
-
-    # comparing to consensus implementation, we compute weighted mean here
     submeans = np.mean(joined_subposteriors, axis=1)
-    mean = np.einsum('ijk,ik->j', normalized_weights, submeans)
-    samples_flat = dist.MultivariateNormal(mean, cov).sample(rng, (num_draws,))
+    n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
+    if diagonal:
+        # NB: jax.numpy.var does not support ddof=1, so we do it manually
+        weights = vmap(lambda x: (1 - 1 / n_samples) / np.var(x, axis=0))(joined_subposteriors)
+        var = 1 / np.sum(weights, axis=0)
+        normalized_weights = var * weights
+
+        # comparing to consensus implementation, we compute weighted mean here
+        mean = np.einsum('ij,ij->j', normalized_weights, submeans)
+        samples_flat = dist.Normal(mean, np.sqrt(var)).sample(rng, (num_draws,))
+        cov = var
+    else:
+        weights = vmap(lambda x: np.linalg.inv(_cov(x)))(joined_subposteriors)
+        cov = np.linalg.inv(np.sum(weights, axis=0))
+        normalized_weights = np.matmul(cov, weights)
+
+        # comparing to consensus implementation, we compute weighted mean here
+        mean = np.einsum('ijk,ik->j', normalized_weights, submeans)
+        samples_flat = dist.MultivariateNormal(mean, cov).sample(rng, (num_draws,))
 
     _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
-    return vmap(lambda x: unravel_fn(x))(samples_flat)
+    samples = vmap(lambda x: unravel_fn(x))(samples_flat)
+    if return_params:
+        return samples, mean, cov
+    else:
+        return samples

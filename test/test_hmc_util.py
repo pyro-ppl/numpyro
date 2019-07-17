@@ -443,7 +443,8 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
 
 
 @pytest.mark.parametrize('method', [consensus, parametric])
-def test_gaussian_subposterior(method):
+@pytest.mark.parametrize('diagonal', [True, False])
+def test_gaussian_subposterior(method, diagonal):
     D = 10
     n_samples = 10000
     n_draws = 9000
@@ -455,11 +456,14 @@ def test_gaussian_subposterior(method):
     subposteriors = list(dist.MultivariateNormal(mean, subcov).sample(
         random.PRNGKey(1), (n_subs, n_samples)))
 
-    draws = method(subposteriors, n_draws)
+    draws = method(subposteriors, n_draws, diagonal=diagonal)
     assert draws.shape == (n_draws, D)
-    assert_allclose(np.mean(draws, axis=0), mean, atol=0.02)
-    # TODO: use np.cov for the next JAX version
-    assert_allclose(_cov(draws), cov, atol=0.04)
+    assert_allclose(np.mean(draws, axis=0), mean, atol=0.03)
+    if diagonal:
+        assert_allclose(np.var(draws, axis=0), np.diag(cov), atol=0.05)
+    else:
+        # TODO: use np.cov for the next JAX version
+        assert_allclose(_cov(draws), cov, atol=0.05)
 
 
 @pytest.mark.parametrize('method', [consensus, parametric])
