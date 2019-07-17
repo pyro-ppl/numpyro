@@ -3,11 +3,12 @@ import argparse
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from jax import lax, random
+from jax import jit, random
 from jax.config import config as jax_config
 from jax.experimental import optimizers
 import jax.numpy as np
 from jax.scipy.special import logsumexp
+from jax.tree_util import tree_map
 
 from numpyro.contrib.autoguide import AutoIAFNormal
 import numpyro.distributions as dist
@@ -15,6 +16,7 @@ from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 from numpyro.svi import elbo, svi
+from numpyro.util import fori_collect
 
 """
 This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
@@ -51,19 +53,25 @@ def make_transformed_pe(potential_fn, transform, unpack_fn):
 def main(args):
     jax_config.update('jax_platform_name', args.device)
 
+    # FIXME: I cann't run mcmc for this potential function
+    # print("Start vanilla HMC...")
+    # vanilla_samples = mcmc(100, 100, init_params=np.array([2., 0.]), potential_fn=dual_moon_pe)
+
     opt_init, opt_update, get_params = optimizers.adam(0.001)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = AutoIAFNormal(rng_guide, dual_moon_model, get_params, hidden_dims=[20])
     svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, opt_init, opt_update, get_params)
     opt_state, _ = svi_init(rng_init)
 
-    def body_fn(i, state):
-        opt_state_, rng_ = state
+    def body_fn(val):
+        i, loss, opt_state_, rng_ = val
         loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_)
-        return opt_state_, rng_
+        return i + 1, loss, opt_state_, rng_
 
     print("Start training guide...")
-    last_state, _ = lax.fori_loop(0, 100000, body_fn, (opt_state, rng_train))
+    losses, opt_states = fori_collect(0, 100000, jit(body_fn), (0, 0., opt_state, rng_train),
+                                      transform=lambda x: (x[1], x[2]), progbar=False)
+    last_state = tree_map(lambda x: x[-1], opt_states)
     print("Finish training guide. Start sampling...")
 
     transform = guide.get_transform(last_state)
@@ -84,12 +92,13 @@ def main(args):
     X1, X2 = np.meshgrid(x1, x2)
     P = np.clip(np.exp(-dual_moon_pe(np.stack([X1, X2], axis=-1))), a_min=0.)
 
-    plt.figure(figsize=(8, 8))
-    plt.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(samples['x'][:, 0], samples['x'][:, 1])
-    plt.xlim([-3, 3])
-    plt.ylim([-3, 3])
-    plt.gca().set_aspect('equal')
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    axes[0].plot(losses[1000:])
+    axes[0].set_title('Autoguide training loss (skip the first 1000 steps)')
+    axes[1].contourf(X1, X2, P, cmap='OrRd')
+    sns.kdeplot(samples['x'][:, 0], samples['x'][:, 1], ax=axes[1])
+    axes[1].set(xlim=[-3, 3], ylim=[-3, 3], aspect='equal',
+                xlabel='x0', ylabel='x1', title='Posterior using NeuTra HMC sampler')
 
     plt.savefig("neutra.pdf")
     plt.close()
