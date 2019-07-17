@@ -792,7 +792,7 @@ def _cov(samples):
     return wc_final(state)[0]
 
 
-def consensus(subposteriors, num_draws, rng=random.PRNGKey(0)):
+def consensus(subposteriors, num_draws, rng=None):
     """
     Merges subposteriors following consensus Monte Carlo algorithm.
 
@@ -807,6 +807,7 @@ def consensus(subposteriors, num_draws, rng=random.PRNGKey(0)):
     :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
     :return: a collection of `num_draws` samples with the same data structure as each subposterior.
     """
+    rng = random.PRNGKey(0) if rng is None else rng
     # stack subposteriors
     joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
     # shape = num_subposteriors x num_samples x sample_shape
@@ -830,7 +831,7 @@ def consensus(subposteriors, num_draws, rng=random.PRNGKey(0)):
     return vmap(lambda x: unravel_fn(x))(samples_flat)
 
 
-def parametric(subposteriors, num_draws, rng=random.PRNGKey(0)):
+def parametric(subposteriors, num_draws, rng=None):
     """
     Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
 
@@ -844,6 +845,7 @@ def parametric(subposteriors, num_draws, rng=random.PRNGKey(0)):
     :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
     :return: a collection of `num_draws` samples with the same data structure as each subposterior.
     """
+    rng = random.PRNGKey(0) if rng is None else rng
     joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
 
