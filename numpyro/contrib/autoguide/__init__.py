@@ -5,6 +5,7 @@ import numpy as onp
 import scipy.stats as osp
 
 from jax import random, vmap
+from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.tree_util import tree_map
@@ -14,7 +15,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import PermuteTransform, biject_to
 from numpyro.distributions.flows import InverseAutoregressiveTransform
-from numpyro.distributions.util import relu, sum_rightmost
+from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import block, param, sample, seed, substitute, trace
 from numpyro.infer_util import transform_fn
 
@@ -324,11 +325,13 @@ class AutoIAFNormal(AutoContinuous):
             # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
             hidden_dims = self.arn_kwargs.get('hidden_dims', [latent_size, latent_size])
             skip_connections = self.arn_kwargs.get('skip_connections', True)
-            nonlinearity = self.arn_kwargs.get('nonlinearity', relu)
+            nonlinearity = self.arn_kwargs.get('nonlinearity', stax.Relu)
             for i in range(self.num_flows):
-                arn = AutoregressiveNN(latent_size, hidden_dims, permutation=np.arange(latent_size),
-                                       skip_connections=skip_connections, nonlinearity=nonlinearity)
-                _, init_params = arn.init_fun(self.arn_rngs[i], (latent_size,))
+                arn_init, arn = AutoregressiveNN(latent_size, hidden_dims,
+                                                 permutation=np.arange(latent_size),
+                                                 skip_connections=skip_connections,
+                                                 nonlinearity=nonlinearity)
+                _, init_params = arn_init(self.arn_rngs[i], (latent_size,))
                 arn_params = param('{}_arn__{}'.format(self.prefix, i), init_params)
                 self.arns.append(arn)
                 if i > 0:
