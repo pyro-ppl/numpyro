@@ -12,7 +12,7 @@ from jax.tree_util import tree_map
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import PermuteTransform, biject_to
+from numpyro.distributions.constraints import AffineTransform, ComposeTransform, PermuteTransform, biject_to
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import relu, sum_rightmost
 from numpyro.handlers import block, param, sample, seed, substitute, trace
@@ -156,12 +156,14 @@ class AutoContinuous(AutoGuide):
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
         self._init_latent, self._unravel_fn = ravel_pytree(unconstrained_sites)
 
-    def _unpack_latent(self, latent_sample):
+    def unpack_latent(self, latent_sample, transform=None):
         sample_shape = np.shape(latent_sample)[:-1]
         latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
         unpacked_samples = vmap(self._unravel_fn)(latent_sample)
         unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
                                     unpacked_samples)
+
+        transform = self._inv_transforms if transform is None else {}
         return transform_fn(self._inv_transforms, unpacked_samples)
 
     def __call__(self, *args, **kwargs):
@@ -192,6 +194,14 @@ class AutoContinuous(AutoGuide):
 
         return result
 
+    def sample_posterior(self, rng, opt_state, *args, **kwargs):
+        sample_shape = kwargs.pop('sample_shape', ())
+        latent_size = np.size(self._init_latent)
+        transform = self.get_transform(opt_state)
+        posterior = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), transform)
+        latent_sample = posterior.sample(rng, sample_shape)
+        return self.unpack_latent(latent_sample)
+
 
 class AutoDiagonalNormal(AutoContinuous):
     """
@@ -208,7 +218,11 @@ class AutoDiagonalNormal(AutoContinuous):
         sample_shape = kwargs.pop('sample_shape', ())
         loc, scale = self._loc_scale(opt_state)
         latent_sample = dist.Normal(loc, scale).sample(rng, sample_shape)
-        return self._unpack_latent(latent_sample)
+        return self.unpack_latent(latent_sample)
+
+    def get_transform(self, opt_state):
+        loc, scale = self._loc_scale(opt_state)
+        return AffineTransform(loc, scale, domain=constraints.real_vector)
 
     def _sample_latent(self, *args, **kwargs):
         init_loc = self._init_latent
@@ -300,8 +314,7 @@ class AutoIAFNormal(AutoContinuous):
         super(AutoIAFNormal, self).__init__(rng, model, get_params_fn, prefix=prefix,
                                             init_loc_fn=init_loc_fn)
 
-    def sample_posterior(self, rng, opt_state, *args, **kwargs):
-        sample_shape = kwargs.pop('sample_shape', ())
+    def get_transform(self, opt_state):
         params = self.get_params(opt_state)
         latent_size = np.size(self._init_latent)
         flows = []
@@ -310,9 +323,7 @@ class AutoIAFNormal(AutoContinuous):
             if i > 0:
                 flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
             flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
-        iaf_dist = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), flows)
-        latent_sample = iaf_dist.sample(rng, sample_shape)
-        return self._unpack_latent(latent_sample)
+        return ComposeTransform(flows)
 
     def _sample_latent(self, *args, **kwargs):
         latent_size = np.size(self._init_latent)

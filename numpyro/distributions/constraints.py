@@ -268,7 +268,7 @@ class ComposeTransform(Transform):
             y = part.inv(y)
         return y
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         result = 0.
         for part in self.parts[:-1]:
             y_tmp = part(x)
