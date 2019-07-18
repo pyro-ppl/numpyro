@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import grad, jit, partial, random, value_and_grad, vmap
+from jax import grad, jit, lax, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
@@ -238,6 +238,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
+    dtype = lax.dtype(init_step_size)
 
     def _body_fn(state):
         step_size, _, direction, rng = state
@@ -248,6 +249,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
+        step_size = np.clip(step_size, a_min=np.finfo(dtype).tiny)
         r = momentum_generator(inverse_mass_matrix, rng_momentum)
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
@@ -259,7 +261,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         return step_size, direction, direction_new, rng
 
     def _cond_fn(state):
-        return (state[1] == 0) | (state[1] == state[2])
+        return (state[0] > np.finfo(dtype).tiny) & ((state[1] == 0) | (state[1] == state[2]))
 
     step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
     return step_size
