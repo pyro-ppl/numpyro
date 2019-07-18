@@ -1,7 +1,8 @@
-from jax import lax, ops
+from jax import lax
 import jax.numpy as np
 
 from numpyro.distributions.constraints import Transform, real_vector
+from numpyro.util import fori_loop
 
 
 def _clamp_preserve_gradients(x, min, max):
@@ -48,8 +49,7 @@ class InverseAutoregressiveTransform(Transform):
         return self.call_with_intermediates(x)[0]
 
     def call_with_intermediates(self, x):
-        out = self.arn.apply_fun(self.params, x)
-        mean, log_scale = out[..., 0, :], out[..., 1, :]
+        mean, log_scale = self.arn(self.params, x)
         log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
         scale = np.exp(log_scale)
         return scale * x + mean, log_scale
@@ -59,20 +59,15 @@ class InverseAutoregressiveTransform(Transform):
         :param y: the output of the transform to be inverted
         :type y: numpy array
         """
-        x = np.zeros(y.shape)
-
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
         def _update_x(i, x):
-            idx = self.arn.permutation[i]
-            out = self.arn.apply_fun(self.params, x)
-            mean, log_scale = out[..., 0, :], out[..., 1, :]
+            mean, log_scale = self.arn(self.params, x)
             inverse_scale = np.exp(-_clamp_preserve_gradients(
-                log_scale[..., idx], min=self.log_scale_min_clip, max=self.log_scale_max_clip))
-            mean = mean[..., idx]
-            x = ops.index_update(x, (..., idx), (y[..., idx] - mean) * inverse_scale)
+                log_scale, min=self.log_scale_min_clip, max=self.log_scale_max_clip))
+            x = (y - mean) * inverse_scale
             return x
 
-        x = lax.fori_loop(0, y.shape[-1], _update_x, x)
+        x = fori_loop(0, y.shape[-1], _update_x, np.zeros(y.shape))
         return x
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -84,7 +79,7 @@ class InverseAutoregressiveTransform(Transform):
         :type y: numpy array
         """
         if intermediates is None:
-            log_scale = self.arn.apply_fun(self.params, x)[..., 1, :]
+            log_scale = self.arn(self.params, x)[1]
             log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
             return log_scale.sum(-1)
         else:
