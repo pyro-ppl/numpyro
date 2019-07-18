@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import grad, jit, partial, random, value_and_grad, vmap
+from jax import grad, jit, lax, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
@@ -238,6 +238,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
+    tiny = np.finfo(lax.dtype(init_step_size)).tiny
 
     def _body_fn(state):
         step_size, _, direction, rng = state
@@ -248,7 +249,6 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
-        step_size = np.clip(step_size, a_min=np.finfo(step_size.dtype).tiny)
         r = momentum_generator(inverse_mass_matrix, rng_momentum)
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
@@ -260,7 +260,10 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         return step_size, direction, direction_new, rng
 
     def _cond_fn(state):
-        return (state[1] == 0) | (state[1] == state[2])
+        step_size, last_direction, direction, _ = state
+        # condition to run only if step_size is not so small or we are not decreasing step_size
+        not_small_step_size_cond = (step_size > tiny) | (direction >= 0)
+        return not_small_step_size_cond & ((last_direction == 0) | (direction == last_direction))
 
     step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
     return step_size
@@ -416,6 +419,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             step_size = np.where(t == (num_adapt_steps - 1),
                                  np.exp(log_step_size_avg),
                                  np.exp(log_step_size))
+            # account the the case log_step_size is a so small negative number
+            step_size = np.clip(step_size, a_min=np.finfo(lax.dtype(step_size)).tiny)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
