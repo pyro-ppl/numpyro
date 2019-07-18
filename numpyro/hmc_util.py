@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import grad, jit, partial, random, value_and_grad, vmap
+from jax import grad, jit, lax, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
@@ -238,6 +238,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
+    tiny = np.finfo(lax.dtype(init_step_size)).tiny
 
     def _body_fn(state):
         step_size, _, direction, rng = state
@@ -259,7 +260,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         return step_size, direction, direction_new, rng
 
     def _cond_fn(state):
-        return (state[1] == 0) | (state[1] == state[2])
+        return (state[0] > tiny) & ((state[1] == 0) | (state[1] == state[2]))
 
     step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
     return step_size

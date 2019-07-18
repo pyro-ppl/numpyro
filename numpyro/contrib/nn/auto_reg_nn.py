@@ -1,10 +1,10 @@
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/nn/auto_reg_nn.py
 
 from jax import ops, random
+from jax.experimental import stax
 import jax.numpy as np
 
 from numpyro.contrib.nn.masked_dense import MaskedDense
-from numpyro.distributions.util import relu
 
 
 def sample_mask_indices(input_dim, hidden_dim):
@@ -58,7 +58,8 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     return masks, mask_skip
 
 
-class AutoregressiveNN(object):
+def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None,
+                     skip_connections=False, nonlinearity=stax.Relu):
     """
     An implementation of a MADE-like auto-regressive neural network.
 
@@ -86,107 +87,86 @@ class AutoregressiveNN(object):
         nonlinearity is applied to the final network output, so the output is an unbounded real number.
         defaults to ReLU.
     :type nonlinearity: callable.
+    :return: a tuple (init_fun, apply_fun)
 
     Reference:
 
     MADE: Masked Autoencoder for Distribution Estimation [arXiv:1502.03509]
     Mathieu Germain, Karol Gregor, Iain Murray, Hugo Larochelle
     """
-    def __init__(self, input_dim, hidden_dims, param_dims=[1, 1], permutation=None,
-                 skip_connections=False, nonlinearity=relu):
-        self.input_dim = input_dim
-        self.hidden_dims = hidden_dims
-        self.masked_layers = None
-        self.param_dims = param_dims
-        self.permutation = permutation
-        self.skip_connections = skip_connections
-        self.nonlinearity = nonlinearity
-        self.all_ones = (np.array(param_dims) == 1).all()
+    output_multiplier = sum(param_dims)
+    all_ones = (np.array(param_dims) == 1).all()
 
-        # Calculate the indices on the output corresponding to each parameter
-        ends = np.cumsum(np.array(self.param_dims), axis=0)
-        starts = np.concatenate((np.zeros(1), ends[:-1]))
-        self.param_slices = [slice(int(s), int(e)) for s, e in zip(starts, ends)]
+    # Calculate the indices on the output corresponding to each parameter
+    ends = np.cumsum(np.array(param_dims), axis=0)
+    starts = np.concatenate((np.zeros(1), ends[:-1]))
+    param_slices = [slice(int(s), int(e)) for s, e in zip(starts, ends)]
 
-        self.count_params = len(self.param_dims)
-        self.output_multiplier = sum(self.param_dims)
+    # Hidden dimension must be not less than the input otherwise it isn't
+    # possible to connect to the outputs correctly
+    for h in hidden_dims:
+        if h < input_dim:
+            raise ValueError('Hidden dimension must not be less than input dimension.')
 
-        # Hidden dimension must be not less than the input otherwise it isn't
-        # possible to connect to the outputs correctly
-        for h in self.hidden_dims:
-            if h < self.input_dim:
-                raise ValueError('Hidden dimension must not be less than input dimension.')
+    net = None
 
-    def init_fun(self, rng, input_shape):
+    def init_fun(rng, input_shape):
         """
         :param rng: rng used to initialize parameters
         :param input_shape: input shape
         """
-        if self.permutation is None:
+        # TODO: consider removing permutation so we can move those layer constructions outside
+        # init_fun. It seems that we can add a PermuteTransform layer to achieve the same effect.
+        nonlocal permutation, net
+
+        if permutation is None:
             # By default set a random permutation of variables, which is
             # important for performance with multiple steps
             rng, rng_perm = random.split(rng)
-            self.permutation = random.shuffle(rng_perm, np.arange(self.input_dim))
+            permutation = random.shuffle(rng_perm, np.arange(input_dim))
 
         # Create masks
-        masks, mask_skip = create_mask(input_dim=self.input_dim, hidden_dims=self.hidden_dims,
-                                       permutation=self.permutation,
-                                       output_dim_multiplier=self.output_multiplier)
+        masks, mask_skip = create_mask(input_dim=input_dim, hidden_dims=hidden_dims,
+                                       permutation=permutation,
+                                       output_dim_multiplier=output_multiplier)
 
-        init_params = []
-        if self.skip_connections:
-            rng, rng_skip = random.split(rng)
-            self.skip_layer = MaskedDense(mask_skip, bias=False)
-            skip_init = self.skip_layer[0]
-            _, param = skip_init(rng_skip, input_shape)
-            init_params.append(param)
-        else:
-            self.skip_layer = None
-
+        main_layers = []
         # Create masked layers
-        self.masked_layers = [MaskedDense(mask) for mask in masks]
-        rngs = random.split(rng, len(masks))
-        for i, mask in enumerate(self.masked_layers):
-            mask_init = mask[0]
-            input_shape, param = mask_init(rngs[i], input_shape)
-            init_params.append(param)
+        for i, mask in enumerate(masks):
+            main_layers.append(MaskedDense(mask))
+            if i < len(masks) - 1:
+                main_layers.append(nonlinearity)
 
-        return input_shape, init_params
+        if skip_connections:
+            net_init, net = stax.serial(stax.FanOut(2),
+                                        stax.parallel(stax.serial(*main_layers),
+                                                      MaskedDense(mask_skip, bias=False)),
+                                        stax.FanInSum)
+        else:
+            net_init, net = stax.serial(*main_layers)
 
-    def apply_fun(self, params, inputs, **kwargs):
+        return net_init(rng, input_shape)
+
+    def apply_fun(params, inputs, **kwargs):
         """
         :param params: layer parameters
         :param inputs: layer inputs
         """
-        if self.skip_connections:
-            skip_apply = self.skip_layer[1]
-            skip_out = skip_apply(params[0], inputs)
-            params = params[1:]
-
-        out = inputs
-        for k, (mask, param) in enumerate(zip(self.masked_layers, params)):
-            mask_apply = mask[1]
-            out = mask_apply(param, out)
-            if k < len(self.masked_layers) - 1:
-                out = self.nonlinearity(out)
-
-        if self.skip_connections:
-            out = out + skip_out
+        out = net(params, inputs, **kwargs)
 
         # reshape output as necessary
-        if self.output_multiplier == 1:
-            return out
-        else:
-            # TODO: revise the following logic to have param_dims at axis 0
-            out = np.reshape(out, list(inputs.shape[:-1]) + [self.output_multiplier, self.input_dim])
+        out = np.reshape(out, inputs.shape[:-1] + (output_multiplier, input_dim))
+        # move param dims to the first dimension
+        out = np.moveaxis(out, -2, 0)
 
+        if all_ones:
             # Squeeze dimension if all parameters are one dimensional
-            if self.count_params == 1:
-                return out
-
-            elif self.all_ones:
-                return np.squeeze(out, axis=-2)
-
+            out = tuple([out[i] for i in range(output_multiplier)])
+        else:
             # If not all ones, then probably don't want to squeeze a single dimension parameter
-            else:
-                return tuple([out[..., s, :] for s in self.param_slices])
+            out = tuple([out[s] for s in param_slices])
+
+        # if len(param_dims) == 1, we return the array instead of a tuple of arrays
+        return out[0] if len(param_dims) == 1 else out
+
+    return init_fun, apply_fun
