@@ -57,7 +57,7 @@ def main(args):
 
     print("Start vanilla HMC...")
     # TODO: set progbar=True when https://github.com/google/jax/issues/939 is resolved
-    vanilla_samples = mcmc(4000, 4000, init_params=np.array([2., 0.]), potential_fn=dual_moon_pe,
+    vanilla_samples = mcmc(10000, 10000, init_params=np.array([2., 0.]), potential_fn=dual_moon_pe,
                            progbar=False)
 
     opt_init, opt_update, get_params = optimizers.adam(0.001)
@@ -72,11 +72,11 @@ def main(args):
         return i + 1, loss, opt_state_, rng_
 
     print("Start training guide...")
-    losses, opt_states = fori_collect(0, 100000, jit(body_fn), (0, 0., opt_state, rng_train),
+    losses, opt_states = fori_collect(0, 10000, jit(body_fn), (0, 0., opt_state, rng_train),
                                       transform=lambda x: (x[1], x[2]), progbar=False)
     last_state = tree_map(lambda x: x[-1], opt_states)
     print("Finish training guide. Extract samples...")
-    guide_samples = guide.sample_posterior(random.PRNGKey(0), last_state, sample_shape=(4000,))
+    guide_samples = guide.sample_posterior(random.PRNGKey(0), last_state, sample_shape=(10000,))
 
     transform = guide.get_transform(last_state)
     unpack_fn = lambda u: guide.unpack_latent(u, transform={})  # noqa: E731
@@ -88,7 +88,7 @@ def main(args):
     # TODO: expose latent_size in autoguide
     init_params = np.zeros(np.size(guide._init_latent))
     print("\nStart NeuTra HMC...")
-    zs = mcmc(4000, 4000, init_params, potential_fn=transformed_potential_fn)
+    zs = mcmc(10000, 10000, init_params, potential_fn=transformed_potential_fn)
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)
     summary(tree_map(lambda x: x[None, ...], samples))
