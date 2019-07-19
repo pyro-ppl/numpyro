@@ -57,12 +57,12 @@ def main(args):
 
     print("Start vanilla HMC...")
     # TODO: set progbar=True when https://github.com/google/jax/issues/939 is resolved
-    vanilla_samples = mcmc(10000, 10000, init_params=np.array([2., 0.]), potential_fn=dual_moon_pe,
-                           progbar=False)
+    vanilla_samples = mcmc(args.num_warmup, args.num_samples, init_params=np.array([2., 0.]),
+                           potential_fn=dual_moon_pe, progbar=False)
 
     opt_init, opt_update, get_params = optimizers.adam(0.001)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = AutoIAFNormal(rng_guide, dual_moon_model, get_params, hidden_dims=[15])
+    guide = AutoIAFNormal(rng_guide, dual_moon_model, get_params, hidden_dims=[args.num_hidden])
     svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, opt_init, opt_update, get_params)
     opt_state, _ = svi_init(rng_init)
 
@@ -72,11 +72,13 @@ def main(args):
         return i + 1, loss, opt_state_, rng_
 
     print("Start training guide...")
-    losses, opt_states = fori_collect(0, 10000, jit(body_fn), (0, 0., opt_state, rng_train),
+    losses, opt_states = fori_collect(0, args.num_iters, jit(body_fn),
+                                      (0, 0., opt_state, rng_train),
                                       transform=lambda x: (x[1], x[2]), progbar=False)
     last_state = tree_map(lambda x: x[-1], opt_states)
     print("Finish training guide. Extract samples...")
-    guide_samples = guide.sample_posterior(random.PRNGKey(0), last_state, sample_shape=(10000,))
+    guide_samples = guide.sample_posterior(random.PRNGKey(0), last_state,
+                                           sample_shape=(args.num_samples,))
 
     transform = guide.get_transform(last_state)
     unpack_fn = lambda u: guide.unpack_latent(u, transform={})  # noqa: E731
@@ -88,7 +90,7 @@ def main(args):
     # TODO: expose latent_size in autoguide
     init_params = np.zeros(np.size(guide._init_latent))
     print("\nStart NeuTra HMC...")
-    zs = mcmc(10000, 10000, init_params, potential_fn=transformed_potential_fn)
+    zs = mcmc(args.num_warmup, args.num_samples, init_params, potential_fn=transformed_potential_fn)
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)
     summary(tree_map(lambda x: x[None, ...], samples))
@@ -132,6 +134,10 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NeuTra HMC")
+    parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
+    parser.add_argument('--num-warmup', nargs='?', default=0, type=int)
+    parser.add_argument('--num-hidden', nargs='?', default=15, type=int)
+    parser.add_argument('--num-iters', nargs='?', default=10000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
