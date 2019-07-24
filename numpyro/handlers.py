@@ -247,11 +247,11 @@ class scale(Messenger):
 
     :param float scale_factor: a positive scaling factor
     """
-    def __init__(self, scale_factor):
+    def __init__(self, fn=None, scale_factor=1.):
         if scale_factor <= 0:
             raise ValueError("scale factor should be a positive number.")
         self.scale = scale_factor
-        super(scale, self).__init__()
+        super(scale, self).__init__(fn)
 
     def process_message(self, msg):
         msg["scale"] = self.scale * msg.get('scale', 1)

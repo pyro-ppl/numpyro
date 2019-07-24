@@ -1,3 +1,4 @@
+import pytest
 from numpy.testing import assert_allclose
 
 from jax import random
@@ -5,16 +6,20 @@ from jax import random
 import numpyro.distributions as dist
 from numpyro.handlers import sample, scale
 from numpyro.hmc_util import log_density
+from numpyro.util import optional
 
 
-def test_scale():
+@pytest.mark.parametrize('use_context_manager', [True, False])
+def test_scale(use_context_manager):
     def model(data):
         x = sample('x', dist.Normal(0, 1))
-        with scale(10):
+        with optional(use_context_manager, scale(scale_factor=10)):
             sample('obs', dist.Normal(x, 1), obs=data)
 
+    model = model if use_context_manager else scale(model, 10.)
     data = random.normal(random.PRNGKey(0), (3,))
     x = random.normal(random.PRNGKey(1))
     log_joint = log_density(model, (data,), {}, {'x': x})[0]
-    expected = dist.Normal(0, 1).log_prob(x) + 10 * dist.Normal(x, 1).log_prob(data).sum()
+    log_prob1, log_prob2 = dist.Normal(0, 1).log_prob(x), dist.Normal(x, 1).log_prob(data).sum()
+    expected = log_prob1 + 10 * log_prob2 if use_context_manager else 10 * (log_prob1 + log_prob2)
     assert_allclose(log_joint, expected)
