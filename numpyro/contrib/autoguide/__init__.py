@@ -157,15 +157,15 @@ class AutoContinuous(AutoGuide):
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
         self._init_latent, self._unravel_fn = ravel_pytree(unconstrained_sites)
 
-    def unpack_latent(self, latent_sample, transform=None):
+    def unpack_latent(self, latent_sample, transform=True):
         sample_shape = np.shape(latent_sample)[:-1]
         latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
         unpacked_samples = vmap(self._unravel_fn)(latent_sample)
         unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
                                     unpacked_samples)
 
-        transform = self._inv_transforms if transform is None else {}
-        return transform_fn(self._inv_transforms, unpacked_samples)
+        transform = self._inv_transforms if transform else {}
+        return transform_fn(transform, unpacked_samples)
 
     def __call__(self, *args, **kwargs):
         """

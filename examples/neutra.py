@@ -81,7 +81,7 @@ def main(args):
                                            sample_shape=(args.num_samples,))
 
     transform = guide.get_transform(last_state)
-    unpack_fn = lambda u: guide.unpack_latent(u, transform={})  # noqa: E731
+    unpack_fn = lambda u: guide.unpack_latent(u, transform=False)  # noqa: E731
 
     _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), dual_moon_model)
     transformed_potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
