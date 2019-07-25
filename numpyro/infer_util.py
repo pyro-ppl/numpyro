@@ -40,5 +40,7 @@ def transform_fn(transforms, params, invert=False):
     :param invert: Whether to apply the inverse of the transforms.
     :return: `dict` of transformed params.
     """
-    return {k: transforms[k](v) if not invert else transforms[k].inv(v)
+    if invert:
+        transforms = {k: v.inv for k, v in transforms.items()}
+    return {k: transforms[k](v) if k in transforms else v
             for k, v in params.items()}

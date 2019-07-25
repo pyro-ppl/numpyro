@@ -215,7 +215,7 @@ class AutoContinuous(AutoGuide):
         return transform_fn(transform, unpacked_samples)
 
     def get_transform(self, opt_state):
-        return substitute(self._get_transform(), self.get_params(opt_state))()
+        return substitute(self._get_transform, self.get_params(opt_state))()
 
     def sample_posterior(self, rng, opt_state, *args, **kwargs):
         sample_shape = kwargs.pop('sample_shape', ())
