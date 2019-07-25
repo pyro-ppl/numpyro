@@ -4,7 +4,7 @@ from numpy.testing import assert_allclose
 from jax import random
 
 import numpyro.distributions as dist
-from numpyro.handlers import sample, scale
+from numpyro.handlers import sample, scale, param, substitute
 from numpyro.hmc_util import log_density
 from numpyro.util import optional
 
@@ -23,3 +23,12 @@ def test_scale(use_context_manager):
     log_prob1, log_prob2 = dist.Normal(0, 1).log_prob(x), dist.Normal(x, 1).log_prob(data).sum()
     expected = log_prob1 + 10 * log_prob2 if use_context_manager else 10 * (log_prob1 + log_prob2)
     assert_allclose(log_joint, expected)
+
+
+def test_substitute():
+    def model():
+        x = param('x', None)
+        y = substitute(lambda: param('y', None) * param('x', None), {'y': x})()
+        return x + y
+
+    assert substitute(model, {'x': 3.})() == 12.

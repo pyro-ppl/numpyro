@@ -314,13 +314,15 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if self.param_map:
+        if self.param_map is not None:
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
-        else:
+        elif self.substitute_fn is not None:
             value = self.substitute_fn(msg)
             if value is not None:
                 msg['value'] = value
+        else:
+            raise ValueError("Neither `param_map` nor `substitute_fn` provided to substitute handler.")
 
 
 def apply_stack(msg):
