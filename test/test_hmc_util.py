@@ -21,7 +21,7 @@ from numpyro.hmc_util import (
     dual_averaging,
     find_reasonable_step_size,
     initialize_model,
-    parametric,
+    parametric_draws,
     velocity_verlet,
     warmup_adapter,
     welford_covariance
@@ -442,7 +442,7 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
             assert_allclose(p[i], init_params_i[name], atol=1e-6)
 
 
-@pytest.mark.parametrize('method', [consensus, parametric])
+@pytest.mark.parametrize('method', [consensus, parametric_draws])
 @pytest.mark.parametrize('diagonal', [True, False])
 def test_gaussian_subposterior(method, diagonal):
     D = 10
@@ -466,7 +466,7 @@ def test_gaussian_subposterior(method, diagonal):
         assert_allclose(_cov(draws), cov, atol=0.05)
 
 
-@pytest.mark.parametrize('method', [consensus, parametric])
+@pytest.mark.parametrize('method', [consensus, parametric_draws])
 def test_subposterior_structure(method):
     subposteriors = [{'x': np.ones((100, 3)), 'y': np.zeros((100,))} for i in range(10)]
     draws = method(subposteriors, num_draws=9)
