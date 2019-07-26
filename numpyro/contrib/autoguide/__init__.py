@@ -77,7 +77,7 @@ class AutoGuide(ABC):
 
     def setup(self, *args, **kwargs):
         """
-        First call to set up any necessary state, and return initial
+        First call to set up any necessary state. Returns initial
         value of parameters in the guide.
 
         :param args: model args.

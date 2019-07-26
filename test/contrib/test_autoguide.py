@@ -1,7 +1,7 @@
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import lax, random
+from jax import lax, random, jit
 from jax.experimental import optimizers
 import jax.numpy as np
 
@@ -9,6 +9,7 @@ from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
 import numpyro.distributions as dist
 from numpyro.handlers import sample
 from numpyro.svi import elbo, svi
+from numpyro.util import control_flow_prims_disabled, fori_loop
 
 
 @pytest.mark.parametrize('auto_class', [
@@ -65,6 +66,7 @@ def test_logistic_regression(auto_class):
                                        model_args=(data, labels),
                                        guide_args=(data, labels))
 
+    @jit
     def body_fn(i, val):
         opt_state_, rng_ = val
         loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_,
@@ -72,7 +74,9 @@ def test_logistic_regression(auto_class):
                                             guide_args=(data, labels))
         return opt_state_, rng_
 
-    opt_state, _ = lax.fori_loop(0, 1000, body_fn, (opt_state, rng_train))
+    # TODO: Remove once https://github.com/pyro-ppl/numpyro/issues/259 is fixed.
+    with control_flow_prims_disabled():
+        opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
     if auto_class is not AutoIAFNormal:
         median = guide.median(opt_state)
         assert_allclose(median['coefs'], true_coefs, rtol=0.1)
