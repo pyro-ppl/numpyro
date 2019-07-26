@@ -75,6 +75,18 @@ class AutoGuide(ABC):
         self.prefix = prefix
         self.prototype_trace = None
 
+    def setup(self, *args, **kwargs):
+        """
+        First call to set up any necessary state. Returns initial
+        value of parameters in the guide.
+
+        :param args: model args.
+        :param kwargs: model kwargs.
+        :return: dict of initial parameters.
+        """
+        self._setup_prototype(*args, **kwargs)
+        return {}
+
     @abstractmethod
     def __call__(self, *args, **kwargs):
         """
@@ -157,15 +169,15 @@ class AutoContinuous(AutoGuide):
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
         self._init_latent, self._unravel_fn = ravel_pytree(unconstrained_sites)
 
-    def unpack_latent(self, latent_sample, transform=True):
-        sample_shape = np.shape(latent_sample)[:-1]
-        latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
-        unpacked_samples = vmap(self._unravel_fn)(latent_sample)
-        unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
-                                    unpacked_samples)
+    @abstractmethod
+    def _get_transform(self):
+        raise NotImplementedError
 
-        transform = self._inv_transforms if transform else {}
-        return transform_fn(transform, unpacked_samples)
+    def _sample_latent(self, base_dist, *args, **kwargs):
+        sample_shape = kwargs.pop('sample_shape', ())
+        transform = self._get_transform()
+        posterior = dist.TransformedDistribution(base_dist, transform)
+        return sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
 
     def __call__(self, *args, **kwargs):
         """
@@ -174,11 +186,17 @@ class AutoContinuous(AutoGuide):
         :return: A dict mapping sample site name to sampled value.
         :rtype: dict
         """
-        # run model to inspect the model structure
+        sample_latent_fn = self._sample_latent
         if self.prototype_trace is None:
-            self._setup_prototype(*args, **kwargs)
+            # run model to inspect the model structure
+            params = self.setup(*args, **kwargs)
+            sample_latent_fn = substitute(sample_latent_fn, params)
 
-        latent = self._sample_latent(*args, **kwargs)
+        base_dist = kwargs.pop('base_dist', None)
+        latent_size = np.size(self._init_latent)
+        if base_dist is None:
+            base_dist = _Normal(np.zeros(latent_size), 1.)
+        latent = sample_latent_fn(base_dist, *args, **kwargs)
 
         # unpack continuous latent samples
         result = {}
@@ -195,12 +213,27 @@ class AutoContinuous(AutoGuide):
 
         return result
 
+    def unpack_latent(self, latent_sample, transform=True):
+        sample_shape = np.shape(latent_sample)[:-1]
+        latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
+        unpacked_samples = vmap(self._unravel_fn)(latent_sample)
+        unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
+                                    unpacked_samples)
+
+        transform = self._inv_transforms if transform else {}
+        return transform_fn(transform, unpacked_samples)
+
+    def get_transform(self, opt_state):
+        return substitute(self._get_transform, self.get_params(opt_state))()
+
     def sample_posterior(self, rng, opt_state, *args, **kwargs):
         sample_shape = kwargs.pop('sample_shape', ())
+        base_dist = kwargs.pop('base_dist', None)
         latent_size = np.size(self._init_latent)
-        transform = self.get_transform(opt_state)
-        posterior = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), transform)
-        latent_sample = posterior.sample(rng, sample_shape)
+        if base_dist is None:
+            base_dist = _Normal(np.zeros(latent_size), 1.)
+        params = self.get_params(opt_state)
+        latent_sample = substitute(seed(self._sample_latent, rng), params)(base_dist, sample_shape=sample_shape)
         return self.unpack_latent(latent_sample)
 
 
@@ -215,29 +248,21 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(rng, model, get_params, ...)
         svi_init, svi_update, _ = svi(model, guide, ...)
     """
-    def sample_posterior(self, rng, opt_state, *args, **kwargs):
-        sample_shape = kwargs.pop('sample_shape', ())
-        loc, scale = self._loc_scale(opt_state)
-        latent_sample = dist.Normal(loc, scale).sample(rng, sample_shape)
-        return self.unpack_latent(latent_sample)
-
-    def get_transform(self, opt_state):
-        loc, scale = self._loc_scale(opt_state)
+    def _get_transform(self):
+        loc, scale = self._loc_scale()
         return AffineTransform(loc, scale, domain=constraints.real_vector)
 
-    def _sample_latent(self, *args, **kwargs):
-        init_loc = self._init_latent
-        loc = param('{}_loc'.format(self.prefix), init_loc)
-        scale = param('{}_scale'.format(self.prefix), np.ones(np.size(init_loc)),
-                      constraint=constraints.positive)
-        # TODO: Support for `.to_event()` to treat the batch dim as event dim.
-        return sample("_{}_latent".format(self.prefix), dist.Normal(loc, scale))
-
-    def _loc_scale(self, opt_state):
-        params = self.get_params(opt_state)
-        loc = params['{}_loc'.format(self.prefix)]
-        scale = biject_to(constraints.positive)(params['{}_scale'.format(self.prefix)])
+    def _loc_scale(self):
+        loc = param('{}_loc'.format(self.prefix), None)
+        scale = biject_to(constraints.positive)(param('{}_scale'.format(self.prefix), None))
         return loc, scale
+
+    def setup(self, *args, **kwargs):
+        super(AutoDiagonalNormal, self).setup(*args, **kwargs)
+        return {
+            '{}_loc'.format(self.prefix): self._init_latent,
+            '{}_scale'.format(self.prefix): np.ones(np.size(self._init_latent)),
+        }
 
     def median(self, opt_state):
         """
@@ -247,7 +272,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :return: A dict mapping sample site name to median tensor.
         :rtype: dict
         """
-        loc, _ = self._loc_scale(opt_state)
+        loc, _ = substitute(self._loc_scale, self.get_params(opt_state))()
         return transform_fn(self._inv_transforms, self._unravel_fn(loc))
 
     def quantiles(self, opt_state, quantiles):
@@ -262,7 +287,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :return: A dict mapping sample site name to a list of quantile values.
         :rtype: dict
         """
-        loc, scale = self._loc_scale(opt_state)
+        loc, scale = substitute(self._loc_scale, self.get_params(opt_state))()
         result = {}
         for q in quantiles:
             latent = osp.norm(loc, scale).ppf(q)
@@ -315,46 +340,35 @@ class AutoIAFNormal(AutoContinuous):
         super(AutoIAFNormal, self).__init__(rng, model, get_params_fn, prefix=prefix,
                                             init_loc_fn=init_loc_fn)
 
-    def get_transform(self, opt_state):
-        params = self.get_params(opt_state)
-        latent_size = np.size(self._init_latent)
-        flows = []
-        for i in range(self.num_flows):
-            arn_params = params['{}_arn__{}'.format(self.prefix, i)]
-            if i > 0:
-                flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
-            flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
-        return ComposeTransform(flows)
-
-    def _sample_latent(self, *args, **kwargs):
+    def setup(self, *args, **kwargs):
+        super(AutoIAFNormal, self).setup(*args, **kwargs)
         latent_size = np.size(self._init_latent)
         if latent_size == 1:
             raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
-        flows = []
+        params = {}
         if not self.arns:
             # 2-layer by default following the experiments in IAF paper
             # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
             hidden_dims = self.arn_kwargs.get('hidden_dims', [latent_size, latent_size])
             skip_connections = self.arn_kwargs.get('skip_connections', True)
             nonlinearity = self.arn_kwargs.get('nonlinearity', stax.Relu)
+
             for i in range(self.num_flows):
                 arn_init, arn = AutoregressiveNN(latent_size, hidden_dims,
                                                  permutation=np.arange(latent_size),
                                                  skip_connections=skip_connections,
                                                  nonlinearity=nonlinearity)
                 _, init_params = arn_init(self.arn_rngs[i], (latent_size,))
-                arn_params = param('{}_arn__{}'.format(self.prefix, i), init_params)
+                params['{}_arn__{}'.format(self.prefix, i)] = init_params
                 self.arns.append(arn)
-                if i > 0:
-                    flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
-                flows.append(InverseAutoregressiveTransform(arn, arn_params))
-        else:
-            for i in range(self.num_flows):
-                arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
-                if i > 0:
-                    flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
-                flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
+        return params
 
-        # TODO: support to_event for distributions
-        iaf_dist = dist.TransformedDistribution(_Normal(np.zeros(latent_size), 1.), flows)
-        return sample("_{}_latent".format(self.prefix), iaf_dist)
+    def _get_transform(self):
+        latent_size = np.size(self._init_latent)
+        flows = []
+        for i in range(self.num_flows):
+            arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
+            if i > 0:
+                flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
+            flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
+        return ComposeTransform(flows)
