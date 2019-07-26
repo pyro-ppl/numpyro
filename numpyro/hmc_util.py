@@ -767,9 +767,9 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
                                     {k: v for k, v in constrained_values.items()}, invert=True)
         if init_strategy == 'uniform':
             init_params = {}
-            for k, v in prior_params.items():
-                key, = random.split(key, 1)
-                init_params[k] = random.uniform(key, shape=np.shape(v), minval=-2, maxval=2)
+            keys = random.split(key, len(prior_params))
+            for i, (k, v) in enumerate(prior_params.items()):
+                init_params[k] = random.uniform(keys[i], shape=np.shape(v), minval=-2, maxval=2)
         elif init_strategy == 'prior':
             init_params = prior_params
         else:

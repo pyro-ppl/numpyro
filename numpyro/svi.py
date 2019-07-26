@@ -90,12 +90,12 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         :param tuple guide_args: dynamic arguments to the guide.
         :return: tuple of `(loss_val, opt_state, rng)`.
         """
-        model_init, guide_init = _seed(model, guide, rng)
+        rng, rng_seed = random.split(rng)
+        model_init, guide_init = _seed(model, guide, rng_seed)
         params = get_params(opt_state)
         loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args,
                                                guide_args, kwargs, constrain_fn=constrain_fn)
         opt_state = optim_update(i, grads, opt_state)
-        rng, = random.split(rng, 1)
         return loss_val, opt_state, rng
 
     def evaluate(rng, opt_state, model_args=(), guide_args=()):
