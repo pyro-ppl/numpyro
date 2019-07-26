@@ -238,6 +238,58 @@ class block(Messenger):
             msg['stop'] = True
 
 
+class condition(Messenger):
+    """
+    Conditions unobserved sample sites to values from `param_map` or `condition_fn`.
+    Similar to :class:`~numpyro.handlers.substitute` except that it only affects
+    `sample` sites and changes the `is_observed` property to `True`.
+
+    :param fn: Python callable with NumPyro primitives.
+    :param dict param_map: dictionary of `numpy.ndarray` values keyed by
+       site names.
+    :param condition_fn: callable that takes in a site dict and returns
+       a numpy array or `None` (in which case the handler has no side
+       effect).
+
+    **Example:**
+
+     .. testsetup::
+
+       from jax import random
+       from numpyro.handlers import sample, seed, substitute, trace
+       import numpyro.distributions as dist
+
+    .. doctest::
+
+       >>> def model():
+       ...     sample('a', dist.Normal(0., 1.))
+
+       >>> model = seed(model, random.PRNGKey(0))
+       >>> exec_trace = trace(condition(model, {'a': -1})).get_trace()
+       >>> assert exec_trace['a']['value'] == -1
+       >>> assert exec_trace['a']['is_observed']
+    """
+    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+        self.substitute_fn = substitute_fn
+        self.param_map = param_map
+        super(condition, self).__init__(fn)
+
+    def process_message(self, msg):
+        site_name = msg['name']
+        if msg['type'] == 'sample':
+            value = None
+            if self.param_map is not None:
+                if site_name in self.param_map:
+                    value = self.param_map[site_name]
+            else:
+                value = self.substitute_fn(msg)
+            if value is not None:
+                msg['value'] = value
+                if msg['is_observed']:
+                    raise ValueError("Cannot condition an already observed site: {}.".format(site_name))
+                msg['is_observed'] = True
+
+
 class scale(Messenger):
     """
     This messenger rescales the log probability score.
@@ -279,10 +331,15 @@ class seed(Messenger):
 
 class substitute(Messenger):
     """
-    Given a callable `fn` and a dict `param_map` keyed by site names,
-    return a callable which substitutes all primitive calls in `fn` with
-    values from `param_map` whose key matches the site name. If the
-    site name is not present in `param_map`, there is no side effect.
+    Given a callable `fn` and a dict `param_map` keyed by site names
+    (alternatively, a callable `substitute_fn`), return a callable
+    which substitutes all primitive calls in `fn` with values from
+    `param_map` whose key matches the site name. If the site name
+    is not present in `param_map`, there is no side effect.
+
+    If a `substitute_fn` is provided, then the value at the site is
+    replaced by the value returned from the call to `substitute_fn`
+    for the given site.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by

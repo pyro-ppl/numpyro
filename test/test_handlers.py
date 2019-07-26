@@ -4,7 +4,7 @@ from numpy.testing import assert_allclose
 from jax import random
 
 import numpyro.distributions as dist
-from numpyro.handlers import sample, scale, param, substitute
+from numpyro.handlers import sample, scale, param, substitute, seed, trace, condition
 from numpyro.hmc_util import log_density
 from numpyro.util import optional
 
@@ -32,3 +32,18 @@ def test_substitute():
         return x + y
 
     assert substitute(model, {'x': 3.})() == 12.
+
+
+def test_condition():
+    def model():
+        x = sample('x', dist.Delta(0.))
+        y = sample('y', dist.Normal(0., 1.))
+        return x + y
+
+    model = condition(seed(model, random.PRNGKey(1)), {'y': 2.})
+    model_trace = trace(model).get_trace()
+    assert model_trace['y']['value'] == 2.
+    assert model_trace['y']['is_observed']
+    # Raise ValueError when site is already observed.
+    with pytest.raises(ValueError):
+        condition(model, {'y': 3.})()
