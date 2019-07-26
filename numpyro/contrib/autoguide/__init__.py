@@ -75,6 +75,18 @@ class AutoGuide(ABC):
         self.prefix = prefix
         self.prototype_trace = None
 
+    def setup(self, *args, **kwargs):
+        """
+        First call to set up any necessary state, and return initial
+        value of parameters in the guide.
+
+        :param args: model args.
+        :param kwargs: model kwargs.
+        :return: dict of initial parameters.
+        """
+        self._setup_prototype(*args, **kwargs)
+        return {}
+
     @abstractmethod
     def __call__(self, *args, **kwargs):
         """
@@ -167,10 +179,6 @@ class AutoContinuous(AutoGuide):
         posterior = dist.TransformedDistribution(base_dist, transform)
         return sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
 
-    def setup(self, *args, **kwargs):
-        self._setup_prototype(*args, **kwargs)
-        return {}
-
     def __call__(self, *args, **kwargs):
         """
         An automatic guide with the same ``*args, **kwargs`` as the base ``model``.
@@ -204,14 +212,14 @@ class AutoContinuous(AutoGuide):
 
         return result
 
-    def unpack_latent(self, latent_sample, transform=None):
+    def unpack_latent(self, latent_sample, transform=True):
         sample_shape = np.shape(latent_sample)[:-1]
         latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
         unpacked_samples = vmap(self._unravel_fn)(latent_sample)
         unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
                                     unpacked_samples)
 
-        transform = self._inv_transforms if transform is None else {}
+        transform = self._inv_transforms if transform else {}
         return transform_fn(transform, unpacked_samples)
 
     def get_transform(self, opt_state):
