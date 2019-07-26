@@ -186,16 +186,17 @@ class AutoContinuous(AutoGuide):
         :return: A dict mapping sample site name to sampled value.
         :rtype: dict
         """
-        # run model to inspect the model structure
-        params = {}
+        sample_latent_fn = self._sample_latent
         if self.prototype_trace is None:
+            # run model to inspect the model structure
             params = self.setup(*args, **kwargs)
+            sample_latent_fn = substitute(sample_latent_fn, params)
 
         base_dist = kwargs.pop('base_dist', None)
         latent_size = np.size(self._init_latent)
         if base_dist is None:
             base_dist = _Normal(np.zeros(latent_size), 1.)
-        latent = substitute(self._sample_latent, params)(base_dist, *args, **kwargs)
+        latent = sample_latent_fn(base_dist, *args, **kwargs)
 
         # unpack continuous latent samples
         result = {}
