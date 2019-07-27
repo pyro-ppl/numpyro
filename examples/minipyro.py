@@ -32,12 +32,10 @@ def main(args):
     # model/guide pair.
     opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
-    rng = PRNGKey(0)
-    opt_state, _ = svi_init(rng, model_args=(data,))
+    rng, rng_init = random.split(PRNGKey(0))
+    opt_state, _ = svi_init(rng_init, model_args=(data,))
 
     # Training loop
-    rng, = random.split(rng, 1)
-
     def body_fn(i, val):
         opt_state_, rng_ = val
         loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,))

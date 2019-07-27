@@ -38,4 +38,4 @@ def test_beta_bernoulli():
     opt_state, _ = fori_loop(0, 300, body_fn, (opt_state, rng_train))
 
     params = constrain_fn(get_params(opt_state))
-    assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, rtol=0.05)
+    assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
