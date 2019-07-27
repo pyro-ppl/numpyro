@@ -57,6 +57,7 @@ def while_loop(cond_fun, body_fun, init_val):
             val = body_fun(val)
         return val
     else:
+        # TODO: consider jitting while_loop similar to fori_loop
         return lax.while_loop(cond_fun, body_fun, init_val)
 
 
@@ -67,7 +68,7 @@ def fori_loop(lower, upper, body_fun, init_val):
             val = body_fun(i, val)
         return val
     else:
-        return lax.fori_loop(lower, upper, body_fun, init_val)
+        return jit(lax.fori_loop, static_argnums=(2,))(lower, upper, body_fun, init_val)
 
 
 def identity(x):
@@ -114,8 +115,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
             collection = ops.index_update(collection, i, ravel_fn(val))
             return val, collection
 
-        _, collection = jit(fori_loop, static_argnums=(2,))(0, upper, _body_fn,
-                                                            (init_val, collection))
+        _, collection = fori_loop(0, upper, _body_fn, (init_val, collection))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', '')
