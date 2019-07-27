@@ -5,7 +5,7 @@ import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import device_put, disable_jit, grad, jit, lax, random, tree_map
+from jax import device_put, disable_jit, grad, jit, random, tree_map
 import jax.numpy as np
 
 import numpyro.distributions as dist
@@ -179,9 +179,9 @@ def test_velocity_verlet(jitted, example):
     def get_final_state(model, step_size, num_steps, q_i, p_i):
         vv_init, vv_update = velocity_verlet(model.potential_fn, model.kinetic_fn)
         vv_state = vv_init(q_i, p_i)
-        q_f, p_f, _, _ = lax.fori_loop(0, num_steps,
-                                       lambda i, val: vv_update(step_size, args.m_inv, val),
-                                       vv_state)
+        q_f, p_f, _, _ = fori_loop(0, num_steps,
+                                   lambda i, val: vv_update(step_size, args.m_inv, val),
+                                   vv_state)
         return (q_f, p_f)
 
     model, args = example
