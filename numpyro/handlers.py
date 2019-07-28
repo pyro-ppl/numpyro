@@ -365,21 +365,26 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+    def __init__(self, fn=None, param_map=None, base_param_map=None, substitute_fn=None):
         self.substitute_fn = substitute_fn
         self.param_map = param_map
+        self.base_param_map = base_param_map
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
         if self.param_map is not None:
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
+        elif self.base_param_map is not None:
+            if msg['name'] in self.param_map:
+                msg['base_value'] = self.param_map[msg['name']]
         elif self.substitute_fn is not None:
             value = self.substitute_fn(msg)
             if value is not None:
                 msg['value'] = value
         else:
-            raise ValueError("Neither `param_map` nor `substitute_fn` provided to substitute handler.")
+            raise ValueError("Neither `param_map`, `base_param_map`, nor `substitute_fn`"
+                             "provided to substitute handler.")
 
 
 def apply_stack(msg):
@@ -394,6 +399,7 @@ def apply_stack(msg):
         if msg['type'] == 'sample':
             msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
                                                            sample_intermediates=True,
+                                                           base_value=msg['base_value'],
                                                            **msg['kwargs'])
         else:
             msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
@@ -431,6 +437,7 @@ def sample(name, fn, obs=None, sample_shape=()):
         'kwargs': {'sample_shape': sample_shape},
         'value': obs,
         'is_observed': obs is not None,
+        'base_value': None,
         'intermediates': [],
     }
 
