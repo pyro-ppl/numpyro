@@ -180,7 +180,7 @@ pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype
 def _ravel_list(*leaves):
     leaves_metadata = tree_map(lambda l: pytree_metadata(np.ravel(l), np.shape(l), np.size(l), lax.dtype(l)),
                                leaves)
-    leaves_idx = np.cumsum(np.array((0,) + tuple(d[2] for d in leaves_metadata)))
+    leaves_idx = np.cumsum(np.array((0,) + tuple(d.size for d in leaves_metadata)))
 
     def unravel_list(arr): return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
                                               m.shape).astype(m.dtype)

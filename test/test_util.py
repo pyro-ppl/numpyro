@@ -25,6 +25,7 @@ def test_fori_collect():
     {'a': np.array(0), 'b': np.array([[1., 2.], [3., 4.]])},
     {'a': 0., 'b': np.array([[1., 2.], [3., 4.]])},
     {'a': False, 'b': np.array([[1., 2.], [3., 4.]])},
+    [False, True, 0., np.array([[1., 2.], [3., 4.]])],
 ])
 def test_ravel_pytree(pytree):
     flat, unravel_fn = ravel_pytree(pytree)
