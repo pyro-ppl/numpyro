@@ -1,3 +1,4 @@
+from collections import namedtuple
 from contextlib import contextmanager
 import random
 
@@ -173,16 +174,19 @@ def copy_docs_from(source_class, full_text=False):
     return decorator
 
 
+pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype'])
+
+
 def _ravel_list(*leaves):
-    shape_leaves = tree_map(np.shape, leaves)
-    ravel_leaves = tree_map(np.ravel, leaves)
-    len_leaves = tree_map(np.size, leaves)
-    leaves_idx = np.cumsum(np.array((0,) + len_leaves))
+    leaves_metadata = tree_map(lambda l: pytree_metadata(np.ravel(l), np.shape(l), np.size(l), lax.dtype(l)),
+                               leaves)
+    leaves_idx = np.cumsum(np.array((0,) + tuple(d[2] for d in leaves_metadata)))
 
-    def unravel_list(arr): return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], len_leaves[i]), shape)
-                                   for i, shape in enumerate(shape_leaves)]
+    def unravel_list(arr): return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
+                                              m.shape).astype(m.dtype)
+                                   for i, m in enumerate(leaves_metadata)]
 
-    return np.concatenate(ravel_leaves), unravel_list
+    return np.concatenate([m.flat for m in leaves_metadata]), unravel_list
 
 
 def ravel_pytree(pytree):

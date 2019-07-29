@@ -6,7 +6,6 @@ import scipy.stats as osp
 
 from jax import random, vmap
 from jax.experimental import stax
-from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.tree_util import tree_map
 
@@ -18,6 +17,7 @@ from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import block, param, sample, seed, substitute, trace
 from numpyro.infer_util import transform_fn
+from numpyro.util import ravel_pytree
 
 __all__ = [
     'AutoContinuous',
