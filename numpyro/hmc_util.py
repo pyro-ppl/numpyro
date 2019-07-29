@@ -2,7 +2,6 @@ from collections import namedtuple
 
 import jax
 from jax import grad, jit, lax, partial, random, value_and_grad, vmap
-from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
 from jax.scipy.special import expit
@@ -13,7 +12,7 @@ from numpyro.distributions.constraints import biject_to, real
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, trace
 from numpyro.infer_util import log_density, transform_fn
-from numpyro.util import cond, fori_loop, while_loop
+from numpyro.util import cond, fori_loop, ravel_pytree, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',

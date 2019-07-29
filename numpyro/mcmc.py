@@ -6,7 +6,7 @@ import warnings
 import tqdm
 
 from jax import jit, partial, pmap, random, vmap
-from jax.flatten_util import ravel_pytree
+#from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
@@ -21,7 +21,7 @@ from numpyro.hmc_util import (
     velocity_verlet,
     warmup_adapter
 )
-from numpyro.util import cond, fori_collect, fori_loop, identity
+from numpyro.util import cond, fori_collect, fori_loop, identity, ravel_pytree
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'adapt_state', 'rng'])
