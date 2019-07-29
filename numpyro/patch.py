@@ -1,3 +1,6 @@
+import jax
+
+
 def patch_dependency(target, root_module):
     parts = target.split('.')
     assert parts[0] == root_module.__name__
@@ -15,3 +18,9 @@ def patch_dependency(target, root_module):
         return new_fn
 
     return decorator
+
+
+@patch_dependency('jax.api._check_inexact_input_vjp', jax)
+def _check_inexact_input_vjp(x):
+    # allow inexact inputs (int/bool) to reverse-mode differentiation
+    pass
