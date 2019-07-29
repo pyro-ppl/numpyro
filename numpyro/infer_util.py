@@ -3,7 +3,7 @@ import jax.numpy as np
 from numpyro.handlers import substitute, trace
 
 
-def log_density(model, model_args, model_kwargs, params, skip_transforms=False):
+def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
     """
     Computes log of joint density for the model given latent values ``params``.
 
@@ -17,7 +17,7 @@ def log_density(model, model_args, model_kwargs, params, skip_transforms=False):
         domain.
     :return: log of joint density and a corresponding model trace
     """
-    if skip_transforms:
+    if skip_dist_transforms:
         model = substitute(model, base_param_map=params)
     else:
         model = substitute(model, params)
@@ -28,7 +28,7 @@ def log_density(model, model_args, model_kwargs, params, skip_transforms=False):
             value = site['value']
             intermediates = site['intermediates']
             if intermediates:
-                if skip_transforms:
+                if skip_dist_transforms:
                     log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
                 else:
                     log_prob = site['fn'].log_prob(value, intermediates)

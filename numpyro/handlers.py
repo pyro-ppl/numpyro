@@ -376,8 +376,8 @@ class substitute(Messenger):
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
         elif self.base_param_map is not None:
-            if msg['name'] in self.param_map:
-                msg['base_value'] = self.param_map[msg['name']]
+            if msg['name'] in self.base_param_map:
+                msg['base_value'] = self.base_param_map[msg['name']]
         elif self.substitute_fn is not None:
             value = self.substitute_fn(msg)
             if value is not None:
