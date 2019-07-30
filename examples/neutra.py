@@ -56,9 +56,8 @@ def main(args):
     jax_config.update('jax_platform_name', args.device)
 
     print("Start vanilla HMC...")
-    # TODO: set progbar=True when https://github.com/google/jax/issues/939 is resolved
     vanilla_samples = mcmc(args.num_warmup, args.num_samples, init_params=np.array([2., 0.]),
-                           potential_fn=dual_moon_pe, progbar=False)
+                           potential_fn=dual_moon_pe, progbar=True)
 
     opt_init, opt_update, get_params = optimizers.adam(0.001)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
