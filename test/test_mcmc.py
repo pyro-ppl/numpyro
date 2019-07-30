@@ -96,7 +96,7 @@ def test_uniform_normal():
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
     samples = mcmc(1000, 1000, init_params, potential_fn=potential_fn, constrain_fn=constrain_fn)
-    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
+    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.01)
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
