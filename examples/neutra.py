@@ -1,4 +1,5 @@
 import argparse
+import warnings
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
@@ -71,6 +72,10 @@ def main(args):
         return i + 1, loss, opt_state_, rng_
 
     print("Start training guide...")
+    # TODO: remove the warning when the issue is fixed upstream
+    warnings.warn('Due to the bug https://github.com/google/jax/issues/939, to'
+                  ' train AutoIAFNormal we should set the environment flag'
+                  ' "XLA_FLAGS=--xla_cpu_enable_fast_math=false".')
     losses, opt_states = fori_collect(0, args.num_iters, jit(body_fn),
                                       (0, 0., opt_state, rng_train),
                                       transform=lambda x: (x[1], x[2]), progbar=False)
@@ -111,18 +116,18 @@ def main(args):
     ax1.set_title('Autoguide training loss (skip the first 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(guide_samples['x'][:, 0], guide_samples['x'][:, 1], ax=ax2)
+    sns.kdeplot(guide_samples['x'][:, 0].copy(), guide_samples['x'][:, 1].copy(), ax=ax2)
     ax2.set(xlim=[-3, 3], ylim=[-3, 3], aspect='equal',
             xlabel='x0', ylabel='x1', title='Posterior using AutoIAFNormal guide')
 
     ax3.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(vanilla_samples[:, 0], vanilla_samples[:, 1], ax=ax3)
+    sns.kdeplot(vanilla_samples[:, 0].copy(), vanilla_samples[:, 1].copy(), ax=ax3)
     ax3.plot(vanilla_samples[-50:, 0], vanilla_samples[-50:, 1], 'bo-', alpha=0.5)
     ax3.set(xlim=[-3, 3], ylim=[-3, 3], aspect='equal',
             xlabel='x0', ylabel='x1', title='Posterior using vanilla HMC sampler')
 
     ax4.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(samples['x'][:, 0], samples['x'][:, 1], ax=ax4)
+    sns.kdeplot(samples['x'][:, 0].copy(), samples['x'][:, 1].copy(), ax=ax4)
     ax4.plot(samples['x'][-50:, 0], samples['x'][-50:, 1], 'bo-', alpha=0.5)
     ax4.set(xlim=[-3, 3], ylim=[-3, 3], aspect='equal',
             xlabel='x0', ylabel='x1', title='Posterior using NeuTra HMC sampler')
@@ -135,8 +140,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NeuTra HMC")
     parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=0, type=int)
-    parser.add_argument('--num-hidden', nargs='?', default=15, type=int)
-    parser.add_argument('--num-iters', nargs='?', default=10000, type=int)
+    parser.add_argument('--num-hidden', nargs='?', default=20, type=int)
+    parser.add_argument('--num-iters', nargs='?', default=100000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
