@@ -229,12 +229,12 @@ def categorical(key, p, shape=()):
     return _categorical(key, p, shape)
 
 
-@partial(jit, static_argnums=(2,))
-def _poisson(key, rate, shape):
+@partial(jit, static_argnums=(2, 3))
+def _poisson(key, rate, shape, dtype):
     # Ref: https://en.wikipedia.org/wiki/Poisson_distribution#Generating_Poisson-distributed_random_variables
     shape = shape or np.shape(rate)
     L = np.exp(-rate)
-    k = np.zeros(shape)
+    k = np.zeros(shape, dtype=dtype)
     p = np.ones(shape)
 
     def body_fn(val):
@@ -249,8 +249,8 @@ def _poisson(key, rate, shape):
     return k - 1
 
 
-def poisson(key, rate, shape):
-    return _poisson(key, rate, shape)
+def poisson(key, rate, shape, dtype=np.int64):
+    return _poisson(key, rate, shape, dtype)
 
 
 def _scatter_add_one(operand, indices, updates):

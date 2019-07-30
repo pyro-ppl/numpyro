@@ -214,7 +214,7 @@ class Chi2(Gamma):
 @copy_docs_from(Distribution)
 class GaussianRandomWalk(Distribution):
     arg_constraints = {'num_steps': constraints.positive_integer, 'scale': constraints.positive}
-    support = constraints.real
+    support = constraints.real_vector
     reparametrized_params = ['scale']
 
     def __init__(self, scale=1., num_steps=1, validate_args=None):
