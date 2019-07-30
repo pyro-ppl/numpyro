@@ -182,9 +182,10 @@ def _ravel_list(*leaves):
                                leaves)
     leaves_idx = np.cumsum(np.array((0,) + tuple(d.size for d in leaves_metadata)))
 
-    def unravel_list(arr): return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
-                                              m.shape).astype(m.dtype)
-                                   for i, m in enumerate(leaves_metadata)]
+    def unravel_list(arr):
+        return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
+                           m.shape).astype(m.dtype)
+                for i, m in enumerate(leaves_metadata)]
 
     return np.concatenate([m.flat for m in leaves_metadata]), unravel_list
 
@@ -193,6 +194,7 @@ def ravel_pytree(pytree):
     leaves, treedef = tree_flatten(pytree)
     flat, unravel_list = _ravel_list(*leaves)
 
-    def unravel_pytree(arr): return tree_unflatten(treedef, unravel_list(arr))
+    def unravel_pytree(arr):
+        return tree_unflatten(treedef, unravel_list(arr))
 
     return flat, unravel_pytree
