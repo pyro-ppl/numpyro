@@ -1,7 +1,7 @@
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import lax, random
+from jax import random
 from jax.experimental import optimizers
 import jax.numpy as np
 
@@ -35,7 +35,7 @@ def test_beta_bernoulli(auto_class):
         loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,), guide_args=(data,))
         return opt_state_, rng_
 
-    opt_state, _ = lax.fori_loop(0, 1000, body_fn, (opt_state, rng_train))
+    opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
     true_coefs = (np.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(random.PRNGKey(1), opt_state, sample_shape=(1000,))
