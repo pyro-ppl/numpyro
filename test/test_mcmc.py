@@ -89,6 +89,7 @@ def test_uniform_normal():
 
     def model(data):
         alpha = sample('alpha', dist.Uniform(0, 1))
+        # TODO: use dist.Uniform when it is reimplemented as a transformed distribution
         loc = sample('loc', dist.TransformedDistribution(
             dist.Uniform(0, 1), constraints.AffineTransform(0, alpha)))
         sample('obs', dist.Normal(loc, 0.1), obs=data)
@@ -96,7 +97,7 @@ def test_uniform_normal():
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
     samples = mcmc(1000, 1000, init_params, potential_fn=potential_fn, constrain_fn=constrain_fn)
-    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.01)
+    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])

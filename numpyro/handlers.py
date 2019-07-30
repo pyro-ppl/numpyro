@@ -379,6 +379,8 @@ class substitute(Messenger):
             if msg['name'] in self.base_param_map:
                 if msg['type'] == 'sample':
                     msg['base_value'] = self.base_param_map[msg['name']]
+                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
+                        msg['base_value'])
                 else:
                     msg['value'] = self.base_param_map[msg['name']]
         elif self.substitute_fn is not None:
@@ -402,7 +404,6 @@ def apply_stack(msg):
         if msg['type'] == 'sample':
             msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
                                                            sample_intermediates=True,
-                                                           base_value=msg['base_value'],
                                                            **msg['kwargs'])
         else:
             msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])

@@ -158,13 +158,9 @@ class Distribution(object):
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('random_state')
-        base_value = kwargs.pop('base_value', None)
         sample_intermediates = kwargs.pop('sample_intermediates', False)
         if sample_intermediates:
-            if base_value is None:
-                return self.sample_with_intermediates(key, *args, **kwargs)
-            else:
-                return self.transform_with_intermediates(base_value)
+            return self.sample_with_intermediates(key, *args, **kwargs)
         return self.sample(key, *args, **kwargs)
 
 
