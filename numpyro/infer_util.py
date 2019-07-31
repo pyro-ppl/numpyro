@@ -28,9 +28,8 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
             value = site['value']
             intermediates = site['intermediates']
             if intermediates:
-                base_value = site['base_value']
-                if base_value is not None:
-                    log_prob = site['fn'].base_dist.log_prob(base_value)
+                if skip_dist_transforms:
+                    log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
                 else:
                     log_prob = site['fn'].log_prob(value, intermediates)
             else:

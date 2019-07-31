@@ -378,9 +378,8 @@ class substitute(Messenger):
         elif self.base_param_map is not None:
             if msg['name'] in self.base_param_map:
                 if msg['type'] == 'sample':
-                    msg['base_value'] = self.base_param_map[msg['name']]
                     msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
-                        msg['base_value'])
+                        self.base_param_map[msg['name']])
                 else:
                     msg['value'] = self.base_param_map[msg['name']]
         elif self.substitute_fn is not None:
@@ -441,7 +440,6 @@ def sample(name, fn, obs=None, sample_shape=()):
         'kwargs': {'sample_shape': sample_shape},
         'value': obs,
         'is_observed': obs is not None,
-        'base_value': None,
         'intermediates': [],
     }
 
