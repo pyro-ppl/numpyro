@@ -89,9 +89,7 @@ def test_uniform_normal():
 
     def model(data):
         alpha = sample('alpha', dist.Uniform(0, 1))
-        # TODO: use dist.Uniform when it is reimplemented as a transformed distribution
-        loc = sample('loc', dist.TransformedDistribution(
-            dist.Uniform(0, 1), constraints.AffineTransform(0, alpha)))
+        loc = sample('loc', dist.Uniform(0, alpha))
         sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
