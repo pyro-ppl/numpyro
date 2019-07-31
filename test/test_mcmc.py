@@ -84,6 +84,22 @@ def test_logistic_regression(algo):
         assert samples['coefs'].dtype == np.float64
 
 
+def test_uniform_normal():
+    true_coef = 0.9
+
+    def model(data):
+        alpha = sample('alpha', dist.Uniform(0, 1))
+        # TODO: use dist.Uniform when it is reimplemented as a transformed distribution
+        loc = sample('loc', dist.TransformedDistribution(
+            dist.Uniform(0, 1), constraints.AffineTransform(0, alpha)))
+        sample('obs', dist.Normal(loc, 0.1), obs=data)
+
+    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
+    samples = mcmc(1000, 1000, init_params, potential_fn=potential_fn, constrain_fn=constrain_fn)
+    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
+
+
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_beta_bernoulli(algo):
     warmup_steps, num_samples = 500, 20000

@@ -1,4 +1,5 @@
 from collections import namedtuple
+from functools import partial
 import logging
 
 import numpy as onp
@@ -9,7 +10,8 @@ from jax import device_put, disable_jit, grad, jit, random, tree_map
 import jax.numpy as np
 
 import numpyro.distributions as dist
-from numpyro.handlers import sample
+from numpyro.distributions.constraints import biject_to
+from numpyro.handlers import sample, seed
 from numpyro.hmc_util import (
     AdaptWindow,
     _cov,
@@ -21,11 +23,14 @@ from numpyro.hmc_util import (
     dual_averaging,
     find_reasonable_step_size,
     initialize_model,
+    make_constrain_fn,
     parametric_draws,
+    potential_energy,
     velocity_verlet,
     warmup_adapter,
     welford_covariance
 )
+from numpyro.infer_util import transform_fn
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 
 logger = logging.getLogger(__name__)
@@ -388,6 +393,32 @@ def test_build_tree(step_size):
     # for small step_size, assert that it should take a while to meet the terminate condition
     if step_size < 0.1:
         assert tree.num_proposals > 10
+
+
+def test_model_with_transformed_distribution():
+    x_prior = dist.Uniform(2, 3)
+    y_prior = dist.LogNormal(scale=3.)  # transformed distribution
+
+    def model():
+        sample('x', x_prior)
+        sample('y', y_prior)
+
+    params = {'x': np.array(-5.), 'y': np.array(7.)}
+    model = seed(model, random.PRNGKey(0))
+    inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.support)}
+    expected_samples = partial(transform_fn, inv_transforms)(params)
+    expected_log_density = potential_energy(
+        model, (), {}, inv_transforms, skip_dist_transforms=False)(params)
+
+    base_inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.base_dist.support)}
+    actual_samples = make_constrain_fn(
+        seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms)(params)
+    actual_log_density = potential_energy(
+        model, (), {}, base_inv_transforms, skip_dist_transforms=True)(params)
+
+    assert_allclose(expected_samples['x'], actual_samples['x'])
+    assert_allclose(expected_samples['y'], actual_samples['y'])
+    assert_allclose(expected_log_density, actual_log_density)
 
 
 @pytest.mark.parametrize('init_strategy', ['prior', 'uniform'])

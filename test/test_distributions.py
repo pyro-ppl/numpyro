@@ -717,3 +717,18 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 def test_transformed_distribution_intermediates(transformed_dist):
     sample, intermediates = transformed_dist.sample_with_intermediates(random.PRNGKey(1))
     assert_allclose(transformed_dist.log_prob(sample, intermediates), transformed_dist.log_prob(sample))
+
+
+def test_transformed_transformed_distribution():
+    loc, scale = -2, 3
+    dist1 = dist.TransformedDistribution(dist.Uniform(2, 3), constraints.PowerTransform(2.))
+    dist2 = dist.TransformedDistribution(dist1, constraints.AffineTransform(-2, 3))
+    assert isinstance(dist2.base_dist, dist.Uniform)
+    assert len(dist2.transforms) == 2
+    assert isinstance(dist2.transforms[0], constraints.PowerTransform)
+    assert isinstance(dist2.transforms[1], constraints.AffineTransform)
+
+    rng = random.PRNGKey(0)
+    assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
+    intermediates = dist2.sample_with_intermediates(rng)
+    assert len(intermediates) == 2
