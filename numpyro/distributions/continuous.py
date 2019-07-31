@@ -30,7 +30,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform, PowerTransform
+from numpyro.distributions.constraints import AffineTransform, ExpTransform, PowerTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (
     cholesky_inverse,
@@ -248,20 +248,23 @@ class GaussianRandomWalk(Distribution):
 
 
 @copy_docs_from(Distribution)
-class HalfCauchy(TransformedDistribution):
+class HalfCauchy(Distribution):
     reparametrized_params = ['scale']
+    support = constraints.positive
     arg_constraints = {'scale': constraints.positive}
 
     def __init__(self, scale=1., validate_args=None):
-        base_dist = Cauchy(0., scale)
+        self._cauchy = Cauchy(0., scale)
         self.scale = scale
-        super(HalfCauchy, self).__init__(base_dist, AbsTransform(),
-                                         validate_args=validate_args)
+        super(HalfCauchy, self).__init__(batch_shape=np.shape(scale), validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        return np.abs(self._cauchy.sample(key, sample_shape))
 
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return self.base_dist.log_prob(value) + np.log(2)
+        return self._cauchy.log_prob(value) + np.log(2)
 
     @property
     def mean(self):
@@ -273,20 +276,23 @@ class HalfCauchy(TransformedDistribution):
 
 
 @copy_docs_from(Distribution)
-class HalfNormal(TransformedDistribution):
+class HalfNormal(Distribution):
     reparametrized_params = ['scale']
+    support = constraints.positive
     arg_constraints = {'scale': constraints.positive}
 
     def __init__(self, scale=1., validate_args=None):
-        base_dist = Normal(0., scale)
+        self._normal = Normal(0., scale)
         self.scale = scale
-        super(HalfNormal, self).__init__(base_dist, AbsTransform(),
-                                         validate_args=validate_args)
+        super(HalfNormal, self).__init__(batch_shape=np.shape(scale), validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        return np.abs(self._normal.sample(key, sample_shape))
 
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return self.base_dist.log_prob(value) + np.log(2)
+        return self._normal.log_prob(value) + np.log(2)
 
     @property
     def mean(self):
