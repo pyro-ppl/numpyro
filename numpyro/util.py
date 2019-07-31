@@ -1,3 +1,4 @@
+from collections import namedtuple
 from contextlib import contextmanager
 import random
 
@@ -5,8 +6,8 @@ import numpy as onp
 import tqdm
 
 from jax import jit, lax, ops, vmap
-from jax.flatten_util import ravel_pytree
 import jax.numpy as np
+from jax.tree_util import tree_flatten, tree_unflatten, tree_map
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -171,3 +172,29 @@ def copy_docs_from(source_class, full_text=False):
         return destin_class
 
     return decorator
+
+
+pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype'])
+
+
+def _ravel_list(*leaves):
+    leaves_metadata = tree_map(lambda l: pytree_metadata(np.ravel(l), np.shape(l), np.size(l), lax.dtype(l)),
+                               leaves)
+    leaves_idx = np.cumsum(np.array((0,) + tuple(d.size for d in leaves_metadata)))
+
+    def unravel_list(arr):
+        return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
+                           m.shape).astype(m.dtype)
+                for i, m in enumerate(leaves_metadata)]
+
+    return np.concatenate([m.flat for m in leaves_metadata]), unravel_list
+
+
+def ravel_pytree(pytree):
+    leaves, treedef = tree_flatten(pytree)
+    flat, unravel_list = _ravel_list(*leaves)
+
+    def unravel_pytree(arr):
+        return tree_unflatten(treedef, unravel_list(arr))
+
+    return flat, unravel_pytree

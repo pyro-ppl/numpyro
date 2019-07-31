@@ -15,7 +15,7 @@ dist: xenial
 install:
     - pip install -U pip
     - pip install jaxlib
-    - pip install jax
+    - pip install -e git+https://github.com/google/jax.git@5861e37edd82ec5bd737fdb33b1ac6f2684e4827#egg=jax
     - pip install .[examples,test]
     - pip freeze
 

@@ -721,6 +721,21 @@ def test_transformed_distribution_intermediates(transformed_dist):
     assert_allclose(transformed_dist.log_prob(sample, intermediates), transformed_dist.log_prob(sample))
 
 
+def test_transformed_transformed_distribution():
+    loc, scale = -2, 3
+    dist1 = dist.TransformedDistribution(dist.Normal(2, 3), constraints.PowerTransform(2.))
+    dist2 = dist.TransformedDistribution(dist1, constraints.AffineTransform(-2, 3))
+    assert isinstance(dist2.base_dist, dist.Normal)
+    assert len(dist2.transforms) == 2
+    assert isinstance(dist2.transforms[0], constraints.PowerTransform)
+    assert isinstance(dist2.transforms[1], constraints.AffineTransform)
+
+    rng = random.PRNGKey(0)
+    assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
+    intermediates = dist2.sample_with_intermediates(rng)
+    assert len(intermediates) == 2
+
+
 def _make_iaf(input_dim, hidden_dims, rng):
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
     _, init_params = arn_init(rng, (input_dim,))
@@ -741,6 +756,6 @@ def test_compose_transform_with_intermediates(transforms):
     transform = constraints.ComposeTransform(transforms)
     x = random.normal(random.PRNGKey(2), (7, 5))
     y, intermediates = transform.call_with_intermediates(x)
-    logdet = transform.log_abs_det_jacobian(x, y, intermediates)
+    logdet = transform.log_abs_det_jacobian_with_intermediates(x, y, intermediates)
     assert_allclose(y, transform(x))
     assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))

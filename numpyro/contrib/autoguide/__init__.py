@@ -157,8 +157,7 @@ class AutoContinuous(AutoGuide):
         unconstrained_sites = {}
         for name, site in self.prototype_trace.items():
             if site['type'] == 'sample' and not site['is_observed']:
-                # Collect the shapes of unconstrained values.
-                # These may differ from the shapes of constrained values.
+                # TODO: handle dynamic support
                 transform = biject_to(site['fn'].support)
                 unconstrained_val = transform.inv(site['value'])
                 self._inv_transforms[name] = transform

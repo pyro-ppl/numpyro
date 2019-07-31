@@ -3,7 +3,7 @@ import jax.numpy as np
 from numpyro.handlers import substitute, trace
 
 
-def log_density(model, model_args, model_kwargs, params):
+def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
     """
     Computes log of joint density for the model given latent values ``params``.
 
@@ -12,17 +12,29 @@ def log_density(model, model_args, model_kwargs, params):
     :param dict model_kwargs`: kwargs provided to the model.
     :param dict params: dictionary of current parameter values keyed by site
         name.
+    :param bool skip_dist_transforms: whether to compute log probability of a site
+        (if its prior is a transformed distribution) in its base distribution
+        domain.
     :return: log of joint density and a corresponding model trace
     """
-    model = substitute(model, params)
+    if skip_dist_transforms:
+        model = substitute(model, base_param_map=params)
+    else:
+        model = substitute(model, params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = 0.
     for site in model_trace.values():
         if site['type'] == 'sample':
             value = site['value']
             intermediates = site['intermediates']
-            log_prob = np.sum(site['fn'].log_prob(value, intermediates) if intermediates
-                              else site['fn'].log_prob(value))
+            if intermediates:
+                if skip_dist_transforms:
+                    log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
+                else:
+                    log_prob = site['fn'].log_prob(value, intermediates)
+            else:
+                log_prob = site['fn'].log_prob(value)
+            log_prob = np.sum(log_prob)
             if 'scale' in site:
                 log_prob = site['scale'] * log_prob
             log_joint = log_joint + log_prob
