@@ -30,7 +30,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
 
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AbsTransform, AffineTransform, ExpTransform, PowerTransform
+from numpyro.distributions.constraints import AffineTransform, ExpTransform, PowerTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (
     cholesky_inverse,
@@ -248,20 +248,23 @@ class GaussianRandomWalk(Distribution):
 
 
 @copy_docs_from(Distribution)
-class HalfCauchy(TransformedDistribution):
+class HalfCauchy(Distribution):
     reparametrized_params = ['scale']
+    support = constraints.positive
     arg_constraints = {'scale': constraints.positive}
 
     def __init__(self, scale=1., validate_args=None):
-        base_dist = Cauchy(0., scale)
+        self._cauchy = Cauchy(0., scale)
         self.scale = scale
-        super(HalfCauchy, self).__init__(base_dist, AbsTransform(),
-                                         validate_args=validate_args)
+        super(HalfCauchy, self).__init__(batch_shape=np.shape(scale), validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        return np.abs(self._cauchy.sample(key, sample_shape))
 
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return self.base_dist.log_prob(value) + np.log(2)
+        return self._cauchy.log_prob(value) + np.log(2)
 
     @property
     def mean(self):
@@ -273,20 +276,23 @@ class HalfCauchy(TransformedDistribution):
 
 
 @copy_docs_from(Distribution)
-class HalfNormal(TransformedDistribution):
+class HalfNormal(Distribution):
     reparametrized_params = ['scale']
+    support = constraints.positive
     arg_constraints = {'scale': constraints.positive}
 
     def __init__(self, scale=1., validate_args=None):
-        base_dist = Normal(0., scale)
+        self._normal = Normal(0., scale)
         self.scale = scale
-        super(HalfNormal, self).__init__(base_dist, AbsTransform(),
-                                         validate_args=validate_args)
+        super(HalfNormal, self).__init__(batch_shape=np.shape(scale), validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        return np.abs(self._normal.sample(key, sample_shape))
 
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return self.base_dist.log_prob(value) + np.log(2)
+        return self._normal.log_prob(value) + np.log(2)
 
     @property
     def mean(self):
@@ -715,35 +721,44 @@ class StudentT(Distribution):
         return np.broadcast_to(var, self.batch_shape)
 
 
-@copy_docs_from(Distribution)
-class TruncatedCauchy(Distribution):
-    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
-                       'scale': constraints.positive}
-    reparametrized_params = ['low', 'loc', 'scale']
+class _BaseTruncatedCauchy(Distribution):
+    # NB: this is a truncated cauchy with low=0, scale=1
+    support = constraints.positive
 
-    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
-        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
-        batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(loc), np.shape(scale))
-        super(TruncatedCauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+    def __init__(self, base_loc):
+        self.base_loc = base_loc
+        super(_BaseTruncatedCauchy, self).__init__(batch_shape=np.shape(base_loc))
 
     def sample(self, key, sample_shape=()):
         # We use inverse transform method:
         # z ~ inv_cdf(U), where U ~ Uniform(cdf(low), cdf(high)).
         #                         ~ Uniform(arctan(low), arctan(high)) / pi + 1/2
         size = sample_shape + self.batch_shape
-        low = (self.low - self.loc) / self.scale
-        minval = np.arctan(low)
+        minval = -np.arctan(self.base_loc)
         maxval = np.pi / 2
         u = minval + random.uniform(key, shape=size) * (maxval - minval)
-        return self.loc + np.tan(u) * self.scale
+        return self.base_loc + np.tan(u)
 
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        low = (self.low - self.loc) / self.scale
         # pi / 2 is arctan of self.high when that arg is supported
-        normalize_term = np.log(np.pi / 2 - np.arctan(low)) + np.log(self.scale)
-        return - np.log1p(((value - self.loc) / self.scale) ** 2) - normalize_term
+        normalize_term = np.log(np.pi / 2 + np.arctan(self.base_loc))
+        return - np.log1p((value - self.base_loc) ** 2) - normalize_term
+
+
+@copy_docs_from(Distribution)
+class TruncatedCauchy(TransformedDistribution):
+    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
+                       'scale': constraints.positive}
+    reparametrized_params = ['low', 'loc', 'scale']
+
+    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
+        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
+        base_loc = (loc - low) / scale
+        base_dist = _BaseTruncatedCauchy(base_loc)
+        super(TruncatedCauchy, self).__init__(base_dist, AffineTransform(low, scale),
+                                              validate_args=validate_args)
 
     # NB: these stats do not apply when arg `high` is supported
     @property
@@ -754,13 +769,35 @@ class TruncatedCauchy(Distribution):
     def variance(self):
         return np.full(self.batch_shape, np.nan)
 
-    @property
-    def support(self):
-        return constraints.greater_than(self.low)
+
+class _BaseTruncatedNormal(Distribution):
+    # NB: this is a truncated normal with low=0, scale=1
+    support = constraints.positive
+
+    def __init__(self, base_loc):
+        self.base_loc = base_loc
+        self._normal = Normal(base_loc, 1.)
+        super(_BaseTruncatedNormal, self).__init__(batch_shape=np.shape(base_loc))
+
+    def sample(self, key, sample_shape=()):
+        size = sample_shape + self.batch_shape
+        # We use inverse transform method:
+        # z ~ icdf(U), where U ~ Uniform(0, 1).
+        u = random.uniform(key, shape=size)
+        # Ref: https://en.wikipedia.org/wiki/Truncated_normal_distribution#Simulating
+        # icdf[cdf_a + u * (1 - cdf_a)] = icdf[1 - (1 - cdf_a)(1 - u)]
+        #                                 = - icdf[(1 - cdf_a)(1 - u)]
+        return self.base_loc - ndtri(ndtr(self.base_loc) * (1 - u))
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        # log(cdf(high) - cdf(low)) = log(1 - cdf(low)) = log(cdf(-low))
+        return self._normal.log_prob(value) - log_ndtr(self.base_loc)
 
 
 @copy_docs_from(Distribution)
-class TruncatedNormal(Distribution):
+class TruncatedNormal(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
     reparametrized_params = ['low', 'loc', 'scale']
@@ -768,63 +805,49 @@ class TruncatedNormal(Distribution):
     # TODO: support `high` arg
     def __init__(self, low=0., loc=0., scale=1., validate_args=None):
         self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
-        batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(loc), np.shape(scale))
-        self._normal = Normal(self.loc, self.scale)
-        super(TruncatedNormal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        size = sample_shape + self.batch_shape
-        # We use inverse transform method:
-        # z ~ icdf(U), where U ~ Uniform(0, 1).
-        u = random.uniform(key, shape=size)
-        low = (self.low - self.loc) / self.scale
-        # Ref: https://en.wikipedia.org/wiki/Truncated_normal_distribution#Simulating
-        # icdf[cdf_a + u * (1 - cdf_a)] = icdf[1 - (1 - cdf_a)(1 - u)]
-        #                                 = - icdf[(1 - cdf_a)(1 - u)]
-        return self.loc - ndtri(ndtr(-low) * (1 - u)) * self.scale
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        # log(cdf(high) - cdf(low)) = log(1 - cdf(low)) = log(cdf(-low))
-        low = (self.low - self.loc) / self.scale
-        return self._normal.log_prob(value) - log_ndtr(-low)
+        base_loc = (loc - low) / scale
+        base_dist = _BaseTruncatedNormal(base_loc)
+        super(TruncatedNormal, self).__init__(base_dist, AffineTransform(low, scale),
+                                              validate_args=validate_args)
 
     @property
     def mean(self):
-        low = (self.low - self.loc) / self.scale
-        low_prob_scaled = np.exp(self._normal.log_prob(self.low)) * self.scale / ndtr(-low)
+        low_prob_scaled = np.exp(self.base_dist.log_prob(0.))
         return self.loc + low_prob_scaled * self.scale
 
     @property
     def variance(self):
-        low = (self.low - self.loc) / self.scale
-        low_prob_scaled = np.exp(self._normal.log_prob(self.low)) * self.scale / ndtr(-low)
-        return self._normal.variance * (1 + low * low_prob_scaled - low_prob_scaled ** 2)
+        low_prob_scaled = np.exp(self.base_dist.log_prob(0.))
+        return (self.scale ** 2) * (1 - self.base_dist.base_loc * low_prob_scaled - low_prob_scaled ** 2)
 
-    @property
-    def support(self):
-        return constraints.greater_than(self.low)
+
+class _BaseUniform(Distribution):
+    support = constraints.unit_interval
+
+    def __init__(self, batch_shape=()):
+        super(_BaseUniform, self).__init__(batch_shape=batch_shape)
+
+    def sample(self, key, sample_shape=()):
+        size = sample_shape + self.batch_shape
+        return random.uniform(key, shape=size)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        batch_shape = lax.broadcast_shapes(self.batch_shape, np.shape(value))
+        return - np.zeros(batch_shape)
 
 
 @copy_docs_from(Distribution)
-class Uniform(Distribution):
+class Uniform(TransformedDistribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
     reparametrized_params = ['low', 'high']
 
     def __init__(self, low=0., high=1., validate_args=None):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
-        super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        size = sample_shape + self.batch_shape
-        return self.low + random.uniform(key, shape=size) * (self.high - self.low)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        return - np.broadcast_to(np.log(self.high - self.low), np.shape(value))
+        base_dist = _BaseUniform(batch_shape)
+        super(Uniform, self).__init__(base_dist, AffineTransform(low, high - low), validate_args=validate_args)
 
     @property
     def mean(self):
@@ -833,7 +856,3 @@ class Uniform(Distribution):
     @property
     def variance(self):
         return (self.high - self.low) ** 2 / 12.
-
-    @property
-    def support(self):
-        return constraints.interval(self.low, self.high)

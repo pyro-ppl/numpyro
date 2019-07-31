@@ -396,7 +396,7 @@ def test_build_tree(step_size):
 
 
 def test_model_with_transformed_distribution():
-    x_prior = dist.Uniform(2, 3)
+    x_prior = dist.HalfNormal(2)
     y_prior = dist.LogNormal(scale=3.)  # transformed distribution
 
     def model():
