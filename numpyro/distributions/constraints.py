@@ -269,15 +269,39 @@ class ComposeTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
+        if intermediates is not None:
+            if len(intermediates) != len(self.parts):
+                raise ValueError('Intermediates array has length = {}. Expected = {}.'
+                                 .format(len(intermediates), len(self.parts)))
+
         result = 0.
-        for part in self.parts[:-1]:
-            y_tmp = part(x)
-            result = result + sum_rightmost(part.log_abs_det_jacobian(x, y_tmp),
-                                            self.event_dim - part.event_dim)
+        for i, part in enumerate(self.parts[:-1]):
+            y_tmp = part(x) if intermediates is None else intermediates[i][0]
+            inter = None if intermediates is None else intermediates[i][1]
+            if inter is None:
+                logdet = part.log_abs_det_jacobian(x, y_tmp)
+            else:
+                logdet = part.log_abs_det_jacobian(x, y_tmp, intermediates=inter)
+            result = result + sum_rightmost(logdet, self.event_dim - part.event_dim)
             x = y_tmp
-        result = result + sum_rightmost(self.parts[-1].log_abs_det_jacobian(x, y),
-                                        self.event_dim - self.parts[-1].event_dim)
+        # account the the last transform, where y is available
+        inter = None if intermediates is None else intermediates[-1]
+        if inter is None:
+            logdet = self.parts[-1].log_abs_det_jacobian(x, y)
+        else:
+            logdet = self.parts[-1].log_abs_det_jacobian(x, y, intermediates=inter)
+        result = result + sum_rightmost(logdet, self.event_dim - self.parts[-1].event_dim)
         return result
+
+    def call_with_intermediates(self, x):
+        intermediates = []
+        for part in self.parts[:-1]:
+            x, inter = part.call_with_intermediates(x)
+            intermediates.append([x, inter])
+        # NB: we don't need to hold the last output value in `intermediates`
+        x, inter = self.parts[-1].call_with_intermediates(x)
+        intermediates.append(inter)
+        return x, intermediates
 
 
 class CorrCholeskyTransform(Transform):
