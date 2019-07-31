@@ -124,6 +124,9 @@ class Distribution(object):
         """
         return self.sample(key, sample_shape=sample_shape), []
 
+    def transform_with_intermediates(self, base_value):
+        return base_value, []
+
     def log_prob(self, value):
         """
         Evaluates the log probability density for a batch of samples given by
@@ -176,17 +179,25 @@ class TransformedDistribution(Distribution):
     arg_constraints = {}
 
     def __init__(self, base_distribution, transforms, validate_args=None):
-        self.base_dist = base_distribution
         if isinstance(transforms, Transform):
-            self.transforms = [transforms, ]
+            transforms = [transforms, ]
         elif isinstance(transforms, list):
             if not all(isinstance(t, Transform) for t in transforms):
                 raise ValueError("transforms must be a Transform or a list of Transforms")
-            self.transforms = transforms
         else:
             raise ValueError("transforms must be a Transform or list, but was {}".format(transforms))
-        shape = self.base_dist.batch_shape + self.base_dist.event_shape
-        event_dim = max([len(self.base_dist.event_shape)] + [t.event_dim for t in self.transforms])
+        # XXX: this logic will not be valid when IndependentDistribution is support;
+        # in that case, it is more involved to support Transform(Indep(Transform));
+        # however, we might not need to support such kind of distribution
+        # and should raise an error if base_distribution is an Indep one
+        if isinstance(base_distribution, TransformedDistribution):
+            self.base_dist = base_distribution.base_dist
+            self.transforms = base_distribution.transforms + transforms
+        else:
+            self.base_dist = base_distribution
+            self.transforms = transforms
+        shape = base_distribution.batch_shape + base_distribution.event_shape
+        event_dim = max([len(base_distribution.event_shape)] + [t.event_dim for t in transforms])
         batch_shape = shape[:len(shape) - event_dim]
         event_shape = shape[len(shape) - event_dim:]
         super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
@@ -206,7 +217,11 @@ class TransformedDistribution(Distribution):
         return x
 
     def sample_with_intermediates(self, key, sample_shape=()):
-        x = self.base_dist.sample(key, sample_shape)
+        base_value = self.base_dist.sample(key, sample_shape)
+        return self.transform_with_intermediates(base_value)
+
+    def transform_with_intermediates(self, base_value):
+        x = base_value
         intermediates = []
         for transform in self.transforms:
             x_tmp = x
