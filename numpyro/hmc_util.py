@@ -9,7 +9,7 @@ from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import biject_to, real
+from numpyro.distributions.constraints import biject_to, real, ComposeTransform
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
@@ -777,9 +777,16 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
                     constrained_values[k] = v['value']
                     inv_transforms[k] = biject_to(v['fn'].support)
             elif v['type'] == 'param':
-                constrained_values[k] = v['value']
                 constraint = v['kwargs'].pop('constraint', real)
-                inv_transforms[k] = biject_to(constraint)
+                transform = biject_to(constraint)
+                if isinstance(transform, ComposeTransform):
+                    base_transform = transform.parts[0]
+                    inv_transforms[k] = base_transform
+                    constrained_values[k] = base_transform(transform.inv(v['value']))
+                    has_transformed_dist = True
+                else:
+                    inv_transforms[k] = transform
+                    constrained_values[k] = v['value']
         prior_params = transform_fn(inv_transforms,
                                     {k: v for k, v in constrained_values.items()}, invert=True)
         if init_strategy == 'uniform':

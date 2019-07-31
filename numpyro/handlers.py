@@ -81,6 +81,8 @@ from collections import OrderedDict
 
 from jax import random
 
+from numpyro.distributions.constraints import biject_to, real, ComposeTransform
+
 _PYRO_STACK = []
 
 
@@ -381,7 +383,13 @@ class substitute(Messenger):
                     msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
                         self.base_param_map[msg['name']])
                 else:
-                    msg['value'] = self.base_param_map[msg['name']]
+                    base_value = self.base_param_map[msg['name']]
+                    constraint = msg['kwargs'].pop('constraint', real)
+                    transform = biject_to(constraint)
+                    if isinstance(transform, ComposeTransform):
+                        msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
+                    else:
+                        msg['value'] = self.base_param_map[msg['name']]
         elif self.substitute_fn is not None:
             value = self.substitute_fn(msg)
             if value is not None:
