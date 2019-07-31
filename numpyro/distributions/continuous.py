@@ -807,24 +807,33 @@ class TruncatedNormal(Distribution):
         return constraints.greater_than(self.low)
 
 
+class _BaseUniform(Distribution):
+    support = constraints.unit_interval
+
+    def __init__(self, batch_shape=()):
+        super(_BaseUniform, self).__init__(batch_shape=batch_shape)
+
+    def sample(self, key, sample_shape=()):
+        size = sample_shape + self.batch_shape
+        return random.uniform(key, shape=size)
+
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        batch_shape = lax.broadcast_shapes(self.batch_shape, np.shape(value))
+        return - np.zeros(batch_shape)
+
+
 @copy_docs_from(Distribution)
-class Uniform(Distribution):
+class Uniform(TransformedDistribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
     reparametrized_params = ['low', 'high']
 
     def __init__(self, low=0., high=1., validate_args=None):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
-        super(Uniform, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        size = sample_shape + self.batch_shape
-        return self.low + random.uniform(key, shape=size) * (self.high - self.low)
-
-    def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        return - np.broadcast_to(np.log(self.high - self.low), np.shape(value))
+        base_dist = _BaseUniform(batch_shape)
+        super(Uniform, self).__init__(base_dist, AffineTransform(low, high - low), validate_args=validate_args)
 
     @property
     def mean(self):
@@ -833,7 +842,3 @@ class Uniform(Distribution):
     @property
     def variance(self):
         return (self.high - self.low) ** 2 / 12.
-
-    @property
-    def support(self):
-        return constraints.interval(self.low, self.high)
