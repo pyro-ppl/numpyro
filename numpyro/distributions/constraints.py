@@ -283,10 +283,7 @@ class ComposeTransform(Transform):
             x = y_tmp
         # account the the last transform, where y is available
         inter = None if intermediates is None else intermediates[-1]
-        if inter is None:
-            logdet = self.parts[-1].log_abs_det_jacobian(x, y)
-        else:
-            logdet = self.parts[-1].log_abs_det_jacobian(x, y, intermediates=inter)
+        logdet = self.parts[-1].log_abs_det_jacobian(x, y, intermediates=inter)
         result = result + sum_rightmost(logdet, self.event_dim - self.parts[-1].event_dim)
         return result
 
