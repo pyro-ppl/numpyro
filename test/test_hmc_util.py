@@ -14,7 +14,6 @@ from numpyro.distributions.constraints import biject_to
 from numpyro.handlers import sample, seed
 from numpyro.hmc_util import (
     AdaptWindow,
-    _cov,
     _is_iterative_turning,
     _leaf_idx_to_ckpt_idxs,
     build_adaptation_schedule,
@@ -429,8 +428,7 @@ def test_model_with_transformed_distribution():
 
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible,
-    pytest.param(init_to_median,
-                 marks=pytest.mark.xfail(reason="batching rule for quantile not implemented")),
+    init_to_median,
     init_to_prior,
     init_to_uniform,
 ])
@@ -465,8 +463,7 @@ def test_initialize_model_change_point(init_strategy):
 
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible,
-    pytest.param(init_to_median,
-                 marks=pytest.mark.xfail(reason="batching rule for quantile not implemented")),
+    init_to_median,
     init_to_prior,
     init_to_uniform,
 ])
@@ -511,8 +508,7 @@ def test_gaussian_subposterior(method, diagonal):
     if diagonal:
         assert_allclose(np.var(draws, axis=0), np.diag(cov), atol=0.05)
     else:
-        # TODO: use np.cov for the next JAX version
-        assert_allclose(_cov(draws), cov, atol=0.05)
+        assert_allclose(np.cov(draws), cov, atol=0.05)
 
 
 @pytest.mark.parametrize('method', [consensus, parametric_draws])

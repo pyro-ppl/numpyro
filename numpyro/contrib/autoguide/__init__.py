@@ -124,19 +124,15 @@ class AutoContinuous(AutoGuide):
                                                                  init_strategy=self.init_strategy,
                                                                  **kwargs)
         self._inv_transforms = {}
-        unconstrained_sites = {}
         for name, site in self.prototype_trace.items():
             if site['type'] == 'sample' and not site['is_observed']:
                 # TODO: handle dynamic support
-                transform = biject_to(site['fn'].support)
-                unconstrained_val = transform.inv(site['value'])
-                self._inv_transforms[name] = transform
-                unconstrained_sites[name] = unconstrained_val
+                self._inv_transforms[name] = biject_to(site['fn'].support)
 
-        latent_size = sum(np.size(x) for x in unconstrained_sites.values())
-        if latent_size == 0:
-            raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
         self._init_latent, self._unravel_fn = ravel_pytree(init_params)
+        self.latent_size = np.size(self._init_latent)
+        if self.latent_size == 0:
+            raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
 
     @abstractmethod
     def _get_transform(self):
@@ -162,9 +158,8 @@ class AutoContinuous(AutoGuide):
             sample_latent_fn = substitute(sample_latent_fn, params)
 
         base_dist = kwargs.pop('base_dist', None)
-        latent_size = np.size(self._init_latent)
         if base_dist is None:
-            base_dist = _Normal(np.zeros(latent_size), 1.)
+            base_dist = _Normal(np.zeros(self.latent_size), 1.)
         latent = sample_latent_fn(base_dist, *args, **kwargs)
 
         # unpack continuous latent samples
@@ -198,9 +193,8 @@ class AutoContinuous(AutoGuide):
     def sample_posterior(self, rng, opt_state, *args, **kwargs):
         sample_shape = kwargs.pop('sample_shape', ())
         base_dist = kwargs.pop('base_dist', None)
-        latent_size = np.size(self._init_latent)
         if base_dist is None:
-            base_dist = _Normal(np.zeros(latent_size), 1.)
+            base_dist = _Normal(np.zeros(self.latent_size), 1.)
         params = self.get_params(opt_state)
         latent_sample = substitute(seed(self._sample_latent, rng), params)(base_dist, sample_shape=sample_shape)
         return self.unpack_latent(latent_sample)
@@ -230,7 +224,7 @@ class AutoDiagonalNormal(AutoContinuous):
         super(AutoDiagonalNormal, self).setup(*args, **kwargs)
         return {
             '{}_loc'.format(self.prefix): self._init_latent,
-            '{}_scale'.format(self.prefix): np.ones(np.size(self._init_latent)),
+            '{}_scale'.format(self.prefix): np.ones(self.latent_size),
         }
 
     def median(self, opt_state):
@@ -300,44 +294,42 @@ class AutoIAFNormal(AutoContinuous):
     :param int num_flows: the number of flows to be used, defaults to 3.
     :param `**arn_kwargs`: keywords for constructing autoregressive neural networks.
     """
-    def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median,
+    def __init__(self, rng, model, get_params_fn, prefix="auto", init_strategy=init_to_median,
                  num_flows=3, **arn_kwargs):
         self.arn_kwargs = arn_kwargs
         self.arns = []
         self.num_flows = num_flows
         rng, *self.arn_rngs = random.split(rng, num_flows + 1)
         super(AutoIAFNormal, self).__init__(rng, model, get_params_fn, prefix=prefix,
-                                            init_loc_fn=init_loc_fn)
+                                            init_strategy=init_strategy)
 
     def setup(self, *args, **kwargs):
         super(AutoIAFNormal, self).setup(*args, **kwargs)
-        latent_size = np.size(self._init_latent)
-        if latent_size == 1:
+        if self.latent_size == 1:
             raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
         params = {}
         if not self.arns:
             # 2-layer by default following the experiments in IAF paper
             # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
-            hidden_dims = self.arn_kwargs.get('hidden_dims', [latent_size, latent_size])
+            hidden_dims = self.arn_kwargs.get('hidden_dims', [self.latent_size, self.latent_size])
             skip_connections = self.arn_kwargs.get('skip_connections', True)
             nonlinearity = self.arn_kwargs.get('nonlinearity', stax.Relu)
 
             for i in range(self.num_flows):
-                arn_init, arn = AutoregressiveNN(latent_size, hidden_dims,
-                                                 permutation=np.arange(latent_size),
+                arn_init, arn = AutoregressiveNN(self.latent_size, hidden_dims,
+                                                 permutation=np.arange(self.latent_size),
                                                  skip_connections=skip_connections,
                                                  nonlinearity=nonlinearity)
-                _, init_params = arn_init(self.arn_rngs[i], (latent_size,))
+                _, init_params = arn_init(self.arn_rngs[i], (self.latent_size,))
                 params['{}_arn__{}'.format(self.prefix, i)] = init_params
                 self.arns.append(arn)
         return params
 
     def _get_transform(self):
-        latent_size = np.size(self._init_latent)
         flows = []
         for i in range(self.num_flows):
             arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
             if i > 0:
-                flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
+                flows.append(PermuteTransform(np.arange(self.latent_size)[::-1]))
             flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
         return ComposeTransform(flows)

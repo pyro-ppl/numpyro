@@ -85,7 +85,8 @@ def init_to_median(site, num_samples=15):
     if site['is_observed']:
         return None
     samples = sample('_init', site['fn'], sample_shape=(num_samples,))
-    value = np.quantile(samples, 0.5, axis=0)
+    # TODO: use np.median when it is available upstream
+    value = np.mean(samples, axis=0)
     return value
 
 
