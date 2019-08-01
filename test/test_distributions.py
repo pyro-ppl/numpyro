@@ -756,6 +756,6 @@ def test_compose_transform_with_intermediates(transforms):
     transform = constraints.ComposeTransform(transforms)
     x = random.normal(random.PRNGKey(2), (7, 5))
     y, intermediates = transform.call_with_intermediates(x)
-    logdet = transform.log_abs_det_jacobian_with_intermediates(x, y, intermediates)
+    logdet = transform.log_abs_det_jacobian(x, y, intermediates)
     assert_allclose(y, transform(x))
     assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))
