@@ -1,6 +1,6 @@
 from numpy.testing import assert_allclose
 
-from jax import lax, random
+from jax import random
 from jax.experimental import optimizers
 import jax.numpy as np
 
@@ -8,6 +8,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.handlers import param, sample
 from numpyro.svi import elbo, svi
+from numpyro.util import fori_loop
 
 
 def test_beta_bernoulli():
@@ -34,7 +35,7 @@ def test_beta_bernoulli():
         loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,))
         return opt_state_, rng_
 
-    opt_state, _ = lax.fori_loop(0, 300, body_fn, (opt_state, rng_train))
+    opt_state, _ = fori_loop(0, 300, body_fn, (opt_state, rng_train))
 
     params = constrain_fn(get_params(opt_state))
-    assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, rtol=0.05)
+    assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)

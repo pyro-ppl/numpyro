@@ -24,8 +24,8 @@
 
 import math
 
-import jax.numpy as np
 from jax import ops
+import jax.numpy as np
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
@@ -189,6 +189,9 @@ class Transform(object):
     def log_abs_det_jacobian(self, x, y):
         raise NotImplementedError
 
+    def call_with_intermediates(self, x):
+        return self(x), None
+
 
 class AbsTransform(Transform):
     domain = real
@@ -265,7 +268,7 @@ class ComposeTransform(Transform):
             y = part.inv(y)
         return y
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         result = 0.
         for part in self.parts[:-1]:
             y_tmp = part(x)

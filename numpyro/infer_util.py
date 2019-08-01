@@ -3,12 +3,12 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import biject_to, real
+from numpyro.distributions.constraints import biject_to, real, ComposeTransform
 from numpyro.handlers import block, sample, seed, substitute, trace
 from numpyro.util import while_loop
 
 
-def log_density(model, model_args, model_kwargs, params):
+def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
     """
     Computes log of joint density for the model given latent values ``params``.
 
@@ -17,14 +17,29 @@ def log_density(model, model_args, model_kwargs, params):
     :param dict model_kwargs`: kwargs provided to the model.
     :param dict params: dictionary of current parameter values keyed by site
         name.
+    :param bool skip_dist_transforms: whether to compute log probability of a site
+        (if its prior is a transformed distribution) in its base distribution
+        domain.
     :return: log of joint density and a corresponding model trace
     """
-    model = substitute(model, params)
+    if skip_dist_transforms:
+        model = substitute(model, base_param_map=params)
+    else:
+        model = substitute(model, params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = 0.
     for site in model_trace.values():
         if site['type'] == 'sample':
-            log_prob = np.sum(site['fn'].log_prob(site['value']))
+            value = site['value']
+            intermediates = site['intermediates']
+            if intermediates:
+                if skip_dist_transforms:
+                    log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
+                else:
+                    log_prob = site['fn'].log_prob(value, intermediates)
+            else:
+                log_prob = site['fn'].log_prob(value)
+            log_prob = np.sum(log_prob)
             if 'scale' in site:
                 log_prob = site['scale'] * log_prob
             log_joint = log_joint + log_prob
@@ -42,14 +57,17 @@ def transform_fn(transforms, params, invert=False):
     :param invert: Whether to apply the inverse of the transforms.
     :return: `dict` of transformed params.
     """
-    return {k: transforms[k](v) if not invert else transforms[k].inv(v)
+    if invert:
+        transforms = {k: v.inv for k, v in transforms.items()}
+    return {k: transforms[k](v) if k in transforms else v
             for k, v in params.items()}
 
 
-def potential_energy(model, model_args, model_kwargs, inv_transforms):
+def potential_energy(model, model_args, model_kwargs, inv_transforms, skip_dist_transforms=True):
     def _potential_energy(params):
         params_constrained = transform_fn(inv_transforms, params)
-        log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained)
+        log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
+                                             skip_dist_transforms=skip_dist_transforms)
         for name, t in inv_transforms.items():
             t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
             if 'scale' in model_trace[name]:
@@ -139,14 +157,25 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         constrained_values, inv_transforms = {}, {}
         for k, v in model_trace.items():
             if v['type'] == 'sample' and not v['is_observed']:
-                constrained_values[k] = v['value']
-                inv_transforms[k] = biject_to(v['fn'].support)
-            elif v['type'] == 'param' and param_as_improper:
-                constrained_values[k] = v['value']
+                if v['intermediates']:
+                    constrained_values[k] = v['intermediates'][0][0]
+                    inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                else:
+                    constrained_values[k] = v['value']
+                    inv_transforms[k] = biject_to(v['fn'].support)
+            elif v['type'] == 'param':
                 constraint = v['kwargs'].pop('constraint', real)
-                inv_transforms[k] = biject_to(constraint)
+                transform = biject_to(constraint)
+                if isinstance(transform, ComposeTransform):
+                    base_transform = transform.parts[0]
+                    inv_transforms[k] = base_transform
+                    constrained_values[k] = base_transform(transform.inv(v['value']))
+                else:
+                    inv_transforms[k] = transform
+                    constrained_values[k] = v['value']
         params = transform_fn(inv_transforms,
-                              {k: v for k, v in constrained_values.items()}, invert=True)
+                              {k: v for k, v in constrained_values.items()},
+                              invert=True)
 
         potential_fn = potential_energy(model, model_args, model_kwargs, inv_transforms)
         param_grads = grad(potential_fn)(params)

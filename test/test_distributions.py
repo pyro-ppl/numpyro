@@ -13,7 +13,7 @@ import jax.random as random
 
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import biject_to, PermuteTransform, PowerTransform
+from numpyro.distributions.constraints import PermuteTransform, PowerTransform, biject_to
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
@@ -705,3 +705,30 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
         assert_allclose(actual, expected, atol=1e-6)
         assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+@pytest.mark.parametrize('transformed_dist', [
+    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), constraints.ExpTransform()),
+    dist.TransformedDistribution(dist.Exponential(np.ones(2)), [
+        constraints.PowerTransform(0.7),
+        constraints.AffineTransform(0., np.ones(2) * 3)
+    ]),
+])
+def test_transformed_distribution_intermediates(transformed_dist):
+    sample, intermediates = transformed_dist.sample_with_intermediates(random.PRNGKey(1))
+    assert_allclose(transformed_dist.log_prob(sample, intermediates), transformed_dist.log_prob(sample))
+
+
+def test_transformed_transformed_distribution():
+    loc, scale = -2, 3
+    dist1 = dist.TransformedDistribution(dist.Normal(2, 3), constraints.PowerTransform(2.))
+    dist2 = dist.TransformedDistribution(dist1, constraints.AffineTransform(-2, 3))
+    assert isinstance(dist2.base_dist, dist.Normal)
+    assert len(dist2.transforms) == 2
+    assert isinstance(dist2.transforms[0], constraints.PowerTransform)
+    assert isinstance(dist2.transforms[1], constraints.AffineTransform)
+
+    rng = random.PRNGKey(0)
+    assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
+    intermediates = dist2.sample_with_intermediates(rng)
+    assert len(intermediates) == 2

@@ -1,18 +1,20 @@
 from collections import namedtuple
 
 import jax
-from jax import device_get, grad, jit, partial, random, value_and_grad, vmap
+from jax import device_get, grad, jit, lax, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
 from jax.scipy.special import expit
-from jax.tree_util import tree_multimap
+from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
-from numpyro.distributions.constraints import biject_to, real
+import numpyro.distributions as dist
+from numpyro.distributions.constraints import biject_to, real, ComposeTransform
 from numpyro.distributions.util import cholesky_inverse
-from numpyro.handlers import seed, trace
+from numpyro.handlers import seed, substitute, trace
 from numpyro.infer_util import find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
 from numpyro.util import cond, while_loop
+
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
@@ -238,6 +240,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
+    tiny = np.finfo(lax.dtype(init_step_size)).tiny
 
     def _body_fn(state):
         step_size, _, direction, rng = state
@@ -259,7 +262,10 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         return step_size, direction, direction_new, rng
 
     def _cond_fn(state):
-        return (state[1] == 0) | (state[1] == state[2])
+        step_size, last_direction, direction, _ = state
+        # condition to run only if step_size is not so small or we are not decreasing step_size
+        not_small_step_size_cond = (step_size > tiny) | (direction >= 0)
+        return not_small_step_size_cond & ((last_direction == 0) | (direction == last_direction))
 
     step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
     return step_size
@@ -415,6 +421,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             step_size = np.where(t == (num_adapt_steps - 1),
                                  np.exp(log_step_size_avg),
                                  np.exp(log_step_size))
+            # account the the case log_step_size is a so small negative number
+            step_size = np.clip(step_size, a_min=np.finfo(lax.dtype(step_size)).tiny)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
@@ -471,6 +479,7 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
+# TODO: consider to remove jit here if there is no error triggered in new version of JAX
 @partial(jit, static_argnums=(5,))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
@@ -704,6 +713,16 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
+def make_constrain_fn(model, model_args, model_kwargs, inv_transforms):
+    def _constrain_fn(params):
+        params_constrained = transform_fn(inv_transforms, params)
+        substituted_model = substitute(model, base_param_map=params_constrained)
+        model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
+        return {k: model_trace[k]['value'] for k, v in params.items()}
+
+    return _constrain_fn
+
+
 def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
@@ -733,14 +752,31 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
     seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
     inv_transforms = {}
+    has_transformed_dist = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
-            inv_transforms[k] = biject_to(v['fn'].support)
+            if v['intermediates']:
+                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = biject_to(v['fn'].support)
         elif v['type'] == 'param':
             constraint = v['kwargs'].pop('constraint', real)
-            inv_transforms[k] = biject_to(constraint)
+            transform = biject_to(constraint)
+            if isinstance(transform, ComposeTransform):
+                base_transform = transform.parts[0]
+                inv_transforms[k] = base_transform
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = transform
 
     potential_fn = potential_energy(seeded_model, model_args, model_kwargs, inv_transforms)
+
+    if has_transformed_dist:
+        # we might want to replay the trace here
+        constrain_fn = make_constrain_fn(seeded_model, model_args, model_kwargs, inv_transforms)
+    else:
+        constrain_fn = jax.partial(transform_fn, inv_transforms)
 
     if rng.ndim == 1:
         init_params, is_valid = single_chain_init(rng)
@@ -749,4 +785,118 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
 
     if device_get(~np.all(is_valid)):
         raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return init_params, potential_fn, jax.partial(transform_fn, inv_transforms)
+    return init_params, potential_fn, constrain_fn
+
+
+def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
+    """
+    Merges subposteriors following consensus Monte Carlo algorithm.
+
+    **References:**
+
+    1. *Bayes and big data: The consensus Monte Carlo algorithm*,
+       Steven L. Scott, Alexander W. Blocker, Fernando V. Bonassi, Hugh A. Chipman,
+       Edward I. George, Robert E. McCulloch
+
+    :param list subposteriors: a list in which each element is a collection of samples.
+    :param int num_draws: number of draws from the merged posterior.
+    :param bool diagonal: whether to compute weights using variance or covariance, defaults to
+        `False` (using covariance).
+    :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :return: if `num_draws` is None, merges subposteriors without resampling; otherwise, returns
+        a collection of `num_draws` samples with the same data structure as each subposterior.
+    """
+    # stack subposteriors
+    joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
+    # shape of joined_subposteriors: n_subs x n_samples x sample_shape
+    joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
+
+    if num_draws is not None:
+        rng = random.PRNGKey(0) if rng is None else rng
+        # randomly gets num_draws from subposteriors
+        n_subs = len(subposteriors)
+        n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
+        # shape of draw_idxs: n_subs x num_draws x sample_shape
+        draw_idxs = random.randint(rng, shape=(n_subs, num_draws), minval=0, maxval=n_samples)
+        joined_subposteriors = vmap(lambda x, idx: x[idx])(joined_subposteriors, draw_idxs)
+
+    if diagonal:
+        # compute weights for each subposterior (ref: Section 3.1 of [1])
+        weights = vmap(lambda x: (1 - 1 / n_samples) / np.var(x, axis=0))(joined_subposteriors)
+        normalized_weights = weights / np.sum(weights, axis=0)
+        # get weighted samples
+        samples_flat = np.einsum('ij,ikj->kj', normalized_weights, joined_subposteriors)
+    else:
+        weights = vmap(lambda x: np.linalg.inv(np.cov(x)))(joined_subposteriors)
+        normalized_weights = np.matmul(np.linalg.inv(np.sum(weights, axis=0)), weights)
+        samples_flat = np.einsum('ijk,ilk->lj', normalized_weights, joined_subposteriors)
+
+    # unravel_fn acts on 1 sample of a subposterior
+    _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
+    return vmap(lambda x: unravel_fn(x))(samples_flat)
+
+
+def parametric(subposteriors, diagonal=False):
+    """
+    Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
+
+    **References:**
+
+    1. *Asymptotically Exact, Embarrassingly Parallel MCMC*,
+       Willie Neiswanger, Chong Wang, Eric Xing
+
+    :param list subposteriors: a list in which each element is a collection of samples.
+    :param bool diagonal: whether to compute weights using variance or covariance, defaults to
+        `False` (using covariance).
+    :return: the estimated mean and variance/covariance parameters of the joined posterior
+    """
+    joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
+    joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
+
+    submeans = np.mean(joined_subposteriors, axis=1)
+    n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
+    if diagonal:
+        # NB: jax.numpy.var does not support ddof=1, so we do it manually
+        weights = vmap(lambda x: (1 - 1 / n_samples) / np.var(x, axis=0))(joined_subposteriors)
+        var = 1 / np.sum(weights, axis=0)
+        normalized_weights = var * weights
+
+        # comparing to consensus implementation, we compute weighted mean here
+        mean = np.einsum('ij,ij->j', normalized_weights, submeans)
+        return mean, var
+    else:
+        weights = vmap(lambda x: np.linalg.inv(np.cov(x)))(joined_subposteriors)
+        cov = np.linalg.inv(np.sum(weights, axis=0))
+        normalized_weights = np.matmul(cov, weights)
+
+        # comparing to consensus implementation, we compute weighted mean here
+        mean = np.einsum('ijk,ik->j', normalized_weights, submeans)
+        return mean, cov
+
+
+def parametric_draws(subposteriors, num_draws, diagonal=False, rng=None):
+    """
+    Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
+
+    **References:**
+
+    1. *Asymptotically Exact, Embarrassingly Parallel MCMC*,
+       Willie Neiswanger, Chong Wang, Eric Xing
+
+    :param list subposteriors: a list in which each element is a collection of samples.
+    :param int num_draws: number of draws from the merged posterior.
+    :param bool diagonal: whether to compute weights using variance or covariance, defaults to
+        `False` (using covariance).
+    :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :return: a collection of `num_draws` samples with the same data structure as each subposterior.
+    """
+    rng = random.PRNGKey(0) if rng is None else rng
+    if diagonal:
+        mean, var = parametric(subposteriors, diagonal=True)
+        samples_flat = dist.Normal(mean, np.sqrt(var)).sample(rng, (num_draws,))
+    else:
+        mean, cov = parametric(subposteriors, diagonal=False)
+        samples_flat = dist.MultivariateNormal(mean, cov).sample(rng, (num_draws,))
+
+    _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
+    return vmap(lambda x: unravel_fn(x))(samples_flat)
