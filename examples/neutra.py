@@ -37,7 +37,7 @@ def dual_moon_pe(x):
 
 
 def dual_moon_model():
-    x = sample('x', dist.Uniform(-10 * np.ones(2), 10 * np.ones(2)))
+    x = sample('x', dist.Uniform(-4 * np.ones(2), 4 * np.ones(2)))
     pe = dual_moon_pe(x)
     sample('log_density', dist.Delta(log_density=-pe), obs=0.)
 
@@ -100,36 +100,51 @@ def main(args):
     summary(tree_map(lambda x: x[None, ...], samples))
 
     # make plots
+
+    # IAF guide samples (for plotting)
+    iaf_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(0), (1000,))
+    iaf_trans_samples = vmap(transformed_constrain_fn)(iaf_base_samples)['x']
+
     x1 = np.linspace(-3, 3, 100)
     x2 = np.linspace(-3, 3, 100)
     X1, X2 = np.meshgrid(x1, x2)
     P = np.clip(np.exp(-dual_moon_pe(np.stack([X1, X2], axis=-1))), a_min=0.)
 
-    fig = plt.figure(figsize=(12, 12), constrained_layout=True)
-    gs = GridSpec(2, 2, figure=fig)
+    fig = plt.figure(figsize=(12, 16), constrained_layout=True)
+    gs = GridSpec(3, 2, figure=fig)
     ax1 = fig.add_subplot(gs[0, 0])
     ax2 = fig.add_subplot(gs[0, 1])
     ax3 = fig.add_subplot(gs[1, 0])
     ax4 = fig.add_subplot(gs[1, 1])
+    ax5 = fig.add_subplot(gs[2, 0])
+    ax6 = fig.add_subplot(gs[2, 1])
 
-    ax1.plot(losses[1000:])
-    ax1.set_title('Autoguide training loss (skip the first 1000 steps)')
+    ax1.plot(np.log(losses[1000:]))
+    ax1.set_title('Autoguide training log loss (after 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(guide_samples['x'][:, 0].copy(), guide_samples['x'][:, 1].copy(), ax=ax2)
-    ax2.set(xlim=[-3, 3], ylim=[-3, 3], aspect='equal',
+    sns.kdeplot(guide_samples['x'][:, 0].copy(), guide_samples['x'][:, 1].copy(), n_levels=30, ax=ax2)
+    ax2.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using AutoIAFNormal guide')
 
-    ax3.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(vanilla_samples[:, 0].copy(), vanilla_samples[:, 1].copy(), ax=ax3)
-    ax3.plot(vanilla_samples[-50:, 0], vanilla_samples[-50:, 1], 'bo-', alpha=0.5)
-    ax3.set(xlim=[-3, 3], ylim=[-3, 3], aspect='equal',
-            xlabel='x0', ylabel='x1', title='Posterior using vanilla HMC sampler')
+    sns.scatterplot(iaf_base_samples[:, 0], iaf_base_samples[:, 1], ax=ax3, hue=iaf_trans_samples[:, 0] < 0.)
+    ax3.set(xlim=[-3, 3], ylim=[-3, 3],
+            xlabel='x0', ylabel='x1', title='AutoIAFNormal base samples (True=left moon; False=right moon)')
 
     ax4.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(samples['x'][:, 0].copy(), samples['x'][:, 1].copy(), ax=ax4)
-    ax4.plot(samples['x'][-50:, 0], samples['x'][-50:, 1], 'bo-', alpha=0.5)
-    ax4.set(xlim=[-3, 3], ylim=[-3, 3], aspect='equal',
+    sns.kdeplot(vanilla_samples[:, 0].copy(), vanilla_samples[:, 1].copy(), n_levels=30, ax=ax4)
+    ax4.plot(vanilla_samples[-50:, 0], vanilla_samples[-50:, 1], 'bo-', alpha=0.5)
+    ax4.set(xlim=[-3, 3], ylim=[-3, 3],
+            xlabel='x0', ylabel='x1', title='Posterior using vanilla HMC sampler')
+
+    sns.scatterplot(zs[:, 0], zs[:, 1], ax=ax5, hue=samples['x'][:, 0] < 0.)
+    ax5.set(xlim=[-5, 5], ylim=[-5, 5],
+            xlabel='x0', ylabel='x1', title='Samples from the warped posterior - p(z)')
+
+    ax6.contourf(X1, X2, P, cmap='OrRd')
+    sns.kdeplot(samples['x'][:, 0].copy(), samples['x'][:, 1].copy(), n_levels=30, ax=ax6)
+    ax6.plot(samples['x'][-50:, 0], samples['x'][-50:, 1], 'bo-', alpha=0.5)
+    ax6.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using NeuTra HMC sampler')
 
     plt.savefig("neutra.pdf")
@@ -138,10 +153,10 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NeuTra HMC")
-    parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
+    parser.add_argument('-n', '--num-samples', nargs='?', default=20000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=0, type=int)
     parser.add_argument('--num-hidden', nargs='?', default=20, type=int)
-    parser.add_argument('--num-iters', nargs='?', default=100000, type=int)
+    parser.add_argument('--num-iters', nargs='?', default=200000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
