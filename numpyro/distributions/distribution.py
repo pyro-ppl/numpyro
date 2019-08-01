@@ -242,10 +242,7 @@ class TransformedDistribution(Distribution):
         for i, transform in enumerate(reversed(self.transforms)):
             x = transform.inv(y) if intermediates is None else intermediates[-i - 1][0]
             t_inter = None if intermediates is None else intermediates[-i - 1][1]
-            if t_inter is None:
-                t_log_det = transform.log_abs_det_jacobian(x, y)
-            else:
-                t_log_det = transform.log_abs_det_jacobian(x, y, t_inter)
+            t_log_det = transform.log_abs_det_jacobian(x, y, t_inter)
             log_prob = log_prob - sum_rightmost(t_log_det, event_dim - transform.event_dim)
             y = x
 
