@@ -268,7 +268,7 @@ class ComposeTransform(Transform):
             y = part.inv(y)
         return y
 
-    def log_abs_det_jacobian_(self, x, y, intermediates=None):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         if intermediates is not None:
             if len(intermediates) != len(self.parts):
                 raise ValueError('Intermediates array has length = {}. Expected = {}.'
