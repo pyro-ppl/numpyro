@@ -157,11 +157,14 @@ class AutoContinuous(AutoGuide):
         unconstrained_sites = {}
         for name, site in self.prototype_trace.items():
             if site['type'] == 'sample' and not site['is_observed']:
-                # TODO: handle dynamic support
-                transform = biject_to(site['fn'].support)
-                unconstrained_val = transform.inv(site['value'])
-                self._inv_transforms[name] = transform
-                unconstrained_sites[name] = unconstrained_val
+                if site['intermediates']:
+                    transform = biject_to(site['fn'].base_dist.support)
+                    self.inv_transforms[name] = transform
+                    unconstrained_sites[name] = transform.inv(site['intermediates'][0][0])
+                else:
+                    transform = biject_to(site['fn'].support)
+                    self.inv_transforms[name] = transform
+                    unconstrained_sites[name] = transform.inv(site['value'])
 
         latent_size = sum(np.size(x) for x in unconstrained_sites.values())
         if latent_size == 0:
@@ -205,9 +208,13 @@ class AutoContinuous(AutoGuide):
             site = self.prototype_trace[name]
             value = transform(unconstrained_value)
             log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-            log_density = sum_rightmost(log_density, np.ndim(log_density) - np.ndim(value) +
-                                        len(site['fn'].event_shape))
-            delta_dist = dist.Delta(value, log_density=log_density, event_ndim=len(site['fn'].event_shape))
+            if site['intermediates']:
+                event_ndim = len(site['fn'].base_dist.event_shape)
+            else:
+                event_ndim = len(site['fn'].event_shape)
+            log_density = sum_rightmost(log_density,
+                                        np.ndim(log_density) - np.ndim(value) + event_ndim)
+            delta_dist = dist.Delta(value, log_density=log_density, event_ndim=event_ndim)
             result[name] = sample(name, delta_dist)
 
         return result

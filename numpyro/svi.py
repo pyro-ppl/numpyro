@@ -3,10 +3,11 @@ import os
 import jax
 from jax import random, value_and_grad
 
+from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import biject_to
-from numpyro.handlers import replay, seed, substitute, trace
-from numpyro.infer_util import log_density
+from numpyro.distributions.constraints import biject_to, ComposeTransform
+from numpyro.handlers import replay, seed, substitute, trace, Messenger
+from numpyro.infer_util import log_density, transform_fn
 
 
 def _seed(model, guide, rng):
@@ -63,18 +64,21 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
         model_trace = trace(model_init).get_trace(*model_args, **kwargs)
         inv_transforms = {}
-        for site in list(guide_trace.values()) + list(model_trace.values()):
+        # NB: params in model_trace will be overwritten by params in guide_trace
+        for site in list(model_trace.values()) + list(guide_trace.values()):
             if site['type'] == 'param':
                 constraint = site['kwargs'].pop('constraint', constraints.real)
                 transform = biject_to(constraint)
-                inv_transforms[site['name']] = transform
-                params[site['name']] = transform.inv(site['value'])
-
-        def transform_constrained(inv_transforms, params):
-            return {k: inv_transforms[k](v) for k, v in params.items()}
+                if isinstance(transform, ComposeTransform):
+                    base_transform = transform.parts[0]
+                    inv_transforms[site['name']] = base_transform
+                    params[site['name']] = base_transform(transform.inv(site['value']))
+                else:
+                    inv_transforms[site['name']] = transform
+                    params[site['name']] = site['value']
 
         nonlocal constrain_fn
-        constrain_fn = jax.partial(transform_constrained, inv_transforms)
+        constrain_fn = jax.partial(transform_fn, inv_transforms)
         return optim_init(params), constrain_fn
 
     def update_fn(i, rng, opt_state, model_args=(), guide_args=()):
@@ -151,7 +155,15 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
     """
     param_map = constrain_fn(param_map)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
-    model_log_density, _ = log_density(replay(model, guide_trace), model_args, kwargs, param_map)
+    # NB: we only want to substitute params not available in guide_trace
+    param_map = {k: v for k, v in param_map if k not in guide_trace}
+    # NB: only skip transforms for AutoContinuous guide
+    skip_dist_transforms = False
+    guide_fn = guide.fn if isinstance(guide, Messenger) else guide
+    if isinstance(guide_fn, AutoContinuous):
+        skip_dist_transforms = True
+    model_log_density, _ = log_density(replay(model, guide_trace), model_args, kwargs, param_map,
+                                       skip_dist_transforms=skip_dist_transforms)
     # log p(z) - log q(z)
     elbo = model_log_density - guide_log_density
     # Return (-elbo) since by convention we do gradient descent on a loss and
