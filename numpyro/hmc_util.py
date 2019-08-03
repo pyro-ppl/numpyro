@@ -711,11 +711,11 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def potential_energy(model, model_args, model_kwargs, inv_transforms, skip_dist_transforms=True):
+def potential_energy(model, model_args, model_kwargs, inv_transforms):
     def _potential_energy(params):
         params_constrained = transform_fn(inv_transforms, params)
         log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
-                                             skip_dist_transforms=skip_dist_transforms)
+                                             skip_dist_transforms=True)
         for name, t in inv_transforms.items():
             t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
             if 'scale' in model_trace[name]:

@@ -159,11 +159,11 @@ class AutoContinuous(AutoGuide):
             if site['type'] == 'sample' and not site['is_observed']:
                 if site['intermediates']:
                     transform = biject_to(site['fn'].base_dist.support)
-                    self.inv_transforms[name] = transform
+                    self._inv_transforms[name] = transform
                     unconstrained_sites[name] = transform.inv(site['intermediates'][0][0])
                 else:
                     transform = biject_to(site['fn'].support)
-                    self.inv_transforms[name] = transform
+                    self._inv_transforms[name] = transform
                     unconstrained_sites[name] = transform.inv(site['value'])
 
         latent_size = sum(np.size(x) for x in unconstrained_sites.values())

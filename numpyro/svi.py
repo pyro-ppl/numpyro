@@ -156,7 +156,7 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
     param_map = constrain_fn(param_map)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
     # NB: we only want to substitute params not available in guide_trace
-    param_map = {k: v for k, v in param_map if k not in guide_trace}
+    param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
     # NB: only skip transforms for AutoContinuous guide
     skip_dist_transforms = False
     guide_fn = guide.fn if isinstance(guide, Messenger) else guide
