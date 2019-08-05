@@ -18,8 +18,6 @@ def _seed(model, guide, rng):
 
 
 def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
-    constrain_fn = None
-
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -127,6 +125,27 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         svi.evaluate = evaluate
 
     return init_fn, update_fn, evaluate
+
+
+# TODO: move this function to svi, rename it to get_params
+def get_param(opt_state, model, guide, get_params, constrain_fn, rng,
+              model_args=None, guide_args=None, **kwargs):
+    params = constrain_fn(get_params(opt_state))
+    model, guide = _seed(model, guide, rng)
+    if guide_args is not None:
+        guide = substitute(guide, base_param_map=params)
+        guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
+        model_params = {k: v for k, v in params.items() if k not in guide_trace}
+        params = {k: guide_trace[k]['value'] if k in guide_trace else v
+                  for k, v in params.items()}
+
+        if model_args is not None:
+            model = substitute(replay(model, guide_trace), base_param_map=model_params)
+            model_trace = trace(model).get_trace(*model_args, **kwargs)
+            params = {k: model_trace[k]['value'] if k in model_params else v
+                      for k, v in params.items()}
+
+    return params
 
 
 def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):

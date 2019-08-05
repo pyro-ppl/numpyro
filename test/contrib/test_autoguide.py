@@ -83,3 +83,31 @@ def test_logistic_regression(auto_class):
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(random.PRNGKey(1), opt_state, sample_shape=(1000,))
     assert_allclose(np.mean(posterior_samples['coefs'], 0), true_coefs, rtol=0.1)
+
+
+def test_uniform_normal():
+    true_coef = 0.9
+    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+
+    def model(data):
+        alpha = sample('alpha', dist.Uniform(0, 1))
+        loc = sample('loc', dist.Uniform(0, alpha))
+        sample('obs', dist.Normal(loc, 0.1), obs=data)
+
+    opt_init, opt_update, get_params = optimizers.adam(0.01)
+    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
+    guide = AutoDiagonalNormal(rng_guide, model, get_params)
+    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    opt_state, constrain_fn = svi_init(rng_init, model_args=(data,), guide_args=(data,))
+
+    def body_fn(i, val):
+        opt_state_, rng_ = val
+        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,), guide_args=(data,))
+        return opt_state_, rng_
+
+    opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
+    median = guide.median(opt_state)
+    assert_allclose(median['loc'], true_coef, rtol=0.05)
+    # test .quantile method
+    median = guide.quantiles(opt_state, [0.2, 0.5])
+    assert_allclose(median['loc'][1], true_coef, rtol=0.1)

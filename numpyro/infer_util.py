@@ -53,3 +53,10 @@ def transform_fn(transforms, params, invert=False):
         transforms = {k: v.inv for k, v in transforms.items()}
     return {k: transforms[k](v) if k in transforms else v
             for k, v in params.items()}
+
+
+def constrain_fn(model, model_args, model_kwargs, transforms, params):
+    params_constrained = transform_fn(transforms, params)
+    substituted_model = substitute(model, base_param_map=params_constrained)
+    model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
+    return {k: model_trace[k]['value'] for k, v in params.items() if k in model_trace}
