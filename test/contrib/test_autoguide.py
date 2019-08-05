@@ -4,6 +4,7 @@ import pytest
 from jax import random
 from jax.experimental import optimizers
 import jax.numpy as np
+from jax.test_util import check_eq
 
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
 import numpyro.distributions as dist
@@ -111,3 +112,43 @@ def test_uniform_normal():
     # test .quantile method
     median = guide.quantiles(opt_state, [0.2, 0.5])
     assert_allclose(median['loc'][1], true_coef, rtol=0.1)
+
+
+def test_dynamic_supports():
+    true_coef = 0.9
+    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+
+    def actual_model(data):
+        alpha = sample('alpha', dist.Uniform(0, 1))
+        loc = sample('loc', dist.Uniform(0, alpha))
+        sample('obs', dist.Normal(loc, 0.1), obs=data)
+
+    def expected_model(data):
+        alpha = sample('alpha', dist.Uniform(0, 1))
+        loc = sample('loc', dist.Uniform(0, 1)) * alpha
+        sample('obs', dist.Normal(loc, 0.1), obs=data)
+
+    opt_init, opt_update, get_params = optimizers.adam(0.01)
+    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
+
+    guide = AutoDiagonalNormal(rng_guide, actual_model, get_params)
+    svi_init, _, svi_eval = svi(actual_model, guide, elbo, opt_init, opt_update, get_params)
+    opt_state, constrain_fn = svi_init(rng_init, (data,), (data,))
+    actual_params = get_params(opt_state)
+    actual_base_values = constrain_fn(actual_params)
+    actual_values = guide.median(opt_state)
+    actual_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
+
+    guide = AutoDiagonalNormal(rng_guide, expected_model, get_params)
+    svi_init, _, svi_eval = svi(expected_model, guide, elbo, opt_init, opt_update, get_params)
+    opt_state, constrain_fn = svi_init(rng_init, (data,), (data,))
+    expected_params = get_params(opt_state)
+    expected_base_values = constrain_fn(expected_params)
+    expected_values = guide.median(opt_state)
+    expected_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
+
+    check_eq(actual_params, expected_params)
+    check_eq(actual_base_values, expected_base_values)
+    assert_allclose(actual_values['alpha'], expected_values['alpha'])
+    assert_allclose(actual_values['loc'], expected_values['alpha'] * expected_values['loc'])
+    assert_allclose(actual_loss, expected_loss)

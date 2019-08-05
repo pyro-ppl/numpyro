@@ -36,8 +36,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
     """
     constrain_fn = None
     # NB: only skip transforms for AutoContinuous guide
-    loss_fn = jax.partial(loss, skip_dist_transforms=True) if isinstance(guide, AutoContinuous) \
-        else loss
+    loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss
 
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         """
@@ -152,7 +151,7 @@ def get_param(opt_state, model, guide, get_params, constrain_fn, rng,
 
 
 def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn,
-         skip_dist_transforms=False):
+         is_autoguide=False):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
     fundamental objective in Variational Inference. This implementation has various
@@ -178,10 +177,17 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn,
     """
     param_map = constrain_fn(param_map)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
-    # NB: we only want to substitute params not available in guide_trace
-    param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
-    model_log_density, _ = log_density(replay(model, guide_trace), model_args, kwargs, param_map,
-                                       skip_dist_transforms=skip_dist_transforms)
+    if is_autoguide:
+        # in autoguide, a site's value holds intermediate value
+        for name, site in guide_trace.items():
+            if site['type'] == 'sample':
+                param_map[name] = site['value']
+    else:
+        # NB: we only want to substitute params not available in guide_trace
+        param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
+        model = replay(model, guide_trace)
+    model_log_density, _ = log_density(model, model_args, kwargs, param_map,
+                                       skip_dist_transforms=is_autoguide)
     # log p(z) - log q(z)
     elbo = model_log_density - guide_log_density
     # Return (-elbo) since by convention we do gradient descent on a loss and
