@@ -137,13 +137,14 @@ def main(args):
     ax4.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using vanilla HMC sampler')
 
-    sns.scatterplot(zs[:, 0], zs[:, 1], ax=ax5, hue=samples['x'][:, 0] < 0.)
+    sns.scatterplot(zs[:, 0], zs[:, 1], ax=ax5, hue=samples['x'][:, 0] < 0.,
+                    s=30, alpha=0.5, edgecolor="none")
     ax5.set(xlim=[-5, 5], ylim=[-5, 5],
             xlabel='x0', ylabel='x1', title='Samples from the warped posterior - p(z)')
 
     ax6.contourf(X1, X2, P, cmap='OrRd')
     sns.kdeplot(samples['x'][:, 0].copy(), samples['x'][:, 1].copy(), n_levels=30, ax=ax6)
-    ax6.plot(samples['x'][-50:, 0], samples['x'][-50:, 1], 'bo-', alpha=0.5)
+    ax6.plot(samples['x'][-50:, 0], samples['x'][-50:, 1], 'bo-', alpha=0.2)
     ax6.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using NeuTra HMC sampler')
 
