@@ -421,7 +421,7 @@ def test_model_with_transformed_distribution():
 
     assert_allclose(expected_samples['x'], actual_samples['x'])
     assert_allclose(expected_samples['y'], actual_samples['y'])
-    assert_allclose(expected_potential_energy, actual_potential_energy)
+    assert_allclose(actual_potential_energy, expected_potential_energy)
 
 
 @pytest.mark.parametrize('init_strategy', ['prior', 'uniform'])
