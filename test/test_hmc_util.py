@@ -23,14 +23,13 @@ from numpyro.hmc_util import (
     dual_averaging,
     find_reasonable_step_size,
     initialize_model,
-    make_constrain_fn,
     parametric_draws,
     potential_energy,
     velocity_verlet,
     warmup_adapter,
     welford_covariance
 )
-from numpyro.infer_util import transform_fn
+from numpyro.infer_util import constrain_fn, transform_fn
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 
 logger = logging.getLogger(__name__)
@@ -415,8 +414,8 @@ def test_model_with_transformed_distribution():
     )
 
     base_inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.base_dist.support)}
-    actual_samples = make_constrain_fn(
-        seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms)(params)
+    actual_samples = constrain_fn(
+        seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms, params)
     actual_potential_energy = potential_energy(model, (), {}, base_inv_transforms)(params)
 
     assert_allclose(expected_samples['x'], actual_samples['x'])
