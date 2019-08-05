@@ -11,8 +11,8 @@ from jax.tree_util import tree_flatten, tree_map, tree_multimap
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import biject_to, real, ComposeTransform
 from numpyro.distributions.util import cholesky_inverse
-from numpyro.handlers import seed, substitute, trace
-from numpyro.infer_util import log_density, transform_fn
+from numpyro.handlers import seed, trace
+from numpyro.infer_util import constrain_fn, log_density, transform_fn
 from numpyro.util import cond, fori_loop, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
@@ -711,11 +711,11 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def potential_energy(model, model_args, model_kwargs, inv_transforms, skip_dist_transforms=True):
+def potential_energy(model, model_args, model_kwargs, inv_transforms):
     def _potential_energy(params):
         params_constrained = transform_fn(inv_transforms, params)
         log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
-                                             skip_dist_transforms=skip_dist_transforms)
+                                             skip_dist_transforms=True)
         for name, t in inv_transforms.items():
             t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
             if 'scale' in model_trace[name]:
@@ -724,16 +724,6 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, skip_dist_
         return - log_joint
 
     return _potential_energy
-
-
-def make_constrain_fn(model, model_args, model_kwargs, inv_transforms):
-    def _constrain_fn(params):
-        params_constrained = transform_fn(inv_transforms, params)
-        substituted_model = substitute(model, base_param_map=params_constrained)
-        model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
-        return {k: model_trace[k]['value'] for k, v in params.items()}
-
-    return _constrain_fn
 
 
 def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
@@ -801,16 +791,16 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
 
         if has_transformed_dist:
             # we might want to replay the trace here
-            constrain_fn = make_constrain_fn(seeded_model, model_args, model_kwargs, inv_transforms)
+            constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
         else:
-            constrain_fn = jax.partial(transform_fn, inv_transforms)
+            constrain_fun = jax.partial(transform_fn, inv_transforms)
 
         if only_params:
             return init_params
         else:
             return (init_params,
                     potential_energy(seeded_model, model_args, model_kwargs, inv_transforms),
-                    constrain_fn)
+                    constrain_fun)
 
     if rng.ndim == 1:
         return single_chain_init(rng)
