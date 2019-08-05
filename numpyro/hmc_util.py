@@ -11,10 +11,9 @@ from jax.tree_util import tree_flatten, tree_map, tree_multimap
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import biject_to, real, ComposeTransform
 from numpyro.distributions.util import cholesky_inverse
-from numpyro.handlers import seed, substitute, trace
-from numpyro.infer_util import find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
+from numpyro.handlers import seed, trace
+from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
 from numpyro.util import cond, while_loop
-
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
@@ -713,16 +712,6 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def make_constrain_fn(model, model_args, model_kwargs, inv_transforms):
-    def _constrain_fn(params):
-        params_constrained = transform_fn(inv_transforms, params)
-        substituted_model = substitute(model, base_param_map=params_constrained)
-        model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
-        return {k: model_trace[k]['value'] for k, v in params.items()}
-
-    return _constrain_fn
-
-
 def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
@@ -771,12 +760,11 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
                 inv_transforms[k] = transform
 
     potential_fn = potential_energy(seeded_model, model_args, model_kwargs, inv_transforms)
-
     if has_transformed_dist:
         # we might want to replay the trace here
-        constrain_fn = make_constrain_fn(seeded_model, model_args, model_kwargs, inv_transforms)
+        constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
     else:
-        constrain_fn = jax.partial(transform_fn, inv_transforms)
+        constrain_fun = jax.partial(transform_fn, inv_transforms)
 
     if rng.ndim == 1:
         init_params, is_valid = single_chain_init(rng)
@@ -785,7 +773,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
 
     if device_get(~np.all(is_valid)):
         raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return init_params, potential_fn, constrain_fn
+    return init_params, potential_fn, constrain_fun
 
 
 def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):

@@ -186,7 +186,7 @@ class Transform(object):
     def inv(self, y):
         raise NotImplementedError
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         raise NotImplementedError
 
     def call_with_intermediates(self, x):
@@ -238,7 +238,7 @@ class AffineTransform(Transform):
     def inv(self, y):
         return (y - self.loc) / self.scale
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         return sum_rightmost(np.broadcast_to(np.log(np.abs(self.scale)), x.shape), self.event_dim)
 
 
@@ -269,15 +269,33 @@ class ComposeTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
+        if intermediates is not None:
+            if len(intermediates) != len(self.parts):
+                raise ValueError('Intermediates array has length = {}. Expected = {}.'
+                                 .format(len(intermediates), len(self.parts)))
+
         result = 0.
-        for part in self.parts[:-1]:
-            y_tmp = part(x)
-            result = result + sum_rightmost(part.log_abs_det_jacobian(x, y_tmp),
-                                            self.event_dim - part.event_dim)
+        for i, part in enumerate(self.parts[:-1]):
+            y_tmp = part(x) if intermediates is None else intermediates[i][0]
+            inter = None if intermediates is None else intermediates[i][1]
+            logdet = part.log_abs_det_jacobian(x, y_tmp, intermediates=inter)
+            result = result + sum_rightmost(logdet, self.event_dim - part.event_dim)
             x = y_tmp
-        result = result + sum_rightmost(self.parts[-1].log_abs_det_jacobian(x, y),
-                                        self.event_dim - self.parts[-1].event_dim)
+        # account the the last transform, where y is available
+        inter = None if intermediates is None else intermediates[-1]
+        logdet = self.parts[-1].log_abs_det_jacobian(x, y, intermediates=inter)
+        result = result + sum_rightmost(logdet, self.event_dim - self.parts[-1].event_dim)
         return result
+
+    def call_with_intermediates(self, x):
+        intermediates = []
+        for part in self.parts[:-1]:
+            x, inter = part.call_with_intermediates(x)
+            intermediates.append([x, inter])
+        # NB: we don't need to hold the last output value in `intermediates`
+        x, inter = self.parts[-1].call_with_intermediates(x)
+        intermediates.append(inter)
+        return x, intermediates
 
 
 class CorrCholeskyTransform(Transform):
@@ -324,7 +342,7 @@ class CorrCholeskyTransform(Transform):
         x = np.log((1 + t) / (1 - t)) / 2
         return x
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         # NB: because domain and codomain are two spaces with different dimensions, determinant of
         # Jacobian is not well-defined. Here we return `log_abs_det_jacobian` of `x` and the
         # flatten lower triangular part of `y`.
@@ -365,7 +383,7 @@ class ExpTransform(Transform):
     def inv(self, y):
         return np.log(y)
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         return x
 
 
@@ -380,7 +398,7 @@ class IdentityTransform(Transform):
     def inv(self, y):
         return y
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         return np.full(np.shape(x) if self.event_dim == 0 else np.shape(x)[:-1], 0.)
 
 
@@ -399,7 +417,7 @@ class LowerCholeskyTransform(Transform):
         z = matrix_to_tril_vec(y, diagonal=-1)
         return np.concatenate([z, np.log(np.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return x[..., -n:].sum(-1)
@@ -423,7 +441,7 @@ class PermuteTransform(Transform):
                                            np.arange(size))
         return y[..., permutation_inv]
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         return np.full(np.shape(x)[:-1], 0.)
 
 
@@ -440,7 +458,7 @@ class PowerTransform(Transform):
     def inv(self, y):
         return np.power(y, 1 / self.exponent)
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         return np.log(np.abs(self.exponent * y / x))
 
 
@@ -453,7 +471,7 @@ class SigmoidTransform(Transform):
     def inv(self, y):
         return logit(y)
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         x_abs = np.abs(x)
         return -x_abs - 2 * np.log1p(np.exp(-x_abs))
 
@@ -484,7 +502,7 @@ class StickBreakingTransform(Transform):
         x = np.log(y_crop / z1m_cumprod)
         return x + np.log(x.shape[-1] - np.arange(x.shape[-1]))
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
         # |det|(J) = Product(y * (1 - z))
         x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
