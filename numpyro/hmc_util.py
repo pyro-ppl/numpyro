@@ -712,6 +712,19 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
 
 
 def potential_energy(model, model_args, model_kwargs, inv_transforms):
+    """
+    Makes a callable which computes potential energy of a model given unconstrained params.
+    The `inv_transforms` is used to transform these unconstrained parameters to base values
+    of the corresponding priors in `model`. If a prior is a transformed distribution,
+    the corresponding base value lies in the support of base distribution. Otherwise,
+    the base value lies in the support of the distribution.
+
+    :param model: a callable containing NumPyro primitives.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs`: kwargs provided to the model.
+    :param dict inv_transforms: dictionary of transforms keyed by names.
+    :return: a callable that computes potential energy given unconstrained parameters.
+    """
     def _potential_energy(params):
         params_constrained = transform_fn(inv_transforms, params)
         log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
