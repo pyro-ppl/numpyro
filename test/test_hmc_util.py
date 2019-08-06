@@ -23,14 +23,13 @@ from numpyro.hmc_util import (
     dual_averaging,
     find_reasonable_step_size,
     initialize_model,
-    make_constrain_fn,
     parametric_draws,
     potential_energy,
     velocity_verlet,
     warmup_adapter,
     welford_covariance
 )
-from numpyro.infer_util import transform_fn
+from numpyro.infer_util import constrain_fn, transform_fn
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 
 logger = logging.getLogger(__name__)
@@ -407,18 +406,21 @@ def test_model_with_transformed_distribution():
     model = seed(model, random.PRNGKey(0))
     inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.support)}
     expected_samples = partial(transform_fn, inv_transforms)(params)
-    expected_log_density = potential_energy(
-        model, (), {}, inv_transforms, skip_dist_transforms=False)(params)
+    expected_potential_energy = (
+        - x_prior.log_prob(expected_samples['x']) -
+        y_prior.log_prob(expected_samples['y']) -
+        inv_transforms['x'].log_abs_det_jacobian(params['x'], expected_samples['x']) -
+        inv_transforms['y'].log_abs_det_jacobian(params['y'], expected_samples['y'])
+    )
 
     base_inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.base_dist.support)}
-    actual_samples = make_constrain_fn(
-        seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms)(params)
-    actual_log_density = potential_energy(
-        model, (), {}, base_inv_transforms, skip_dist_transforms=True)(params)
+    actual_samples = constrain_fn(
+        seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms, params)
+    actual_potential_energy = potential_energy(model, (), {}, base_inv_transforms)(params)
 
     assert_allclose(expected_samples['x'], actual_samples['x'])
     assert_allclose(expected_samples['y'], actual_samples['y'])
-    assert_allclose(expected_log_density, actual_log_density)
+    assert_allclose(actual_potential_energy, expected_potential_energy)
 
 
 @pytest.mark.parametrize('init_strategy', ['prior', 'uniform'])

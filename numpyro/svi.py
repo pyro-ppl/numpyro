@@ -4,9 +4,9 @@ import jax
 from jax import random, value_and_grad
 
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.constraints import biject_to, ComposeTransform
 from numpyro.handlers import replay, seed, substitute, trace
-from numpyro.infer_util import log_density
+from numpyro.infer_util import log_density, transform_fn
 
 
 def _seed(model, guide, rng):
@@ -17,8 +17,6 @@ def _seed(model, guide, rng):
 
 
 def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
-    constrain_fn = None
-
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -63,18 +61,21 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
         model_trace = trace(model_init).get_trace(*model_args, **kwargs)
         inv_transforms = {}
-        for site in list(guide_trace.values()) + list(model_trace.values()):
+        # NB: params in model_trace will be overwritten by params in guide_trace
+        for site in list(model_trace.values()) + list(guide_trace.values()):
             if site['type'] == 'param':
                 constraint = site['kwargs'].pop('constraint', constraints.real)
                 transform = biject_to(constraint)
-                inv_transforms[site['name']] = transform
-                params[site['name']] = transform.inv(site['value'])
-
-        def transform_constrained(inv_transforms, params):
-            return {k: inv_transforms[k](v) for k, v in params.items()}
+                if isinstance(transform, ComposeTransform):
+                    base_transform = transform.parts[0]
+                    inv_transforms[site['name']] = base_transform
+                    params[site['name']] = base_transform(transform.inv(site['value']))
+                else:
+                    inv_transforms[site['name']] = transform
+                    params[site['name']] = site['value']
 
         nonlocal constrain_fn
-        constrain_fn = jax.partial(transform_constrained, inv_transforms)
+        constrain_fn = jax.partial(transform_fn, inv_transforms)
         return optim_init(params), constrain_fn
 
     def update_fn(i, rng, opt_state, model_args=(), guide_args=()):
@@ -125,6 +126,27 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
     return init_fn, update_fn, evaluate
 
 
+# TODO: move this function to svi, rename it to get_params
+def get_param(opt_state, model, guide, get_params, constrain_fn, rng,
+              model_args=None, guide_args=None, **kwargs):
+    params = constrain_fn(get_params(opt_state))
+    model, guide = _seed(model, guide, rng)
+    if guide_args is not None:
+        guide = substitute(guide, base_param_map=params)
+        guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
+        model_params = {k: v for k, v in params.items() if k not in guide_trace}
+        params = {k: guide_trace[k]['value'] if k in guide_trace else v
+                  for k, v in params.items()}
+
+        if model_args is not None:
+            model = substitute(replay(model, guide_trace), base_param_map=model_params)
+            model_trace = trace(model).get_trace(*model_args, **kwargs)
+            params = {k: model_trace[k]['value'] if k in model_params else v
+                      for k, v in params.items()}
+
+    return params
+
+
 def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
@@ -151,7 +173,10 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
     """
     param_map = constrain_fn(param_map)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
-    model_log_density, _ = log_density(replay(model, guide_trace), model_args, kwargs, param_map)
+    # NB: we only want to substitute params not available in guide_trace
+    param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
+    model = replay(model, guide_trace)
+    model_log_density, _ = log_density(model, model_args, kwargs, param_map)
     # log p(z) - log q(z)
     elbo = model_log_density - guide_log_density
     # Return (-elbo) since by convention we do gradient descent on a loss and

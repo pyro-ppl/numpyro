@@ -643,6 +643,9 @@ class Normal(Distribution):
         value_scaled = (value - self.loc) / self.scale
         return -0.5 * value_scaled ** 2 - normalize_term
 
+    def icdf(self, q):
+        return self.loc + self.scale * ndtri(q)
+
     @property
     def mean(self):
         return np.broadcast_to(self.loc, self.batch_shape)
