@@ -803,7 +803,6 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
             raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
 
         if has_transformed_dist:
-            # we might want to replay the trace here
             constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
         else:
             constrain_fun = jax.partial(transform_fn, inv_transforms)
