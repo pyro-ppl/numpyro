@@ -7,7 +7,7 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
     """
     Computes log of joint density for the model given latent values ``params``.
 
-    :param model: Python callable containing Pyro primitives.
+    :param model: Python callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs`: kwargs provided to the model.
     :param dict params: dictionary of current parameter values keyed by site
@@ -56,6 +56,22 @@ def transform_fn(transforms, params, invert=False):
 
 
 def constrain_fn(model, model_args, model_kwargs, transforms, params):
+    """
+    Gets value at each latent site in `model` given unconstrained parameters `params`.
+    The `transforms` is used to transform these unconstrained parameters to base values
+    of the corresponding priors in `model`. If a prior is a transformed distribution,
+    the corresponding base value lies in the support of base distribution. Otherwise,
+    the base value lies in the support of the distribution.
+
+    :param model: a callable containing NumPyro primitives.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs`: kwargs provided to the model.
+    :param dict transforms: dictionary of transforms keyed by names. Names in
+        `transforms` and `params` should align.
+    :param dict params: dictionary of unconstrained values keyed by site
+        names.
+    :return: `dict` of transformed params.
+    """
     params_constrained = transform_fn(transforms, params)
     substituted_model = substitute(model, base_param_map=params_constrained)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
