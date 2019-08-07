@@ -113,23 +113,31 @@ def init_to_median(site, num_samples=15, skip_param=False):
     """
     Initialize to the prior median.
     """
-    if ((site['type'] == 'sample' and site['is_observed'])
-            or (site['type'] == 'param' and skip_param)):
-        return None
-    samples = sample('_init', site['fn'], sample_shape=(num_samples,))
-    # TODO: use np.median when it is available upstream
-    value = np.mean(samples, axis=0)
-    return value
+    if site['type'] == 'sample' and not site['is_observed']:
+        if isinstance(site['fn'], dist.TransformedDistribution):
+            fn = site['fn'].base_dist
+        else:
+            fn = site['fn']
+        samples = sample('_init', fn, sample_shape=(num_samples,))
+        # TODO: use np.median when it is available upstream
+        return np.mean(samples, axis=0)
+
+    if site['type'] == 'param' and not skip_param:
+        # return base value of param site
+        constraint = site['kwargs'].pop('constraint', real)
+        transform = biject_to(constraint)
+        value = site['args'][0]
+        if isinstance(transform, ComposeTransform):
+            base_transform = transform.parts[0]
+            value = base_transform(transform.inv(value))
+        return value
 
 
 def init_to_prior(site, skip_param=False):
     """
     Initialize to a prior sample.
     """
-    if ((site['type'] == 'sample' and site['is_observed'])
-            or (site['type'] == 'param' and skip_param)):
-        return None
-    return sample('_init', site['fn'])
+    return init_to_median(site, num_samples=1, skip_param=skip_param)
 
 
 def init_to_uniform(site, radius=2, skip_param=False):
@@ -137,14 +145,29 @@ def init_to_uniform(site, radius=2, skip_param=False):
     Initialize to an arbitrary feasible point, ignoring distribution
     parameters.
     """
-    if ((site['type'] == 'sample' and site['is_observed'])
-            or (site['type'] == 'param' and skip_param)):
-        return None
-    value = sample('_init', site['fn'])
-    t = biject_to(site['fn'].support)
-    unconstrained_value = sample('_unconstrained_init', dist.Uniform(-radius, radius),
-                                 sample_shape=np.shape(t.inv(value)))
-    return t(unconstrained_value)
+    if site['type'] == 'sample' and not site['is_observed']:
+        if isinstance(site['fn'], dist.TransformedDistribution):
+            fn = site['fn'].base_dist
+        else:
+            fn = site['fn']
+        value = sample('_init', fn)
+        base_transform = biject_to(fn.support)
+        unconstrained_value = sample('_unconstrained_init', dist.Uniform(-radius, radius),
+                                     sample_shape=np.shape(base_transform.inv(value)))
+        return base_transform(unconstrained_value)
+
+    if site['type'] == 'param' and not skip_param:
+        # return base value of param site
+        constraint = site['kwargs'].pop('constraint', real)
+        transform = biject_to(constraint)
+        value = site['args'][0]
+        unconstrained_value = sample('_unconstrained_init', dist.Uniform(-radius, radius),
+                                     sample_shape=np.shape(transform.inv(value)))
+        if isinstance(transform, ComposeTransform):
+            base_transform = transform.parts[0]
+        else:
+            base_transform = transform
+        return base_transform(unconstrained_value)
 
 
 def init_to_feasible(site, skip_param=False):
@@ -152,12 +175,7 @@ def init_to_feasible(site, skip_param=False):
     Initialize to an arbitrary feasible point, ignoring distribution
     parameters.
     """
-    if ((site['type'] == 'sample' and site['is_observed'])
-            or (site['type'] == 'param' and skip_param)):
-        return None
-    value = sample('_init', site['fn'])
-    t = biject_to(site['fn'].support)
-    return t(np.zeros(np.shape(t.inv(value))))
+    return init_to_uniform(site, radius=0, skip_param=skip_param)
 
 
 def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform,
