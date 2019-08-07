@@ -391,9 +391,18 @@ class substitute(Messenger):
                     else:
                         msg['value'] = self.base_param_map[msg['name']]
         elif self.substitute_fn is not None:
-            value = self.substitute_fn(msg)
-            if value is not None:
-                msg['value'] = value
+            base_value = self.substitute_fn(msg)
+            if base_value is not None:
+                if msg['type'] == 'sample':
+                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
+                        base_value)
+                else:
+                    constraint = msg['kwargs'].pop('constraint', real)
+                    transform = biject_to(constraint)
+                    if isinstance(transform, ComposeTransform):
+                        msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
+                    else:
+                        msg['value'] = base_value
         else:
             raise ValueError("Neither `param_map`, `base_param_map`, nor `substitute_fn`"
                              "provided to substitute handler.")

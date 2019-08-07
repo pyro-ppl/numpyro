@@ -109,11 +109,12 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     return - log_joint
 
 
-def init_to_median(site, num_samples=15):
+def init_to_median(site, num_samples=15, skip_param=False):
     """
     Initialize to the prior median.
     """
-    if site['is_observed']:
+    if ((site['type'] == 'sample' and site['is_observed'])
+            or (site['type'] == 'param' and skip_param)):
         return None
     samples = sample('_init', site['fn'], sample_shape=(num_samples,))
     # TODO: use np.median when it is available upstream
@@ -121,21 +122,23 @@ def init_to_median(site, num_samples=15):
     return value
 
 
-def init_to_prior(site):
+def init_to_prior(site, skip_param=False):
     """
     Initialize to a prior sample.
     """
-    if site['is_observed']:
+    if ((site['type'] == 'sample' and site['is_observed'])
+            or (site['type'] == 'param' and skip_param)):
         return None
     return sample('_init', site['fn'])
 
 
-def init_to_uniform(site, radius=2):
+def init_to_uniform(site, radius=2, skip_param=False):
     """
     Initialize to an arbitrary feasible point, ignoring distribution
     parameters.
     """
-    if site['is_observed']:
+    if ((site['type'] == 'sample' and site['is_observed'])
+            or (site['type'] == 'param' and skip_param)):
         return None
     value = sample('_init', site['fn'])
     t = biject_to(site['fn'].support)
@@ -144,12 +147,13 @@ def init_to_uniform(site, radius=2):
     return t(unconstrained_value)
 
 
-def init_to_feasible(site):
+def init_to_feasible(site, skip_param=False):
     """
     Initialize to an arbitrary feasible point, ignoring distribution
     parameters.
     """
-    if site['is_observed']:
+    if ((site['type'] == 'sample' and site['is_observed'])
+            or (site['type'] == 'param' and skip_param)):
         return None
     value = sample('_init', site['fn'])
     t = biject_to(site['fn'].support)
@@ -174,6 +178,8 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `is_valid`).
     """
+    init_strategy = jax.partial(init_strategy, skip_param=not param_as_improper)
+
     def cond_fn(state):
         i, _, _, is_valid = state
         return (i < 100) & (~is_valid)
@@ -195,7 +201,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
                 else:
                     constrained_values[k] = v['value']
                     inv_transforms[k] = biject_to(v['fn'].support)
-            elif v['type'] == 'param':
+            elif v['type'] == 'param' and param_as_improper:
                 constraint = v['kwargs'].pop('constraint', real)
                 transform = biject_to(constraint)
                 if isinstance(transform, ComposeTransform):
