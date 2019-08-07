@@ -99,8 +99,6 @@ class AutoContinuous(AutoGuide):
     Assumes model structure and latent dimension are fixed, and all latent
     variables are continuous.
 
-    :param callable model: a Pyro model
-
     Reference:
 
     [1] `Automatic Differentiation Variational Inference`,
@@ -112,15 +110,15 @@ class AutoContinuous(AutoGuide):
         See :ref:`autoguide-initialization` section for available functions.
     """
     def __init__(self, rng, model, get_params_fn, prefix="auto", init_strategy=init_to_median):
-        self.rng = rng
         self.init_strategy = init_strategy
+        rng, self._init_rng = random.split(rng)
         model = seed(model, rng)
         super(AutoContinuous, self).__init__(model, get_params_fn, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
         # FIXME: without block statement, get AssertionError: all sites must have unique names
-        init_params, is_valid = block(find_valid_initial_params)(self.rng, self.model, *args,
+        init_params, is_valid = block(find_valid_initial_params)(self._init_rng, self.model, *args,
                                                                  init_strategy=self.init_strategy,
                                                                  **kwargs)
         self._inv_transforms = {}

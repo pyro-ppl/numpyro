@@ -422,7 +422,7 @@ def test_model_with_transformed_distribution():
     base_inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.base_dist.support)}
     actual_samples = constrain_fn(
         seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms, params)
-    actual_potential_energy = potential_energy(model, (), {}, base_inv_transforms)(params)
+    actual_potential_energy = potential_energy(model, (), {}, base_inv_transforms, params)
 
     assert_allclose(expected_samples['x'], actual_samples['x'])
     assert_allclose(expected_samples['y'], actual_samples['y'])

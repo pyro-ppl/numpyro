@@ -759,7 +759,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
             else:
                 inv_transforms[k] = transform
 
-    potential_fn = potential_energy(seeded_model, model_args, model_kwargs, inv_transforms)
+    potential_fn = jax.partial(potential_energy, seeded_model, model_args, model_kwargs, inv_transforms)
     if has_transformed_dist:
         # we might want to replay the trace here
         constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
