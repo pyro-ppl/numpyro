@@ -29,7 +29,14 @@ from numpyro.hmc_util import (
     warmup_adapter,
     welford_covariance
 )
-from numpyro.infer_util import constrain_fn, transform_fn
+from numpyro.infer_util import (
+    constrain_fn,
+    init_to_prior,
+    init_to_uniform,
+    init_to_median,
+    init_to_feasible,
+    transform_fn,
+)
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 
 logger = logging.getLogger(__name__)
@@ -416,14 +423,19 @@ def test_model_with_transformed_distribution():
     base_inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.base_dist.support)}
     actual_samples = constrain_fn(
         seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms, params)
-    actual_potential_energy = potential_energy(model, (), {}, base_inv_transforms)(params)
+    actual_potential_energy = potential_energy(model, (), {}, base_inv_transforms, params)
 
     assert_allclose(expected_samples['x'], actual_samples['x'])
     assert_allclose(expected_samples['y'], actual_samples['y'])
     assert_allclose(actual_potential_energy, expected_potential_energy)
 
 
-@pytest.mark.parametrize('init_strategy', ['prior', 'uniform'])
+@pytest.mark.parametrize('init_strategy', [
+    init_to_feasible,
+    init_to_median,
+    init_to_prior,
+    init_to_uniform,
+])
 def test_initialize_model_change_point(init_strategy):
     def model(data):
         alpha = 1 / np.mean(data)
@@ -453,7 +465,12 @@ def test_initialize_model_change_point(init_strategy):
             assert_allclose(p[i], init_params_i[name], atol=1e-6)
 
 
-@pytest.mark.parametrize('init_strategy', ['prior', 'uniform'])
+@pytest.mark.parametrize('init_strategy', [
+    init_to_feasible,
+    init_to_median,
+    init_to_prior,
+    init_to_uniform,
+])
 def test_initialize_model_dirichlet_categorical(init_strategy):
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
@@ -495,7 +512,6 @@ def test_gaussian_subposterior(method, diagonal):
     if diagonal:
         assert_allclose(np.var(draws, axis=0), np.diag(cov), atol=0.05)
     else:
-        # TODO: use np.cov for the next JAX version
         assert_allclose(_cov(draws), cov, atol=0.05)
 
 

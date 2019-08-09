@@ -44,8 +44,6 @@ def dual_moon_model():
 
 def make_transformed_pe(potential_fn, transform, unpack_fn):
     def transformed_potential_fn(z):
-        # NB: currently, intermediates for ComposeTransform is None, so this has no effect
-        # see https://github.com/pyro-ppl/numpyro/issues/242
         u, intermediates = transform.call_with_intermediates(z)
         logdet = transform.log_abs_det_jacobian(z, u, intermediates=intermediates)
         return potential_fn(unpack_fn(u)) + logdet
@@ -91,8 +89,7 @@ def main(args):
     transformed_potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
     transformed_constrain_fn = lambda x: constrain_fn(unpack_fn(transform(x)))  # noqa: E731
 
-    # TODO: expose latent_size in autoguide
-    init_params = np.zeros(np.size(guide._init_latent))
+    init_params = np.zeros(guide.latent_size)
     print("\nStart NeuTra HMC...")
     zs = mcmc(args.num_warmup, args.num_samples, init_params, potential_fn=transformed_potential_fn)
     print("Transform samples into unwarped space...")

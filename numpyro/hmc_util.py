@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import grad, jit, lax, partial, random, value_and_grad, vmap
+from jax import device_get, grad, jit, lax, partial, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
@@ -12,7 +12,7 @@ import numpyro.distributions as dist
 from numpyro.distributions.constraints import biject_to, real, ComposeTransform
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, trace
-from numpyro.infer_util import constrain_fn, log_density, transform_fn
+from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
 from numpyro.util import cond, fori_loop, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
@@ -478,6 +478,7 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
+# TODO: consider to remove jit here if there is no error triggered in new version of JAX
 @partial(jit, static_argnums=(5,))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
@@ -711,35 +712,7 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def potential_energy(model, model_args, model_kwargs, inv_transforms):
-    """
-    Makes a callable which computes potential energy of a model given unconstrained params.
-    The `inv_transforms` is used to transform these unconstrained parameters to base values
-    of the corresponding priors in `model`. If a prior is a transformed distribution,
-    the corresponding base value lies in the support of base distribution. Otherwise,
-    the base value lies in the support of the distribution.
-
-    :param model: a callable containing NumPyro primitives.
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs`: kwargs provided to the model.
-    :param dict inv_transforms: dictionary of transforms keyed by names.
-    :return: a callable that computes potential energy given unconstrained parameters.
-    """
-    def _potential_energy(params):
-        params_constrained = transform_fn(inv_transforms, params)
-        log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
-                                             skip_dist_transforms=True)
-        for name, t in inv_transforms.items():
-            t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
-            if 'scale' in model_trace[name]:
-                t_log_det = model_trace[name]['scale'] * t_log_det
-            log_joint = log_joint + t_log_det
-        return - log_joint
-
-    return _potential_energy
-
-
-def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
+def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative
@@ -753,11 +726,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         batch shape ``rng.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
-    :param str init_strategy: initialization strategy - `uniform`
-        initializes the unconstrained parameters by drawing from
-        a `Uniform(-2, 2)` distribution (as used by Stan), whereas
-        `prior` initializes the parameters by sampling from the prior
-        for each of the sample sites.
+    :param callable init_strategy: a per-site initialization function.
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
         `init_params` are values from the prior used to initiate MCMC,
@@ -765,61 +734,46 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    def single_chain_init(key, only_params=False):
-        seeded_model = seed(model, key)
-        model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-        constrained_values, inv_transforms = {}, {}
-        has_transformed_dist = False
-        for k, v in model_trace.items():
-            if v['type'] == 'sample' and not v['is_observed']:
-                if v['intermediates']:
-                    constrained_values[k] = v['intermediates'][0][0]
-                    inv_transforms[k] = biject_to(v['fn'].base_dist.support)
-                    has_transformed_dist = True
-                else:
-                    constrained_values[k] = v['value']
-                    inv_transforms[k] = biject_to(v['fn'].support)
-            elif v['type'] == 'param':
-                constraint = v['kwargs'].pop('constraint', real)
-                transform = biject_to(constraint)
-                if isinstance(transform, ComposeTransform):
-                    base_transform = transform.parts[0]
-                    inv_transforms[k] = base_transform
-                    constrained_values[k] = base_transform(transform.inv(v['value']))
-                    has_transformed_dist = True
-                else:
-                    inv_transforms[k] = transform
-                    constrained_values[k] = v['value']
-        prior_params = transform_fn(inv_transforms,
-                                    {k: v for k, v in constrained_values.items()}, invert=True)
-        if init_strategy == 'uniform':
-            init_params = {}
-            keys = random.split(key, len(prior_params))
-            for i, (k, v) in enumerate(prior_params.items()):
-                init_params[k] = random.uniform(keys[i], shape=np.shape(v), minval=-2, maxval=2)
-        elif init_strategy == 'prior':
-            init_params = prior_params
-        else:
-            raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
+    def single_chain_init(key):
+        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
+                                         param_as_improper=True, **model_kwargs)
 
-        if has_transformed_dist:
-            constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
-        else:
-            constrain_fun = jax.partial(transform_fn, inv_transforms)
+    seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
+    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    inv_transforms = {}
+    has_transformed_dist = False
+    for k, v in model_trace.items():
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['intermediates']:
+                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = biject_to(v['fn'].support)
+        elif v['type'] == 'param':
+            constraint = v['kwargs'].pop('constraint', real)
+            transform = biject_to(constraint)
+            if isinstance(transform, ComposeTransform):
+                base_transform = transform.parts[0]
+                inv_transforms[k] = base_transform
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = transform
 
-        if only_params:
-            return init_params
-        else:
-            return (init_params,
-                    potential_energy(seeded_model, model_args, model_kwargs, inv_transforms),
-                    constrain_fun)
+    potential_fn = jax.partial(potential_energy, seeded_model, model_args, model_kwargs, inv_transforms)
+    if has_transformed_dist:
+        # we might want to replay the trace here
+        constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
+    else:
+        constrain_fun = jax.partial(transform_fn, inv_transforms)
 
     if rng.ndim == 1:
-        return single_chain_init(rng)
+        init_params, is_valid = single_chain_init(rng)
     else:
-        _, potential_fn, constrain_fun = single_chain_init(rng[0])
-        init_params = vmap(lambda rng: single_chain_init(rng, only_params=True))(rng)
-        return init_params, potential_fn, constrain_fun
+        init_params, is_valid = vmap(single_chain_init)(rng)
+
+    if device_get(~np.all(is_valid)):
+        raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
+    return init_params, potential_fn, constrain_fun
 
 
 # TODO: to be replaced by np.cov ddof=1 for the next JAX version

@@ -1,8 +1,6 @@
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
 
-import numpy as onp
-
 from jax import random, vmap
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
@@ -16,46 +14,13 @@ from numpyro.distributions.constraints import AffineTransform, ComposeTransform,
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import block, param, sample, seed, substitute, trace
-from numpyro.infer_util import constrain_fn, transform_fn
+from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
 
 __all__ = [
     'AutoContinuous',
     'AutoGuide',
     'AutoDiagonalNormal',
-    'init_to_feasible',
-    'init_to_median',
 ]
-
-
-def init_to_feasible(site):
-    """
-    Initialize to an arbitrary feasible point, ignoring distribution
-    parameters.
-    """
-    if site['is_observed']:
-        return None
-    value = sample('_init', site['fn'])
-    t = biject_to(site['fn'].support)
-    return t(np.zeros(np.shape(t.inv(value))))
-
-
-def init_to_median(site, num_samples=15):
-    """
-    Initialize to the prior median; fallback to a feasible point if median is
-    undefined.
-    """
-    if site['is_observed']:
-        return None
-    try:
-        # Try to compute empirical median.
-        samples = sample('_init', site['fn'], sample_shape=(num_samples,))
-        value = onp.median(samples, axis=0)
-        if np.isnan(value):
-            raise ValueError
-        return value
-    except ValueError:
-        # Fall back to feasible point.
-        return init_to_feasible(site)
 
 
 class AutoGuide(ABC):
@@ -134,8 +99,6 @@ class AutoContinuous(AutoGuide):
     Assumes model structure and latent dimension are fixed, and all latent
     variables are continuous.
 
-    :param callable model: a Pyro model
-
     Reference:
 
     [1] `Automatic Differentiation Variational Inference`,
@@ -143,20 +106,21 @@ class AutoContinuous(AutoGuide):
         Blei
 
     :param callable model: A Pyro model.
-    :param callable init_loc_fn: A per-site initialization function.
+    :param callable init_strategy: A per-site initialization function.
         See :ref:`autoguide-initialization` section for available functions.
     """
-    def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median):
-        # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
-        # Use `block` to not record sample primitives in `init_loc_fn`.
-        # TODO: remove init_loc_fn mechanism in favor of init_strategy
-        # which is addressed in https://github.com/pyro-ppl/numpyro/pull/237
-        # model = substitute(model, substitute_fn=block(seed(init_loc_fn, rng)))
+    def __init__(self, rng, model, get_params_fn, prefix="auto", init_strategy=init_to_median):
+        self.init_strategy = init_strategy
+        rng, self._init_rng = random.split(rng)
         model = seed(model, rng)
         super(AutoContinuous, self).__init__(model, get_params_fn, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
+        # FIXME: without block statement, get AssertionError: all sites must have unique names
+        init_params, is_valid = block(find_valid_initial_params)(self._init_rng, self.model, *args,
+                                                                 init_strategy=self.init_strategy,
+                                                                 **kwargs)
         self._inv_transforms = {}
         self._has_transformed_dist = False
         unconstrained_sites = {}
@@ -172,10 +136,11 @@ class AutoContinuous(AutoGuide):
                     self._inv_transforms[name] = transform
                     unconstrained_sites[name] = transform.inv(site['value'])
 
-        latent_size = sum(np.size(x) for x in unconstrained_sites.values())
-        if latent_size == 0:
-            raise RuntimeError('{} found no latent variables; Use an empty guide instead'.format(type(self).__name__))
-        self._init_latent, self.unpack_latent = ravel_pytree(unconstrained_sites)
+        self._init_latent, self.unpack_latent = ravel_pytree(init_params)
+        self.latent_size = np.size(self._init_latent)
+        if self.latent_size == 0:
+            raise RuntimeError('{} found no latent variables; Use an empty guide instead'
+                               .format(type(self).__name__))
 
     @abstractmethod
     def _get_transform(self):
@@ -201,9 +166,8 @@ class AutoContinuous(AutoGuide):
             sample_latent_fn = substitute(sample_latent_fn, params)
 
         base_dist = kwargs.pop('base_dist', None)
-        latent_size = np.size(self._init_latent)
         if base_dist is None:
-            base_dist = _Normal(np.zeros(latent_size), 1.)
+            base_dist = _Normal(np.zeros(self.latent_size), 1.)
         latent = sample_latent_fn(base_dist, *args, **kwargs)
 
         # unpack continuous latent samples
@@ -250,9 +214,8 @@ class AutoContinuous(AutoGuide):
 
     def sample_posterior(self, rng, opt_state, sample_shape=(), base_dist=None,
                          model_args=None, model_kwargs=None):
-        latent_size = np.size(self._init_latent)
         if base_dist is None:
-            base_dist = _Normal(np.zeros(latent_size), 1.)
+            base_dist = _Normal(np.zeros(self.latent_size), 1.)
         params = self.get_params(opt_state)
         latent_sample = substitute(seed(self._sample_latent, rng), params)(
             base_dist, sample_shape=sample_shape)
@@ -284,7 +247,7 @@ class AutoDiagonalNormal(AutoContinuous):
         super(AutoDiagonalNormal, self).setup(*args, **kwargs)
         return {
             '{}_loc'.format(self.prefix): self._init_latent,
-            '{}_scale'.format(self.prefix): np.ones(np.size(self._init_latent)),
+            '{}_scale'.format(self.prefix): np.ones(self.latent_size),
         }
 
     def median(self, opt_state, model_args=None, model_kwargs=None):
@@ -352,44 +315,42 @@ class AutoIAFNormal(AutoContinuous):
     :param int num_flows: the number of flows to be used, defaults to 3.
     :param `**arn_kwargs`: keywords for constructing autoregressive neural networks.
     """
-    def __init__(self, rng, model, get_params_fn, prefix="auto", init_loc_fn=init_to_median,
+    def __init__(self, rng, model, get_params_fn, prefix="auto", init_strategy=init_to_median,
                  num_flows=3, **arn_kwargs):
         self.arn_kwargs = arn_kwargs
         self.arns = []
         self.num_flows = num_flows
         rng, *self.arn_rngs = random.split(rng, num_flows + 1)
         super(AutoIAFNormal, self).__init__(rng, model, get_params_fn, prefix=prefix,
-                                            init_loc_fn=init_loc_fn)
+                                            init_strategy=init_strategy)
 
     def setup(self, *args, **kwargs):
         super(AutoIAFNormal, self).setup(*args, **kwargs)
-        latent_size = np.size(self._init_latent)
-        if latent_size == 1:
+        if self.latent_size == 1:
             raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
         params = {}
         if not self.arns:
             # 2-layer by default following the experiments in IAF paper
             # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
-            hidden_dims = self.arn_kwargs.get('hidden_dims', [latent_size, latent_size])
+            hidden_dims = self.arn_kwargs.get('hidden_dims', [self.latent_size, self.latent_size])
             skip_connections = self.arn_kwargs.get('skip_connections', True)
             nonlinearity = self.arn_kwargs.get('nonlinearity', stax.Relu)
 
             for i in range(self.num_flows):
-                arn_init, arn = AutoregressiveNN(latent_size, hidden_dims,
-                                                 permutation=np.arange(latent_size),
+                arn_init, arn = AutoregressiveNN(self.latent_size, hidden_dims,
+                                                 permutation=np.arange(self.latent_size),
                                                  skip_connections=skip_connections,
                                                  nonlinearity=nonlinearity)
-                _, init_params = arn_init(self.arn_rngs[i], (latent_size,))
+                _, init_params = arn_init(self.arn_rngs[i], (self.latent_size,))
                 params['{}_arn__{}'.format(self.prefix, i)] = init_params
                 self.arns.append(arn)
         return params
 
     def _get_transform(self):
-        latent_size = np.size(self._init_latent)
         flows = []
         for i in range(self.num_flows):
             arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
             if i > 0:
-                flows.append(PermuteTransform(np.arange(latent_size)[::-1]))
+                flows.append(PermuteTransform(np.arange(self.latent_size)[::-1]))
             flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
         return ComposeTransform(flows)

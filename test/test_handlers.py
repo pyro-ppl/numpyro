@@ -5,7 +5,7 @@ from jax import random
 
 import numpyro.distributions as dist
 from numpyro.handlers import sample, scale, param, substitute, seed, trace, condition
-from numpyro.hmc_util import log_density
+from numpyro.infer_util import log_density
 from numpyro.util import optional
 
 
