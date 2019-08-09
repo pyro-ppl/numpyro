@@ -288,7 +288,6 @@ def _multinomial(key, p, n, shape=()):
 
 
 def multinomial(key, p, n, shape=()):
-    n = device_get(n)
     return _multinomial(key, p, n, shape)
 
 

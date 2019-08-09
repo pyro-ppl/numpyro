@@ -31,7 +31,7 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the next release (unless JAX's API becomes stable)
-        'jax @ git+https://github.com/google/jax.git@5861e37edd82ec5bd737fdb33b1ac6f2684e4827#egg=jax',
+        'jax==0.1.41',
         'jaxlib>=0.1.22',
         'tqdm',
     ],
