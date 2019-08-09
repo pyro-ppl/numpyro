@@ -379,7 +379,8 @@ def test_log_prob_LKJCholesky_uniform(dimension):
 
     corr_log_prob = np.array(corr_log_prob)
     # test if they are constant
-    assert_allclose(corr_log_prob, np.broadcast_to(corr_log_prob[0], corr_log_prob.shape))
+    assert_allclose(corr_log_prob, np.broadcast_to(corr_log_prob[0], corr_log_prob.shape),
+                    rtol=1e-6)
 
     if dimension == 2:
         # when concentration = 1, LKJ gives a uniform distribution over correlation matrix,
