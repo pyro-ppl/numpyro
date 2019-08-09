@@ -27,7 +27,7 @@ from jax import lax
 from jax.lib import xla_bridge
 import jax.numpy as np
 import jax.random as random
-from jax.scipy.special import gammaln, logsumexp
+from jax.scipy.special import gammaln
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -38,6 +38,7 @@ from numpyro.distributions.util import (
     clamp_probs,
     get_dtypes,
     lazy_property,
+    logsumexp,
     multinomial,
     poisson,
     promote_shapes,
