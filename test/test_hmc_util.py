@@ -14,7 +14,6 @@ from numpyro.distributions.constraints import biject_to
 from numpyro.handlers import sample, seed
 from numpyro.hmc_util import (
     AdaptWindow,
-    _cov,
     _is_iterative_turning,
     _leaf_idx_to_ckpt_idxs,
     build_adaptation_schedule,
@@ -512,7 +511,7 @@ def test_gaussian_subposterior(method, diagonal):
     if diagonal:
         assert_allclose(np.var(draws, axis=0), np.diag(cov), atol=0.05)
     else:
-        assert_allclose(_cov(draws), cov, atol=0.05)
+        assert_allclose(np.cov(draws.T), cov, atol=0.05)
 
 
 @pytest.mark.parametrize('method', [consensus, parametric_draws])

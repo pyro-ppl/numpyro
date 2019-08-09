@@ -13,7 +13,7 @@ from numpyro.distributions.constraints import biject_to, real, ComposeTransform
 from numpyro.distributions.util import cholesky_inverse
 from numpyro.handlers import seed, trace
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
-from numpyro.util import cond, fori_loop, while_loop
+from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
@@ -776,14 +776,6 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
     return init_params, potential_fn, constrain_fun
 
 
-# TODO: to be replaced by np.cov ddof=1 for the next JAX version
-def _cov(samples):
-    wc_init, wc_update, wc_final = welford_covariance(diagonal=False)
-    state = wc_init(samples.shape[1])
-    state = fori_loop(0, samples.shape[0], lambda i, state: wc_update(samples[i], state), state)
-    return wc_final(state)[0]
-
-
 def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
     """
     Merges subposteriors following consensus Monte Carlo algorithm.
@@ -818,12 +810,12 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
 
     if diagonal:
         # compute weights for each subposterior (ref: Section 3.1 of [1])
-        weights = vmap(lambda x: (1 - 1 / n_samples) / np.var(x, axis=0))(joined_subposteriors)
+        weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
         normalized_weights = weights / np.sum(weights, axis=0)
         # get weighted samples
         samples_flat = np.einsum('ij,ikj->kj', normalized_weights, joined_subposteriors)
     else:
-        weights = vmap(lambda x: np.linalg.inv(_cov(x)))(joined_subposteriors)
+        weights = vmap(lambda x: np.linalg.inv(np.cov(x.T)))(joined_subposteriors)
         normalized_weights = np.matmul(np.linalg.inv(np.sum(weights, axis=0)), weights)
         samples_flat = np.einsum('ijk,ilk->lj', normalized_weights, joined_subposteriors)
 
@@ -850,10 +842,9 @@ def parametric(subposteriors, diagonal=False):
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
 
     submeans = np.mean(joined_subposteriors, axis=1)
-    n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
     if diagonal:
         # NB: jax.numpy.var does not support ddof=1, so we do it manually
-        weights = vmap(lambda x: (1 - 1 / n_samples) / np.var(x, axis=0))(joined_subposteriors)
+        weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
         var = 1 / np.sum(weights, axis=0)
         normalized_weights = var * weights
 
@@ -861,7 +852,7 @@ def parametric(subposteriors, diagonal=False):
         mean = np.einsum('ij,ij->j', normalized_weights, submeans)
         return mean, var
     else:
-        weights = vmap(lambda x: np.linalg.inv(_cov(x)))(joined_subposteriors)
+        weights = vmap(lambda x: np.linalg.inv(np.cov(x.T)))(joined_subposteriors)
         cov = np.linalg.inv(np.sum(weights, axis=0))
         normalized_weights = np.matmul(cov, weights)
 

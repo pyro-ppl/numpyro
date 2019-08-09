@@ -119,8 +119,7 @@ def init_to_median(site, num_samples=15, skip_param=False):
         else:
             fn = site['fn']
         samples = sample('_init', fn, sample_shape=(num_samples,))
-        # TODO: use np.median when it is available upstream
-        return np.mean(samples, axis=0)
+        return np.median(samples, axis=0)
 
     if site['type'] == 'param' and not skip_param:
         # return base value of param site

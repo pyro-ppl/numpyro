@@ -27,7 +27,7 @@ from jax import lax, ops
 import jax.numpy as np
 import jax.random as random
 from jax.scipy.linalg import solve_triangular
-from jax.scipy.special import gammaln, log_ndtr, ndtr, ndtri
+from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AffineTransform, ExpTransform, PowerTransform
@@ -37,7 +37,6 @@ from numpyro.distributions.util import (
     cumsum,
     lazy_property,
     matrix_to_tril_vec,
-    multigammaln,
     promote_shapes,
     signed_stick_breaking_tril,
     standard_gamma,

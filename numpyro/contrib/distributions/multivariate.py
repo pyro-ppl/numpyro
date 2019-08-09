@@ -10,13 +10,12 @@ from jax import lax
 from jax.experimental.stax import softmax
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_dtypes
-from jax.scipy.special import digamma, gammaln, logsumexp
+from jax.scipy.special import digamma, entr, gammaln, logsumexp
 
 from numpyro.contrib.distributions.discrete import binom
 from numpyro.contrib.distributions.distribution import jax_continuous, jax_discrete, jax_multivariate
 from numpyro.distributions import constraints
 from numpyro.distributions.util import categorical as categorical_rvs
-from numpyro.distributions.util import entr
 from numpyro.distributions.util import multinomial as multinomial_rvs
 from numpyro.distributions.util import standard_gamma, xlogy
 

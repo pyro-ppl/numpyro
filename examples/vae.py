@@ -15,22 +15,6 @@ from numpyro.handlers import param, sample
 from numpyro.svi import elbo, svi
 
 
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
-
-# TODO: move to JAX
-def _elemwise_no_params(fun, **kwargs):
-    def init_fun(rng, input_shape): return input_shape, ()
-
-    def apply_fun(params, inputs, rng=None): return fun(inputs, **kwargs)
-
-    return init_fun, apply_fun
-
-
-Sigmoid = _elemwise_no_params(sigmoid)
-
-
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                               '.results'))
 os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -48,7 +32,7 @@ def encoder(hidden_dim, z_dim):
 def decoder(hidden_dim, out_dim):
     return stax.serial(
         stax.Dense(hidden_dim, W_init=stax.randn()), stax.Softplus,
-        stax.Dense(out_dim, W_init=stax.randn()), Sigmoid,
+        stax.Dense(out_dim, W_init=stax.randn()), stax.Sigmoid,
     )
 
 
@@ -99,6 +83,10 @@ def main(args):
             loss_sum, opt_state, rng = val
             rng, rng_binarize = random.split(rng)
             batch = binarize(rng_binarize, train_fetch(i, train_idx)[0])
+            # TODO: we will want to merge (i, rng, opt_state) into `svi_state`
+            # Here the index `i` is reseted after each epoch, which causes no
+            # problem for static learning rate, but it is not a right way for
+            # scheduled learning rate.
             loss, opt_state, rng = svi_update(i, rng, opt_state, (batch,), (batch,),)
             loss_sum += loss
             return loss_sum, opt_state, rng

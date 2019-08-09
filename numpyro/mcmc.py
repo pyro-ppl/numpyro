@@ -5,12 +5,12 @@ import warnings
 
 import tqdm
 
-from jax import jit, partial, pmap, random, vmap
+from jax import jit, lax, partial, pmap, random, vmap
 from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
-from jax.tree_util import tree_map, tree_multimap
+from jax.tree_util import tree_map
 
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import (
@@ -418,11 +418,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                 samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
             else:
                 if sequential_chain:
-                    samples = []
-                    for i in range(num_chains):
-                        init_params_i = tree_map(lambda x: x[i], init_params)
-                        samples.append(jit(single_chain_mcmc)(rngs[i], init_params_i))
-                    samples = tree_multimap(lambda *args: np.stack(args), *samples)
+                    samples = lax.map(lambda args: single_chain_mcmc(*args), (rngs, init_params))
                 else:
                     samples = pmap(single_chain_mcmc)(rngs, init_params)
                 samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)

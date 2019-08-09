@@ -58,7 +58,6 @@ def while_loop(cond_fun, body_fun, init_val):
             val = body_fun(val)
         return val
     else:
-        # TODO: consider jitting while_loop similar to fori_loop
         return lax.while_loop(cond_fun, body_fun, init_val)
 
 
@@ -69,7 +68,7 @@ def fori_loop(lower, upper, body_fun, init_val):
             val = body_fun(i, val)
         return val
     else:
-        return jit(lax.fori_loop, static_argnums=(2,))(lower, upper, body_fun, init_val)
+        return lax.fori_loop(lower, upper, body_fun, init_val)
 
 
 def identity(x):
