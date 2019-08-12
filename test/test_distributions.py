@@ -11,10 +11,12 @@ from jax import grad, jacfwd, lax, vmap
 import jax.numpy as np
 import jax.random as random
 
+from numpyro.contrib.nn import AutoregressiveNN
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import biject_to, PermuteTransform, PowerTransform
+from numpyro.distributions.constraints import PermuteTransform, PowerTransform, biject_to
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
+from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
@@ -377,7 +379,8 @@ def test_log_prob_LKJCholesky_uniform(dimension):
 
     corr_log_prob = np.array(corr_log_prob)
     # test if they are constant
-    assert_allclose(corr_log_prob, np.broadcast_to(corr_log_prob[0], corr_log_prob.shape))
+    assert_allclose(corr_log_prob, np.broadcast_to(corr_log_prob[0], corr_log_prob.shape),
+                    rtol=1e-6)
 
     if dimension == 2:
         # when concentration = 1, LKJ gives a uniform distribution over correlation matrix,
@@ -705,3 +708,55 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
         assert_allclose(actual, expected, atol=1e-6)
         assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+@pytest.mark.parametrize('transformed_dist', [
+    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), constraints.ExpTransform()),
+    dist.TransformedDistribution(dist.Exponential(np.ones(2)), [
+        constraints.PowerTransform(0.7),
+        constraints.AffineTransform(0., np.ones(2) * 3)
+    ]),
+])
+def test_transformed_distribution_intermediates(transformed_dist):
+    sample, intermediates = transformed_dist.sample_with_intermediates(random.PRNGKey(1))
+    assert_allclose(transformed_dist.log_prob(sample, intermediates), transformed_dist.log_prob(sample))
+
+
+def test_transformed_transformed_distribution():
+    loc, scale = -2, 3
+    dist1 = dist.TransformedDistribution(dist.Normal(2, 3), constraints.PowerTransform(2.))
+    dist2 = dist.TransformedDistribution(dist1, constraints.AffineTransform(-2, 3))
+    assert isinstance(dist2.base_dist, dist.Normal)
+    assert len(dist2.transforms) == 2
+    assert isinstance(dist2.transforms[0], constraints.PowerTransform)
+    assert isinstance(dist2.transforms[1], constraints.AffineTransform)
+
+    rng = random.PRNGKey(0)
+    assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
+    intermediates = dist2.sample_with_intermediates(rng)
+    assert len(intermediates) == 2
+
+
+def _make_iaf(input_dim, hidden_dims, rng):
+    arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
+    _, init_params = arn_init(rng, (input_dim,))
+    return InverseAutoregressiveTransform(arn, init_params)
+
+
+@pytest.mark.parametrize('transforms', [
+    [constraints.PowerTransform(0.7), constraints.AffineTransform(2., 3.)],
+    [constraints.ExpTransform()],
+    [constraints.ComposeTransform([constraints.AffineTransform(-2, 3),
+                                   constraints.ExpTransform()]),
+     constraints.PowerTransform(3.)],
+    [_make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(0)),
+     constraints.PermuteTransform(np.arange(5)[::-1]),
+     _make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(1))]
+])
+def test_compose_transform_with_intermediates(transforms):
+    transform = constraints.ComposeTransform(transforms)
+    x = random.normal(random.PRNGKey(2), (7, 5))
+    y, intermediates = transform.call_with_intermediates(x)
+    logdet = transform.log_abs_det_jacobian(x, y, intermediates)
+    assert_allclose(y, transform(x))
+    assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))

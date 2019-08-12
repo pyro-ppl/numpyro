@@ -81,6 +81,8 @@ from collections import OrderedDict
 
 from jax import random
 
+from numpyro.distributions.constraints import biject_to, real, ComposeTransform
+
 _PYRO_STACK = []
 
 
@@ -238,6 +240,58 @@ class block(Messenger):
             msg['stop'] = True
 
 
+class condition(Messenger):
+    """
+    Conditions unobserved sample sites to values from `param_map` or `condition_fn`.
+    Similar to :class:`~numpyro.handlers.substitute` except that it only affects
+    `sample` sites and changes the `is_observed` property to `True`.
+
+    :param fn: Python callable with NumPyro primitives.
+    :param dict param_map: dictionary of `numpy.ndarray` values keyed by
+       site names.
+    :param condition_fn: callable that takes in a site dict and returns
+       a numpy array or `None` (in which case the handler has no side
+       effect).
+
+    **Example:**
+
+     .. testsetup::
+
+       from jax import random
+       from numpyro.handlers import sample, seed, substitute, trace
+       import numpyro.distributions as dist
+
+    .. doctest::
+
+       >>> def model():
+       ...     sample('a', dist.Normal(0., 1.))
+
+       >>> model = seed(model, random.PRNGKey(0))
+       >>> exec_trace = trace(condition(model, {'a': -1})).get_trace()
+       >>> assert exec_trace['a']['value'] == -1
+       >>> assert exec_trace['a']['is_observed']
+    """
+    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+        self.substitute_fn = substitute_fn
+        self.param_map = param_map
+        super(condition, self).__init__(fn)
+
+    def process_message(self, msg):
+        site_name = msg['name']
+        if msg['type'] == 'sample':
+            value = None
+            if self.param_map is not None:
+                if site_name in self.param_map:
+                    value = self.param_map[site_name]
+            else:
+                value = self.substitute_fn(msg)
+            if value is not None:
+                msg['value'] = value
+                if msg['is_observed']:
+                    raise ValueError("Cannot condition an already observed site: {}.".format(site_name))
+                msg['is_observed'] = True
+
+
 class scale(Messenger):
     """
     This messenger rescales the log probability score.
@@ -247,11 +301,11 @@ class scale(Messenger):
 
     :param float scale_factor: a positive scaling factor
     """
-    def __init__(self, scale_factor):
+    def __init__(self, fn=None, scale_factor=1.):
         if scale_factor <= 0:
             raise ValueError("scale factor should be a positive number.")
         self.scale = scale_factor
-        super(scale, self).__init__()
+        super(scale, self).__init__(fn)
 
     def process_message(self, msg):
         msg["scale"] = self.scale * msg.get('scale', 1)
@@ -273,16 +327,21 @@ class seed(Messenger):
 
     def process_message(self, msg):
         if msg['type'] == 'sample':
-            msg['kwargs']['random_state'] = self.rng
-            self.rng, = random.split(self.rng, 1)
+            self.rng, rng_sample = random.split(self.rng)
+            msg['kwargs']['random_state'] = rng_sample
 
 
 class substitute(Messenger):
     """
-    Given a callable `fn` and a dict `param_map` keyed by site names,
-    return a callable which substitutes all primitive calls in `fn` with
-    values from `param_map` whose key matches the site name. If the
-    site name is not present in `param_map`, there is no side effect.
+    Given a callable `fn` and a dict `param_map` keyed by site names
+    (alternatively, a callable `substitute_fn`), return a callable
+    which substitutes all primitive calls in `fn` with values from
+    `param_map` whose key matches the site name. If the site name
+    is not present in `param_map`, there is no side effect.
+
+    If a `substitute_fn` is provided, then the value at the site is
+    replaced by the value returned from the call to `substitute_fn`
+    for the given site.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
@@ -308,19 +367,45 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+    def __init__(self, fn=None, param_map=None, base_param_map=None, substitute_fn=None):
         self.substitute_fn = substitute_fn
         self.param_map = param_map
+        self.base_param_map = base_param_map
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if self.param_map:
+        if self.param_map is not None:
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
+        elif self.base_param_map is not None:
+            if msg['name'] in self.base_param_map:
+                if msg['type'] == 'sample':
+                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
+                        self.base_param_map[msg['name']])
+                else:
+                    base_value = self.base_param_map[msg['name']]
+                    constraint = msg['kwargs'].pop('constraint', real)
+                    transform = biject_to(constraint)
+                    if isinstance(transform, ComposeTransform):
+                        msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
+                    else:
+                        msg['value'] = self.base_param_map[msg['name']]
+        elif self.substitute_fn is not None:
+            base_value = self.substitute_fn(msg)
+            if base_value is not None:
+                if msg['type'] == 'sample':
+                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
+                        base_value)
+                else:
+                    constraint = msg['kwargs'].pop('constraint', real)
+                    transform = biject_to(constraint)
+                    if isinstance(transform, ComposeTransform):
+                        msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
+                    else:
+                        msg['value'] = base_value
         else:
-            value = self.substitute_fn(msg)
-            if value is not None:
-                msg['value'] = value
+            raise ValueError("Neither `param_map`, `base_param_map`, nor `substitute_fn`"
+                             "provided to substitute handler.")
 
 
 def apply_stack(msg):
@@ -332,7 +417,12 @@ def apply_stack(msg):
         if msg.get("stop"):
             break
     if msg['value'] is None:
-        msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
+        if msg['type'] == 'sample':
+            msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
+                                                           sample_intermediates=True,
+                                                           **msg['kwargs'])
+        else:
+            msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
@@ -367,6 +457,7 @@ def sample(name, fn, obs=None, sample_shape=()):
         'kwargs': {'sample_shape': sample_shape},
         'value': obs,
         'is_observed': obs is not None,
+        'intermediates': [],
     }
 
     # ...and use apply_stack to send it to the Messengers

@@ -113,6 +113,20 @@ class Distribution(object):
         """
         raise NotImplementedError
 
+    def sample_with_intermediates(self, key, sample_shape=()):
+        """
+        Same as ``sample`` except that any intermediate computations are
+        returned (useful for `TransformedDistribution`).
+
+        :param jax.random.PRNGKey key: the rng key to be used for the distribution.
+        :param size: the sample shape for the distribution.
+        :return: a `numpy.ndarray` of shape `sample_shape + batch_shape + event_shape`
+        """
+        return self.sample(key, sample_shape=sample_shape), []
+
+    def transform_with_intermediates(self, base_value):
+        return base_value, []
+
     def log_prob(self, value):
         """
         Evaluates the log probability density for a batch of samples given by
@@ -144,6 +158,9 @@ class Distribution(object):
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('random_state')
+        sample_intermediates = kwargs.pop('sample_intermediates', False)
+        if sample_intermediates:
+            return self.sample_with_intermediates(key, *args, **kwargs)
         return self.sample(key, *args, **kwargs)
 
 
@@ -162,17 +179,25 @@ class TransformedDistribution(Distribution):
     arg_constraints = {}
 
     def __init__(self, base_distribution, transforms, validate_args=None):
-        self.base_dist = base_distribution
         if isinstance(transforms, Transform):
-            self.transforms = [transforms, ]
+            transforms = [transforms, ]
         elif isinstance(transforms, list):
             if not all(isinstance(t, Transform) for t in transforms):
                 raise ValueError("transforms must be a Transform or a list of Transforms")
-            self.transforms = transforms
         else:
             raise ValueError("transforms must be a Transform or list, but was {}".format(transforms))
-        shape = self.base_dist.batch_shape + self.base_dist.event_shape
-        event_dim = max([len(self.base_dist.event_shape)] + [t.event_dim for t in self.transforms])
+        # XXX: this logic will not be valid when IndependentDistribution is support;
+        # in that case, it is more involved to support Transform(Indep(Transform));
+        # however, we might not need to support such kind of distribution
+        # and should raise an error if base_distribution is an Indep one
+        if isinstance(base_distribution, TransformedDistribution):
+            self.base_dist = base_distribution.base_dist
+            self.transforms = base_distribution.transforms + transforms
+        else:
+            self.base_dist = base_distribution
+            self.transforms = transforms
+        shape = base_distribution.batch_shape + base_distribution.event_shape
+        event_dim = max([len(base_distribution.event_shape)] + [t.event_dim for t in transforms])
         batch_shape = shape[:len(shape) - event_dim]
         event_shape = shape[len(shape) - event_dim:]
         super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
@@ -191,16 +216,34 @@ class TransformedDistribution(Distribution):
             x = transform(x)
         return x
 
-    def log_prob(self, value):
+    def sample_with_intermediates(self, key, sample_shape=()):
+        base_value = self.base_dist.sample(key, sample_shape)
+        return self.transform_with_intermediates(base_value)
+
+    def transform_with_intermediates(self, base_value):
+        x = base_value
+        intermediates = []
+        for transform in self.transforms:
+            x_tmp = x
+            x, t_inter = transform.call_with_intermediates(x)
+            intermediates.append([x_tmp, t_inter])
+        return x, intermediates
+
+    def log_prob(self, value, intermediates=None):
         if self._validate_args:
             self._validate_sample(value)
+        if intermediates is not None:
+            if len(intermediates) != len(self.transforms):
+                raise ValueError('Intermediates array has length = {}. Expected = {}.'
+                                 .format(len(intermediates), len(self.transforms)))
         event_dim = len(self.event_shape)
         log_prob = 0.0
         y = value
-        for transform in reversed(self.transforms):
-            x = transform.inv(y)
-            log_prob = log_prob - sum_rightmost(transform.log_abs_det_jacobian(x, y),
-                                                event_dim - transform.event_dim)
+        for i, transform in enumerate(reversed(self.transforms)):
+            x = transform.inv(y) if intermediates is None else intermediates[-i - 1][0]
+            t_inter = None if intermediates is None else intermediates[-i - 1][1]
+            t_log_det = transform.log_abs_det_jacobian(x, y, t_inter)
+            log_prob = log_prob - sum_rightmost(t_log_det, event_dim - transform.event_dim)
             y = x
 
         log_prob = log_prob + sum_rightmost(self.base_dist.log_prob(y),
