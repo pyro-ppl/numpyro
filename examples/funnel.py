@@ -39,14 +39,14 @@ the random variable as a transformed distribution.
 
 
 def model(dim=10):
-    x = sample('y', dist.Normal(0, 3))
-    sample('x', dist.Normal(np.zeros(dim - 1), np.exp(x / 2)))
+    y = sample('y', dist.Normal(0, 3))
+    sample('x', dist.Normal(np.zeros(dim - 1), np.exp(y / 2)))
 
 
 def reparam_model(dim=10):
-    x = sample('y', dist.Normal(0, 3))
+    y = sample('y', dist.Normal(0, 3))
     sample('x', dist.TransformedDistribution(
-        dist.Normal(np.zeros(dim - 1), 1), AffineTransform(0, np.exp(x / 2))))
+        dist.Normal(np.zeros(dim - 1), 1), AffineTransform(0, np.exp(y / 2))))
 
 
 def run_inference(model, args, rng):
