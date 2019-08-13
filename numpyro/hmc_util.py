@@ -777,7 +777,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
     if rng.ndim == 1:
         init_params, is_valid = single_chain_init(rng)
     else:
-        init_params, is_valid = vmap(single_chain_init)(rng)
+        init_params, is_valid = lax.map(single_chain_init, rng)
 
     # TODO: allow to disable this check so we can jit `initialize_model` to
     # replicate this function across various subsets of a dataset. Disabling is
