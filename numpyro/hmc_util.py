@@ -580,6 +580,14 @@ def _leaf_idx_to_ckpt_idxs(n):
     _, num_subtrees = while_loop(lambda nc: (nc[0] & 1) != 0,
                                  lambda nc: (nc[0] >> 1, nc[1] + 1),
                                  (n, 0))
+    # TODO: explore the potential of setting idx_min=0 to allow more turning checks
+    # It will be useful in case: e.g. assume a tree 0 -> 7 is a circle,
+    # subtrees 0 -> 3, 4 -> 7 are half-circles, which two leaves might not
+    # satisfy turning condition;
+    # the full tree 0 -> 7 is a circle, which two leaves might also not satisfy
+    # turning condition;
+    # however, we can check the turning condition of the subtree 0 -> 5, which
+    # likely satisfies turning condition because its trajectory 3/4 of a circle.
     idx_min = idx_max - num_subtrees + 1
     return idx_min, idx_max
 
