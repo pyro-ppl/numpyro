@@ -771,6 +771,9 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
     else:
         init_params, is_valid = vmap(single_chain_init)(rng)
 
+    # TODO: allow to disable this check so we can jit `initialize_model` to
+    # replicate this function across various subsets of a dataset. Disabling is
+    # useful for concensus/parametric MC.
     if device_get(~np.all(is_valid)):
         raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return init_params, potential_fn, constrain_fun
