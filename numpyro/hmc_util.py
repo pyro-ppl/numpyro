@@ -742,37 +742,45 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    def single_chain_init(key):
-        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
-                                         param_as_improper=True, **model_kwargs)
-
     seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-    inv_transforms = {}
+    constrained_values, inv_transforms = {}, {}
     has_transformed_dist = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
             if v['intermediates']:
+                constrained_values[k] = v['intermediates'][0][0]
                 inv_transforms[k] = biject_to(v['fn'].base_dist.support)
                 has_transformed_dist = True
             else:
+                constrained_values[k] = v['value']
                 inv_transforms[k] = biject_to(v['fn'].support)
         elif v['type'] == 'param':
             constraint = v['kwargs'].pop('constraint', real)
             transform = biject_to(constraint)
             if isinstance(transform, ComposeTransform):
                 base_transform = transform.parts[0]
+                constrained_values[k] = base_transform(transform.inv(v['value']))
                 inv_transforms[k] = base_transform
                 has_transformed_dist = True
             else:
                 inv_transforms[k] = transform
+                constrained_values[k] = v['value']
+
+    prototype_params = transform_fn(inv_transforms,
+                                    {k: v for k, v in constrained_values.items()},
+                                    invert=True)
 
     potential_fn = jax.partial(potential_energy, seeded_model, model_args, model_kwargs, inv_transforms)
     if has_transformed_dist:
-        # we might want to replay the trace here
         constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
     else:
         constrain_fun = jax.partial(transform_fn, inv_transforms)
+
+    def single_chain_init(key):
+        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
+                                         param_as_improper=True, prototype_params=prototype_params,
+                                         **model_kwargs)
 
     if rng.ndim == 1:
         init_params, is_valid = single_chain_init(rng)

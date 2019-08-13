@@ -179,7 +179,7 @@ def init_to_feasible(site, skip_param=False):
 
 
 def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform,
-                              param_as_improper=False, **model_kwargs):
+                              param_as_improper=False, prototype_params=None, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
     parameters. This function also returns an `is_valid` flag to say whether the
@@ -238,7 +238,9 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
         return i + 1, key, params, is_valid
 
-    # NB: the logic here is kind of do-while instead of while-do
-    init_state = body_fn((0, rng, None, None))
+    if prototype_params is not None:
+        init_state = (0, rng, prototype_params, False)
+    else:
+        init_state = body_fn((0, rng, None, None))
     _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
     return init_params, is_valid
