@@ -2,7 +2,6 @@ from functools import update_wrapper
 import math
 from numbers import Number
 
-import numpy as onp
 import scipy.special as osp_special
 
 from jax import canonicalize_dtype, custom_transforms, defjvp, device_get, jit, lax, random, vmap
@@ -10,7 +9,6 @@ from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.linalg import solve_triangular
-from jax.scipy.special import gammaln
 from jax.util import partial
 
 
@@ -351,16 +349,6 @@ def cholesky_inverse(matrix):
     return solve_triangular(tril_inv, identity, lower=True)
 
 
-def entr(p):
-    return np.where(p < 0, -np.inf, -xlogy(p))
-
-
-def multigammaln(a, d):
-    constant = 0.25 * d * (d - 1) * np.log(np.pi)
-    res = np.sum(gammaln(np.expand_dims(a, axis=-1) - 0.5 * np.arange(d)), axis=-1)
-    return res + constant
-
-
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
@@ -402,7 +390,7 @@ def promote_shapes(*args, shape=()):
 
 
 def get_dtypes(*args):
-    return [canonicalize_dtype(onp.result_type(arg)) for arg in args]
+    return [canonicalize_dtype(lax.dtype(arg)) for arg in args]
 
 
 def sum_rightmost(x, dim):
@@ -415,7 +403,7 @@ def sum_rightmost(x, dim):
 
 
 def matrix_to_tril_vec(x, diagonal=0):
-    idxs = onp.tril_indices(x.shape[-1], diagonal)
+    idxs = np.tril_indices(x.shape[-1], diagonal)
     return x[..., idxs[0], idxs[1]]
 
 
@@ -423,7 +411,7 @@ def vec_to_tril_matrix(t, diagonal=0):
     # NB: the following formula only works for diagonal <= 0
     n = round((math.sqrt(1 + 8 * t.shape[-1]) - 1) / 2) - diagonal
     n2 = n * n
-    idx = np.reshape(np.arange(n2), (n, n))[onp.tril_indices(n, diagonal)]
+    idx = np.reshape(np.arange(n2), (n, n))[np.tril_indices(n, diagonal)]
     x = lax.scatter_add(np.zeros(t.shape[:-1] + (n2,)), np.expand_dims(idx, axis=-1), t,
                         lax.ScatterDimensionNumbers(update_window_dims=range(t.ndim - 1),
                                                     inserted_window_dims=(t.ndim - 1,),
@@ -451,6 +439,12 @@ def signed_stick_breaking_tril(t):
                                       mode="constant", constant_values=1.)
     y = (r + np.identity(r.shape[-1])) * z1m_cumprod_sqrt_shifted
     return y
+
+
+def logsumexp(x, axis=0, keepdims=False):
+    x_max = np.max(x, axis=axis, keepdims=True)
+    result = np.log(np.sum(np.exp(x - x_max), axis=axis, keepdims=True)) + x_max
+    return result if keepdims else np.squeeze(result, axis=axis)
 
 
 # The is sourced from: torch.distributions.util.py

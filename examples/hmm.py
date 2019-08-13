@@ -6,9 +6,9 @@ import numpy as onp
 from jax import lax, random
 from jax.config import config as jax_config
 import jax.numpy as np
-from jax.scipy.special import logsumexp
 
 import numpyro.distributions as dist
+from numpyro.distributions.util import logsumexp
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc

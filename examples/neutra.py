@@ -1,25 +1,28 @@
 import argparse
-import warnings
+import os
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from jax import jit, random, vmap
+from jax import lax, random, vmap
 from jax.config import config as jax_config
 from jax.experimental import optimizers
 import jax.numpy as np
-from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
 
 from numpyro.contrib.autoguide import AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
+from numpyro.distributions.util import logsumexp
 from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 from numpyro.svi import elbo, svi
-from numpyro.util import fori_collect
+
+# TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
+# The behaviour when training guide under fast math mode is unstable.
+os.environ["XLA_FLAGS"] = "--xla_cpu_enable_fast_math=false"
 
 """
 This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
@@ -64,26 +67,19 @@ def main(args):
     svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, opt_init, opt_update, get_params)
     opt_state, _ = svi_init(rng_init)
 
-    def body_fn(val):
-        i, loss, opt_state_, rng_ = val
+    def body_fn(val, i):
+        opt_state_, rng_ = val
         loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_)
-        return i + 1, loss, opt_state_, rng_
+        return (opt_state_, rng_), loss
 
     print("Start training guide...")
-    # TODO: remove the warning when the issue is fixed upstream
-    warnings.warn('Due to the bug https://github.com/google/jax/issues/939, to'
-                  ' train AutoIAFNormal we should set the environment flag'
-                  ' "XLA_FLAGS=--xla_cpu_enable_fast_math=false".')
-    losses, opt_states = fori_collect(0, args.num_iters, jit(body_fn),
-                                      (0, 0., opt_state, rng_train),
-                                      transform=lambda x: (x[1], x[2]), progbar=False)
-    last_state = tree_map(lambda x: x[-1], opt_states)
+    (last_state, _), losses = lax.scan(body_fn, (opt_state, rng_train), np.arange(args.num_iters))
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(random.PRNGKey(0), last_state,
                                            sample_shape=(args.num_samples,))
 
     transform = guide.get_transform(last_state)
-    unpack_fn = lambda u: guide.unpack_latent(u, transform=False)  # noqa: E731
+    unpack_fn = guide.unpack_latent
 
     _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), dual_moon_model)
     transformed_potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
