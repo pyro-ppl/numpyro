@@ -29,11 +29,11 @@ os.environ['SPHINX_BUILD'] = '1'
 from numpyro.mcmc import hmc  # noqa: E402
 from numpyro.svi import svi  # noqa: E402
 hmc(None, None)
-svi(None, None, None, None, None, None)
+svi(None, None, None, (None, None, None))
 
 # -- Project information -----------------------------------------------------
 
-project = u'Numpyro'
+project = u'NumPyro'
 copyright = u'2019, Uber Technologies, Inc'
 author = u'Uber AI Labs'
 
@@ -164,6 +164,7 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
+# FIXME: should we rename Numpyro to NumPyro here and below?
 latex_documents = [
     (master_doc, 'Numpyro.tex', u'Numpyro Documentation', u'Uber AI Labs', 'manual'),
 ]
