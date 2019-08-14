@@ -25,8 +25,8 @@ def test_beta_bernoulli():
                        constraint=constraints.positive)
         sample("beta", dist.Beta(alpha_q, beta_q))
 
-    opt_init, opt_update, get_params = optimizers.adam(0.05)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    _, _, get_params = optim = optimizers.adam(0.05)
+    svi_init, svi_update, _ = svi(model, guide, elbo, optim)
     rng_init, rng_train = random.split(random.PRNGKey(1))
     opt_state, constrain_fn = svi_init(rng_init, model_args=(data,))
 
@@ -54,8 +54,8 @@ def test_dynamic_constraints():
         alpha = param('alpha', 0.5, constraint=constraints.unit_interval)
         param('loc', 0, constraint=constraints.interval(0, alpha))
 
-    opt_init, opt_update, get_params = optimizers.adam(0.05)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    _, _, get_params = optim = optimizers.adam(0.05)
+    svi_init, svi_update, _ = svi(model, guide, elbo, optim)
     rng_init, rng_train = random.split(random.PRNGKey(1))
     opt_state, constrain_fn = svi_init(rng_init, model_args=(data,))
 

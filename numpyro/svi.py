@@ -17,7 +17,7 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
+def svi(model, guide, loss, optim, **kwargs):
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -25,15 +25,13 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
     :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
-    :param optim_init: initialization function returned by a JAX optimizer.
+    :param optim: a JAX optimizer instance,
         see: :mod:`jax.experimental.optimizers`.
-    :param optim_update: update function for the optimizer
-    :param get_params: function to get current parameters values given the
-        optimizer state.
     :param `**kwargs`: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
+    optim_init, optim_update, get_params = optim
     constrain_fn = None
     # NB: only skip transforms for AutoContinuous guide
     loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss

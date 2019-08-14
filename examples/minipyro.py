@@ -30,8 +30,9 @@ def main(args):
 
     # Construct an SVI object so we can do variational inference on our
     # model/guide pair.
-    opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    # TODO: remove get_params
+    _, _, get_params = optim = optimizers.adam(args.learning_rate)
+    svi_init, svi_update, _ = svi(model, guide, elbo, optim)
     rng, rng_init = random.split(PRNGKey(0))
     opt_state, _ = svi_init(rng_init, model_args=(data,))
 

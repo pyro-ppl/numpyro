@@ -63,8 +63,9 @@ def binarize(rng, batch):
 def main(args):
     encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
     decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
-    opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
-    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_params,
+    # TODO: drop get_params in future refactoring
+    _, _, get_params = optim = optimizers.adam(args.learning_rate)
+    svi_init, svi_update, svi_eval = svi(model, guide, elbo, optim,
                                          encode=encode, decode=decode, z_dim=args.z_dim)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')

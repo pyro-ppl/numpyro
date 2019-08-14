@@ -61,10 +61,10 @@ def main(args):
     vanilla_samples = mcmc(args.num_warmup, args.num_samples, init_params=np.array([2., 0.]),
                            potential_fn=dual_moon_pe, progbar=True)
 
-    opt_init, opt_update, get_params = optimizers.adam(0.001)
+    _, _, get_params = optim = optimizers.adam(0.001)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = AutoIAFNormal(rng_guide, dual_moon_model, get_params, hidden_dims=[args.num_hidden])
-    svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, opt_init, opt_update, get_params)
+    svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, optim)
     opt_state, _ = svi_init(rng_init)
 
     def body_fn(val, i):

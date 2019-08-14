@@ -25,10 +25,10 @@ def test_beta_bernoulli(auto_class):
         f = sample('beta', dist.Beta(np.ones(2), np.ones(2)))
         sample('obs', dist.Bernoulli(f), obs=data)
 
-    opt_init, opt_update, get_params = optimizers.adam(0.01)
+    _, _, get_params = optim = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = auto_class(rng_guide, model, get_params)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    svi_init, svi_update, _ = svi(model, guide, elbo, optim)
     opt_state, constrain_fn = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
     def body_fn(i, val):
@@ -59,10 +59,10 @@ def test_logistic_regression(auto_class):
         logits = np.sum(coefs * data, axis=-1)
         return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-    opt_init, opt_update, get_params = optimizers.adam(0.01)
+    _, _, get_params = optim = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = auto_class(rng_guide, model, get_params)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    svi_init, svi_update, _ = svi(model, guide, elbo, optim)
     opt_state, constrain_fn = svi_init(rng_init,
                                        model_args=(data, labels),
                                        guide_args=(data, labels))
@@ -95,10 +95,10 @@ def test_uniform_normal():
         loc = sample('loc', dist.Uniform(0, alpha))
         sample('obs', dist.Normal(loc, 0.1), obs=data)
 
-    opt_init, opt_update, get_params = optimizers.adam(0.01)
+    _, _, get_params = optim = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = AutoDiagonalNormal(rng_guide, model, get_params)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    svi_init, svi_update, _ = svi(model, guide, elbo, optim)
     opt_state, constrain_fn = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
     def body_fn(i, val):
@@ -128,11 +128,11 @@ def test_dynamic_supports():
         loc = sample('loc', dist.Uniform(0, 1)) * alpha
         sample('obs', dist.Normal(loc, 0.1), obs=data)
 
-    opt_init, opt_update, get_params = optimizers.adam(0.01)
+    _, _, get_params = optim = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
 
     guide = AutoDiagonalNormal(rng_guide, actual_model, get_params)
-    svi_init, _, svi_eval = svi(actual_model, guide, elbo, opt_init, opt_update, get_params)
+    svi_init, _, svi_eval = svi(actual_model, guide, elbo, optim)
     opt_state, constrain_fn = svi_init(rng_init, (data,), (data,))
     actual_params = get_params(opt_state)
     actual_base_values = constrain_fn(actual_params)
@@ -140,7 +140,7 @@ def test_dynamic_supports():
     actual_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
 
     guide = AutoDiagonalNormal(rng_guide, expected_model, get_params)
-    svi_init, _, svi_eval = svi(expected_model, guide, elbo, opt_init, opt_update, get_params)
+    svi_init, _, svi_eval = svi(expected_model, guide, elbo, optim)
     opt_state, constrain_fn = svi_init(rng_init, (data,), (data,))
     expected_params = get_params(opt_state)
     expected_base_values = constrain_fn(expected_params)
