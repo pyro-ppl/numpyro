@@ -580,6 +580,14 @@ def _leaf_idx_to_ckpt_idxs(n):
     _, num_subtrees = while_loop(lambda nc: (nc[0] & 1) != 0,
                                  lambda nc: (nc[0] >> 1, nc[1] + 1),
                                  (n, 0))
+    # TODO: explore the potential of setting idx_min=0 to allow more turning checks
+    # It will be useful in case: e.g. assume a tree 0 -> 7 is a circle,
+    # subtrees 0 -> 3, 4 -> 7 are half-circles, which two leaves might not
+    # satisfy turning condition;
+    # the full tree 0 -> 7 is a circle, which two leaves might also not satisfy
+    # turning condition;
+    # however, we can check the turning condition of the subtree 0 -> 5, which
+    # likely satisfies turning condition because its trajectory 3/4 of a circle.
     idx_min = idx_max - num_subtrees + 1
     return idx_min, idx_max
 
@@ -734,43 +742,54 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    def single_chain_init(key):
-        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
-                                         param_as_improper=True, **model_kwargs)
-
     seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-    inv_transforms = {}
+    constrained_values, inv_transforms = {}, {}
     has_transformed_dist = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
             if v['intermediates']:
+                constrained_values[k] = v['intermediates'][0][0]
                 inv_transforms[k] = biject_to(v['fn'].base_dist.support)
                 has_transformed_dist = True
             else:
+                constrained_values[k] = v['value']
                 inv_transforms[k] = biject_to(v['fn'].support)
         elif v['type'] == 'param':
             constraint = v['kwargs'].pop('constraint', real)
             transform = biject_to(constraint)
             if isinstance(transform, ComposeTransform):
                 base_transform = transform.parts[0]
+                constrained_values[k] = base_transform(transform.inv(v['value']))
                 inv_transforms[k] = base_transform
                 has_transformed_dist = True
             else:
                 inv_transforms[k] = transform
+                constrained_values[k] = v['value']
+
+    prototype_params = transform_fn(inv_transforms,
+                                    {k: v for k, v in constrained_values.items()},
+                                    invert=True)
 
     potential_fn = jax.partial(potential_energy, seeded_model, model_args, model_kwargs, inv_transforms)
     if has_transformed_dist:
-        # we might want to replay the trace here
         constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
     else:
         constrain_fun = jax.partial(transform_fn, inv_transforms)
 
+    def single_chain_init(key):
+        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
+                                         param_as_improper=True, prototype_params=prototype_params,
+                                         **model_kwargs)
+
     if rng.ndim == 1:
         init_params, is_valid = single_chain_init(rng)
     else:
-        init_params, is_valid = vmap(single_chain_init)(rng)
+        init_params, is_valid = lax.map(single_chain_init, rng)
 
+    # TODO: allow to disable this check so we can jit `initialize_model` to
+    # replicate this function across various subsets of a dataset. Disabling is
+    # useful for concensus/parametric MC.
     if device_get(~np.all(is_valid)):
         raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return init_params, potential_fn, constrain_fun
