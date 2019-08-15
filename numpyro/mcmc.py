@@ -408,8 +408,8 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
             def single_chain_mcmc(rng, init_params):
                 hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, rng=rng,
                                         **sampler_kwargs)
-                samples = fori_collect(num_warmup, num_warmup + num_samples, sample_kernel, hmc_state,
-                                       transform=lambda x: constrain_fn(x.z),
+                samples = fori_collect(0, num_warmup + num_samples, sample_kernel, hmc_state,
+                                       # transform=lambda x: constrain_fn(x.z),
                                        progbar=progbar)
                 return samples
 

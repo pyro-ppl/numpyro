@@ -9,6 +9,15 @@ from numpyro.distributions.constraints import biject_to, ComposeTransform
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
 
+SVIState = namedtuple('SVIState', ['i', 'optim_state', 'rng'])
+"""
+A :func:`~collections.namedtuple` consisting of the following fields:
+
+ - **i** - the iteration number.
+ - **optim_state** - current optimizer's state.
+ - **rng** - random number generator seed used for the iteration.
+"""
+
 
 def _seed(model, guide, rng):
     model_seed, guide_seed = random.split(rng, 2)
@@ -31,8 +40,9 @@ def svi(model, guide, loss, optim, **kwargs):
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
-    optim_init, optim_update, get_params = optim
+    optim_init, optim_update, optim_get_params = optim
     constrain_fn = None
+    has_composed_transforms = False
     # NB: only skip transforms for AutoContinuous guide
     loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss
 
@@ -53,7 +63,8 @@ def svi(model, guide, loss, optim, **kwargs):
         """
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
-        model_init, guide_init = _seed(model, guide, rng)
+        rng, rng_init = random.split(rng)
+        model_init, guide_init = _seed(model, guide, rng_init)
         if params is None:
             params = {}
         else:
@@ -61,6 +72,9 @@ def svi(model, guide, loss, optim, **kwargs):
             guide_init = substitute(guide_init, params)
         guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
         model_trace = trace(model_init).get_trace(*model_args, **kwargs)
+
+        nonlocal constrain_fn, has_composed_transforms
+
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
         for site in list(model_trace.values()) + list(guide_trace.values()):
@@ -68,6 +82,7 @@ def svi(model, guide, loss, optim, **kwargs):
                 constraint = site['kwargs'].pop('constraint', constraints.real)
                 transform = biject_to(constraint)
                 if isinstance(transform, ComposeTransform):
+                    has_composed_transforms = True
                     base_transform = transform.parts[0]
                     inv_transforms[site['name']] = base_transform
                     params[site['name']] = base_transform(transform.inv(site['value']))
@@ -75,11 +90,10 @@ def svi(model, guide, loss, optim, **kwargs):
                     inv_transforms[site['name']] = transform
                     params[site['name']] = site['value']
 
-        nonlocal constrain_fn
         constrain_fn = jax.partial(transform_fn, inv_transforms)
-        return optim_init(params), constrain_fn
+        return SVIState(0, optim_init(params), rng)
 
-    def update_fn(i, rng, opt_state, model_args=(), guide_args=()):
+    def update_fn(svi_state, model_args=(), guide_args=()):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data),
         using the optimizer.
@@ -92,15 +106,15 @@ def svi(model, guide, loss, optim, **kwargs):
         :param tuple guide_args: dynamic arguments to the guide.
         :return: tuple of `(loss_val, opt_state, rng)`.
         """
-        rng, rng_seed = random.split(rng)
+        rng, rng_seed = random.split(svi_state.rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
-        params = get_params(opt_state)
+        params = optim_get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(loss_fn)(params, model_init, guide_init, model_args,
                                                   guide_args, kwargs, constrain_fn=constrain_fn)
-        opt_state = optim_update(i, grads, opt_state)
-        return loss_val, opt_state, rng
+        opt_state = optim_update(svi_state.i, grads, opt_state)
+        return SVIState(svi_state.i + 1, opt_state, rng), loss
 
-    def evaluate(rng, opt_state, model_args=(), guide_args=()):
+    def evaluate(svi_state, model_args=(), guide_args=()):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data).
 
@@ -113,9 +127,31 @@ def svi(model, guide, loss, optim, **kwargs):
         :return: evaluate ELBo loss given the current parameter values
             (held within `opt_state`).
         """
-        model_init, guide_init = _seed(model, guide, rng)
-        params = get_params(opt_state)
-        return loss_fn(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
+        # NB: we split here to make evaluate consistence with update_fn
+        _, rng_seed = random.split(svi_state.rng)
+        model_init, guide_init = _seed(model, guide, rng_seed)
+        params = optim_get_params(svi_state)
+        return loss_fn(params, model_init, guide_init, model_args, guide_args,
+                       kwargs, constrain_fn=constrain_fn)
+
+    def get_params(svi_state, model_args=None, guide_args=None):
+        params = constrain_fn(optim_get_params(svi_state.opt_state))
+        if guide_args is not None:
+            _, rng_seed = random.split(svi_state.rng)
+            model, guide = _seed(model, guide, rng_seed)
+            guide = substitute(guide, base_param_map=params)
+            guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
+            model_params = {k: v for k, v in params.items() if k not in guide_trace}
+            params = {k: guide_trace[k]['value'] if k in guide_trace else v
+                      for k, v in params.items()}
+
+            if model_args is not None:
+                model = substitute(replay(model, guide_trace), base_param_map=model_params)
+                model_trace = trace(model).get_trace(*model_args, **kwargs)
+                params = {k: model_trace[k]['value'] if k in model_params else v
+                          for k, v in params.items()}
+
+        return params
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
@@ -123,29 +159,9 @@ def svi(model, guide, loss, optim, **kwargs):
         svi.init_fn = init_fn
         svi.update_fn = update_fn
         svi.evaluate = evaluate
+        svi.get_params = get_params
 
-    return init_fn, update_fn, evaluate
-
-
-# TODO: move this function to svi, rename it to get_params
-def get_param(opt_state, model, guide, get_params, constrain_fn, rng,
-              model_args=None, guide_args=None, **kwargs):
-    params = constrain_fn(get_params(opt_state))
-    model, guide = _seed(model, guide, rng)
-    if guide_args is not None:
-        guide = substitute(guide, base_param_map=params)
-        guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
-        model_params = {k: v for k, v in params.items() if k not in guide_trace}
-        params = {k: guide_trace[k]['value'] if k in guide_trace else v
-                  for k, v in params.items()}
-
-        if model_args is not None:
-            model = substitute(replay(model, guide_trace), base_param_map=model_params)
-            model_trace = trace(model).get_trace(*model_args, **kwargs)
-            params = {k: model_trace[k]['value'] if k in model_params else v
-                      for k, v in params.items()}
-
-    return params
+    return init_fn, update_fn, evaluate, get_params
 
 
 def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn,
