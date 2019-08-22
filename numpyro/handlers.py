@@ -194,11 +194,14 @@ class replay(Messenger):
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample' and msg['name'] in self.guide_trace:
+        if msg['name'] in self.guide_trace:
             guide_site = self.guide_trace[msg['name']]
-            value, intermediates = guide_site['value'], guide_site['intermediates']
-            base_value = intermediates[0][0] if intermediates else value
-            msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(base_value)
+            if msg['type'] == 'sample':
+                    value, intermediates = guide_site['value'], guide_site['intermediates']
+                    base_value = intermediates[0][0] if intermediates else value
+                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(base_value)
+            elif msg['type'] == 'param':
+                msg['value'] = guide_site['value']
 
 
 class block(Messenger):

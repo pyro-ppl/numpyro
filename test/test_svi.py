@@ -1,9 +1,7 @@
-import functools
-
+from jax.experimental import optimizers
 from numpy.testing import assert_allclose
 
 from jax import random
-from jax.experimental import optimizers
 import jax.numpy as np
 
 import numpyro.distributions as dist
@@ -27,7 +25,8 @@ def test_beta_bernoulli():
                        constraint=constraints.positive)
         sample("beta", dist.Beta(alpha_q, beta_q))
 
-    svi_init, svi_update, _ = svi(model, guide, elbo, functools.partial(optimizers.adam, 0.05))
+    opt_init, opt_update, get_opt_params = optimizers.adam(0.05)
+    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
     rng_init, rng_train = random.split(random.PRNGKey(1))
     opt_state, get_params = svi_init(rng_init, model_args=(data,))
 
@@ -55,7 +54,8 @@ def test_dynamic_constraints():
         alpha = param('alpha', 0.5, constraint=constraints.unit_interval)
         param('loc', 0, constraint=constraints.interval(0, alpha))
 
-    svi_init, svi_update, _ = svi(model, guide, elbo, functools.partial(optimizers.adam, 0.05))
+    opt_init, opt_update, opt_get_state = optimizers.adam(0.05)
+    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, opt_get_state)
     rng_init, rng_train = random.split(random.PRNGKey(1))
     opt_state, get_params = svi_init(rng_init, model_args=(data,))
 

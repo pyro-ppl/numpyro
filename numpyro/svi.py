@@ -16,7 +16,7 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-def svi(model, guide, loss, optim, **kwargs):
+def svi(model, guide, loss, optim_init, optim_update, optim_params, **kwargs):
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -27,13 +27,13 @@ def svi(model, guide, loss, optim, **kwargs):
     :param optim_init: initialization function returned by a JAX optimizer.
         see: :mod:`jax.experimental.optimizers`.
     :param optim_update: update function for the optimizer
-    :param get_params: function to get current parameters values given the
+    :param optim_params: function to get current parameters values given the
         optimizer state.
     :param `**kwargs`: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
-    constrain_fn, opt_update, get_opt_params = None, None, None
+    constrain_fn = None
 
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         """
@@ -74,14 +74,13 @@ def svi(model, guide, loss, optim, **kwargs):
                     inv_transforms[site['name']] = transform
                     params[site['name']] = site['value']
 
-        nonlocal constrain_fn, opt_update, get_opt_params
-        opt_init, opt_update, get_opt_params = optim()
+        nonlocal constrain_fn
         constrain_fn = jax.partial(transform_fn, inv_transforms)
-        return opt_init(params), get_params
+        return optim_init(params), get_params
 
     def get_params(opt_state, rng=None, model_args=(), guide_args=()):
         nonlocal constrain_fn
-        params = constrain_fn(get_opt_params(opt_state))
+        params = constrain_fn(optim_params(opt_state))
         if guide_args:
             model_, guide_ = _seed(model, guide, rng)
             guide_ = substitute(guide_, base_param_map=params)
@@ -113,10 +112,10 @@ def svi(model, guide, loss, optim, **kwargs):
         """
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
-        params = get_opt_params(opt_state)
+        params = optim_params(opt_state)
         loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args,
                                                guide_args, kwargs, constrain_fn=constrain_fn)
-        opt_state = opt_update(i, grads, opt_state)
+        opt_state = optim_update(i, grads, opt_state)
         return loss_val, opt_state, rng
 
     def evaluate(rng, opt_state, model_args=(), guide_args=()):
@@ -133,7 +132,7 @@ def svi(model, guide, loss, optim, **kwargs):
             (held within `opt_state`).
         """
         model_init, guide_init = _seed(model, guide, rng)
-        params = get_opt_params(opt_state)
+        params = optim_params(opt_state)
         return loss(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
 
     # Make local functions visible from the global scope once
@@ -144,27 +143,6 @@ def svi(model, guide, loss, optim, **kwargs):
         svi.evaluate = evaluate
 
     return init_fn, update_fn, evaluate
-
-
-# # TODO: move this function to svi, rename it to get_params
-# def get_param(opt_state, model, guide, get_params, constrain_fn, rng,
-#               model_args=None, guide_args=None, **kwargs):
-#     params = constrain_fn(get_params(opt_state))
-#     model, guide = _seed(model, guide, rng)
-#     if guide_args is not None:
-#         guide = substitute(guide, base_param_map=params)
-#         guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
-#         model_params = {k: v for k, v in params.items() if k not in guide_trace}
-#         params = {k: guide_trace[k]['value'] if k in guide_trace else v
-#                   for k, v in params.items()}
-#
-#         if model_args is not None:
-#             model = substitute(replay(model, guide_trace), base_param_map=model_params)
-#             model_trace = trace(model).get_trace(*model_args, **kwargs)
-#             params = {k: model_trace[k]['value'] if k in model_params else v
-#                       for k, v in params.items()}
-#
-#     return params
 
 
 def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
