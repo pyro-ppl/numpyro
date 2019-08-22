@@ -16,7 +16,7 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-def svi(model, guide, loss, optim_init, optim_update, optim_params, **kwargs):
+def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs):
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -27,7 +27,7 @@ def svi(model, guide, loss, optim_init, optim_update, optim_params, **kwargs):
     :param optim_init: initialization function returned by a JAX optimizer.
         see: :mod:`jax.experimental.optimizers`.
     :param optim_update: update function for the optimizer
-    :param optim_params: function to get current parameters values given the
+    :param get_optim_params: function to get current parameters values given the
         optimizer state.
     :param `**kwargs`: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
@@ -80,7 +80,7 @@ def svi(model, guide, loss, optim_init, optim_update, optim_params, **kwargs):
 
     def get_params(opt_state, rng=None, model_args=(), guide_args=()):
         nonlocal constrain_fn
-        params = constrain_fn(optim_params(opt_state))
+        params = constrain_fn(get_optim_params(opt_state))
         if guide_args:
             model_, guide_ = _seed(model, guide, rng)
             guide_ = substitute(guide_, base_param_map=params)
@@ -112,7 +112,7 @@ def svi(model, guide, loss, optim_init, optim_update, optim_params, **kwargs):
         """
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
-        params = optim_params(opt_state)
+        params = get_optim_params(opt_state)
         loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args,
                                                guide_args, kwargs, constrain_fn=constrain_fn)
         opt_state = optim_update(i, grads, opt_state)
@@ -132,7 +132,7 @@ def svi(model, guide, loss, optim_init, optim_update, optim_params, **kwargs):
             (held within `opt_state`).
         """
         model_init, guide_init = _seed(model, guide, rng)
-        params = optim_params(opt_state)
+        params = get_optim_params(opt_state)
         return loss(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
 
     # Make local functions visible from the global scope once
