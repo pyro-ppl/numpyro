@@ -30,11 +30,11 @@ from numpyro.hmc_util import (
 )
 from numpyro.infer_util import (
     constrain_fn,
+    init_to_feasible,
+    init_to_median,
     init_to_prior,
     init_to_uniform,
-    init_to_median,
-    init_to_feasible,
-    transform_fn,
+    transform_fn
 )
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 

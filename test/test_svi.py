@@ -1,7 +1,7 @@
-from jax.experimental import optimizers
 from numpy.testing import assert_allclose
 
 from jax import random
+from jax.experimental import optimizers
 import jax.numpy as np
 
 import numpyro.distributions as dist

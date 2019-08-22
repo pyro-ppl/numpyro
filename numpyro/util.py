@@ -7,7 +7,7 @@ import tqdm
 
 from jax import jit, lax, ops, vmap
 import jax.numpy as np
-from jax.tree_util import tree_flatten, tree_unflatten, tree_map
+from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False

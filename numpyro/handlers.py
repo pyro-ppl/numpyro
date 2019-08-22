@@ -81,7 +81,7 @@ from collections import OrderedDict
 
 from jax import random
 
-from numpyro.distributions.constraints import biject_to, real, ComposeTransform
+from numpyro.distributions.constraints import ComposeTransform, biject_to, real
 
 _PYRO_STACK = []
 
@@ -197,9 +197,9 @@ class replay(Messenger):
         if msg['name'] in self.guide_trace:
             guide_site = self.guide_trace[msg['name']]
             if msg['type'] == 'sample':
-                    value, intermediates = guide_site['value'], guide_site['intermediates']
-                    base_value = intermediates[0][0] if intermediates else value
-                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(base_value)
+                value, intermediates = guide_site['value'], guide_site['intermediates']
+                base_value = intermediates[0][0] if intermediates else value
+                msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(base_value)
             elif msg['type'] == 'param':
                 msg['value'] = guide_site['value']
 
