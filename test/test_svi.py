@@ -1,3 +1,5 @@
+import functools
+
 from numpy.testing import assert_allclose
 
 from jax import random
@@ -7,7 +9,7 @@ import jax.numpy as np
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.handlers import param, sample
-from numpyro.svi import elbo, get_param, svi
+from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
 
 
@@ -25,10 +27,9 @@ def test_beta_bernoulli():
                        constraint=constraints.positive)
         sample("beta", dist.Beta(alpha_q, beta_q))
 
-    opt_init, opt_update, get_params = optimizers.adam(0.05)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    svi_init, svi_update, _ = svi(model, guide, elbo, functools.partial(optimizers.adam, 0.05))
     rng_init, rng_train = random.split(random.PRNGKey(1))
-    opt_state, constrain_fn = svi_init(rng_init, model_args=(data,))
+    opt_state, get_params = svi_init(rng_init, model_args=(data,))
 
     def body_fn(i, val):
         opt_state_, rng_ = val
@@ -37,7 +38,7 @@ def test_beta_bernoulli():
 
     opt_state, _ = fori_loop(0, 300, body_fn, (opt_state, rng_train))
 
-    params = constrain_fn(get_params(opt_state))
+    params = get_params(opt_state)
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
 
@@ -54,10 +55,9 @@ def test_dynamic_constraints():
         alpha = param('alpha', 0.5, constraint=constraints.unit_interval)
         param('loc', 0, constraint=constraints.interval(0, alpha))
 
-    opt_init, opt_update, get_params = optimizers.adam(0.05)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    svi_init, svi_update, _ = svi(model, guide, elbo, functools.partial(optimizers.adam, 0.05))
     rng_init, rng_train = random.split(random.PRNGKey(1))
-    opt_state, constrain_fn = svi_init(rng_init, model_args=(data,))
+    opt_state, get_params = svi_init(rng_init, model_args=(data,))
 
     def body_fn(i, val):
         opt_state_, rng_ = val
@@ -65,6 +65,5 @@ def test_dynamic_constraints():
         return opt_state_, rng_
 
     opt_state, rng = fori_loop(0, 300, body_fn, (opt_state, rng_train))
-    params = get_param(opt_state, model, guide, get_params, constrain_fn, rng,
-                       guide_args=())
+    params = get_params(opt_state, rng, guide_args=())
     assert_allclose(params['loc'], true_coef, atol=0.05)

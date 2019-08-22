@@ -3,7 +3,6 @@ import os
 import jax
 from jax import random, value_and_grad
 
-from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to, ComposeTransform
 from numpyro.handlers import replay, seed, substitute, trace
@@ -17,7 +16,7 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
+def svi(model, guide, loss, optim, **kwargs):
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -34,9 +33,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
-    constrain_fn = None
-    # NB: only skip transforms for AutoContinuous guide
-    loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss
+    constrain_fn, opt_update, get_opt_params = None, None, None
 
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         """
@@ -77,9 +74,29 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
                     inv_transforms[site['name']] = transform
                     params[site['name']] = site['value']
 
-        nonlocal constrain_fn
+        nonlocal constrain_fn, opt_update, get_opt_params
+        opt_init, opt_update, get_opt_params = optim()
         constrain_fn = jax.partial(transform_fn, inv_transforms)
-        return optim_init(params), constrain_fn
+        return opt_init(params), get_params
+
+    def get_params(opt_state, rng=None, model_args=(), guide_args=()):
+        nonlocal constrain_fn
+        params = constrain_fn(get_opt_params(opt_state))
+        if guide_args:
+            model_, guide_ = _seed(model, guide, rng)
+            guide_ = substitute(guide_, base_param_map=params)
+            guide_trace = trace(guide_).get_trace(*guide_args, **kwargs)
+            model_params = {k: v for k, v in params.items() if k not in guide_trace}
+            params = {k: guide_trace[k]['value'] if k in guide_trace else v
+                      for k, v in params.items()}
+
+            if model_args:
+                model_ = substitute(replay(model_, guide_trace), base_param_map=model_params)
+                model_trace = trace(model_).get_trace(*model_args, **kwargs)
+                params = {k: model_trace[k]['value'] if k in model_params else v
+                          for k, v in params.items()}
+
+        return params
 
     def update_fn(i, rng, opt_state, model_args=(), guide_args=()):
         """
@@ -96,10 +113,10 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
         """
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
-        params = get_params(opt_state)
-        loss_val, grads = value_and_grad(loss_fn)(params, model_init, guide_init, model_args,
-                                                  guide_args, kwargs, constrain_fn=constrain_fn)
-        opt_state = optim_update(i, grads, opt_state)
+        params = get_opt_params(opt_state)
+        loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args,
+                                               guide_args, kwargs, constrain_fn=constrain_fn)
+        opt_state = opt_update(i, grads, opt_state)
         return loss_val, opt_state, rng
 
     def evaluate(rng, opt_state, model_args=(), guide_args=()):
@@ -116,8 +133,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
             (held within `opt_state`).
         """
         model_init, guide_init = _seed(model, guide, rng)
-        params = get_params(opt_state)
-        return loss_fn(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
+        params = get_opt_params(opt_state)
+        return loss(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
@@ -129,29 +146,28 @@ def svi(model, guide, loss, optim_init, optim_update, get_params, **kwargs):
     return init_fn, update_fn, evaluate
 
 
-# TODO: move this function to svi, rename it to get_params
-def get_param(opt_state, model, guide, get_params, constrain_fn, rng,
-              model_args=None, guide_args=None, **kwargs):
-    params = constrain_fn(get_params(opt_state))
-    model, guide = _seed(model, guide, rng)
-    if guide_args is not None:
-        guide = substitute(guide, base_param_map=params)
-        guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
-        model_params = {k: v for k, v in params.items() if k not in guide_trace}
-        params = {k: guide_trace[k]['value'] if k in guide_trace else v
-                  for k, v in params.items()}
+# # TODO: move this function to svi, rename it to get_params
+# def get_param(opt_state, model, guide, get_params, constrain_fn, rng,
+#               model_args=None, guide_args=None, **kwargs):
+#     params = constrain_fn(get_params(opt_state))
+#     model, guide = _seed(model, guide, rng)
+#     if guide_args is not None:
+#         guide = substitute(guide, base_param_map=params)
+#         guide_trace = trace(guide).get_trace(*guide_args, **kwargs)
+#         model_params = {k: v for k, v in params.items() if k not in guide_trace}
+#         params = {k: guide_trace[k]['value'] if k in guide_trace else v
+#                   for k, v in params.items()}
+#
+#         if model_args is not None:
+#             model = substitute(replay(model, guide_trace), base_param_map=model_params)
+#             model_trace = trace(model).get_trace(*model_args, **kwargs)
+#             params = {k: model_trace[k]['value'] if k in model_params else v
+#                       for k, v in params.items()}
+#
+#     return params
 
-        if model_args is not None:
-            model = substitute(replay(model, guide_trace), base_param_map=model_params)
-            model_trace = trace(model).get_trace(*model_args, **kwargs)
-            params = {k: model_trace[k]['value'] if k in model_params else v
-                      for k, v in params.items()}
 
-    return params
-
-
-def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn,
-         is_autoguide=False):
+def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
     fundamental objective in Variational Inference. This implementation has various
@@ -177,17 +193,9 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn,
     """
     param_map = constrain_fn(param_map)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
-    if is_autoguide:
-        # in autoguide, a site's value holds intermediate value
-        for name, site in guide_trace.items():
-            if site['type'] == 'sample':
-                param_map[name] = site['value']
-    else:
-        # NB: we only want to substitute params not available in guide_trace
-        param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
-        model = replay(model, guide_trace)
-    model_log_density, _ = log_density(model, model_args, kwargs, param_map,
-                                       skip_dist_transforms=is_autoguide)
+    param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
+    model = replay(model, guide_trace)
+    model_log_density, _ = log_density(model, model_args, kwargs, param_map)
     # log p(z) - log q(z)
     elbo = model_log_density - guide_log_density
     # Return (-elbo) since by convention we do gradient descent on a loss and
