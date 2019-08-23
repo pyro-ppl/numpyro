@@ -81,7 +81,7 @@ from collections import OrderedDict
 
 from jax import random
 
-from numpyro.distributions.constraints import biject_to, real, ComposeTransform
+from numpyro.distributions.constraints import ComposeTransform, biject_to, real
 
 _PYRO_STACK = []
 
@@ -195,7 +195,13 @@ class replay(Messenger):
 
     def process_message(self, msg):
         if msg['name'] in self.guide_trace:
-            msg['value'] = self.guide_trace[msg['name']]['value']
+            guide_site = self.guide_trace[msg['name']]
+            if msg['type'] == 'sample':
+                value, intermediates = guide_site['value'], guide_site['intermediates']
+                base_value = intermediates[0][0] if intermediates else value
+                msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(base_value)
+            elif msg['type'] == 'param':
+                msg['value'] = guide_site['value']
 
 
 class block(Messenger):
@@ -371,27 +377,18 @@ class substitute(Messenger):
         self.substitute_fn = substitute_fn
         self.param_map = param_map
         self.base_param_map = base_param_map
+        if sum((x is not None for x in (param_map, base_param_map, substitute_fn))) != 1:
+            raise ValueError('Only one of `param_map`, `base_param_map`, or `substitute_fn` '
+                             'should be provided.')
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
         if self.param_map is not None:
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
-        elif self.base_param_map is not None:
-            if msg['name'] in self.base_param_map:
-                if msg['type'] == 'sample':
-                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
-                        self.base_param_map[msg['name']])
-                else:
-                    base_value = self.base_param_map[msg['name']]
-                    constraint = msg['kwargs'].pop('constraint', real)
-                    transform = biject_to(constraint)
-                    if isinstance(transform, ComposeTransform):
-                        msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
-                    else:
-                        msg['value'] = self.base_param_map[msg['name']]
-        elif self.substitute_fn is not None:
-            base_value = self.substitute_fn(msg)
+        else:
+            base_value = self.substitute_fn(msg) if self.substitute_fn \
+                else self.base_param_map.get(msg['name'], None)
             if base_value is not None:
                 if msg['type'] == 'sample':
                     msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
@@ -400,12 +397,11 @@ class substitute(Messenger):
                     constraint = msg['kwargs'].pop('constraint', real)
                     transform = biject_to(constraint)
                     if isinstance(transform, ComposeTransform):
+                        # No need to apply the first transform since the base value
+                        # should have the same support as the first part's co-domain.
                         msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
                     else:
                         msg['value'] = base_value
-        else:
-            raise ValueError("Neither `param_map`, `base_param_map`, nor `substitute_fn`"
-                             "provided to substitute handler.")
 
 
 def apply_stack(msg):

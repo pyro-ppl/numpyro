@@ -63,8 +63,8 @@ def binarize(rng, batch):
 def main(args):
     encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
     decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
-    opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
-    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_params,
+    opt_init, opt_update, get_opt_params = optimizers.adam(args.learning_rate)
+    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params,
                                          encode=encode, decode=decode, z_dim=args.z_dim)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
@@ -75,7 +75,7 @@ def main(args):
     _, decoder_params = decoder_init(rng_dec, (args.batch_size, args.z_dim))
     params = {'encoder': encoder_params, 'decoder': decoder_params}
     sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
-    opt_state, constrain_fn = svi_init(rng_init, (sample_batch,), (sample_batch,), params)
+    opt_state, get_params = svi_init(rng_init, (sample_batch,), (sample_batch,), params)
 
     @jit
     def epoch_train(opt_state, rng):
