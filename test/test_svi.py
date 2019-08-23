@@ -54,10 +54,10 @@ def test_dynamic_constraints():
 
     def guide():
         alpha = param('alpha', 0.5, constraint=constraints.unit_interval)
-        param('loc', 0, constraint=constraints.interval(0, alpha))
+        param('loc', 0.1, constraint=constraints.interval(0, alpha))
 
-    opt_init, opt_update, opt_get_state = optimizers.adam(0.05)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, opt_get_state)
+    opt_init, opt_update, get_opt_params = optimizers.adam(0.05)
+    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
     rng_init, rng_train = random.split(random.PRNGKey(1))
     opt_state, get_params = svi_init(rng_init, model_args=(data,))
 

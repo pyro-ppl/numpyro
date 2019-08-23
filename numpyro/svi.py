@@ -35,6 +35,10 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
     constrain_fn = None
+    # NB: these will become properties of SVI classes
+    has_dynamic_constraints = False
+    _model_args = None
+    _guide_args = None
     # NB: only skip transforms for AutoContinuous guide
     loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss
 
@@ -53,6 +57,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
         """
+        nonlocal constrain_fn, has_dynamic_constraints, _model_args, _guide_args
+
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
         model_init, guide_init = _seed(model, guide, rng)
@@ -70,18 +76,37 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
                 constraint = site['kwargs'].pop('constraint', constraints.real)
                 transform = biject_to(constraint)
                 if isinstance(transform, ComposeTransform):
+                    has_dynamic_constraints = True
                     inv_transforms[site['name']] = transform.parts[0]
                 else:
                     inv_transforms[site['name']] = transform
                 params[site['name']] = transform.inv(site['value'])
 
-        nonlocal constrain_fn
         constrain_fn = jax.partial(transform_fn, inv_transforms)
         return optim_init(params), get_params
 
-    def get_params(opt_state, rng=None, model_args=(), guide_args=()):
+    def get_params(opt_state, rng=None, model_args=None, guide_args=None):
+        """
+        Gets values at `param` sites of the `model` and `guide`.
+
+        .. note: For `param` sites with dynamic constraints (e.g. the constraints depend on
+            `model_args` or `guide_args`), `model_args` and `guide_args` should be not `None`.
+
+        :param dict opt_state: current state of the optimizer.
+        :param jax.random.PRNGKey rng: a random generator to seed.
+        :param tuple model_args: arguments to the model.
+        :param tuple model_args: arguments to the guide.
+        :return: a dict of current values of parameters.
+        """
         params = constrain_fn(get_optim_params(opt_state))
-        if guide_args:
+
+        if has_dynamic_constraints:
+            if guide_args is None:
+                guide_args = _guide_args
+
+            if model_args is None:
+                model_args = _model_args
+
             model_, guide_ = _seed(model, guide, rng)
             guide_ = substitute(guide_, base_param_map=params)
             guide_trace = trace(guide_).get_trace(*guide_args, **kwargs)
@@ -89,11 +114,10 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
             params = {k: guide_trace[k]['value'] if k in guide_trace else v
                       for k, v in params.items()}
 
-            if model_args:
-                model_ = substitute(replay(model_, guide_trace), base_param_map=model_params)
-                model_trace = trace(model_).get_trace(*model_args, **kwargs)
-                params = {k: model_trace[k]['value'] if k in model_params else v
-                          for k, v in params.items()}
+            model_ = substitute(replay(model_, guide_trace), base_param_map=model_params)
+            model_trace = trace(model_).get_trace(*model_args, **kwargs)
+            params = {k: model_trace[k]['value'] if k in model_params else v
+                      for k, v in params.items()}
 
         return params
 
