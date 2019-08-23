@@ -173,8 +173,15 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn, 
     """
     param_map = constrain_fn(param_map)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
-    param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
-    model = replay(model, guide_trace)
+    if is_autoguide:
+        # in autoguide, a site's value holds intermediate value
+        for name, site in guide_trace.items():
+            if site['type'] == 'sample':
+                param_map[name] = site['value']
+    else:
+        # NB: we only want to substitute params not available in guide_trace
+        param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
+        model = replay(model, guide_trace)
     model_log_density, _ = log_density(model, model_args, kwargs, param_map,
                                        skip_dist_transforms=is_autoguide)
     # log p(z) - log q(z)
