@@ -82,7 +82,7 @@ def test_dynamic_supports():
         sample('x', x_guide)
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
-    # set base value of x_guide is 0.9
+    # set base value of x_guide is 10
     x_base = 10
     guide = substitute(guide, base_param_map={'x': x_base})
     svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
