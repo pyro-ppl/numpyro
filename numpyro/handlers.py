@@ -25,8 +25,9 @@ need to loop over all the data points.
    import jax.numpy as np
    from jax import random, vmap
    from jax.scipy.special import logsumexp
+   import numpyro
    import numpyro.distributions as dist
-   from numpyro.handlers import sample, seed, substitute, trace
+   from numpyro import handlers
    from numpyro.hmc_util import initialize_model
    from numpyro.mcmc import mcmc
 
@@ -34,10 +35,10 @@ need to loop over all the data points.
 
    >>> N, D = 3000, 3
    >>> def logistic_regression(data, labels):
-   ...     coefs = sample('coefs', dist.Normal(np.zeros(D), np.ones(D)))
-   ...     intercept = sample('intercept', dist.Normal(0., 10.))
+   ...     coefs = numpyro.sample('coefs', dist.Normal(np.zeros(D), np.ones(D)))
+   ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
    ...     logits = np.sum(coefs * data + intercept, axis=-1)
-   ...     return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+   ...     return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
    >>> data = random.normal(random.PRNGKey(0), (N, D))
    >>> true_coefs = np.arange(1., D + 1.)
@@ -60,8 +61,8 @@ need to loop over all the data points.
       intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
 
    >>> def log_likelihood(rng, params, model, *args, **kwargs):
-   ...     model = substitute(seed(model, rng), params)
-   ...     model_trace = trace(model).get_trace(*args, **kwargs)
+   ...     model = handlers.substitute(handlers.seed(model, rng), params)
+   ...     model_trace = handlers.trace(model).get_trace(*args, **kwargs)
    ...     obs_node = model_trace['obs']
    ...     return np.sum(obs_node['fn'].log_prob(obs_node['value']))
 
@@ -117,14 +118,15 @@ class trace(Messenger):
     .. testsetup::
 
        from jax import random
+       import numpyro
        import numpyro.distributions as dist
-       from numpyro.handlers import sample, seed, trace
+       from numpyro.handlers import seed, trace
        import pprint as pp
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
        >>> pp.pprint(exec_trace)  # doctest: +SKIP
@@ -172,13 +174,14 @@ class replay(Messenger):
     .. testsetup::
 
        from jax import random
+       import numpyro
        import numpyro.distributions as dist
-       from numpyro.handlers import replay, sample, seed, trace
+       from numpyro.handlers import replay, seed, trace
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
        >>> print(exec_trace['a']['value'])  # doctest: +SKIP
@@ -212,14 +215,15 @@ class block(Messenger):
     .. testsetup::
 
        from jax import random
-       from numpyro.handlers import block, sample, seed, trace
+       import numpyro
+       from numpyro.handlers import block, seed, trace
        import numpyro.distributions as dist
 
     .. doctest::
 
        >>> def model():
-       ...     a = sample('a', dist.Normal(0., 1.))
-       ...     return sample('b', dist.Normal(a, 1.))
+       ...     a = numpyro.sample('a', dist.Normal(0., 1.))
+       ...     return numpyro.sample('b', dist.Normal(a, 1.))
 
        >>> model = seed(model, random.PRNGKey(0))
        >>> block_all = block(model)
@@ -257,13 +261,14 @@ class condition(Messenger):
      .. testsetup::
 
        from jax import random
-       from numpyro.handlers import sample, seed, substitute, trace
+       import numpyro
+       from numpyro.handlers import seed, substitute, trace
        import numpyro.distributions as dist
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> model = seed(model, random.PRNGKey(0))
        >>> exec_trace = trace(condition(model, {'a': -1})).get_trace()
@@ -354,13 +359,14 @@ class substitute(Messenger):
      .. testsetup::
 
        from jax import random
-       from numpyro.handlers import sample, seed, substitute, trace
+       import numpyro
+       from numpyro.handlers import seed, substitute, trace
        import numpyro.distributions as dist
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> model = seed(model, random.PRNGKey(0))
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
