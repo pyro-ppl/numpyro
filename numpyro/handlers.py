@@ -195,7 +195,7 @@ class replay(Messenger):
 
     def process_message(self, msg):
         if msg['name'] in self.guide_trace:
-            msg['value'] = self.guide_trace[msg['name']]
+            msg['value'] = self.guide_trace[msg['name']]['value']
 
 
 class block(Messenger):
