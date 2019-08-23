@@ -6,9 +6,10 @@ from jax import random, vmap
 from jax.config import config as jax_config
 import jax.numpy as np
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import UCBADMIT, load_dataset
-from numpyro.handlers import sample, seed, substitute, trace
+from numpyro import handlers
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
@@ -52,18 +53,18 @@ found in Chapter 10 (Counting and Classification) and Chapter 13 (Adventures in 
 
 
 def glmm(dept, male, applications, admit):
-    v_mu = sample('v_mu', dist.Normal(0, np.array([4., 1.])))
+    v_mu = numpyro.sample('v_mu', dist.Normal(0, np.array([4., 1.])))
 
-    sigma = sample('sigma', dist.HalfNormal(np.ones(2)))
-    L_Rho = sample('L_Rho', dist.LKJCholesky(2))
+    sigma = numpyro.sample('sigma', dist.HalfNormal(np.ones(2)))
+    L_Rho = numpyro.sample('L_Rho', dist.LKJCholesky(2))
     scale_tril = sigma[..., np.newaxis] * L_Rho
     # non-centered parameterization
     num_dept = len(onp.unique(dept))
-    z = sample('z', dist.Normal(np.zeros((num_dept, 2)), 1))
+    z = numpyro.sample('z', dist.Normal(np.zeros((num_dept, 2)), 1))
     v = np.dot(scale_tril, z.T).T
 
     logits = v_mu[0] + v[dept, 0] + (v_mu[1] + v[dept, 1]) * male
-    sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
+    numpyro.sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
 
 
 def run_inference(dept, male, applications, admit, rng, args):
@@ -77,8 +78,8 @@ def run_inference(dept, male, applications, admit, rng, args):
 
 
 def predict(dept, male, applications, z, rng):
-    model = substitute(seed(glmm, rng), z)
-    model_trace = trace(model).get_trace(dept, male, applications, admit=None)
+    model = handlers.substitute(handlers.seed(glmm, rng), z)
+    model_trace = handlers.trace(model).get_trace(dept, male, applications, admit=None)
     return model_trace['admit']['fn'].probs
 
 

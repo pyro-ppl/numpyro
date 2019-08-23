@@ -8,11 +8,11 @@ import jax.numpy as np
 from jax import random
 from jax.config import config as jax_config
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import AffineTransform
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
-from numpyro.handlers import sample
 
 sns.set(context='talk')
 
@@ -39,13 +39,13 @@ the random variable as a transformed distribution.
 
 
 def model(dim=10):
-    y = sample('y', dist.Normal(0, 3))
-    sample('x', dist.Normal(np.zeros(dim - 1), np.exp(y / 2)))
+    y = numpyro.sample('y', dist.Normal(0, 3))
+    numpyro.sample('x', dist.Normal(np.zeros(dim - 1), np.exp(y / 2)))
 
 
 def reparam_model(dim=10):
-    y = sample('y', dist.Normal(0, 3))
-    sample('x', dist.TransformedDistribution(
+    y = numpyro.sample('y', dist.Normal(0, 3))
+    numpyro.sample('x', dist.TransformedDistribution(
         dist.Normal(np.zeros(dim - 1), 1), AffineTransform(0, np.exp(y / 2))))
 
 

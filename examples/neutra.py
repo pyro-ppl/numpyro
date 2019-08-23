@@ -11,11 +11,11 @@ from jax.experimental import optimizers
 import jax.numpy as np
 from jax.tree_util import tree_map
 
+import numpyro
 from numpyro.contrib.autoguide import AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.distributions.util import logsumexp
-from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 from numpyro.svi import elbo, svi
@@ -40,9 +40,9 @@ def dual_moon_pe(x):
 
 
 def dual_moon_model():
-    x = sample('x', dist.Uniform(-4 * np.ones(2), 4 * np.ones(2)))
+    x = numpyro.sample('x', dist.Uniform(-4 * np.ones(2), 4 * np.ones(2)))
     pe = dual_moon_pe(x)
-    sample('log_density', dist.Delta(log_density=-pe), obs=0.)
+    numpyro.sample('log_density', dist.Delta(log_density=-pe), obs=0.)
 
 
 def make_transformed_pe(potential_fn, transform, unpack_fn):

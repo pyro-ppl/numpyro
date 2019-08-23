@@ -6,10 +6,11 @@ from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.util import logsumexp
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.handlers import sample, seed, substitute, trace
+from numpyro import handlers
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
@@ -73,8 +74,8 @@ def fully_pooled(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     phi_prior = dist.Uniform(np.array([0.]), np.array([1.]))
-    phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    phi = numpyro.sample("phi", phi_prior)
+    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def not_pooled(at_bats, hits=None):
@@ -89,8 +90,8 @@ def not_pooled(at_bats, hits=None):
     num_players = at_bats.shape[0]
     phi_prior = dist.Uniform(np.zeros((num_players,)),
                              np.ones((num_players,)))
-    phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    phi = numpyro.sample("phi", phi_prior)
+    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def partially_pooled(at_bats, hits=None):
@@ -106,13 +107,13 @@ def partially_pooled(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     num_players = at_bats.shape[0]
-    m = sample("m", dist.Uniform(np.array([0.]), np.array([1.])))
-    kappa = sample("kappa", dist.Pareto(np.array([1.5])))
+    m = numpyro.sample("m", dist.Uniform(np.array([0.]), np.array([1.])))
+    kappa = numpyro.sample("kappa", dist.Pareto(np.array([1.5])))
     shape = np.shape(kappa)[:np.ndim(kappa) - 1] + (num_players,)
     phi_prior = dist.Beta(np.broadcast_to(m * kappa, shape),
                           np.broadcast_to((1 - m) * kappa, shape))
-    phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    phi = numpyro.sample("phi", phi_prior)
+    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def partially_pooled_with_logit(at_bats, hits=None):
@@ -126,12 +127,12 @@ def partially_pooled_with_logit(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     num_players = at_bats.shape[0]
-    loc = sample("loc", dist.Normal(np.array([-1.]), np.array([1.])))
-    scale = sample("scale", dist.HalfCauchy(np.array([1.])))
+    loc = numpyro.sample("loc", dist.Normal(np.array([-1.]), np.array([1.])))
+    scale = numpyro.sample("scale", dist.HalfCauchy(np.array([1.])))
     shape = np.shape(loc)[:np.ndim(loc) - 1] + (num_players,)
-    alpha = sample("alpha", dist.Normal(np.broadcast_to(loc, shape),
-                                        np.broadcast_to(scale, shape)))
-    return sample("obs", dist.Binomial(at_bats, logits=alpha), obs=hits)
+    alpha = numpyro.sample("alpha", dist.Normal(np.broadcast_to(loc, shape),
+                                                np.broadcast_to(scale, shape)))
+    return numpyro.sample("obs", dist.Binomial(at_bats, logits=alpha), obs=hits)
 
 
 def run_inference(model, at_bats, hits, rng, args):
@@ -147,8 +148,8 @@ def run_inference(model, at_bats, hits, rng, args):
 # and computing posterior log density
 def predict(model, at_bats, hits, z, rng, player_names, train=True):
     header = model.__name__ + (' - TRAIN' if train else ' - TEST')
-    model = substitute(seed(model, rng), z)
-    model_trace = trace(model).get_trace(at_bats)
+    model = handlers.substitute(handlers.seed(model, rng), z)
+    model_trace = handlers.trace(model).get_trace(at_bats)
     predictions = model_trace['obs']['value']
     print_results('=' * 30 + header + '=' * 30,
                   predictions,
@@ -156,8 +157,8 @@ def predict(model, at_bats, hits, z, rng, player_names, train=True):
                   at_bats,
                   hits)
     if not train:
-        model = substitute(model, z)
-        model_trace = trace(model).get_trace(at_bats, hits)
+        model = handlers.substitute(model, z)
+        model_trace = handlers.trace(model).get_trace(at_bats, hits)
         log_joint = 0.
         for site in model_trace.values():
             site_log_prob = site['fn'].log_prob(site['value'])
