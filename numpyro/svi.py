@@ -70,12 +70,10 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
                 constraint = site['kwargs'].pop('constraint', constraints.real)
                 transform = biject_to(constraint)
                 if isinstance(transform, ComposeTransform):
-                    base_transform = transform.parts[0]
-                    inv_transforms[site['name']] = base_transform
-                    params[site['name']] = base_transform(transform.inv(site['value']))
+                    inv_transforms[site['name']] = transform.parts[0]
                 else:
                     inv_transforms[site['name']] = transform
-                    params[site['name']] = site['value']
+                params[site['name']] = transform.inv(site['value'])
 
         nonlocal constrain_fn
         constrain_fn = jax.partial(transform_fn, inv_transforms)

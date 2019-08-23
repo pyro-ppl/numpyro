@@ -389,8 +389,8 @@ def promote_shapes(*args, shape=()):
                 if len(s) < num_dims else arg for arg, s in zip(args, shapes)]
 
 
-def get_dtypes(*args):
-    return [canonicalize_dtype(lax.dtype(arg)) for arg in args]
+def get_dtype(x):
+    return canonicalize_dtype(lax.dtype(x))
 
 
 def sum_rightmost(x, dim):
@@ -490,5 +490,5 @@ class lazy_property(object):
 
 
 def clamp_probs(probs):
-    finfo = np.finfo(get_dtypes(probs)[0])
+    finfo = np.finfo(get_dtype(probs))
     return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)

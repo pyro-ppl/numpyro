@@ -30,6 +30,7 @@ def test_beta_bernoulli():
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
     rng_init, rng_train = random.split(random.PRNGKey(1))
     opt_state, get_params = svi_init(rng_init, model_args=(data,))
+    assert_allclose(get_opt_params(opt_state)['alpha_q'], 0.)
 
     def body_fn(i, val):
         opt_state_, rng_ = val
@@ -70,7 +71,7 @@ def test_dynamic_constraints():
     assert_allclose(params['loc'], true_coef, atol=0.05)
 
 
-def test_dynamic_supports():
+def test_elbo_dynamic_support():
     x_prior = dist.TransformedDistribution(
         dist.Normal(), [AffineTransform(0, 2), SigmoidTransform(), AffineTransform(0, 3)])
     x_guide = dist.Uniform(0, 3)
@@ -82,12 +83,13 @@ def test_dynamic_supports():
         sample('x', x_guide)
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
-    # set base value of x_guide is 10
-    x_base = 10
+    # set base value of x_guide is 0.9
+    x_base = 0.9
     guide = substitute(guide, base_param_map={'x': x_base})
     svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
     actual_loss = svi_eval(random.PRNGKey(1), opt_state)
+    assert np.isfinite(actual_loss)
     x, _ = x_guide.transform_with_intermediates(x_base)
     expected_loss = x_guide.log_prob(x) - x_prior.log_prob(x)
     assert_allclose(actual_loss, expected_loss)

@@ -31,6 +31,7 @@ from jax.scipy.special import expit, logit
 from numpyro.distributions.util import (
     cumprod,
     cumsum,
+    get_dtype,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
@@ -172,7 +173,8 @@ unit_interval = _Interval(0., 1.)
 ##########################################################
 
 def _clipped_expit(x):
-    return np.clip(expit(x), a_min=np.finfo(x.dtype).tiny, a_max=1.-np.finfo(x.dtype).eps)
+    dtype = get_dtype(x)
+    return np.clip(expit(x), a_min=np.finfo(dtype).tiny, a_max=1.-np.finfo(dtype).eps)
 
 
 class Transform(object):

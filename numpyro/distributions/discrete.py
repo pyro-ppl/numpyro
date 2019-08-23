@@ -36,7 +36,7 @@ from numpyro.distributions.util import (
     binomial,
     categorical,
     clamp_probs,
-    get_dtypes,
+    get_dtype,
     lazy_property,
     logsumexp,
     multinomial,
@@ -64,7 +64,7 @@ def _to_probs_multinom(logits):
 
 
 def _to_logits_multinom(probs):
-    minval = np.finfo(get_dtypes(probs)[0]).min
+    minval = np.finfo(get_dtype(probs)).min
     return np.clip(np.log(probs), a_min=minval)
 
 
