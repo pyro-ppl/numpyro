@@ -3,6 +3,7 @@ import os
 import jax
 from jax import random, value_and_grad
 
+from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import ComposeTransform, biject_to
 from numpyro.handlers import replay, seed, substitute, trace
@@ -34,6 +35,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
     constrain_fn = None
+    # NB: only skip transforms for AutoContinuous guide
+    loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss
 
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         """
@@ -79,7 +82,6 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
         return optim_init(params), get_params
 
     def get_params(opt_state, rng=None, model_args=(), guide_args=()):
-        nonlocal constrain_fn
         params = constrain_fn(get_optim_params(opt_state))
         if guide_args:
             model_, guide_ = _seed(model, guide, rng)
@@ -113,8 +115,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
         params = get_optim_params(opt_state)
-        loss_val, grads = value_and_grad(loss)(params, model_init, guide_init, model_args,
-                                               guide_args, kwargs, constrain_fn=constrain_fn)
+        loss_val, grads = value_and_grad(loss_fn)(params, model_init, guide_init, model_args,
+                                                  guide_args, kwargs, constrain_fn=constrain_fn)
         opt_state = optim_update(i, grads, opt_state)
         return loss_val, opt_state, rng
 
@@ -133,7 +135,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
         """
         model_init, guide_init = _seed(model, guide, rng)
         params = get_optim_params(opt_state)
-        return loss(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
+        return loss_fn(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
@@ -145,7 +147,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
     return init_fn, update_fn, evaluate
 
 
-def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
+def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn, is_autoguide=False):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
     fundamental objective in Variational Inference. This implementation has various
@@ -173,7 +175,8 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn):
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
     param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
     model = replay(model, guide_trace)
-    model_log_density, _ = log_density(model, model_args, kwargs, param_map)
+    model_log_density, _ = log_density(model, model_args, kwargs, param_map,
+                                       skip_dist_transforms=is_autoguide)
     # log p(z) - log q(z)
     elbo = model_log_density - guide_log_density
     # Return (-elbo) since by convention we do gradient descent on a loss and

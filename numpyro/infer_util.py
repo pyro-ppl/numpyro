@@ -9,7 +9,7 @@ from numpyro.handlers import block, sample, seed, substitute, trace
 from numpyro.util import while_loop
 
 
-def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=True):
+def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
     """
     Computes log of joint density for the model given latent values ``params``.
 
@@ -99,7 +99,8 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     :return: a callable that computes potential energy given unconstrained parameters.
     """
     params_constrained = transform_fn(inv_transforms, params)
-    log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained)
+    log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
+                                         skip_dist_transforms=True)
     for name, t in inv_transforms.items():
         t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
         if 'scale' in model_trace[name]:
