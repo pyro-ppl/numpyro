@@ -199,6 +199,7 @@ class AutoContinuous(AutoGuide):
             unpacked_samples = self.unpack_latent(latent)
             if self._has_transformed_dist:
                 base_param_map = {**params, **unpacked_samples}
+                # TODO: reconsider this logic
                 return constrain_fn(self.model, model_args, model_kwargs,
                                     self._inv_transforms, base_param_map)
             else:
@@ -210,6 +211,7 @@ class AutoContinuous(AutoGuide):
         return unpacked_samples
 
     def get_transform(self, opt_state):
+        # TODO: reconsider this logic
         return substitute(self._get_transform, self.get_params(opt_state))()
 
     def sample_posterior(self, rng, opt_state, sample_shape=(), base_dist=None,
@@ -217,6 +219,7 @@ class AutoContinuous(AutoGuide):
         if base_dist is None:
             base_dist = _Normal(np.zeros(self.latent_size), 1.)
         params = self.get_params(opt_state)
+        # TODO: reconsider this logic
         latent_sample = substitute(seed(self._sample_latent, rng), params)(
             base_dist, sample_shape=sample_shape)
         return self._unpack_and_transform(latent_sample, params,
@@ -259,6 +262,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         params = self.get_params(opt_state)
+        # TODO: reconsider this logic
         loc, _ = substitute(self._loc_scale, params)()
         return self._unpack_and_transform(loc, params, model_args=model_args, model_kwargs=model_kwargs)
 
@@ -275,6 +279,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         params = self.get_params(opt_state)
+        # TODO: reconsider this logic
         loc, scale = substitute(self._loc_scale, params)()
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(loc, scale).icdf(quantiles)
