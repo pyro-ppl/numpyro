@@ -1,9 +1,3 @@
-Pyro Primitives
----------------
-
-.. autofunction:: numpyro.handlers.param
-.. autofunction:: numpyro.handlers.sample
-
 Effect Handlers
 ---------------
 

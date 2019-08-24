@@ -11,8 +11,8 @@ from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
+import numpyro
 import numpyro.distributions as dist
-from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
@@ -35,16 +35,16 @@ def kernel(X, Z, var, length, noise, jitter=1.0e-6, include_noise=True):
 
 def model(X, Y):
     # set uninformative log-normal priors on our three kernel hyperparameters
-    var = sample("kernel_var", dist.LogNormal(0.0, 10.0))
-    noise = sample("kernel_noise", dist.LogNormal(0.0, 10.0))
-    length = sample("kernel_length", dist.LogNormal(0.0, 10.0))
+    var = numpyro.sample("kernel_var", dist.LogNormal(0.0, 10.0))
+    noise = numpyro.sample("kernel_noise", dist.LogNormal(0.0, 10.0))
+    length = numpyro.sample("kernel_length", dist.LogNormal(0.0, 10.0))
 
     # compute kernel
     k = kernel(X, X, var, length, noise)
 
     # sample Y according to the standard gaussian process formula
-    sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
-           obs=Y)
+    numpyro.sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
+                   obs=Y)
 
 
 # helper function for doing hmc inference

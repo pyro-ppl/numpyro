@@ -7,13 +7,14 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.tree_util import tree_map
 
+import numpyro
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AffineTransform, ComposeTransform, PermuteTransform, biject_to
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import sum_rightmost
-from numpyro.handlers import block, param, sample, seed, substitute, trace
+from numpyro import handlers
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
 
 __all__ = [
@@ -84,7 +85,7 @@ class AutoGuide(ABC):
 
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
-        self.prototype_trace = block(trace(self.model).get_trace)(*args, **kwargs)
+        self.prototype_trace = handlers.block(handlers.trace(self.model).get_trace)(*args, **kwargs)
         self._args = args
         self._kwargs = kwargs
 
@@ -112,15 +113,15 @@ class AutoContinuous(AutoGuide):
     def __init__(self, rng, model, get_params_fn, prefix="auto", init_strategy=init_to_median):
         self.init_strategy = init_strategy
         rng, self._init_rng = random.split(rng)
-        model = seed(model, rng)
+        model = handlers.seed(model, rng)
         super(AutoContinuous, self).__init__(model, get_params_fn, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
         # FIXME: without block statement, get AssertionError: all sites must have unique names
-        init_params, is_valid = block(find_valid_initial_params)(self._init_rng, self.model, *args,
-                                                                 init_strategy=self.init_strategy,
-                                                                 **kwargs)
+        init_params, is_valid = handlers.block(find_valid_initial_params)(self._init_rng, self.model, *args,
+                                                                          init_strategy=self.init_strategy,
+                                                                          **kwargs)
         self._inv_transforms = {}
         self._has_transformed_dist = False
         unconstrained_sites = {}
@@ -150,7 +151,7 @@ class AutoContinuous(AutoGuide):
         sample_shape = kwargs.pop('sample_shape', ())
         transform = self._get_transform()
         posterior = dist.TransformedDistribution(base_dist, transform)
-        return sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
+        return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
 
     def __call__(self, *args, **kwargs):
         """
@@ -163,7 +164,7 @@ class AutoContinuous(AutoGuide):
         if self.prototype_trace is None:
             # run model to inspect the model structure
             params = self.setup(*args, **kwargs)
-            sample_latent_fn = substitute(sample_latent_fn, params)
+            sample_latent_fn = handlers.substitute(sample_latent_fn, params)
 
         base_dist = kwargs.pop('base_dist', None)
         if base_dist is None:
@@ -185,7 +186,7 @@ class AutoContinuous(AutoGuide):
             log_density = sum_rightmost(log_density,
                                         np.ndim(log_density) - np.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_ndim=event_ndim)
-            result[name] = sample(name, delta_dist)
+            result[name] = numpyro.sample(name, delta_dist)
 
         return result
 
@@ -210,14 +211,14 @@ class AutoContinuous(AutoGuide):
         return unpacked_samples
 
     def get_transform(self, opt_state):
-        return substitute(self._get_transform, self.get_params(opt_state))()
+        return handlers.substitute(self._get_transform, self.get_params(opt_state))()
 
     def sample_posterior(self, rng, opt_state, sample_shape=(), base_dist=None,
                          model_args=None, model_kwargs=None):
         if base_dist is None:
             base_dist = _Normal(np.zeros(self.latent_size), 1.)
         params = self.get_params(opt_state)
-        latent_sample = substitute(seed(self._sample_latent, rng), params)(
+        latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng), params)(
             base_dist, sample_shape=sample_shape)
         return self._unpack_and_transform(latent_sample, params,
                                           model_args=model_args, model_kwargs=model_kwargs)
@@ -239,8 +240,8 @@ class AutoDiagonalNormal(AutoContinuous):
         return AffineTransform(loc, scale, domain=constraints.real_vector)
 
     def _loc_scale(self):
-        loc = param('{}_loc'.format(self.prefix), None)
-        scale = param('{}_scale'.format(self.prefix), None, constraint=constraints.positive)
+        loc = numpyro.param('{}_loc'.format(self.prefix), None)
+        scale = numpyro.param('{}_scale'.format(self.prefix), None, constraint=constraints.positive)
         return loc, scale
 
     def setup(self, *args, **kwargs):
@@ -259,7 +260,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         params = self.get_params(opt_state)
-        loc, _ = substitute(self._loc_scale, params)()
+        loc, _ = handlers.substitute(self._loc_scale, params)()
         return self._unpack_and_transform(loc, params, model_args=model_args, model_kwargs=model_kwargs)
 
     def quantiles(self, opt_state, quantiles, model_args=None, model_kwargs=None):
@@ -275,7 +276,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         params = self.get_params(opt_state)
-        loc, scale = substitute(self._loc_scale, params)()
+        loc, scale = handlers.substitute(self._loc_scale, params)()
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(loc, scale).icdf(quantiles)
         return self._unpack_and_transform(latent, params, model_args=model_args, model_kwargs=model_kwargs)
@@ -349,7 +350,7 @@ class AutoIAFNormal(AutoContinuous):
     def _get_transform(self):
         flows = []
         for i in range(self.num_flows):
-            arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
+            arn_params = numpyro.param('{}_arn__{}'.format(self.prefix, i), None)
             if i > 0:
                 flows.append(PermuteTransform(np.arange(self.latent_size)[::-1]))
             flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))

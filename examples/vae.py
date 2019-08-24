@@ -9,9 +9,9 @@ from jax.experimental import optimizers, stax
 import jax.numpy as np
 from jax.random import PRNGKey
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import MNIST, load_dataset
-from numpyro.handlers import param, sample
 from numpyro.svi import elbo, svi
 
 
@@ -38,20 +38,20 @@ def decoder(hidden_dim, out_dim):
 
 def model(batch, **kwargs):
     decode = kwargs['decode']
-    decoder_params = param('decoder', None)
+    decoder_params = numpyro.param('decoder', None)
     z_dim = kwargs['z_dim']
     batch = np.reshape(batch, (batch.shape[0], -1))
-    z = sample('z', dist.Normal(np.zeros((z_dim,)), np.ones((z_dim,))))
+    z = numpyro.sample('z', dist.Normal(np.zeros((z_dim,)), np.ones((z_dim,))))
     img_loc = decode(decoder_params, z)
-    return sample('obs', dist.Bernoulli(img_loc), obs=batch)
+    return numpyro.sample('obs', dist.Bernoulli(img_loc), obs=batch)
 
 
 def guide(batch, **kwargs):
     encode = kwargs['encode']
-    encoder_params = param('encoder', None)
+    encoder_params = numpyro.param('encoder', None)
     batch = np.reshape(batch, (batch.shape[0], -1))
     z_loc, z_std = encode(encoder_params, batch)
-    z = sample('z', dist.Normal(z_loc, z_std))
+    z = numpyro.sample('z', dist.Normal(z_loc, z_std))
     return z
 
 

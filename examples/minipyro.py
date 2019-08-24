@@ -5,23 +5,23 @@ from jax.experimental import optimizers
 import jax.numpy as np
 from jax.random import PRNGKey
 
+import numpyro
 import numpyro.distributions as dist
-from numpyro.handlers import param, sample
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
 
 
 def model(data):
-    loc = sample("loc", dist.Normal(0., 1.))
-    sample("obs", dist.Normal(loc, 1.), obs=data)
+    loc = numpyro.sample("loc", dist.Normal(0., 1.))
+    numpyro.sample("obs", dist.Normal(loc, 1.), obs=data)
 
 
 # Define a guide (i.e. variational distribution) with a Normal
 # distribution over the latent random variable `loc`.
 def guide():
-    guide_loc = param("guide_loc", 0.)
-    guide_scale = np.exp(param("guide_scale_log", 0.))
-    sample("loc", dist.Normal(guide_loc, guide_scale))
+    guide_loc = numpyro.param("guide_loc", 0.)
+    guide_scale = np.exp(numpyro.param("guide_scale_log", 0.))
+    numpyro.sample("loc", dist.Normal(guide_loc, guide_scale))
 
 
 def main(args):
