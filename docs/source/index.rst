@@ -24,7 +24,15 @@ Numpyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
-   :caption: Inference Primitives:
+   :caption: Pyro Primitives:
+
+   primitives
+
+
+.. toctree::
+   :glob:
+   :maxdepth: 2
+   :caption: Effect Handlers:
 
    handlers
 

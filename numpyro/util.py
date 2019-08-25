@@ -6,6 +6,7 @@ import numpy as onp
 import tqdm
 
 from jax import jit, lax, ops, vmap
+from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
@@ -177,8 +178,8 @@ pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype
 
 
 def _ravel_list(*leaves):
-    leaves_metadata = tree_map(lambda l: pytree_metadata(np.ravel(l), np.shape(l), np.size(l), lax.dtype(l)),
-                               leaves)
+    leaves_metadata = tree_map(lambda l: pytree_metadata(
+        np.ravel(l), np.shape(l), np.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
     leaves_idx = np.cumsum(np.array((0,) + tuple(d.size for d in leaves_metadata)))
 
     def unravel_list(arr):

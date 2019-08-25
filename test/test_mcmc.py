@@ -9,9 +9,9 @@ from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.scipy.special import logit
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.handlers import param, sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc, mcmc
 from numpyro.util import fori_collect
@@ -71,9 +71,9 @@ def test_logistic_regression(algo):
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(labels):
-        coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
+        coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
         logits = np.sum(coefs * data, axis=-1)
-        return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+        return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, labels)
     samples = mcmc(warmup_steps, num_samples, init_params, sampler='hmc',
@@ -88,9 +88,9 @@ def test_uniform_normal():
     true_coef = 0.9
 
     def model(data):
-        alpha = sample('alpha', dist.Uniform(0, 1))
-        loc = sample('loc', dist.Uniform(0, alpha))
-        sample('obs', dist.Normal(loc, 0.1), obs=data)
+        alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
+        loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
@@ -102,9 +102,9 @@ def test_improper_normal():
     true_coef = 0.9
 
     def model(data):
-        alpha = sample('alpha', dist.Uniform(0, 1))
-        loc = param('loc', 0., constraint=constraints.interval(0., alpha))
-        sample('obs', dist.Normal(loc, 0.1), obs=data)
+        alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
+        loc = numpyro.param('loc', 0., constraint=constraints.interval(0., alpha))
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
@@ -119,8 +119,8 @@ def test_beta_bernoulli(algo):
     def model(data):
         alpha = np.array([1.1, 1.1])
         beta = np.array([1.1, 1.1])
-        p_latent = sample('p_latent', dist.Beta(alpha, beta))
-        sample('obs', dist.Bernoulli(p_latent), obs=data)
+        p_latent = numpyro.sample('p_latent', dist.Beta(alpha, beta))
+        numpyro.sample('obs', dist.Bernoulli(p_latent), obs=data)
         return p_latent
 
     true_probs = np.array([0.9, 0.1])
@@ -147,8 +147,8 @@ def test_dirichlet_categorical(algo, dense_mass):
 
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
-        p_latent = sample('p_latent', dist.Dirichlet(concentration))
-        sample('obs', dist.Categorical(p_latent), obs=data)
+        p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
+        numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
         return p_latent
 
     true_probs = np.array([0.1, 0.6, 0.3])
@@ -170,11 +170,11 @@ def test_change_point():
 
     def model(data):
         alpha = 1 / np.mean(data)
-        lambda1 = sample('lambda1', dist.Exponential(alpha))
-        lambda2 = sample('lambda2', dist.Exponential(alpha))
-        tau = sample('tau', dist.Uniform(0, 1))
+        lambda1 = numpyro.sample('lambda1', dist.Exponential(alpha))
+        lambda2 = numpyro.sample('lambda2', dist.Exponential(alpha))
+        tau = numpyro.sample('tau', dist.Uniform(0, 1))
         lambda12 = np.where(np.arange(len(data)) < tau * len(data), lambda1, lambda2)
-        sample('obs', dist.Poisson(lambda12), obs=data)
+        numpyro.sample('obs', dist.Poisson(lambda12), obs=data)
 
     count_data = np.array([
         13,  24,   8,  24,   7,  35,  14,  11,  15,  11,  22,  22,  11,  57,
@@ -207,12 +207,12 @@ def test_binomial_stable(with_logits):
     warmup_steps, num_samples = 200, 200
 
     def model(data):
-        p = sample('p', dist.Beta(1., 1.))
+        p = numpyro.sample('p', dist.Beta(1., 1.))
         if with_logits:
             logits = logit(p)
-            sample('obs', dist.Binomial(data['n'], logits=logits), obs=data['x'])
+            numpyro.sample('obs', dist.Binomial(data['n'], logits=logits), obs=data['x'])
         else:
-            sample('obs', dist.Binomial(data['n'], probs=p), obs=data['x'])
+            numpyro.sample('obs', dist.Binomial(data['n'], probs=p), obs=data['x'])
 
     data = {'n': 5000000, 'x': 3849}
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
@@ -232,9 +232,9 @@ def test_improper_prior():
     num_warmup, num_samples = 1000, 8000
 
     def model(data):
-        mean = param('mean', 0.)
-        std = param('std', 1., constraint=constraints.positive)
-        return sample('obs', dist.Normal(mean, std), obs=data)
+        mean = numpyro.param('mean', 0.)
+        std = numpyro.param('std', 1., constraint=constraints.positive)
+        return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
@@ -281,9 +281,9 @@ def test_chain():
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(labels):
-        coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
+        coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
         logits = np.sum(coefs * data, axis=-1)
-        return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+        return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     rngs = random.split(random.PRNGKey(2), 2)
     init_params, potential_fn, constrain_fn = initialize_model(rngs, model, labels)

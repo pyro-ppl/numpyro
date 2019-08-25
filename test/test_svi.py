@@ -4,10 +4,14 @@ from jax import random
 from jax.experimental import optimizers
 import jax.numpy as np
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
+<<<<<<< HEAD
 from numpyro.distributions.constraints import SigmoidTransform, AffineTransform
 from numpyro.handlers import param, sample, substitute
+=======
+>>>>>>> master
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
 
@@ -16,15 +20,15 @@ def test_beta_bernoulli():
     data = np.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
-        f = sample("beta", dist.Beta(1., 1.))
-        sample("obs", dist.Bernoulli(f), obs=data)
+        f = numpyro.sample("beta", dist.Beta(1., 1.))
+        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide():
-        alpha_q = param("alpha_q", 1.0,
-                        constraint=constraints.positive)
-        beta_q = param("beta_q", 1.0,
-                       constraint=constraints.positive)
-        sample("beta", dist.Beta(alpha_q, beta_q))
+        alpha_q = numpyro.param("alpha_q", 1.0,
+                                constraint=constraints.positive)
+        beta_q = numpyro.param("beta_q", 1.0,
+                               constraint=constraints.positive)
+        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.05)
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
@@ -49,12 +53,17 @@ def test_dynamic_constraints():
 
     def model(data):
         # NB: model's constraints will play no effect
-        loc = param('loc', 0., constraint=constraints.interval(0, 0.5))
-        sample('obs', dist.Normal(loc, 0.1), obs=data)
+        loc = numpyro.param('loc', 0., constraint=constraints.interval(0, 0.5))
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     def guide():
+<<<<<<< HEAD
         alpha = param('alpha', 0.5, constraint=constraints.unit_interval)
         param('loc', 0.1, constraint=constraints.interval(0, alpha))
+=======
+        alpha = numpyro.param('alpha', 0.5, constraint=constraints.unit_interval)
+        numpyro.param('loc', 0, constraint=constraints.interval(0, alpha))
+>>>>>>> master
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.05)
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)

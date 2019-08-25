@@ -5,7 +5,7 @@ from jax import random, value_and_grad
 
 from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import ComposeTransform, biject_to
+from numpyro.distributions.constraints import biject_to
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
 
@@ -35,10 +35,6 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
     constrain_fn = None
-    # NB: these will become properties of SVI classes
-    has_dynamic_constraints = False
-    _model_args = None
-    _guide_args = None
     # NB: only skip transforms for AutoContinuous guide
     loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss
 
@@ -75,50 +71,19 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
             if site['type'] == 'param':
                 constraint = site['kwargs'].pop('constraint', constraints.real)
                 transform = biject_to(constraint)
-                if isinstance(transform, ComposeTransform):
-                    has_dynamic_constraints = True
-                    inv_transforms[site['name']] = transform.parts[0]
-                else:
-                    inv_transforms[site['name']] = transform
+                inv_transforms[site['name']] = transform
                 params[site['name']] = transform.inv(site['value'])
 
         constrain_fn = jax.partial(transform_fn, inv_transforms)
         return optim_init(params), get_params
 
-    def get_params(opt_state, rng=None, model_args=None, guide_args=None):
+    def get_params(opt_state):
         """
         Gets values at `param` sites of the `model` and `guide`.
 
-        .. note: For `param` sites with dynamic constraints (e.g. the constraints depend on
-            `model_args` or `guide_args`), `model_args` and `guide_args` should be not `None`.
-
         :param dict opt_state: current state of the optimizer.
-        :param jax.random.PRNGKey rng: a random generator to seed.
-        :param tuple model_args: arguments to the model.
-        :param tuple model_args: arguments to the guide.
-        :return: a dict of current values of parameters.
         """
         params = constrain_fn(get_optim_params(opt_state))
-
-        if has_dynamic_constraints:
-            if guide_args is None:
-                guide_args = _guide_args
-
-            if model_args is None:
-                model_args = _model_args
-
-            model_, guide_ = _seed(model, guide, rng)
-            guide_ = substitute(guide_, base_param_map=params)
-            guide_trace = trace(guide_).get_trace(*guide_args, **kwargs)
-            model_params = {k: v for k, v in params.items() if k not in guide_trace}
-            params = {k: guide_trace[k]['value'] if k in guide_trace else v
-                      for k, v in params.items()}
-
-            model_ = substitute(replay(model_, guide_trace), base_param_map=model_params)
-            model_trace = trace(model_).get_trace(*model_args, **kwargs)
-            params = {k: model_trace[k]['value'] if k in model_params else v
-                      for k, v in params.items()}
-
         return params
 
     def update_fn(i, rng, opt_state, model_args=(), guide_args=()):
@@ -156,8 +121,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
             (held within `opt_state`).
         """
         model_init, guide_init = _seed(model, guide, rng)
-        params = get_optim_params(opt_state)
-        return loss_fn(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
+        params = get_params(opt_state)
+        return loss_fn(params, model_init, guide_init, model_args, guide_args, kwargs)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.

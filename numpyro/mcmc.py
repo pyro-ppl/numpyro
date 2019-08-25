@@ -111,8 +111,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         import jax
         from jax import random
         import jax.numpy as np
+        import numpyro
         import numpyro.distributions as dist
-        from numpyro.handlers import sample
         from numpyro.hmc_util import initialize_model
         from numpyro.mcmc import hmc
         from numpyro.util import fori_collect
@@ -126,9 +126,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         >>>
         >>> def model(data, labels):
         ...     coefs_mean = np.zeros(dim)
-        ...     coefs = sample('beta', dist.Normal(coefs_mean, np.ones(3)))
-        ...     intercept = sample('intercept', dist.Normal(0., 10.))
-        ...     return sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
+        ...     coefs = numpyro.sample('beta', dist.Normal(coefs_mean, np.ones(3)))
+        ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
+        ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
         >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0),
         ...                                                            model, data, labels)
@@ -336,8 +336,8 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
        import jax
        from jax import random
        import jax.numpy as np
+       import numpyro
        import numpyro.distributions as dist
-       from numpyro.handlers import sample
        from numpyro.hmc_util import initialize_model
        from numpyro.mcmc import hmc
        from numpyro.util import fori_collect
@@ -351,9 +351,9 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
         >>>
         >>> def model(data, labels):
         ...     coefs_mean = np.zeros(dim)
-        ...     coefs = sample('beta', dist.Normal(coefs_mean, np.ones(3)))
-        ...     intercept = sample('intercept', dist.Normal(0., 10.))
-        ...     return sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
+        ...     coefs = numpyro.sample('beta', dist.Normal(coefs_mean, np.ones(3)))
+        ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
+        ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
         >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), model,
         ...                                                            data, labels)

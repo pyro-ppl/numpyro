@@ -6,9 +6,9 @@ from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import SP500, load_dataset
-from numpyro.handlers import sample
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import hmc
 from numpyro.util import fori_collect
@@ -35,11 +35,11 @@ For more details, refer to:
 
 
 def model(returns):
-    step_size = sample('sigma', dist.Exponential(50.))
-    s = sample('s', dist.GaussianRandomWalk(scale=step_size, num_steps=np.shape(returns)[0]))
-    nu = sample('nu', dist.Exponential(.1))
-    return sample('r', dist.StudentT(df=nu, loc=0., scale=np.exp(-2*s)),
-                  obs=returns)
+    step_size = numpyro.sample('sigma', dist.Exponential(50.))
+    s = numpyro.sample('s', dist.GaussianRandomWalk(scale=step_size, num_steps=np.shape(returns)[0]))
+    nu = numpyro.sample('nu', dist.Exponential(.1))
+    return numpyro.sample('r', dist.StudentT(df=nu, loc=0., scale=np.exp(-2*s)),
+                          obs=returns)
 
 
 def print_results(posterior, dates):

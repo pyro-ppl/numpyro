@@ -15,8 +15,9 @@ from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
+import numpyro
 import numpyro.distributions as dist
-from numpyro.handlers import sample, seed, substitute, trace
+from numpyro import handlers
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
@@ -35,23 +36,23 @@ def model(X, Y, D_H):
     D_X, D_Y = X.shape[1], 1
 
     # sample first layer (we put unit normal priors on all weights)
-    w1 = sample("w1", dist.Normal(np.zeros((D_X, D_H)), np.ones((D_X, D_H))))  # D_X D_H
+    w1 = numpyro.sample("w1", dist.Normal(np.zeros((D_X, D_H)), np.ones((D_X, D_H))))  # D_X D_H
     z1 = nonlin(np.matmul(X, w1))   # N D_H  <= first layer of activations
 
     # sample second layer
-    w2 = sample("w2", dist.Normal(np.zeros((D_H, D_H)), np.ones((D_H, D_H))))  # D_H D_H
+    w2 = numpyro.sample("w2", dist.Normal(np.zeros((D_H, D_H)), np.ones((D_H, D_H))))  # D_H D_H
     z2 = nonlin(np.matmul(z1, w2))  # N D_H  <= second layer of activations
 
     # sample final layer of weights and neural network output
-    w3 = sample("w3", dist.Normal(np.zeros((D_H, D_Y)), np.ones((D_H, D_Y))))  # D_H D_Y
+    w3 = numpyro.sample("w3", dist.Normal(np.zeros((D_H, D_Y)), np.ones((D_H, D_Y))))  # D_H D_Y
     z3 = np.matmul(z2, w3)  # N D_Y  <= output of the neural network
 
     # we put a prior on the observation noise
-    prec_obs = sample("prec_obs", dist.Gamma(3.0, 1.0))
+    prec_obs = numpyro.sample("prec_obs", dist.Gamma(3.0, 1.0))
     sigma_obs = 1.0 / np.sqrt(prec_obs)
 
     # observe data
-    sample("Y", dist.Normal(z3, sigma_obs), obs=Y)
+    numpyro.sample("Y", dist.Normal(z3, sigma_obs), obs=Y)
 
 
 # helper function for HMC inference
@@ -68,9 +69,9 @@ def run_inference(model, args, rng, X, Y, D_H):
 
 # helper function for prediction
 def predict(model, rng, samples, X, D_H):
-    model = substitute(seed(model, rng), samples)
+    model = handlers.substitute(handlers.seed(model, rng), samples)
     # note that Y will be sampled in the model because we pass Y=None here
-    model_trace = trace(model).get_trace(X=X, Y=None, D_H=D_H)
+    model_trace = handlers.trace(model).get_trace(X=X, Y=None, D_H=D_H)
     return model_trace['Y']['value']
 
 

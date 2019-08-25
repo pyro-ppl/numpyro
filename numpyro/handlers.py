@@ -25,8 +25,9 @@ need to loop over all the data points.
    import jax.numpy as np
    from jax import random, vmap
    from jax.scipy.special import logsumexp
+   import numpyro
    import numpyro.distributions as dist
-   from numpyro.handlers import sample, seed, substitute, trace
+   from numpyro import handlers
    from numpyro.hmc_util import initialize_model
    from numpyro.mcmc import mcmc
 
@@ -34,10 +35,10 @@ need to loop over all the data points.
 
    >>> N, D = 3000, 3
    >>> def logistic_regression(data, labels):
-   ...     coefs = sample('coefs', dist.Normal(np.zeros(D), np.ones(D)))
-   ...     intercept = sample('intercept', dist.Normal(0., 10.))
+   ...     coefs = numpyro.sample('coefs', dist.Normal(np.zeros(D), np.ones(D)))
+   ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
    ...     logits = np.sum(coefs * data + intercept, axis=-1)
-   ...     return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+   ...     return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
    >>> data = random.normal(random.PRNGKey(0), (N, D))
    >>> true_coefs = np.arange(1., D + 1.)
@@ -60,8 +61,8 @@ need to loop over all the data points.
       intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
 
    >>> def log_likelihood(rng, params, model, *args, **kwargs):
-   ...     model = substitute(seed(model, rng), params)
-   ...     model_trace = trace(model).get_trace(*args, **kwargs)
+   ...     model = handlers.substitute(handlers.seed(model, rng), params)
+   ...     model_trace = handlers.trace(model).get_trace(*args, **kwargs)
    ...     obs_node = model_trace['obs']
    ...     return np.sum(obs_node['fn'].log_prob(obs_node['value']))
 
@@ -82,8 +83,7 @@ from collections import OrderedDict
 from jax import random
 
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
-
-_PYRO_STACK = []
+from numpyro.primitives import _PYRO_STACK
 
 
 class Messenger(object):
@@ -118,14 +118,15 @@ class trace(Messenger):
     .. testsetup::
 
        from jax import random
+       import numpyro
        import numpyro.distributions as dist
-       from numpyro.handlers import sample, seed, trace
+       from numpyro.handlers import seed, trace
        import pprint as pp
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
        >>> pp.pprint(exec_trace)  # doctest: +SKIP
@@ -173,13 +174,14 @@ class replay(Messenger):
     .. testsetup::
 
        from jax import random
+       import numpyro
        import numpyro.distributions as dist
-       from numpyro.handlers import replay, sample, seed, trace
+       from numpyro.handlers import replay, seed, trace
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
        >>> print(exec_trace['a']['value'])  # doctest: +SKIP
@@ -213,14 +215,15 @@ class block(Messenger):
     .. testsetup::
 
        from jax import random
-       from numpyro.handlers import block, sample, seed, trace
+       import numpyro
+       from numpyro.handlers import block, seed, trace
        import numpyro.distributions as dist
 
     .. doctest::
 
        >>> def model():
-       ...     a = sample('a', dist.Normal(0., 1.))
-       ...     return sample('b', dist.Normal(a, 1.))
+       ...     a = numpyro.sample('a', dist.Normal(0., 1.))
+       ...     return numpyro.sample('b', dist.Normal(a, 1.))
 
        >>> model = seed(model, random.PRNGKey(0))
        >>> block_all = block(model)
@@ -258,13 +261,14 @@ class condition(Messenger):
      .. testsetup::
 
        from jax import random
-       from numpyro.handlers import sample, seed, substitute, trace
+       import numpyro
+       from numpyro.handlers import seed, substitute, trace
        import numpyro.distributions as dist
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> model = seed(model, random.PRNGKey(0))
        >>> exec_trace = trace(condition(model, {'a': -1})).get_trace()
@@ -355,13 +359,14 @@ class substitute(Messenger):
      .. testsetup::
 
        from jax import random
-       from numpyro.handlers import sample, seed, substitute, trace
+       import numpyro
+       from numpyro.handlers import seed, substitute, trace
        import numpyro.distributions as dist
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> model = seed(model, random.PRNGKey(0))
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
@@ -396,98 +401,3 @@ class substitute(Messenger):
                         msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
                     else:
                         msg['value'] = base_value
-
-
-def apply_stack(msg):
-    pointer = 0
-    for pointer, handler in enumerate(reversed(_PYRO_STACK)):
-        handler.process_message(msg)
-        # When a Messenger sets the "stop" field of a message,
-        # it prevents any Messengers above it on the stack from being applied.
-        if msg.get("stop"):
-            break
-    if msg['value'] is None:
-        if msg['type'] == 'sample':
-            msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
-                                                           sample_intermediates=True,
-                                                           **msg['kwargs'])
-        else:
-            msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
-
-    # A Messenger that sets msg["stop"] == True also prevents application
-    # of postprocess_message by Messengers above it on the stack
-    # via the pointer variable from the process_message loop
-    for handler in _PYRO_STACK[-pointer-1:]:
-        handler.postprocess_message(msg)
-    return msg
-
-
-def sample(name, fn, obs=None, sample_shape=()):
-    """
-    Returns a random sample from the stochastic function `fn`. This can have
-    additional side effects when wrapped inside effect handlers like
-    :class:`~numpyro.handlers.substitute`.
-
-    :param str name: name of the sample site
-    :param fn: Python callable
-    :param numpy.ndarray obs: observed value
-    :param sample_shape: Shape of samples to be drawn.
-    :return: sample from the stochastic `fn`.
-    """
-    # if there are no active Messengers, we just draw a sample and return it as expected:
-    if not _PYRO_STACK:
-        return fn(sample_shape=sample_shape)
-
-    # Otherwise, we initialize a message...
-    initial_msg = {
-        'type': 'sample',
-        'name': name,
-        'fn': fn,
-        'args': (),
-        'kwargs': {'sample_shape': sample_shape},
-        'value': obs,
-        'is_observed': obs is not None,
-        'intermediates': [],
-    }
-
-    # ...and use apply_stack to send it to the Messengers
-    msg = apply_stack(initial_msg)
-    return msg['value']
-
-
-def identity(x, *args, **kwargs):
-    return x
-
-
-def param(name, init_value, **kwargs):
-    """
-    Annotate the given site as an optimizable parameter for use with
-    :mod:`jax.experimental.optimizers`. For an example of how `param` statements
-    can be used in inference algorithms, refer to :func:`~numpyro.svi.svi`.
-
-    :param str name: name of site.
-    :param numpy.ndarray init_value: initial value specified by the user. Note that
-        the onus of using this to initialize the optimizer is on the user /
-        inference algorithm, since there is no global parameter store in
-        NumPyro.
-    :return: value for the parameter. Unless wrapped inside a
-        handler like :class:`~numpyro.handlers.substitute`, this will simply
-        return the initial value.
-    """
-    # if there are no active Messengers, we just draw a sample and return it as expected:
-    if not _PYRO_STACK:
-        return init_value
-
-    # Otherwise, we initialize a message...
-    initial_msg = {
-        'type': 'param',
-        'name': name,
-        'fn': identity,
-        'args': (init_value,),
-        'kwargs': kwargs,
-        'value': None,
-    }
-
-    # ...and use apply_stack to send it to the Messengers
-    msg = apply_stack(initial_msg)
-    return msg['value']

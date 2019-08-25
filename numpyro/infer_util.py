@@ -3,9 +3,10 @@ from jax import random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
-from numpyro.handlers import block, sample, seed, substitute, trace
+from numpyro.handlers import block, seed, substitute, trace
 from numpyro.util import while_loop
 
 
@@ -118,7 +119,7 @@ def init_to_median(site, num_samples=15, skip_param=False):
             fn = site['fn'].base_dist
         else:
             fn = site['fn']
-        samples = sample('_init', fn, sample_shape=(num_samples,))
+        samples = numpyro.sample('_init', fn, sample_shape=(num_samples,))
         return np.median(samples, axis=0)
 
     if site['type'] == 'param' and not skip_param:
@@ -149,10 +150,10 @@ def init_to_uniform(site, radius=2, skip_param=False):
             fn = site['fn'].base_dist
         else:
             fn = site['fn']
-        value = sample('_init', fn)
+        value = numpyro.sample('_init', fn)
         base_transform = biject_to(fn.support)
-        unconstrained_value = sample('_unconstrained_init', dist.Uniform(-radius, radius),
-                                     sample_shape=np.shape(base_transform.inv(value)))
+        unconstrained_value = numpyro.sample('_unconstrained_init', dist.Uniform(-radius, radius),
+                                             sample_shape=np.shape(base_transform.inv(value)))
         return base_transform(unconstrained_value)
 
     if site['type'] == 'param' and not skip_param:
@@ -160,8 +161,8 @@ def init_to_uniform(site, radius=2, skip_param=False):
         constraint = site['kwargs'].pop('constraint', real)
         transform = biject_to(constraint)
         value = site['args'][0]
-        unconstrained_value = sample('_unconstrained_init', dist.Uniform(-radius, radius),
-                                     sample_shape=np.shape(transform.inv(value)))
+        unconstrained_value = numpyro.sample('_unconstrained_init', dist.Uniform(-radius, radius),
+                                             sample_shape=np.shape(transform.inv(value)))
         if isinstance(transform, ComposeTransform):
             base_transform = transform.parts[0]
         else:

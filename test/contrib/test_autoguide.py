@@ -6,10 +6,14 @@ from jax.experimental import optimizers
 import jax.numpy as np
 from jax.test_util import check_eq
 
+import numpyro
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
 import numpyro.distributions as dist
+<<<<<<< HEAD
 from numpyro.distributions import constraints
 from numpyro.handlers import sample, substitute
+=======
+>>>>>>> master
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
 
@@ -23,8 +27,8 @@ def test_beta_bernoulli(auto_class):
                      [1.0] * 4 + [0.0] * 6]).T
 
     def model(data):
-        f = sample('beta', dist.Beta(np.ones(2), np.ones(2)))
-        sample('obs', dist.Bernoulli(f), obs=data)
+        f = numpyro.sample('beta', dist.Beta(np.ones(2), np.ones(2)))
+        numpyro.sample('obs', dist.Bernoulli(f), obs=data)
 
     opt_init, opt_update, opt_params = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
@@ -56,9 +60,9 @@ def test_logistic_regression(auto_class):
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(data, labels):
-        coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
+        coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
         logits = np.sum(coefs * data, axis=-1)
-        return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+        return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
@@ -93,9 +97,9 @@ def test_uniform_normal():
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
 
     def model(data):
-        alpha = sample('alpha', dist.Uniform(0, 1))
-        loc = sample('loc', dist.Uniform(0, alpha))
-        sample('obs', dist.Normal(loc, 0.1), obs=data)
+        alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
+        loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
@@ -121,14 +125,14 @@ def test_dynamic_supports():
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
 
     def actual_model(data):
-        alpha = sample('alpha', dist.Uniform(0, 1))
-        loc = sample('loc', dist.Uniform(0, alpha))
-        sample('obs', dist.Normal(loc, 0.1), obs=data)
+        alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
+        loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     def expected_model(data):
-        alpha = sample('alpha', dist.Uniform(0, 1))
-        loc = sample('loc', dist.Uniform(0, 1)) * alpha
-        sample('obs', dist.Normal(loc, 0.1), obs=data)
+        alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
+        loc = numpyro.sample('loc', dist.Uniform(0, 1)) * alpha
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
