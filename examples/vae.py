@@ -11,7 +11,6 @@ from jax.random import PRNGKey
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro import handlers
 from numpyro.examples.datasets import MNIST, load_dataset
 from numpyro.svi import elbo, svi
 
