@@ -492,6 +492,9 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
             assert_allclose(p[i], init_params_i[name], atol=1e-6)
 
 
+# TODO: raise this warning issue upstream, the issue is at this line
+# https://github.com/google/jax/blob/master/jax/numpy/lax_numpy.py#L2732
+@pytest.mark.filterwarnings('ignore:Explicitly requested dtype float64')
 @pytest.mark.parametrize('method', [consensus, parametric_draws])
 @pytest.mark.parametrize('diagonal', [True, False])
 def test_gaussian_subposterior(method, diagonal):
@@ -515,6 +518,7 @@ def test_gaussian_subposterior(method, diagonal):
         assert_allclose(np.cov(draws.T), cov, atol=0.05)
 
 
+@pytest.mark.filterwarnings('ignore:Explicitly requested dtype float64')
 @pytest.mark.parametrize('method', [consensus, parametric_draws])
 def test_subposterior_structure(method):
     subposteriors = [{'x': np.ones((100, 3)), 'y': np.zeros((100,))} for i in range(10)]
