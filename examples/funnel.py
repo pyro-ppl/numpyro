@@ -92,9 +92,6 @@ if __name__ == "__main__":
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    # TODO: add this logic to other examples
-    # in cpu, run chains in parallel if there are enough CPU cores
-    # otherwise, run sequentially
     if args.device == 'cpu' and args.num_chains <= os.cpu_count():
         os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
             args.num_chains)

@@ -1,15 +1,16 @@
 import argparse
+import os
 
 import numpy as onp
 
 from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
+from jax.scipy.special import logsumexp
 
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.distributions.util import logsumexp
 from numpyro.examples.datasets import BASEBALL, load_dataset
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
@@ -205,4 +206,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)

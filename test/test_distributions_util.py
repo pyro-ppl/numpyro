@@ -17,7 +17,6 @@ from numpyro.distributions.util import (
     cumprod,
     cumsum,
     multinomial,
-    standard_gamma,
     vec_to_tril_matrix,
     xlog1py,
     xlogy
@@ -133,13 +132,13 @@ def test_cumprod_jac(shape):
 def test_standard_gamma_shape(alpha, shape):
     rng = random.PRNGKey(0)
     expected_shape = lax.broadcast_shapes(np.shape(alpha), shape)
-    assert np.shape(standard_gamma(rng, alpha, shape=shape)) == expected_shape
+    assert np.shape(random.gamma(rng, alpha, shape=shape)) == expected_shape
 
 
 @pytest.mark.parametrize("alpha", [0.6, 2., 10.])
 def test_standard_gamma_stats(alpha):
     rng = random.PRNGKey(0)
-    z = standard_gamma(rng, np.full((1000,), alpha))
+    z = random.gamma(rng, np.full((1000,), alpha))
     assert_allclose(np.mean(z), alpha, rtol=0.06)
     assert_allclose(np.var(z), alpha, rtol=0.2)
 
@@ -148,8 +147,8 @@ def test_standard_gamma_stats(alpha):
 def test_standard_gamma_grad(alpha):
     rng = random.PRNGKey(0)
     alphas = np.full((100,), alpha)
-    z = standard_gamma(rng, alphas)
-    actual_grad = grad(lambda x: np.sum(standard_gamma(rng, x)))(alphas)
+    z = random.gamma(rng, alphas)
+    actual_grad = grad(lambda x: np.sum(random.gamma(rng, x)))(alphas)
 
     eps = 0.01 * alpha / (1.0 + np.sqrt(alpha))
     cdf_dot = (osp_stats.gamma.cdf(z, alpha + eps)
@@ -165,17 +164,17 @@ def test_standard_gamma_batch():
     alphas = np.array([1., 2., 3.])
     rngs = random.split(rng, 3)
 
-    samples = vmap(lambda rng, alpha: standard_gamma(rng, alpha))(rngs, alphas)
+    samples = vmap(lambda rng, alpha: random.gamma(rng, alpha))(rngs, alphas)
     for i in range(3):
-        assert_allclose(samples[i], standard_gamma(rngs[i], alphas[i]))
+        assert_allclose(samples[i], random.gamma(rngs[i], alphas[i]))
 
-    samples = vmap(lambda rng: standard_gamma(rng, alphas[:2]))(rngs)
+    samples = vmap(lambda rng: random.gamma(rng, alphas[:2]))(rngs)
     for i in range(3):
-        assert_allclose(samples[i], standard_gamma(rngs[i], alphas[:2]))
+        assert_allclose(samples[i], random.gamma(rngs[i], alphas[:2]))
 
-    samples = vmap(lambda alpha: standard_gamma(rng, alpha))(alphas)
+    samples = vmap(lambda alpha: random.gamma(rng, alpha))(alphas)
     for i in range(3):
-        assert_allclose(samples[i], standard_gamma(rng, alphas[i]))
+        assert_allclose(samples[i], random.gamma(rng, alphas[i]))
 
 
 @pytest.mark.parametrize('prim', [

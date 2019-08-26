@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import device_get, grad, jit, lax, partial, random, value_and_grad, vmap
+from jax import device_get, grad, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
@@ -478,8 +478,6 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
-# TODO: consider to remove jit here if there is no error triggered in new version of JAX
-@partial(jit, static_argnums=(5,))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
@@ -787,11 +785,9 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
     else:
         init_params, is_valid = lax.map(single_chain_init, rng)
 
-    # TODO: allow to disable this check so we can jit `initialize_model` to
-    # replicate this function across various subsets of a dataset. Disabling is
-    # useful for concensus/parametric MC.
-    if device_get(~np.all(is_valid)):
-        raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
+    if isinstance(is_valid, jax.interpreters.xla.DeviceArray):
+        if device_get(~np.all(is_valid)):
+            raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return init_params, potential_fn, constrain_fun
 
 

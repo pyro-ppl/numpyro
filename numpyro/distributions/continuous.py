@@ -39,7 +39,6 @@ from numpyro.distributions.util import (
     matrix_to_tril_vec,
     promote_shapes,
     signed_stick_breaking_tril,
-    standard_gamma,
     vec_to_tril_matrix
 )
 from numpyro.util import copy_docs_from
@@ -121,7 +120,7 @@ class Dirichlet(Distribution):
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
-        gamma_samples = standard_gamma(key, self.concentration, shape=shape)
+        gamma_samples = random.gamma(key, self.concentration, shape=shape)
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
     def log_prob(self, value):
@@ -183,7 +182,7 @@ class Gamma(Distribution):
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
-        return standard_gamma(key, self.concentration, shape=shape) / self.rate
+        return random.gamma(key, self.concentration, shape=shape) / self.rate
 
     def log_prob(self, value):
         if self._validate_args:
