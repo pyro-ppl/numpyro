@@ -22,7 +22,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-
 from jax import lax
 from jax.lib import xla_bridge
 import jax.numpy as np
@@ -338,6 +337,20 @@ class Delta(Distribution):
     @property
     def variance(self):
         return np.zeros(self.batch_shape + self.event_shape)
+
+
+class PRNGIdentity(Distribution):
+    """
+    Distribution over :func:`~jax.random.PRNGKey`. This can be used to
+    draw a batch of :func:`~jax.random.PRNGKey` using the :class:`~numpyro.handlers.seed`
+    handler. Only `sample` method is supported.
+    """
+    def __init__(self):
+        super(PRNGIdentity, self).__init__(event_shape=(2,))
+
+    def sample(self, key, sample_shape=()):
+        return np.reshape(random.split(key, np.product(sample_shape).astype(np.int32)),
+                          sample_shape + self.event_shape)
 
 
 @copy_docs_from(Distribution)

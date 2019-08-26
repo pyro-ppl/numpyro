@@ -1,3 +1,9 @@
+import jax
+
+import numpyro
+from numpyro.distributions.discrete import PRNGIdentity
+
+
 _PYRO_STACK = []
 
 
@@ -62,7 +68,7 @@ def identity(x, *args, **kwargs):
     return x
 
 
-def param(name, init_value, **kwargs):
+def param(name, init_value=None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.experimental.optimizers`. For an example of how `param` statements
@@ -94,3 +100,29 @@ def param(name, init_value, **kwargs):
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
     return msg['value']
+
+
+def module(name, nn, input_shape=None):
+    """
+    Declare a :mod:`~jax.experimental.stax` style neural network inside a
+    model so that its parameters are registered for optimization via
+    :func:`~numpyro.primitives.param` statements.
+
+    :param str name: name of the module to be registered.
+    :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by
+    :param int, tuple input_shape: shape of the input taken by the
+        neural network.
+    :return: a `apply_fn` with bound parameters that takes an array
+        as an input and returns the neural network transformed output
+        array.
+    """
+    module_key = name + '$params'
+    nn_init, nn_apply = nn
+    nn_params = param(module_key)
+    if nn_params is None:
+        if input_shape is None:
+            raise ValueError('Valid value for `input_size` needed to initialize.')
+        rng = numpyro.sample(name + '$rng', PRNGIdentity())
+        _, nn_params = nn_init(rng, input_shape)
+        param(module_key, nn_params)
+    return jax.partial(nn_apply, nn_params)
