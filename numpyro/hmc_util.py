@@ -478,8 +478,6 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
-# TODO: consider to remove jit here if there is no error triggered in new version of JAX
-@partial(jit, static_argnums=(5,))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
