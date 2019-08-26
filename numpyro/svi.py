@@ -35,8 +35,6 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
     constrain_fn = None
-    # NB: only skip transforms for AutoContinuous guide
-    loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss
 
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         """
@@ -102,8 +100,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
         params = get_optim_params(opt_state)
-        loss_val, grads = value_and_grad(loss_fn)(params, model_init, guide_init, model_args,
-                                                  guide_args, kwargs, constrain_fn=constrain_fn)
+        loss_val, grads = value_and_grad(
+            lambda x: loss(constrain_fn(x), model_init, guide_init, model_args, guide_args, kwargs))(params)
         opt_state = optim_update(i, grads, opt_state)
         return loss_val, opt_state, rng
 
@@ -122,7 +120,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
         """
         model_init, guide_init = _seed(model, guide, rng)
         params = get_params(opt_state)
-        return loss_fn(params, model_init, guide_init, model_args, guide_args, kwargs)
+        return loss(params, model_init, guide_init, model_args, guide_args, kwargs)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
