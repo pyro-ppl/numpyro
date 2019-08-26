@@ -1,3 +1,8 @@
+import jax
+
+import numpyro
+from numpyro.distributions.discrete import PRNGIdentity
+
 _PYRO_STACK = []
 
 
@@ -62,7 +67,7 @@ def identity(x, *args, **kwargs):
     return x
 
 
-def param(name, init_value, **kwargs):
+def param(name, init_value=None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.experimental.optimizers`. For an example of how `param` statements
@@ -94,3 +99,16 @@ def param(name, init_value, **kwargs):
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
     return msg['value']
+
+
+def module(name, nn, input_size=None):
+    module_key = name + '$params'
+    nn_init, nn_apply = nn
+    nn_params = param(module_key)
+    if nn_params is None:
+        if input_size is None:
+            raise ValueError('Valid value for `input_size` needed to initialize.')
+        rng = numpyro.sample('nn_rng', PRNGIdentity())
+        _, nn_params = nn_init(rng, input_size)
+        param(module_key, nn_params)
+    return jax.partial(nn_apply, nn_params)

@@ -11,6 +11,7 @@ from jax.random import PRNGKey
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro import handlers
 from numpyro.examples.datasets import MNIST, load_dataset
 from numpyro.svi import elbo, svi
 
@@ -36,21 +37,20 @@ def decoder(hidden_dim, out_dim):
     )
 
 
-def model(batch, **kwargs):
-    decode = kwargs['decode']
-    decoder_params = numpyro.param('decoder', None)
-    z_dim = kwargs['z_dim']
+def model(batch, hidden_dim=400, z_dim=100):
     batch = np.reshape(batch, (batch.shape[0], -1))
+    batch_dim, out_dim = np.shape(batch)
+    decode = numpyro.module('decoder', decoder(hidden_dim, out_dim), (batch_dim, z_dim))
     z = numpyro.sample('z', dist.Normal(np.zeros((z_dim,)), np.ones((z_dim,))))
-    img_loc = decode(decoder_params, z)
+    img_loc = decode(z)
     return numpyro.sample('obs', dist.Bernoulli(img_loc), obs=batch)
 
 
-def guide(batch, **kwargs):
-    encode = kwargs['encode']
-    encoder_params = numpyro.param('encoder', None)
+def guide(batch, hidden_dim=400, z_dim=100):
     batch = np.reshape(batch, (batch.shape[0], -1))
-    z_loc, z_std = encode(encoder_params, batch)
+    batch_dim, out_dim = np.shape(batch)
+    encode = numpyro.module('encoder', encoder(hidden_dim, z_dim), (batch_dim, out_dim))
+    z_loc, z_std = encode(batch)
     z = numpyro.sample('z', dist.Normal(z_loc, z_std))
     return z
 
@@ -61,21 +61,18 @@ def binarize(rng, batch):
 
 
 def main(args):
-    encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
-    decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
+    encoder_nn = encoder(args.hidden_dim, args.z_dim)
+    decoder_nn = decoder(args.hidden_dim, 28 * 28)
     opt_init, opt_update, get_opt_params = optimizers.adam(args.learning_rate)
     svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params,
-                                         encode=encode, decode=decode, z_dim=args.z_dim)
+                                         z_dim=args.z_dim, hidden_dim=args.hidden_dim)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
     num_train, train_idx = train_init()
     rng, rng_enc, rng_dec, rng_binarize, rng_init = random.split(rng, 5)
-    _, encoder_params = encoder_init(rng_enc, (args.batch_size, 28 * 28))
-    _, decoder_params = decoder_init(rng_dec, (args.batch_size, args.z_dim))
-    params = {'encoder': encoder_params, 'decoder': decoder_params}
     sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
-    opt_state, get_params = svi_init(rng_init, (sample_batch,), (sample_batch,), params)
+    opt_state, get_params = svi_init(rng_init, (sample_batch,), (sample_batch,))
 
     @jit
     def epoch_train(opt_state, rng):
@@ -113,9 +110,10 @@ def main(args):
         rng_binarize, rng_sample = random.split(rng)
         test_sample = binarize(rng_binarize, img)
         params = get_params(opt_state)
-        z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
+        z_mean, z_var = handlers.substitute(lambda x: numpyro.module('encoder', encoder_nn)(x), params)(
+            test_sample.reshape([1, -1]))
         z = dist.Normal(z_mean, z_var).sample(rng_sample)
-        img_loc = decode(params['decoder'], z).reshape([28, 28])
+        img_loc = handlers.substitute(lambda x: numpyro.module('decoder', decoder_nn)(x), params)(z).reshape([28, 28])
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 
     for i in range(args.num_epochs):

@@ -145,7 +145,7 @@ class trace(Messenger):
         return self.trace
 
     def postprocess_message(self, msg):
-        assert msg['name'] not in self.trace, 'all sites must have unique names'
+        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), 'all sites must have unique names'
         self.trace[msg['name']] = msg.copy()
 
     def get_trace(self, *args, **kwargs):
