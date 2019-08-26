@@ -9,13 +9,13 @@ from jax import lax, random, vmap
 from jax.config import config as jax_config
 from jax.experimental import optimizers
 import jax.numpy as np
+from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
 
 import numpyro
 from numpyro.contrib.autoguide import AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
-from numpyro.distributions.util import logsumexp
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 from numpyro.svi import elbo, svi

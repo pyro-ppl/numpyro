@@ -6,7 +6,7 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-from jax import lax
+from jax import lax, random
 from jax.experimental.stax import softmax
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_dtypes
@@ -17,7 +17,7 @@ from numpyro.contrib.distributions.distribution import jax_continuous, jax_discr
 from numpyro.distributions import constraints
 from numpyro.distributions.util import categorical as categorical_rvs
 from numpyro.distributions.util import multinomial as multinomial_rvs
-from numpyro.distributions.util import standard_gamma, xlogy
+from numpyro.distributions.util import xlogy
 
 
 def _lnB(alpha):
@@ -101,7 +101,7 @@ class dirichlet_gen(jax_multivariate, jax_continuous):
 
     def _rvs(self, alpha):
         K = alpha.shape[-1]
-        gamma_samples = standard_gamma(self._random_state, alpha, shape=self._size + (K,))
+        gamma_samples = random.gamma(self._random_state, alpha, shape=self._size + (K,))
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
 

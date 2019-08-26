@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import device_get, grad, jit, lax, partial, random, value_and_grad, vmap
+from jax import device_get, grad, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
@@ -10,7 +10,7 @@ from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
-from numpyro.distributions.util import cholesky_inverse
+from numpyro.distributions.util import cholesky_inverse, get_dtype
 from numpyro.handlers import seed, trace
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
 from numpyro.util import cond, while_loop
@@ -239,7 +239,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
-    tiny = np.finfo(lax.dtype(init_step_size)).tiny
+    tiny = np.finfo(get_dtype(init_step_size)).tiny
 
     def _body_fn(state):
         step_size, _, direction, rng = state
@@ -421,7 +421,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
                                  np.exp(log_step_size_avg),
                                  np.exp(log_step_size))
             # account the the case log_step_size is a so small negative number
-            step_size = np.clip(step_size, a_min=np.finfo(lax.dtype(step_size)).tiny)
+            step_size = np.clip(step_size, a_min=np.finfo(get_dtype(step_size)).tiny)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
@@ -478,8 +478,6 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
-# TODO: consider to remove jit here if there is no error triggered in new version of JAX
-@partial(jit, static_argnums=(5,))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
@@ -787,11 +785,9 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
     else:
         init_params, is_valid = lax.map(single_chain_init, rng)
 
-    # TODO: allow to disable this check so we can jit `initialize_model` to
-    # replicate this function across various subsets of a dataset. Disabling is
-    # useful for concensus/parametric MC.
-    if device_get(~np.all(is_valid)):
-        raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
+    if isinstance(is_valid, jax.interpreters.xla.DeviceArray):
+        if device_get(~np.all(is_valid)):
+            raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return init_params, potential_fn, constrain_fun
 
 

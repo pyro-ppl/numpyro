@@ -25,12 +25,14 @@
 import math
 
 from jax import ops
+from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
     cumprod,
     cumsum,
+    get_dtype,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
@@ -172,7 +174,8 @@ unit_interval = _Interval(0., 1.)
 ##########################################################
 
 def _clipped_expit(x):
-    return np.clip(expit(x), a_min=np.finfo(x.dtype).tiny, a_max=1.-np.finfo(x.dtype).eps)
+    finfo = np.finfo(get_dtype(x))
+    return np.clip(expit(x), a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
 class Transform(object):
@@ -239,7 +242,7 @@ class AffineTransform(Transform):
         return (y - self.loc) / self.scale
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return sum_rightmost(np.broadcast_to(np.log(np.abs(self.scale)), x.shape), self.event_dim)
+        return sum_rightmost(np.broadcast_to(np.log(np.abs(self.scale)), np.shape(x)), self.event_dim)
 
 
 class ComposeTransform(Transform):
@@ -436,7 +439,7 @@ class PermuteTransform(Transform):
 
     def inv(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(np.zeros(size, dtype=np.int64),
+        permutation_inv = ops.index_update(np.zeros(size, dtype=canonicalize_dtype(np.int64)),
                                            self.permutation,
                                            np.arange(size))
         return y[..., permutation_inv]

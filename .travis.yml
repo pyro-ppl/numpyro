@@ -15,7 +15,7 @@ dist: xenial
 install:
     - pip install -U pip
     - pip install jaxlib
-    - pip install jax==0.1.41
+    - pip install jax
     - pip install .[examples,test]
     - pip freeze
 
