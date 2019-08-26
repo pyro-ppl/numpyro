@@ -102,6 +102,18 @@ def param(name, init_value=None, **kwargs):
 
 
 def module(name, nn, input_size=None):
+    """
+    Declare a :mod:`~jax.experimental.stax` style neural network inside a
+    model so that its parameters are registered for optimization via
+    :func:`~numpyro.primitives.param` statements.
+
+    :param str name: name of the module to be registered.
+    :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by
+    :param input_size:
+    :return: a `apply_fn` with bound parameters that takes an array
+        as an input and returns the neural network transformed output
+        array.
+    """
     module_key = name + '$params'
     nn_init, nn_apply = nn
     nn_params = param(module_key)
