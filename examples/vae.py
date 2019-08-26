@@ -70,7 +70,7 @@ def main(args):
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
     num_train, train_idx = train_init()
-    rng, rng_enc, rng_dec, rng_binarize, rng_init = random.split(rng, 5)
+    rng, rng_binarize, rng_init = random.split(rng, 3)
     sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
     opt_state, get_params = svi_init(rng_init, (sample_batch,), (sample_batch,))
 
@@ -110,10 +110,9 @@ def main(args):
         rng_binarize, rng_sample = random.split(rng)
         test_sample = binarize(rng_binarize, img)
         params = get_params(opt_state)
-        z_mean, z_var = handlers.substitute(lambda x: numpyro.module('encoder', encoder_nn)(x), params)(
-            test_sample.reshape([1, -1]))
+        z_mean, z_var = encoder_nn[1](params['encoder$params'], test_sample.reshape([1, -1]))
         z = dist.Normal(z_mean, z_var).sample(rng_sample)
-        img_loc = handlers.substitute(lambda x: numpyro.module('decoder', decoder_nn)(x), params)(z).reshape([28, 28])
+        img_loc = decoder_nn[1](params['decoder$params'], z).reshape([28, 28])
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 
     for i in range(args.num_epochs):

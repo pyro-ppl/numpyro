@@ -102,7 +102,7 @@ def param(name, init_value=None, **kwargs):
     return msg['value']
 
 
-def module(name, nn, input_size=None):
+def module(name, nn, input_shape=None):
     """
     Declare a :mod:`~jax.experimental.stax` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -110,7 +110,8 @@ def module(name, nn, input_size=None):
 
     :param str name: name of the module to be registered.
     :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by
-    :param input_size:
+    :param int, tuple input_shape: shape of the input taken by the
+        neural network.
     :return: a `apply_fn` with bound parameters that takes an array
         as an input and returns the neural network transformed output
         array.
@@ -119,9 +120,9 @@ def module(name, nn, input_size=None):
     nn_init, nn_apply = nn
     nn_params = param(module_key)
     if nn_params is None:
-        if input_size is None:
+        if input_shape is None:
             raise ValueError('Valid value for `input_size` needed to initialize.')
-        rng = numpyro.sample('nn_rng', PRNGIdentity())
-        _, nn_params = nn_init(rng, input_size)
+        rng = numpyro.sample(name + '$rng', PRNGIdentity())
+        _, nn_params = nn_init(rng, input_shape)
         param(module_key, nn_params)
     return jax.partial(nn_apply, nn_params)
