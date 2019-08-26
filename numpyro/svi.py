@@ -6,7 +6,7 @@ from jax import random, value_and_grad
 from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
-from numpyro.handlers import Messenger, replay, seed, substitute, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
 
 
