@@ -551,6 +551,8 @@ def _transform_to_corr_cholesky(constraint):
 
 @biject_to.register(greater_than)
 def _transform_to_greater_than(constraint):
+    if constraint is positive:
+        return ExpTransform()
     return ComposeTransform([ExpTransform(),
                              AffineTransform(constraint.lower_bound, 1,
                                              domain=positive)])
@@ -558,6 +560,8 @@ def _transform_to_greater_than(constraint):
 
 @biject_to.register(interval)
 def _transform_to_interval(constraint):
+    if constraint is unit_interval:
+        return SigmoidTransform()
     scale = constraint.upper_bound - constraint.lower_bound
     return ComposeTransform([SigmoidTransform(),
                              AffineTransform(constraint.lower_bound, scale,

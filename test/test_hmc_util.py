@@ -10,9 +10,9 @@ from jax import device_put, disable_jit, grad, jit, random, tree_map
 import jax.numpy as np
 
 import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import biject_to
-from numpyro import handlers
 from numpyro.hmc_util import (
     AdaptWindow,
     _is_iterative_turning,

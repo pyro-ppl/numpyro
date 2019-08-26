@@ -5,8 +5,8 @@ from jax import random, value_and_grad
 
 from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import ComposeTransform, biject_to
-from numpyro.handlers import replay, seed, substitute, trace
+from numpyro.distributions.constraints import biject_to
+from numpyro.handlers import Messenger, replay, seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
 
 
@@ -35,8 +35,6 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
     constrain_fn = None
-    # NB: only skip transforms for AutoContinuous guide
-    loss_fn = jax.partial(loss, is_autoguide=True) if isinstance(guide, AutoContinuous) else loss
 
     def init_fn(rng, model_args=(), guide_args=(), params=None):
         """
@@ -53,6 +51,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
         """
+        nonlocal constrain_fn
+
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
         model_init, guide_init = _seed(model, guide, rng)
@@ -69,34 +69,19 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
             if site['type'] == 'param':
                 constraint = site['kwargs'].pop('constraint', constraints.real)
                 transform = biject_to(constraint)
-                if isinstance(transform, ComposeTransform):
-                    base_transform = transform.parts[0]
-                    inv_transforms[site['name']] = base_transform
-                    params[site['name']] = base_transform(transform.inv(site['value']))
-                else:
-                    inv_transforms[site['name']] = transform
-                    params[site['name']] = site['value']
+                inv_transforms[site['name']] = transform
+                params[site['name']] = transform.inv(site['value'])
 
-        nonlocal constrain_fn
         constrain_fn = jax.partial(transform_fn, inv_transforms)
         return optim_init(params), get_params
 
-    def get_params(opt_state, rng=None, model_args=(), guide_args=()):
+    def get_params(opt_state):
+        """
+        Gets values at `param` sites of the `model` and `guide`.
+
+        :param dict opt_state: current state of the optimizer.
+        """
         params = constrain_fn(get_optim_params(opt_state))
-        if guide_args:
-            model_, guide_ = _seed(model, guide, rng)
-            guide_ = substitute(guide_, base_param_map=params)
-            guide_trace = trace(guide_).get_trace(*guide_args, **kwargs)
-            model_params = {k: v for k, v in params.items() if k not in guide_trace}
-            params = {k: guide_trace[k]['value'] if k in guide_trace else v
-                      for k, v in params.items()}
-
-            if model_args:
-                model_ = substitute(replay(model_, guide_trace), base_param_map=model_params)
-                model_trace = trace(model_).get_trace(*model_args, **kwargs)
-                params = {k: model_trace[k]['value'] if k in model_params else v
-                          for k, v in params.items()}
-
         return params
 
     def update_fn(i, rng, opt_state, model_args=(), guide_args=()):
@@ -115,8 +100,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
         params = get_optim_params(opt_state)
-        loss_val, grads = value_and_grad(loss_fn)(params, model_init, guide_init, model_args,
-                                                  guide_args, kwargs, constrain_fn=constrain_fn)
+        loss_val, grads = value_and_grad(
+            lambda x: loss(constrain_fn(x), model_init, guide_init, model_args, guide_args, kwargs))(params)
         opt_state = optim_update(i, grads, opt_state)
         return loss_val, opt_state, rng
 
@@ -134,8 +119,8 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
             (held within `opt_state`).
         """
         model_init, guide_init = _seed(model, guide, rng)
-        params = get_optim_params(opt_state)
-        return loss_fn(params, model_init, guide_init, model_args, guide_args, kwargs, constrain_fn=constrain_fn)
+        params = get_params(opt_state)
+        return loss(params, model_init, guide_init, model_args, guide_args, kwargs)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
@@ -147,7 +132,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
     return init_fn, update_fn, evaluate
 
 
-def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn, is_autoguide=False):
+def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
     fundamental objective in Variational Inference. This implementation has various
@@ -167,12 +152,13 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn, 
     :param tuple guide_args: arguments to the guide (these can possibly vary during
         the course of fitting).
     :param dict kwargs: static keyword arguments to the model / guide.
-    :param constrain_fn: a callable that transforms unconstrained parameter values
-        from the optimizer to the specified constrained domain.
     :return: negative of the Evidence Lower Bound (ELBo) to be minimized.
     """
-    param_map = constrain_fn(param_map)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
+    is_autoguide = False
+    if isinstance(guide, Messenger):
+        if isinstance(guide.fn, AutoContinuous):
+            is_autoguide = True
     if is_autoguide:
         # in autoguide, a site's value holds intermediate value
         for name, site in guide_trace.items():
