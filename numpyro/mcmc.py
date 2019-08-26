@@ -199,7 +199,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         :param jax.random.PRNGKey rng: random key to be used as the source of
             randomness.
         """
-        step_size = float(step_size)
+        step_size = lax.convert_element_type(step_size, xla_bridge.canonicalize_dtype(np.float64))
         nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth, wa_steps
         wa_steps = num_warmup
         trajectory_len = float(trajectory_length)
