@@ -156,9 +156,8 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     """
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
     is_autoguide = False
-    if isinstance(guide, Messenger):
-        if isinstance(guide.fn, AutoContinuous):
-            is_autoguide = True
+    if isinstance(guide.__wrapped__, AutoContinuous):
+        is_autoguide = True
     if is_autoguide:
         # in autoguide, a site's value holds intermediate value
         for name, site in guide_trace.items():
