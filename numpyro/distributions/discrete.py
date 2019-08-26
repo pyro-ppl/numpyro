@@ -244,11 +244,11 @@ class CategoricalProbs(Distribution):
 
     @property
     def mean(self):
-        return np.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
 
     @property
     def variance(self):
-        return np.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
 
     @property
     def support(self):
@@ -284,11 +284,11 @@ class CategoricalLogits(Distribution):
 
     @property
     def mean(self):
-        return np.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.logits))
 
     @property
     def variance(self):
-        return np.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.logits))
 
     @property
     def support(self):

@@ -9,11 +9,8 @@ from jax.test_util import check_eq
 import numpyro
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
 import numpyro.distributions as dist
-<<<<<<< HEAD
 from numpyro.distributions import constraints
 from numpyro.handlers import sample, substitute
-=======
->>>>>>> master
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
 

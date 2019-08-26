@@ -7,11 +7,8 @@ import jax.numpy as np
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-<<<<<<< HEAD
 from numpyro.distributions.constraints import SigmoidTransform, AffineTransform
 from numpyro.handlers import param, sample, substitute
-=======
->>>>>>> master
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
 
@@ -57,13 +54,8 @@ def test_dynamic_constraints():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     def guide():
-<<<<<<< HEAD
         alpha = param('alpha', 0.5, constraint=constraints.unit_interval)
         param('loc', 0.1, constraint=constraints.interval(0, alpha))
-=======
-        alpha = numpyro.param('alpha', 0.5, constraint=constraints.unit_interval)
-        numpyro.param('loc', 0, constraint=constraints.interval(0, alpha))
->>>>>>> master
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.05)
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)

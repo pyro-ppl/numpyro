@@ -25,6 +25,7 @@
 import math
 
 from jax import ops
+from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
@@ -173,8 +174,8 @@ unit_interval = _Interval(0., 1.)
 ##########################################################
 
 def _clipped_expit(x):
-    dtype = get_dtype(x)
-    return np.clip(expit(x), a_min=np.finfo(dtype).tiny, a_max=1.-np.finfo(dtype).eps)
+    finfo = np.finfo(get_dtype(x))
+    return np.clip(expit(x), a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
 class Transform(object):
@@ -438,7 +439,7 @@ class PermuteTransform(Transform):
 
     def inv(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(np.zeros(size, dtype=np.int64),
+        permutation_inv = ops.index_update(np.zeros(size, dtype=canonicalize_dtype(np.int64)),
                                            self.permutation,
                                            np.arange(size))
         return y[..., permutation_inv]
