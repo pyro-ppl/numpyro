@@ -4,8 +4,8 @@ from numbers import Number
 
 import scipy.special as osp_special
 
-from jax import canonicalize_dtype, custom_transforms, defjvp, device_get, jit, lax, random, vmap
-from jax.lib import xla_bridge
+from jax import custom_transforms, defjvp, device_get, jit, lax, random, vmap
+from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.linalg import solve_triangular
@@ -187,7 +187,7 @@ def _standard_gamma(key, alpha, shape, dtype):
 
 
 def standard_gamma(key, alpha, shape=(), dtype=np.float64):
-    dtype = xla_bridge.canonicalize_dtype(dtype)
+    dtype = canonicalize_dtype(dtype)
     return _standard_gamma(key, alpha, shape, dtype)
 
 
@@ -248,6 +248,7 @@ def _poisson(key, rate, shape, dtype):
 
 
 def poisson(key, rate, shape, dtype=np.int64):
+    dtype = canonicalize_dtype(dtype)
     return _poisson(key, rate, shape, dtype)
 
 
@@ -389,8 +390,8 @@ def promote_shapes(*args, shape=()):
                 if len(s) < num_dims else arg for arg, s in zip(args, shapes)]
 
 
-def get_dtypes(*args):
-    return [canonicalize_dtype(lax.dtype(arg)) for arg in args]
+def get_dtype(x):
+    return canonicalize_dtype(lax.dtype(x))
 
 
 def sum_rightmost(x, dim):
@@ -490,5 +491,5 @@ class lazy_property(object):
 
 
 def clamp_probs(probs):
-    finfo = np.finfo(get_dtypes(probs)[0])
+    finfo = np.finfo(get_dtype(probs))
     return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)

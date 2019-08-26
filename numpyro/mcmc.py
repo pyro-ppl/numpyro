@@ -56,7 +56,7 @@ def _get_num_steps(step_size, trajectory_length):
     num_steps = np.clip(trajectory_length / step_size, a_min=1)
     # NB: casting to np.int64 does not take effect (returns np.int32 instead)
     # if jax_enable_x64 is False
-    return num_steps.astype(np.int64)
+    return num_steps.astype(xla_bridge.canonicalize_dtype(np.int64))
 
 
 def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng):

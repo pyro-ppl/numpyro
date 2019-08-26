@@ -36,7 +36,7 @@ from numpyro.distributions.util import (
     binomial,
     categorical,
     clamp_probs,
-    get_dtypes,
+    get_dtype,
     lazy_property,
     logsumexp,
     multinomial,
@@ -64,7 +64,7 @@ def _to_probs_multinom(logits):
 
 
 def _to_logits_multinom(probs):
-    minval = np.finfo(get_dtypes(probs)[0]).min
+    minval = np.finfo(get_dtype(probs)).min
     return np.clip(np.log(probs), a_min=minval)
 
 
@@ -244,11 +244,11 @@ class CategoricalProbs(Distribution):
 
     @property
     def mean(self):
-        return np.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
 
     @property
     def variance(self):
-        return np.full(self.batch_shape, np.nan, dtype=self.probs.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
 
     @property
     def support(self):
@@ -284,11 +284,11 @@ class CategoricalLogits(Distribution):
 
     @property
     def mean(self):
-        return np.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.logits))
 
     @property
     def variance(self):
-        return np.full(self.batch_shape, np.nan, dtype=self.logits.dtype)
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.logits))
 
     @property
     def support(self):
