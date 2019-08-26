@@ -6,7 +6,7 @@ from jax import random, value_and_grad
 from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
-from numpyro.handlers import Messenger, replay, seed, substitute, trace
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
 
 
@@ -156,9 +156,8 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     """
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
     is_autoguide = False
-    if isinstance(guide, Messenger):
-        if isinstance(guide.fn, AutoContinuous):
-            is_autoguide = True
+    if isinstance(guide.__wrapped__, AutoContinuous):
+        is_autoguide = True
     if is_autoguide:
         # in autoguide, a site's value holds intermediate value
         for name, site in guide_trace.items():

@@ -78,6 +78,7 @@ need to loop over all the data points.
 
 from __future__ import absolute_import, division, print_function
 
+import functools
 from collections import OrderedDict
 
 from jax import random
@@ -89,6 +90,7 @@ from numpyro.primitives import _PYRO_STACK
 class Messenger(object):
     def __init__(self, fn=None):
         self.fn = fn
+        functools.update_wrapper(self, fn, updated=[])
 
     def __enter__(self):
         _PYRO_STACK.append(self)
