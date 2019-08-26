@@ -8,13 +8,13 @@ import jax.numpy as np
 from jax.tree_util import tree_map
 
 import numpyro
+from numpyro import handlers
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AffineTransform, ComposeTransform, PermuteTransform, biject_to
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import sum_rightmost
-from numpyro import handlers
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
 
 __all__ = [
@@ -212,24 +212,16 @@ class AutoContinuous(AutoGuide):
         return unpacked_samples
 
     def get_transform(self, opt_state):
-<<<<<<< HEAD
         # TODO: reconsider this logic
-        return substitute(self._get_transform, self.get_params(opt_state))()
-=======
         return handlers.substitute(self._get_transform, self.get_params(opt_state))()
->>>>>>> master
 
     def sample_posterior(self, rng, opt_state, sample_shape=(), base_dist=None,
                          model_args=None, model_kwargs=None):
         if base_dist is None:
             base_dist = _Normal(np.zeros(self.latent_size), 1.)
         params = self.get_params(opt_state)
-<<<<<<< HEAD
         # TODO: reconsider this logic
-        latent_sample = substitute(seed(self._sample_latent, rng), params)(
-=======
         latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng), params)(
->>>>>>> master
             base_dist, sample_shape=sample_shape)
         return self._unpack_and_transform(latent_sample, params,
                                           model_args=model_args, model_kwargs=model_kwargs)
@@ -271,12 +263,8 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         params = self.get_params(opt_state)
-<<<<<<< HEAD
         # TODO: reconsider this logic
-        loc, _ = substitute(self._loc_scale, params)()
-=======
         loc, _ = handlers.substitute(self._loc_scale, params)()
->>>>>>> master
         return self._unpack_and_transform(loc, params, model_args=model_args, model_kwargs=model_kwargs)
 
     def quantiles(self, opt_state, quantiles, model_args=None, model_kwargs=None):
@@ -292,12 +280,8 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         params = self.get_params(opt_state)
-<<<<<<< HEAD
         # TODO: reconsider this logic
-        loc, scale = substitute(self._loc_scale, params)()
-=======
         loc, scale = handlers.substitute(self._loc_scale, params)()
->>>>>>> master
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(loc, scale).icdf(quantiles)
         return self._unpack_and_transform(latent, params, model_args=model_args, model_kwargs=model_kwargs)

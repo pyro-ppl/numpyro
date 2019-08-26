@@ -4,9 +4,9 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-import jax.numpy as np
 from jax import random
 from jax.config import config as jax_config
+import jax.numpy as np
 
 import numpyro
 import numpyro.distributions as dist

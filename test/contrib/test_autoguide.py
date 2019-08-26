@@ -10,7 +10,7 @@ import numpyro
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.handlers import sample, substitute
+from numpyro.handlers import substitute
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
 
@@ -162,7 +162,7 @@ def test_elbo_dynamic_support():
     x_unconstrained = 2.
 
     def model():
-        sample('x', x_prior)
+        numpyro.sample('x', x_prior)
 
     class _AutoGuide(AutoDiagonalNormal):
         def __call__(self, *args, **kwargs):

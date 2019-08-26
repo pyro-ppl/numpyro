@@ -6,7 +6,7 @@ from jax import random, value_and_grad
 from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
-from numpyro.handlers import replay, seed, substitute, trace
+from numpyro.handlers import Messenger, replay, seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
 
 
@@ -53,7 +53,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
         """
-        nonlocal constrain_fn, has_dynamic_constraints, _model_args, _guide_args
+        nonlocal constrain_fn
 
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
@@ -134,7 +134,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
     return init_fn, update_fn, evaluate
 
 
-def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn, is_autoguide=False):
+def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
     fundamental objective in Variational Inference. This implementation has various
@@ -154,12 +154,13 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs, constrain_fn, 
     :param tuple guide_args: arguments to the guide (these can possibly vary during
         the course of fitting).
     :param dict kwargs: static keyword arguments to the model / guide.
-    :param constrain_fn: a callable that transforms unconstrained parameter values
-        from the optimizer to the specified constrained domain.
     :return: negative of the Evidence Lower Bound (ELBo) to be minimized.
     """
-    param_map = constrain_fn(param_map)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
+    is_autoguide = False
+    if isinstance(guide, Messenger):
+        if isinstance(guide.fn, AutoContinuous):
+            is_autoguide = True
     if is_autoguide:
         # in autoguide, a site's value holds intermediate value
         for name, site in guide_trace.items():

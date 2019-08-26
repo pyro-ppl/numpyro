@@ -4,8 +4,8 @@ import pytest
 from jax import random
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro import handlers
+import numpyro.distributions as dist
 from numpyro.infer_util import log_density
 from numpyro.util import optional
 

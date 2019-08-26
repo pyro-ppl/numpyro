@@ -7,10 +7,10 @@ import jax.numpy as np
 import jax.random as random
 
 import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions.util import logsumexp
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro import handlers
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
