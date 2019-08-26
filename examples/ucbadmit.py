@@ -8,9 +8,9 @@ from jax.config import config as jax_config
 import jax.numpy as np
 
 import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import UCBADMIT, load_dataset
-from numpyro import handlers
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import mcmc
 
