@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 
 import matplotlib
@@ -132,4 +133,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-data", nargs='?', default=25, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)
