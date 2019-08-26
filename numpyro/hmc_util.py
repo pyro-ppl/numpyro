@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import device_get, grad, jit, lax, partial, random, value_and_grad, vmap
+from jax import device_get, grad, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update

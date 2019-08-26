@@ -6,10 +6,10 @@ import numpy as onp
 from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
+from jax.scipy.special import logsumexp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.util import logsumexp
 from numpyro.examples.datasets import BASEBALL, load_dataset
 from numpyro import handlers
 from numpyro.hmc_util import initialize_model

@@ -263,12 +263,6 @@ def signed_stick_breaking_tril(t):
     return y
 
 
-def logsumexp(x, axis=0, keepdims=False):
-    x_max = np.max(x, axis=axis, keepdims=True)
-    result = np.log(np.sum(np.exp(x - x_max), axis=axis, keepdims=True)) + x_max
-    return result if keepdims else np.squeeze(result, axis=axis)
-
-
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
