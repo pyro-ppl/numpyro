@@ -47,7 +47,7 @@ def test_beta_bernoulli():
 def test_param():
     # this test the validity of model/guide sites having
     # param constraints contain composed transformed
-    rngs = random.split(random.PRNGKey(0))
+    rngs = random.split(random.PRNGKey(0), 5)
     a_minval = 1
     c_minval = -2
     c_maxval = -1
