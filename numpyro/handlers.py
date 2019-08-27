@@ -78,8 +78,8 @@ need to loop over all the data points.
 
 from __future__ import absolute_import, division, print_function
 
-import functools
 from collections import OrderedDict
+import functools
 
 from jax import random
 
