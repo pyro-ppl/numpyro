@@ -15,6 +15,7 @@ __all__ = [
     'RMSProp',
     'RMSPropMomentum',
     'SGD',
+    'SM3',
 ]
 
 _Params = TypeVar('_Params')
@@ -102,3 +103,9 @@ class RMSPropMomentum(_NumpyroOptim):
 class SGD(_NumpyroOptim):
     def __init__(self, *args, **kwargs):
         super(SGD, self).__init__(optimizers.sgd, *args, **kwargs)
+
+
+@_add_doc(optimizers.sm3)
+class SM3(_NumpyroOptim):
+    def __init__(self, *args, **kwargs):
+        super(SM3, self).__init__(optimizers.sm3, *args, **kwargs)

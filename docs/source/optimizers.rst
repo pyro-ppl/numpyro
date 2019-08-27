@@ -44,3 +44,10 @@ SGD
    :members:
    :undoc-members:
    :inherited-members:
+
+SM3
+---
+.. autoclass:: numpyro.optim.SM3
+   :members:
+   :undoc-members:
+   :inherited-members:
