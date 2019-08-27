@@ -44,27 +44,42 @@ def test_beta_bernoulli():
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
 
-def test_elbo_dynamic_constraint():
+def test_param():
     # this test the validity of model/guide sites having
-    # param constraints are ComposeTransform
-    a_init = 2.
-    b_init = -3.
-    obs = 0.
+    # param constraints contain composed transformed
+    rngs = random.split(random.PRNGKey(0))
+    a_minval = 1
+    c_minval = -2
+    c_maxval = -1
+    a_init = np.exp(random.normal(rngs[0])) + a_minval
+    b_init = np.exp(random.normal(rngs[1]))
+    c_init = random.uniform(rngs[2], minval=c_minval, maxval=c_maxval)
+    d_init = random.uniform(rngs[3])
+    obs = random.normal(rngs[4])
 
     def model():
-        a = numpyro.param('a', a_init, constraint=constraints.greater_than(1.))
-        numpyro.sample('x', dist.Normal(a, 1), obs=obs)
+        a = numpyro.param('a', a_init, constraint=constraints.greater_than(a_minval))
+        b = numpyro.param('b', b_init, constraint=constraints.positive)
+        numpyro.sample('x', dist.Normal(a, b), obs=obs)
 
     def guide():
-        b = numpyro.param('b', b_init, constraint=constraints.interval(-4., -1.))
-        numpyro.sample('y', dist.Normal(b, 1), obs=obs)
+        c = numpyro.param('c', c_init, constraint=constraints.interval(c_minval, c_maxval))
+        d = numpyro.param('d', d_init, constraint=constraints.unit_interval)
+        numpyro.sample('y', dist.Normal(c, d), obs=obs)
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
     svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
+
+    params = get_params(opt_state)
+    assert_allclose(params['a'], a_init)
+    assert_allclose(params['b'], b_init)
+    assert_allclose(params['c'], c_init)
+    assert_allclose(params['d'], d_init)
+
     actual_loss = svi_eval(random.PRNGKey(1), opt_state)
     assert np.isfinite(actual_loss)
-    expected_loss = dist.Normal(b_init, 1).log_prob(obs) - dist.Normal(a_init, 1).log_prob(obs)
+    expected_loss = dist.Normal(c_init, d_init).log_prob(obs) - dist.Normal(a_init, b_init).log_prob(obs)
     assert_allclose(actual_loss, expected_loss)
 
 
