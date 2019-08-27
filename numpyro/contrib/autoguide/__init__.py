@@ -117,6 +117,7 @@ class AutoContinuous(AutoGuide):
         self.init_strategy = init_strategy
         rng, self._init_rng = random.split(rng)
         model = handlers.seed(model, rng)
+        self._base_dist = None
         super(AutoContinuous, self).__init__(model, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -142,6 +143,8 @@ class AutoContinuous(AutoGuide):
 
         self._init_latent, self.unpack_latent = ravel_pytree(init_params)
         self.latent_size = np.size(self._init_latent)
+        if self.base_dist is None:
+            self.base_dist = _Normal(np.zeros(self.latent_size), 1.)
         if self.latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'
                                .format(type(self).__name__))
@@ -169,10 +172,7 @@ class AutoContinuous(AutoGuide):
             params = self.setup(*args, **kwargs)
             sample_latent_fn = handlers.substitute(sample_latent_fn, params)
 
-        base_dist = kwargs.pop('base_dist', None)
-        if base_dist is None:
-            base_dist = _Normal(np.zeros(self.latent_size), 1.)
-        latent = sample_latent_fn(base_dist, *args, **kwargs)
+        latent = sample_latent_fn(self.base_dist, *args, **kwargs)
 
         # unpack continuous latent samples
         result = {}
@@ -218,10 +218,21 @@ class AutoContinuous(AutoGuide):
                                     unpacked_samples)
         return unpacked_samples
 
+    @property
+    def base_dist(self):
+        """
+        Base distribution of the posterior. By default, it is standard normal.
+        """
+        return self._base_dist
+
+    @base_dist.setter
+    def base_dist(self, base_dist):
+        self._base_dist = base_dist
+
     def get_transform(self, params):
         """
-        For :class:`AutoContinuous` guides, latent posterior is a transformed distribution. By
-        default, base distribution of the posterior is a standard gaussian. This method will return
+        For :class:`AutoContinuous` guides, posterior is a transformed distribution. By
+        default, base distribution of the posterior is a standard normal. This method will return
         the corresponding transform given current parameter values of the model and this guide.
 
         :param dict params: Current parameters of model and autoguide.
@@ -230,11 +241,9 @@ class AutoContinuous(AutoGuide):
         """
         return handlers.substitute(self._get_transform, params)()
 
-    def sample_posterior(self, rng, params, sample_shape=(), base_dist=None):
-        if base_dist is None:
-            base_dist = _Normal(np.zeros(self.latent_size), 1.)
+    def sample_posterior(self, rng, params, sample_shape=()):
         latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng), params)(
-            base_dist, sample_shape=sample_shape)
+            self.base_dist, sample_shape=sample_shape)
         return self._unpack_and_transform(latent_sample, params)
 
 
