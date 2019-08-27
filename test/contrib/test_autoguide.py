@@ -119,6 +119,44 @@ def test_uniform_normal():
     assert_allclose(median['loc'][1], true_coef, rtol=0.1)
 
 
+def test_param():
+    # this test the validity of model having
+    # param sites contain composed transformed constraints
+    rngs = random.split(random.PRNGKey(0), 3)
+    a_minval = 1
+    a_init = np.exp(random.normal(rngs[0])) + a_minval
+    b_init = np.exp(random.normal(rngs[1]))
+    x_init = random.normal(rngs[2])
+
+    def model():
+        a = numpyro.param('a', a_init, constraint=constraints.greater_than(a_minval))
+        b = numpyro.param('b', b_init, constraint=constraints.positive)
+        numpyro.sample('x', dist.Normal(a, b))
+
+    # this class is used to force init value of `x` to x_init
+    class _AutoGuide(AutoDiagonalNormal):
+        def __call__(self, *args, **kwargs):
+            return substitute(super(_AutoGuide, self).__call__,
+                              {'_auto_latent': x_init})(*args, **kwargs)
+
+    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
+    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
+    guide = _AutoGuide(rng_guide, model)
+    svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    opt_state, get_params = svi_init(rng_init)
+
+    params = get_params(opt_state)
+    assert_allclose(params['a'], a_init)
+    assert_allclose(params['b'], b_init)
+    assert_allclose(params['auto_loc'], guide._init_latent)
+    assert_allclose(params['auto_scale'], np.ones(1))
+
+    actual_loss = svi_eval(random.PRNGKey(1), opt_state)
+    assert np.isfinite(actual_loss)
+    expected_loss = dist.Normal(guide._init_latent, 1).log_prob(x_init) - dist.Normal(a_init, b_init).log_prob(x_init)
+    assert_allclose(actual_loss, expected_loss)
+
+
 def test_dynamic_supports():
     true_coef = 0.9
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
