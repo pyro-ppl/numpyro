@@ -155,20 +155,23 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     :return: negative of the Evidence Lower Bound (ELBo) to be minimized.
     """
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
-    is_autoguide = False
     if isinstance(guide.__wrapped__, AutoContinuous):
-        is_autoguide = True
-    if is_autoguide:
+        # first, we substitute `param_map` to `param` primitives of `model`
+        model = substitute(model, param_map)
+        # then creates a new `param_map` which holds base values of `sample` primitives
+        base_param_map = {}
         # in autoguide, a site's value holds intermediate value
         for name, site in guide_trace.items():
             if site['type'] == 'sample':
-                param_map[name] = site['value']
+                base_param_map[name] = site['value']
+        model_log_density, _ = log_density(model, model_args, kwargs, base_param_map,
+                                           skip_dist_transforms=True)
     else:
         # NB: we only want to substitute params not available in guide_trace
         param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
         model = replay(model, guide_trace)
-    model_log_density, _ = log_density(model, model_args, kwargs, param_map,
-                                       skip_dist_transforms=is_autoguide)
+        model_log_density, _ = log_density(model, model_args, kwargs, param_map)
+
     # log p(z) - log q(z)
     elbo = model_log_density - guide_log_density
     # Return (-elbo) since by convention we do gradient descent on a loss and

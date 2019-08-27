@@ -24,7 +24,16 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
         domain.
     :return: log of joint density and a corresponding model trace
     """
-    model = substitute(model, base_param_map=params)
+    # We skip transforms in
+    #   + autoguide's model
+    #   + hmc's model
+    # We apply transforms in
+    #   + autoguide's guide
+    #   + svi's model + guide
+    if skip_dist_transforms:
+        model = substitute(model, base_param_map=params)
+    else:
+        model = substitute(model, param_map=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = 0.
     for site in model_trace.values():

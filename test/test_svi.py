@@ -44,6 +44,30 @@ def test_beta_bernoulli():
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
 
+def test_elbo_dynamic_constraint():
+    # this test the validity of model/guide sites having
+    # param constraints are ComposeTransform
+    a_init = 2.
+    b_init = -3.
+    obs = 0.
+
+    def model():
+        a = numpyro.param('a', a_init, constraint=constraints.greater_than(1.))
+        numpyro.sample('x', dist.Normal(a, 1), obs=obs)
+
+    def guide():
+        b = numpyro.param('b', b_init, constraint=constraints.interval(-4., -1.))
+        numpyro.sample('y', dist.Normal(b, 1), obs=obs)
+
+    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
+    svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
+    actual_loss = svi_eval(random.PRNGKey(1), opt_state)
+    assert np.isfinite(actual_loss)
+    expected_loss = dist.Normal(b_init, 1).log_prob(obs) - dist.Normal(a_init, 1).log_prob(obs)
+    assert_allclose(actual_loss, expected_loss)
+
+
 def test_elbo_dynamic_support():
     x_prior = dist.TransformedDistribution(
         dist.Normal(), [AffineTransform(0, 2), SigmoidTransform(), AffineTransform(0, 3)])

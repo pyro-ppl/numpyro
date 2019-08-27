@@ -351,10 +351,12 @@ class substitute(Messenger):
 
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
-       site names.
+        site names.
+    :param dict base_param_map: similar to `param_map` but only holds base
+        values for sample sites whose priors are transformed distributions.
     :param substitute_fn: callable that takes in a site dict and returns
-       a numpy array or `None` (in which case the handler has no side
-       effect).
+        a numpy array or `None` (in which case the handler has no side
+        effect).
 
     **Example:**
 
