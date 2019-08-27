@@ -242,6 +242,15 @@ class AutoContinuous(AutoGuide):
         return handlers.substitute(self._get_transform, params)()
 
     def sample_posterior(self, rng, params, sample_shape=()):
+        """
+        Get samples from the learned posterior.
+
+        :param jax.random.PRNGKey rng: random key to be used draw samples.
+        :param dict params: Current parameters of model and autoguide.
+        :param tuple sample_shape: batch shape of each latent sample, defaults to ().
+        :return: a dict containing samples drawn the this guide.
+        :rtype: dict
+        """
         latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng), params)(
             self.base_dist, sample_shape=sample_shape)
         return self._unpack_and_transform(latent_sample, params)
