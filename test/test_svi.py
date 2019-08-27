@@ -80,7 +80,8 @@ def test_param():
     actual_loss = svi_eval(random.PRNGKey(1), opt_state)
     assert np.isfinite(actual_loss)
     expected_loss = dist.Normal(c_init, d_init).log_prob(obs) - dist.Normal(a_init, b_init).log_prob(obs)
-    assert_allclose(actual_loss, expected_loss)
+    # not so precisely because we do transform / inverse transform stuffs
+    assert_allclose(actual_loss, expected_loss, rtol=1e-6)
 
 
 def test_elbo_dynamic_support():
