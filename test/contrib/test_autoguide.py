@@ -29,7 +29,7 @@ def test_beta_bernoulli(auto_class):
 
     opt_init, opt_update, opt_params = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = auto_class(rng_guide, model, opt_params)
+    guide = auto_class(rng_guide, model)
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, opt_params)
     opt_state, get_params = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
@@ -39,9 +39,10 @@ def test_beta_bernoulli(auto_class):
         return opt_state_, rng_
 
     opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
+    params = get_params(opt_state)
     true_coefs = (np.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
-    posterior_samples = guide.sample_posterior(random.PRNGKey(1), opt_state, sample_shape=(1000,))
+    posterior_samples = guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(1000,))
     assert_allclose(np.mean(posterior_samples['beta'], 0), true_coefs, atol=0.04)
 
 
@@ -63,11 +64,11 @@ def test_logistic_regression(auto_class):
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = auto_class(rng_guide, model, get_opt_params)
+    guide = auto_class(rng_guide, model)
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
-    opt_state, constrain_fn = svi_init(rng_init,
-                                       model_args=(data, labels),
-                                       guide_args=(data, labels))
+    opt_state, get_params = svi_init(rng_init,
+                                     model_args=(data, labels),
+                                     guide_args=(data, labels))
 
     def body_fn(i, val):
         opt_state_, rng_ = val
@@ -77,16 +78,16 @@ def test_logistic_regression(auto_class):
         return opt_state_, rng_
 
     opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
+    params = get_params(opt_state)
     if auto_class is not AutoIAFNormal:
-        median = guide.median(opt_state)
+        median = guide.median(params)
         assert_allclose(median['coefs'], true_coefs, rtol=0.1)
         # test .quantile method
-        median = guide.quantiles(opt_state, [0.2, 0.5])
+        median = guide.quantiles(params, [0.2, 0.5])
         assert_allclose(median['coefs'][1], true_coefs, rtol=0.1)
     # test .sample_posterior method
-    posterior_samples = guide.sample_posterior(random.PRNGKey(1), opt_state, sample_shape=(1000,))
-    # TODO: reduce rtol to 0.1 when issues in autoguide is fixed
-    assert_allclose(np.mean(posterior_samples['coefs'], 0), true_coefs, rtol=0.2)
+    posterior_samples = guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(1000,))
+    assert_allclose(np.mean(posterior_samples['coefs'], 0), true_coefs, rtol=0.1)
 
 
 def test_uniform_normal():
@@ -100,7 +101,7 @@ def test_uniform_normal():
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = AutoDiagonalNormal(rng_guide, model, get_opt_params)
+    guide = AutoDiagonalNormal(rng_guide, model)
     svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
     opt_state, get_params = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
@@ -110,10 +111,11 @@ def test_uniform_normal():
         return opt_state_, rng_
 
     opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
-    median = guide.median(opt_state)
+    params = get_params(opt_state)
+    median = guide.median(params)
     assert_allclose(median['loc'], true_coef, rtol=0.05)
     # test .quantile method
-    median = guide.quantiles(opt_state, [0.2, 0.5])
+    median = guide.quantiles(params, [0.2, 0.5])
     assert_allclose(median['loc'][1], true_coef, rtol=0.1)
 
 
@@ -134,24 +136,26 @@ def test_dynamic_supports():
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
 
-    guide = AutoDiagonalNormal(rng_guide, actual_model, get_opt_params)
+    guide = AutoDiagonalNormal(rng_guide, actual_model)
     svi_init, _, svi_eval = svi(actual_model, guide, elbo, opt_init, opt_update, get_opt_params)
     opt_state, get_params = svi_init(rng_init, (data,), (data,))
-    actual_params = get_opt_params(opt_state)
-    actual_base_params = get_params(opt_state)
-    actual_values = guide.median(opt_state)
+    actual_opt_params = get_opt_params(opt_state)
+    actual_params = get_params(opt_state)
+    actual_values = guide.median(actual_params)
     actual_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
 
-    guide = AutoDiagonalNormal(rng_guide, expected_model, get_params)
+    guide = AutoDiagonalNormal(rng_guide, expected_model)
     svi_init, _, svi_eval = svi(expected_model, guide, elbo, opt_init, opt_update, get_opt_params)
     opt_state, get_params = svi_init(rng_init, (data,), (data,))
-    expected_params = get_opt_params(opt_state)
-    expected_base_params = get_params(opt_state)
-    expected_values = guide.median(opt_state)
+    expected_opt_params = get_opt_params(opt_state)
+    expected_params = get_params(opt_state)
+    expected_values = guide.median(expected_params)
     expected_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
 
+    # test auto_loc, auto_scale
+    check_eq(actual_opt_params, expected_opt_params)
     check_eq(actual_params, expected_params)
-    check_eq(actual_base_params, expected_base_params)
+    # test latent values
     assert_allclose(actual_values['alpha'], expected_values['alpha'])
     assert_allclose(actual_values['loc'], expected_values['alpha'] * expected_values['loc'])
     assert_allclose(actual_loss, expected_loss)
@@ -170,7 +174,7 @@ def test_elbo_dynamic_support():
                               {'_auto_latent': x_unconstrained})(*args, **kwargs)
 
     opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
-    guide = _AutoGuide(random.PRNGKey(0), model, get_opt_params)
+    guide = _AutoGuide(random.PRNGKey(0), model)
     svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
     actual_loss = svi_eval(random.PRNGKey(1), opt_state)
