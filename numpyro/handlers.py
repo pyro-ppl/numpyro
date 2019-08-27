@@ -78,8 +78,8 @@ need to loop over all the data points.
 
 from __future__ import absolute_import, division, print_function
 
-import functools
 from collections import OrderedDict
+import functools
 
 from jax import random
 
@@ -352,8 +352,8 @@ class substitute(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
         site names.
-    :param dict base_param_map: similar to `param_map` but only holds base
-        values for sample sites whose priors are transformed distributions.
+    :param dict base_param_map: similar to `param_map` but only holds samples
+        from base distributions.
     :param substitute_fn: callable that takes in a site dict and returns
         a numpy array or `None` (in which case the handler has no side
         effect).

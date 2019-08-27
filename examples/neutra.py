@@ -7,12 +7,12 @@ import seaborn as sns
 
 from jax import lax, random, vmap
 from jax.config import config as jax_config
-from jax.experimental import optimizers
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
 
 import numpyro
+from numpyro import optim
 from numpyro.contrib.autoguide import AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
@@ -61,15 +61,15 @@ def main(args):
     vanilla_samples = mcmc(args.num_warmup, args.num_samples, init_params=np.array([2., 0.]),
                            potential_fn=dual_moon_pe, progbar=True)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.001)
+    adam = optim.Adam(0.001)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = AutoIAFNormal(rng_guide, dual_moon_model, hidden_dims=[args.num_hidden])
-    svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, opt_init, opt_update, get_opt_params)
+    svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init)
 
     def body_fn(val, i):
         opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_)
+        loss, opt_state_, rng_ = svi_update(rng_, opt_state_)
         return (opt_state_, rng_), loss
 
     print("Start training guide...")

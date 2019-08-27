@@ -2,11 +2,11 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import random
-from jax.experimental import optimizers
 import jax.numpy as np
 from jax.test_util import check_eq
 
 import numpyro
+from numpyro import optim
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
@@ -27,15 +27,15 @@ def test_beta_bernoulli(auto_class):
         f = numpyro.sample('beta', dist.Beta(np.ones(2), np.ones(2)))
         numpyro.sample('obs', dist.Bernoulli(f), obs=data)
 
-    opt_init, opt_update, opt_params = optimizers.adam(0.01)
+    adam = optim.Adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = auto_class(rng_guide, model)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, opt_params)
+    svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
     def body_fn(i, val):
         opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,), guide_args=(data,))
+        loss, opt_state_, rng_ = svi_update(rng_, opt_state_, model_args=(data,), guide_args=(data,))
         return opt_state_, rng_
 
     opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
@@ -62,17 +62,15 @@ def test_logistic_regression(auto_class):
         logits = np.sum(coefs * data, axis=-1)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
+    adam = optim.Adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = auto_class(rng_guide, model)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
-    opt_state, get_params = svi_init(rng_init,
-                                     model_args=(data, labels),
-                                     guide_args=(data, labels))
+    svi_init, svi_update, _ = svi(model, guide, elbo, adam)
+    opt_state, get_params = svi_init(rng_init, model_args=(data, labels), guide_args=(data, labels))
 
     def body_fn(i, val):
         opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_,
+        loss, opt_state_, rng_ = svi_update(rng_, opt_state_,
                                             model_args=(data, labels),
                                             guide_args=(data, labels))
         return opt_state_, rng_
@@ -99,15 +97,15 @@ def test_uniform_normal():
         loc = numpyro.sample('loc', dist.Uniform(0, alpha))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
+    adam = optim.Adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = AutoDiagonalNormal(rng_guide, model)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
     def body_fn(i, val):
         opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,), guide_args=(data,))
+        loss, opt_state_, rng_ = svi_update(rng_, opt_state_, model_args=(data,), guide_args=(data,))
         return opt_state_, rng_
 
     opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
@@ -139,10 +137,10 @@ def test_param():
             return substitute(super(_AutoGuide, self).__call__,
                               {'_auto_latent': x_init})(*args, **kwargs)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
+    adam = optim.Adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
     guide = _AutoGuide(rng_guide, model)
-    svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init)
 
     params = get_params(opt_state)
@@ -171,21 +169,21 @@ def test_dynamic_supports():
         loc = numpyro.sample('loc', dist.Uniform(0, 1)) * alpha
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
+    adam = optim.Adam(0.01)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
 
     guide = AutoDiagonalNormal(rng_guide, actual_model)
-    svi_init, _, svi_eval = svi(actual_model, guide, elbo, opt_init, opt_update, get_opt_params)
+    svi_init, _, svi_eval = svi(actual_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, (data,), (data,))
-    actual_opt_params = get_opt_params(opt_state)
+    actual_opt_params = adam.get_params(opt_state)
     actual_params = get_params(opt_state)
     actual_values = guide.median(actual_params)
     actual_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
 
     guide = AutoDiagonalNormal(rng_guide, expected_model)
-    svi_init, _, svi_eval = svi(expected_model, guide, elbo, opt_init, opt_update, get_opt_params)
+    svi_init, _, svi_eval = svi(expected_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, (data,), (data,))
-    expected_opt_params = get_opt_params(opt_state)
+    expected_opt_params = adam.get_params(opt_state)
     expected_params = get_params(opt_state)
     expected_values = guide.median(expected_params)
     expected_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
@@ -211,9 +209,9 @@ def test_elbo_dynamic_support():
             return substitute(super(_AutoGuide, self).__call__,
                               {'_auto_latent': x_unconstrained})(*args, **kwargs)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
+    adam = optim.Adam(0.01)
     guide = _AutoGuide(random.PRNGKey(0), model)
-    svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
     actual_loss = svi_eval(random.PRNGKey(1), opt_state)
     assert np.isfinite(actual_loss)

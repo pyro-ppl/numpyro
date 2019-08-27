@@ -1,10 +1,10 @@
 from numpy.testing import assert_allclose
 
 from jax import random
-from jax.experimental import optimizers
 import jax.numpy as np
 
 import numpyro
+from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AffineTransform, SigmoidTransform
@@ -27,15 +27,15 @@ def test_beta_bernoulli():
                                constraint=constraints.positive)
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.05)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    adam = optim.Adam(0.05)
+    svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     rng_init, rng_train = random.split(random.PRNGKey(1))
     opt_state, get_params = svi_init(rng_init, model_args=(data,))
-    assert_allclose(get_opt_params(opt_state)['alpha_q'], 0.)
+    assert_allclose(adam.get_params(opt_state)['alpha_q'], 0.)
 
     def body_fn(i, val):
         opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,))
+        loss, opt_state_, rng_ = svi_update(rng_, opt_state_, model_args=(data,))
         return opt_state_, rng_
 
     opt_state, _ = fori_loop(0, 300, body_fn, (opt_state, rng_train))
@@ -67,8 +67,8 @@ def test_param():
         d = numpyro.param('d', d_init, constraint=constraints.unit_interval)
         numpyro.sample('y', dist.Normal(c, d), obs=obs)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
-    svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    adam = optim.Adam(0.01)
+    svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
 
     params = get_params(opt_state)
@@ -95,11 +95,11 @@ def test_elbo_dynamic_support():
     def guide():
         numpyro.sample('x', x_guide)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
+    adam = optim.Adam(0.01)
     # set base value of x_guide is 0.9
     x_base = 0.9
     guide = substitute(guide, base_param_map={'x': x_base})
-    svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
     actual_loss = svi_eval(random.PRNGKey(1), opt_state)
     assert np.isfinite(actual_loss)

@@ -3,7 +3,6 @@ import jax
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
 
-
 _PYRO_STACK = []
 
 
