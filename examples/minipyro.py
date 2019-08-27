@@ -1,11 +1,11 @@
 import argparse
 
 from jax import random
-from jax.experimental import optimizers
 import jax.numpy as np
 from jax.random import PRNGKey
 
 import numpyro
+from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
@@ -30,22 +30,22 @@ def main(args):
 
     # Construct an SVI object so we can do variational inference on our
     # model/guide pair.
-    opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
-    svi_init, svi_update, _ = svi(model, guide, elbo, opt_init, opt_update, get_params)
+    adam = optim.Adam(args.learning_rate)
+    svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     rng, rng_init = random.split(PRNGKey(0))
     opt_state, _ = svi_init(rng_init, model_args=(data,))
 
     # Training loop
     def body_fn(i, val):
         opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(i, rng_, opt_state_, model_args=(data,))
+        loss, opt_state_, rng_ = svi_update(rng_, opt_state_, model_args=(data,))
         return opt_state_, rng_
 
     opt_state, _ = fori_loop(0, args.num_steps, body_fn, (opt_state, rng))
 
     # Report the final values of the variational parameters
     # in the guide after training.
-    params = get_params(opt_state)
+    params = adam.get_params(opt_state)
     for name, value in params.items():
         print("{} = {}".format(name, value))
 
