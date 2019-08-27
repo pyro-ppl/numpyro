@@ -67,8 +67,8 @@ def test_param():
         d = numpyro.param('d', d_init, constraint=constraints.unit_interval)
         numpyro.sample('y', dist.Normal(c, d), obs=obs)
 
-    opt_init, opt_update, get_opt_params = optimizers.adam(0.01)
-    svi_init, _, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params)
+    adam = optim.Adam(0.01)
+    svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
 
     params = get_params(opt_state)
