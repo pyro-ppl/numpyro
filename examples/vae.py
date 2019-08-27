@@ -5,11 +5,12 @@ import time
 import matplotlib.pyplot as plt
 
 from jax import jit, lax, random
-from jax.experimental import optimizers, stax
+from jax.experimental import stax
 import jax.numpy as np
 from jax.random import PRNGKey
 
 import numpyro
+from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.examples.datasets import MNIST, load_dataset
 from numpyro.svi import elbo, svi
@@ -61,9 +62,10 @@ def binarize(rng, batch):
 def main(args):
     encoder_nn = encoder(args.hidden_dim, args.z_dim)
     decoder_nn = decoder(args.hidden_dim, 28 * 28)
-    opt_init, opt_update, get_opt_params = optimizers.adam(args.learning_rate)
-    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_opt_params,
-                                         z_dim=args.z_dim, hidden_dim=args.hidden_dim)
+    adam = optim.Adam(args.learning_rate)
+    svi_init, svi_update, svi_eval = svi(model, guide, elbo, adam,
+                                         z_dim=args.z_dim,
+                                         hidden_dim=args.hidden_dim)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
@@ -78,11 +80,7 @@ def main(args):
             loss_sum, opt_state, rng = val
             rng, rng_binarize = random.split(rng)
             batch = binarize(rng_binarize, train_fetch(i, train_idx)[0])
-            # TODO: we will want to merge (i, rng, opt_state) into `svi_state`
-            # Here the index `i` is reseted after each epoch, which causes no
-            # problem for static learning rate, but it is not a right way for
-            # scheduled learning rate.
-            loss, opt_state, rng = svi_update(i, rng, opt_state, (batch,), (batch,),)
+            loss, opt_state, rng = svi_update(rng, opt_state, (batch,), (batch,),)
             loss_sum += loss
             return loss_sum, opt_state, rng
 

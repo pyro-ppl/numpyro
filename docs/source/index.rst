@@ -40,6 +40,14 @@ Numpyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
+   :caption: Optimizers:
+
+   optimizers
+
+
+.. toctree::
+   :glob:
+   :maxdepth: 2
    :caption: Diagnostics:
 
    diagnostics

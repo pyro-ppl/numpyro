@@ -17,7 +17,7 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs):
+def svi(model, guide, loss, optim, **kwargs):
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -73,7 +73,7 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
                 params[site['name']] = transform.inv(site['value'])
 
         constrain_fn = jax.partial(transform_fn, inv_transforms)
-        return optim_init(params), get_params
+        return optim.init(params), get_params
 
     def get_params(opt_state):
         """
@@ -81,10 +81,10 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
 
         :param dict opt_state: current state of the optimizer.
         """
-        params = constrain_fn(get_optim_params(opt_state))
+        params = constrain_fn(optim.get_params(opt_state))
         return params
 
-    def update_fn(i, rng, opt_state, model_args=(), guide_args=()):
+    def update_fn(rng, opt_state, model_args=(), guide_args=()):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data),
         using the optimizer.
@@ -99,10 +99,10 @@ def svi(model, guide, loss, optim_init, optim_update, get_optim_params, **kwargs
         """
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
-        params = get_optim_params(opt_state)
+        params = optim.get_params(opt_state)
         loss_val, grads = value_and_grad(
             lambda x: loss(constrain_fn(x), model_init, guide_init, model_args, guide_args, kwargs))(params)
-        opt_state = optim_update(i, grads, opt_state)
+        opt_state = optim.update(grads, opt_state)
         return loss_val, opt_state, rng
 
     def evaluate(rng, opt_state, model_args=(), guide_args=()):
