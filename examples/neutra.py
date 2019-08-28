@@ -63,9 +63,9 @@ def main(args):
 
     adam = optim.Adam(0.001)
     rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = AutoIAFNormal(rng_guide, dual_moon_model, adam.get_params, hidden_dims=[args.num_hidden])
+    guide = AutoIAFNormal(rng_guide, dual_moon_model, hidden_dims=[args.num_hidden])
     svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, adam)
-    opt_state, _ = svi_init(rng_init)
+    opt_state, get_params = svi_init(rng_init)
 
     def body_fn(val, i):
         opt_state_, rng_ = val
@@ -74,11 +74,12 @@ def main(args):
 
     print("Start training guide...")
     (last_state, _), losses = lax.scan(body_fn, (opt_state, rng_train), np.arange(args.num_iters))
+    params = get_params(last_state)
     print("Finish training guide. Extract samples...")
-    guide_samples = guide.sample_posterior(random.PRNGKey(0), last_state,
+    guide_samples = guide.sample_posterior(random.PRNGKey(0), params,
                                            sample_shape=(args.num_samples,))
 
-    transform = guide.get_transform(last_state)
+    transform = guide.get_transform(params)
     unpack_fn = guide.unpack_latent
 
     _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), dual_moon_model)
