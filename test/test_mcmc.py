@@ -62,7 +62,12 @@ def test_correlated_mvn():
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_logistic_regression(algo):
+@pytest.mark.parametrize('num_chains', [
+    1,
+    pytest.param(2, marks=[pytest.mark.xfail(reason='FIXME: Sequential chain is broken')])
+])
+@pytest.mark.filterwarnings('ignore:There are not enough devices')
+def test_logistic_regression(algo, num_chains):
     N, dim = 3000, 3
     warmup_steps, num_samples = 1000, 8000
     data = random.normal(random.PRNGKey(0), (N, dim))
@@ -77,7 +82,8 @@ def test_logistic_regression(algo):
 
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, labels)
     samples = mcmc(warmup_steps, num_samples, init_params, sampler='hmc',
-                   potential_fn=potential_fn, trajectory_length=10, constrain_fn=constrain_fn)
+                   potential_fn=potential_fn, trajectory_length=10, constrain_fn=constrain_fn,
+                   num_chains=num_chains)
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
 
     if 'JAX_ENABLE_x64' in os.environ:
