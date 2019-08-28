@@ -231,9 +231,8 @@ class AutoContinuous(AutoGuide):
 
     def get_transform(self, params):
         """
-        For :class:`AutoContinuous` guides, posterior is a transformed distribution. By
-        default, base distribution of the posterior is a standard normal. This method will return
-        the corresponding transform given current parameter values of the model and this guide.
+        Returns the transformation learned by the guide to generate samples from the unconstrained
+        (approximate) posterior.
 
         :param dict params: Current parameters of model and autoguide.
         :return: the transform of posterior distribution
@@ -287,7 +286,7 @@ class AutoDiagonalNormal(AutoContinuous):
         """
         Returns the posterior median value of each latent variable.
 
-        :param dict params: A dict contains parameter values.
+        :param dict params: A dict containing parameter values.
         :return: A dict mapping sample site name to median tensor.
         :rtype: dict
         """
