@@ -193,7 +193,7 @@ class AutoContinuous(AutoGuide):
 
         return result
 
-    def _unpack_and_transform(self, latent_sample, params):
+    def _unpack_and_constrain(self, latent_sample, params):
         sample_shape = np.shape(latent_sample)[:-1]
         latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
         # XXX: we do not support priors with supports depending on dynamic data
@@ -252,7 +252,7 @@ class AutoContinuous(AutoGuide):
         """
         latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng), params)(
             self.base_dist, sample_shape=sample_shape)
-        return self._unpack_and_transform(latent_sample, params)
+        return self._unpack_and_constrain(latent_sample, params)
 
 
 class AutoDiagonalNormal(AutoContinuous):
@@ -291,7 +291,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :rtype: dict
         """
         loc, _ = handlers.substitute(self._loc_scale, params)()
-        return self._unpack_and_transform(loc, params)
+        return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
         """
@@ -308,7 +308,7 @@ class AutoDiagonalNormal(AutoContinuous):
         loc, scale = handlers.substitute(self._loc_scale, params)()
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(loc, scale).icdf(quantiles)
-        return self._unpack_and_transform(latent, params)
+        return self._unpack_and_constrain(latent, params)
 
 
 # TODO: remove when to_event is supported
