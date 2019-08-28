@@ -343,7 +343,6 @@ class AutoIAFNormal(AutoContinuous):
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
         self.arn_kwargs = arn_kwargs
-        self.arns = None
         super(AutoIAFNormal, self).__init__(rng, model, prefix=prefix, init_strategy=init_strategy)
 
     def setup(self, *args, **kwargs):
