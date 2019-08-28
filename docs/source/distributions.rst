@@ -440,3 +440,15 @@ StickBreakingTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+
+Flows
+=====
+
+InverseAutoregressiveTransform
+------------------------------
+.. autoclass:: numpyro.distributions.flows.InverseAutoregressiveTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

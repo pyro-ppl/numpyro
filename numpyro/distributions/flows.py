@@ -19,10 +19,10 @@ class InverseAutoregressiveTransform(Transform):
     where :math:`\\mathbf{x}` are the inputs, :math:`\\mathbf{y}` are the outputs, :math:`\\mu_t,\\sigma_t`
     are calculated from an autoregressive network on :math:`\\mathbf{x}`, and :math:`\\sigma_t>0`.
 
-    References
+    **References**
 
-    1. Improving Variational Inference with Inverse Autoregressive Flow [arXiv:1606.04934]
-    Diederik P. Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, Max Welling
+    1. *Improving Variational Inference with Inverse Autoregressive Flow* [arXiv:1606.04934],
+       Diederik P. Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, Max Welling
     """
     domain = real_vector
     codomain = real_vector
@@ -33,8 +33,6 @@ class InverseAutoregressiveTransform(Transform):
         """
         :param autoregressive_nn: an autoregressive neural network whose forward call returns a real-valued
             mean and log scale as a tuple
-        :param params: the parameters for the autoregressive neural network
-        :type list:
         """
         self.arn = autoregressive_nn
         self.params = params
@@ -43,8 +41,7 @@ class InverseAutoregressiveTransform(Transform):
 
     def __call__(self, x):
         """
-        :param x: the input into the transform
-        :type x: numpy array
+        :param numpy.ndarray x: the input into the transform
         """
         return self.call_with_intermediates(x)[0]
 
@@ -56,8 +53,7 @@ class InverseAutoregressiveTransform(Transform):
 
     def inv(self, y):
         """
-        :param y: the output of the transform to be inverted
-        :type y: numpy array
+        :param numpy.ndarray y: the output of the transform to be inverted
         """
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
         def _update_x(i, x):
@@ -72,11 +68,10 @@ class InverseAutoregressiveTransform(Transform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         """
-        Calculates the elementwise determinant of the log jacobian
-        :param x: the input to the transform
-        :type x: numpy array
-        :param y: the output of the transform
-        :type y: numpy array
+        Calculates the elementwise determinant of the log jacobian.
+
+        :param numpy.ndarray x: the input to the transform
+        :param numpy.ndarray y: the output of the transform
         """
         if intermediates is None:
             log_scale = self.arn(self.params, x)[1]
