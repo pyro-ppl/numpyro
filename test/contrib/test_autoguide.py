@@ -101,7 +101,8 @@ def test_iaf():
 
     def model(data, labels):
         coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
-        logits = np.sum(coefs * data, axis=-1)
+        offset = numpyro.sample('offset', dist.Uniform(-1, 1))
+        logits = offset + np.sum(coefs * data, axis=-1)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
@@ -111,23 +112,25 @@ def test_iaf():
     opt_state, get_params = svi_init(rng_init, model_args=(data, labels), guide_args=(data, labels))
     params = get_params(opt_state)
 
-    x = random.normal(random.PRNGKey(0), (dim,))
+    x = random.normal(random.PRNGKey(0), (dim + 1,))
     rng = random.PRNGKey(1)
-    actual_sample = guide.sample_posterior(rng, params)['coefs']
+    actual_sample = guide.sample_posterior(rng, params)
     actual_output = guide.get_transform(params)(x)
 
     flows = []
     for i in range(guide.num_flows):
         if i > 0:
-            flows.append(constraints.PermuteTransform(np.arange(dim)[::-1]))
+            flows.append(constraints.PermuteTransform(np.arange(dim + 1)[::-1]))
         arn = partial(guide.arns[i][1], params['auto_arn__{}$params'.format(i)])
         flows.append(InverseAutoregressiveTransform(arn))
 
     transform = constraints.ComposeTransform(flows)
     rng_seed, rng_sample = random.split(rng)
-    expected_sample = transform(dist.Normal(np.zeros(dim), 1).sample(rng_sample))
+    expected_sample = guide.unpack_latent(transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng_sample)))
     expected_output = transform(x)
-    assert_allclose(actual_sample, expected_sample)
+    assert_allclose(actual_sample['coefs'], expected_sample['coefs'])
+    assert_allclose(actual_sample['offset'],
+                    constraints.biject_to(constraints.interval(-1, 1))(expected_sample['offset']))
     assert_allclose(actual_output, expected_output)
 
 
