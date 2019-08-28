@@ -287,19 +287,19 @@ dependent
 
 greater_than
 ------------
-.. autodata:: numpyro.distributions.constraints.greater_than
+.. autofunction:: numpyro.distributions.constraints.greater_than
 
 integer_interval
 ----------------
-.. autodata:: numpyro.distributions.constraints.integer_interval
+.. autofunction:: numpyro.distributions.constraints.integer_interval
 
 integer_greater_than
 --------------------
-.. autodata:: numpyro.distributions.constraints.integer_greater_than
+.. autofunction:: numpyro.distributions.constraints.integer_greater_than
 
 interval
 --------
-.. autodata:: numpyro.distributions.constraints.interval
+.. autofunction:: numpyro.distributions.constraints.interval
 
 lower_cholesky
 --------------
@@ -307,15 +307,11 @@ lower_cholesky
 
 multinomial
 -----------
-.. autodata:: numpyro.distributions.constraints.multinomial
+.. autofunction:: numpyro.distributions.constraints.multinomial
 
 nonnegative_integer
 -------------------
 .. autodata:: numpyro.distributions.constraints.nonnegative_integer
-
-positive_definite
------------------
-.. autodata:: numpyro.distributions.constraints.positive_integer
 
 positive
 --------
@@ -324,6 +320,10 @@ positive
 positive_definite
 -----------------
 .. autodata:: numpyro.distributions.constraints.positive_definite
+
+positive_integer
+-----------------
+.. autodata:: numpyro.distributions.constraints.positive_integer
 
 real
 ----

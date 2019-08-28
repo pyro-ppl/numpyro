@@ -110,7 +110,7 @@ def module(name, nn, input_shape=None):
     :param str name: name of the module to be registered.
     :param tuple nn: a tuple of `(init_fn, apply_fn)` obtained by a :mod:`~jax.experimental.stax`
         constructor function.
-    :param int, tuple input_shape: shape of the input taken by the
+    :param tuple input_shape: shape of the input taken by the
         neural network.
     :return: a `apply_fn` with bound parameters that takes an array
         as an input and returns the neural network transformed output
