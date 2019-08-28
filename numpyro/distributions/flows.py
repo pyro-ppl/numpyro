@@ -28,16 +28,12 @@ class InverseAutoregressiveTransform(Transform):
     codomain = real_vector
     event_dim = 1
 
-    def __init__(self, autoregressive_nn, params,
-                 log_scale_min_clip=-5., log_scale_max_clip=3.):
+    def __init__(self, autoregressive_nn, log_scale_min_clip=-5., log_scale_max_clip=3.):
         """
         :param autoregressive_nn: an autoregressive neural network whose forward call returns a real-valued
             mean and log scale as a tuple
-        :param params: the parameters for the autoregressive neural network
-        :type list:
         """
         self.arn = autoregressive_nn
-        self.params = params
         self.log_scale_min_clip = log_scale_min_clip
         self.log_scale_max_clip = log_scale_max_clip
 
@@ -49,7 +45,7 @@ class InverseAutoregressiveTransform(Transform):
         return self.call_with_intermediates(x)[0]
 
     def call_with_intermediates(self, x):
-        mean, log_scale = self.arn(self.params, x)
+        mean, log_scale = self.arn(x)
         log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
         scale = np.exp(log_scale)
         return scale * x + mean, log_scale
@@ -61,7 +57,7 @@ class InverseAutoregressiveTransform(Transform):
         """
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
         def _update_x(i, x):
-            mean, log_scale = self.arn(self.params, x)
+            mean, log_scale = self.arn(x)
             inverse_scale = np.exp(-_clamp_preserve_gradients(
                 log_scale, min=self.log_scale_min_clip, max=self.log_scale_max_clip))
             x = (y - mean) * inverse_scale
@@ -79,7 +75,7 @@ class InverseAutoregressiveTransform(Transform):
         :type y: numpy array
         """
         if intermediates is None:
-            log_scale = self.arn(self.params, x)[1]
+            log_scale = self.arn(x)[1]
             log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
             return log_scale.sum(-1)
         else:

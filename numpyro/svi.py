@@ -36,7 +36,7 @@ def svi(model, guide, loss, optim, **kwargs):
     """
     constrain_fn = None
 
-    def init_fn(rng, model_args=(), guide_args=(), params=None):
+    def init_fn(rng, model_args=(), guide_args=()):
         """
 
         :param jax.random.PRNGKey rng: random number generator seed.
@@ -44,10 +44,7 @@ def svi(model, guide, loss, optim, **kwargs):
             the course of fitting).
         :param tuple guide_args: arguments to the guide (these can possibly vary during
             the course of fitting).
-        :param dict params: initial parameter values to condition on. This can be
-            useful for initializing neural networks using more specialized methods
-            rather than sampling from the prior.
-        :return: tuple containing initial optimizer state, and `constrain_fn`, a callable
+        :return: tuple containing initial optimizer state, and `get_params`, a callable
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
         """
@@ -56,13 +53,9 @@ def svi(model, guide, loss, optim, **kwargs):
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
         model_init, guide_init = _seed(model, guide, rng)
-        if params is None:
-            params = {}
-        else:
-            model_init = substitute(model_init, params)
-            guide_init = substitute(guide_init, params)
         guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
         model_trace = trace(model_init).get_trace(*model_args, **kwargs)
+        params = {}
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
         for site in list(model_trace.values()) + list(guide_trace.values()):

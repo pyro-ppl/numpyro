@@ -1,3 +1,5 @@
+from functools import partial
+
 import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
@@ -11,7 +13,7 @@ from numpyro.distributions.flows import InverseAutoregressiveTransform
 def _make_iaf_args(input_dim, hidden_dims):
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
     _, init_params = arn_init(random.PRNGKey(0), (input_dim,))
-    return arn, init_params
+    return partial(arn, init_params),
 
 
 @pytest.mark.parametrize('flow_class, flow_args, input_dim', [

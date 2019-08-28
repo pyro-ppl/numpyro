@@ -1,3 +1,5 @@
+from functools import partial
+
 from numpy.testing import assert_allclose
 import pytest
 
@@ -10,6 +12,7 @@ from numpyro import optim
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
+from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
@@ -38,7 +41,7 @@ def test_beta_bernoulli(auto_class):
         loss, opt_state_, rng_ = svi_update(rng_, opt_state_, model_args=(data,), guide_args=(data,))
         return opt_state_, rng_
 
-    opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
+    opt_state, _ = fori_loop(0, 2000, body_fn, (opt_state, rng_train))
     params = get_params(opt_state)
     true_coefs = (np.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
@@ -86,6 +89,46 @@ def test_logistic_regression(auto_class):
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(1000,))
     assert_allclose(np.mean(posterior_samples['coefs'], 0), true_coefs, rtol=0.1)
+
+
+def test_iaf():
+    # test for substitute logic for exposed methods `sample_posterior` and `get_transforms`
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1., dim + 1.)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    def model(data, labels):
+        coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
+        logits = np.sum(coefs * data, axis=-1)
+        return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+
+    adam = optim.Adam(0.01)
+    rng_guide, rng_init = random.split(random.PRNGKey(1), 2)
+    guide = AutoIAFNormal(rng_guide, model)
+    svi_init, _, _ = svi(model, guide, elbo, adam)
+    opt_state, get_params = svi_init(rng_init, model_args=(data, labels), guide_args=(data, labels))
+    params = get_params(opt_state)
+
+    x = random.normal(random.PRNGKey(0), (dim,))
+    rng = random.PRNGKey(1)
+    actual_sample = guide.sample_posterior(rng, params)['coefs']
+    actual_output = guide.get_transform(params)(x)
+
+    flows = []
+    for i in range(guide.num_flows):
+        if i > 0:
+            flows.append(constraints.PermuteTransform(np.arange(dim)[::-1]))
+        arn = partial(guide.arns[i][1], params['auto_arn__{}$params'.format(i)])
+        flows.append(InverseAutoregressiveTransform(arn))
+
+    transform = constraints.ComposeTransform(flows)
+    rng_seed, rng_sample = random.split(rng)
+    expected_sample = transform(dist.Normal(np.zeros(dim), 1).sample(rng_sample))
+    expected_output = transform(x)
+    assert_allclose(actual_sample, expected_sample)
+    assert_allclose(actual_output, expected_output)
 
 
 def test_uniform_normal():
