@@ -1,3 +1,5 @@
+import functools
+from abc import ABC, abstractmethod
 from collections import namedtuple
 import math
 import os
@@ -10,7 +12,7 @@ from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
-from jax.tree_util import tree_map
+from jax.tree_util import tree_map, tree_flatten
 
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import (
@@ -19,8 +21,8 @@ from numpyro.hmc_util import (
     euclidean_kinetic_energy,
     find_reasonable_step_size,
     velocity_verlet,
-    warmup_adapter
-)
+    warmup_adapter,
+    initialize_model)
 from numpyro.util import cond, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
@@ -75,6 +77,12 @@ def get_diagnostics_str(hmc_state):
     return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(hmc_state.num_steps,
                                                               hmc_state.adapt_state.step_size,
                                                               hmc_state.mean_accept_prob)
+
+
+def get_progbar_desc_str(num_warmup, hmc_state):
+    if hmc_state.i < num_warmup:
+        return 'warmup'
+    return 'sample'
 
 
 def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
@@ -169,7 +177,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
         :param init_params: Initial parameters to begin sampling. The type must
             be consistent with the input type to `potential_fn`.
-        :param int num_warmup_steps: Number of warmup steps; samples generated
+        :param int num_warmup: Number of warmup steps; samples generated
             during warmup are discarded.
         :param float step_size: Determines the size of a single step taken by the
             verlet integrator while computing the trajectory using Hamiltonian
@@ -226,6 +234,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0., 0.,
                              wa_state, rng_hmc)
 
+        # TODO: Remove; this should be the responsibility of the MCMC class.
         if run_warmup and num_warmup > 0:
             # JIT if progress bar updates not required
             if not progbar:
@@ -402,7 +411,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                                         transform=lambda x: constrain_fn(x.z),
                                         progbar=progbar,
                                         diagnostics_fn=get_diagnostics_str,
-                                        progbar_desc='sample')
+                                        progbar_desc=lambda x: 'sample')
             samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
             def single_chain_mcmc(rng, init_params):
@@ -428,3 +437,169 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
         return samples_flat
     else:
         raise ValueError('sampler: {} not recognized'.format(sampler))
+
+
+# ========= Higher Level API ========= #
+
+
+class MCMCKernel(ABC):
+    @abstractmethod
+    def init(self, rng, init_params, model_args, model_kwargs):
+        raise NotImplementedError
+
+    @abstractmethod
+    def sample(self, state):
+        raise NotImplementedError
+
+
+class HMC(MCMCKernel):
+    def __init__(self,
+                 model=None,
+                 potential_fn=None,
+                 kinetic_fn=None,
+                 step_size=1.0,
+                 adapt_step_size=True,
+                 adapt_mass_matrix=True,
+                 dense_mass=False,
+                 target_accept_prob=0.8,
+                 trajectory_length=2*math.pi):
+        if not (model is None) ^ (potential_fn is None):
+            raise ValueError('Only one of `model` or `potential_fn` must be specified.')
+        self.model = model
+        self.potential_fn = potential_fn
+        self.kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
+        self.step_size = step_size
+        self.adapt_step_size = adapt_step_size
+        self.adapt_mass_matrix = adapt_mass_matrix
+        self.dense_mass = dense_mass
+        self.target_accept_prob = target_accept_prob
+        self.trajectory_length = trajectory_length
+        self.sample_fn = None
+        self.algo = 'HMC'
+        self.max_tree_depth = 10
+
+    def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
+        constrain_fn = None
+        if self.model is not None:
+            init_params_, self.potential_fn, constrain_fn = initialize_model(rng, self.model,
+                                                                             *model_args, **model_kwargs)
+            if init_params is None:
+                init_params = init_params_
+        else:
+            # User needs to provide valid `init_params` if using `potential_fn`.
+            if init_params is None:
+                raise ValueError('Valid value of `init_params` must be provided with'
+                                 ' `potential_fn`.')
+        hmc_init_fn, self.sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
+        init_state = hmc_init_fn(init_params,
+                                 num_warmup=num_warmup,
+                                 step_size=self.step_size,
+                                 adapt_step_size=self.adapt_step_size,
+                                 adapt_mass_matrix=self.adapt_mass_matrix,
+                                 dense_mass=self.dense_mass,
+                                 target_accept_prob=self.target_accept_prob,
+                                 trajectory_length=self.trajectory_length,
+                                 max_tree_depth=self.max_tree_depth,
+                                 run_warmup=False)
+        return init_state, constrain_fn
+
+    def sample(self, state):
+        return self.sample_fn(state)
+
+
+class NUTS(HMC):
+    def __init__(self,
+                 model=None,
+                 potential_fn=None,
+                 kinetic_fn=None,
+                 step_size=1.0,
+                 adapt_step_size=True,
+                 adapt_mass_matrix=True,
+                 dense_mass=False,
+                 target_accept_prob=0.8,
+                 trajectory_length=2 * math.pi,
+                 max_tree_depth=10):
+        super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
+                                   step_size=step_size, adapt_step_size=adapt_step_size,
+                                   adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
+                                   target_accept_prob=target_accept_prob, trajectory_length=trajectory_length)
+        self.max_tree_depth = max_tree_depth
+        self.algo = 'NUTS'
+
+
+class MCMC(object):
+    def __init__(self,
+                 sampler,
+                 num_warmup,
+                 num_samples,
+                 num_chains=1,
+                 constrain_fn=None,
+                 progress_bar=True):
+        self.sampler = sampler
+        self.num_warmup = num_warmup
+        self.num_samples = num_samples
+        self.num_chains = num_chains
+        self.constrain_fn = constrain_fn
+        self.progress_bar = progress_bar
+        self.sequential_chain = False
+        if xla_bridge.device_count() < num_chains:
+            self.sequential_chain = True
+            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
+                          ' Chains will be drawn sequentially. If you are running `mcmc` in CPU,'
+                          ' consider to disable XLA intra-op parallelism by setting the environment'
+                          ' flag "XLA_FLAGS=--xla_force_host_platform_device_count={}".'
+                          .format(num_chains, xla_bridge.device_count(), num_chains))
+        # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
+        if num_chains > 1:
+            self.progress_bar = False
+
+        self._samples = None
+        self._samples_flat = None
+
+    def _single_chain_mcmc(self, rng, init_params=None, args=(), kwargs={}):
+        hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
+                                                    model_args=args, model_kwargs=kwargs)
+        if self.constrain_fn is None:
+            self.constrain_fn = identity if constrain_fn is None else constrain_fn
+        samples = fori_collect(self.num_warmup, self.num_warmup + self.num_samples,
+                               self.sampler.sample,
+                               hmc_state,
+                               transform=lambda x: self.constrain_fn(x.z),
+                               progbar=self.progress_bar,
+                               progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
+                               diagnostics_fn=get_diagnostics_str)
+        return samples
+
+    def run(self, rng, *args, init_params=None, **kwargs):
+        if init_params is not None and self.num_chains > 1:
+            prototype_init_val = tree_flatten(init_params)[0][0]
+            if np.shape(prototype_init_val)[0] != self.num_chains:
+                raise ValueError('`init_params` must have the same leading dimension'
+                                 ' as `num_chains`.')
+        if self.num_chains == 1:
+            samples_flat = self._single_chain_mcmc(rng, init_params, args, kwargs)
+            samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
+        else:
+            rngs = random.split(rng, self.num_chains)
+            if init_params is None:
+                if self.sequential_chain:
+                    samples = lax.map(lambda rng_: self._single_chain_mcmc(rng_, args=args, kwargs=kwargs), rngs)
+                else:
+                    samples = pmap(lambda rng_: self._single_chain_mcmc(rng_, args=args, kwargs=kwargs))(rngs)
+            else:
+                if self.sequential_chain:
+                    samples = lax.map(lambda init_: self._single_chain_mcmc(*init_, args=args, kwargs=kwargs),
+                                      (rngs, init_params))
+                else:
+                    samples = pmap(lambda rng_, init_params_:
+                                   self._single_chain_mcmc(rng_, init_params_, args=args, kwargs=kwargs),
+                                   (rngs, init_params))
+            samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
+        self._samples = samples
+        self._samples_flat = samples_flat
+
+    def get_samples(self, flatten=True):
+        return self._samples_flat if flatten else self._samples
+
+    def print_summary(self):
+        summary(self._samples)

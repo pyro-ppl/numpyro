@@ -119,15 +119,16 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
         _, collection = fori_loop(0, upper, _body_fn, (init_val, collection))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
-        progbar_desc = progbar_opts.pop('progbar_desc', '')
+        progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
         collection = []
 
         val = init_val
-        with tqdm.trange(upper, desc=progbar_desc) as t:
+        with tqdm.trange(upper) as t:
             for i in t:
                 val = body_fun(val)
                 if i >= lower:
                     collection.append(jit(ravel_fn)(val))
+                t.set_description(progbar_desc(val))
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
