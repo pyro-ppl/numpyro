@@ -307,21 +307,25 @@ class CorrCholeskyTransform(Transform):
     Cholesky factor of a D-dimension correlation matrix. This Cholesky factor is a lower
     triangular matrix with positive diagonals and unit Euclidean norm for each row.
     The transform is processed as follows:
-    1. First we convert :math:`x` into a lower triangular matrix with the following order:
-    .. math::
-        \begin{bmatrix}
-            1   & 0 & 0 & 0 \\
-            x_0 & 1 & 0 & 0 \\
-            x_1 & x_2 & 1 & 0 \\
-            x_3 & x_4 & x_5 & 1
-        \end{bmatrix}
-    2. For each row :math:`X_i` of the lower triangular part, we apply a *signed* version of
-    class :class:`StickBreakingTransform` to transform :math:`X_i` into a
-    unit Euclidean length vector using the following steps:
-        a. Scales into the interval :math:`(-1, 1)` domain: :math:`r_i = \tanh(X_i)`.
-        b. Transforms into an unsigned domain: :math:`z_i = r_i^2`.
-        c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
-        d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
+
+        1. First we convert :math:`x` into a lower triangular matrix with the following order:
+
+        .. math::
+            \begin{bmatrix}
+                1   & 0 & 0 & 0 \\
+                x_0 & 1 & 0 & 0 \\
+                x_1 & x_2 & 1 & 0 \\
+                x_3 & x_4 & x_5 & 1
+            \end{bmatrix}
+
+        2. For each row :math:`X_i` of the lower triangular part, we apply a *signed* version of
+        class :class:`StickBreakingTransform` to transform :math:`X_i` into a
+        unit Euclidean length vector using the following steps:
+
+            a. Scales into the interval :math:`(-1, 1)` domain: :math:`r_i = \tanh(X_i)`.
+            b. Transforms into an unsigned domain: :math:`z_i = r_i^2`.
+            c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
+            d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
     """
     domain = real_vector
     codomain = corr_cholesky

@@ -1,3 +1,8 @@
+Diagnostics
+===========
+
+.. automodule:: numpyro.diagnostics
+
 Autocorrelation
 ---------------
 .. autofunction:: numpyro.diagnostics.autocorrelation
