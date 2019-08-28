@@ -1,4 +1,5 @@
 from collections import namedtuple
+from functools import partial
 import inspect
 
 import numpy as onp
@@ -740,7 +741,7 @@ def test_transformed_transformed_distribution():
 def _make_iaf(input_dim, hidden_dims, rng):
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
     _, init_params = arn_init(rng, (input_dim,))
-    return InverseAutoregressiveTransform(arn, init_params)
+    return InverseAutoregressiveTransform(partial(arn, init_params))
 
 
 @pytest.mark.parametrize('transforms', [
