@@ -40,15 +40,6 @@ class AutoGuide(ABC):
         self.prefix = prefix
         self.prototype_trace = None
 
-    def setup(self, *args, **kwargs):
-        """
-        First call to set up any necessary state.
-
-        :param args: model args.
-        :param kwargs: model kwargs.
-        """
-        self._setup_prototype(*args, **kwargs)
-
     @abstractmethod
     def __call__(self, *args, **kwargs):
         """
@@ -165,7 +156,7 @@ class AutoContinuous(AutoGuide):
         """
         if self.prototype_trace is None:
             # run model to inspect the model structure
-            self.setup(*args, **kwargs)
+            self._setup_prototype(*args, **kwargs)
 
         latent = self._sample_latent(self.base_dist, *args, **kwargs)
 
@@ -334,42 +325,36 @@ class AutoIAFNormal(AutoContinuous):
     :param `**arn_kwargs`: keywords for constructing autoregressive neural networks, which includes
         * **hidden_dims** (``list[int]``) - the dimensionality of the hidden units per layer.
             Defaults to ``[latent_size, latent_size]``.
-        **skip_connections** (``bool``) - whether to add skip connections from the input to the
+        * **skip_connections** (``bool``) - whether to add skip connections from the input to the
             output of each flow. Defaults to False.
-        **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
+        * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
             Defaults to :func:`jax.experimental.stax.Relu`.
     """
     def __init__(self, rng, model, prefix="auto", init_strategy=init_to_median,
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
-        self.arn_kwargs = arn_kwargs
-        super(AutoIAFNormal, self).__init__(rng, model, prefix=prefix, init_strategy=init_strategy)
-
-    def setup(self, *args, **kwargs):
-        super(AutoIAFNormal, self).setup(*args, **kwargs)
-        if self.latent_size == 1:
-            raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
         # IAF paper (https://arxiv.org/abs/1606.04934)
         # and Neutra paper (https://arxiv.org/abs/1903.03704)
-        hidden_dims = self.arn_kwargs.get('hidden_dims', [self.latent_size, self.latent_size])
-        skip_connections = self.arn_kwargs.get('skip_connections', False)
+        self._hidden_dims = arn_kwargs.get('hidden_dims')
+        self._skip_connections = arn_kwargs.get('skip_connections', False)
         # TODO: follow the recommendation of the above two papers, use stax.Elu by defaults
         # currently, using stax.Elu seems not stable
-        nonlinearity = self.arn_kwargs.get('nonlinearity', stax.Relu)
-        self.arns = []
-        for i in range(self.num_flows):
-            arn = AutoregressiveNN(self.latent_size, hidden_dims,
-                                   permutation=np.arange(self.latent_size),
-                                   skip_connections=skip_connections,
-                                   nonlinearity=nonlinearity)
-            self.arns.append(arn)
+        self._nonlinearity = arn_kwargs.get('nonlinearity', stax.Relu)
+        super(AutoIAFNormal, self).__init__(rng, model, prefix=prefix, init_strategy=init_strategy)
 
     def _get_transform(self):
+        if self.latent_size == 1:
+            raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
+        hidden_dims = [self.latent_size, self.latent_size] if self._hidden_dims is None else self._hidden_dims
         flows = []
         for i in range(self.num_flows):
-            arn = numpyro.module('{}_arn__{}'.format(self.prefix, i), self.arns[i], (self.latent_size,))
             if i > 0:
                 flows.append(PermuteTransform(np.arange(self.latent_size)[::-1]))
-            flows.append(InverseAutoregressiveTransform(arn))
+            arn = AutoregressiveNN(self.latent_size, hidden_dims,
+                                   permutation=np.arange(self.latent_size),
+                                   skip_connections=self._skip_connections,
+                                   nonlinearity=self._nonlinearity)
+            arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_size,))
+            flows.append(InverseAutoregressiveTransform(arnn))
         return ComposeTransform(flows)

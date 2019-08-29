@@ -1,6 +1,6 @@
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/nn/auto_reg_nn.py
 
-from jax import ops, random
+from jax import ops
 from jax.experimental import stax
 import jax.numpy as np
 
@@ -79,7 +79,7 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
     :type param_dims: list[int]
     :param permutation: an optional permutation that is applied to the inputs and controls the order of the
         autoregressive factorization. in particular for the identity permutation the autoregressive structure
-        is such that the Jacobian is triangular. By default this is chosen at random.
+        is such that the Jacobian is triangular. Defaults to identity permutation.
     :type permutation: array of ints
     :param bool skip_connection: whether to add skip connections from the input to the output.
     :type skip_connections: bool
@@ -108,43 +108,35 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
         if h < input_dim:
             raise ValueError('Hidden dimension must not be less than input dimension.')
 
-    net = None
+    if permutation is None:
+        permutation = np.arange(input_dim)
+
+    # Create masks
+    masks, mask_skip = create_mask(input_dim=input_dim, hidden_dims=hidden_dims,
+                                   permutation=permutation,
+                                   output_dim_multiplier=output_multiplier)
+
+    main_layers = []
+    # Create masked layers
+    for i, mask in enumerate(masks):
+        main_layers.append(MaskedDense(mask))
+        if i < len(masks) - 1:
+            main_layers.append(nonlinearity)
+
+    if skip_connections:
+        net_init, net = stax.serial(stax.FanOut(2),
+                                    stax.parallel(stax.serial(*main_layers),
+                                                  MaskedDense(mask_skip, bias=False)),
+                                    stax.FanInSum)
+    else:
+        net_init, net = stax.serial(*main_layers)
 
     def init_fun(rng, input_shape):
         """
         :param rng: rng used to initialize parameters
         :param input_shape: input shape
         """
-        # TODO: consider removing permutation so we can move those layer constructions outside
-        # init_fun. It seems that we can add a PermuteTransform layer to achieve the same effect.
-        nonlocal permutation, net
-
-        if permutation is None:
-            # By default set a random permutation of variables, which is
-            # important for performance with multiple steps
-            rng, rng_perm = random.split(rng)
-            permutation = random.shuffle(rng_perm, np.arange(input_dim))
-
-        # Create masks
-        masks, mask_skip = create_mask(input_dim=input_dim, hidden_dims=hidden_dims,
-                                       permutation=permutation,
-                                       output_dim_multiplier=output_multiplier)
-
-        main_layers = []
-        # Create masked layers
-        for i, mask in enumerate(masks):
-            main_layers.append(MaskedDense(mask))
-            if i < len(masks) - 1:
-                main_layers.append(nonlinearity)
-
-        if skip_connections:
-            net_init, net = stax.serial(stax.FanOut(2),
-                                        stax.parallel(stax.serial(*main_layers),
-                                                      MaskedDense(mask_skip, bias=False)),
-                                        stax.FanInSum)
-        else:
-            net_init, net = stax.serial(*main_layers)
-
+        assert input_dim == input_shape[-1]
         return net_init(rng, input_shape)
 
     def apply_fun(params, inputs, **kwargs):

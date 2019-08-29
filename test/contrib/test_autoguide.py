@@ -10,6 +10,7 @@ from jax.test_util import check_eq
 import numpyro
 from numpyro import optim
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
+from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.flows import InverseAutoregressiveTransform
@@ -121,7 +122,11 @@ def test_iaf():
     for i in range(guide.num_flows):
         if i > 0:
             flows.append(constraints.PermuteTransform(np.arange(dim + 1)[::-1]))
-        arn = partial(guide.arns[i][1], params['auto_arn__{}$params'.format(i)])
+        arn_init, arn_apply = AutoregressiveNN(dim + 1, [dim + 1, dim + 1],
+                                               permutation=np.arange(dim + 1),
+                                               skip_connections=guide._skip_connections,
+                                               nonlinearity=guide._nonlinearity)
+        arn = partial(arn_apply, params['auto_arn__{}$params'.format(i)])
         flows.append(InverseAutoregressiveTransform(arn))
 
     transform = constraints.ComposeTransform(flows)
