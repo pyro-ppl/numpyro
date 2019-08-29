@@ -73,7 +73,7 @@ class AutoGuide(ABC):
 
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
-        rng = numpyro.sample("_{}_rng_setup".format(self.prefix), dist.PRNGIdentity(), sample_shape=(2,))
+        rng = numpyro.sample("_{}_rng_setup".format(self.prefix), dist.PRNGIdentity())
         model = handlers.seed(self.model, rng)
         self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
         self._args = args
