@@ -76,7 +76,7 @@ def test_logistic_regression(algo):
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, labels)
-    samples = mcmc(warmup_steps, num_samples, init_params, sampler='hmc',
+    samples = mcmc(warmup_steps, num_samples, init_params, sampler='hmc', algo=algo,
                    potential_fn=potential_fn, trajectory_length=10, constrain_fn=constrain_fn)
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
 
