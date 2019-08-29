@@ -14,10 +14,11 @@ from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
 @pytest.mark.parametrize('hidden_dims', [[8], [6, 7]])
 @pytest.mark.parametrize('skip_connections', [True, False])
 def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
+    rng, rng_perm = random.split(random.PRNGKey(0))
+    perm = random.shuffle(rng_perm, onp.arange(input_dim))
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims,
-                                     skip_connections=skip_connections)
+                                     skip_connections=skip_connections, permutation=perm)
 
-    rng = random.PRNGKey(0)
     batch_size = 4
     input_shape = (batch_size, input_dim)
     _, init_params = arn_init(rng, input_shape)
@@ -41,8 +42,6 @@ def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
 
     # permute jacobian as necessary
     permuted_jac = onp.zeros(jac.shape)
-    _, rng_perm = random.split(rng)
-    perm = random.shuffle(rng_perm, onp.arange(input_dim))
 
     for j in range(input_dim):
         for k in range(input_dim):

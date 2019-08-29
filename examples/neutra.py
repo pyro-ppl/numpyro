@@ -62,8 +62,8 @@ def main(args):
                            potential_fn=dual_moon_pe, progbar=True)
 
     adam = optim.Adam(0.001)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = AutoIAFNormal(rng_guide, dual_moon_model, hidden_dims=[args.num_hidden])
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = AutoIAFNormal(dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
     svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init)
 
@@ -88,6 +88,8 @@ def main(args):
 
     init_params = np.zeros(guide.latent_size)
     print("\nStart NeuTra HMC...")
+    # TODO: exlore why neutra samples are not good
+    # Issue: https://github.com/pyro-ppl/numpyro/issues/256
     zs = mcmc(args.num_warmup, args.num_samples, init_params, potential_fn=transformed_potential_fn)
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)

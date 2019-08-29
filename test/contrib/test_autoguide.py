@@ -1,3 +1,5 @@
+from functools import partial
+
 from numpy.testing import assert_allclose
 import pytest
 
@@ -8,8 +10,10 @@ from jax.test_util import check_eq
 import numpyro
 from numpyro import optim
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
+from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
+from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.svi import elbo, svi
 from numpyro.util import fori_loop
@@ -28,8 +32,8 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample('obs', dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = auto_class(rng_guide, model)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = auto_class(model)
     svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
@@ -38,7 +42,7 @@ def test_beta_bernoulli(auto_class):
         loss, opt_state_, rng_ = svi_update(rng_, opt_state_, model_args=(data,), guide_args=(data,))
         return opt_state_, rng_
 
-    opt_state, _ = fori_loop(0, 1000, body_fn, (opt_state, rng_train))
+    opt_state, _ = fori_loop(0, 2000, body_fn, (opt_state, rng_train))
     params = get_params(opt_state)
     true_coefs = (np.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
@@ -63,8 +67,8 @@ def test_logistic_regression(auto_class):
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = auto_class(rng_guide, model)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = auto_class(model)
     svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data, labels), guide_args=(data, labels))
 
@@ -88,6 +92,53 @@ def test_logistic_regression(auto_class):
     assert_allclose(np.mean(posterior_samples['coefs'], 0), true_coefs, rtol=0.1)
 
 
+def test_iaf():
+    # test for substitute logic for exposed methods `sample_posterior` and `get_transforms`
+    N, dim = 3000, 3
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1., dim + 1.)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+
+    def model(data, labels):
+        coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
+        offset = numpyro.sample('offset', dist.Uniform(-1, 1))
+        logits = offset + np.sum(coefs * data, axis=-1)
+        return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+
+    adam = optim.Adam(0.01)
+    rng_init = random.PRNGKey(1)
+    guide = AutoIAFNormal(model)
+    svi_init, _, _ = svi(model, guide, elbo, adam)
+    opt_state, get_params = svi_init(rng_init, model_args=(data, labels), guide_args=(data, labels))
+    params = get_params(opt_state)
+
+    x = random.normal(random.PRNGKey(0), (dim + 1,))
+    rng = random.PRNGKey(1)
+    actual_sample = guide.sample_posterior(rng, params)
+    actual_output = guide.get_transform(params)(x)
+
+    flows = []
+    for i in range(guide.num_flows):
+        if i > 0:
+            flows.append(constraints.PermuteTransform(np.arange(dim + 1)[::-1]))
+        arn_init, arn_apply = AutoregressiveNN(dim + 1, [dim + 1, dim + 1],
+                                               permutation=np.arange(dim + 1),
+                                               skip_connections=guide._skip_connections,
+                                               nonlinearity=guide._nonlinearity)
+        arn = partial(arn_apply, params['auto_arn__{}$params'.format(i)])
+        flows.append(InverseAutoregressiveTransform(arn))
+
+    transform = constraints.ComposeTransform(flows)
+    rng_seed, rng_sample = random.split(rng)
+    expected_sample = guide.unpack_latent(transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng_sample)))
+    expected_output = transform(x)
+    assert_allclose(actual_sample['coefs'], expected_sample['coefs'])
+    assert_allclose(actual_sample['offset'],
+                    constraints.biject_to(constraints.interval(-1, 1))(expected_sample['offset']))
+    assert_allclose(actual_output, expected_output)
+
+
 def test_uniform_normal():
     true_coef = 0.9
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
@@ -98,8 +149,8 @@ def test_uniform_normal():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = AutoDiagonalNormal(rng_guide, model)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = AutoDiagonalNormal(model)
     svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
@@ -138,8 +189,8 @@ def test_param():
                               {'_auto_latent': x_init})(*args, **kwargs)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = _AutoGuide(rng_guide, model)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = _AutoGuide(model)
     svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init)
 
@@ -170,9 +221,9 @@ def test_dynamic_supports():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
 
-    guide = AutoDiagonalNormal(rng_guide, actual_model)
+    guide = AutoDiagonalNormal(actual_model)
     svi_init, _, svi_eval = svi(actual_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, (data,), (data,))
     actual_opt_params = adam.get_params(opt_state)
@@ -180,7 +231,7 @@ def test_dynamic_supports():
     actual_values = guide.median(actual_params)
     actual_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
 
-    guide = AutoDiagonalNormal(rng_guide, expected_model)
+    guide = AutoDiagonalNormal(expected_model)
     svi_init, _, svi_eval = svi(expected_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, (data,), (data,))
     expected_opt_params = adam.get_params(opt_state)
@@ -210,7 +261,7 @@ def test_elbo_dynamic_support():
                               {'_auto_latent': x_unconstrained})(*args, **kwargs)
 
     adam = optim.Adam(0.01)
-    guide = _AutoGuide(random.PRNGKey(0), model)
+    guide = _AutoGuide(model)
     svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
     actual_loss = svi_eval(random.PRNGKey(1), opt_state)
