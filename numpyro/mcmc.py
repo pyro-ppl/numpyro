@@ -556,7 +556,12 @@ class MCMC(object):
         self._samples = None
         self._samples_flat = None
 
-    def _single_chain_mcmc(self, rng, init_params=None, args=(), kwargs={}):
+    def _single_chain_mcmc(self, init, args=(), kwargs={}):
+        init_params = None
+        if len(init) == 1:
+            rng, = init
+        else:
+            rng, init_params = init
         hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
                                                     model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
@@ -581,9 +586,9 @@ class MCMC(object):
             samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
             rngs = random.split(rng, self.num_chains)
-            map_prim = lax.map if self.sequential_chain else lambda f, x: pmap(f)(x)
-            map_fn = partial(map_prim, partial(self._single_chain_mcmc, args=args, kwargs=kwargs))
-            samples = map_fn(rngs) if init_params is None else map_fn(rngs, init_params)
+            partial_map_fn = partial(self._single_chain_mcmc, args=args, kwargs=kwargs)
+            map_fn = partial(lax.map, partial_map_fn) if self.sequential_chain else pmap(partial_map_fn)
+            samples = map_fn((rngs,)) if init_params is None else map_fn((rngs, init_params))
             samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
         self._samples = samples
         self._samples_flat = samples_flat

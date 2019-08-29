@@ -239,9 +239,11 @@ def test_improper_prior():
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
 
 
+@pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
-def test_chain():
+def test_chain(use_init_params):
     N, dim = 3000, 3
+    num_chains = 2
     num_warmup, num_samples = 5000, 5000
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
@@ -254,8 +256,10 @@ def test_chain():
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     kernel = NUTS(model=model)
-    mcmc = MCMC(kernel, num_warmup, num_samples, num_chains=2)
-    mcmc.run(random.PRNGKey(2), labels)
+    mcmc = MCMC(kernel, num_warmup, num_samples, num_chains=num_chains)
+    init_params = None if not use_init_params else \
+        {'coefs': np.tile(np.ones(dim), num_chains).reshape(num_chains, dim)}
+    mcmc.run(random.PRNGKey(2), labels, init_params=init_params)
     samples = mcmc.get_samples()
     assert samples['coefs'].shape[0] == 2 * num_samples
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
