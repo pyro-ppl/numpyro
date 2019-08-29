@@ -61,12 +61,13 @@ Numpyro documentation
    utilities
 
 
--- toctree::
+.. toctree::
    :glob:
    :maxdepth: 2
    :caption: Automatic Guide Generation:
 
    autoguide
+
 
 Indices and tables
 ==================
