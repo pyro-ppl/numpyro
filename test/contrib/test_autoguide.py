@@ -32,8 +32,8 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample('obs', dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = auto_class(rng_guide, model)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = auto_class(model)
     svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
@@ -67,8 +67,8 @@ def test_logistic_regression(auto_class):
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = auto_class(rng_guide, model)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = auto_class(model)
     svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data, labels), guide_args=(data, labels))
 
@@ -107,8 +107,8 @@ def test_iaf():
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init = random.split(random.PRNGKey(1), 2)
-    guide = AutoIAFNormal(rng_guide, model)
+    rng_init = random.PRNGKey(1)
+    guide = AutoIAFNormal(model)
     svi_init, _, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data, labels), guide_args=(data, labels))
     params = get_params(opt_state)
@@ -149,8 +149,8 @@ def test_uniform_normal():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = AutoDiagonalNormal(rng_guide, model)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = AutoDiagonalNormal(model)
     svi_init, svi_update, _ = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, model_args=(data,), guide_args=(data,))
 
@@ -189,8 +189,8 @@ def test_param():
                               {'_auto_latent': x_init})(*args, **kwargs)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = _AutoGuide(rng_guide, model)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = _AutoGuide(model)
     svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init)
 
@@ -221,9 +221,9 @@ def test_dynamic_supports():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
 
-    guide = AutoDiagonalNormal(rng_guide, actual_model)
+    guide = AutoDiagonalNormal(actual_model)
     svi_init, _, svi_eval = svi(actual_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, (data,), (data,))
     actual_opt_params = adam.get_params(opt_state)
@@ -231,7 +231,7 @@ def test_dynamic_supports():
     actual_values = guide.median(actual_params)
     actual_loss = svi_eval(random.PRNGKey(1), opt_state, (data,), (data,))
 
-    guide = AutoDiagonalNormal(rng_guide, expected_model)
+    guide = AutoDiagonalNormal(expected_model)
     svi_init, _, svi_eval = svi(expected_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init, (data,), (data,))
     expected_opt_params = adam.get_params(opt_state)
@@ -261,7 +261,7 @@ def test_elbo_dynamic_support():
                               {'_auto_latent': x_unconstrained})(*args, **kwargs)
 
     adam = optim.Adam(0.01)
-    guide = _AutoGuide(random.PRNGKey(0), model)
+    guide = _AutoGuide(model)
     svi_init, _, svi_eval = svi(model, guide, elbo, adam)
     opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
     actual_loss = svi_eval(random.PRNGKey(1), opt_state)

@@ -62,8 +62,8 @@ def main(args):
                            potential_fn=dual_moon_pe, progbar=True)
 
     adam = optim.Adam(0.001)
-    rng_guide, rng_init, rng_train = random.split(random.PRNGKey(1), 3)
-    guide = AutoIAFNormal(rng_guide, dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
+    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
+    guide = AutoIAFNormal(dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
     svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, adam)
     opt_state, get_params = svi_init(rng_init)
 

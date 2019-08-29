@@ -1,7 +1,7 @@
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
 
-from jax import random, vmap
+from jax import vmap
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
@@ -73,7 +73,9 @@ class AutoGuide(ABC):
 
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
-        self.prototype_trace = handlers.block(handlers.trace(self.model).get_trace)(*args, **kwargs)
+        rng = numpyro.sample("_{}_rng_setup".format(self.prefix), dist.PRNGIdentity(), sample_shape=(2,))
+        model = handlers.seed(self.model, rng)
+        self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
         self._args = args
         self._kwargs = kwargs
 
@@ -101,17 +103,16 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`autoguide-initialization` section for available functions.
     """
-    def __init__(self, rng, model, prefix="auto", init_strategy=init_to_median):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_median):
         self.init_strategy = init_strategy
-        rng, self._init_rng = random.split(rng)
-        model = handlers.seed(model, rng)
         self._base_dist = None
         super(AutoContinuous, self).__init__(model, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
+        rng = numpyro.sample("_{}_rng_init".format(self.prefix), dist.PRNGIdentity())
         # FIXME: without block statement, get AssertionError: all sites must have unique names
-        init_params, is_valid = handlers.block(find_valid_initial_params)(self._init_rng, self.model, *args,
+        init_params, is_valid = handlers.block(find_valid_initial_params)(rng, self.model, *args,
                                                                           init_strategy=self.init_strategy,
                                                                           **kwargs)
         self._inv_transforms = {}
@@ -330,7 +331,7 @@ class AutoIAFNormal(AutoContinuous):
         * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
             Defaults to :func:`jax.experimental.stax.Relu`.
     """
-    def __init__(self, rng, model, prefix="auto", init_strategy=init_to_median,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_median,
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
@@ -341,7 +342,7 @@ class AutoIAFNormal(AutoContinuous):
         # TODO: follow the recommendation of the above two papers, use stax.Elu by defaults
         # currently, using stax.Elu seems not stable
         self._nonlinearity = arn_kwargs.get('nonlinearity', stax.Relu)
-        super(AutoIAFNormal, self).__init__(rng, model, prefix=prefix, init_strategy=init_strategy)
+        super(AutoIAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
 
     def _get_transform(self):
         if self.latent_size == 1:
