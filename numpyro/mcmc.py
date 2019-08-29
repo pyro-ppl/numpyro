@@ -80,8 +80,8 @@ def get_diagnostics_str(hmc_state):
 
 
 def get_progbar_desc_str(num_warmup, hmc_state):
-    if hmc_state.i < num_warmup:
-        return 'warmup'
+    # if hmc_state.i < num_warmup:
+    #     return 'warmup'
     return 'sample'
 
 
@@ -582,7 +582,7 @@ class MCMC(object):
                 raise ValueError('`init_params` must have the same leading dimension'
                                  ' as `num_chains`.')
         if self.num_chains == 1:
-            samples_flat = self._single_chain_mcmc(rng, init_params, args, kwargs)
+            samples_flat = self._single_chain_mcmc((rng, init_params), args, kwargs)
             samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
             rngs = random.split(rng, self.num_chains)
