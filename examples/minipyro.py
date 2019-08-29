@@ -32,20 +32,18 @@ def main(args):
     # model/guide pair.
     adam = optim.Adam(args.learning_rate)
     svi_init, svi_update, _ = svi(model, guide, elbo, adam)
-    rng, rng_init = random.split(PRNGKey(0))
-    opt_state, _ = svi_init(rng_init, model_args=(data,))
+    svi_state, get_params = svi_init(PRNGKey(0), model_args=(data,))
 
     # Training loop
     def body_fn(i, val):
-        opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(rng_, opt_state_, model_args=(data,))
-        return opt_state_, rng_
+        svi_state, loss = svi_update(val, model_args=(data,))
+        return svi_state
 
-    opt_state, _ = fori_loop(0, args.num_steps, body_fn, (opt_state, rng))
+    svi_state, _ = fori_loop(0, args.num_steps, body_fn, svi_state)
 
     # Report the final values of the variational parameters
     # in the guide after training.
-    params = adam.get_params(opt_state)
+    params = get_params(svi_state)
     for name, value in params.items():
         print("{} = {}".format(name, value))
 

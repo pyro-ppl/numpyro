@@ -72,31 +72,31 @@ def main(args):
     num_train, train_idx = train_init()
     rng, rng_binarize, rng_init = random.split(rng, 3)
     sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
-    opt_state, get_params = svi_init(rng_init, (sample_batch,), (sample_batch,))
+    svi_state, get_params = svi_init(rng_init, (sample_batch,), (sample_batch,))
 
     @jit
-    def epoch_train(opt_state, rng):
+    def epoch_train(svi_state, rng):
         def body_fn(i, val):
-            loss_sum, opt_state, rng = val
-            rng, rng_binarize = random.split(rng)
+            loss_sum, svi_state = val
+            rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, train_fetch(i, train_idx)[0])
-            loss, opt_state, rng = svi_update(rng, opt_state, (batch,), (batch,),)
+            svi_state, loss = svi_update(svi_state, (batch,), (batch,))
             loss_sum += loss
-            return loss_sum, opt_state, rng
+            return loss_sum, svi_state
 
-        return lax.fori_loop(0, num_train, body_fn, (0., opt_state, rng))
+        return lax.fori_loop(0, num_train, body_fn, (0., svi_state))
 
     @jit
-    def eval_test(opt_state, rng):
-        def body_fun(i, val):
-            loss_sum, rng = val
-            rng, rng_binarize, rng_eval = random.split(rng, 3)
+    def eval_test(svi_state, rng):
+        def body_fun(i, loss_sum):
+            rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, test_fetch(i, test_idx)[0])
-            loss = svi_eval(rng_eval, opt_state, (batch,), (batch,)) / len(batch)
+            # FIXME: does this lead to a requirement for an rng arg in svi_eval?
+            loss = svi_eval(svi_state, (batch,), (batch,)) / len(batch)
             loss_sum += loss
-            return loss_sum, rng
+            return loss_sum
 
-        loss, _ = lax.fori_loop(0, num_test, body_fun, (0., rng))
+        loss = lax.fori_loop(0, num_test, body_fun, 0.)
         loss = loss / num_test
         return loss
 
@@ -105,19 +105,20 @@ def main(args):
         plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), img, cmap='gray')
         rng_binarize, rng_sample = random.split(rng)
         test_sample = binarize(rng_binarize, img)
-        params = get_params(opt_state)
+        params = get_params(svi_state)
         z_mean, z_var = encoder_nn[1](params['encoder$params'], test_sample.reshape([1, -1]))
         z = dist.Normal(z_mean, z_var).sample(rng_sample)
         img_loc = decoder_nn[1](params['decoder$params'], z).reshape([28, 28])
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 
     for i in range(args.num_epochs):
+        rng, rng_train, rng_test, rng_reconstruct = random.split(rng, 4)
         t_start = time.time()
         num_train, train_idx = train_init()
-        _, opt_state, rng = epoch_train(opt_state, rng)
+        _, svi_state = epoch_train(svi_state, rng_train)
         rng, rng_test, rng_reconstruct = random.split(rng, 3)
         num_test, test_idx = test_init()
-        test_loss = eval_test(opt_state, rng_test)
+        test_loss = eval_test(svi_state, rng_test)
         reconstruct_img(i, rng_reconstruct)
         print("Epoch {}: loss = {} ({:.2f} s.)".format(i, test_loss, time.time() - t_start))
 

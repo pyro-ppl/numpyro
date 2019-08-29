@@ -65,15 +65,10 @@ def main(args):
     rng_init, rng_train = random.split(random.PRNGKey(1), 2)
     guide = AutoIAFNormal(dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
     svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, adam)
-    opt_state, get_params = svi_init(rng_init)
-
-    def body_fn(val, i):
-        opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(rng_, opt_state_)
-        return (opt_state_, rng_), loss
+    svi_state, get_params = svi_init(rng_init)
 
     print("Start training guide...")
-    (last_state, _), losses = lax.scan(body_fn, (opt_state, rng_train), np.arange(args.num_iters))
+    last_state, losses = lax.scan(lambda state, i: svi_update(state), svi_state, np.zeros(args.num_iters))
     params = get_params(last_state)
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(random.PRNGKey(0), params,
