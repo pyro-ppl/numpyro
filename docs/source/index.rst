@@ -53,6 +53,22 @@ Numpyro documentation
    diagnostics
 
 
+.. toctree::
+   :glob:
+   :maxdepth: 2
+   :caption: Inference Utilities:
+
+   utilities
+
+
+.. toctree::
+   :glob:
+   :maxdepth: 2
+   :caption: Automatic Guide Generation:
+
+   autoguide
+
+
 Indices and tables
 ==================
 

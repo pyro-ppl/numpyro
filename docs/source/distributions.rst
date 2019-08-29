@@ -264,3 +264,191 @@ Poisson
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+
+Constraints
+===========
+
+biject_to
+---------
+.. autofunction:: numpyro.distributions.constraints.biject_to
+
+boolean
+-------
+.. autodata:: numpyro.distributions.constraints.boolean
+
+corr_cholesky
+-------------
+.. autodata:: numpyro.distributions.constraints.corr_cholesky
+
+dependent
+---------
+.. autodata:: numpyro.distributions.constraints.dependent
+
+greater_than
+------------
+.. autofunction:: numpyro.distributions.constraints.greater_than
+
+integer_interval
+----------------
+.. autofunction:: numpyro.distributions.constraints.integer_interval
+
+integer_greater_than
+--------------------
+.. autofunction:: numpyro.distributions.constraints.integer_greater_than
+
+interval
+--------
+.. autofunction:: numpyro.distributions.constraints.interval
+
+lower_cholesky
+--------------
+.. autodata:: numpyro.distributions.constraints.lower_cholesky
+
+multinomial
+-----------
+.. autofunction:: numpyro.distributions.constraints.multinomial
+
+nonnegative_integer
+-------------------
+.. autodata:: numpyro.distributions.constraints.nonnegative_integer
+
+positive
+--------
+.. autodata:: numpyro.distributions.constraints.positive
+
+positive_definite
+-----------------
+.. autodata:: numpyro.distributions.constraints.positive_definite
+
+positive_integer
+-----------------
+.. autodata:: numpyro.distributions.constraints.positive_integer
+
+real
+----
+.. autodata:: numpyro.distributions.constraints.real
+
+real_vector
+-----------
+.. autodata:: numpyro.distributions.constraints.real_vector
+
+simplex
+-------
+.. autodata:: numpyro.distributions.constraints.simplex
+
+unit_interval
+-------------
+.. autodata:: numpyro.distributions.constraints.unit_interval
+
+
+Transforms
+==========
+
+Transform
+---------
+.. autoclass:: numpyro.distributions.constraints.Transform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AbsTransform
+------------
+.. autoclass:: numpyro.distributions.constraints.AbsTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AffineTransform
+---------------
+.. autoclass:: numpyro.distributions.constraints.AffineTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ComposeTransform
+----------------
+.. autoclass:: numpyro.distributions.constraints.ComposeTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+CorrCholeskyTransform
+---------------------
+.. autoclass:: numpyro.distributions.constraints.CorrCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ExpTransform
+------------
+.. autoclass:: numpyro.distributions.constraints.ExpTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+IdentityTransform
+-----------------
+.. autoclass:: numpyro.distributions.constraints.IdentityTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+LowerCholeskyTransform
+----------------------
+.. autoclass:: numpyro.distributions.constraints.LowerCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+PermuteTransform
+----------------
+.. autoclass:: numpyro.distributions.constraints.PermuteTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+PowerTransform
+--------------
+.. autoclass:: numpyro.distributions.constraints.PowerTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SigmoidTransform
+----------------
+.. autoclass:: numpyro.distributions.constraints.SigmoidTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+StickBreakingTransform
+----------------------
+.. autoclass:: numpyro.distributions.constraints.StickBreakingTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
+Flows
+=====
+
+InverseAutoregressiveTransform
+------------------------------
+.. autoclass:: numpyro.distributions.flows.InverseAutoregressiveTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

@@ -22,8 +22,6 @@ MCMC Utilities
 
 .. autofunction:: numpyro.util.fori_collect
 
-.. autofunction:: numpyro.diagnostics.summary
-
 .. autofunction:: numpyro.hmc_util.consensus
 
 .. autofunction:: numpyro.hmc_util.parametric
