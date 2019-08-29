@@ -151,7 +151,7 @@ def test_dirichlet_categorical(kernel_cls, dense_mass):
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     kernel = kernel_cls(model, trajectory_length=1., dense_mass=dense_mass)
-    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)

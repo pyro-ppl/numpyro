@@ -550,7 +550,7 @@ class MCMC(object):
                           ' flag "XLA_FLAGS=--xla_force_host_platform_device_count={}".'
                           .format(num_chains, xla_bridge.device_count(), num_chains))
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
-        if num_chains > 1:
+        if num_chains > 1 or "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
 
         self._samples = None
