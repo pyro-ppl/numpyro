@@ -240,8 +240,10 @@ def test_improper_prior():
 
 
 @pytest.mark.parametrize('use_init_params', [False, True])
+@pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
-def test_chain(use_init_params):
+@pytest.mark.filterwarnings("ignore:`vectorized`:UserWarning")
+def test_chain(use_init_params, chain_method):
     N, dim = 3000, 3
     num_chains = 2
     num_warmup, num_samples = 5000, 5000
@@ -257,6 +259,7 @@ def test_chain(use_init_params):
 
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup, num_samples, num_chains=num_chains)
+    mcmc.chain_method = chain_method
     init_params = None if not use_init_params else \
         {'coefs': np.tile(np.ones(dim), num_chains).reshape(num_chains, dim)}
     mcmc.run(random.PRNGKey(2), labels, init_params=init_params)

@@ -665,14 +665,7 @@ class MCMC(object):
         self.num_chains = num_chains
         self.constrain_fn = constrain_fn
         self.progress_bar = progress_bar
-        self.sequential_chain = False
-        if xla_bridge.device_count() < num_chains:
-            self.sequential_chain = True
-            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
-                          ' Chains will be drawn sequentially. If you are running `mcmc` in CPU,'
-                          ' consider to disable XLA intra-op parallelism by setting the environment'
-                          ' flag "XLA_FLAGS=--xla_force_host_platform_device_count={}".'
-                          .format(num_chains, xla_bridge.device_count(), num_chains))
+        self.chain_method = 'parallel'
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
         if num_chains > 1 or "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
@@ -707,6 +700,15 @@ class MCMC(object):
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
+        chain_method = self.chain_method
+        if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
+            chain_method = 'sequential'
+            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
+                          ' Chains will be drawn sequentially. If you are running `mcmc` in CPU,'
+                          ' consider to disable XLA intra-op parallelism by setting the environment'
+                          ' flag "XLA_FLAGS=--xla_force_host_platform_device_count={}".'
+                          .format(self.num_chains, xla_bridge.device_count(), self.num_chains))
+
         if init_params is not None and self.num_chains > 1:
             prototype_init_val = tree_flatten(init_params)[0][0]
             if np.shape(prototype_init_val)[0] != self.num_chains:
@@ -718,7 +720,16 @@ class MCMC(object):
         else:
             rngs = random.split(rng, self.num_chains)
             partial_map_fn = partial(self._single_chain_mcmc, args=args, kwargs=kwargs)
-            map_fn = partial(lax.map, partial_map_fn) if self.sequential_chain else pmap(partial_map_fn)
+            if chain_method == 'sequential':
+                map_fn = partial(lax.map, partial_map_fn)
+            elif chain_method == 'parallel':
+                map_fn = pmap(partial_map_fn)
+            elif chain_method == 'vectorized':
+                warnings.warn('`vectorized` method is an experimential feature.')
+                map_fn = vmap(partial_map_fn)
+            else:
+                raise ValueError('Only supporting the following methods to draw chains:'
+                                 ' "sequential", "parallel", or "vectorized"')
             samples = map_fn((rngs, init_params))
             samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
         self._samples = samples
