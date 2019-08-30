@@ -29,18 +29,15 @@ def test_beta_bernoulli():
 
     adam = optim.Adam(0.05)
     svi_init, svi_update, _ = svi(model, guide, elbo, adam)
-    rng_init, rng_train = random.split(random.PRNGKey(1))
-    opt_state, get_params = svi_init(rng_init, model_args=(data,))
-    assert_allclose(adam.get_params(opt_state)['alpha_q'], 0.)
+    svi_state, get_params = svi_init(random.PRNGKey(1), model_args=(data,))
+    assert_allclose(adam.get_params(svi_state.optim_state)['alpha_q'], 0.)
 
     def body_fn(i, val):
-        opt_state_, rng_ = val
-        loss, opt_state_, rng_ = svi_update(rng_, opt_state_, model_args=(data,))
-        return opt_state_, rng_
+        svi_state, _ = svi_update(val, model_args=(data,))
+        return svi_state
 
-    opt_state, _ = fori_loop(0, 300, body_fn, (opt_state, rng_train))
-
-    params = get_params(opt_state)
+    svi_state = fori_loop(0, 300, body_fn, svi_state)
+    params = get_params(svi_state)
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
 
@@ -69,15 +66,15 @@ def test_param():
 
     adam = optim.Adam(0.01)
     svi_init, _, svi_eval = svi(model, guide, elbo, adam)
-    opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
+    svi_state, get_params = svi_init(random.PRNGKey(0), (), ())
 
-    params = get_params(opt_state)
+    params = get_params(svi_state)
     assert_allclose(params['a'], a_init)
     assert_allclose(params['b'], b_init)
     assert_allclose(params['c'], c_init)
     assert_allclose(params['d'], d_init)
 
-    actual_loss = svi_eval(random.PRNGKey(1), opt_state)
+    actual_loss = svi_eval(svi_state)
     assert np.isfinite(actual_loss)
     expected_loss = dist.Normal(c_init, d_init).log_prob(obs) - dist.Normal(a_init, b_init).log_prob(obs)
     # not so precisely because we do transform / inverse transform stuffs
@@ -100,8 +97,8 @@ def test_elbo_dynamic_support():
     x_base = 0.9
     guide = substitute(guide, base_param_map={'x': x_base})
     svi_init, _, svi_eval = svi(model, guide, elbo, adam)
-    opt_state, get_params = svi_init(random.PRNGKey(0), (), ())
-    actual_loss = svi_eval(random.PRNGKey(1), opt_state)
+    svi_state, get_params = svi_init(random.PRNGKey(0), (), ())
+    actual_loss = svi_eval(svi_state)
     assert np.isfinite(actual_loss)
     x, _ = x_guide.transform_with_intermediates(x_base)
     expected_loss = x_guide.log_prob(x) - x_prior.log_prob(x)

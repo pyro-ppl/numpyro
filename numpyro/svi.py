@@ -1,3 +1,4 @@
+from functools import namedtuple
 import os
 
 import jax
@@ -8,6 +9,13 @@ from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
+
+SVIState = namedtuple('SVIState', ['optim_state', 'rng'])
+"""
+A :func:`~collections.namedtuple` consisting of the following fields:
+ - **optim_state** - current optimizer's state.
+ - **rng** - random number generator seed used for the iteration.
+"""
 
 
 def _seed(model, guide, rng):
@@ -44,7 +52,7 @@ def svi(model, guide, loss, optim, **kwargs):
             the course of fitting).
         :param tuple guide_args: arguments to the guide (these can possibly vary during
             the course of fitting).
-        :return: tuple containing initial optimizer state, and `get_params`, a callable
+        :return: tuple containing initial :data:`SVIState`, and `get_params`, a callable
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
         """
@@ -52,7 +60,8 @@ def svi(model, guide, loss, optim, **kwargs):
 
         assert isinstance(model_args, tuple)
         assert isinstance(guide_args, tuple)
-        model_init, guide_init = _seed(model, guide, rng)
+        rng, rng_seed = random.split(rng)
+        model_init, guide_init = _seed(model, guide, rng_seed)
         guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
         model_trace = trace(model_init).get_trace(*model_args, **kwargs)
         params = {}
@@ -66,53 +75,51 @@ def svi(model, guide, loss, optim, **kwargs):
                 params[site['name']] = transform.inv(site['value'])
 
         constrain_fn = jax.partial(transform_fn, inv_transforms)
-        return optim.init(params), get_params
+        return SVIState(optim.init(params), rng), get_params
 
-    def get_params(opt_state):
+    def get_params(svi_state):
         """
         Gets values at `param` sites of the `model` and `guide`.
 
-        :param dict opt_state: current state of the optimizer.
+        :param svi_state: current state of the optimizer.
         """
-        params = constrain_fn(optim.get_params(opt_state))
+        params = constrain_fn(optim.get_params(svi_state.optim_state))
         return params
 
-    def update_fn(rng, opt_state, model_args=(), guide_args=()):
+    def update_fn(svi_state, model_args=(), guide_args=()):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data),
         using the optimizer.
 
-        :param int i: represents the i'th iteration over the epoch, passed as an
-            argument to the optimizer's update function.
-        :param jax.random.PRNGKey rng: random number generator seed.
-        :param opt_state: current optimizer state.
+        :param svi_state: current state of SVI.
         :param tuple model_args: dynamic arguments to the model.
         :param tuple guide_args: dynamic arguments to the guide.
-        :return: tuple of `(loss_val, opt_state, rng)`.
+        :return: tuple of `(svi_state, loss)`.
         """
-        rng, rng_seed = random.split(rng)
+        rng, rng_seed = random.split(svi_state.rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
-        params = optim.get_params(opt_state)
+        params = optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
             lambda x: loss(constrain_fn(x), model_init, guide_init, model_args, guide_args, kwargs))(params)
-        opt_state = optim.update(grads, opt_state)
-        return loss_val, opt_state, rng
+        optim_state = optim.update(grads, svi_state.optim_state)
+        return SVIState(optim_state, rng), loss_val
 
-    def evaluate(rng, opt_state, model_args=(), guide_args=()):
+    def evaluate(svi_state, model_args=(), guide_args=()):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data).
 
-        :param jax.random.PRNGKey rng: random number generator seed.
-        :param opt_state: current optimizer state.
+        :param svi_state: current state of SVI.
         :param tuple model_args: arguments to the model (these can possibly vary during
             the course of fitting).
         :param tuple guide_args: arguments to the guide (these can possibly vary during
             the course of fitting).
         :return: evaluate ELBo loss given the current parameter values
-            (held within `opt_state`).
+            (held within `svi_state.optim_state`).
         """
-        model_init, guide_init = _seed(model, guide, rng)
-        params = get_params(opt_state)
+        # we split to have the same seed as `update_fn` given an svi_state
+        _, rng_seed = random.split(svi_state.rng)
+        model_init, guide_init = _seed(model, guide, rng_seed)
+        params = get_params(svi_state)
         return loss(params, model_init, guide_init, model_args, guide_args, kwargs)
 
     # Make local functions visible from the global scope once
