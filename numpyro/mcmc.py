@@ -382,7 +382,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
            intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
     """
     warnings.warn("This interface to MCMC is deprecated and will be removed in the "
-                  "next version. Please use `numpyrio.mcmc.MCMC` instead.",
+                  "next version. Please use `numpyro.mcmc.MCMC` instead.",
                   DeprecationWarning)
     sequential_chain = False
     if xla_bridge.device_count() < num_chains:
@@ -479,8 +479,8 @@ class MCMCKernel(ABC):
 
 class HMC(MCMCKernel):
     """
-    Hamiltonian Monte Carlo inference, using fixed number of steps with
-    step size and mass matrix adaptation.
+    Hamiltonian Monte Carlo inference, using fixed trajectory length, with
+    provision for step size and mass matrix adaptation.
 
     **References:**
 
@@ -540,7 +540,8 @@ class HMC(MCMCKernel):
     def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         constrain_fn = None
         if self.model is not None:
-            init_params_, self.potential_fn, constrain_fn = initialize_model(rng, self.model,
+            rng, rng_init_model = random.split(rng)
+            init_params_, self.potential_fn, constrain_fn = initialize_model(rng_init_model, self.model,
                                                                              *model_args, **model_kwargs)
             if init_params is None:
                 init_params = init_params_
@@ -559,7 +560,8 @@ class HMC(MCMCKernel):
                                  target_accept_prob=self.target_accept_prob,
                                  trajectory_length=self.trajectory_length,
                                  max_tree_depth=self.max_tree_depth,
-                                 run_warmup=False)
+                                 run_warmup=False,
+                                 rng=rng)
         return init_state, constrain_fn
 
     def sample(self, state):
@@ -679,11 +681,7 @@ class MCMC(object):
         self._samples_flat = None
 
     def _single_chain_mcmc(self, init, args=(), kwargs={}):
-        init_params = None
-        if len(init) == 1:
-            rng, = init
-        else:
-            rng, init_params = init
+        rng, init_params = init
         hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
                                                     model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
@@ -721,7 +719,7 @@ class MCMC(object):
             rngs = random.split(rng, self.num_chains)
             partial_map_fn = partial(self._single_chain_mcmc, args=args, kwargs=kwargs)
             map_fn = partial(lax.map, partial_map_fn) if self.sequential_chain else pmap(partial_map_fn)
-            samples = map_fn((rngs,)) if init_params is None else map_fn((rngs, init_params))
+            samples = map_fn((rngs, init_params))
             samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
         self._samples = samples
         self._samples_flat = samples_flat
