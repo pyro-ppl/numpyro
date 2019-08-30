@@ -752,11 +752,13 @@ class MCMC(object):
 
         :param bool group_by_chain: Whether to preserve the chain dimension. If True,
             all samples will have num_chains as the size of their leading dimension.
-        :param tuple, list fields:
-        :return: Samples having the same data type as `init_params`. This should always
-            be a `dict` keyed on site names if a model containing Pyro primitives is used,
-            but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
-            `potential_fn` for HMC that takes `list` args).
+        :return: Samples having the same data type as `init_params`. If multiple fields
+            are collected via the `collect_fields` arg to :meth:`~numpyro.mcmc.MCMC.run`,
+            then a tuple with the same data type is returned, one for each of the fields.
+            The data type for a particular field is a `dict` keyed on site names if a
+            model containing Pyro primitives is used, but can be any :func:`jaxlib.pytree`,
+            more generally (e.g. when defining a `potential_fn` for HMC that takes
+            `list` args).
         """
         get_items = itemgetter(*self._collect_fields)
         return get_items(self._samples) if group_by_chain else get_items(self._samples_flat)
