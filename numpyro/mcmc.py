@@ -1,6 +1,6 @@
 import functools
 from abc import ABC, abstractmethod
-from collections import namedtuple, OrderedDict
+from collections import namedtuple
 import math
 import os
 import warnings
