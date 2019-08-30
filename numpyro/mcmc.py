@@ -710,8 +710,9 @@ class MCMC(object):
         :param random.PRNGKey rng: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param tuple, list collect_fields: Fields from :data:`numpyro.mcmc.HMCState` to collect
+        :param collect_fields: Fields from :data:`numpyro.mcmc.HMCState` to collect
             during the MCMC run. By default, only the latent sample sites `z` is collected.
+        :type collect_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
             to `False`.
         :param init_params: Initial parameters to begin sampling. The type must be consistent
@@ -726,9 +727,6 @@ class MCMC(object):
                                  ' as `num_chains`.')
         assert isinstance(collect_fields, (tuple, list))
         self._collect_fields = collect_fields
-        invalid_fields = set(collect_fields).difference(set(HMCState._fields))
-        if invalid_fields:
-            raise ValueError('Collect fields: {} not present in HMCState'.format(list(invalid_fields)))
         if self.num_chains == 1:
             samples_flat = self._single_chain_mcmc((rng, init_params), collect_fields, collect_warmup,
                                                    args, kwargs)
