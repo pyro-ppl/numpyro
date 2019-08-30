@@ -39,7 +39,7 @@ def main(args):
         svi_state, loss = svi_update(val, model_args=(data,))
         return svi_state
 
-    svi_state, _ = fori_loop(0, args.num_steps, body_fn, svi_state)
+    svi_state = fori_loop(0, args.num_steps, body_fn, svi_state)
 
     # Report the final values of the variational parameters
     # in the guide after training.
