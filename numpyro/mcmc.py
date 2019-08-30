@@ -649,6 +649,11 @@ class MCMC(object):
     :param constrain_fn: Callable that converts a collection of unconstrained
         sample values returned from the sampler to constrained values that
         lie within the support of the sample sites.
+    :param str chain_method: One of 'parallel' (default), 'sequential', 'vectorized'. The method
+        'parallel' is used to execute the drawing process in parallel on XLA devices (CPUs/GPUs/TPUs),
+        If there are not enough devices for 'parallel', we fall back to 'sequential' method to draw
+        chains sequentially. 'vectorized' method is an experimental feature which vectorizes the
+        drawing method, hence allows us collecting samples in parallel on a single device.
     :param bool progress_bar: Whether to enable progress bar updates. Defaults to
         ``True``.
     """
@@ -658,14 +663,15 @@ class MCMC(object):
                  num_samples,
                  num_chains=1,
                  constrain_fn=None,
+                 chain_method='parallel',
                  progress_bar=True):
         self.sampler = sampler
         self.num_warmup = num_warmup
         self.num_samples = num_samples
         self.num_chains = num_chains
         self.constrain_fn = constrain_fn
+        self.chain_method = chain_method
         self.progress_bar = progress_bar
-        self.chain_method = 'parallel'
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
         if num_chains > 1 or "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
@@ -725,7 +731,6 @@ class MCMC(object):
             elif chain_method == 'parallel':
                 map_fn = pmap(partial_map_fn)
             elif chain_method == 'vectorized':
-                warnings.warn('`vectorized` method is an experimential feature.')
                 map_fn = vmap(partial_map_fn)
             else:
                 raise ValueError('Only supporting the following methods to draw chains:'
