@@ -4,7 +4,23 @@ Markov Chain Monte Carlo (MCMC)
 Hamiltonian Monte Carlo
 -----------------------
 
-.. autofunction:: numpyro.mcmc.mcmc
+.. autoclass:: numpyro.mcmc.MCMC
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+.. autoclass:: numpyro.mcmc.HMC
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+.. autoclass:: numpyro.mcmc.NUTS
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 .. autofunction:: numpyro.mcmc.hmc
 

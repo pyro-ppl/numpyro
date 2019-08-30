@@ -1,3 +1,5 @@
+import functools
+from abc import ABC, abstractmethod
 from collections import namedtuple
 import math
 import os
@@ -10,7 +12,7 @@ from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
-from jax.tree_util import tree_map
+from jax.tree_util import tree_map, tree_flatten
 
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import (
@@ -19,9 +21,9 @@ from numpyro.hmc_util import (
     euclidean_kinetic_energy,
     find_reasonable_step_size,
     velocity_verlet,
-    warmup_adapter
-)
-from numpyro.util import cond, fori_collect, fori_loop, identity
+    warmup_adapter,
+    initialize_model)
+from numpyro.util import cond, fori_collect, fori_loop, identity, copy_docs_from
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'adapt_state', 'rng'])
@@ -77,6 +79,12 @@ def get_diagnostics_str(hmc_state):
                                                               hmc_state.mean_accept_prob)
 
 
+def get_progbar_desc_str(num_warmup, hmc_state):
+    if hmc_state.i < num_warmup:
+        return 'warmup'
+    return 'sample'
+
+
 def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     r"""
     Hamiltonian Monte Carlo inference, using either fixed number of
@@ -103,6 +111,10 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     :return: a tuple of callables (`init_kernel`, `sample_kernel`), the first
         one to initialize the sampler, and the second one to generate samples
         given an existing one.
+
+    .. warning::
+        Instead of using this interface directly, we would highly recommend you
+        to use the higher level :class:`numpyro.mcmc.MCMC` API instead.
 
     **Example**
 
@@ -169,7 +181,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
         :param init_params: Initial parameters to begin sampling. The type must
             be consistent with the input type to `potential_fn`.
-        :param int num_warmup_steps: Number of warmup steps; samples generated
+        :param int num_warmup: Number of warmup steps; samples generated
             during warmup are discarded.
         :param float step_size: Determines the size of a single step taken by the
             verlet integrator while computing the trajectory using Hamiltonian
@@ -188,14 +200,11 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10.
         :param bool run_warmup: Flag to decide whether warmup is run. If ``True``,
-            `init_kernel` returns an initial :data:`HMCState` that can be used to
+            `init_kernel` returns an initial :data:`~numpyro.mcmc.HMCState` that can be used to
             generate samples using MCMC. Else, returns the arguments and callable
             that does the initial adaptation.
         :param bool progbar: Whether to enable progress bar updates. Defaults to
             ``True``.
-        :param bool heuristic_step_size: If ``True``, a coarse grained adjustment of
-            step size is done at the beginning of each adaptation window to achieve
-            `target_acceptance_prob`.
         :param jax.random.PRNGKey rng: random key to be used as the source of
             randomness.
         """
@@ -226,6 +235,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0., 0.,
                              wa_state, rng_hmc)
 
+        # TODO: Remove; this should be the responsibility of the MCMC class.
         if run_warmup and num_warmup > 0:
             # JIT if progress bar updates not required
             if not progbar:
@@ -270,11 +280,11 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     @jit
     def sample_kernel(hmc_state):
         """
-        Given an existing :data:`HMCState`, run HMC with fixed (possibly adapted)
-        step size and return a new :data:`HMCState`.
+        Given an existing :data:`~numpyro.mcmc.HMCState`, run HMC with fixed (possibly adapted)
+        step size and return a new :data:`~numpyro.mcmc.HMCState`.
 
         :param hmc_state: Current sample (and associated state).
-        :return: new proposed :data:`HMCState` from simulating
+        :return: new proposed :data:`~numpyro.mcmc.HMCState` from simulating
             Hamiltonian dynamics given existing state.
         """
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
@@ -315,7 +325,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
 
     :param num_warmup: Number of warmup steps.
     :param num_samples: Number of samples to generate from the Markov chain.
-    :param init_params: Initial parameters to begin sampling. The type can
+    :param init_params: Initial parameters to begin sampling. The type
         must be consistent with the input type to `potential_fn`.
     :param sampler: currently, only `hmc` is implemented (default).
     :param constrain_fn: Callable that converts a collection of unconstrained
@@ -371,6 +381,9 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
             coefs[2]       3.18       0.13       2.96       3.37     320.27       1.00
            intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
     """
+    warnings.warn("This interface to MCMC is deprecated and will be removed in the "
+                  "next version. Please use `numpyro.mcmc.MCMC` instead.",
+                  DeprecationWarning)
     sequential_chain = False
     if xla_bridge.device_count() < num_chains:
         sequential_chain = True
@@ -402,7 +415,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                                         transform=lambda x: constrain_fn(x.z),
                                         progbar=progbar,
                                         diagnostics_fn=get_diagnostics_str,
-                                        progbar_desc='sample')
+                                        progbar_desc=lambda x: 'sample')
             samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
             def single_chain_mcmc(rng, init_params):
@@ -428,3 +441,301 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
         return samples_flat
     else:
         raise ValueError('sampler: {} not recognized'.format(sampler))
+
+
+# ========= Higher Level API ========= #
+
+
+class MCMCKernel(ABC):
+    """
+    Defines the interface for the Markov transition kernel that is
+    used for :class:`~numpyro.mcmc.MCMC` inference.
+
+    :param random.PRNGKey rng: Random number generator key to initialize
+        the kernel.
+    :param int num_warmup: Number of warmup steps. This can be useful
+        when doing adaptation during warmup.
+    :param tuple init_params: Initial parameters to begin sampling. The type must be consistent
+            with the input type to `potential_fn`.
+    :param model_args: Arguments provided to the model.
+    :param model_kwargs: Keyword arguments provided to the model.
+    """
+    @abstractmethod
+    def init(self, rng, num_warmup, init_params, model_args, model_kwargs):
+        raise NotImplementedError
+
+    @abstractmethod
+    def sample(self, state):
+        """
+        Given the current `state`, return the next `state` using the given
+        transition kernel.
+
+        :param state: Arbitrary data structure representing the state for the
+            kernel. For HMC, this is given by :data:`~numpyro.mcmc.HMCState`.
+        :return: Next `state`.
+        """
+        raise NotImplementedError
+
+
+class HMC(MCMCKernel):
+    """
+    Hamiltonian Monte Carlo inference, using fixed trajectory length, with
+    provision for step size and mass matrix adaptation.
+
+    **References:**
+
+    1. *MCMC Using Hamiltonian Dynamics*,
+       Radford M. Neal
+
+    :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
+        If model is provided, `potential_fn` will be inferred using the model.
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that `init_params` argument to
+        `init_kernel` has the same type.
+    :param kinetic_fn: Python callable that returns the kinetic energy given
+        inverse mass matrix and momentum. If not provided, the default is
+        euclidean kinetic energy.
+    :param float step_size: Determines the size of a single step taken by the
+        verlet integrator while computing the trajectory using Hamiltonian
+        dynamics. If not specified, it will be set to 1.
+    :param bool adapt_step_size: A flag to decide if we want to adapt step_size
+        during warm-up phase using Dual Averaging scheme.
+    :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
+        matrix during warm-up phase using Welford scheme.
+    :param bool dense_mass:  A flag to decide if mass matrix is dense or
+        diagonal (default when ``dense_mass=False``)
+    :param float target_accept_prob: Target acceptance probability for step size
+        adaptation using Dual Averaging. Increasing this value will lead to a smaller
+        step size, hence the sampling will be slower but more robust. Default to 0.8.
+    :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+        value is :math:`2\\pi`.
+    """
+    def __init__(self,
+                 model=None,
+                 potential_fn=None,
+                 kinetic_fn=None,
+                 step_size=1.0,
+                 adapt_step_size=True,
+                 adapt_mass_matrix=True,
+                 dense_mass=False,
+                 target_accept_prob=0.8,
+                 trajectory_length=2*math.pi):
+        if not (model is None) ^ (potential_fn is None):
+            raise ValueError('Only one of `model` or `potential_fn` must be specified.')
+        self.model = model
+        self.potential_fn = potential_fn
+        self.kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
+        self.step_size = step_size
+        self.adapt_step_size = adapt_step_size
+        self.adapt_mass_matrix = adapt_mass_matrix
+        self.dense_mass = dense_mass
+        self.target_accept_prob = target_accept_prob
+        self.trajectory_length = trajectory_length
+        self.sample_fn = None
+        self.algo = 'HMC'
+        self.max_tree_depth = 10
+
+    @copy_docs_from(MCMCKernel.init)
+    def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
+        constrain_fn = None
+        if self.model is not None:
+            rng, rng_init_model = random.split(rng)
+            init_params_, self.potential_fn, constrain_fn = initialize_model(rng_init_model, self.model,
+                                                                             *model_args, **model_kwargs)
+            if init_params is None:
+                init_params = init_params_
+        else:
+            # User needs to provide valid `init_params` if using `potential_fn`.
+            if init_params is None:
+                raise ValueError('Valid value of `init_params` must be provided with'
+                                 ' `potential_fn`.')
+        hmc_init_fn, self.sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
+        init_state = hmc_init_fn(init_params,
+                                 num_warmup=num_warmup,
+                                 step_size=self.step_size,
+                                 adapt_step_size=self.adapt_step_size,
+                                 adapt_mass_matrix=self.adapt_mass_matrix,
+                                 dense_mass=self.dense_mass,
+                                 target_accept_prob=self.target_accept_prob,
+                                 trajectory_length=self.trajectory_length,
+                                 max_tree_depth=self.max_tree_depth,
+                                 run_warmup=False,
+                                 rng=rng)
+        return init_state, constrain_fn
+
+    def sample(self, state):
+        """
+        Run HMC from the given :data:`~numpyro.mcmc.HMCState` and return the resulting
+        :data:`~numpyro.mcmc.HMCState`.
+
+        :param HMCState state: Represents the current state.
+        :return: Next `state` after running HMC.
+        """
+        return self.sample_fn(state)
+
+
+class NUTS(HMC):
+    """
+     Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS)
+     with adaptive path length and mass matrix adaptation.
+
+    **References:**
+
+    1. *MCMC Using Hamiltonian Dynamics*,
+       Radford M. Neal
+    2. *The No-U-turn sampler: adaptively setting path lengths in Hamiltonian Monte Carlo*,
+       Matthew D. Hoffman, and Andrew Gelman.
+    3. *A Conceptual Introduction to Hamiltonian Monte Carlo`*,
+       Michael Betancourt
+
+    :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
+        If model is provided, `potential_fn` will be inferred using the model.
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that `init_params` argument to
+        `init_kernel` has the same type.
+    :param kinetic_fn: Python callable that returns the kinetic energy given
+        inverse mass matrix and momentum. If not provided, the default is
+        euclidean kinetic energy.
+    :param float step_size: Determines the size of a single step taken by the
+        verlet integrator while computing the trajectory using Hamiltonian
+        dynamics. If not specified, it will be set to 1.
+    :param bool adapt_step_size: A flag to decide if we want to adapt step_size
+        during warm-up phase using Dual Averaging scheme.
+    :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
+        matrix during warm-up phase using Welford scheme.
+    :param bool dense_mass:  A flag to decide if mass matrix is dense or
+        diagonal (default when ``dense_mass=False``)
+    :param float target_accept_prob: Target acceptance probability for step size
+        adaptation using Dual Averaging. Increasing this value will lead to a smaller
+        step size, hence the sampling will be slower but more robust. Default to 0.8.
+    :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
+        value is :math:`2\\pi`.
+    :param int max_tree_depth: Max depth of the binary tree created during the doubling
+        scheme of NUTS sampler. Defaults to 10.
+    """
+    def __init__(self,
+                 model=None,
+                 potential_fn=None,
+                 kinetic_fn=None,
+                 step_size=1.0,
+                 adapt_step_size=True,
+                 adapt_mass_matrix=True,
+                 dense_mass=False,
+                 target_accept_prob=0.8,
+                 trajectory_length=2 * math.pi,
+                 max_tree_depth=10):
+        super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
+                                   step_size=step_size, adapt_step_size=adapt_step_size,
+                                   adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
+                                   target_accept_prob=target_accept_prob, trajectory_length=trajectory_length)
+        self.max_tree_depth = max_tree_depth
+        self.algo = 'NUTS'
+
+
+class MCMC(object):
+    """
+    Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
+
+    :param MCMCKernel sampler: an instance of :class:`~numpyro.mcmc.MCMCKernel` that
+        determines the sampler for running MCMC. Currently, only :class:`~numpyro.mcmc.HMC`
+        and :class:`~numpyro.mcmc.NUTS` are available.
+    :param int num_warmup: Number of warmup steps.
+    :param int num_samples: Number of samples to generate from the Markov chain.
+    :param int num_chains: Number of Number of MCMC chains to run. By default,
+        chains will be run in parallel using :func:`jax.pmap`, failing which,
+        chains will be run in sequence.
+    :param constrain_fn: Callable that converts a collection of unconstrained
+        sample values returned from the sampler to constrained values that
+        lie within the support of the sample sites.
+    :param bool progress_bar: Whether to enable progress bar updates. Defaults to
+        ``True``.
+    """
+    def __init__(self,
+                 sampler,
+                 num_warmup,
+                 num_samples,
+                 num_chains=1,
+                 constrain_fn=None,
+                 progress_bar=True):
+        self.sampler = sampler
+        self.num_warmup = num_warmup
+        self.num_samples = num_samples
+        self.num_chains = num_chains
+        self.constrain_fn = constrain_fn
+        self.progress_bar = progress_bar
+        self.sequential_chain = False
+        if xla_bridge.device_count() < num_chains:
+            self.sequential_chain = True
+            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
+                          ' Chains will be drawn sequentially. If you are running `mcmc` in CPU,'
+                          ' consider to disable XLA intra-op parallelism by setting the environment'
+                          ' flag "XLA_FLAGS=--xla_force_host_platform_device_count={}".'
+                          .format(num_chains, xla_bridge.device_count(), num_chains))
+        # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
+        if num_chains > 1 or "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
+            self.progress_bar = False
+
+        self._samples = None
+        self._samples_flat = None
+
+    def _single_chain_mcmc(self, init, args=(), kwargs={}):
+        rng, init_params = init
+        hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
+                                                    model_args=args, model_kwargs=kwargs)
+        if self.constrain_fn is None:
+            self.constrain_fn = identity if constrain_fn is None else constrain_fn
+        samples = fori_collect(self.num_warmup, self.num_warmup + self.num_samples,
+                               self.sampler.sample,
+                               hmc_state,
+                               transform=lambda x: self.constrain_fn(x.z),
+                               progbar=self.progress_bar,
+                               progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
+                               diagnostics_fn=get_diagnostics_str)
+        return samples
+
+    def run(self, rng, *args, init_params=None, **kwargs):
+        """
+        Run the MCMC samplers and collect samples.
+
+        :param random.PRNGKey rng: Random number generator key to be used for the sampling.
+        :param args: Arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init` method.
+            These are typically the arguments needed by the `model`.
+        :param init_params: Initial parameters to begin sampling. The type must be consistent
+            with the input type to `potential_fn`.
+        :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init`
+            method. These are typically the keyword arguments needed by the `model`.
+        """
+        if init_params is not None and self.num_chains > 1:
+            prototype_init_val = tree_flatten(init_params)[0][0]
+            if np.shape(prototype_init_val)[0] != self.num_chains:
+                raise ValueError('`init_params` must have the same leading dimension'
+                                 ' as `num_chains`.')
+        if self.num_chains == 1:
+            samples_flat = self._single_chain_mcmc((rng, init_params), args, kwargs)
+            samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
+        else:
+            rngs = random.split(rng, self.num_chains)
+            partial_map_fn = partial(self._single_chain_mcmc, args=args, kwargs=kwargs)
+            map_fn = partial(lax.map, partial_map_fn) if self.sequential_chain else pmap(partial_map_fn)
+            samples = map_fn((rngs, init_params))
+            samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
+        self._samples = samples
+        self._samples_flat = samples_flat
+
+    def get_samples(self, group_by_chain=False):
+        """
+        Get samples from the MCMC run.
+
+        :param bool group_by_chain: Whether to preserve the chain dimension. If True,
+            all samples will have num_chains as the size of their leading dimension.
+        :return: Samples having the same data type as `init_params`. This should always
+            be a `dict` keyed on site names if a model containing Pyro primitives is used,
+            but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
+            `potential_fn` for HMC that takes `list` args).
+        """
+        return self._samples if group_by_chain else self._samples_flat
+
+    def print_summary(self):
+        summary(self._samples)
