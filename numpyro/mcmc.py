@@ -80,8 +80,8 @@ def get_diagnostics_str(hmc_state):
 
 
 def get_progbar_desc_str(num_warmup, hmc_state):
-    # if hmc_state.i < num_warmup:
-    #     return 'warmup'
+    if hmc_state.i < num_warmup:
+        return 'warmup'
     return 'sample'
 
 
