@@ -211,7 +211,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         step_size = lax.convert_element_type(step_size, xla_bridge.canonicalize_dtype(np.float64))
         nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth, wa_steps
         wa_steps = num_warmup
-        trajectory_len = float(trajectory_length)
+        trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
         z = init_params
         z_flat, unravel_fn = ravel_pytree(z)
