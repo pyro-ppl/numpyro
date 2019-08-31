@@ -94,7 +94,8 @@ def test_uniform_normal():
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
-    mcmc.run(random.PRNGKey(2), data, collect_warmup=True, collect_fields=('z', 'num_steps'))
+    mcmc.run(random.PRNGKey(2), data, collect_warmup=True,
+             collect_fields=('z', 'num_steps', 'adapt_state.step_size'))
     samples = mcmc.get_samples()
     assert len(samples[0]['loc']) == num_warmup + num_samples
     assert_allclose(np.mean(samples[0]['loc'], 0), true_coef, atol=0.05)
