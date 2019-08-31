@@ -4,6 +4,7 @@ from collections import namedtuple
 import math
 import os
 import warnings
+from operator import attrgetter, itemgetter
 
 import tqdm
 
@@ -676,31 +677,43 @@ class MCMC(object):
         if num_chains > 1 or "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
 
+        self._collect_fields = ('z',)
         self._samples = None
         self._samples_flat = None
 
-    def _single_chain_mcmc(self, init, args=(), kwargs={}):
+    def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
         rng, init_params = init
         hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
                                                     model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
             self.constrain_fn = identity if constrain_fn is None else constrain_fn
-        samples = fori_collect(self.num_warmup, self.num_warmup + self.num_samples,
+        collect_fn = attrgetter(*collect_fields)
+        lower = 0 if collect_warmup else self.num_warmup
+        samples = fori_collect(lower, self.num_warmup + self.num_samples,
                                self.sampler.sample,
                                hmc_state,
-                               transform=lambda x: self.constrain_fn(x.z),
+                               transform=collect_fn,
                                progbar=self.progress_bar,
                                progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
                                diagnostics_fn=get_diagnostics_str)
+        if len(collect_fields) == 1:
+            samples = (samples,)
+        samples = dict(zip(collect_fields, samples))
+        samples['z'] = self.constrain_fn(samples['z'])
         return samples
 
-    def run(self, rng, *args, init_params=None, **kwargs):
+    def run(self, rng, *args, collect_fields=('z',), collect_warmup=False, init_params=None, **kwargs):
         """
         Run the MCMC samplers and collect samples.
 
         :param random.PRNGKey rng: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
+        :param collect_fields: Fields from :data:`numpyro.mcmc.HMCState` to collect
+            during the MCMC run. By default, only the latent sample sites `z` is collected.
+        :type collect_fields: tuple or list
+        :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
+            to `False`.
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn`.
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init`
@@ -720,12 +733,19 @@ class MCMC(object):
             if np.shape(prototype_init_val)[0] != self.num_chains:
                 raise ValueError('`init_params` must have the same leading dimension'
                                  ' as `num_chains`.')
+        assert isinstance(collect_fields, (tuple, list))
+        self._collect_fields = collect_fields
         if self.num_chains == 1:
-            samples_flat = self._single_chain_mcmc((rng, init_params), args, kwargs)
+            samples_flat = self._single_chain_mcmc((rng, init_params), collect_fields, collect_warmup,
+                                                   args, kwargs)
             samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
             rngs = random.split(rng, self.num_chains)
-            partial_map_fn = partial(self._single_chain_mcmc, args=args, kwargs=kwargs)
+            partial_map_fn = partial(self._single_chain_mcmc,
+                                     collect_fields=collect_fields,
+                                     collect_warmup=collect_warmup,
+                                     args=args,
+                                     kwargs=kwargs)
             if chain_method == 'sequential':
                 map_fn = partial(lax.map, partial_map_fn)
             elif chain_method == 'parallel':
@@ -746,12 +766,18 @@ class MCMC(object):
 
         :param bool group_by_chain: Whether to preserve the chain dimension. If True,
             all samples will have num_chains as the size of their leading dimension.
-        :return: Samples having the same data type as `init_params`. This should always
-            be a `dict` keyed on site names if a model containing Pyro primitives is used,
-            but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
-            `potential_fn` for HMC that takes `list` args).
+        :return: Samples having the same data type as `init_params`. If multiple fields
+            are collected via the `collect_fields` arg to :meth:`~numpyro.mcmc.MCMC.run`,
+            then a tuple with the same data type is returned, one for each of the fields.
+            The data type for a particular field is a `dict` keyed on site names if a
+            model containing Pyro primitives is used, but can be any :func:`jaxlib.pytree`,
+            more generally (e.g. when defining a `potential_fn` for HMC that takes
+            `list` args).
         """
-        return self._samples if group_by_chain else self._samples_flat
+        get_items = itemgetter(*self._collect_fields)
+        return get_items(self._samples) if group_by_chain else get_items(self._samples_flat)
 
     def print_summary(self):
-        summary(self._samples)
+        if 'z' not in self._samples:
+            raise ValueError('No latent samples `z` collected. Pass `z` to `collect_fields` arg.')
+        summary(self._samples['z'])

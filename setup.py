@@ -31,8 +31,8 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the next release (unless JAX's API becomes stable)
-        'jax==0.1.43',
-        'jaxlib==0.1.26',
+        'jax==0.1.44',
+        'jaxlib==0.1.27',
         'tqdm',
     ],
     extras_require={
