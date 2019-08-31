@@ -285,7 +285,7 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     # Caution: compiling time will be slow (~ 90s)
     if chain_method == 'parallel' and xla_bridge.device_count() == 1:
         pytest.skip('parallel method requires device_count greater than 1.')
-    warmup_steps, num_samples = 100, 200
+    warmup_steps, num_samples = 100, 2000
     # Here are settings which is currently supported.
     rng = random.PRNGKey(2)
     step_size = 1.
@@ -313,5 +313,6 @@ def test_chain_inside_jit(kernel_cls, chain_method):
         return mcmc.get_samples()
 
     true_probs = np.array([0.1, 0.6, 0.3])
-    data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (20,))
+    data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     samples = get_samples(rng, data, step_size, trajectory_length, target_accept_prob)
+    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
