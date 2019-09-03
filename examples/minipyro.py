@@ -7,7 +7,7 @@ from jax.random import PRNGKey
 import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
-from numpyro.svi import elbo, svi
+from numpyro.svi import elbo, SVI
 from numpyro.util import fori_loop
 
 
@@ -31,19 +31,19 @@ def main(args):
     # Construct an SVI object so we can do variational inference on our
     # model/guide pair.
     adam = optim.Adam(args.learning_rate)
-    svi_init, svi_update, _ = svi(model, guide, elbo, adam)
-    svi_state, get_params = svi_init(PRNGKey(0), model_args=(data,))
+    svi = SVI(model, guide, elbo, adam)
+    svi_state = svi.init(PRNGKey(0), model_args=(data,))
 
     # Training loop
     def body_fn(i, val):
-        svi_state, loss = svi_update(val, model_args=(data,))
+        svi_state, loss = svi.update(val, model_args=(data,))
         return svi_state
 
     svi_state = fori_loop(0, args.num_steps, body_fn, svi_state)
 
     # Report the final values of the variational parameters
     # in the guide after training.
-    params = get_params(svi_state)
+    params = svi.get_params(svi_state)
     for name, value in params.items():
         print("{} = {}".format(name, value))
 

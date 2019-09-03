@@ -11,9 +11,25 @@ block
     :show-inheritance:
     :member-order: bysource
 
+condition
+---------
+.. autoclass:: numpyro.handlers.condition
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 replay
 ------
 .. autoclass:: numpyro.handlers.replay
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+scale
+-----
+.. autoclass:: numpyro.handlers.scale
     :members:
     :undoc-members:
     :show-inheritance:

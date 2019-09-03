@@ -251,7 +251,7 @@ class AutoDiagonalNormal(AutoContinuous):
     Usage::
 
         guide = AutoDiagonalNormal(rng, model, ...)
-        svi_init, svi_update, _ = svi(model, guide, ...)
+        svi = SVI(model, guide, ...)
     """
     def _get_transform(self):
         loc, scale = self._loc_scale()
@@ -323,7 +323,8 @@ class AutoIAFNormal(AutoContinuous):
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_strategy: A per-site initialization function.
     :param int num_flows: the number of flows to be used, defaults to 3.
-    :param `**arn_kwargs`: keywords for constructing autoregressive neural networks, which includes
+    :param `**arn_kwargs`: keywords for constructing autoregressive neural networks, which includes:
+
         * **hidden_dims** (``list[int]``) - the dimensionality of the hidden units per layer.
             Defaults to ``[latent_size, latent_size]``.
         * **skip_connections** (``bool``) - whether to add skip connections from the input to the

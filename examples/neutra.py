@@ -17,8 +17,8 @@ from numpyro.contrib.autoguide import AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
-from numpyro.svi import elbo, svi
+from numpyro.mcmc import MCMC, NUTS
+from numpyro.svi import elbo, SVI
 
 # TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
 # The behaviour when training guide under fast math mode is unstable.
@@ -58,18 +58,20 @@ def main(args):
     jax_config.update('jax_platform_name', args.device)
 
     print("Start vanilla HMC...")
-    vanilla_samples = mcmc(args.num_warmup, args.num_samples, init_params=np.array([2., 0.]),
-                           potential_fn=dual_moon_pe, progbar=True)
+    nuts_kernel = NUTS(potential_fn=dual_moon_pe)
+    mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
+    mcmc.run(random.PRNGKey(11), init_params=np.array([2., 0.]))
+    vanilla_samples = mcmc.get_samples()
 
     adam = optim.Adam(0.001)
     rng_init, rng_train = random.split(random.PRNGKey(1), 2)
     guide = AutoIAFNormal(dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
-    svi_init, svi_update, _ = svi(dual_moon_model, guide, elbo, adam)
-    svi_state, get_params = svi_init(rng_init)
+    svi = SVI(dual_moon_model, guide, elbo, adam)
+    svi_state = svi.init(rng_init)
 
     print("Start training guide...")
-    last_state, losses = lax.scan(lambda state, i: svi_update(state), svi_state, np.zeros(args.num_iters))
-    params = get_params(last_state)
+    last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, np.zeros(args.num_iters))
+    params = svi.get_params(last_state)
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(random.PRNGKey(0), params,
                                            sample_shape=(args.num_samples,))
@@ -85,7 +87,10 @@ def main(args):
     print("\nStart NeuTra HMC...")
     # TODO: exlore why neutra samples are not good
     # Issue: https://github.com/pyro-ppl/numpyro/issues/256
-    zs = mcmc(args.num_warmup, args.num_samples, init_params, potential_fn=transformed_potential_fn)
+    nuts_kernel = NUTS(potential_fn=transformed_potential_fn)
+    mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
+    mcmc.run(random.PRNGKey(10), init_params=init_params)
+    zs = mcmc.get_samples()
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)
     summary(tree_map(lambda x: x[None, ...], samples))
