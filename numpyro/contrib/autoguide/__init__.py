@@ -326,11 +326,11 @@ class AutoIAFNormal(AutoContinuous):
     :param `**arn_kwargs`: keywords for constructing autoregressive neural networks, which includes:
 
         * **hidden_dims** (``list[int]``) - the dimensionality of the hidden units per layer.
-            Defaults to ``[latent_size, latent_size]``.
+          Defaults to ``[latent_size, latent_size]``.
         * **skip_connections** (``bool``) - whether to add skip connections from the input to the
-            output of each flow. Defaults to False.
+          output of each flow. Defaults to False.
         * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
-            Defaults to :func:`jax.experimental.stax.Relu`.
+          Defaults to :func:`jax.experimental.stax.Relu`.
     """
     def __init__(self, model, prefix="auto", init_strategy=init_to_median,
                  num_flows=3, **arn_kwargs):

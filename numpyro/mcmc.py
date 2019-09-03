@@ -639,6 +639,8 @@ class MCMC(object):
     """
     Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
 
+    .. note:: `chain_method` is an experimental arg, which might be removed in a future version.
+
     :param MCMCKernel sampler: an instance of :class:`~numpyro.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.mcmc.HMC`
         and :class:`~numpyro.mcmc.NUTS` are available.
@@ -654,7 +656,7 @@ class MCMC(object):
         'parallel' is used to execute the drawing process in parallel on XLA devices (CPUs/GPUs/TPUs),
         If there are not enough devices for 'parallel', we fall back to 'sequential' method to draw
         chains sequentially. 'vectorized' method is an experimental feature which vectorizes the
-        drawing method, hence allows us collecting samples in parallel on a single device.
+        drawing method, hence allowing us to collect samples in parallel on a single device.
     :param bool progress_bar: Whether to enable progress bar updates. Defaults to
         ``True``.
     """
