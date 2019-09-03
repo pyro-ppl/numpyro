@@ -13,7 +13,7 @@ import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.examples.datasets import MNIST, load_dataset
-from numpyro.svi import elbo, svi
+from numpyro.svi import elbo, SVI
 
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                               '.results'))
@@ -63,16 +63,16 @@ def main(args):
     encoder_nn = encoder(args.hidden_dim, args.z_dim)
     decoder_nn = decoder(args.hidden_dim, 28 * 28)
     adam = optim.Adam(args.learning_rate)
-    svi_init, svi_update, svi_eval = svi(model, guide, elbo, adam,
-                                         z_dim=args.z_dim,
-                                         hidden_dim=args.hidden_dim)
+    svi = SVI(model, guide, elbo, adam,
+              z_dim=args.z_dim,
+              hidden_dim=args.hidden_dim)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
     num_train, train_idx = train_init()
     rng, rng_binarize, rng_init = random.split(rng, 3)
     sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
-    svi_state, get_params = svi_init(rng_init, (sample_batch,), (sample_batch,))
+    svi_state = svi.init(rng_init, (sample_batch,), (sample_batch,))
 
     @jit
     def epoch_train(svi_state, rng):
@@ -80,7 +80,7 @@ def main(args):
             loss_sum, svi_state = val
             rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, train_fetch(i, train_idx)[0])
-            svi_state, loss = svi_update(svi_state, (batch,), (batch,))
+            svi_state, loss = svi.update(svi_state, (batch,), (batch,))
             loss_sum += loss
             return loss_sum, svi_state
 
@@ -92,7 +92,7 @@ def main(args):
             rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, test_fetch(i, test_idx)[0])
             # FIXME: does this lead to a requirement for an rng arg in svi_eval?
-            loss = svi_eval(svi_state, (batch,), (batch,)) / len(batch)
+            loss = svi.evaluate(svi_state, (batch,), (batch,)) / len(batch)
             loss_sum += loss
             return loss_sum
 
@@ -105,7 +105,7 @@ def main(args):
         plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), img, cmap='gray')
         rng_binarize, rng_sample = random.split(rng)
         test_sample = binarize(rng_binarize, img)
-        params = get_params(svi_state)
+        params = svi.get_params(svi_state)
         z_mean, z_var = encoder_nn[1](params['encoder$params'], test_sample.reshape([1, -1]))
         z = dist.Normal(z_mean, z_var).sample(rng_sample)
         img_loc = decoder_nn[1](params['decoder$params'], z).reshape([28, 28])

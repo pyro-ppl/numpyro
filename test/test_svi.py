@@ -9,7 +9,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.svi import elbo, svi
+from numpyro.svi import elbo, SVI
 from numpyro.util import fori_loop
 
 
@@ -28,16 +28,16 @@ def test_beta_bernoulli():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     adam = optim.Adam(0.05)
-    svi_init, svi_update, _ = svi(model, guide, elbo, adam)
-    svi_state, get_params = svi_init(random.PRNGKey(1), model_args=(data,))
+    svi = SVI(model, guide, elbo, adam)
+    svi_state = svi.init(random.PRNGKey(1), model_args=(data,))
     assert_allclose(adam.get_params(svi_state.optim_state)['alpha_q'], 0.)
 
     def body_fn(i, val):
-        svi_state, _ = svi_update(val, model_args=(data,))
+        svi_state, _ = svi.update(val, model_args=(data,))
         return svi_state
 
     svi_state = fori_loop(0, 300, body_fn, svi_state)
-    params = get_params(svi_state)
+    params = svi.get_params(svi_state)
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
 
@@ -65,16 +65,16 @@ def test_param():
         numpyro.sample('y', dist.Normal(c, d), obs=obs)
 
     adam = optim.Adam(0.01)
-    svi_init, _, svi_eval = svi(model, guide, elbo, adam)
-    svi_state, get_params = svi_init(random.PRNGKey(0), (), ())
+    svi = SVI(model, guide, elbo, adam)
+    svi_state = svi.init(random.PRNGKey(0), (), ())
 
-    params = get_params(svi_state)
+    params = svi.get_params(svi_state)
     assert_allclose(params['a'], a_init)
     assert_allclose(params['b'], b_init)
     assert_allclose(params['c'], c_init)
     assert_allclose(params['d'], d_init)
 
-    actual_loss = svi_eval(svi_state)
+    actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
     expected_loss = dist.Normal(c_init, d_init).log_prob(obs) - dist.Normal(a_init, b_init).log_prob(obs)
     # not so precisely because we do transform / inverse transform stuffs
@@ -96,9 +96,9 @@ def test_elbo_dynamic_support():
     # set base value of x_guide is 0.9
     x_base = 0.9
     guide = substitute(guide, base_param_map={'x': x_base})
-    svi_init, _, svi_eval = svi(model, guide, elbo, adam)
-    svi_state, get_params = svi_init(random.PRNGKey(0), (), ())
-    actual_loss = svi_eval(svi_state)
+    svi = SVI(model, guide, elbo, adam)
+    svi_state = svi.init(random.PRNGKey(0), (), ())
+    actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
     x, _ = x_guide.transform_with_intermediates(x_base)
     expected_loss = x_guide.log_prob(x) - x_prior.log_prob(x)
