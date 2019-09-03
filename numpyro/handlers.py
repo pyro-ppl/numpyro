@@ -12,7 +12,7 @@ inference utilities and algorithms.
 As an example, we are using :class:`~numpyro.handlers.seed`, :class:`~numpyro.handlers.trace`
 and :class:`~numpyro.handlers.substitute` handlers to define the `log_likelihood` function below.
 We first create a logistic regression model and sample from the posterior distribution over
-the regression parameters using :func:`~numpyro.mcmc.mcmc`. The `log_likelihood` function
+the regression parameters using :func:`~numpyro.mcmc.MCMC`. The `log_likelihood` function
 uses effect handlers to run the model by substituting sample sites with values from the posterior
 distribution and computes the log density for a single data point. The `expected_log_likelihood`
 function computes the log likelihood for each draw from the joint posterior and aggregates the
@@ -29,7 +29,7 @@ need to loop over all the data points.
    import numpyro.distributions as dist
    from numpyro import handlers
    from numpyro.hmc_util import initialize_model
-   from numpyro.mcmc import mcmc
+   from numpyro.mcmc import MCMC, NUTS
 
 .. doctest::
 
@@ -45,13 +45,11 @@ need to loop over all the data points.
    >>> logits = np.sum(true_coefs * data, axis=-1)
    >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
-   >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), logistic_regression, data, labels)
    >>> num_warmup, num_samples = 1000, 1000
-   >>> samples = mcmc(num_warmup, num_samples, init_params,
-   ...                potential_fn=potential_fn,
-   ...                constrain_fn=constrain_fn)  # doctest: +SKIP
-   warmup: 100%|██████████| 1000/1000 [00:09<00:00, 109.40it/s, 1 steps of size 5.83e-01. acc. prob=0.79]
+   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup, num_samples)
+   >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
+   >>> mcmc.print_summary()  # doctest: +SKIP
 
 
                       mean         sd       5.5%      94.5%      n_eff       Rhat
@@ -264,7 +262,7 @@ class condition(Messenger):
 
        from jax import random
        import numpyro
-       from numpyro.handlers import seed, substitute, trace
+       from numpyro.handlers import condition, seed, substitute, trace
        import numpyro.distributions as dist
 
     .. doctest::
