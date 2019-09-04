@@ -4,7 +4,7 @@ import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import pmap, random
+from jax import pmap, random, vmap
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.scipy.special import logit
@@ -245,8 +245,9 @@ def test_improper_prior():
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_pmap(algo):
-    if xla_bridge.device_count() == 1:
+@pytest.mark.parametrize('map_fn', [vmap, pmap])
+def test_map(algo, map_fn):
+    if map_fn is pmap and xla_bridge.device_count() == 1:
         pytest.skip('pmap test requires device_count greater than 1.')
 
     true_mean, true_std = 1., 2.
@@ -259,13 +260,13 @@ def test_pmap(algo):
     init_params = np.array([0., -1.])
     rngs = random.split(random.PRNGKey(0), 2)
 
-    init_kernel_pmap = pmap(lambda init_param, rng: init_kernel(
+    init_kernel_map = map_fn(lambda init_param, rng: init_kernel(
         init_param, trajectory_length=9, num_warmup=warmup_steps, progbar=False, rng=rng))
-    init_states = init_kernel_pmap(init_params, rngs)
+    init_states = init_kernel_map(init_params, rngs)
 
-    fori_collect_pmap = pmap(lambda hmc_state: fori_collect(0, num_samples, sample_kernel, hmc_state,
-                                                            transform=lambda x: x.z, progbar=False))
-    chain_samples = fori_collect_pmap(init_states)
+    fori_collect_map = map_fn(lambda hmc_state: fori_collect(0, num_samples, sample_kernel, hmc_state,
+                                                             transform=lambda x: x.z, progbar=False))
+    chain_samples = fori_collect_map(init_states)
 
     assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.05)
     assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)

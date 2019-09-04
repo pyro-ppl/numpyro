@@ -4,7 +4,8 @@ import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import jit, random
+from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.scipy.special import logit
 
@@ -243,8 +244,10 @@ def test_improper_prior():
 
 
 @pytest.mark.parametrize('use_init_params', [False, True])
+@pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
-def test_chain(use_init_params):
+@pytest.mark.filterwarnings("ignore:`vectorized`:UserWarning")
+def test_chain(use_init_params, chain_method):
     N, dim = 3000, 3
     num_chains = 2
     num_warmup, num_samples = 5000, 5000
@@ -260,9 +263,56 @@ def test_chain(use_init_params):
 
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup, num_samples, num_chains=num_chains)
+    mcmc.chain_method = chain_method
     init_params = None if not use_init_params else \
         {'coefs': np.tile(np.ones(dim), num_chains).reshape(num_chains, dim)}
     mcmc.run(random.PRNGKey(2), labels, init_params=init_params)
     samples = mcmc.get_samples()
     assert samples['coefs'].shape[0] == 2 * num_samples
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
+
+
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('chain_method', [
+    pytest.param('parallel', marks=pytest.mark.xfail(
+        reason='jit+pmap does not work in CPU yet')),
+    'sequential',
+    'vectorized',
+])
+@pytest.mark.skipif('CI' in os.environ, reason="Compiling time the whole sampling process is slow.")
+def test_chain_inside_jit(kernel_cls, chain_method):
+    # NB: this feature is useful for consensus MC.
+    # Caution: compiling time will be slow (~ 90s)
+    if chain_method == 'parallel' and xla_bridge.device_count() == 1:
+        pytest.skip('parallel method requires device_count greater than 1.')
+    warmup_steps, num_samples = 100, 2000
+    # Here are settings which is currently supported.
+    rng = random.PRNGKey(2)
+    step_size = 1.
+    target_accept_prob = 0.8
+    trajectory_length = 1.
+    # Not supported yet:
+    #   + adapt_step_size
+    #   + adapt_mass_matrix
+    #   + max_tree_depth
+    #   + num_warmup
+    #   + num_samples
+
+    def model(data):
+        concentration = np.array([1.0, 1.0, 1.0])
+        p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
+        numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
+        return p_latent
+
+    @jit
+    def get_samples(rng, data, step_size, trajectory_length, target_accept_prob):
+        kernel = kernel_cls(model, step_size=step_size, trajectory_length=trajectory_length,
+                            target_accept_prob=target_accept_prob)
+        mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method)
+        mcmc.run(rng, data)
+        return mcmc.get_samples()
+
+    true_probs = np.array([0.1, 0.6, 0.3])
+    data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
+    samples = get_samples(rng, data, step_size, trajectory_length, target_accept_prob)
+    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
