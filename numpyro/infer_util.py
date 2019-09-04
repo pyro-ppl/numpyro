@@ -1,5 +1,3 @@
-import warnings
-
 import jax
 from jax import random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
@@ -256,21 +254,6 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         init_state = body_fn((0, rng, None, None))
     _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
     return init_params, is_valid
-
-
-def _predictive_sequential(model, posterior_samples, model_args, model_kwargs,
-                           num_samples, sample_sites, return_trace=False):
-    collected = []
-    samples = [{k: v[i] for k, v in posterior_samples.items()} for i in range(num_samples)]
-    for i in range(num_samples):
-        trace = poutine.trace(poutine.condition(model, samples[i])).get_trace(*model_args, **model_kwargs)
-        if return_trace:
-            collected.append(trace)
-        else:
-            collected.append({site: trace.nodes[site]['value'] for site in sample_sites})
-
-    return collected if return_trace else {site: torch.stack([s[site] for s in collected])
-                                           for site in sample_sites}
 
 
 def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs):
