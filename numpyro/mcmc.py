@@ -533,7 +533,7 @@ class HMC(MCMCKernel):
         self.dense_mass = dense_mass
         self.target_accept_prob = target_accept_prob
         self.trajectory_length = trajectory_length
-        self.sample_fn = None
+        self._sample_fn = None
         self.algo = 'HMC'
         self.max_tree_depth = 10
 
@@ -551,7 +551,7 @@ class HMC(MCMCKernel):
             if init_params is None:
                 raise ValueError('Valid value of `init_params` must be provided with'
                                  ' `potential_fn`.')
-        hmc_init_fn, self.sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
+        hmc_init_fn, self._sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
         init_state = hmc_init_fn(init_params,
                                  num_warmup=num_warmup,
                                  step_size=self.step_size,
@@ -573,7 +573,7 @@ class HMC(MCMCKernel):
         :param HMCState state: Represents the current state.
         :return: Next `state` after running HMC.
         """
-        return self.sample_fn(state)
+        return self._sample_fn(state)
 
 
 class NUTS(HMC):
@@ -688,7 +688,9 @@ class MCMC(object):
         hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
                                                     model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
-            self.constrain_fn = identity if constrain_fn is None else constrain_fn
+            constrain_fn = identity if constrain_fn is None else constrain_fn
+        else:
+            constrain_fn = self.constrain_fn
         collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else self.num_warmup
         samples = fori_collect(lower, self.num_warmup + self.num_samples,
@@ -701,7 +703,7 @@ class MCMC(object):
         if len(collect_fields) == 1:
             samples = (samples,)
         samples = dict(zip(collect_fields, samples))
-        samples['z'] = self.constrain_fn(samples['z'])
+        samples['z'] = vmap(constrain_fn)(samples['z'])
         return samples
 
     def run(self, rng, *args, collect_fields=('z',), collect_warmup=False, init_params=None, **kwargs):

@@ -19,8 +19,7 @@ import jax.random as random
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import NUTS, MCMC
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -34,6 +33,7 @@ def nonlin(x):
 # given by D_X => D_H => D_H => D_Y where D_H is the number of
 # hidden units. (note we indicate tensor dimensions in the comments)
 def model(X, Y, D_H):
+
     D_X, D_Y = X.shape[1], 1
 
     # sample first layer (we put unit normal priors on all weights)
@@ -60,12 +60,12 @@ def model(X, Y, D_H):
 def run_inference(model, args, rng, X, Y, D_H):
     if args.num_chains > 1:
         rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y, D_H)
     start = time.time()
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng, X, Y, D_H)
     print('\nMCMC elapsed time:', time.time() - start)
-    return samples
+    return mcmc.get_samples()
 
 
 # helper function for prediction

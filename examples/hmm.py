@@ -11,8 +11,7 @@ from jax.scipy.special import logsumexp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 
 """
@@ -151,18 +150,12 @@ def main(args):
     )
     print('Starting inference...')
     rng = random.PRNGKey(2)
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(
-        rng,
-        semi_supervised_hmm,
-        transition_prior, emission_prior, supervised_categories,
-        supervised_words, unsupervised_words,
-    )
     start = time.time()
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   potential_fn=potential_fn, constrain_fn=constrain_fn,
-                   progbar=True)
+    kernel = NUTS(semi_supervised_hmm)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
+    mcmc.run(rng, transition_prior, emission_prior, supervised_categories,
+             supervised_words, unsupervised_words)
+    samples = mcmc.get_samples()
     print('\nMCMC elapsed time:', time.time() - start)
     print_results(samples, transition_prob, emission_prob)
 

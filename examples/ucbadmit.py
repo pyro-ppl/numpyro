@@ -11,8 +11,7 @@ import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import UCBADMIT, load_dataset
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 
 """
@@ -69,13 +68,10 @@ def glmm(dept, male, applications, admit):
 
 
 def run_inference(dept, male, applications, admit, rng, args):
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(
-        rng, glmm, dept, male, applications, admit)
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   potential_fn=potential_fn, constrain_fn=constrain_fn)
-    return samples
+    kernel = NUTS(glmm)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains)
+    mcmc.run(rng, dept, male, applications, admit)
+    return mcmc.get_samples()
 
 
 def predict(dept, male, applications, z, rng):

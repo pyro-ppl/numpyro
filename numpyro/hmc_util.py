@@ -769,9 +769,12 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
                                     {k: v for k, v in constrained_values.items()},
                                     invert=True)
 
-    potential_fn = jax.partial(potential_energy, seeded_model, model_args, model_kwargs, inv_transforms)
+    # NB: we use model instead of seeded_model to prevent unexpected behaviours (if any)
+    potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
     if has_transformed_dist:
-        constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
+        # FIXME: why using seeded_model here triggers an error for funnel reparam example
+        # if we use MCMC class (mcmc function works fine)
+        constrain_fun = jax.partial(constrain_fn, model, model_args, model_kwargs, inv_transforms)
     else:
         constrain_fun = jax.partial(transform_fn, inv_transforms)
 

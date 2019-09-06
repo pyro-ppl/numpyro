@@ -14,8 +14,7 @@ import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import NUTS, MCMC
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -50,14 +49,12 @@ def model(X, Y):
 
 # helper function for doing hmc inference
 def run_inference(model, args, rng, X, Y):
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y)
     start = time.time()
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng, X, Y)
     print('\nMCMC elapsed time:', time.time() - start)
-    return samples
+    return mcmc.get_samples()
 
 
 # do GP prediction for a given set of hyperparameters. this makes use of the well-known
