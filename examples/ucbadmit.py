@@ -69,7 +69,7 @@ def glmm(dept, male, applications, admit):
 
 def run_inference(dept, male, applications, admit, rng, args):
     kernel = NUTS(glmm)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains)
     mcmc.run(rng, dept, male, applications, admit)
     return mcmc.get_samples()
 
