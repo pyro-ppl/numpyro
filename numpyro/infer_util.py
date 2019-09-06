@@ -1,7 +1,8 @@
 import jax
-from jax import random, value_and_grad
+from jax import random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
+from jax.tree_util import tree_flatten
 
 import numpyro
 import numpyro.distributions as dist
@@ -253,3 +254,34 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         init_state = body_fn((0, rng, None, None))
     _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
     return init_params, is_valid
+
+
+def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs):
+    """
+    Run model by sampling latent parameters from `posterior_samples`, and return
+    values at sample sites from the forward run. By default, only sites not contained in
+    `posterior_samples` are returned. This can be modified by changing the `return_sites`
+    keyword argument.
+
+    .. warning::
+        The interface for the `predictive` function is experimental, and
+        might change in the future.
+
+    :param jax.random.PRNGKey rng: seed to draw samples
+    :param model: Python callable containing Pyro primitives.
+    :param dict posterior_samples: dictionary of samples from the posterior.
+    :param list return_sites: sites to return; by default only sample sites not present
+        in `posterior_samples` are returned.
+    :param args: model arguments.
+    :param kwargs: model kwargs.
+    :return: dict of samples from the predictive distribution.
+    """
+    # TODO: consider to support `num_samples`, `return_traces`, `parallel` kwargs
+    def single_prediction(rng, samples):
+        model_trace = trace(substitute(seed(model, rng), samples)).get_trace(*args, **kwargs)
+        sites = model_trace.keys() - samples.keys() if return_sites is None else return_sites
+        return {name: site['value'] for name, site in model_trace.items() if name in sites}
+
+    num_samples = tree_flatten(posterior_samples)[0][0].shape[0]
+    rngs = random.split(rng, num_samples)
+    return vmap(single_prediction)(rngs, posterior_samples)
