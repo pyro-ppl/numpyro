@@ -11,8 +11,7 @@ import jax.numpy as np
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import AffineTransform
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 sns.set(context='talk')
 
@@ -50,12 +49,10 @@ def reparam_model(dim=10):
 
 
 def run_inference(model, args, rng):
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(rng, model)
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   potential_fn=potential_fn, constrain_fn=constrain_fn)
-    return samples
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng)
+    return mcmc.get_samples()
 
 
 def main(args):
@@ -69,7 +66,6 @@ def main(args):
     reparam_samples = run_inference(reparam_model, args, rng)
 
     # make plots
-    sns.set
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 16))
 
     sns.scatterplot(samples['x'][:, 0], samples['y'], color='g', alpha=0.3, ax=ax1)

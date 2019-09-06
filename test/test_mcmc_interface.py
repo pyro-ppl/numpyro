@@ -268,7 +268,7 @@ def test_chain(use_init_params, chain_method):
         {'coefs': np.tile(np.ones(dim), num_chains).reshape(num_chains, dim)}
     mcmc.run(random.PRNGKey(2), labels, init_params=init_params)
     samples = mcmc.get_samples()
-    assert samples['coefs'].shape[0] == 2 * num_samples
+    assert samples['coefs'].shape[0] == num_chains * num_samples
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
 
 

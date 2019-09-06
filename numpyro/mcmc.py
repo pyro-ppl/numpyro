@@ -701,7 +701,7 @@ class MCMC(object):
         if len(collect_fields) == 1:
             samples = (samples,)
         samples = dict(zip(collect_fields, samples))
-        samples['z'] = self.constrain_fn(samples['z'])
+        samples['z'] = vmap(self.constrain_fn)(samples['z'])
         return samples
 
     def run(self, rng, *args, collect_fields=('z',), collect_warmup=False, init_params=None, **kwargs):

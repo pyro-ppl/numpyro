@@ -12,8 +12,7 @@ import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import NUTS, MCMC
 
 """
 Original example from Pyro:
@@ -137,12 +136,10 @@ def partially_pooled_with_logit(at_bats, hits=None):
 
 
 def run_inference(model, at_bats, hits, rng, args):
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(rng, model, at_bats, hits)
-    hmc_states = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                      sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
-    return hmc_states
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng, at_bats, hits)
+    return mcmc.get_samples()
 
 
 # TODO: Consider providing generic utilities for doing predictions
