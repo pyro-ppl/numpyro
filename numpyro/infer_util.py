@@ -7,7 +7,7 @@ from jax.tree_util import tree_flatten
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
-from numpyro.handlers import block, seed, substitute, trace
+from numpyro.handlers import block, seed, substitute, trace, condition
 from numpyro.util import while_loop
 
 
@@ -278,7 +278,7 @@ def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs
     """
     # TODO: consider to support `num_samples`, `return_traces`, `parallel` kwargs
     def single_prediction(rng, samples):
-        model_trace = trace(substitute(seed(model, rng), samples)).get_trace(*args, **kwargs)
+        model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
         sites = model_trace.keys() - samples.keys() if return_sites is None else return_sites
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
