@@ -48,3 +48,13 @@ def test_condition():
     # Raise ValueError when site is already observed.
     with pytest.raises(ValueError):
         handlers.condition(model, {'y': 3.})()
+
+
+def test_no_split_deterministic():
+    def model():
+        x = numpyro.sample('x', dist.Normal(0., 1.))
+        y = numpyro.sample('y', dist.Normal(0., 1.))
+        return x + y
+
+    model = handlers.condition(model, {'x': 1., 'y': 2.})
+    assert model() == 3.
