@@ -1,7 +1,7 @@
 Sparse Regression
 =================
 
-`View funnel.py on github`__
+`View sparse_regression.py on github`__
 
 .. _github: https://github.com/pyro-ppl/numpyro/blob/master/examples/sparse_regression.py
 
