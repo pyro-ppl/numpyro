@@ -23,30 +23,30 @@ dset = namedtuple('dset', ['name', 'urls'])
 
 
 BASEBALL = dset('baseball', [
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/EfronMorrisBB.txt',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt',
 ])
 
 
 COVTYPE = dset('covtype', [
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/covtype.data.gz',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.data.gz',
 ])
 
 
 MNIST = dset('mnist', [
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz',
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/train-labels-idx1-ubyte.gz',
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/t10k-images-idx3-ubyte.gz',
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-labels-idx1-ubyte.gz',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-images-idx3-ubyte.gz',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz',
 ])
 
 
 SP500 = dset('SP500', [
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/SP500.csv',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/SP500.csv',
 ])
 
 
 UCBADMIT = dset('ucbadmit', [
-    'https://d2fefpcigoriu7.cloudfront.net/datasets/UCBadmit.csv',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv',
 ])
 
 
