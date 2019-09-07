@@ -3,6 +3,10 @@ Inference Utilities
 
 .. automodule:: numpyro.infer_util
 
+predictive
+-----------
+.. autofunction:: numpyro.infer_util.predictive
+
 log_density
 -----------
 .. autofunction:: numpyro.infer_util.log_density
