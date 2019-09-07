@@ -1,12 +1,12 @@
 from numpy.testing import assert_allclose
 
-import jax.numpy as np
 from jax import random
+import jax.numpy as np
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.mcmc import MCMC, NUTS
 from numpyro.infer_util import predictive
+from numpyro.mcmc import MCMC, NUTS
 
 
 def beta_bernoulli():

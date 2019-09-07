@@ -12,7 +12,7 @@ import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.mcmc import NUTS, MCMC
+from numpyro.mcmc import MCMC, NUTS
 
 """
 Original example from Pyro:

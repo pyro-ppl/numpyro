@@ -1,6 +1,6 @@
-import warnings
 from functools import namedtuple
 import os
+import warnings
 
 import jax
 from jax import random, value_and_grad

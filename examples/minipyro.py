@@ -7,7 +7,7 @@ from jax.random import PRNGKey
 import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
-from numpyro.svi import elbo, SVI
+from numpyro.svi import SVI, elbo
 from numpyro.util import fori_loop
 
 
