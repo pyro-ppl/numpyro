@@ -1,10 +1,10 @@
-import functools
 from abc import ABC, abstractmethod
 from collections import namedtuple
+import functools
 import math
+from operator import attrgetter, itemgetter
 import os
 import warnings
-from operator import attrgetter, itemgetter
 
 import tqdm
 
@@ -13,7 +13,7 @@ from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
-from jax.tree_util import tree_map, tree_flatten
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import (
@@ -21,10 +21,11 @@ from numpyro.hmc_util import (
     build_tree,
     euclidean_kinetic_energy,
     find_reasonable_step_size,
+    initialize_model,
     velocity_verlet,
-    warmup_adapter,
-    initialize_model)
-from numpyro.util import cond, fori_collect, fori_loop, identity, copy_docs_from
+    warmup_adapter
+)
+from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'adapt_state', 'rng'])

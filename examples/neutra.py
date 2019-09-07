@@ -18,7 +18,7 @@ from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import MCMC, NUTS
-from numpyro.svi import elbo, SVI
+from numpyro.svi import SVI, elbo
 
 # TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
 # The behaviour when training guide under fast math mode is unstable.

@@ -9,7 +9,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.svi import elbo, SVI
+from numpyro.svi import SVI, elbo
 from numpyro.util import fori_loop
 
 
