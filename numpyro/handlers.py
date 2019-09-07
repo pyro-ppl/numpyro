@@ -330,7 +330,7 @@ class seed(Messenger):
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample':
+        if msg['type'] == 'sample' and not msg['is_observed']:
             self.rng, rng_sample = random.split(self.rng)
             msg['kwargs']['random_state'] = rng_sample
 
