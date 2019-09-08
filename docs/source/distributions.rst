@@ -119,7 +119,7 @@ LogNormal
 
 MultivariateNormal
 ------------------
-..autoclass:: numpyro.distributions.continuous.MultivariateNormal
+.. autoclass:: numpyro.distributions.continuous.MultivariateNormal
     :members:
     :undoc-members:
     :show-inheritance:
