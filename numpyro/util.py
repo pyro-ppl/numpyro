@@ -125,7 +125,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
         val = init_val
         with tqdm.trange(upper) as t:
             for i in t:
-                val = body_fun(val)
+                val = jit(body_fun)(val)
                 if i >= lower:
                     collection.append(jit(ravel_fn)(val))
                 t.set_description(progbar_desc(val), refresh=False)

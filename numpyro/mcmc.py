@@ -8,7 +8,7 @@ import warnings
 
 import tqdm
 
-from jax import jit, lax, partial, pmap, random, vmap
+from jax import lax, partial, pmap, random, vmap
 from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
@@ -279,7 +279,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
-    @jit
     def sample_kernel(hmc_state):
         """
         Given an existing :data:`~numpyro.mcmc.HMCState`, run HMC with fixed (possibly adapted)
