@@ -5,7 +5,7 @@
 
 Probabilistic programming with NumPy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/CPU.
 
-[Docs](https://numpyro.readthedocs.io/en/v0.1.0/) | [Examples](https://pyro.ai/numpyro/) | [Forum](https://forum.pyro.ai/)
+[Docs](https://numpyro.readthedocs.io/en/stable/) | [Examples](https://pyro.ai/numpyro/) | [Forum](https://forum.pyro.ai/)
 
 ----------------------------------------------------------------------------------------------------
 

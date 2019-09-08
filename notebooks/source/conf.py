@@ -68,7 +68,7 @@ author = u'Uber AI Labs'
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 
-version = '0.1.0'
+version = '0.2.0'
 
 # release version
 release = version  # eg Numpyro 0.1.2
