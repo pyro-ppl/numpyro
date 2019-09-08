@@ -149,6 +149,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="NeuTra HMC")
     parser.add_argument('-n', '--num-samples', nargs='?', default=20000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=0, type=int)
