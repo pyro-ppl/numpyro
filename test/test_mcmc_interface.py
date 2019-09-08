@@ -243,6 +243,26 @@ def test_improper_prior():
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
 
 
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('adapt_step_size', [True, False])
+def test_diverging(kernel_cls, adapt_step_size):
+    data = random.normal(random.PRNGKey(0), (1000,))
+
+    def model(data):
+        loc = numpyro.sample('loc', dist.Normal(0., 1.))
+        numpyro.sample('obs', dist.Normal(loc, 1), obs=data)
+
+    kernel = kernel_cls(model, step_size=10., adapt_step_size=adapt_step_size, adapt_mass_matrix=False)
+    num_warmup = num_samples = 1000
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc.run(random.PRNGKey(1), data, collect_fields=('z', 'diverging'), collect_warmup=True)
+    num_divergences = mcmc.get_samples()[1].sum()
+    if adapt_step_size:
+        assert num_divergences <= num_warmup
+    else:
+        assert_allclose(num_divergences, num_warmup + num_samples)
+
+
 @pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
