@@ -263,6 +263,27 @@ def test_diverging(kernel_cls, adapt_step_size):
         assert_allclose(num_divergences, num_warmup + num_samples)
 
 
+def test_schools_model():
+    data = {
+        "J": 8,
+        "y": np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0]),
+        "sigma": np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0]),
+    }
+
+    def model():
+        mu = numpyro.sample('mu', dist.Normal(0, 5))
+        tau = numpyro.sample('tau', dist.HalfCauchy(5))
+        # TODO: use numpyro.plate or `sample_shape` kwargs instead of
+        # multiplying with np.ones(J) in future versions of NumPyro
+        theta = numpyro.sample('theta', dist.Normal(mu, tau), sample_shape=(data['J'],))
+        numpyro.sample('obs', dist.Normal(theta, data['sigma']), obs=data['y'])
+
+    num_samples = 500
+    mcmc = MCMC(NUTS(model), num_warmup=500, num_samples=num_samples)
+    mcmc.run(random.PRNGKey(0))
+    assert mcmc.get_samples()['theta'].shape == (num_samples, data['J'])
+
+
 @pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
