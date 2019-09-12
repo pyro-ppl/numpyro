@@ -97,10 +97,9 @@ def svi(model, guide, loss, optim, **kwargs):
         :return: tuple of `(svi_state, loss)`.
         """
         rng, rng_seed = random.split(svi_state.rng)
-        model_init, guide_init = _seed(model, guide, rng_seed)
         params = optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: loss(constrain_fn(x), model_init, guide_init, model_args, guide_args, kwargs))(params)
+            lambda x: loss(rng, constrain_fn(x), model, guide, model_args, guide_args, kwargs))(params)
         optim_state = optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng), loss_val
 
@@ -118,9 +117,8 @@ def svi(model, guide, loss, optim, **kwargs):
         """
         # we split to have the same seed as `update_fn` given an svi_state
         _, rng_seed = random.split(svi_state.rng)
-        model_init, guide_init = _seed(model, guide, rng_seed)
         params = get_params(svi_state)
-        return loss(params, model_init, guide_init, model_args, guide_args, kwargs)
+        return loss(rng_seed, params, model, guide, model_args, guide_args, kwargs)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
@@ -132,7 +130,7 @@ def svi(model, guide, loss, optim, **kwargs):
     return init_fn, update_fn, evaluate
 
 
-def elbo(param_map, model, guide, model_args, guide_args, kwargs):
+def elbo(rng, param_map, model, guide, model_args, guide_args, kwargs):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
     fundamental objective in Variational Inference. This implementation has various
@@ -154,6 +152,7 @@ def elbo(param_map, model, guide, model_args, guide_args, kwargs):
     :param dict kwargs: static keyword arguments to the model / guide.
     :return: negative of the Evidence Lower Bound (ELBo) to be minimized.
     """
+    model, guide = _seed(model, guide, rng)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
     if isinstance(guide.__wrapped__, AutoContinuous):
         # first, we substitute `param_map` to `param` primitives of `model`
@@ -254,10 +253,9 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng, rng_seed = random.split(svi_state.rng)
-        model_init, guide_init = _seed(self.model, self.guide, rng_seed)
         params = self.optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: self.loss(self.constrain_fn(x), model_init, guide_init,
+            lambda x: self.loss(rng_seed, self.constrain_fn(x), self.model, self.guide,
                                 model_args, guide_args, self.kwargs))(params)
         optim_state = self.optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng), loss_val
@@ -276,6 +274,5 @@ class SVI(object):
         """
         # we split to have the same seed as `update_fn` given an svi_state
         _, rng_seed = random.split(svi_state.rng)
-        model_init, guide_init = _seed(self.model, self.guide, rng_seed)
         params = self.get_params(svi_state)
-        return self.loss(params, model_init, guide_init, model_args, guide_args, self.kwargs)
+        return self.loss(rng_seed, params, self.model, self.guide, model_args, guide_args, self.kwargs)
