@@ -33,9 +33,9 @@ def main(args):
     # model/guide pair.
     adam = optim.Adam(args.learning_rate)
 
-    def loss(rng, param_map, model, guide, model_args, guide_args, kwargs, num_particles=100):
+    def loss(rng, *args, num_particles=100):
         rng = random.split(rng, num_particles)
-        return np.mean(jax.vmap(lambda rng_: elbo(rng_, param_map, model, guide, model_args, guide_args, kwargs))(rng))
+        return np.mean(jax.vmap(lambda rng_: elbo(rng_, *args))(rng))
 
     svi = SVI(model, guide, loss, adam)
     svi_state = svi.init(PRNGKey(0), model_args=(data,))
