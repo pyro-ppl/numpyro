@@ -243,6 +243,45 @@ def test_improper_prior():
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
 
 
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('adapt_step_size', [True, False])
+def test_diverging(kernel_cls, adapt_step_size):
+    data = random.normal(random.PRNGKey(0), (1000,))
+
+    def model(data):
+        loc = numpyro.sample('loc', dist.Normal(0., 1.))
+        numpyro.sample('obs', dist.Normal(loc, 1), obs=data)
+
+    kernel = kernel_cls(model, step_size=10., adapt_step_size=adapt_step_size, adapt_mass_matrix=False)
+    num_warmup = num_samples = 1000
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc.run(random.PRNGKey(1), data, collect_fields=('z', 'diverging'), collect_warmup=True)
+    num_divergences = mcmc.get_samples()[1].sum()
+    if adapt_step_size:
+        assert num_divergences <= num_warmup
+    else:
+        assert_allclose(num_divergences, num_warmup + num_samples)
+
+
+def test_prior_with_sample_shape():
+    data = {
+        "J": 8,
+        "y": np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0]),
+        "sigma": np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0]),
+    }
+
+    def schools_model():
+        mu = numpyro.sample('mu', dist.Normal(0, 5))
+        tau = numpyro.sample('tau', dist.HalfCauchy(5))
+        theta = numpyro.sample('theta', dist.Normal(mu, tau), sample_shape=(data['J'],))
+        numpyro.sample('obs', dist.Normal(theta, data['sigma']), obs=data['y'])
+
+    num_samples = 500
+    mcmc = MCMC(NUTS(schools_model), num_warmup=500, num_samples=num_samples)
+    mcmc.run(random.PRNGKey(0))
+    assert mcmc.get_samples()['theta'].shape == (num_samples, data['J'])
+
+
 @pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")

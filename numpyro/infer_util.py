@@ -129,7 +129,8 @@ def init_to_median(site, num_samples=15, skip_param=False):
             fn = site['fn'].base_dist
         else:
             fn = site['fn']
-        samples = numpyro.sample('_init', fn, sample_shape=(num_samples,))
+        samples = numpyro.sample('_init', fn,
+                                 sample_shape=(num_samples,) + site['kwargs']['sample_shape'])
         return np.median(samples, axis=0)
 
     if site['type'] == 'param' and not skip_param:
@@ -160,7 +161,7 @@ def init_to_uniform(site, radius=2, skip_param=False):
             fn = site['fn'].base_dist
         else:
             fn = site['fn']
-        value = numpyro.sample('_init', fn)
+        value = numpyro.sample('_init', fn, sample_shape=site['kwargs']['sample_shape'])
         base_transform = biject_to(fn.support)
         unconstrained_value = numpyro.sample('_unconstrained_init', dist.Uniform(-radius, radius),
                                              sample_shape=np.shape(base_transform.inv(value)))

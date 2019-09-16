@@ -23,7 +23,7 @@ except Exception as e:
 
 setup(
     name='numpyro',
-    version='0.1.0',
+    version=version,
     description='Pyro PPL on Numpy',
     packages=find_packages(include=['numpyro', 'numpyro.*']),
     url='https://github.com/pyro-ppl/numpyro',
