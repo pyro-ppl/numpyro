@@ -99,7 +99,7 @@ def svi(model, guide, loss, optim, **kwargs):
         rng, rng_seed = random.split(svi_state.rng)
         params = optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: loss(rng, constrain_fn(x), model, guide, model_args, guide_args, kwargs))(params)
+            lambda x: loss(rng_seed, constrain_fn(x), model, guide, model_args, guide_args, kwargs))(params)
         optim_state = optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng), loss_val
 
@@ -140,6 +140,7 @@ def elbo(rng, param_map, model, guide, model_args, guide_args, kwargs):
 
     For more details, refer to http://pyro.ai/examples/svi_part_i.html.
 
+    :param jax.random.PRNGKey rng: random number generator seed.
     :param dict param_map: dictionary of current parameter values keyed by site
         name.
     :param model: Python callable with Pyro primitives for the model.

@@ -247,7 +247,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             else:
                 with tqdm.trange(num_warmup, desc='warmup') as t:
                     for i in t:
-                        hmc_state = sample_kernel(hmc_state)
+                        hmc_state = jit(sample_kernel)(hmc_state)
                         t.set_postfix_str(get_diagnostics_str(hmc_state), refresh=False)
         return hmc_state
 
@@ -283,7 +283,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
-    @jit
     def sample_kernel(hmc_state):
         """
         Given an existing :data:`~numpyro.mcmc.HMCState`, run HMC with fixed (possibly adapted)
