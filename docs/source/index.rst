@@ -24,9 +24,25 @@ Numpyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
-   :caption: Inference Primitives:
+   :caption: Pyro Primitives:
+
+   primitives
+
+
+.. toctree::
+   :glob:
+   :maxdepth: 2
+   :caption: Effect Handlers:
 
    handlers
+
+
+.. toctree::
+   :glob:
+   :maxdepth: 2
+   :caption: Optimizers:
+
+   optimizers
 
 
 .. toctree::
@@ -35,6 +51,22 @@ Numpyro documentation
    :caption: Diagnostics:
 
    diagnostics
+
+
+.. toctree::
+   :glob:
+   :maxdepth: 2
+   :caption: Inference Utilities:
+
+   utilities
+
+
+.. toctree::
+   :glob:
+   :maxdepth: 2
+   :caption: Automatic Guide Generation:
+
+   autoguide
 
 
 Indices and tables

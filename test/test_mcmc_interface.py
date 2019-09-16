@@ -4,7 +4,7 @@ import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import pmap, random, vmap
+from jax import jit, random
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.scipy.special import logit
@@ -12,28 +12,23 @@ from jax.scipy.special import logit
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import hmc, mcmc
-from numpyro.util import fori_collect
+from numpyro.mcmc import HMC, MCMC, NUTS
 
 
-@pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 @pytest.mark.parametrize('dense_mass', [False, True])
-def test_unnormalized_normal(algo, dense_mass):
+def test_unnormalized_normal(kernel_cls, dense_mass):
     true_mean, true_std = 1., 2.
     warmup_steps, num_samples = 1000, 8000
 
     def potential_fn(z):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
-    init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     init_params = np.array(0.)
-    hmc_state = init_kernel(init_params,
-                            trajectory_length=9,
-                            num_warmup=warmup_steps,
-                            dense_mass=dense_mass)
-    hmc_states = fori_collect(0, num_samples, sample_kernel, hmc_state,
-                              transform=lambda x: x.z)
+    kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=9, dense_mass=dense_mass)
+    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    mcmc.run(random.PRNGKey(0), init_params=init_params)
+    hmc_states = mcmc.get_samples()
     assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
     assert_allclose(np.std(hmc_states), true_std, rtol=0.05)
 
@@ -56,13 +51,16 @@ def test_correlated_mvn():
         return 0.5 * np.dot(z.T, np.dot(true_prec, z))
 
     init_params = np.zeros(D)
-    samples = mcmc(warmup_steps, num_samples, init_params, potential_fn=potential_fn, dense_mass=True)
+    kernel = NUTS(potential_fn=potential_fn, dense_mass=True)
+    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    mcmc.run(random.PRNGKey(0), init_params=init_params)
+    samples = mcmc.get_samples()
     assert_allclose(np.mean(samples), true_mean, atol=0.02)
     assert onp.sum(onp.abs(onp.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
-@pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_logistic_regression(algo):
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+def test_logistic_regression(kernel_cls):
     N, dim = 3000, 3
     warmup_steps, num_samples = 1000, 8000
     data = random.normal(random.PRNGKey(0), (N, dim))
@@ -75,9 +73,10 @@ def test_logistic_regression(algo):
         logits = np.sum(coefs * data, axis=-1)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, labels)
-    samples = mcmc(warmup_steps, num_samples, init_params, sampler='hmc', algo=algo,
-                   potential_fn=potential_fn, trajectory_length=10, constrain_fn=constrain_fn)
+    kernel = kernel_cls(model=model, trajectory_length=10)
+    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    mcmc.run(random.PRNGKey(2), labels)
+    samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
 
     if 'JAX_ENABLE_x64' in os.environ:
@@ -86,6 +85,7 @@ def test_logistic_regression(algo):
 
 def test_uniform_normal():
     true_coef = 0.9
+    num_warmup, num_samples = 1000, 1000
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
@@ -93,9 +93,13 @@ def test_uniform_normal():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
-    samples = mcmc(1000, 1000, init_params, potential_fn=potential_fn, constrain_fn=constrain_fn)
-    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
+    mcmc.run(random.PRNGKey(2), data, collect_warmup=True,
+             collect_fields=('z', 'num_steps', 'adapt_state.step_size'))
+    samples = mcmc.get_samples()
+    assert len(samples[0]['loc']) == num_warmup + num_samples
+    assert_allclose(np.mean(samples[0]['loc'], 0), true_coef, atol=0.05)
 
 
 def test_improper_normal():
@@ -107,13 +111,15 @@ def test_improper_normal():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
-    samples = mcmc(1000, 1000, init_params, potential_fn=potential_fn, constrain_fn=constrain_fn)
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
+    mcmc.run(random.PRNGKey(0), data)
+    samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
-@pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_beta_bernoulli(algo):
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+def test_beta_bernoulli(kernel_cls):
     warmup_steps, num_samples = 500, 20000
 
     def model(data):
@@ -125,24 +131,19 @@ def test_beta_bernoulli(algo):
 
     true_probs = np.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
-    init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
-    hmc_state = init_kernel(init_params,
-                            trajectory_length=1.,
-                            num_warmup=warmup_steps,
-                            progbar=False)
-    samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
-                           transform=lambda x: constrain_fn(x.z),
-                           progbar=False)
+    kernel = kernel_cls(model=model, trajectory_length=1.)
+    mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples, progress_bar=False)
+    mcmc.run(random.PRNGKey(2), data)
+    samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
     if 'JAX_ENABLE_x64' in os.environ:
         assert samples['p_latent'].dtype == np.float64
 
 
-@pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 @pytest.mark.parametrize('dense_mass', [False, True])
-def test_dirichlet_categorical(algo, dense_mass):
+def test_dirichlet_categorical(kernel_cls, dense_mass):
     warmup_steps, num_samples = 100, 20000
 
     def model(data):
@@ -153,10 +154,10 @@ def test_dirichlet_categorical(algo, dense_mass):
 
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
-    samples = mcmc(warmup_steps, num_samples, init_params, constrain_fn=constrain_fn, progbar=False,
-                   print_summary=False, potential_fn=potential_fn, algo=algo, trajectory_length=1.,
-                   dense_mass=dense_mass)
+    kernel = kernel_cls(model, trajectory_length=1., dense_mass=dense_mass)
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc.run(random.PRNGKey(2), data)
+    samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
 
     if 'JAX_ENABLE_x64' in os.environ:
@@ -184,12 +185,11 @@ def test_change_point():
         12,  35,  17,  23,  17,   4,   2,  31,  30,  13,  27,   0,  39,  37,
         5,  14,  13,  22,
     ])
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(4), model, count_data)
-    init_kernel, sample_kernel = hmc(potential_fn)
-    hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
-    samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
-                           transform=lambda x: constrain_fn(x.z))
-    tau_posterior = (samples['tau'] * len(count_data)).astype("int")
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    mcmc.run(random.PRNGKey(4), count_data)
+    samples = mcmc.get_samples()
+    tau_posterior = (samples['tau'] * len(count_data)).astype(np.int32)
     tau_values, counts = onp.unique(tau_posterior, return_counts=True)
     mode_ind = np.argmax(counts)
     mode = tau_values[mode_ind]
@@ -215,12 +215,10 @@ def test_binomial_stable(with_logits):
             numpyro.sample('obs', dist.Binomial(data['n'], probs=p), obs=data['x'])
 
     data = {'n': 5000000, 'x': 3849}
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
-    init_kernel, sample_kernel = hmc(potential_fn)
-    hmc_state = init_kernel(init_params, num_warmup=warmup_steps)
-    samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
-                           transform=lambda x: constrain_fn(x.z))
-
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    mcmc.run(random.PRNGKey(2), data)
+    samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p'], 0), data['x'] / data['n'], rtol=0.05)
 
     if 'JAX_ENABLE_x64' in os.environ:
@@ -237,44 +235,60 @@ def test_improper_prior():
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, data)
-    samples = mcmc(num_warmup, num_samples, init_params, potential_fn=potential_fn,
-                   constrain_fn=constrain_fn)
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc.run(random.PRNGKey(2), data)
+    samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
 
 
-@pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-@pytest.mark.parametrize('map_fn', [vmap, pmap])
-def test_map(algo, map_fn):
-    if map_fn is pmap and xla_bridge.device_count() == 1:
-        pytest.skip('pmap test requires device_count greater than 1.')
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('adapt_step_size', [True, False])
+def test_diverging(kernel_cls, adapt_step_size):
+    data = random.normal(random.PRNGKey(0), (1000,))
 
-    true_mean, true_std = 1., 2.
-    warmup_steps, num_samples = 1000, 8000
+    def model(data):
+        loc = numpyro.sample('loc', dist.Normal(0., 1.))
+        numpyro.sample('obs', dist.Normal(loc, 1), obs=data)
 
-    def potential_fn(z):
-        return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
-
-    init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
-    init_params = np.array([0., -1.])
-    rngs = random.split(random.PRNGKey(0), 2)
-
-    init_kernel_map = map_fn(lambda init_param, rng: init_kernel(
-        init_param, trajectory_length=9, num_warmup=warmup_steps, progbar=False, rng=rng))
-    init_states = init_kernel_map(init_params, rngs)
-
-    fori_collect_map = map_fn(lambda hmc_state: fori_collect(0, num_samples, sample_kernel, hmc_state,
-                                                             transform=lambda x: x.z, progbar=False))
-    chain_samples = fori_collect_map(init_states)
-
-    assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.05)
-    assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)
+    kernel = kernel_cls(model, step_size=10., adapt_step_size=adapt_step_size, adapt_mass_matrix=False)
+    num_warmup = num_samples = 1000
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc.run(random.PRNGKey(1), data, collect_fields=('z', 'diverging'), collect_warmup=True)
+    num_divergences = mcmc.get_samples()[1].sum()
+    if adapt_step_size:
+        assert num_divergences <= num_warmup
+    else:
+        assert_allclose(num_divergences, num_warmup + num_samples)
 
 
+def test_prior_with_sample_shape():
+    data = {
+        "J": 8,
+        "y": np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0]),
+        "sigma": np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0]),
+    }
+
+    def schools_model():
+        mu = numpyro.sample('mu', dist.Normal(0, 5))
+        tau = numpyro.sample('tau', dist.HalfCauchy(5))
+        theta = numpyro.sample('theta', dist.Normal(mu, tau), sample_shape=(data['J'],))
+        numpyro.sample('obs', dist.Normal(theta, data['sigma']), obs=data['y'])
+
+    num_samples = 500
+    mcmc = MCMC(NUTS(schools_model), num_warmup=500, num_samples=num_samples)
+    mcmc.run(random.PRNGKey(0))
+    assert mcmc.get_samples()['theta'].shape == (num_samples, data['J'])
+
+
+@pytest.mark.parametrize('use_init_params', [False, True])
+@pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
-def test_chain():
+@pytest.mark.filterwarnings("ignore:`vectorized`:UserWarning")
+def test_chain(use_init_params, chain_method):
     N, dim = 3000, 3
+    num_chains = 2
     num_warmup, num_samples = 5000, 5000
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
@@ -286,10 +300,58 @@ def test_chain():
         logits = np.sum(coefs * data, axis=-1)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-    rngs = random.split(random.PRNGKey(2), 2)
-    init_params, potential_fn, constrain_fn = initialize_model(rngs, model, labels)
-    samples = mcmc(num_warmup, num_samples, init_params, num_chains=2,
-                   potential_fn=potential_fn, constrain_fn=constrain_fn)
-
-    assert samples['coefs'].shape[0] == 2 * num_samples
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, num_warmup, num_samples, num_chains=num_chains)
+    mcmc.chain_method = chain_method
+    init_params = None if not use_init_params else \
+        {'coefs': np.tile(np.ones(dim), num_chains).reshape(num_chains, dim)}
+    mcmc.run(random.PRNGKey(2), labels, init_params=init_params)
+    samples = mcmc.get_samples()
+    assert samples['coefs'].shape[0] == num_chains * num_samples
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
+
+
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('chain_method', [
+    pytest.param('parallel', marks=pytest.mark.xfail(
+        reason='jit+pmap does not work in CPU yet')),
+    'sequential',
+    'vectorized',
+])
+@pytest.mark.skipif('CI' in os.environ, reason="Compiling time the whole sampling process is slow.")
+def test_chain_inside_jit(kernel_cls, chain_method):
+    # NB: this feature is useful for consensus MC.
+    # Caution: compiling time will be slow (~ 90s)
+    if chain_method == 'parallel' and xla_bridge.device_count() == 1:
+        pytest.skip('parallel method requires device_count greater than 1.')
+    warmup_steps, num_samples = 100, 2000
+    # Here are settings which is currently supported.
+    rng = random.PRNGKey(2)
+    step_size = 1.
+    target_accept_prob = 0.8
+    trajectory_length = 1.
+    # Not supported yet:
+    #   + adapt_step_size
+    #   + adapt_mass_matrix
+    #   + max_tree_depth
+    #   + num_warmup
+    #   + num_samples
+
+    def model(data):
+        concentration = np.array([1.0, 1.0, 1.0])
+        p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
+        numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
+        return p_latent
+
+    @jit
+    def get_samples(rng, data, step_size, trajectory_length, target_accept_prob):
+        kernel = kernel_cls(model, step_size=step_size, trajectory_length=trajectory_length,
+                            target_accept_prob=target_accept_prob)
+        mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method)
+        mcmc.run(rng, data)
+        return mcmc.get_samples()
+
+    true_probs = np.array([0.1, 0.6, 0.3])
+    data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
+    samples = get_samples(rng, data, step_size, trajectory_length, target_accept_prob)
+    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)

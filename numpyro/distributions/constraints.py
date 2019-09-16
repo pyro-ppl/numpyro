@@ -24,13 +24,15 @@
 
 import math
 
-import jax.numpy as np
 from jax import ops
+from jax.lib.xla_bridge import canonicalize_dtype
+import jax.numpy as np
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
     cumprod,
     cumsum,
+    get_dtype,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
@@ -135,6 +137,11 @@ class _Real(Constraint):
         return np.isfinite(x)
 
 
+class _RealVector(Constraint):
+    def __call__(self, x):
+        return np.all(np.isfinite(x), axis=-1)
+
+
 class _Simplex(Constraint):
     def __call__(self, x):
         x_sum = np.sum(x, axis=-1)
@@ -153,10 +160,11 @@ interval = _Interval
 lower_cholesky = _LowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
-positive_integer = _IntegerGreaterThan(1)
 positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
+positive_integer = _IntegerGreaterThan(1)
 real = _Real()
+real_vector = _RealVector()
 simplex = _Simplex()
 unit_interval = _Interval(0., 1.)
 
@@ -166,7 +174,8 @@ unit_interval = _Interval(0., 1.)
 ##########################################################
 
 def _clipped_expit(x):
-    return np.clip(expit(x), a_min=np.finfo(x.dtype).tiny, a_max=1.-np.finfo(x.dtype).eps)
+    finfo = np.finfo(get_dtype(x))
+    return np.clip(expit(x), a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
 class Transform(object):
@@ -180,8 +189,11 @@ class Transform(object):
     def inv(self, y):
         raise NotImplementedError
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         raise NotImplementedError
+
+    def call_with_intermediates(self, x):
+        return self(x), None
 
 
 class AbsTransform(Transform):
@@ -209,6 +221,8 @@ class AffineTransform(Transform):
     def codomain(self):
         if self.domain is real:
             return real
+        elif self.domain is real_vector:
+            return real_vector
         elif isinstance(self.domain, greater_than):
             return greater_than(self.__call__(self.domain.lower_bound))
         elif isinstance(self.domain, interval):
@@ -217,14 +231,18 @@ class AffineTransform(Transform):
         else:
             raise NotImplementedError
 
+    @property
+    def event_dim(self):
+        return 1 if self.domain is real_vector else 0
+
     def __call__(self, x):
         return self.loc + self.scale * x
 
     def inv(self, y):
         return (y - self.loc) / self.scale
 
-    def log_abs_det_jacobian(self, x, y):
-        return np.broadcast_to(np.log(np.abs(self.scale)), x.shape)
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return sum_rightmost(np.broadcast_to(np.log(np.abs(self.scale)), np.shape(x)), self.event_dim)
 
 
 class ComposeTransform(Transform):
@@ -253,16 +271,34 @@ class ComposeTransform(Transform):
             y = part.inv(y)
         return y
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        if intermediates is not None:
+            if len(intermediates) != len(self.parts):
+                raise ValueError('Intermediates array has length = {}. Expected = {}.'
+                                 .format(len(intermediates), len(self.parts)))
+
         result = 0.
-        for part in self.parts[:-1]:
-            y_tmp = part(x)
-            result = result + sum_rightmost(part.log_abs_det_jacobian(x, y_tmp),
-                                            self.event_dim - part.event_dim)
+        for i, part in enumerate(self.parts[:-1]):
+            y_tmp = part(x) if intermediates is None else intermediates[i][0]
+            inter = None if intermediates is None else intermediates[i][1]
+            logdet = part.log_abs_det_jacobian(x, y_tmp, intermediates=inter)
+            result = result + sum_rightmost(logdet, self.event_dim - part.event_dim)
             x = y_tmp
-        result = result + sum_rightmost(self.parts[-1].log_abs_det_jacobian(x, y),
-                                        self.event_dim - self.parts[-1].event_dim)
+        # account the the last transform, where y is available
+        inter = None if intermediates is None else intermediates[-1]
+        logdet = self.parts[-1].log_abs_det_jacobian(x, y, intermediates=inter)
+        result = result + sum_rightmost(logdet, self.event_dim - self.parts[-1].event_dim)
         return result
+
+    def call_with_intermediates(self, x):
+        intermediates = []
+        for part in self.parts[:-1]:
+            x, inter = part.call_with_intermediates(x)
+            intermediates.append([x, inter])
+        # NB: we don't need to hold the last output value in `intermediates`
+        x, inter = self.parts[-1].call_with_intermediates(x)
+        intermediates.append(inter)
+        return x, intermediates
 
 
 class CorrCholeskyTransform(Transform):
@@ -271,22 +307,27 @@ class CorrCholeskyTransform(Transform):
     Cholesky factor of a D-dimension correlation matrix. This Cholesky factor is a lower
     triangular matrix with positive diagonals and unit Euclidean norm for each row.
     The transform is processed as follows:
-    1. First we convert :math:`x` into a lower triangular matrix with the following order:
-    .. math::
-        \begin{bmatrix}
-            1   & 0 & 0 & 0 \\
-            x_0 & 1 & 0 & 0 \\
-            x_1 & x_2 & 1 & 0 \\
-            x_3 & x_4 & x_5 & 1
-        \end{bmatrix}
-    2. For each row :math:`X_i` of the lower triangular part, we apply a *signed* version of
-    class :class:`StickBreakingTransform` to transform :math:`X_i` into a
-    unit Euclidean length vector using the following steps:
-        a. Scales into the interval :math:`(-1, 1)` domain: :math:`r_i = \tanh(X_i)`.
-        b. Transforms into an unsigned domain: :math:`z_i = r_i^2`.
-        c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
-        d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
+
+        1. First we convert :math:`x` into a lower triangular matrix with the following order:
+
+        .. math::
+            \begin{bmatrix}
+                1   & 0 & 0 & 0 \\
+                x_0 & 1 & 0 & 0 \\
+                x_1 & x_2 & 1 & 0 \\
+                x_3 & x_4 & x_5 & 1
+            \end{bmatrix}
+
+        2. For each row :math:`X_i` of the lower triangular part, we apply a *signed* version of
+        class :class:`StickBreakingTransform` to transform :math:`X_i` into a
+        unit Euclidean length vector using the following steps:
+
+            a. Scales into the interval :math:`(-1, 1)` domain: :math:`r_i = \tanh(X_i)`.
+            b. Transforms into an unsigned domain: :math:`z_i = r_i^2`.
+            c. Applies :math:`s_i = StickBreakingTransform(z_i)`.
+            d. Transforms back into signed domain: :math:`y_i = (sign(r_i), 1) * \sqrt{s_i}`.
     """
+    domain = real_vector
     codomain = corr_cholesky
     event_dim = 1
 
@@ -308,7 +349,7 @@ class CorrCholeskyTransform(Transform):
         x = np.log((1 + t) / (1 - t)) / 2
         return x
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         # NB: because domain and codomain are two spaces with different dimensions, determinant of
         # Jacobian is not well-defined. Here we return `log_abs_det_jacobian` of `x` and the
         # flatten lower triangular part of `y`.
@@ -349,11 +390,14 @@ class ExpTransform(Transform):
     def inv(self, y):
         return np.log(y)
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         return x
 
 
 class IdentityTransform(Transform):
+
+    def __init__(self, event_dim=0):
+        self.event_dim = event_dim
 
     def __call__(self, x):
         return x
@@ -361,11 +405,12 @@ class IdentityTransform(Transform):
     def inv(self, y):
         return y
 
-    def log_abs_det_jacobian(self, x, y):
-        return np.full(np.shape(x), 0.)
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return np.full(np.shape(x) if self.event_dim == 0 else np.shape(x)[:-1], 0.)
 
 
 class LowerCholeskyTransform(Transform):
+    domain = real_vector
     codomain = lower_cholesky
     event_dim = 1
 
@@ -379,13 +424,15 @@ class LowerCholeskyTransform(Transform):
         z = matrix_to_tril_vec(y, diagonal=-1)
         return np.concatenate([z, np.log(np.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return x[..., -n:].sum(-1)
 
 
-class PermuteTransfrom(torch.nn.Module):
+class PermuteTransform(Transform):
+    domain = real_vector
+    codomain = real_vector
     event_dim = 1
 
     def __init__(self, permutation):
@@ -396,12 +443,12 @@ class PermuteTransfrom(torch.nn.Module):
 
     def inv(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(np.zeros(size, dtype=np.int64),
-                                           np.arange(size),
+        permutation_inv = ops.index_update(np.zeros(size, dtype=canonicalize_dtype(np.int64)),
+                                           self.permutation,
                                            np.arange(size))
-        return x[..., permutation_inv]
+        return y[..., permutation_inv]
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         return np.full(np.shape(x)[:-1], 0.)
 
 
@@ -418,7 +465,7 @@ class PowerTransform(Transform):
     def inv(self, y):
         return np.power(y, 1 / self.exponent)
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         return np.log(np.abs(self.exponent * y / x))
 
 
@@ -431,12 +478,13 @@ class SigmoidTransform(Transform):
     def inv(self, y):
         return logit(y)
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         x_abs = np.abs(x)
         return -x_abs - 2 * np.log1p(np.exp(-x_abs))
 
 
 class StickBreakingTransform(Transform):
+    domain = real_vector
     codomain = simplex
     event_dim = 1
 
@@ -461,7 +509,7 @@ class StickBreakingTransform(Transform):
         x = np.log(y_crop / z1m_cumprod)
         return x + np.log(x.shape[-1] - np.arange(x.shape[-1]))
 
-    def log_abs_det_jacobian(self, x, y):
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
         # |det|(J) = Product(y * (1 - z))
         x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
@@ -507,6 +555,8 @@ def _transform_to_corr_cholesky(constraint):
 
 @biject_to.register(greater_than)
 def _transform_to_greater_than(constraint):
+    if constraint is positive:
+        return ExpTransform()
     return ComposeTransform([ExpTransform(),
                              AffineTransform(constraint.lower_bound, 1,
                                              domain=positive)])
@@ -514,6 +564,8 @@ def _transform_to_greater_than(constraint):
 
 @biject_to.register(interval)
 def _transform_to_interval(constraint):
+    if constraint is unit_interval:
+        return SigmoidTransform()
     scale = constraint.upper_bound - constraint.lower_bound
     return ComposeTransform([SigmoidTransform(),
                              AffineTransform(constraint.lower_bound, scale,
@@ -528,6 +580,11 @@ def _transform_to_lower_cholesky(constraint):
 @biject_to.register(real)
 def _transform_to_real(constraint):
     return IdentityTransform()
+
+
+@biject_to.register(real_vector)
+def _transform_to_real_vector(constraint):
+    return IdentityTransform(event_dim=1)
 
 
 @biject_to.register(simplex)

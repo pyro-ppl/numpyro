@@ -1,3 +1,7 @@
+"""
+This provides a small set of utilities in NumPyro that are used to diagnose posterior samples.
+"""
+
 from itertools import product
 
 import numpy as onp
@@ -25,7 +29,7 @@ def gelman_rubin(x):
     """
     Computes R-hat over chains of samples ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
-    It is required that ``input.shape[0] >= 2`` and ``input.shape[1] >= 2``.
+    It is required that ``x.shape[0] >= 2`` and ``x.shape[1] >= 2``.
 
     :param numpy.ndarray x: the input array.
     :return: R-hat of ``x``.
@@ -43,7 +47,7 @@ def split_gelman_rubin(x):
     """
     Computes split R-hat over chains of samples ``x``, where the first dimension
     of ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
-    It is required that ``input.shape[1] >= 4``.
+    It is required that ``x.shape[1] >= 4``.
 
     :param numpy.ndarray x: the input array.
     :return: split R-hat of ``x``.
@@ -167,7 +171,7 @@ def effective_sample_size(x):
     return n_eff
 
 
-def hpdi(x, prob=0.89, axis=0):
+def hpdi(x, prob=0.90, axis=0):
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
     interval with probability mass ``prob``.
@@ -175,8 +179,8 @@ def hpdi(x, prob=0.89, axis=0):
     :param numpy.ndarray x: the input array.
     :param float prob: the probability mass of samples within the interval.
     :param int axis: the dimension to calculate hpdi.
-    :return: quantiles of ``input`` at ``(1 - probs) / 2`` and
-        ``(1 + probs) / 2``.
+    :return: quantiles of ``x`` at ``(1 - prob) / 2`` and
+        ``(1 + prob) / 2``.
     :rtype: numpy.ndarray
     """
     x = onp.swapaxes(x, axis, 0)
@@ -195,41 +199,49 @@ def hpdi(x, prob=0.89, axis=0):
     return onp.concatenate([hpd_left, hpd_right], axis=axis)
 
 
-def summary(samples, prob=0.89):
+def summary(samples, prob=0.90):
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
-    posterior. The diagnostics displayed are mean, standard deviation,
-    the 89% Credibility Interval, :func:`~numpyro.diagnostics.effective_sample_size`
+    posterior. The diagnostics displayed are mean, standard deviation, median,
+    the 90% Credibility Interval :func:`~numpyro.diagnostics.hpdi`,
+    :func:`~numpyro.diagnostics.effective_sample_size`, and
     :func:`~numpyro.diagnostics.split_gelman_rubin`.
 
     :param samples: a collection of input samples with left most dimension is chain
         dimension and second to left most dimension is draw dimension.
+    :type samples: dict or numpy.ndarray
     :param float prob: the probability mass of samples within the HPDI interval.
     """
-    # FIXME: handle variable with str len > 20
-    header_format = '{:>20} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}'
-    columns = ['', 'mean', 'sd', '{:.1f}%'.format(50 * (1 - prob)),
-               '{:.1f}%'.format(50 * (1 + prob)), 'n_eff', 'Rhat']
+    if not isinstance(samples, dict):
+        samples = {'Param:{}'.format(i): v for i, v in enumerate(tree_flatten(samples)[0])}
+
+    row_names = {k: k + '[' + ','.join(map(lambda x: str(x - 1), v.shape[2:])) + ']'
+                 for k, v in samples.items()}
+    max_len = max(max(map(lambda x: len(x), row_names.values())), 10)
+    name_format = '{:>' + str(max_len) + '}'
+    header_format = name_format + ' {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}'
+    columns = ['', 'mean', 'std', 'median', '{:.1f}%'.format(50 * (1 - prob)),
+               '{:.1f}%'.format(50 * (1 + prob)), 'n_eff', 'r_hat']
     print('\n')
     print(header_format.format(*columns))
 
     # FIXME: maybe allow a `digits` arg to set how many floatting points are needed?
-    row_format = '{:>20} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f}'
-    if not isinstance(samples, dict):
-        samples = {'Param:{}'.format(i): v for i, v in enumerate(tree_flatten(samples)[0])}
+    row_format = name_format + ' {:>9.2f} {:>9.2f} {:>9.2f} {:>9.2f} {:>9.2f} {:>9.2f} {:>9.2f}'
     for name, value in samples.items():
         value = device_get(value)
         value_flat = onp.reshape(value, (-1,) + value.shape[2:])
         mean = value_flat.mean(axis=0)
         sd = value_flat.std(axis=0, ddof=1)
+        median = onp.median(value_flat, axis=0)
         hpd = hpdi(value_flat, prob=prob)
         n_eff = effective_sample_size(value)
         r_hat = split_gelman_rubin(value)
         shape = value_flat.shape[1:]
         if len(shape) == 0:
-            print(row_format.format(name, mean, sd, hpd[0], hpd[1], n_eff, r_hat))
+            print(row_format.format(name, mean, sd, median, hpd[0], hpd[1], n_eff, r_hat))
         else:
             for idx in product(*map(range, shape)):
                 idx_str = '[{}]'.format(','.join(map(str, idx)))
-                print(row_format.format(name + idx_str, mean[idx], sd[idx],
+                print(row_format.format(name + idx_str, mean[idx], sd[idx], median[idx],
                                         hpd[0][idx], hpd[1][idx], n_eff[idx], r_hat[idx]))
+    print('\n')

@@ -1,4 +1,5 @@
 from collections import namedtuple
+from functools import partial
 import inspect
 
 import numpy as onp
@@ -11,10 +12,12 @@ from jax import grad, jacfwd, lax, vmap
 import jax.numpy as np
 import jax.random as random
 
+from numpyro.contrib.nn import AutoregressiveNN
 import numpyro.distributions as dist
 import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.constraints import PermuteTransform, PowerTransform, biject_to
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
+from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
@@ -174,7 +177,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         lower_bound = np.broadcast_to(constraint.lower_bound, size)
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=lower_bound, maxval=upper_bound)
-    elif isinstance(constraint, constraints._Real):
+    elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
         return random.normal(key, size)
     elif isinstance(constraint, constraints._Simplex):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1])
@@ -207,7 +210,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._Interval):
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.)
-    elif isinstance(constraint, constraints._Real):
+    elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
         return lax.full(size, np.nan)
     elif isinstance(constraint, constraints._Simplex):
         return osp.dirichlet.rvs(alpha=np.ones((size[-1],)), size=size[:-1]) + 1e-2
@@ -377,7 +380,8 @@ def test_log_prob_LKJCholesky_uniform(dimension):
 
     corr_log_prob = np.array(corr_log_prob)
     # test if they are constant
-    assert_allclose(corr_log_prob, np.broadcast_to(corr_log_prob[0], corr_log_prob.shape))
+    assert_allclose(corr_log_prob, np.broadcast_to(corr_log_prob[0], corr_log_prob.shape),
+                    rtol=1e-6)
 
     if dimension == 2:
         # when concentration = 1, LKJ gives a uniform distribution over correlation matrix,
@@ -608,7 +612,6 @@ def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
 
-@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 @pytest.mark.parametrize('constraint', [
     constraints.corr_cholesky,
     constraints.greater_than(2),
@@ -619,6 +622,7 @@ def test_constraints(constraint, x, expected):
     constraints.simplex,
     constraints.unit_interval,
 ])
+@pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
     if isinstance(constraint, constraints._Interval):
@@ -640,8 +644,8 @@ def test_biject_to(constraint, shape):
     z = transform.inv(y)
     assert_allclose(x, z, atol=1e-6, rtol=1e-6)
 
-    # test domain, currently all is constraints.real
-    assert_array_equal(transform.domain(z), np.ones(shape))
+    # test domain, currently all is constraints.real or constraints.real_vector
+    assert_array_equal(transform.domain(z), np.ones(batch_shape))
 
     # test log_abs_det_jacobian
     actual = transform.log_abs_det_jacobian(x, y)
@@ -668,3 +672,92 @@ def test_biject_to(constraint, shape):
 
         assert_allclose(actual, expected, atol=1e-6)
         assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+# NB: skip transforms which are tested in `test_biject_to`
+@pytest.mark.parametrize('transform, event_shape', [
+    (PermuteTransform(np.array([3, 0, 4, 1, 2])), (5,)),
+    (PowerTransform(2.), ()),
+])
+@pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
+def test_bijective_transforms(transform, event_shape, batch_shape):
+    shape = batch_shape + event_shape
+    rng = random.PRNGKey(0)
+    x = biject_to(transform.domain)(random.normal(rng, shape))
+    y = transform(x)
+
+    # test codomain
+    assert_array_equal(transform.codomain(y), np.ones(batch_shape))
+
+    # test inv
+    z = transform.inv(y)
+    assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+
+    # test domain
+    assert_array_equal(transform.domain(z), np.ones(batch_shape))
+
+    # test log_abs_det_jacobian
+    actual = transform.log_abs_det_jacobian(x, y)
+    assert np.shape(actual) == batch_shape
+    if len(shape) == transform.event_dim:
+        if isinstance(transform, PermuteTransform):
+            expected = onp.linalg.slogdet(jax.jacobian(transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
+        else:
+            expected = np.log(np.abs(grad(transform)(x)))
+            inv_expected = np.log(np.abs(grad(transform.inv)(y)))
+
+        assert_allclose(actual, expected, atol=1e-6)
+        assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+@pytest.mark.parametrize('transformed_dist', [
+    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), constraints.ExpTransform()),
+    dist.TransformedDistribution(dist.Exponential(np.ones(2)), [
+        constraints.PowerTransform(0.7),
+        constraints.AffineTransform(0., np.ones(2) * 3)
+    ]),
+])
+def test_transformed_distribution_intermediates(transformed_dist):
+    sample, intermediates = transformed_dist.sample_with_intermediates(random.PRNGKey(1))
+    assert_allclose(transformed_dist.log_prob(sample, intermediates), transformed_dist.log_prob(sample))
+
+
+def test_transformed_transformed_distribution():
+    loc, scale = -2, 3
+    dist1 = dist.TransformedDistribution(dist.Normal(2, 3), constraints.PowerTransform(2.))
+    dist2 = dist.TransformedDistribution(dist1, constraints.AffineTransform(-2, 3))
+    assert isinstance(dist2.base_dist, dist.Normal)
+    assert len(dist2.transforms) == 2
+    assert isinstance(dist2.transforms[0], constraints.PowerTransform)
+    assert isinstance(dist2.transforms[1], constraints.AffineTransform)
+
+    rng = random.PRNGKey(0)
+    assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
+    intermediates = dist2.sample_with_intermediates(rng)
+    assert len(intermediates) == 2
+
+
+def _make_iaf(input_dim, hidden_dims, rng):
+    arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
+    _, init_params = arn_init(rng, (input_dim,))
+    return InverseAutoregressiveTransform(partial(arn, init_params))
+
+
+@pytest.mark.parametrize('transforms', [
+    [constraints.PowerTransform(0.7), constraints.AffineTransform(2., 3.)],
+    [constraints.ExpTransform()],
+    [constraints.ComposeTransform([constraints.AffineTransform(-2, 3),
+                                   constraints.ExpTransform()]),
+     constraints.PowerTransform(3.)],
+    [_make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(0)),
+     constraints.PermuteTransform(np.arange(5)[::-1]),
+     _make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(1))]
+])
+def test_compose_transform_with_intermediates(transforms):
+    transform = constraints.ComposeTransform(transforms)
+    x = random.normal(random.PRNGKey(2), (7, 5))
+    y, intermediates = transform.call_with_intermediates(x)
+    logdet = transform.log_abs_det_jacobian(x, y, intermediates)
+    assert_allclose(y, transform(x))
+    assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))

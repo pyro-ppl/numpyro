@@ -2,196 +2,14 @@ from functools import update_wrapper
 import math
 from numbers import Number
 
-import numpy as onp
 import scipy.special as osp_special
 
-from jax import canonicalize_dtype, core, custom_transforms, defjvp, device_get, jit, lax, random, vmap
-from jax.interpreters import ad, batching, partial_eval, xla
-from jax.lib import xla_bridge
+from jax import custom_transforms, defjvp, device_get, jit, lax, random, vmap
+from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.linalg import solve_triangular
-from jax.scipy.special import gammaln
 from jax.util import partial
-
-
-def _standard_gamma_one(key, alpha):
-    # Marsaglia & Tsang's simple transformation-rejection method
-    # Ref: https://dl.acm.org/citation.cfm?doid=358407.358414
-    # https://en.wikipedia.org/wiki/Gamma_distribution#Generating_gamma-distributed_random_variables
-
-    boost = np.where(alpha >= 1.0, 1.0, random.uniform(key, ()) ** (1.0 / alpha))
-    key, = random.split(key, 1)  # NOTE: always split the key after calling random.foo
-    alpha = np.where(alpha >= 1.0, alpha, alpha + 1.0)
-
-    d = alpha - 1.0 / 3.0
-    c = 1.0 / np.sqrt(9.0 * d)
-
-    def _cond_fn(kXVU):
-        _, X, V, U = kXVU
-        # TODO: find a way to avoid evaluating second condition which involves log+log
-        # note: lax.cond does not support batching rule yet
-        return (U >= 1.0 - 0.0331 * X * X) & (np.log(U) >= 0.5 * X + d * (1.0 - V + np.log(V)))
-
-    def _body_fn(kXVU):
-        def _next_kxv(kxv):
-            k = kxv[0]
-            x = random.normal(k, ())
-            k, = random.split(k, 1)
-            v = 1.0 + c * x
-            return k, x, v
-
-        key = kXVU[0]
-        key, x, v = lax.while_loop(lambda kxv: kxv[2] <= 0.0, _next_kxv, (key, 0.0, -1.0))
-        X = x * x
-        V = v * v * v
-        U = random.uniform(key, ())
-        key, = random.split(key, 1)
-        return key, X, V, U
-
-    _, _, V, _ = lax.while_loop(_cond_fn, _body_fn, (key, 1.0, 1.0, 2.0))
-    z = d * V * boost
-    return np.where(z == 0, np.finfo(z.dtype).tiny, z)
-
-
-# TODO: use upstream implementation when available because it is 2x faster
-def _standard_gamma_impl(key, alpha):
-    keys = random.split(key, alpha.size)
-    alphas = np.reshape(alpha, -1)
-    keys = np.reshape(keys, (-1, 2))
-    samples = vmap(_standard_gamma_one)(keys, alphas)
-    return samples.reshape(alpha.shape)
-
-
-_bivariate_coef = [[0.16009398, -0.094634816, 0.025146379, -0.0030648348,
-                    1, 0.3266811, 0.10406087, 0.0014179033],
-                   [0.53487893, 0.12980707, 0.06573594, -0.0015649787,
-                    0.16639465, 0.020070098, -0.0035938937, -0.00058392601],
-                   [0.040121005, -0.0065914079, -0.002628604, -0.0013441777,
-                    0.017050642, -0.0021309345, 0.00085092385, -1.5248239e-07]]
-
-
-def _standard_gamma_grad_one(z, alpha):
-    # Ref 1: Pathwise Derivatives Beyond the Reparameterization Trick, Martin & Fritz
-    # Ref 2: Case 4 follows https://github.com/fritzo/notebooks/blob/master/gamma-reparameterized.ipynb
-
-    # TODO: use lax.cond instead of lax.while_loop when available
-    def _case1(zagf):
-        z, alpha, _, flag = zagf
-
-        # dz = - dCDF(z; a) / pdf(z; a)
-        # pdf = z^(a-1) * e^(-z) / Gamma(a)
-        # CDF(z; a) = IncompleteGamma(a, z) / Gamma(a)
-        # dCDF(z; a) = (dIncompleteGamma - IncompleteGamma * Digamma(a)) / Gamma(a)
-        #            =: unnormalized_dCDF / Gamma(a)
-        # IncompleteGamma ~ z^a [ 1/a - z/(a+1) + z^2/2!(a+2) - z^3/3!(a+3) + z^4/4!(a+4) - z^5/5!(a+5) ]
-        #                 =: z^a * term1
-        # dIncompleteGamma ~ z^a * log(z) * term1 - z^a [1/a^2 - z/(a+1)^2 + z^2/2!(a+2)^2
-        #                                                - z^3/3!(a+3)^2 + z^4/4!(a+4)^2 - z^5/5!(a+5)^2 ]
-        #                  =: z^a * log(z) * term1 - z^a * term2
-        # unnormalized_dCDF = z^a { [log(z) - Digamma(a)] * term1 - term2 }
-        zi = 1.0
-        update = zi / alpha
-        term1 = update
-        term2 = update / alpha
-        for i in range(1, 6):
-            zi = -zi * z / i
-            update = zi / (alpha + i)
-            term1 = term1 + update
-            term2 = term2 + update / (alpha + i)
-
-        unnormalized_cdf_dot = np.power(z, alpha) * ((np.log(z) - lax.digamma(alpha)) * term1 - term2)
-        unnormalized_pdf = np.power(z, alpha - 1) * np.exp(-z)
-        grad = -unnormalized_cdf_dot / unnormalized_pdf
-
-        return z, alpha, grad, ~flag
-
-    def _cond2(zagf):
-        z, alpha, _, flag = zagf
-        return (~flag) & (alpha > 8.0) & ((z < 0.9 * alpha) | (z > 1.1 * alpha))
-
-    def _case2(zagf):
-        z, alpha, _, flag = zagf
-
-        # Formula 58 of [1]
-        sqrt_8a = np.sqrt(8 * alpha)
-        z_minus_a = z - alpha
-        log_z_div_a = np.log(z / alpha)
-        sign = np.where(z < alpha, 1.0, -1.0)
-        term1 = 4 * (z + alpha) / (sqrt_8a * z_minus_a * z_minus_a)
-        term2 = log_z_div_a * (sqrt_8a / z_minus_a + sign * np.power(z_minus_a - alpha * log_z_div_a, -1.5))
-        term3 = z * (1.0 + 1.0 / (12 * alpha) + 1.0 / (288 * alpha * alpha)) / sqrt_8a
-        grad = (term1 + term2) * term3
-
-        return z, alpha, grad, ~flag
-
-    def _cond3(zagf):
-        z, alpha, _, flag = zagf
-        return (~flag) & (alpha > 8.0) & (z >= 0.9 * alpha) & (z <= 1.1 * alpha)
-
-    def _case3(zagf):
-        z, alpha, _, flag = zagf
-
-        # Formula 59 of [1]
-        z_div_a = np.divide(z, alpha)
-        aa = alpha * alpha
-        term1 = 1440 * alpha + 6 * z_div_a * (53 - 120 * z) - 65 * z_div_a * z_div_a + 3600 * z + 107
-        term2 = 1244160 * alpha * aa
-        term3 = 1 + 24 * alpha + 288 * aa
-        grad = term1 * term3 / term2
-
-        return z, alpha, grad, ~flag
-
-    def _case4(zagf):
-        z, alpha, _, flag = zagf
-
-        # Ref [2]
-        u = np.log(z / alpha)
-        v = np.log(alpha)
-        c = []
-        for i in range(8):
-            c.append(_bivariate_coef[0][i] + u * (_bivariate_coef[1][i] + u * _bivariate_coef[2][i]))
-        p = c[0] + v * (c[1] + v * (c[2] + v * c[3]))
-        q = c[4] + v * (c[5] + v * (c[6] + v * c[7]))
-        grad = np.exp(p / np.maximum(q, 0.01))
-
-        return z, alpha, grad, ~flag
-
-    _, _, grad, flag = lax.while_loop(lambda zagf: (~zagf[3]) & (zagf[0] < 0.8), _case1, (z, alpha, 0.0, False))
-    _, _, grad, flag = lax.while_loop(_cond2, _case2, (z, alpha, grad, flag))
-    _, _, grad, flag = lax.while_loop(_cond3, _case3, (z, alpha, grad, flag))
-    _, _, grad, flag = lax.while_loop(lambda zagf: ~zagf[3], _case4, (z, alpha, grad, flag))
-    return grad
-
-
-def _standard_gamma_grad(sample, alpha):
-    samples = np.reshape(sample, -1)
-    alphas = np.reshape(alpha, -1)
-    grads = vmap(_standard_gamma_grad_one)(samples, alphas)
-    return grads.reshape(alpha.shape)
-
-
-@custom_transforms
-def _standard_gamma_p(key, alpha):
-    return _standard_gamma_impl(key, alpha)
-
-
-defjvp(_standard_gamma_p, None,
-       lambda tangent, sample, key, alpha, **kwargs: tangent * _standard_gamma_grad(sample, alpha))
-
-
-@partial(jit, static_argnums=(2, 3))
-def _standard_gamma(key, alpha, shape, dtype):
-    shape = shape or np.shape(alpha)
-    alpha = lax.convert_element_type(alpha, dtype)
-    if np.shape(alpha) != shape:
-        alpha = np.broadcast_to(alpha, shape)
-    return _standard_gamma_p(key, alpha)
-
-
-def standard_gamma(key, alpha, shape=(), dtype=np.float64):
-    dtype = xla_bridge.canonicalize_dtype(dtype)
-    return _standard_gamma(key, alpha, shape, dtype)
 
 
 # TODO: inefficient implementation; jit currently fails due to
@@ -230,12 +48,12 @@ def categorical(key, p, shape=()):
     return _categorical(key, p, shape)
 
 
-@partial(jit, static_argnums=(2,))
-def _poisson(key, rate, shape):
+@partial(jit, static_argnums=(2, 3))
+def _poisson(key, rate, shape, dtype):
     # Ref: https://en.wikipedia.org/wiki/Poisson_distribution#Generating_Poisson-distributed_random_variables
     shape = shape or np.shape(rate)
     L = np.exp(-rate)
-    k = np.zeros(shape)
+    k = np.zeros(shape, dtype=dtype)
     p = np.ones(shape)
 
     def body_fn(val):
@@ -250,8 +68,9 @@ def _poisson(key, rate, shape):
     return k - 1
 
 
-def poisson(key, rate, shape):
-    return _poisson(key, rate, shape)
+def poisson(key, rate, shape, dtype=np.int64):
+    dtype = canonicalize_dtype(dtype)
+    return _poisson(key, rate, shape, dtype)
 
 
 def _scatter_add_one(operand, indices, updates):
@@ -289,7 +108,6 @@ def _multinomial(key, p, n, shape=()):
 
 
 def multinomial(key, p, n, shape=()):
-    n = device_get(n)
     return _multinomial(key, p, n, shape)
 
 
@@ -353,16 +171,6 @@ def cholesky_inverse(matrix):
     return solve_triangular(tril_inv, identity, lower=True)
 
 
-def entr(p):
-    return np.where(p < 0, -np.inf, -xlogy(p))
-
-
-def multigammaln(a, d):
-    constant = 0.25 * d * (d - 1) * np.log(np.pi)
-    res = np.sum(gammaln(np.expand_dims(a, axis=-1) - 0.5 * np.arange(d)), axis=-1)
-    return res + constant
-
-
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
@@ -382,24 +190,14 @@ def cumsum(x):
 defjvp(cumsum, lambda g, ans, x: np.cumsum(g, axis=-1))
 
 
-# XXX work around the issue: batching rule for 'reduce_window' not implemented
-# when using @custom_transforms decorator
-def _cumprod_impl(x):
+@custom_transforms
+def cumprod(x):
     return np.cumprod(x, axis=-1)
 
 
-cumprod_p = core.Primitive('cumprod')
-cumprod_p.def_impl(_cumprod_impl)
-cumprod_p.def_abstract_eval(partial(partial_eval.abstract_eval_fun, _cumprod_impl))
-xla.translations[cumprod_p] = partial(xla.lower_fun, _cumprod_impl)
 # XXX this implementation does not address the case x=0, hence the result in that case will be nan
 # Ref: https://stackoverflow.com/questions/40916955/how-to-compute-gradient-of-cumprod-safely
-ad.defjvp2(cumprod_p, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
-batching.defvectorized(cumprod_p)
-
-
-def cumprod(x):
-    return cumprod_p.bind(x)
+defjvp(cumprod, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
 
 
 def promote_shapes(*args, shape=()):
@@ -413,18 +211,21 @@ def promote_shapes(*args, shape=()):
                 if len(s) < num_dims else arg for arg, s in zip(args, shapes)]
 
 
-def get_dtypes(*args):
-    return [canonicalize_dtype(onp.result_type(arg)) for arg in args]
+def get_dtype(x):
+    return canonicalize_dtype(lax.dtype(x))
 
 
 def sum_rightmost(x, dim):
+    """
+    Sum out ``dim`` many rightmost dimensions of a given tensor.
+    """
     out_dim = np.ndim(x) - dim
     x = np.reshape(x[..., np.newaxis], np.shape(x)[:out_dim] + (-1,))
     return np.sum(x, axis=-1)
 
 
 def matrix_to_tril_vec(x, diagonal=0):
-    idxs = onp.tril_indices(x.shape[-1], diagonal)
+    idxs = np.tril_indices(x.shape[-1], diagonal)
     return x[..., idxs[0], idxs[1]]
 
 
@@ -432,7 +233,7 @@ def vec_to_tril_matrix(t, diagonal=0):
     # NB: the following formula only works for diagonal <= 0
     n = round((math.sqrt(1 + 8 * t.shape[-1]) - 1) / 2) - diagonal
     n2 = n * n
-    idx = np.reshape(np.arange(n2), (n, n))[onp.tril_indices(n, diagonal)]
+    idx = np.reshape(np.arange(n2), (n, n))[np.tril_indices(n, diagonal)]
     x = lax.scatter_add(np.zeros(t.shape[:-1] + (n2,)), np.expand_dims(idx, axis=-1), t,
                         lax.ScatterDimensionNumbers(update_window_dims=range(t.ndim - 1),
                                                     inserted_window_dims=(t.ndim - 1,),
@@ -509,5 +310,5 @@ class lazy_property(object):
 
 
 def clamp_probs(probs):
-    finfo = np.finfo(get_dtypes(probs)[0])
+    finfo = np.finfo(get_dtype(probs))
     return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)

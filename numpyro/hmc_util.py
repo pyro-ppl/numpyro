@@ -1,27 +1,30 @@
+from collections import namedtuple
+
 import jax
-from jax import grad, jit, partial, random, value_and_grad, vmap
+from jax import device_get, grad, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
 from jax.scipy.special import expit
-from jax.tree_util import tree_multimap
+from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
-from numpyro.distributions.constraints import biject_to, real
-from numpyro.distributions.util import cholesky_inverse
+import numpyro.distributions as dist
+from numpyro.distributions.constraints import ComposeTransform, biject_to, real
+from numpyro.distributions.util import cholesky_inverse, get_dtype
 from numpyro.handlers import seed, trace
-from numpyro.infer_util import log_density, transform_fn
-from numpyro.util import cond, laxtuple, while_loop
+from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
+from numpyro.util import cond, while_loop
 
-AdaptWindow = laxtuple("AdaptWindow", ["start", "end"])
-AdaptState = laxtuple("AdaptState", ["step_size", "inverse_mass_matrix", "mass_matrix_sqrt",
-                                     "ss_state", "mm_state", "window_idx", "rng"])
-IntegratorState = laxtuple("IntegratorState", ["z", "r", "potential_energy", "z_grad"])
+AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
+AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                       'ss_state', 'mm_state', 'window_idx', 'rng'])
+IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
 
-TreeInfo = laxtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
-                                 'z_right', 'r_right', 'z_right_grad',
-                                 'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
-                                 'depth', 'weight', 'r_sum', 'turning', 'diverging',
-                                 'sum_accept_probs', 'num_proposals'])
+TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
+                                   'z_right', 'r_right', 'z_right_grad',
+                                   'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
+                                   'depth', 'weight', 'r_sum', 'turning', 'diverging',
+                                   'sum_accept_probs', 'num_proposals'])
 
 
 def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
@@ -236,6 +239,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
+    tiny = np.finfo(get_dtype(init_step_size)).tiny
 
     def _body_fn(state):
         step_size, _, direction, rng = state
@@ -257,7 +261,10 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         return step_size, direction, direction_new, rng
 
     def _cond_fn(state):
-        return (state[1] == 0) | (state[1] == state[2])
+        step_size, last_direction, direction, _ = state
+        # condition to run only if step_size is not so small or we are not decreasing step_size
+        not_small_step_size_cond = (step_size > tiny) | (direction >= 0)
+        return not_small_step_size_cond & ((last_direction == 0) | (direction == last_direction))
 
     step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
     return step_size
@@ -413,6 +420,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             step_size = np.where(t == (num_adapt_steps - 1),
                                  np.exp(log_step_size_avg),
                                  np.exp(log_step_size))
+            # account the the case log_step_size is a so small negative number
+            step_size = np.clip(step_size, a_min=np.finfo(get_dtype(step_size)).tiny)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
@@ -469,7 +478,6 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
-@partial(jit, static_argnums=(5,))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
@@ -570,6 +578,14 @@ def _leaf_idx_to_ckpt_idxs(n):
     _, num_subtrees = while_loop(lambda nc: (nc[0] & 1) != 0,
                                  lambda nc: (nc[0] >> 1, nc[1] + 1),
                                  (n, 0))
+    # TODO: explore the potential of setting idx_min=0 to allow more turning checks
+    # It will be useful in case: e.g. assume a tree 0 -> 7 is a circle,
+    # subtrees 0 -> 3, 4 -> 7 are half-circles, which two leaves might not
+    # satisfy turning condition;
+    # the full tree 0 -> 7 is a circle, which two leaves might also not satisfy
+    # turning condition;
+    # however, we can check the turning condition of the subtree 0 -> 5, which
+    # likely satisfies turning condition because its trajectory 3/4 of a circle.
     idx_min = idx_max - num_subtrees + 1
     return idx_min, idx_max
 
@@ -702,21 +718,7 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def potential_energy(model, model_args, model_kwargs, inv_transforms):
-    def _potential_energy(params):
-        params_constrained = transform_fn(inv_transforms, params)
-        log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained)
-        for name, t in inv_transforms.items():
-            t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
-            if 'scale' in model_trace[name]:
-                t_log_det = model_trace[name]['scale'] * t_log_det
-            log_joint = log_joint + t_log_det
-        return - log_joint
-
-    return _potential_energy
-
-
-def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_kwargs):
+def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative
@@ -730,11 +732,7 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         batch shape ``rng.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
-    :param str init_strategy: initialization strategy - `uniform`
-        initializes the unconstrained parameters by drawing from
-        a `Uniform(-2, 2)` distribution (as used by Stan), whereas
-        `prior` initializes the parameters by sampling from the prior
-        for each of the sample sites.
+    :param callable init_strategy: a per-site initialization function.
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
         `init_params` are values from the prior used to initiate MCMC,
@@ -742,40 +740,168 @@ def initialize_model(rng, model, *model_args, init_strategy='uniform', **model_k
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    def single_chain_init(key, only_params=False):
-        seeded_model = seed(model, key)
-        model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-        constrained_values, inv_transforms = {}, {}
-        for k, v in model_trace.items():
-            if v['type'] == 'sample' and not v['is_observed']:
+    seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
+    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    constrained_values, inv_transforms = {}, {}
+    has_transformed_dist = False
+    for k, v in model_trace.items():
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['intermediates']:
+                constrained_values[k] = v['intermediates'][0][0]
+                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                has_transformed_dist = True
+            else:
                 constrained_values[k] = v['value']
                 inv_transforms[k] = biject_to(v['fn'].support)
-            elif v['type'] == 'param':
+        elif v['type'] == 'param':
+            constraint = v['kwargs'].pop('constraint', real)
+            transform = biject_to(constraint)
+            if isinstance(transform, ComposeTransform):
+                base_transform = transform.parts[0]
+                constrained_values[k] = base_transform(transform.inv(v['value']))
+                inv_transforms[k] = base_transform
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = transform
                 constrained_values[k] = v['value']
-                constraint = v['kwargs'].pop('constraint', real)
-                inv_transforms[k] = biject_to(constraint)
-        prior_params = transform_fn(inv_transforms,
-                                    {k: v for k, v in constrained_values.items()}, invert=True)
-        if init_strategy == 'uniform':
-            init_params = {}
-            for k, v in prior_params.items():
-                key, = random.split(key, 1)
-                init_params[k] = random.uniform(key, shape=np.shape(v), minval=-2, maxval=2)
-        elif init_strategy == 'prior':
-            init_params = prior_params
-        else:
-            raise ValueError('initialize={} is not a valid initialization strategy.'.format(init_strategy))
 
-        if only_params:
-            return init_params
-        else:
-            return (init_params,
-                    potential_energy(seeded_model, model_args, model_kwargs, inv_transforms),
-                    jax.partial(transform_fn, inv_transforms))
+    prototype_params = transform_fn(inv_transforms,
+                                    {k: v for k, v in constrained_values.items()},
+                                    invert=True)
+
+    # NB: we use model instead of seeded_model to prevent unexpected behaviours (if any)
+    potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
+    if has_transformed_dist:
+        # FIXME: why using seeded_model here triggers an error for funnel reparam example
+        # if we use MCMC class (mcmc function works fine)
+        constrain_fun = jax.partial(constrain_fn, model, model_args, model_kwargs, inv_transforms)
+    else:
+        constrain_fun = jax.partial(transform_fn, inv_transforms)
+
+    def single_chain_init(key):
+        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
+                                         param_as_improper=True, prototype_params=prototype_params,
+                                         **model_kwargs)
 
     if rng.ndim == 1:
-        return single_chain_init(rng)
+        init_params, is_valid = single_chain_init(rng)
     else:
-        _, potential_fn, constrain_fun = single_chain_init(rng[0])
-        init_params = vmap(lambda rng: single_chain_init(rng, only_params=True))(rng)
-        return init_params, potential_fn, constrain_fun
+        init_params, is_valid = lax.map(single_chain_init, rng)
+
+    if isinstance(is_valid, jax.interpreters.xla.DeviceArray):
+        if device_get(~np.all(is_valid)):
+            raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
+    return init_params, potential_fn, constrain_fun
+
+
+def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
+    """
+    Merges subposteriors following consensus Monte Carlo algorithm.
+
+    **References:**
+
+    1. *Bayes and big data: The consensus Monte Carlo algorithm*,
+       Steven L. Scott, Alexander W. Blocker, Fernando V. Bonassi, Hugh A. Chipman,
+       Edward I. George, Robert E. McCulloch
+
+    :param list subposteriors: a list in which each element is a collection of samples.
+    :param int num_draws: number of draws from the merged posterior.
+    :param bool diagonal: whether to compute weights using variance or covariance, defaults to
+        `False` (using covariance).
+    :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :return: if `num_draws` is None, merges subposteriors without resampling; otherwise, returns
+        a collection of `num_draws` samples with the same data structure as each subposterior.
+    """
+    # stack subposteriors
+    joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
+    # shape of joined_subposteriors: n_subs x n_samples x sample_shape
+    joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
+
+    if num_draws is not None:
+        rng = random.PRNGKey(0) if rng is None else rng
+        # randomly gets num_draws from subposteriors
+        n_subs = len(subposteriors)
+        n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
+        # shape of draw_idxs: n_subs x num_draws x sample_shape
+        draw_idxs = random.randint(rng, shape=(n_subs, num_draws), minval=0, maxval=n_samples)
+        joined_subposteriors = vmap(lambda x, idx: x[idx])(joined_subposteriors, draw_idxs)
+
+    if diagonal:
+        # compute weights for each subposterior (ref: Section 3.1 of [1])
+        weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
+        normalized_weights = weights / np.sum(weights, axis=0)
+        # get weighted samples
+        samples_flat = np.einsum('ij,ikj->kj', normalized_weights, joined_subposteriors)
+    else:
+        weights = vmap(lambda x: np.linalg.inv(np.cov(x.T)))(joined_subposteriors)
+        normalized_weights = np.matmul(np.linalg.inv(np.sum(weights, axis=0)), weights)
+        samples_flat = np.einsum('ijk,ilk->lj', normalized_weights, joined_subposteriors)
+
+    # unravel_fn acts on 1 sample of a subposterior
+    _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
+    return vmap(lambda x: unravel_fn(x))(samples_flat)
+
+
+def parametric(subposteriors, diagonal=False):
+    """
+    Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
+
+    **References:**
+
+    1. *Asymptotically Exact, Embarrassingly Parallel MCMC*,
+       Willie Neiswanger, Chong Wang, Eric Xing
+
+    :param list subposteriors: a list in which each element is a collection of samples.
+    :param bool diagonal: whether to compute weights using variance or covariance, defaults to
+        `False` (using covariance).
+    :return: the estimated mean and variance/covariance parameters of the joined posterior
+    """
+    joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
+    joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
+
+    submeans = np.mean(joined_subposteriors, axis=1)
+    if diagonal:
+        # NB: jax.numpy.var does not support ddof=1, so we do it manually
+        weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
+        var = 1 / np.sum(weights, axis=0)
+        normalized_weights = var * weights
+
+        # comparing to consensus implementation, we compute weighted mean here
+        mean = np.einsum('ij,ij->j', normalized_weights, submeans)
+        return mean, var
+    else:
+        weights = vmap(lambda x: np.linalg.inv(np.cov(x.T)))(joined_subposteriors)
+        cov = np.linalg.inv(np.sum(weights, axis=0))
+        normalized_weights = np.matmul(cov, weights)
+
+        # comparing to consensus implementation, we compute weighted mean here
+        mean = np.einsum('ijk,ik->j', normalized_weights, submeans)
+        return mean, cov
+
+
+def parametric_draws(subposteriors, num_draws, diagonal=False, rng=None):
+    """
+    Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
+
+    **References:**
+
+    1. *Asymptotically Exact, Embarrassingly Parallel MCMC*,
+       Willie Neiswanger, Chong Wang, Eric Xing
+
+    :param list subposteriors: a list in which each element is a collection of samples.
+    :param int num_draws: number of draws from the merged posterior.
+    :param bool diagonal: whether to compute weights using variance or covariance, defaults to
+        `False` (using covariance).
+    :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :return: a collection of `num_draws` samples with the same data structure as each subposterior.
+    """
+    rng = random.PRNGKey(0) if rng is None else rng
+    if diagonal:
+        mean, var = parametric(subposteriors, diagonal=True)
+        samples_flat = dist.Normal(mean, np.sqrt(var)).sample(rng, (num_draws,))
+    else:
+        mean, cov = parametric(subposteriors, diagonal=False)
+        samples_flat = dist.MultivariateNormal(mean, cov).sample(rng, (num_draws,))
+
+    _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
+    return vmap(lambda x: unravel_fn(x))(samples_flat)

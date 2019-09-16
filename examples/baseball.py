@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import numpy as onp
 
@@ -7,11 +8,11 @@ import jax.numpy as np
 import jax.random as random
 from jax.scipy.special import logsumexp
 
+import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.handlers import sample, seed, substitute, trace
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 """
 Original example from Pyro:
@@ -73,8 +74,8 @@ def fully_pooled(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     phi_prior = dist.Uniform(np.array([0.]), np.array([1.]))
-    phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    phi = numpyro.sample("phi", phi_prior)
+    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def not_pooled(at_bats, hits=None):
@@ -89,8 +90,8 @@ def not_pooled(at_bats, hits=None):
     num_players = at_bats.shape[0]
     phi_prior = dist.Uniform(np.zeros((num_players,)),
                              np.ones((num_players,)))
-    phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    phi = numpyro.sample("phi", phi_prior)
+    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def partially_pooled(at_bats, hits=None):
@@ -106,13 +107,13 @@ def partially_pooled(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     num_players = at_bats.shape[0]
-    m = sample("m", dist.Uniform(np.array([0.]), np.array([1.])))
-    kappa = sample("kappa", dist.Pareto(np.array([1.5])))
+    m = numpyro.sample("m", dist.Uniform(np.array([0.]), np.array([1.])))
+    kappa = numpyro.sample("kappa", dist.Pareto(np.array([1.5])))
     shape = np.shape(kappa)[:np.ndim(kappa) - 1] + (num_players,)
     phi_prior = dist.Beta(np.broadcast_to(m * kappa, shape),
                           np.broadcast_to((1 - m) * kappa, shape))
-    phi = sample("phi", phi_prior)
-    return sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    phi = numpyro.sample("phi", phi_prior)
+    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def partially_pooled_with_logit(at_bats, hits=None):
@@ -126,29 +127,27 @@ def partially_pooled_with_logit(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     num_players = at_bats.shape[0]
-    loc = sample("loc", dist.Normal(np.array([-1.]), np.array([1.])))
-    scale = sample("scale", dist.HalfCauchy(np.array([1.])))
+    loc = numpyro.sample("loc", dist.Normal(np.array([-1.]), np.array([1.])))
+    scale = numpyro.sample("scale", dist.HalfCauchy(np.array([1.])))
     shape = np.shape(loc)[:np.ndim(loc) - 1] + (num_players,)
-    alpha = sample("alpha", dist.Normal(np.broadcast_to(loc, shape),
-                                        np.broadcast_to(scale, shape)))
-    return sample("obs", dist.Binomial(at_bats, logits=alpha), obs=hits)
+    alpha = numpyro.sample("alpha", dist.Normal(np.broadcast_to(loc, shape),
+                                                np.broadcast_to(scale, shape)))
+    return numpyro.sample("obs", dist.Binomial(at_bats, logits=alpha), obs=hits)
 
 
 def run_inference(model, at_bats, hits, rng, args):
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(rng, model, at_bats, hits)
-    hmc_states = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                      sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
-    return hmc_states
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng, at_bats, hits)
+    return mcmc.get_samples()
 
 
 # TODO: Consider providing generic utilities for doing predictions
 # and computing posterior log density
 def predict(model, at_bats, hits, z, rng, player_names, train=True):
     header = model.__name__ + (' - TRAIN' if train else ' - TEST')
-    model = substitute(seed(model, rng), z)
-    model_trace = trace(model).get_trace(at_bats)
+    model = handlers.substitute(handlers.seed(model, rng), z)
+    model_trace = handlers.trace(model).get_trace(at_bats)
     predictions = model_trace['obs']['value']
     print_results('=' * 30 + header + '=' * 30,
                   predictions,
@@ -156,8 +155,8 @@ def predict(model, at_bats, hits, z, rng, player_names, train=True):
                   at_bats,
                   hits)
     if not train:
-        model = substitute(model, z)
-        model_trace = trace(model).get_trace(at_bats, hits)
+        model = handlers.substitute(model, z)
+        model_trace = handlers.trace(model).get_trace(at_bats, hits)
         log_joint = 0.
         for site in model_trace.values():
             site_log_prob = site['fn'].log_prob(site['value'])
@@ -198,10 +197,16 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="Baseball batting average using HMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)

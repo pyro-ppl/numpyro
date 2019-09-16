@@ -12,7 +12,7 @@ inference utilities and algorithms.
 As an example, we are using :class:`~numpyro.handlers.seed`, :class:`~numpyro.handlers.trace`
 and :class:`~numpyro.handlers.substitute` handlers to define the `log_likelihood` function below.
 We first create a logistic regression model and sample from the posterior distribution over
-the regression parameters using :func:`~numpyro.mcmc.mcmc`. The `log_likelihood` function
+the regression parameters using :func:`~numpyro.mcmc.MCMC`. The `log_likelihood` function
 uses effect handlers to run the model by substituting sample sites with values from the posterior
 distribution and computes the log density for a single data point. The `expected_log_likelihood`
 function computes the log likelihood for each draw from the joint posterior and aggregates the
@@ -25,32 +25,31 @@ need to loop over all the data points.
    import jax.numpy as np
    from jax import random, vmap
    from jax.scipy.special import logsumexp
+   import numpyro
    import numpyro.distributions as dist
-   from numpyro.handlers import sample, seed, substitute, trace
+   from numpyro import handlers
    from numpyro.hmc_util import initialize_model
-   from numpyro.mcmc import mcmc
+   from numpyro.mcmc import MCMC, NUTS
 
 .. doctest::
 
    >>> N, D = 3000, 3
    >>> def logistic_regression(data, labels):
-   ...     coefs = sample('coefs', dist.Normal(np.zeros(D), np.ones(D)))
-   ...     intercept = sample('intercept', dist.Normal(0., 10.))
+   ...     coefs = numpyro.sample('coefs', dist.Normal(np.zeros(D), np.ones(D)))
+   ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
    ...     logits = np.sum(coefs * data + intercept, axis=-1)
-   ...     return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+   ...     return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
    >>> data = random.normal(random.PRNGKey(0), (N, D))
    >>> true_coefs = np.arange(1., D + 1.)
    >>> logits = np.sum(true_coefs * data, axis=-1)
    >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
-   >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), logistic_regression, data, labels)
    >>> num_warmup, num_samples = 1000, 1000
-   >>> samples = mcmc(num_warmup, num_samples, init_params,
-   ...                potential_fn=potential_fn,
-   ...                constrain_fn=constrain_fn)  # doctest: +SKIP
-   warmup: 100%|██████████| 1000/1000 [00:09<00:00, 109.40it/s, 1 steps of size 5.83e-01. acc. prob=0.79]
+   >>> mcmc = MCMC(NUTS(model=logistic_regression), num_warmup, num_samples)
+   >>> mcmc.run(random.PRNGKey(2), data, labels)  # doctest: +SKIP
    sample: 100%|██████████| 1000/1000 [00:00<00:00, 1252.39it/s, 1 steps of size 5.83e-01. acc. prob=0.85]
+   >>> mcmc.print_summary()  # doctest: +SKIP
 
 
                       mean         sd       5.5%      94.5%      n_eff       Rhat
@@ -60,8 +59,8 @@ need to loop over all the data points.
       intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
 
    >>> def log_likelihood(rng, params, model, *args, **kwargs):
-   ...     model = substitute(seed(model, rng), params)
-   ...     model_trace = trace(model).get_trace(*args, **kwargs)
+   ...     model = handlers.substitute(handlers.seed(model, rng), params)
+   ...     model_trace = handlers.trace(model).get_trace(*args, **kwargs)
    ...     obs_node = model_trace['obs']
    ...     return np.sum(obs_node['fn'].log_prob(obs_node['value']))
 
@@ -78,15 +77,18 @@ need to loop over all the data points.
 from __future__ import absolute_import, division, print_function
 
 from collections import OrderedDict
+import functools
 
 from jax import random
 
-_PYRO_STACK = []
+from numpyro.distributions.constraints import ComposeTransform, biject_to, real
+from numpyro.primitives import _PYRO_STACK
 
 
 class Messenger(object):
     def __init__(self, fn=None):
         self.fn = fn
+        functools.update_wrapper(self, fn, updated=[])
 
     def __enter__(self):
         _PYRO_STACK.append(self)
@@ -116,14 +118,15 @@ class trace(Messenger):
     .. testsetup::
 
        from jax import random
+       import numpyro
        import numpyro.distributions as dist
-       from numpyro.handlers import sample, seed, trace
+       from numpyro.handlers import seed, trace
        import pprint as pp
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
        >>> pp.pprint(exec_trace)  # doctest: +SKIP
@@ -142,7 +145,7 @@ class trace(Messenger):
         return self.trace
 
     def postprocess_message(self, msg):
-        assert msg['name'] not in self.trace, 'all sites must have unique names'
+        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), 'all sites must have unique names'
         self.trace[msg['name']] = msg.copy()
 
     def get_trace(self, *args, **kwargs):
@@ -171,13 +174,14 @@ class replay(Messenger):
     .. testsetup::
 
        from jax import random
+       import numpyro
        import numpyro.distributions as dist
-       from numpyro.handlers import replay, sample, seed, trace
+       from numpyro.handlers import replay, seed, trace
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> exec_trace = trace(seed(model, random.PRNGKey(0))).get_trace()
        >>> print(exec_trace['a']['value'])  # doctest: +SKIP
@@ -211,14 +215,15 @@ class block(Messenger):
     .. testsetup::
 
        from jax import random
-       from numpyro.handlers import block, sample, seed, trace
+       import numpyro
+       from numpyro.handlers import block, seed, trace
        import numpyro.distributions as dist
 
     .. doctest::
 
        >>> def model():
-       ...     a = sample('a', dist.Normal(0., 1.))
-       ...     return sample('b', dist.Normal(a, 1.))
+       ...     a = numpyro.sample('a', dist.Normal(0., 1.))
+       ...     return numpyro.sample('b', dist.Normal(a, 1.))
 
        >>> model = seed(model, random.PRNGKey(0))
        >>> block_all = block(model)
@@ -238,6 +243,59 @@ class block(Messenger):
             msg['stop'] = True
 
 
+class condition(Messenger):
+    """
+    Conditions unobserved sample sites to values from `param_map` or `condition_fn`.
+    Similar to :class:`~numpyro.handlers.substitute` except that it only affects
+    `sample` sites and changes the `is_observed` property to `True`.
+
+    :param fn: Python callable with NumPyro primitives.
+    :param dict param_map: dictionary of `numpy.ndarray` values keyed by
+       site names.
+    :param condition_fn: callable that takes in a site dict and returns
+       a numpy array or `None` (in which case the handler has no side
+       effect).
+
+    **Example:**
+
+     .. testsetup::
+
+       from jax import random
+       import numpyro
+       from numpyro.handlers import condition, seed, substitute, trace
+       import numpyro.distributions as dist
+
+    .. doctest::
+
+       >>> def model():
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
+
+       >>> model = seed(model, random.PRNGKey(0))
+       >>> exec_trace = trace(condition(model, {'a': -1})).get_trace()
+       >>> assert exec_trace['a']['value'] == -1
+       >>> assert exec_trace['a']['is_observed']
+    """
+    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+        self.substitute_fn = substitute_fn
+        self.param_map = param_map
+        super(condition, self).__init__(fn)
+
+    def process_message(self, msg):
+        site_name = msg['name']
+        if msg['type'] == 'sample':
+            value = None
+            if self.param_map is not None:
+                if site_name in self.param_map:
+                    value = self.param_map[site_name]
+            else:
+                value = self.substitute_fn(msg)
+            if value is not None:
+                msg['value'] = value
+                if msg['is_observed']:
+                    raise ValueError("Cannot condition an already observed site: {}.".format(site_name))
+                msg['is_observed'] = True
+
+
 class scale(Messenger):
     """
     This messenger rescales the log probability score.
@@ -247,11 +305,11 @@ class scale(Messenger):
 
     :param float scale_factor: a positive scaling factor
     """
-    def __init__(self, scale_factor):
+    def __init__(self, fn=None, scale_factor=1.):
         if scale_factor <= 0:
             raise ValueError("scale factor should be a positive number.")
         self.scale = scale_factor
-        super(scale, self).__init__()
+        super(scale, self).__init__(fn)
 
     def process_message(self, msg):
         msg["scale"] = self.scale * msg.get('scale', 1)
@@ -272,141 +330,76 @@ class seed(Messenger):
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample':
-            msg['kwargs']['random_state'] = self.rng
-            self.rng, = random.split(self.rng, 1)
+        if msg['type'] == 'sample' and not msg['is_observed']:
+            self.rng, rng_sample = random.split(self.rng)
+            msg['kwargs']['random_state'] = rng_sample
 
 
 class substitute(Messenger):
     """
-    Given a callable `fn` and a dict `param_map` keyed by site names,
-    return a callable which substitutes all primitive calls in `fn` with
-    values from `param_map` whose key matches the site name. If the
-    site name is not present in `param_map`, there is no side effect.
+    Given a callable `fn` and a dict `param_map` keyed by site names
+    (alternatively, a callable `substitute_fn`), return a callable
+    which substitutes all primitive calls in `fn` with values from
+    `param_map` whose key matches the site name. If the site name
+    is not present in `param_map`, there is no side effect.
+
+    If a `substitute_fn` is provided, then the value at the site is
+    replaced by the value returned from the call to `substitute_fn`
+    for the given site.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
-       site names.
+        site names.
+    :param dict base_param_map: similar to `param_map` but only holds samples
+        from base distributions.
     :param substitute_fn: callable that takes in a site dict and returns
-       a numpy array or `None` (in which case the handler has no side
-       effect).
+        a numpy array or `None` (in which case the handler has no side
+        effect).
 
     **Example:**
 
      .. testsetup::
 
        from jax import random
-       from numpyro.handlers import sample, seed, substitute, trace
+       import numpyro
+       from numpyro.handlers import seed, substitute, trace
        import numpyro.distributions as dist
 
     .. doctest::
 
        >>> def model():
-       ...     sample('a', dist.Normal(0., 1.))
+       ...     numpyro.sample('a', dist.Normal(0., 1.))
 
        >>> model = seed(model, random.PRNGKey(0))
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+    def __init__(self, fn=None, param_map=None, base_param_map=None, substitute_fn=None):
         self.substitute_fn = substitute_fn
         self.param_map = param_map
+        self.base_param_map = base_param_map
+        if sum((x is not None for x in (param_map, base_param_map, substitute_fn))) != 1:
+            raise ValueError('Only one of `param_map`, `base_param_map`, or `substitute_fn` '
+                             'should be provided.')
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if self.param_map:
+        if self.param_map is not None:
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
         else:
-            value = self.substitute_fn(msg)
-            if value is not None:
-                msg['value'] = value
-
-
-def apply_stack(msg):
-    pointer = 0
-    for pointer, handler in enumerate(reversed(_PYRO_STACK)):
-        handler.process_message(msg)
-        # When a Messenger sets the "stop" field of a message,
-        # it prevents any Messengers above it on the stack from being applied.
-        if msg.get("stop"):
-            break
-    if msg['value'] is None:
-        msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
-
-    # A Messenger that sets msg["stop"] == True also prevents application
-    # of postprocess_message by Messengers above it on the stack
-    # via the pointer variable from the process_message loop
-    for handler in _PYRO_STACK[-pointer-1:]:
-        handler.postprocess_message(msg)
-    return msg
-
-
-def sample(name, fn, obs=None, sample_shape=()):
-    """
-    Returns a random sample from the stochastic function `fn`. This can have
-    additional side effects when wrapped inside effect handlers like
-    :class:`~numpyro.handlers.substitute`.
-
-    :param str name: name of the sample site
-    :param fn: Python callable
-    :param numpy.ndarray obs: observed value
-    :param sample_shape: Shape of samples to be drawn.
-    :return: sample from the stochastic `fn`.
-    """
-    # if there are no active Messengers, we just draw a sample and return it as expected:
-    if not _PYRO_STACK:
-        return fn(sample_shape=sample_shape)
-
-    # Otherwise, we initialize a message...
-    initial_msg = {
-        'type': 'sample',
-        'name': name,
-        'fn': fn,
-        'args': (),
-        'kwargs': {'sample_shape': sample_shape},
-        'value': obs,
-        'is_observed': obs is not None,
-    }
-
-    # ...and use apply_stack to send it to the Messengers
-    msg = apply_stack(initial_msg)
-    return msg['value']
-
-
-def identity(x, *args, **kwargs):
-    return x
-
-
-def param(name, init_value, **kwargs):
-    """
-    Annotate the given site as an optimizable parameter for use with
-    :mod:`jax.experimental.optimizers`. For an example of how `param` statements
-    can be used in inference algorithms, refer to :func:`~numpyro.svi.svi`.
-
-    :param str name: name of site.
-    :param numpy.ndarray init_value: initial value specified by the user. Note that
-        the onus of using this to initialize the optimizer is on the user /
-        inference algorithm, since there is no global parameter store in
-        NumPyro.
-    :return: value for the parameter. Unless wrapped inside a
-        handler like :class:`~numpyro.handlers.substitute`, this will simply
-        return the initial value.
-    """
-    # if there are no active Messengers, we just draw a sample and return it as expected:
-    if not _PYRO_STACK:
-        return init_value
-
-    # Otherwise, we initialize a message...
-    initial_msg = {
-        'type': 'param',
-        'name': name,
-        'fn': identity,
-        'args': (init_value,),
-        'kwargs': kwargs,
-        'value': None,
-    }
-
-    # ...and use apply_stack to send it to the Messengers
-    msg = apply_stack(initial_msg)
-    return msg['value']
+            base_value = self.substitute_fn(msg) if self.substitute_fn \
+                else self.base_param_map.get(msg['name'], None)
+            if base_value is not None:
+                if msg['type'] == 'sample':
+                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
+                        base_value)
+                else:
+                    constraint = msg['kwargs'].pop('constraint', real)
+                    transform = biject_to(constraint)
+                    if isinstance(transform, ComposeTransform):
+                        # No need to apply the first transform since the base value
+                        # should have the same support as the first part's co-domain.
+                        msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
+                    else:
+                        msg['value'] = base_value

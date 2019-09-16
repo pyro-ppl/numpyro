@@ -1,4 +1,5 @@
 import argparse
+import os
 
 import numpy as onp
 
@@ -6,11 +7,11 @@ from jax import random, vmap
 from jax.config import config as jax_config
 import jax.numpy as np
 
+import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import UCBADMIT, load_dataset
-from numpyro.handlers import sample, seed, substitute, trace
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 
 """
@@ -52,33 +53,30 @@ found in Chapter 10 (Counting and Classification) and Chapter 13 (Adventures in 
 
 
 def glmm(dept, male, applications, admit):
-    v_mu = sample('v_mu', dist.Normal(0, np.array([4., 1.])))
+    v_mu = numpyro.sample('v_mu', dist.Normal(0, np.array([4., 1.])))
 
-    sigma = sample('sigma', dist.HalfNormal(np.ones(2)))
-    L_Rho = sample('L_Rho', dist.LKJCholesky(2))
+    sigma = numpyro.sample('sigma', dist.HalfNormal(np.ones(2)))
+    L_Rho = numpyro.sample('L_Rho', dist.LKJCholesky(2))
     scale_tril = sigma[..., np.newaxis] * L_Rho
     # non-centered parameterization
     num_dept = len(onp.unique(dept))
-    z = sample('z', dist.Normal(np.zeros((num_dept, 2)), 1))
+    z = numpyro.sample('z', dist.Normal(np.zeros((num_dept, 2)), 1))
     v = np.dot(scale_tril, z.T).T
 
     logits = v_mu[0] + v[dept, 0] + (v_mu[1] + v[dept, 1]) * male
-    sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
+    numpyro.sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
 
 
 def run_inference(dept, male, applications, admit, rng, args):
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(
-        rng, glmm, dept, male, applications, admit)
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   potential_fn=potential_fn, constrain_fn=constrain_fn)
-    return samples
+    kernel = NUTS(glmm)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains)
+    mcmc.run(rng, dept, male, applications, admit)
+    return mcmc.get_samples()
 
 
 def predict(dept, male, applications, z, rng):
-    model = substitute(seed(glmm, rng), z)
-    model_trace = trace(model).get_trace(dept, male, applications, admit=None)
+    model = handlers.substitute(handlers.seed(glmm, rng), z)
+    model_trace = handlers.trace(model).get_trace(dept, male, applications, admit=None)
     return model_trace['admit']['fn'].probs
 
 
@@ -106,10 +104,16 @@ def main(args):
 
 
 if __name__ == '__main__':
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description='UCBadmit gender discrimination using HMC')
     parser.add_argument('-n', '--num-samples', nargs='?', default=2000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
     parser.add_argument('--num-chains', nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)

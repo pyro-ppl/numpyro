@@ -33,10 +33,10 @@ from numpyro.distributions.discrete import (
     Multinomial,
     MultinomialLogits,
     MultinomialProbs,
-    Poisson
+    Poisson,
+    PRNGIdentity
 )
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
-from numpyro.distributions.iaf import InverseAutoregressiveTransform
 
 __all__ = [
     'Bernoulli',
@@ -59,7 +59,6 @@ __all__ = [
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
-    'InverseAutoregressiveTransform',
     'InverseGamma',
     'LKJCholesky',
     'LogNormal',
@@ -70,6 +69,7 @@ __all__ = [
     'Normal',
     'Pareto',
     'Poisson',
+    'PRNGIdentity',
     'StudentT',
     'TransformedDistribution',
     'TruncatedCauchy',

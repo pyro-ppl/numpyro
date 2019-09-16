@@ -6,9 +6,9 @@ import numpy as onp
 import tqdm
 
 from jax import jit, lax, ops, vmap
-from jax.flatten_util import ravel_pytree
+from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
-from jax.tree_util import register_pytree_node
+from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -17,30 +17,6 @@ _DISABLE_CONTROL_FLOW_PRIM = False
 def set_rng_seed(rng_seed):
     random.seed(rng_seed)
     onp.random.seed(rng_seed)
-
-
-# let JAX recognize _TreeInfo structure
-# ref: https://github.com/google/jax/issues/446
-# TODO: remove this when namedtuple is supported in JAX
-def register_pytree(cls):
-    if not getattr(cls, '_registered', False):
-        register_pytree_node(
-            cls,
-            lambda xs: (tuple(xs), None),
-            lambda _, xs: cls(*xs)
-        )
-    cls._registered = True
-
-
-def laxtuple(name, fields):
-    key = (name,) + tuple(fields)
-    if key in _DATA_TYPES:
-        return _DATA_TYPES[key]
-    cls = namedtuple(name, fields)
-    register_pytree(cls)
-    cls.update = cls._replace
-    _DATA_TYPES[key] = cls
-    return cls
 
 
 @contextmanager
@@ -140,24 +116,23 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
             collection = ops.index_update(collection, i, ravel_fn(val))
             return val, collection
 
-        _, collection = jit(fori_loop, static_argnums=(2,))(0, upper, _body_fn,
-                                                            (init_val, collection))
+        _, collection = fori_loop(0, upper, _body_fn, (init_val, collection))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
-        progbar_desc = progbar_opts.pop('progbar_desc', '')
+        progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
         collection = []
 
         val = init_val
-        with tqdm.trange(upper, desc=progbar_desc) as t:
+        with tqdm.trange(upper) as t:
             for i in t:
-                val = body_fun(val)
+                val = jit(body_fun)(val)
                 if i >= lower:
                     collection.append(jit(ravel_fn)(val))
+                t.set_description(progbar_desc(val), refresh=False)
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
-        # XXX: jax.numpy.stack/concatenate is currently slow
-        collection = onp.stack(collection)
+        collection = np.stack(collection)
 
     return vmap(unravel_fn)(collection)
 
@@ -198,3 +173,29 @@ def copy_docs_from(source_class, full_text=False):
         return destin_class
 
     return decorator
+
+
+pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype'])
+
+
+def _ravel_list(*leaves):
+    leaves_metadata = tree_map(lambda l: pytree_metadata(
+        np.ravel(l), np.shape(l), np.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
+    leaves_idx = np.cumsum(np.array((0,) + tuple(d.size for d in leaves_metadata)))
+
+    def unravel_list(arr):
+        return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
+                           m.shape).astype(m.dtype)
+                for i, m in enumerate(leaves_metadata)]
+
+    return np.concatenate([m.flat for m in leaves_metadata]), unravel_list
+
+
+def ravel_pytree(pytree):
+    leaves, treedef = tree_flatten(pytree)
+    flat, unravel_list = _ravel_list(*leaves)
+
+    def unravel_pytree(arr):
+        return tree_unflatten(treedef, unravel_list(arr))
+
+    return flat, unravel_pytree

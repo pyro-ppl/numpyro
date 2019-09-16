@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 
 import numpy as onp
@@ -8,10 +9,9 @@ from jax.config import config as jax_config
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 
+import numpyro
 import numpyro.distributions as dist
-from numpyro.handlers import sample
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 
 """
@@ -91,18 +91,18 @@ def semi_supervised_hmm(transition_prior, emission_prior,
                         supervised_categories, supervised_words,
                         unsupervised_words):
     num_categories, num_words = transition_prior.shape[0], emission_prior.shape[0]
-    transition_prob = sample('transition_prob', dist.Dirichlet(
+    transition_prob = numpyro.sample('transition_prob', dist.Dirichlet(
         np.broadcast_to(transition_prior, (num_categories, num_categories))))
-    emission_prob = sample('emission_prob', dist.Dirichlet(
+    emission_prob = numpyro.sample('emission_prob', dist.Dirichlet(
         np.broadcast_to(emission_prior, (num_categories, num_words))))
 
     # models supervised data;
     # here we don't make any assumption about the first supervised category, in other words,
     # we place a flat/uniform prior on it.
-    sample('supervised_categories', dist.Categorical(transition_prob[supervised_categories[:-1]]),
-           obs=supervised_categories[1:])
-    sample('supervised_words', dist.Categorical(emission_prob[supervised_categories]),
-           obs=supervised_words)
+    numpyro.sample('supervised_categories', dist.Categorical(transition_prob[supervised_categories[:-1]]),
+                   obs=supervised_categories[1:])
+    numpyro.sample('supervised_words', dist.Categorical(emission_prob[supervised_categories]),
+                   obs=supervised_words)
 
     # computes log prob of unsupervised data
     transition_log_prob = np.log(transition_prob)
@@ -113,7 +113,7 @@ def semi_supervised_hmm(transition_prior, emission_prior,
     log_prob = logsumexp(log_prob, axis=0, keepdims=True)
     # inject log_prob to potential function
     # NB: This is a trick to add an additional term to potential energy.
-    sample('forward_log_prob', dist.Delta(log_density=log_prob), obs=0.)
+    numpyro.sample('forward_log_prob', dist.Delta(log_density=log_prob), obs=0.)
 
 
 def print_results(posterior, transition_prob, emission_prob):
@@ -150,23 +150,18 @@ def main(args):
     )
     print('Starting inference...')
     rng = random.PRNGKey(2)
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(
-        rng,
-        semi_supervised_hmm,
-        transition_prior, emission_prior, supervised_categories,
-        supervised_words, unsupervised_words,
-    )
     start = time.time()
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   potential_fn=potential_fn, constrain_fn=constrain_fn,
-                   progbar=True)
+    kernel = NUTS(semi_supervised_hmm)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
+    mcmc.run(rng, transition_prior, emission_prior, supervised_categories,
+             supervised_words, unsupervised_words)
+    samples = mcmc.get_samples()
     print('\nMCMC elapsed time:', time.time() - start)
     print_results(samples, transition_prob, emission_prob)
 
 
 if __name__ == '__main__':
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description='Semi-supervised Hidden Markov Model')
     parser.add_argument('--num-categories', default=3, type=int)
     parser.add_argument('--num-words', default=10, type=int)
@@ -177,4 +172,9 @@ if __name__ == '__main__':
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)

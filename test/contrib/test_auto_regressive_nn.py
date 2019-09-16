@@ -10,32 +10,38 @@ from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
 
 
 @pytest.mark.parametrize('input_dim', [5])
-@pytest.mark.parametrize('param_dims', [[1], [1, 1], [2, 3]])
+@pytest.mark.parametrize('param_dims', [[1], [1, 1], [2], [2, 3]])
 @pytest.mark.parametrize('hidden_dims', [[8], [6, 7]])
-def test_auto_reg_nn(input_dim, hidden_dims, param_dims):
-    arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims)
+@pytest.mark.parametrize('skip_connections', [True, False])
+def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
+    rng, rng_perm = random.split(random.PRNGKey(0))
+    perm = random.shuffle(rng_perm, onp.arange(input_dim))
+    arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims,
+                                     skip_connections=skip_connections, permutation=perm)
 
-    rng = random.PRNGKey(0)
     batch_size = 4
     input_shape = (batch_size, input_dim)
-    _, init_params = arn.init_fun(rng, input_shape)
+    _, init_params = arn_init(rng, input_shape)
 
-    output = arn.apply_fun(init_params, onp.random.rand(*input_shape))
+    output = arn(init_params, onp.random.rand(*input_shape))
 
     if param_dims == [1]:
         assert output.shape == (batch_size, input_dim)
-        jac = jacfwd(lambda x: arn.apply_fun(init_params, x))(onp.random.rand(input_dim))
+        jac = jacfwd(lambda x: arn(init_params, x))(onp.random.rand(input_dim))
     elif param_dims == [1, 1]:
-        assert output.shape == (batch_size, 2, input_dim)
-        jac = jacfwd(lambda x: arn.apply_fun(init_params, x))(onp.random.rand(input_dim))
+        assert output[0].shape == (batch_size, input_dim)
+        assert output[1].shape == (batch_size, input_dim)
+        jac = jacfwd(lambda x: arn(init_params, x)[0])(onp.random.rand(input_dim))
+    elif param_dims == [2]:
+        assert output.shape == (2, batch_size, input_dim)
+        jac = jacfwd(lambda x: arn(init_params, x))(onp.random.rand(input_dim))
     elif param_dims == [2, 3]:
-        assert output[0].shape == (batch_size, 2, input_dim)
-        assert output[1].shape == (batch_size, 3, input_dim)
-        jac = jacfwd(lambda x: arn.apply_fun(init_params, x)[0])(onp.random.rand(input_dim))
+        assert output[0].shape == (2, batch_size, input_dim)
+        assert output[1].shape == (3, batch_size, input_dim)
+        jac = jacfwd(lambda x: arn(init_params, x)[0])(onp.random.rand(input_dim))
 
     # permute jacobian as necessary
     permuted_jac = onp.zeros(jac.shape)
-    perm = arn.permutation
 
     for j in range(input_dim):
         for k in range(input_dim):
