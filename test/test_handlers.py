@@ -1,6 +1,3 @@
-import functools
-from operator import mul
-
 from numpy.testing import assert_allclose
 import pytest
 
