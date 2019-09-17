@@ -7,7 +7,7 @@ from jax.tree_util import tree_flatten
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
-from numpyro.handlers import block, seed, substitute, trace, condition
+from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.util import while_loop
 
 

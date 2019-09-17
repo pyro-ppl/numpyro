@@ -1,9 +1,8 @@
-import functools
 from collections import namedtuple
+import functools
 
 import jax
 from jax import lax
-
 
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
@@ -231,4 +230,3 @@ class plate(Messenger):
             batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
         msg['kwargs']['sample_shape'] = batch_shape
         msg['scale'] = msg['scale'] * self.size / self.subsample_size
-

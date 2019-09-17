@@ -4,7 +4,7 @@ from operator import mul
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, jit
+from jax import jit, random
 
 import numpyro
 from numpyro import handlers
