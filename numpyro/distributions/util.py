@@ -171,12 +171,14 @@ def cholesky_inverse(matrix):
     return solve_triangular(tril_inv, identity, lower=True)
 
 
+# TODO: move upstream to jax.nn
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
     return np.clip(x, 0) + np.log1p(np.exp(-np.abs(x))) - x * y
 
 
+# TODO: use upstream jax.nn.softmax
 def softmax(x, axis=-1):
     unnormalized = np.exp(x - np.max(x, axis, keepdims=True))
     return unnormalized / np.sum(unnormalized, axis, keepdims=True)
@@ -263,8 +265,19 @@ def signed_stick_breaking_tril(t):
     return y
 
 
+# TODO: use upstream jax.nn.softplus
 def softplus(x):
     return np.logaddexp(x, 0.)
+
+
+def logmatmulexp(x, y):
+    """
+    Numerically stable version of ``(x.log() @ y.log()).exp()``.
+    """
+    x_shift = np.amax(x, -1, keepdims=True)
+    y_shift = np.amax(y, -2, keepdims=True)
+    xy = np.log(np.matmul((x - x_shift).exp(), (y - y_shift).exp()))
+    return xy + x_shift + y_shift
 
 
 # The is sourced from: torch.distributions.util.py

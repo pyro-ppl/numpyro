@@ -2,6 +2,8 @@ from jax import random
 from jax.experimental.stax import glorot, randn
 import jax.numpy as np
 
+from numpyro.distributions.util import vec_to_tril_matrix
+
 
 def MaskedDense(mask, bias=True, W_init=glorot(), b_init=randn()):
     """
