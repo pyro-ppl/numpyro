@@ -115,4 +115,8 @@ def model_subsample_1():
     model_subsample_1,
 ])
 def test_plate(model):
-    jit(handlers.seed(model, random.PRNGKey(1)))
+    trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
+    jit_trace = handlers.trace(jit(handlers.seed(model, random.PRNGKey(1)))).get_trace()
+    for name, site in trace.items():
+        if site['type'] == 'sample':
+            assert_allclose(jit_trace[name]['value'], site['value'])
