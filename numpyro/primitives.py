@@ -1,9 +1,17 @@
+import functools
+from collections import namedtuple
+
 import jax
+from jax import lax
+
 
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
 
 _PYRO_STACK = []
+
+
+CondIndepStackFrame = namedtuple('CondIndepStackFrame', ['name', 'dim', 'size'])
 
 
 def apply_stack(msg):
@@ -30,6 +38,29 @@ def apply_stack(msg):
     return msg
 
 
+class Messenger(object):
+    def __init__(self, fn=None):
+        self.fn = fn
+        functools.update_wrapper(self, fn, updated=[])
+
+    def __enter__(self):
+        _PYRO_STACK.append(self)
+
+    def __exit__(self, *args, **kwargs):
+        assert _PYRO_STACK[-1] is self
+        _PYRO_STACK.pop()
+
+    def process_message(self, msg):
+        pass
+
+    def postprocess_message(self, msg):
+        pass
+
+    def __call__(self, *args, **kwargs):
+        with self:
+            return self.fn(*args, **kwargs)
+
+
 def sample(name, fn, obs=None, sample_shape=()):
     """
     Returns a random sample from the stochastic function `fn`. This can have
@@ -54,8 +85,10 @@ def sample(name, fn, obs=None, sample_shape=()):
         'args': (),
         'kwargs': {'sample_shape': sample_shape},
         'value': obs,
+        'scale': 1.0,
         'is_observed': obs is not None,
         'intermediates': [],
+        'cond_indep_stack': [],
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -94,6 +127,8 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
+        'scale': 1.0,
+        'cond_indep_stack': [],
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -126,3 +161,74 @@ def module(name, nn, input_shape=None):
         _, nn_params = nn_init(rng, input_shape)
         param(module_key, nn_params)
     return jax.partial(nn_apply, nn_params)
+
+
+class plate(Messenger):
+    """
+    Construct for annotating conditionally independent variables. Within a
+    `plate` context manager, `sample` sites will be automatically broadcasted to
+    the size of the plate. Additionally, a scale factor might be applied by
+    certain inference algorithms if `subsample_size` is specified.
+
+    :param str name: Name of the plate.
+    :param int size: Size of the plate.
+    :param int subsample_size: Optional argument denoting the size of the mini-batch.
+        This can be used to apply a scaling factor by inference algorithms. e.g.
+        when computing ELBO using a mini-batch.
+    :param int dim: Optional argument to specify which dimension in the tensor
+        is used as the plate dim. If `None` (default), the leftmost available dim
+        is allocated.
+    """
+    def __init__(self, name, size, subsample_size=None, dim=None):
+        self.name = name
+        self.size = size
+        self.subsample_size = size if subsample_size is None else subsample_size
+        if dim is not None and dim >= 0:
+            raise ValueError('dim arg must be negative.')
+        self.dim = dim
+        self._validate_and_set_dim()
+        super(plate, self).__init__()
+
+    def _validate_and_set_dim(self):
+        msg = {
+            'type': 'plate',
+            'is_observed': False,
+            'fn': identity,
+            'name': self.name,
+            'args': (None,),
+            'kwargs': {},
+            'value': None,
+            'scale': 1.0,
+            'cond_indep_stack': [],
+        }
+        apply_stack(msg)
+        cond_indep_stack = msg['cond_indep_stack']
+        occupied_dims = {f.dim for f in cond_indep_stack}
+        dim = -1
+        while True:
+            if dim not in occupied_dims:
+                break
+            dim -= 1
+        if self.dim is None:
+            self.dim = dim
+        else:
+            assert self.dim not in occupied_dims
+
+    @staticmethod
+    def _get_batch_shape(cond_indep_stack):
+        n_dims = max(-f.dim for f in cond_indep_stack)
+        batch_shape = [1] * n_dims
+        for f in cond_indep_stack:
+            batch_shape[f.dim] = f.size
+        return tuple(batch_shape)
+
+    def process_message(self, msg):
+        cond_indep_stack = msg['cond_indep_stack']
+        frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
+        cond_indep_stack.append(frame)
+        batch_shape = self._get_batch_shape(cond_indep_stack)
+        if 'sample_shape' in msg['kwargs']:
+            batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
+        msg['kwargs']['sample_shape'] = batch_shape
+        msg['scale'] = msg['scale'] * self.size / self.subsample_size
+

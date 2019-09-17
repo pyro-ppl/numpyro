@@ -1,7 +1,10 @@
+import functools
+from operator import mul
+
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import random, jit
 
 import numpyro
 from numpyro import handlers
@@ -58,3 +61,61 @@ def test_no_split_deterministic():
 
     model = handlers.condition(model, {'x': 1., 'y': 2.})
     assert model() == 3.
+
+
+def model_nested_plates_0():
+    with numpyro.plate('outer', 10):
+        x = numpyro.sample('y', dist.Normal(0., 1.))
+        assert x.shape == (10,)
+        with numpyro.plate('inner', 5):
+            y = numpyro.sample('x', dist.Normal(0., 1.))
+            assert y.shape == (5, 10)
+
+
+def model_nested_plates_1():
+    with numpyro.plate('outer', 10, dim=-2):
+        x = numpyro.sample('y', dist.Normal(0., 1.))
+        assert x.shape == (10, 1)
+        with numpyro.plate('inner', 5):
+            y = numpyro.sample('x', dist.Normal(0., 1.))
+            assert y.shape == (10, 5)
+
+
+def model_nested_plates_2():
+    outer = numpyro.plate('outer', 10)
+    inner = numpyro.plate('inner', 5, dim=-3)
+    with outer:
+        x = numpyro.sample('x', dist.Normal(0., 1.))
+        assert x.shape == (10,)
+    with inner:
+        y = numpyro.sample('y', dist.Normal(0., 1.))
+        assert y.shape == (5, 1, 1)
+
+    with outer, inner:
+        xy = numpyro.sample('xy', dist.Normal(0., 1.), sample_shape=(10,))
+        assert xy.shape == (5, 1, 10)
+
+
+def model_subsample_1():
+    outer = numpyro.plate('outer', 20, subsample_size=10)
+    inner = numpyro.plate('inner', 10, subsample_size=5, dim=-3)
+    with outer:
+        x = numpyro.sample('x', dist.Normal(0., 1.))
+        assert x.shape == (10,)
+    with inner:
+        y = numpyro.sample('y', dist.Normal(0., 1.))
+        assert y.shape == (5, 1, 1)
+
+    with outer, inner:
+        xy = numpyro.sample('xy', dist.Normal(0., 1.))
+        assert xy.shape == (5, 1, 10)
+
+
+@pytest.mark.parametrize('model', [
+    model_nested_plates_0,
+    model_nested_plates_1,
+    model_nested_plates_2,
+    model_subsample_1,
+])
+def test_plate(model):
+    jit(handlers.seed(model, random.PRNGKey(1)))
