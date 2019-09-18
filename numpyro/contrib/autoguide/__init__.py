@@ -10,10 +10,11 @@ from jax.tree_util import tree_map
 import numpyro
 from numpyro import handlers
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
+from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import AffineTransform, ComposeTransform, PermuteTransform, biject_to
-from numpyro.distributions.flows import InverseAutoregressiveTransform
+from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
 from numpyro.distributions.util import sum_rightmost
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
 
@@ -112,9 +113,9 @@ class AutoContinuous(AutoGuide):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
         rng = numpyro.sample("_{}_rng_init".format(self.prefix), dist.PRNGIdentity())
         # FIXME: without block statement, get AssertionError: all sites must have unique names
-        init_params, is_valid = handlers.block(find_valid_initial_params)(rng, self.model, *args,
-                                                                          init_strategy=self.init_strategy,
-                                                                          **kwargs)
+        init_params, _ = handlers.block(find_valid_initial_params)(rng, self.model, *args,
+                                                                   init_strategy=self.init_strategy,
+                                                                   **kwargs)
         self._inv_transforms = {}
         self._has_transformed_dist = False
         unconstrained_sites = {}
@@ -315,7 +316,7 @@ class AutoIAFNormal(AutoContinuous):
     Usage::
 
         guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[20], skip_connections=True, ...)
-        svi_init, svi_update, _ = svi(model, guide, ...)
+        svi = SVI(model, guide, ...)
 
     :param jax.random.PRNGKey rng: random key to be used as the source of randomness
         to initialize the guide.
@@ -359,4 +360,52 @@ class AutoIAFNormal(AutoContinuous):
                                    nonlinearity=self._nonlinearity)
             arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_size,))
             flows.append(InverseAutoregressiveTransform(arnn))
+        return ComposeTransform(flows)
+
+
+class AutoBNAFNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a Diagonal Normal
+    distribution transformed via a
+    :class:`~numpyro.distributions.iaf.InverseAutoregressiveTransform`
+    to construct a guide over the entire latent space. The guide does not
+    depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoBNAFNormal(rng, model, get_params, num_flows=1, hidden_factors=[50, 50])
+        svi = SVI(model, guide, ...)
+
+    **References**
+
+    1. *Block Neural Autoregressive Flow*,
+       Nicola De Cao, Ivan Titov, Wilker Aziz
+
+    :param jax.random.PRNGKey rng: random key to be used as the source of randomness
+        to initialize the guide.
+    :param callable model: a generative model.
+    :param str prefix: a prefix that will be prefixed to all param internal sites.
+    :param callable init_strategy: A per-site initialization function.
+    :param int num_flows: the number of flows to be used, defaults to 3.
+    :param list hidden_factors: Hidden layer i has ``hidden_factors[i]`` hidden units per
+        input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
+        The elements of hidden_factors must be integers.
+    """
+    def __init__(self, model, prefix="auto", init_strategy=init_to_median, num_flows=1,
+                 hidden_factors=[8, 8]):
+        self.num_flows = num_flows
+        self._hidden_factors = hidden_factors
+        super(AutoBNAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
+
+    def _get_transform(self):
+        if self.latent_size == 1:
+            raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
+        flows = []
+        for i in range(self.num_flows):
+            if i > 0:
+                flows.append(PermuteTransform(np.arange(self.latent_size)[::-1]))
+            residual = "gated" if i < (self.num_flows - 1) else None
+            arn = BlockNeuralAutoregressiveNN(self.latent_size, self._hidden_factors, residual)
+            arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_size,))
+            flows.append(BlockNeuralAutoregressiveTransform(arnn))
         return ComposeTransform(flows)

@@ -9,7 +9,7 @@ from jax.test_util import check_eq
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal
+from numpyro.contrib.autoguide import AutoBNAFNormal, AutoDiagonalNormal, AutoIAFNormal
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
@@ -22,6 +22,7 @@ from numpyro.util import fori_loop
 @pytest.mark.parametrize('auto_class', [
     AutoDiagonalNormal,
     AutoIAFNormal,
+    AutoBNAFNormal,
 ])
 def test_beta_bernoulli(auto_class):
     data = np.array([[1.0] * 8 + [0.0] * 2,
@@ -32,15 +33,15 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample('obs', dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    guide = auto_class(model)
+    guide = auto_class(model, hidden_factors=[8, 8]) if auto_class is AutoBNAFNormal else auto_class(model)
     svi = SVI(model, guide, elbo, adam)
     svi_state = svi.init(random.PRNGKey(1), model_args=(data,), guide_args=(data,))
 
     def body_fn(i, val):
-        svi_state, loss = svi.update(val, model_args=(data,), guide_args=(data,))
+        svi_state, _ = svi.update(val, model_args=(data,), guide_args=(data,))
         return svi_state
 
-    svi_state = fori_loop(0, 2000, body_fn, svi_state)
+    svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     true_coefs = (np.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
@@ -51,6 +52,7 @@ def test_beta_bernoulli(auto_class):
 @pytest.mark.parametrize('auto_class', [
     AutoDiagonalNormal,
     AutoIAFNormal,
+    AutoBNAFNormal,
 ])
 def test_logistic_regression(auto_class):
     N, dim = 3000, 3
@@ -71,12 +73,12 @@ def test_logistic_regression(auto_class):
     svi_state = svi.init(rng_init, model_args=(data, labels), guide_args=(data, labels))
 
     def body_fn(i, val):
-        svi_state, loss = svi.update(val, model_args=(data, labels), guide_args=(data, labels))
+        svi_state, _ = svi.update(val, model_args=(data, labels), guide_args=(data, labels))
         return svi_state
 
     svi_state = fori_loop(0, 2000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    if auto_class is not AutoIAFNormal:
+    if auto_class not in (AutoIAFNormal, AutoBNAFNormal):
         median = guide.median(params)
         assert_allclose(median['coefs'], true_coefs, rtol=0.1)
         # test .quantile method
@@ -117,16 +119,15 @@ def test_iaf():
     for i in range(guide.num_flows):
         if i > 0:
             flows.append(constraints.PermuteTransform(np.arange(dim + 1)[::-1]))
-        arn_init, arn_apply = AutoregressiveNN(dim + 1, [dim + 1, dim + 1],
-                                               permutation=np.arange(dim + 1),
-                                               skip_connections=guide._skip_connections,
-                                               nonlinearity=guide._nonlinearity)
+        _, arn_apply = AutoregressiveNN(dim + 1, [dim + 1, dim + 1],
+                                        permutation=np.arange(dim + 1),
+                                        skip_connections=guide._skip_connections,
+                                        nonlinearity=guide._nonlinearity)
         arn = partial(arn_apply, params['auto_arn__{}$params'.format(i)])
         flows.append(InverseAutoregressiveTransform(arn))
 
     transform = constraints.ComposeTransform(flows)
-    rng_seed, rng_sample = random.split(rng)
-    expected_sample = guide.unpack_latent(transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng_sample)))
+    expected_sample = guide.unpack_latent(transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng)))
     expected_output = transform(x)
     assert_allclose(actual_sample['coefs'], expected_sample['coefs'])
     assert_allclose(actual_sample['offset'],
@@ -150,7 +151,7 @@ def test_uniform_normal():
     svi_state = svi.init(rng_init, model_args=(data,), guide_args=(data,))
 
     def body_fn(i, val):
-        svi_state, loss = svi.update(val, model_args=(data,), guide_args=(data,))
+        svi_state, _ = svi.update(val, model_args=(data,), guide_args=(data,))
         return svi_state
 
     svi_state = fori_loop(0, 1000, body_fn, svi_state)
