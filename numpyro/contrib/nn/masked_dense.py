@@ -1,5 +1,5 @@
 from jax import random
-from jax.nn.initilizers import glorot_normal, normal
+from jax.nn.initializers import glorot_normal, normal
 import jax.numpy as np
 
 
