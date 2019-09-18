@@ -171,15 +171,11 @@ def cholesky_inverse(matrix):
     return solve_triangular(tril_inv, identity, lower=True)
 
 
+# TODO: move upstream to jax.nn
 def binary_cross_entropy_with_logits(x, y):
     # compute -y * log(sigmoid(x)) - (1 - y) * log(1 - sigmoid(x))
     # Ref: https://www.tensorflow.org/api_docs/python/tf/nn/sigmoid_cross_entropy_with_logits
     return np.clip(x, 0) + np.log1p(np.exp(-np.abs(x))) - x * y
-
-
-def softmax(x, axis=-1):
-    unnormalized = np.exp(x - np.max(x, axis, keepdims=True))
-    return unnormalized / np.sum(unnormalized, axis, keepdims=True)
 
 
 @custom_transforms
