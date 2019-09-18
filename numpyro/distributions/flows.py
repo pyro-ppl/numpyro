@@ -81,6 +81,14 @@ class InverseAutoregressiveTransform(Transform):
 
 
 class BlockNeuralAutoregressiveTransform(Transform):
+    """
+    An implementation of Block Neural Autoregressive flow.
+
+    **References**
+
+    1. *Block Neural Autoregressive Flow*,
+       Nicola De Cao, Ivan Titov, Wilker Aziz
+    """
     event_dim = 1
 
     def __init__(self, bn_arn):
@@ -111,5 +119,5 @@ class BlockNeuralAutoregressiveTransform(Transform):
             logdet = self.bn_arn(x)[1]
             return logdet.sum(-1)
         else:
-            log_scale = intermediates
-            return log_scale.sum(-1)
+            logdet = intermediates
+            return logdet.sum(-1)

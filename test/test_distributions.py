@@ -535,8 +535,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             dependent_constraint = True
             break
         key, key_gen = random.split(key)
-        oob_params[i] = gen_values_outside_bounds(constraint, np.shape(params[i]), key)
-        valid_params[i] = gen_values_within_bounds(constraint, np.shape(params[i]), key)
+        oob_params[i] = gen_values_outside_bounds(constraint, np.shape(params[i]), key_gen)
+        valid_params[i] = gen_values_within_bounds(constraint, np.shape(params[i]), key_gen)
 
     assert jax_dist(*oob_params)
 

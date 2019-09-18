@@ -7,7 +7,7 @@
 # All rights reserved.
 
 from jax import lax, random
-from jax.experimental.stax import softmax
+from jax.nn import softmax
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import digamma, entr, gammaln, logsumexp

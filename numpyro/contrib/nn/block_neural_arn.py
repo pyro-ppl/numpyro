@@ -1,8 +1,10 @@
 from jax import ops, random
 from jax.experimental import stax
-from jax.nn import softplus
-from jax.nn.initializer import glorot_uniform, normal, uniform
+from jax.nn import sigmoid, softplus
+from jax.nn.initializers import glorot_uniform, normal, uniform
 import jax.numpy as np
+
+from numpyro.distributions.util import logmatmulexp, vec_to_tril_matrix
 
 
 def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot_uniform()):
@@ -19,10 +21,10 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
     input_dim, out_dim = num_blocks * in_factor, num_blocks * out_factor
     # construct mask_d, mask_o for formula (8) of Ref [1]
     # Diagonal block mask
-    mask_d = np.identity(num_block)[..., None]
+    mask_d = np.identity(num_blocks)[..., None]
     mask_d = np.tile(mask_d, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
     # Off-diagonal block mask for lower triangular weight matrix
-    mask_o = vec_to_tril_matrix(np.ones(dim * (dim - 1) // 2), diagonal=-1)[..., None]
+    mask_o = vec_to_tril_matrix(np.ones(num_blocks * (num_blocks - 1) // 2), diagonal=-1)[..., None]
     mask_o = np.tile(mask_o, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
 
     def init_fun(rng, input_shape):
@@ -30,7 +32,7 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
         *k1, k2, k3 = random.split(rng, num_blocks + 2)
 
         # Initialize each column block using W_init
-        W = np.zeros((input_dim, out_dim)
+        W = np.zeros((input_dim, out_dim))
         for i in range(num_blocks):
             W = ops.index_add(
                 W,
@@ -42,11 +44,11 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
         ws = np.log(uniform(1.)(k2, (out_dim,)))
 
         if bias:
-            b = (uniform(1.)(k3, mask.shape[-1:]) - 0.5) * (2 / np.sqrt(out_dim))
+            b = (uniform(1.)(k3, (out_dim,)) - 0.5) * (2 / np.sqrt(out_dim))
             params = (W, ws, b)
         else:
             params = (W, ws)
-        return input_shape[:-1] + (outdim,), params
+        return input_shape[:-1] + (out_dim,), params
 
     def apply_fun(params, inputs, **kwargs):
         x, logdet = inputs
@@ -70,8 +72,11 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
 
         dense_logdet = ws + W - np.log(w_norm)
         # logdet of block diagonal
-        dense_logdet = logdet[mask_d.astype(bool)].reshape(dim, in_factor, out_factor)
-        logdet = dense_logdet if logdet is None else logmatmulexp(logdet, dense_logdet)
+        dense_logdet = dense_logdet[mask_d.astype(bool)].reshape(num_blocks, in_factor, out_factor)
+        if logdet is None:
+            logdet = np.broadcast_to(dense_logdet, x.shape[:-1] + dense_logdet.shape)
+        else:
+            logdet = logmatmulexp(logdet, dense_logdet)
         return out, logdet
 
     return init_fun, apply_fun
@@ -89,7 +94,7 @@ def Tanh():
     def apply_fun(params, inputs, **kwargs):
         x, logdet = inputs
         out = np.tanh(x)
-        tanh_logdet = -2 * (s + softplus(-2 * s)- np.log(2.))
+        tanh_logdet = -2 * (x + softplus(-2 * x) - np.log(2.))
         # logdet.shape = batch_shape + (num_blocks, in_factor, out_factor)
         # tanh_logdet.shape = batch_shape + (num_blocks x out_factor,)
         # so we need to reshape tanh_logdet to: batch_shape + (num_blocks, 1, out_factor)
@@ -131,7 +136,7 @@ def FanInResidualGated(gate_init=normal(1.)):
     def apply_fun(params, inputs, **kwargs):
         # a * f(x) + (1 - a) * x
         (fx, logdet), (x, _) = inputs
-        gate = np.sigmoid(params)
+        gate = sigmoid(params)
         out = gate * fx + (1 - gate) * x
         logdet = softplus(logdet + params) - softplus(params)
         return out, logdet
@@ -139,7 +144,7 @@ def FanInResidualGated(gate_init=normal(1.)):
     return init_fun, apply_fun
 
 
-def BlockNeuralAutoregressiveNN(input_dim, hidden_factors, residual=None):
+def BlockNeuralAutoregressiveNN(input_dim, hidden_factors=[8, 8], residual=None):
     """
     An implementation of Block Neural Autoregressive neural network.
 
@@ -152,17 +157,26 @@ def BlockNeuralAutoregressiveNN(input_dim, hidden_factors, residual=None):
     :param list hidden_factors: Hidden layer i has ``hidden_factors[i]`` hidden units per
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
-    :param residual: Type of residual connections to use.
+    :param str residual: Type of residual connections to use. One of `None`, `"normal"`, `"gated"`.
+    :return: an (`init_fn`, `update_fn`) pair.
     """
     layers = []
     in_factor = 1
-    for i, hidden_factor in enumerate(hidden_factors):
+    for hidden_factor in hidden_factors:
         layers.append(BlockMaskedDense(input_dim, in_factor, hidden_factor))
         layers.append(Tanh())
         in_factor = hidden_factor
     layers.append(BlockMaskedDense(input_dim, in_factor, 1))
     arn = stax.serial(*layers)
-    if residual is None
-        return arn
-    else:
-        return stax.serial(stax.FanOut(2), stax.parallel(arn, stax.Identity), residual())
+    if residual is not None:
+        FanInResidual = FanInResidualGated if residual == "gated" else FanInResidualNormal
+        arn = stax.serial(stax.FanOut(2), stax.parallel(arn, stax.Identity), FanInResidual())
+
+    def init_fun(rng, input_shape):
+        return arn[0](rng, input_shape)
+
+    def apply_fun(params, inputs, **kwargs):
+        out, logdet = arn[1](params, (inputs, None), **kwargs)
+        return out, logdet.reshape(inputs.shape)
+
+    return init_fun, apply_fun

@@ -26,6 +26,7 @@ import math
 
 from jax import ops
 from jax.lib.xla_bridge import canonicalize_dtype
+from jax.nn import softplus
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
@@ -35,7 +36,6 @@ from numpyro.distributions.util import (
     get_dtype,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
-    softplus,
     sum_rightmost,
     vec_to_tril_matrix
 )

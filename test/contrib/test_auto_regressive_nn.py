@@ -1,12 +1,14 @@
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/tests/nn/test_autoregressive.py
 
 import numpy as onp
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 
-from jax import jacfwd, random
+from jax import jacfwd, random, vmap
+import jax.numpy as np
 
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
+from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 
 
 @pytest.mark.parametrize('input_dim', [5])
@@ -97,3 +99,27 @@ def test_masks(input_dim, n_layers, output_dim_multiplier):
                 if mask_skip[idx + jdx * input_dim, kdx]:
                     skip_connections.add(kdx)
             assert_array_equal(list(sorted(skip_connections)), correct)
+
+
+@pytest.mark.parametrize('input_dim', [5])
+@pytest.mark.parametrize('hidden_factors', [[4], [2, 3]])
+@pytest.mark.parametrize('residual', [None, "normal", "gated"])
+@pytest.mark.parametrize('batch_shape', [(3,), ()])
+def test_block_neural_arn(input_dim, hidden_factors, residual, batch_shape):
+    arn_init, arn = BlockNeuralAutoregressiveNN(input_dim, hidden_factors, residual)
+
+    rng = random.PRNGKey(0)
+    input_shape = batch_shape + (input_dim,)
+    out_shape, init_params = arn_init(rng, input_shape)
+    assert out_shape == input_shape
+
+    x = random.normal(random.PRNGKey(1), input_shape)
+    output, logdet = arn(init_params, x)
+    assert output.shape == input_shape
+    assert logdet.shape == input_shape
+
+    if len(batch_shape) == 1:
+        jac = vmap(jacfwd(lambda x: arn(init_params, x)[0]))(x)
+    else:
+        jac = jacfwd(lambda x: arn(init_params, x)[0])(x)
+    assert_allclose(logdet.sum(-1), np.linalg.slogdet(jac)[1], rtol=1e-6)
