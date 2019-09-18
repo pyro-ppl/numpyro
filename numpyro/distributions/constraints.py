@@ -26,6 +26,7 @@ import math
 
 from jax import ops
 from jax.lib.xla_bridge import canonicalize_dtype
+from jax.nn import softplus
 import jax.numpy as np
 from jax.scipy.special import expit, logit
 
@@ -361,7 +362,7 @@ class CorrCholeskyTransform(Transform):
         z1m_cumprod_tril = matrix_to_tril_vec(z1m_cumprod, diagonal=-2)
         stick_breaking_logdet = 0.5 * np.sum(np.log(z1m_cumprod_tril), axis=-1)
 
-        tanh_logdet = -2 * np.sum(np.log(np.cosh(x)), axis=-1)
+        tanh_logdet = -2 * np.sum(x + softplus(-2 * x) - np.log(2.), axis=-1)
         return stick_breaking_logdet + tanh_logdet
 
 

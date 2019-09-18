@@ -24,6 +24,7 @@
 
 from jax import lax
 from jax.lib import xla_bridge
+from jax.nn import softmax
 import jax.numpy as np
 import jax.random as random
 from jax.scipy.special import gammaln, logsumexp
@@ -40,7 +41,6 @@ from numpyro.distributions.util import (
     multinomial,
     poisson,
     promote_shapes,
-    softmax,
     sum_rightmost,
     xlog1py,
     xlogy
