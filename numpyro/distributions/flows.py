@@ -83,25 +83,33 @@ class InverseAutoregressiveTransform(Transform):
 class BlockNeuralAutoregressiveTransform(Transform):
     event_dim = 1
 
-    def __init__(self, bna_nn, params):
-        self.bna_nn = bna_nn
-        self.params = params
+    def __init__(self, bn_arn):
+        self.bn_arn = bn_arn
 
     def __call__(self, x):
-        self._cached_x = x
-        y, self._cached_logdet = self.bna_nn(self.params, x)
-        return y
+        """
+        :param numpy.ndarray x: the input into the transform
+        """
+        return self.call_with_intermediates(x)[0]
 
-    def inv(self, y, caching=True):
-        if caching:
-            return self._cached_x
-        else:
-            raise ValueError("Block neural autoregressive transform does not have an analytic"
-                             " inverse implemented.")
+    def call_with_intermediates(self, x):
+        y, logdet = self.bn_arn(x)
+        return y, logdet
 
-    def log_abs_det_jacobian(self, x, y, caching=True):
-        if caching:
-            return self._cached_logdet
+    def inv(self, y):
+        raise RuntimeError("Block neural autoregressive transform does not have an analytic"
+                           " inverse implemented.")
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        """
+        Calculates the elementwise determinant of the log jacobian.
+
+        :param numpy.ndarray x: the input to the transform
+        :param numpy.ndarray y: the output of the transform
+        """
+        if intermediates is None:
+            logdet = self.bn_arn(x)[1]
+            return logdet.sum(-1)
         else:
-            _, logdet = self.bna_nn(self.params, x)
-            return logdet
+            log_scale = intermediates
+            return log_scale.sum(-1)

@@ -1,7 +1,8 @@
 from jax import ops, random
+from jax.experimental import stax
+from jax.nn import softplus
 from jax.nn.initializer import glorot_uniform, normal, uniform
-
-from numpyro.distributions.util import softplus
+import jax.numpy as np
 
 
 def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot_uniform()):
@@ -77,6 +78,11 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
 
 
 def Tanh():
+    """
+    Tanh nonlinearity with its log jacobian.
+
+    :return: an (`init_fn`, `update_fn`) pair.
+    """
     def init_fun(rng, input_shape):
         return input_shape, ()
 
@@ -90,32 +96,64 @@ def Tanh():
         tanh_logdet = tanh_logdet.reshape(logdet.shape[:-2] + (1, logdet.shape[-1]))
         return out, logdet + tanh_logdet
 
+    return init_fun, apply_fun
 
-def FanInNormal():
+
+def FanInResidualNormal():
     """
     Similar to stax.FanInSum but also keeps track of log determinant of Jacobian.
+    It is required that the second fan-in branch is identity.
+
+    :return: an (`init_fn`, `update_fn`) pair.
     """
-    # x + f(x)
     def init_fun(rng, input_shape):
-        pass
+        return input_shape[0], ()
 
     def apply_fun(params, inputs, **kwargs):
-        pass
+        # f(x) + x
+        (fx, logdet), (x, _) = inputs
+        return fx + x, softplus(logdet)
+
+    return init_fun, apply_fun
 
 
-def FanInGated(gate_init=normal(1.)):
+def FanInResidualGated(gate_init=normal(1.)):
     """
     Similar to FanInNormal uses a learnable parameter `gate` to interpolate two fan-in branches.
+    It is required that the second fan-in branch is identity.
+
+    :param gate_init: initialization method for the gate.
+    :return: an (`init_fn`, `update_fn`) pair.
     """
-    # a * x + (1 - a) * f(x)
     def init_fun(rng, input_shape):
-        pass
+        return input_shape[0], gate_init(rng, ())
 
     def apply_fun(params, inputs, **kwargs):
-        pass
+        # a * f(x) + (1 - a) * x
+        (fx, logdet), (x, _) = inputs
+        gate = np.sigmoid(params)
+        out = gate * fx + (1 - gate) * x
+        logdet = softplus(logdet + params) - softplus(params)
+        return out, logdet
+
+    return init_fun, apply_fun
 
 
 def BlockNeuralAutoregressiveNN(input_dim, hidden_factors, residual=None):
+    """
+    An implementation of Block Neural Autoregressive neural network.
+
+    **References**
+
+    1. *Block Neural Autoregressive Flow*,
+       Nicola De Cao, Ivan Titov, Wilker Aziz
+
+    :param int input_dim: The dimensionality of the input.
+    :param list hidden_factors: Hidden layer i has ``hidden_factors[i]`` hidden units per
+        input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
+        The elements of hidden_factors must be integers.
+    :param residual: Type of residual connections to use.
+    """
     layers = []
     in_factor = 1
     for i, hidden_factor in enumerate(hidden_factors):
@@ -127,4 +165,4 @@ def BlockNeuralAutoregressiveNN(input_dim, hidden_factors, residual=None):
     if residual is None
         return arn
     else:
-        return stax.serial(stax.FanOut(2), stax.parallel(stax.Identity, arn), residual())
+        return stax.serial(stax.FanOut(2), stax.parallel(arn, stax.Identity), residual())
