@@ -23,8 +23,8 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
     # Diagonal block mask
     mask_d = np.identity(num_blocks)[..., None]
     mask_d = np.tile(mask_d, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
-    # Off-diagonal block mask for lower triangular weight matrix
-    mask_o = vec_to_tril_matrix(np.ones(num_blocks * (num_blocks - 1) // 2), diagonal=-1)[..., None]
+    # Off-diagonal block mask for upper triangular weight matrix
+    mask_o = vec_to_tril_matrix(np.ones(num_blocks * (num_blocks - 1) // 2), diagonal=-1).T[..., None]
     mask_o = np.tile(mask_o, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
 
     def init_fun(rng, input_shape):

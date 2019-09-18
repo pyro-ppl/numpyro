@@ -8,6 +8,7 @@ from jax import jacfwd, random
 
 from numpyro.contrib.nn import AutoregressiveNN, BlockNeuralAutoregressiveNN
 from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
+from numpyro.distributions.util import matrix_to_tril_vec
 
 
 def _make_iaf_args(input_dim, hidden_dims):
@@ -63,4 +64,7 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
                 for k in range(input_dim):
                     permuted_jac[j, k] = jac[perm[j], perm[k]]
 
-            assert onp.sum(onp.abs(onp.triu(permuted_jac, 1))) == 0.00
+            jac = permuted_jac
+
+        assert onp.sum(onp.abs(onp.triu(jac, 1))) == 0.00
+        assert onp.all(onp.abs(matrix_to_tril_vec(jac)) > 0)

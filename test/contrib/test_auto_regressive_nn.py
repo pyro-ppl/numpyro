@@ -9,6 +9,7 @@ import jax.numpy as np
 
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
 from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
+from numpyro.distributions.util import matrix_to_tril_vec
 
 
 @pytest.mark.parametrize('input_dim', [5])
@@ -50,7 +51,8 @@ def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
             permuted_jac[..., j, k] = jac[..., perm[j], perm[k]]
 
     # make sure jacobians are triangular
-    assert onp.sum(onp.abs(onp.triu(permuted_jac))) == 0.0
+    assert onp.sum(onp.abs(onp.triu(permuted_jac, k=1))) == 0.0
+    assert onp.all(onp.abs(matrix_to_tril_vec(jac)) > 0)
 
 
 @pytest.mark.parametrize('input_dim', [5, 8])
@@ -123,3 +125,7 @@ def test_block_neural_arn(input_dim, hidden_factors, residual, batch_shape):
     else:
         jac = jacfwd(lambda x: arn(init_params, x)[0])(x)
     assert_allclose(logdet.sum(-1), np.linalg.slogdet(jac)[1], rtol=1e-6)
+
+    # make sure jacobians are lower triangular
+    assert onp.sum(onp.abs(onp.triu(jac, k=1))) == 0.0
+    assert onp.all(onp.abs(matrix_to_tril_vec(jac)) > 0)

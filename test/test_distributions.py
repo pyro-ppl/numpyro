@@ -557,7 +557,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             expected = sp_dist(*valid_params).logpdf(valid_samples)
         except AttributeError:
             expected = sp_dist(*valid_params).logpmf(valid_samples)
-        assert_allclose(d.log_prob(valid_samples), expected, atol=1e-5)
+        assert_allclose(d.log_prob(valid_samples), expected, atol=1e-5, rtol=1e-5)
 
     # Out of support samples throw ValueError
     oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
