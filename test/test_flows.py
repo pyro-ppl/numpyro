@@ -5,6 +5,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import jacfwd, random
+from jax.experimental import stax
 
 from numpyro.contrib.nn import AutoregressiveNN, BlockNeuralAutoregressiveNN
 from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
@@ -14,7 +15,10 @@ from numpyro.distributions.util import matrix_to_tril_vec
 def _make_iaf_args(input_dim, hidden_dims):
     _, rng_perm = random.split(random.PRNGKey(0))
     perm = random.shuffle(rng_perm, onp.arange(input_dim))
-    arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=perm)
+    # we use Elu nonlinearity because the default one, Relu, masks out negative hidden values,
+    # which in turn create some zero entries in the lower triangular part of Jacobian.
+    arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1],
+                                     permutation=perm, nonlinearity=stax.Elu)
     _, init_params = arn_init(random.PRNGKey(0), (input_dim,))
     return partial(arn, init_params),
 
