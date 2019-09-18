@@ -77,35 +77,11 @@ need to loop over all the data points.
 from __future__ import absolute_import, division, print_function
 
 from collections import OrderedDict
-import functools
 
 from jax import random
 
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
-from numpyro.primitives import _PYRO_STACK
-
-
-class Messenger(object):
-    def __init__(self, fn=None):
-        self.fn = fn
-        functools.update_wrapper(self, fn, updated=[])
-
-    def __enter__(self):
-        _PYRO_STACK.append(self)
-
-    def __exit__(self, *args, **kwargs):
-        assert _PYRO_STACK[-1] is self
-        _PYRO_STACK.pop()
-
-    def process_message(self, msg):
-        pass
-
-    def postprocess_message(self, msg):
-        pass
-
-    def __call__(self, *args, **kwargs):
-        with self:
-            return self.fn(*args, **kwargs)
+from numpyro.primitives import Messenger
 
 
 class trace(Messenger):
