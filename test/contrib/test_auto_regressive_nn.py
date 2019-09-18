@@ -51,8 +51,7 @@ def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
             permuted_jac[..., j, k] = jac[..., perm[j], perm[k]]
 
     # make sure jacobians are triangular
-    assert onp.sum(onp.abs(onp.triu(permuted_jac, k=1))) == 0.0
-    assert onp.all(onp.abs(matrix_to_tril_vec(jac)) > 0)
+    assert onp.sum(onp.abs(onp.triu(permuted_jac))) == 0.0
 
 
 @pytest.mark.parametrize('input_dim', [5, 8])
