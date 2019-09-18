@@ -13,7 +13,7 @@ from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoIAFNormal
+from numpyro.contrib.autoguide import AutoBNAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.hmc_util import initialize_model
@@ -40,7 +40,7 @@ def dual_moon_pe(x):
 
 
 def dual_moon_model():
-    x = numpyro.sample('x', dist.Uniform(-4 * np.ones(2), 4 * np.ones(2)))
+    x = numpyro.sample('x', dist.Normal(np.zeros(2), 100))
     pe = dual_moon_pe(x)
     numpyro.sample('log_density', dist.Delta(log_density=-pe), obs=0.)
 
@@ -63,9 +63,9 @@ def main(args):
     mcmc.run(random.PRNGKey(11), init_params=np.array([2., 0.]))
     vanilla_samples = mcmc.get_samples()
 
-    adam = optim.Adam(0.001)
+    adam = optim.Adam(0.01)
     rng_init, rng_train = random.split(random.PRNGKey(1), 2)
-    guide = AutoIAFNormal(dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
+    guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[50, 50])
     svi = SVI(dual_moon_model, guide, elbo, adam)
     svi_state = svi.init(rng_init)
 
@@ -89,10 +89,12 @@ def main(args):
     # Issue: https://github.com/pyro-ppl/numpyro/issues/256
     nuts_kernel = NUTS(potential_fn=transformed_potential_fn)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
-    mcmc.run(random.PRNGKey(10), init_params=init_params)
+    mcmc.run(random.PRNGKey(10), init_params=init_params, collect_fields=('z', 'potential_energy'))
     zs = mcmc.get_samples()
+    print(zs)
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)
+    print(samples)
     summary(tree_map(lambda x: x[None, ...], samples))
 
     # make plots
@@ -151,10 +153,10 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="NeuTra HMC")
-    parser.add_argument('-n', '--num-samples', nargs='?', default=20000, type=int)
-    parser.add_argument('--num-warmup', nargs='?', default=0, type=int)
+    parser.add_argument('-n', '--num-samples', nargs='?', default=5000, type=int)
+    parser.add_argument('--num-warmup', nargs='?', default=5000, type=int)
     parser.add_argument('--num-hidden', nargs='?', default=20, type=int)
-    parser.add_argument('--num-iters', nargs='?', default=200000, type=int)
+    parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
