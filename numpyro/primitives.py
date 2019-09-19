@@ -89,7 +89,7 @@ def sample(name, fn, obs=None, random_state=None, sample_shape=()):
         'name': name,
         'fn': fn,
         'args': (),
-        'kwargs': {'sample_shape': sample_shape},
+        'kwargs': {'random_state': random_state, 'sample_shape': sample_shape},
         'value': obs,
         'scale': 1.0,
         'is_observed': obs is not None,
