@@ -73,7 +73,7 @@ def sample(name, fn, obs=None, sample_shape=()):
         `__call__` method requires an explicit keywork `random_state`. Hence, to
         use `sample` outside of NumPyro model, we can use the following pattern
 
-        >>> numpyro.sample('x', partial(dist.Normal(0, 1), random_state=random.PRNGKey(0)))
+        >>> numpyro.sample('x', partial(dist.Normal(0, 1), random_state=random.PRNGKey(0)))  # doctest: +SKIP
 
     :param str name: name of the sample site
     :param fn: Python callable
