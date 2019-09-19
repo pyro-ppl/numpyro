@@ -392,7 +392,7 @@ class AutoBNAFNormal(AutoContinuous):
         The elements of hidden_factors must be integers.
     """
     def __init__(self, model, prefix="auto", init_strategy=init_to_median, num_flows=1,
-                 hidden_factors=[8, 8]):
+                 hidden_factors=[50, 50]):
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
         super(AutoBNAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)

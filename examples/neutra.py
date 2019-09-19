@@ -1,5 +1,4 @@
 import argparse
-import os
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
@@ -19,10 +18,6 @@ import numpyro.distributions as dist
 from numpyro.hmc_util import initialize_model
 from numpyro.mcmc import MCMC, NUTS
 from numpyro.svi import SVI, elbo
-
-# TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
-# The behaviour when training guide under fast math mode is unstable.
-os.environ["XLA_FLAGS"] = "--xla_cpu_enable_fast_math=false"
 
 """
 This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
@@ -49,7 +44,7 @@ def make_transformed_pe(potential_fn, transform, unpack_fn):
     def transformed_potential_fn(z):
         u, intermediates = transform.call_with_intermediates(z)
         logdet = transform.log_abs_det_jacobian(z, u, intermediates=intermediates)
-        return potential_fn(unpack_fn(u)) + logdet
+        return potential_fn(unpack_fn(u)) - logdet
 
     return transformed_potential_fn
 
@@ -58,23 +53,23 @@ def main(args):
     jax_config.update('jax_platform_name', args.device)
 
     print("Start vanilla HMC...")
-    nuts_kernel = NUTS(potential_fn=dual_moon_pe)
+    nuts_kernel = NUTS(dual_moon_model)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
-    mcmc.run(random.PRNGKey(11), init_params=np.array([2., 0.]))
-    vanilla_samples = mcmc.get_samples()
+    mcmc.run(random.PRNGKey(0))
+    mcmc.print_summary()
+    vanilla_samples = mcmc.get_samples()['x'].copy()
 
     adam = optim.Adam(0.01)
-    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
-    guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[50, 50])
+    guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
     svi = SVI(dual_moon_model, guide, elbo, adam)
-    svi_state = svi.init(rng_init)
+    svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
     last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, np.zeros(args.num_iters))
     params = svi.get_params(last_state)
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(random.PRNGKey(0), params,
-                                           sample_shape=(args.num_samples,))
+                                           sample_shape=(args.num_samples,))['x'].copy()
 
     transform = guide.get_transform(params)
     unpack_fn = guide.unpack_latent
@@ -83,25 +78,22 @@ def main(args):
     transformed_potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
     transformed_constrain_fn = lambda x: constrain_fn(unpack_fn(transform(x)))  # noqa: E731
 
-    init_params = np.zeros(guide.latent_size)
     print("\nStart NeuTra HMC...")
-    # TODO: exlore why neutra samples are not good
-    # Issue: https://github.com/pyro-ppl/numpyro/issues/256
     nuts_kernel = NUTS(potential_fn=transformed_potential_fn)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
-    mcmc.run(random.PRNGKey(10), init_params=init_params, collect_fields=('z', 'potential_energy'))
+    init_params = np.zeros(guide.latent_size)
+    mcmc.run(random.PRNGKey(2), init_params=init_params)
+    mcmc.print_summary()
     zs = mcmc.get_samples()
-    print(zs)
     print("Transform samples into unwarped space...")
-    samples = vmap(transformed_constrain_fn)(zs)
-    print(samples)
+    samples = vmap(transformed_constrain_fn)(zs)['x'].copy()
     summary(tree_map(lambda x: x[None, ...], samples))
 
     # make plots
 
-    # IAF guide samples (for plotting)
-    iaf_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(0), (1000,))
-    iaf_trans_samples = vmap(transformed_constrain_fn)(iaf_base_samples)['x']
+    # BNAF guide samples (for plotting)
+    bnaf_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(0), (1000,))
+    bnaf_trans_samples = vmap(transformed_constrain_fn)(bnaf_base_samples)['x']
 
     x1 = np.linspace(-3, 3, 100)
     x2 = np.linspace(-3, 3, 100)
@@ -121,28 +113,28 @@ def main(args):
     ax1.set_title('Autoguide training log loss (after 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(guide_samples['x'][:, 0].copy(), guide_samples['x'][:, 1].copy(), n_levels=30, ax=ax2)
+    sns.kdeplot(guide_samples[:, 0], guide_samples[:, 1], n_levels=30, ax=ax2)
     ax2.set(xlim=[-3, 3], ylim=[-3, 3],
-            xlabel='x0', ylabel='x1', title='Posterior using AutoIAFNormal guide')
+            xlabel='x0', ylabel='x1', title='Posterior using AutoBNAFNormal guide')
 
-    sns.scatterplot(iaf_base_samples[:, 0], iaf_base_samples[:, 1], ax=ax3, hue=iaf_trans_samples[:, 0] < 0.)
+    sns.scatterplot(bnaf_base_samples[:, 0], bnaf_base_samples[:, 1], ax=ax3, hue=bnaf_trans_samples[:, 0] < 0.)
     ax3.set(xlim=[-3, 3], ylim=[-3, 3],
-            xlabel='x0', ylabel='x1', title='AutoIAFNormal base samples (True=left moon; False=right moon)')
+            xlabel='x0', ylabel='x1', title='AutoBNAFNormal base samples (True=left moon; False=right moon)')
 
     ax4.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(vanilla_samples[:, 0].copy(), vanilla_samples[:, 1].copy(), n_levels=30, ax=ax4)
+    sns.kdeplot(vanilla_samples[:, 0], vanilla_samples[:, 1], n_levels=30, ax=ax4)
     ax4.plot(vanilla_samples[-50:, 0], vanilla_samples[-50:, 1], 'bo-', alpha=0.5)
     ax4.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using vanilla HMC sampler')
 
-    sns.scatterplot(zs[:, 0], zs[:, 1], ax=ax5, hue=samples['x'][:, 0] < 0.,
+    sns.scatterplot(zs[:, 0], zs[:, 1], ax=ax5, hue=samples[:, 0] < 0.,
                     s=30, alpha=0.5, edgecolor="none")
     ax5.set(xlim=[-5, 5], ylim=[-5, 5],
             xlabel='x0', ylabel='x1', title='Samples from the warped posterior - p(z)')
 
     ax6.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(samples['x'][:, 0].copy(), samples['x'][:, 1].copy(), n_levels=30, ax=ax6)
-    ax6.plot(samples['x'][-50:, 0], samples['x'][-50:, 1], 'bo-', alpha=0.2)
+    sns.kdeplot(samples[:, 0], samples[:, 1], n_levels=30, ax=ax6)
+    ax6.plot(samples[-50:, 0], samples[-50:, 1], 'bo-', alpha=0.2)
     ax6.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using NeuTra HMC sampler')
 
@@ -153,9 +145,9 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="NeuTra HMC")
-    parser.add_argument('-n', '--num-samples', nargs='?', default=5000, type=int)
-    parser.add_argument('--num-warmup', nargs='?', default=5000, type=int)
-    parser.add_argument('--num-hidden', nargs='?', default=20, type=int)
+    parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
+    parser.add_argument('--num-warmup', nargs='?', default=1000, type=int)
+    parser.add_argument('--hidden-factor', nargs='?', default=50, type=int)
     parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
