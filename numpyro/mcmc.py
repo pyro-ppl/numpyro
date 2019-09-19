@@ -785,7 +785,7 @@ class MCMC(object):
         get_items = itemgetter(*self._collect_fields)
         return get_items(self._samples) if group_by_chain else get_items(self._samples_flat)
 
-    def print_summary(self):
+    def print_summary(self, prob=0.9):
         if 'z' not in self._samples:
             raise ValueError('No latent samples `z` collected. Pass `z` to `collect_fields` arg.')
-        summary(self._samples['z'])
+        summary(self._samples['z'], prob=prob)
