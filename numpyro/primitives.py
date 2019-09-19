@@ -66,6 +66,15 @@ def sample(name, fn, obs=None, sample_shape=()):
     additional side effects when wrapped inside effect handlers like
     :class:`~numpyro.handlers.substitute`.
 
+    .. note::
+        By design, `sample` primitive is meant to be used inside a NumPyro model.
+        Then `seed` handler is used to inject a random state to `fn`. Because
+        there is no global random state in NumPyro, NumPyro distributions'
+        `__call__` method requires an explicit keywork `random_state`. Hence, to
+        use `sample` outside of NumPyro model, we can use the following pattern
+
+        >>> numpyro.sample('x', partial(dist.Normal(0, 1), random_state=random.PRNGKey(0)))
+
     :param str name: name of the sample site
     :param fn: Python callable
     :param numpy.ndarray obs: observed value
