@@ -82,8 +82,8 @@ def get_diagnostics_str(hmc_state):
                                                               hmc_state.mean_accept_prob)
 
 
-def get_progbar_desc_str(num_warmup, hmc_state):
-    if hmc_state.i < num_warmup:
+def get_progbar_desc_str(num_warmup, i):
+    if i < num_warmup:
         return 'warmup'
     return 'sample'
 
@@ -538,16 +538,19 @@ class HMC(MCMCKernel):
         self.target_accept_prob = target_accept_prob
         self.trajectory_length = trajectory_length
         self._sample_fn = None
+        self.constrain_fn = None
         self.algo = 'HMC'
         self.max_tree_depth = 10
 
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
-        constrain_fn = None
         if self.model is not None:
-            rng, rng_init_model = random.split(rng)
-            init_params_, self.potential_fn, constrain_fn = initialize_model(rng_init_model, self.model,
-                                                                             *model_args, **model_kwargs)
+            if rng.ndim == 1:
+                rng, rng_init_model = random.split(rng)
+            else:
+                rng, rng_init_model = np.swapaxes(vmap(random.split)(rng), 0, 1)
+            init_params_, self.potential_fn, self.constrain_fn = initialize_model(rng_init_model, self.model,
+                                                                                  *model_args, **model_kwargs)
             if init_params is None:
                 init_params = init_params_
         else:
@@ -555,19 +558,30 @@ class HMC(MCMCKernel):
             if init_params is None:
                 raise ValueError('Valid value of `init_params` must be provided with'
                                  ' `potential_fn`.')
-        hmc_init_fn, self._sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
-        init_state = hmc_init_fn(init_params,
-                                 num_warmup=num_warmup,
-                                 step_size=self.step_size,
-                                 adapt_step_size=self.adapt_step_size,
-                                 adapt_mass_matrix=self.adapt_mass_matrix,
-                                 dense_mass=self.dense_mass,
-                                 target_accept_prob=self.target_accept_prob,
-                                 trajectory_length=self.trajectory_length,
-                                 max_tree_depth=self.max_tree_depth,
-                                 run_warmup=False,
-                                 rng=rng)
-        return init_state, constrain_fn
+        hmc_init, sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
+        hmc_init_fn = lambda init_params, rng: hmc_init(  # noqa: E731
+            init_params,
+            num_warmup=num_warmup,
+            step_size=self.step_size,
+            adapt_step_size=self.adapt_step_size,
+            adapt_mass_matrix=self.adapt_mass_matrix,
+            dense_mass=self.dense_mass,
+            target_accept_prob=self.target_accept_prob,
+            trajectory_length=self.trajectory_length,
+            max_tree_depth=self.max_tree_depth,
+            run_warmup=False,
+            rng=rng,
+        )
+        if rng.ndim == 1:
+            init_state = hmc_init_fn(init_params, rng)
+            self._sample_fn = sample_fn
+        else:
+            # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
+            # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
+            # wa_steps because those variables do not depend on traced args: init_params, rng.
+            init_state = vmap(hmc_init_fn)(init_params, rng)
+            self._sample_fn = vmap(sample_fn)
+        return init_state
 
     def sample(self, state):
         """
@@ -680,7 +694,8 @@ class MCMC(object):
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
-        if num_chains > 1 or "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
+        if (chain_method != 'vectorized' and num_chains > 1) or (
+                "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
             self.progress_bar = False
 
         self._collect_fields = ('z',)
@@ -689,10 +704,10 @@ class MCMC(object):
 
     def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
         rng, init_params = init
-        hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
-                                                    model_args=args, model_kwargs=kwargs)
+        hmc_state = self.sampler.init(rng, self.num_warmup, init_params,
+                                      model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
-            constrain_fn = identity if constrain_fn is None else constrain_fn
+            constrain_fn = identity if self.sampler.constrain_fn is None else self.sampler.constrain_fn
         else:
             constrain_fn = self.constrain_fn
         collect_fn = attrgetter(*collect_fields)
@@ -703,7 +718,7 @@ class MCMC(object):
                                transform=collect_fn,
                                progbar=self.progress_bar,
                                progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
-                               diagnostics_fn=get_diagnostics_str)
+                               diagnostics_fn=get_diagnostics_str if rng.ndim == 1 else None)
         if len(collect_fields) == 1:
             samples = (samples,)
         samples = dict(zip(collect_fields, samples))
@@ -759,7 +774,7 @@ class MCMC(object):
             elif chain_method == 'parallel':
                 map_fn = pmap(partial_map_fn)
             elif chain_method == 'vectorized':
-                map_fn = vmap(partial_map_fn)
+                map_fn = partial_map_fn
             else:
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')
