@@ -543,6 +543,7 @@ class HMC(MCMCKernel):
 
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
+        constrain_fn = None
         if self.model is not None:
             if rng.ndim == 1:
                 rng, rng_init_model = random.split(rng)
