@@ -25,7 +25,7 @@ from numpyro.hmc_util import (
     velocity_verlet,
     warmup_adapter
 )
-from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
+from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, lax_map
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng'])
@@ -659,6 +659,8 @@ class MCMC(object):
 
     .. note:: `chain_method` is an experimental arg, which might be removed in a future version.
 
+    .. note:: Setting `progress_bar=False` will improve the speed for many cases.
+
     :param MCMCKernel sampler: an instance of :class:`~numpyro.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.mcmc.HMC`
         and :class:`~numpyro.mcmc.NUTS` are available.
@@ -694,8 +696,8 @@ class MCMC(object):
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
-        if (chain_method != 'vectorized' and num_chains > 1) or (
-                "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
+        if (chain_method == 'parallel' and num_chains > 1) or (
+                "CI" in os.environ) or "PYTEST_XDIST_WORKER" in os.environ):
             self.progress_bar = False
 
         self._collect_fields = ('z',)
@@ -770,7 +772,10 @@ class MCMC(object):
                                      args=args,
                                      kwargs=kwargs)
             if chain_method == 'sequential':
-                map_fn = partial(lax.map, partial_map_fn)
+                if self.progress_bar:
+                    map_fn = partial(lax_map, partial_map_fn)
+                else:
+                    map_fn = partial(lax.map, partial_map_fn)
             elif chain_method == 'parallel':
                 map_fn = pmap(partial_map_fn)
             elif chain_method == 'vectorized':
