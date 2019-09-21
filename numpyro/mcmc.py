@@ -538,7 +538,6 @@ class HMC(MCMCKernel):
         self.target_accept_prob = target_accept_prob
         self.trajectory_length = trajectory_length
         self._sample_fn = None
-        self.constrain_fn = None
         self.algo = 'HMC'
         self.max_tree_depth = 10
 
@@ -549,8 +548,8 @@ class HMC(MCMCKernel):
                 rng, rng_init_model = random.split(rng)
             else:
                 rng, rng_init_model = np.swapaxes(vmap(random.split)(rng), 0, 1)
-            init_params_, self.potential_fn, self.constrain_fn = initialize_model(rng_init_model, self.model,
-                                                                                  *model_args, **model_kwargs)
+            init_params_, self.potential_fn, constrain_fn = initialize_model(rng_init_model, self.model,
+                                                                             *model_args, **model_kwargs)
             if init_params is None:
                 init_params = init_params_
         else:
@@ -581,7 +580,7 @@ class HMC(MCMCKernel):
             # wa_steps because those variables do not depend on traced args: init_params, rng.
             init_state = vmap(hmc_init_fn)(init_params, rng)
             self._sample_fn = vmap(sample_fn)
-        return init_state
+        return init_state, constrain_fn
 
     def sample(self, state):
         """
@@ -704,10 +703,10 @@ class MCMC(object):
 
     def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
         rng, init_params = init
-        hmc_state = self.sampler.init(rng, self.num_warmup, init_params,
-                                      model_args=args, model_kwargs=kwargs)
+        hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
+                                                    model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
-            constrain_fn = identity if self.sampler.constrain_fn is None else self.sampler.constrain_fn
+            constrain_fn = identity if constrain_fn is None else constrain_fn
         else:
             constrain_fn = self.constrain_fn
         collect_fn = attrgetter(*collect_fields)
