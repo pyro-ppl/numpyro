@@ -120,6 +120,31 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     return - log_joint
 
 
+def transformed_potential_fn(potential_fn, transform, z):
+    """
+    Given a potential function `p(x)`, compute potential energy of `p(t(z))`
+    where `t` is a transform from `z` to `x`. 
+
+    :param z: [description]
+    :type z: [type]
+    :param potential_fn: [description]
+    :type potential_fn: [type]
+    :param ~numpyro.distributions.constraints.Transform transform: a
+    :type transform: [type]
+    :param unpack_fn: [description]
+    :type unpack_fn: [type]
+    :return: [description]
+    :rtype: [type]
+    """
+
+    def transformed_potential_fn(z):
+        u, intermediates = transform.call_with_intermediates(z)
+        logdet = transform.log_abs_det_jacobian(z, u, intermediates=intermediates)
+        return potential_fn(unpack_fn(u)) + logdet
+
+    return transformed_potential_fn
+
+
 def init_to_median(site, num_samples=15, skip_param=False):
     """
     Initialize to the prior median.

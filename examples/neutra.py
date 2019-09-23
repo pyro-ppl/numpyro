@@ -16,7 +16,9 @@ from numpyro import optim
 from numpyro.contrib.autoguide import AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
+from numpyro.distributions import constraints
 from numpyro.hmc_util import initialize_model
+from numpyro.infer_util import transformed_potential_fn
 from numpyro.mcmc import MCMC, NUTS
 from numpyro.svi import SVI, elbo
 
@@ -33,41 +35,40 @@ Gaussian-like one. The transform will be used to get better mixing rate for NUTS
 """
 
 
-def dual_moon_pe(x):
-    term1 = 0.5 * ((np.linalg.norm(x, axis=-1) - 2) / 0.4) ** 2
-    term2 = -0.5 * ((x[..., :1] + np.array([-2., 2.])) / 0.6) ** 2
-    return term1 - logsumexp(term2, axis=-1)
+class DualMoonDistribution(dist.Distribution):
+    support = constraints.real_vector
+
+    def __init__(self):
+        super(DualMoonDistribution, self).__init__(event_shape=(2,))
+
+    def sample(self, key, sample_shape=()):
+        # it is enough to return an arbitrary sample with correct shape
+        return np.zeros(sample_shape + self.event_shape)
+
+    def log_prob(self, x):
+        term1 = 0.5 * ((np.linalg.norm(x, axis=-1) - 2) / 0.4) ** 2
+        term2 = -0.5 * ((x[..., :1] + np.array([-2., 2.])) / 0.6) ** 2
+        pe = term1 - logsumexp(term2, axis=-1)
+        return -pe
 
 
 def dual_moon_model():
-    x = numpyro.sample('x', dist.Uniform(-4 * np.ones(2), 4 * np.ones(2)))
-    pe = dual_moon_pe(x)
-    numpyro.sample('log_density', dist.Delta(log_density=-pe), obs=0.)
-
-
-def make_transformed_pe(potential_fn, transform, unpack_fn):
-    def transformed_potential_fn(z):
-        u, intermediates = transform.call_with_intermediates(z)
-        logdet = transform.log_abs_det_jacobian(z, u, intermediates=intermediates)
-        return potential_fn(unpack_fn(u)) + logdet
-
-    return transformed_potential_fn
+    numpyro.sample('x', DualMoonDistribution())
 
 
 def main(args):
     jax_config.update('jax_platform_name', args.device)
 
     print("Start vanilla HMC...")
-    nuts_kernel = NUTS(potential_fn=dual_moon_pe)
+    nuts_kernel = NUTS(dual_moon_model)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
-    mcmc.run(random.PRNGKey(11), init_params=np.array([2., 0.]))
+    mcmc.run(random.PRNGKey(0), init_params=np.array([2., 0.]))
     vanilla_samples = mcmc.get_samples()
 
     adam = optim.Adam(0.001)
-    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
     guide = AutoIAFNormal(dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
     svi = SVI(dual_moon_model, guide, elbo, adam)
-    svi_state = svi.init(rng_init)
+    svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
     last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, np.zeros(args.num_iters))
@@ -79,17 +80,15 @@ def main(args):
     transform = guide.get_transform(params)
     unpack_fn = guide.unpack_latent
 
-    _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), dual_moon_model)
+    _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), dual_moon_model)
     transformed_potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
     transformed_constrain_fn = lambda x: constrain_fn(unpack_fn(transform(x)))  # noqa: E731
 
     init_params = np.zeros(guide.latent_size)
     print("\nStart NeuTra HMC...")
-    # TODO: exlore why neutra samples are not good
-    # Issue: https://github.com/pyro-ppl/numpyro/issues/256
     nuts_kernel = NUTS(potential_fn=transformed_potential_fn)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
-    mcmc.run(random.PRNGKey(10), init_params=init_params)
+    mcmc.run(random.PRNGKey(3), init_params=init_params)
     zs = mcmc.get_samples()
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)
