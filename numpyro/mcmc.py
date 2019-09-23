@@ -13,7 +13,7 @@ from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
-from jax.tree_util import tree_flatten, tree_map
+from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import (
@@ -25,7 +25,7 @@ from numpyro.hmc_util import (
     velocity_verlet,
     warmup_adapter
 )
-from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, lax_map
+from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng'])
@@ -653,6 +653,20 @@ class NUTS(HMC):
         self.algo = 'NUTS'
 
 
+def _laxmap(f, xs):
+    n = tree_flatten(xs)[0][0].shape[0]
+
+    def get_value_from_index(i):
+        return tree_map(lambda x: x[i], xs)
+
+    ys = []
+    for i in range(n):
+        x = jit(get_value_from_index)(i)
+        ys.append(f(x))
+
+    return tree_multimap(lambda *args: np.stack(args), *ys)
+
+
 class MCMC(object):
     """
     Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
@@ -697,7 +711,7 @@ class MCMC(object):
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
         if (chain_method == 'parallel' and num_chains > 1) or (
-                "CI" in os.environ) or "PYTEST_XDIST_WORKER" in os.environ):
+                "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
             self.progress_bar = False
 
         self._collect_fields = ('z',)
@@ -773,7 +787,7 @@ class MCMC(object):
                                      kwargs=kwargs)
             if chain_method == 'sequential':
                 if self.progress_bar:
-                    map_fn = partial(lax_map, partial_map_fn)
+                    map_fn = partial(_laxmap, partial_map_fn)
                 else:
                     map_fn = partial(lax.map, partial_map_fn)
             elif chain_method == 'parallel':

@@ -861,7 +861,6 @@ def parametric(subposteriors, diagonal=False):
 
     submeans = np.mean(joined_subposteriors, axis=1)
     if diagonal:
-        # NB: jax.numpy.var does not support ddof=1, so we do it manually
         weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
         var = 1 / np.sum(weights, axis=0)
         normalized_weights = var * weights

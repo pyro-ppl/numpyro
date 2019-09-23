@@ -8,7 +8,7 @@ import tqdm
 from jax import jit, lax, ops, vmap
 from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
-from jax.tree_util import tree_flatten, tree_map, tree_multimap, tree_unflatten
+from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -70,20 +70,6 @@ def fori_loop(lower, upper, body_fun, init_val):
         return val
     else:
         return lax.fori_loop(lower, upper, body_fun, init_val)
-
-
-def lax_map(f, xs):
-    n = tree_flatten(xs)[0][0].shape[0]
-
-    def get_value_from_index(i):
-        return tree_map(lambda x: x[i], xs)
-
-    ys = []
-    for i in range(n):
-        x = jit(get_value_from_index)(i)
-        ys.append(f(x))
-
-    return tree_multimap(lambda *args: np.stack(args), *ys)
 
 
 def identity(x):
