@@ -97,7 +97,7 @@ def constrain_fn(model, model_args, model_kwargs, transforms, params):
 
 def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     """
-    Makes a callable which computes potential energy of a model given unconstrained params.
+    Computes potential energy of a model given unconstrained params.
     The `inv_transforms` is used to transform these unconstrained parameters to base values
     of the corresponding priors in `model`. If a prior is a transformed distribution,
     the corresponding base value lies in the support of base distribution. Otherwise,
@@ -107,7 +107,8 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs`: kwargs provided to the model.
     :param dict inv_transforms: dictionary of transforms keyed by names.
-    :return: a callable that computes potential energy given unconstrained parameters.
+    :param dict params: unconstrained parameters of `model`.
+    :return: potential energy given unconstrained parameters.
     """
     params_constrained = transform_fn(inv_transforms, params)
     log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
@@ -120,29 +121,21 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     return - log_joint
 
 
-def transformed_potential_fn(potential_fn, transform, z):
+def transformed_potential_energy(potential_energy, inv_transform, z):
     """
-    Given a potential function `p(x)`, compute potential energy of `p(t(z))`
-    where `t` is a transform from `z` to `x`. 
+    Given a potential energy `p(x)`, compute potential energy of `p(z)`
+    with `z = transform(x)` (i.e. `x = inv_transform(z)`).
 
-    :param z: [description]
-    :type z: [type]
-    :param potential_fn: [description]
-    :type potential_fn: [type]
-    :param ~numpyro.distributions.constraints.Transform transform: a
-    :type transform: [type]
-    :param unpack_fn: [description]
-    :type unpack_fn: [type]
-    :return: [description]
-    :rtype: [type]
+    :param potential_energy: a callable to compute potential energy of original
+        variable `x`.
+    :param ~numpyro.distributions.constraints.Transform inv_transform: a
+        transform from the new variable `z` to `x`.
+    :param z: new variable to compute potential energy
+    :return: potential energy of `z`.
     """
-
-    def transformed_potential_fn(z):
-        u, intermediates = transform.call_with_intermediates(z)
-        logdet = transform.log_abs_det_jacobian(z, u, intermediates=intermediates)
-        return potential_fn(unpack_fn(u)) + logdet
-
-    return transformed_potential_fn
+    x, intermediates = inv_transform.call_with_intermediates(z)
+    logdet = inv_transform.log_abs_det_jacobian(z, x, intermediates=intermediates)
+    return potential_energy(inv_transform(x)) - logdet
 
 
 def init_to_median(site, num_samples=15, skip_param=False):
