@@ -312,6 +312,13 @@ class seed(Messenger):
     so that we use a fresh seed for each subsequent call without having to
     explicitly pass in a `PRNGKey` to each `sample` call.
 
+    .. note::
+
+        Unlike in Pyro, `numpyro.sample` primitive cannot be used without wrapping
+        it in seed handler since there is no global random state. As such,
+        users need to use `seed` as a contextmanager to generate samples from
+        distributions or as a decorator for their model callable (See below).
+
     **Example:**
 
     .. testsetup::
