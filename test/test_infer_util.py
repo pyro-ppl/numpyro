@@ -5,7 +5,8 @@ import jax.numpy as np
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer_util import predictive
+from numpyro.distributions import constraints
+from numpyro.infer_util import predictive, transformed_potential_energy
 from numpyro.mcmc import MCMC, NUTS
 
 
@@ -39,3 +40,15 @@ def test_predictive():
 
     # check sample mean
     assert_allclose(predictive_samples["obs"].reshape([-1, 5]).mean(0), true_probs, rtol=0.1)
+
+
+def test_transformed_potential_energy():
+    beta_dist = dist.Beta(np.ones(5), np.ones(5))
+    transform = constraints.AffineTransform(3, 4)
+    inv_transform = constraints.AffineTransform(-0.75, 0.25)
+
+    z = random.normal(random.PRNGKey(0), (5,))
+    pe_expected = -dist.TransformedDistribution(beta_dist, transform).log_prob(z)
+    potential_fn = lambda x: -beta_dist.log_prob(x)
+    pe_actual = transformed_potential_energy(potential_fn, inv_transform, z)
+    assert_allclose(pe_actual, pe_expected)

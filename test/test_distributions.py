@@ -535,8 +535,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             dependent_constraint = True
             break
         key, key_gen = random.split(key)
-        oob_params[i] = gen_values_outside_bounds(constraint, np.shape(params[i]), key)
-        valid_params[i] = gen_values_within_bounds(constraint, np.shape(params[i]), key)
+        oob_params[i] = gen_values_outside_bounds(constraint, np.shape(params[i]), key_gen)
+        valid_params[i] = gen_values_within_bounds(constraint, np.shape(params[i]), key_gen)
 
     assert jax_dist(*oob_params)
 
@@ -761,3 +761,14 @@ def test_compose_transform_with_intermediates(transforms):
     logdet = transform.log_abs_det_jacobian(x, y, intermediates)
     assert_allclose(y, transform(x))
     assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))
+
+
+def test_unpack_transform():
+    value = np.ones(3)
+    x = {'key': value}
+    unpack_fn = lambda x: x['key']
+    transform = constraints.UnpackTransform(unpack_fn)
+    y = transform(x)
+    z = transform.inv(y)
+    assert_allclose(y, value)
+    assert_allclose(z['key'], x['key'])
