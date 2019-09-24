@@ -49,7 +49,7 @@ def test_seed():
     xs = np.stack(xs)
 
     ys = vmap(lambda rng: handlers.seed(lambda: _sample(), rng)())(np.arange(100))
-    assert_allclose(xs, ys)
+    assert_allclose(xs, ys, atol=1e-6)
 
 
 def test_condition():
