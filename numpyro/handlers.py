@@ -79,6 +79,7 @@ from __future__ import absolute_import, division, print_function
 from collections import OrderedDict
 
 from jax import random
+import jax.numpy as np
 
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
 from numpyro.primitives import Messenger
@@ -342,7 +343,7 @@ class seed(Messenger):
        >>> assert x == y
     """
     def __init__(self, fn=None, rng=None):
-        if isinstance(rng, int):
+        if isinstance(rng, int) or np.size(rng) == 1:
             rng = random.PRNGKey(rng)
         self.rng = rng
         super(seed, self).__init__(fn)
