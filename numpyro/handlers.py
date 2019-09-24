@@ -312,7 +312,9 @@ class seed(Messenger):
     so that we use a fresh seed for each subsequent call without having to
     explicitly pass in a `PRNGKey` to each `sample` call.
     """
-    def __init__(self, fn, rng):
+    def __init__(self, fn=None, rng=None):
+        if isinstance(rng, int):
+            rng = random.PRNGKey(rng)
         self.rng = rng
         super(seed, self).__init__(fn)
 

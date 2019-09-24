@@ -35,6 +35,14 @@ def test_substitute():
     assert handlers.substitute(model, {'x': 3.})() == 12.
 
 
+def test_seed():
+    with handlers.seed(rng=11):
+        x = numpyro.sample('x', dist.Normal(0., 1.))
+
+    y = handlers.seed(lambda: numpyro.sample('y', dist.Normal(0., 1.)), 11)()
+    assert_allclose(x, y)
+
+
 def test_condition():
     def model():
         x = numpyro.sample('x', dist.Delta(0.))
