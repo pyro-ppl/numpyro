@@ -766,7 +766,7 @@ def test_compose_transform_with_intermediates(transforms):
 def test_unpack_transform():
     value = np.ones(3)
     x = {'key': value}
-    unpack_fn = lambda x: x['key']
+    unpack_fn = lambda x: x['key']  # noqa: E731
     transform = constraints.UnpackTransform(unpack_fn)
     y = transform(x)
     z = transform.inv(y)

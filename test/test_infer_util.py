@@ -49,6 +49,6 @@ def test_transformed_potential_energy():
 
     z = random.normal(random.PRNGKey(0), (5,))
     pe_expected = -dist.TransformedDistribution(beta_dist, transform).log_prob(z)
-    potential_fn = lambda x: -beta_dist.log_prob(x)
+    potential_fn = lambda x: -beta_dist.log_prob(x)  # noqa: E731
     pe_actual = transformed_potential_energy(potential_fn, inv_transform, z)
     assert_allclose(pe_actual, pe_expected)
