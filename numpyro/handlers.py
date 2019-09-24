@@ -311,6 +311,28 @@ class seed(Messenger):
     primitive inside the function results in a splitting of this initial seed
     so that we use a fresh seed for each subsequent call without having to
     explicitly pass in a `PRNGKey` to each `sample` call.
+
+    **Example:**
+
+    .. testsetup::
+
+      from jax import random
+      import numpyro
+      import numpyro.handlers
+      import numpyro.distributions as dist
+
+    .. doctest::
+
+       >>> # as context manager
+       >>> with handlers.seed(rng=1):
+       ...     x = numpyro.sample('x', dist.Normal(0., 1.))
+
+       >>> def model():
+       ...     return numpyro.sample('y', dist.Normal(0., 1.))
+
+       >>> # as function decorator (/modifier)
+       >>> y = seed(model, rng=1)()
+       >>> assert x == y
     """
     def __init__(self, fn=None, rng=None):
         if isinstance(rng, int):
