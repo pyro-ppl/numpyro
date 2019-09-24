@@ -12,7 +12,7 @@ from numpyro import handlers
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AffineTransform, ComposeTransform, PermuteTransform, biject_to
+from numpyro.distributions.constraints import AffineTransform, ComposeTransform, PermuteTransform, UnpackTransform, biject_to
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import sum_rightmost
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
@@ -111,10 +111,9 @@ class AutoContinuous(AutoGuide):
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
         rng = numpyro.sample("_{}_rng_init".format(self.prefix), dist.PRNGIdentity())
-        # FIXME: without block statement, get AssertionError: all sites must have unique names
-        init_params, is_valid = handlers.block(find_valid_initial_params)(rng, self.model, *args,
-                                                                          init_strategy=self.init_strategy,
-                                                                          **kwargs)
+        init_params, _ = handlers.block(find_valid_initial_params)(rng, self.model, *args,
+                                                                   init_strategy=self.init_strategy,
+                                                                   **kwargs)
         self._inv_transforms = {}
         self._has_transformed_dist = False
         unconstrained_sites = {}
@@ -225,7 +224,8 @@ class AutoContinuous(AutoGuide):
         :return: the transform of posterior distribution
         :rtype: :class:`~numpyro.distributions.constraints.Transform`
         """
-        return handlers.substitute(self._get_transform, params)()
+        return ComposeTransform([handlers.substitute(self._get_transform, params)(),
+                                 UnpackTransform(self.unpack_latent)])
 
     def sample_posterior(self, rng, params, sample_shape=()):
         """
@@ -340,9 +340,7 @@ class AutoIAFNormal(AutoContinuous):
         # and Neutra paper (https://arxiv.org/abs/1903.03704)
         self._hidden_dims = arn_kwargs.get('hidden_dims')
         self._skip_connections = arn_kwargs.get('skip_connections', False)
-        # TODO: follow the recommendation of the above two papers, use stax.Elu by defaults
-        # currently, using stax.Elu seems not stable
-        self._nonlinearity = arn_kwargs.get('nonlinearity', stax.Relu)
+        self._nonlinearity = arn_kwargs.get('nonlinearity', stax.Elu)
         super(AutoIAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
 
     def _get_transform(self):

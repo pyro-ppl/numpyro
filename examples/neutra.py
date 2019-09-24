@@ -67,8 +67,10 @@ def main(args):
     mcmc.print_summary()
     vanilla_samples = mcmc.get_samples()['x'].copy()
 
-    adam = optim.Adam(0.001)
-    guide = AutoIAFNormal(dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
+    adam = optim.Adam(0.01)
+    # TODO: it is hard to find good hyperparameters such that IAF guide can learn this model.
+    # We will use BNAF instead!
+    guide = AutoIAFNormal(dual_moon_model, num_flows=2, hidden_dims=[args.num_hidden, args.num_hidden])
     svi = SVI(dual_moon_model, guide, elbo, adam)
     svi_state = svi.init(random.PRNGKey(1))
 
@@ -119,7 +121,7 @@ def main(args):
     ax1.set_title('Autoguide training log loss (after 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(guide_samples['x'][:, 0], guide_samples['x'][:, 1], n_levels=30, ax=ax2)
+    sns.kdeplot(guide_samples[:, 0], guide_samples[:, 1], n_levels=30, ax=ax2)
     ax2.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using AutoIAFNormal guide')
 
@@ -154,8 +156,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NeuTra HMC")
     parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=1000, type=int)
-    parser.add_argument('--num-hidden', nargs='?', default=20, type=int)
-    parser.add_argument('--num-iters', nargs='?', default=200000, type=int)
+    parser.add_argument('--num-hidden', nargs='?', default=10, type=int)
+    parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
     main(args)
