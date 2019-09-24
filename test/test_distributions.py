@@ -557,7 +557,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             expected = sp_dist(*valid_params).logpdf(valid_samples)
         except AttributeError:
             expected = sp_dist(*valid_params).logpmf(valid_samples)
-        assert_allclose(d.log_prob(valid_samples), expected, atol=1e-5)
+        assert_allclose(d.log_prob(valid_samples), expected, atol=1e-5, rtol=1e-5)
 
     # Out of support samples throw ValueError
     oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
@@ -764,11 +764,10 @@ def test_compose_transform_with_intermediates(transforms):
 
 
 def test_unpack_transform():
-    value = np.ones(3)
-    x = {'key': value}
-    unpack_fn = lambda x: x['key']  # noqa: E731
+    x = np.ones(3)
+    unpack_fn = lambda x: {'key': x}  # noqa: E731
     transform = constraints.UnpackTransform(unpack_fn)
     y = transform(x)
     z = transform.inv(y)
-    assert_allclose(y, value)
-    assert_allclose(z['key'], x['key'])
+    assert_allclose(y['key'], x)
+    assert_allclose(z, x)
