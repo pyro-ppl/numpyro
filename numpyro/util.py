@@ -128,7 +128,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
                 val = jit(body_fun)(val)
                 if i >= lower:
                     collection.append(jit(ravel_fn)(val))
-                t.set_description(progbar_desc(val), refresh=False)
+                t.set_description(progbar_desc(i), refresh=False)
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 

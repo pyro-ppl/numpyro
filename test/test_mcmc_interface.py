@@ -347,7 +347,8 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     def get_samples(rng, data, step_size, trajectory_length, target_accept_prob):
         kernel = kernel_cls(model, step_size=step_size, trajectory_length=trajectory_length,
                             target_accept_prob=target_accept_prob)
-        mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method)
+        mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method,
+                    progress_bar=False)
         mcmc.run(rng, data)
         return mcmc.get_samples()
 
