@@ -16,7 +16,8 @@ def beta_bernoulli():
 
     def model(data=None):
         beta = numpyro.sample("beta", dist.Beta(np.ones(5), np.ones(5)))
-        numpyro.sample("obs", dist.Bernoulli(beta), obs=data, sample_shape=(1000,))
+        with numpyro.plate("plate", 1000):
+            numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
 
     return model, data, true_probs
 
@@ -43,7 +44,7 @@ def test_predictive():
 
 def test_prior_predictive():
     model, data, _ = beta_bernoulli()
-    predictive_samples = predictive(random.PRNGKey(1), model, num_samples=100)
+    predictive_samples = predictive(random.PRNGKey(1), model, {}, num_samples=100)
     assert predictive_samples.keys() == {"beta", "obs"}
 
     # check shapes

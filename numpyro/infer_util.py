@@ -262,7 +262,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
 def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
-    values at sample sites from the forward run. By default, only sites not contained in
+    values at sample sites from the forward run. By default, only non-plate sites not contained in
     `posterior_samples` are returned. This can be modified by changing the `return_sites`
     keyword argument.
 
@@ -273,16 +273,20 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
     :param jax.random.PRNGKey rng: seed to draw samples
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
-    :param int num_samples: number of samples
-    :param list return_sites: sites to return; by default only sample sites not present
-        in `posterior_samples` are returned.
     :param args: model arguments.
+    :param list return_sites: sites to return; by default only non-plate sites not present
+        in `posterior_samples` are returned.
+    :param int num_samples: number of samples
     :param kwargs: model kwargs.
     :return: dict of samples from the predictive distribution.
     """
     def single_prediction(rng, samples):
         model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
-        sites = model_trace.keys() - samples.keys() if return_sites is None else return_sites
+        if return_sites is not None:
+            sites = return_sites
+        else:
+            sites = {k for k, site in model_trace.items()
+                     if site['type'] != 'plate' and k not in samples}
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
     if posterior_samples:
