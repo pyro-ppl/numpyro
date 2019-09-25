@@ -738,7 +738,7 @@ class MCMC(object):
         if len(collect_fields) == 1:
             samples = (samples,)
         samples = dict(zip(collect_fields, samples))
-        samples['z'] = vmap(constrain_fn)(samples['z'])
+        samples['z'] = vmap(constrain_fn)(samples['z']) if len(tree_flatten(samples)[0]) > 0 else samples['z']
         return samples
 
     def run(self, rng, *args, collect_fields=('z',), collect_warmup=False, init_params=None, **kwargs):
