@@ -39,3 +39,13 @@ def test_predictive():
 
     # check sample mean
     assert_allclose(predictive_samples["obs"].reshape([-1, 5]).mean(0), true_probs, rtol=0.1)
+
+
+def test_prior_predictive():
+    model, data, _ = beta_bernoulli()
+    predictive_samples = predictive(random.PRNGKey(1), model, num_samples=100)
+    assert predictive_samples.keys() == {"beta", "obs"}
+
+    # check shapes
+    assert predictive_samples["beta"].shape == (100, 5)
+    assert predictive_samples["obs"].shape == (100, 1000, 5)

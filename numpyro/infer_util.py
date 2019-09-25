@@ -273,30 +273,28 @@ def predictive(rng, model, posterior_samples={}, num_samples=None, return_sites=
     :param jax.random.PRNGKey rng: seed to draw samples
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
+    :param int num_samples: number of samples
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
     :param args: model arguments.
     :param kwargs: model kwargs.
     :return: dict of samples from the predictive distribution.
     """
-    # TODO: consider to support `return_traces` kwargs
-    # because trace holds `fn` which is not a valid JAX type, if we return traces,
-    # then we have to skip `fn`.
-    # On the other hand, beside `fn`, trace only holds `log_prob` field, which we
-    # can obtain by using another predictive utility.
     def single_prediction(rng, samples):
         model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
         sites = model_trace.keys() - samples.keys() if return_sites is None else return_sites
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
-    if num_samples is not None:
-        if posterior_samples:
-            batch_size = tree_flatten(posterior_samples)[0][0].shape[0]
-            if num_samples != tree_flatten(posterior_samples)[0][0].shape[0]:
-                warnings.warn("Sample's leading dimension size {} is different from the "
-                                "provided {} num_samples argument. Defaulting to {}."
-                                .format(batch_size, num_samples, batch_size), UserWarning)
-                num_samples = samples.shape[0]
+    if posterior_samples:
+        batch_size = tree_flatten(posterior_samples)[0][0].shape[0]
+        if num_samples is not None and num_samples != batch_size:
+            warnings.warn("Sample's leading dimension size {} is different from the "
+                          "provided {} num_samples argument. Defaulting to {}."
+                          .format(batch_size, num_samples, batch_size), UserWarning)
+        num_samples = batch_size
+
+    if num_samples is None:
+        raise ValueError("No sample sites in model to infer `num_samples`.")
 
     rngs = random.split(rng, num_samples)
     return vmap(single_prediction)(rngs, posterior_samples)
