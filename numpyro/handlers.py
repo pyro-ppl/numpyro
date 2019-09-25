@@ -79,6 +79,7 @@ from __future__ import absolute_import, division, print_function
 from collections import OrderedDict
 
 from jax import random
+import jax.numpy as np
 
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
 from numpyro.primitives import Messenger
@@ -311,8 +312,39 @@ class seed(Messenger):
     primitive inside the function results in a splitting of this initial seed
     so that we use a fresh seed for each subsequent call without having to
     explicitly pass in a `PRNGKey` to each `sample` call.
+
+    .. note::
+
+        Unlike in Pyro, `numpyro.sample` primitive cannot be used without wrapping
+        it in seed handler since there is no global random state. As such,
+        users need to use `seed` as a contextmanager to generate samples from
+        distributions or as a decorator for their model callable (See below).
+
+    **Example:**
+
+    .. testsetup::
+
+      from jax import random
+      import numpyro
+      import numpyro.handlers
+      import numpyro.distributions as dist
+
+    .. doctest::
+
+       >>> # as context manager
+       >>> with handlers.seed(rng=1):
+       ...     x = numpyro.sample('x', dist.Normal(0., 1.))
+
+       >>> def model():
+       ...     return numpyro.sample('y', dist.Normal(0., 1.))
+
+       >>> # as function decorator (/modifier)
+       >>> y = seed(model, rng=1)()
+       >>> assert x == y
     """
-    def __init__(self, fn, rng):
+    def __init__(self, fn=None, rng=None):
+        if isinstance(rng, int) or np.size(rng) == 1:
+            rng = random.PRNGKey(rng)
         self.rng = rng
         super(seed, self).__init__(fn)
 

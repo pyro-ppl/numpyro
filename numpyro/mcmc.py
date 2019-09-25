@@ -13,7 +13,7 @@ from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
-from jax.tree_util import tree_flatten, tree_map
+from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import summary
 from numpyro.hmc_util import (
@@ -82,8 +82,8 @@ def get_diagnostics_str(hmc_state):
                                                               hmc_state.mean_accept_prob)
 
 
-def get_progbar_desc_str(num_warmup, hmc_state):
-    if hmc_state.i < num_warmup:
+def get_progbar_desc_str(num_warmup, i):
+    if i < num_warmup:
         return 'warmup'
     return 'sample'
 
@@ -545,7 +545,10 @@ class HMC(MCMCKernel):
     def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         constrain_fn = None
         if self.model is not None:
-            rng, rng_init_model = random.split(rng)
+            if rng.ndim == 1:
+                rng, rng_init_model = random.split(rng)
+            else:
+                rng, rng_init_model = np.swapaxes(vmap(random.split)(rng), 0, 1)
             init_params_, self.potential_fn, constrain_fn = initialize_model(rng_init_model, self.model,
                                                                              *model_args, **model_kwargs)
             if init_params is None:
@@ -555,18 +558,29 @@ class HMC(MCMCKernel):
             if init_params is None:
                 raise ValueError('Valid value of `init_params` must be provided with'
                                  ' `potential_fn`.')
-        hmc_init_fn, self._sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
-        init_state = hmc_init_fn(init_params,
-                                 num_warmup=num_warmup,
-                                 step_size=self.step_size,
-                                 adapt_step_size=self.adapt_step_size,
-                                 adapt_mass_matrix=self.adapt_mass_matrix,
-                                 dense_mass=self.dense_mass,
-                                 target_accept_prob=self.target_accept_prob,
-                                 trajectory_length=self.trajectory_length,
-                                 max_tree_depth=self.max_tree_depth,
-                                 run_warmup=False,
-                                 rng=rng)
+        hmc_init, sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
+        hmc_init_fn = lambda init_params, rng: hmc_init(  # noqa: E731
+            init_params,
+            num_warmup=num_warmup,
+            step_size=self.step_size,
+            adapt_step_size=self.adapt_step_size,
+            adapt_mass_matrix=self.adapt_mass_matrix,
+            dense_mass=self.dense_mass,
+            target_accept_prob=self.target_accept_prob,
+            trajectory_length=self.trajectory_length,
+            max_tree_depth=self.max_tree_depth,
+            run_warmup=False,
+            rng=rng,
+        )
+        if rng.ndim == 1:
+            init_state = hmc_init_fn(init_params, rng)
+            self._sample_fn = sample_fn
+        else:
+            # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
+            # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
+            # wa_steps because those variables do not depend on traced args: init_params, rng.
+            init_state = vmap(hmc_init_fn)(init_params, rng)
+            self._sample_fn = vmap(sample_fn)
         return init_state, constrain_fn
 
     def sample(self, state):
@@ -639,11 +653,27 @@ class NUTS(HMC):
         self.algo = 'NUTS'
 
 
+def _laxmap(f, xs):
+    n = tree_flatten(xs)[0][0].shape[0]
+
+    def get_value_from_index(i):
+        return tree_map(lambda x: x[i], xs)
+
+    ys = []
+    for i in range(n):
+        x = jit(get_value_from_index)(i)
+        ys.append(f(x))
+
+    return tree_multimap(lambda *args: np.stack(args), *ys)
+
+
 class MCMC(object):
     """
     Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
 
     .. note:: `chain_method` is an experimental arg, which might be removed in a future version.
+
+    .. note:: Setting `progress_bar=False` will improve the speed for many cases.
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.mcmc.HMC`
@@ -680,7 +710,8 @@ class MCMC(object):
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
-        if num_chains > 1 or "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
+        if (chain_method == 'parallel' and num_chains > 1) or (
+                "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
             self.progress_bar = False
 
         self._collect_fields = ('z',)
@@ -703,7 +734,7 @@ class MCMC(object):
                                transform=collect_fn,
                                progbar=self.progress_bar,
                                progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
-                               diagnostics_fn=get_diagnostics_str)
+                               diagnostics_fn=get_diagnostics_str if rng.ndim == 1 else None)
         if len(collect_fields) == 1:
             samples = (samples,)
         samples = dict(zip(collect_fields, samples))
@@ -757,11 +788,14 @@ class MCMC(object):
                                      args=args,
                                      kwargs=kwargs)
             if chain_method == 'sequential':
-                map_fn = partial(lax.map, partial_map_fn)
+                if self.progress_bar:
+                    map_fn = partial(_laxmap, partial_map_fn)
+                else:
+                    map_fn = partial(lax.map, partial_map_fn)
             elif chain_method == 'parallel':
                 map_fn = pmap(partial_map_fn)
             elif chain_method == 'vectorized':
-                map_fn = vmap(partial_map_fn)
+                map_fn = partial_map_fn
             else:
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')

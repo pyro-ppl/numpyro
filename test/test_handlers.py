@@ -1,7 +1,8 @@
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, random
+from jax import jit, random, vmap
+from jax import numpy as np
 
 import numpyro
 from numpyro import handlers
@@ -33,6 +34,22 @@ def test_substitute():
         return x + y
 
     assert handlers.substitute(model, {'x': 3.})() == 12.
+
+
+def test_seed():
+    def _sample():
+        x = numpyro.sample('x', dist.Normal(0., 1.))
+        y = numpyro.sample('y', dist.Normal(1., 2.))
+        return np.stack([x, y])
+
+    xs = []
+    for i in range(100):
+        with handlers.seed(rng=i):
+            xs.append(_sample())
+    xs = np.stack(xs)
+
+    ys = vmap(lambda rng: handlers.seed(lambda: _sample(), rng)())(np.arange(100))
+    assert_allclose(xs, ys, atol=1e-6)
 
 
 def test_condition():
