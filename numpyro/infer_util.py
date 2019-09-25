@@ -1,3 +1,5 @@
+import warnings
+
 import jax
 from jax import random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
@@ -257,7 +259,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     return init_params, is_valid
 
 
-def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs):
+def predictive(rng, model, posterior_samples={}, num_samples=None, return_sites=None, *args, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
     values at sample sites from the forward run. By default, only sites not contained in
@@ -277,12 +279,24 @@ def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs
     :param kwargs: model kwargs.
     :return: dict of samples from the predictive distribution.
     """
-    # TODO: consider to support `num_samples`, `return_traces`, `parallel` kwargs
+    # TODO: consider to support `return_traces` kwargs
+    # because trace holds `fn` which is not a valid JAX type, if we return traces,
+    # then we have to skip `fn`.
+    # On the other hand, beside `fn`, trace only holds `log_prob` field, which we
+    # can obtain by using another predictive utility.
     def single_prediction(rng, samples):
         model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
         sites = model_trace.keys() - samples.keys() if return_sites is None else return_sites
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
-    num_samples = tree_flatten(posterior_samples)[0][0].shape[0]
+    if num_samples is not None:
+        if posterior_samples:
+            batch_size = tree_flatten(posterior_samples)[0][0].shape[0]
+            if num_samples != tree_flatten(posterior_samples)[0][0].shape[0]:
+                warnings.warn("Sample's leading dimension size {} is different from the "
+                                "provided {} num_samples argument. Defaulting to {}."
+                                .format(batch_size, num_samples, batch_size), UserWarning)
+                num_samples = samples.shape[0]
+
     rngs = random.split(rng, num_samples)
     return vmap(single_prediction)(rngs, posterior_samples)
