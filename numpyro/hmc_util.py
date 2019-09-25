@@ -239,7 +239,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
-    tiny = np.finfo(get_dtype(init_step_size)).tiny
+    finfo = np.finfo(get_dtype(init_step_size))
 
     def _body_fn(state):
         step_size, _, direction, rng = state
@@ -262,9 +262,12 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
 
     def _cond_fn(state):
         step_size, last_direction, direction, _ = state
-        # condition to run only if step_size is not so small or we are not decreasing step_size
-        not_small_step_size_cond = (step_size > tiny) | (direction >= 0)
-        return not_small_step_size_cond & ((last_direction == 0) | (direction == last_direction))
+        # condition to run only if step_size is not too small or we are not decreasing step_size
+        not_small_step_size_cond = (step_size > finfo.tiny) | (direction >= 0)
+        # condition to run only if step_size is not too large or we are not increasing step_size
+        not_large_step_size_cond = (step_size < finfo.max) | (direction <= 0)
+        not_extreme_cond = not_small_step_size_cond & not_large_step_size_cond
+        return not_extreme_cond & ((last_direction == 0) | (direction == last_direction))
 
     step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
     return step_size
@@ -420,8 +423,9 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             step_size = np.where(t == (num_adapt_steps - 1),
                                  np.exp(log_step_size_avg),
                                  np.exp(log_step_size))
-            # account the the case log_step_size is a so small negative number
-            step_size = np.clip(step_size, a_min=np.finfo(get_dtype(step_size)).tiny)
+            # account the the case log_step_size is an extreme number
+            finfo = np.finfo(get_dtype(step_size))
+            step_size = np.clip(step_size, a_min=finfo.tiny, a_max=finfo.max)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
