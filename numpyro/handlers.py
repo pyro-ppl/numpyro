@@ -84,7 +84,6 @@ import jax.numpy as np
 from numpyro.distributions.constraints import ComposeTransform, biject_to, real
 from numpyro.primitives import Messenger
 
-
 __all__ = [
     'block',
     'condition',
