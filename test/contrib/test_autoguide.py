@@ -123,7 +123,7 @@ def test_iaf():
                                                nonlinearity=guide._nonlinearity)
         arn = partial(arn_apply, params['auto_arn__{}$params'.format(i)])
         flows.append(InverseAutoregressiveTransform(arn))
-    flows.append(constraints.UnpackTransform(guide.unpack_latent))
+    flows.append(constraints.UnpackTransform(guide._unpack_latent))
 
     transform = constraints.ComposeTransform(flows)
     rng_seed, rng_sample = random.split(rng)

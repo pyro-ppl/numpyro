@@ -135,7 +135,7 @@ class AutoContinuous(AutoGuide):
                     self._inv_transforms[name] = transform
                     unconstrained_sites[name] = transform.inv(site['value'])
 
-        self._init_latent, self.unpack_latent = ravel_pytree(init_params)
+        self._init_latent, self._unpack_latent = ravel_pytree(init_params)
         self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
             self.base_dist = _Normal(np.zeros(self.latent_size), 1.)
@@ -169,7 +169,7 @@ class AutoContinuous(AutoGuide):
         # unpack continuous latent samples
         result = {}
 
-        for name, unconstrained_value in self.unpack_latent(latent).items():
+        for name, unconstrained_value in self._unpack_latent(latent).items():
             transform = self._inv_transforms[name]
             site = self.prototype_trace[name]
             value = transform(unconstrained_value)
@@ -196,7 +196,7 @@ class AutoContinuous(AutoGuide):
         model_kwargs = self._kwargs
 
         def unpack_single_latent(latent):
-            unpacked_samples = self.unpack_latent(latent)
+            unpacked_samples = self._unpack_latent(latent)
             if self._has_transformed_dist:
                 # first, substitute to `param` statements in model
                 model = handlers.substitute(self.model, params)
@@ -231,7 +231,7 @@ class AutoContinuous(AutoGuide):
         :rtype: :class:`~numpyro.distributions.constraints.Transform`
         """
         return ComposeTransform([handlers.substitute(self._get_transform, params)(),
-                                 UnpackTransform(self.unpack_latent)])
+                                 UnpackTransform(self._unpack_latent)])
 
     def sample_posterior(self, rng, params, sample_shape=()):
         """
