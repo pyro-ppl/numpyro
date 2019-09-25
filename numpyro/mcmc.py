@@ -220,6 +220,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         z = init_params
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
+        adapt_step_size = adapt_step_size if init_params else False
 
         find_reasonable_ss = partial(find_reasonable_step_size,
                                      potential_fn, kinetic_fn,
@@ -738,7 +739,7 @@ class MCMC(object):
         if len(collect_fields) == 1:
             samples = (samples,)
         samples = dict(zip(collect_fields, samples))
-        samples['z'] = vmap(constrain_fn)(samples['z'])
+        samples['z'] = vmap(constrain_fn)(samples['z']) if samples['z'] else {}
         return samples
 
     def run(self, rng, *args, collect_fields=('z',), collect_warmup=False, init_params=None, **kwargs):

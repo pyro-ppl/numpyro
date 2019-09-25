@@ -188,7 +188,8 @@ def _ravel_list(*leaves):
                            m.shape).astype(m.dtype)
                 for i, m in enumerate(leaves_metadata)]
 
-    return np.concatenate([m.flat for m in leaves_metadata]), unravel_list
+    flat = np.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else np.array([])
+    return flat, unravel_list
 
 
 def ravel_pytree(pytree):
