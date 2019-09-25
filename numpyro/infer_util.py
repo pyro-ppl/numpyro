@@ -259,7 +259,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     return init_params, is_valid
 
 
-def predictive(rng, model, posterior_samples={}, num_samples=None, return_sites=None, *args, **kwargs):
+def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
     values at sample sites from the forward run. By default, only sites not contained in
@@ -298,3 +298,25 @@ def predictive(rng, model, posterior_samples={}, num_samples=None, return_sites=
 
     rngs = random.split(rng, num_samples)
     return vmap(single_prediction)(rngs, posterior_samples)
+
+
+def log_likelihood(model, posterior_samples, *args, **kwargs):
+    """
+    Returns log likelihood at observation nodes of model, given samples of all latent variables.
+
+    .. warning::
+        The interface for the `log_likelihood` function is experimental, and
+        might change in the future.
+
+    :param model: Python callable containing Pyro primitives.
+    :param dict posterior_samples: dictionary of samples from the posterior.
+    :param args: model arguments.
+    :param kwargs: model kwargs.
+    :return: dict of log likelihoods at observation sites.
+    """
+    def single_loglik(samples):
+        model_trace = trace(substitute(model, samples)).get_trace(*args, **kwargs)
+        return {name: site['fn'].log_prob(site['value']) for name, site in model_trace.items()
+                if site['type'] == 'sample' and site['is_observed']}
+
+    return vmap(single_loglik)(posterior_samples)
