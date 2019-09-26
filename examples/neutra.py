@@ -87,7 +87,7 @@ def main(args):
     mcmc.print_summary()
     zs = mcmc.get_samples()
     print("Transform samples into unwarped space...")
-    samples = vmap(transformed_constrain_fn)(zs)['x'].copy()
+    samples = vmap(transformed_constrain_fn)(zs)
     summary(tree_map(lambda x: x[None, ...], samples))
     samples = samples['x'].copy()
 
