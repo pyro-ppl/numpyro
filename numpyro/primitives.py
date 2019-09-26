@@ -1,6 +1,5 @@
 from collections import namedtuple
 import functools
-from operator import sub
 
 import jax
 from jax import lax
