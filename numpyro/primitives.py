@@ -199,7 +199,6 @@ class plate(Messenger):
     def _validate_and_set_dim(self):
         msg = {
             'type': 'plate',
-            'is_observed': False,
             'fn': identity,
             'name': self.name,
             'args': (None,),
