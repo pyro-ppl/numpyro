@@ -282,10 +282,23 @@ def test_prior_with_sample_shape():
     assert mcmc.get_samples()['theta'].shape == (num_samples, data['J'])
 
 
+@pytest.mark.parametrize('num_chains', [1, 2])
+@pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
+@pytest.mark.parametrize('progress_bar', [True, False])
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+def test_empty_model(num_chains, chain_method, progress_bar):
+    def model():
+        pass
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10, num_chains=num_chains,
+                chain_method=chain_method, progress_bar=progress_bar)
+    mcmc.run(random.PRNGKey(0))
+    assert mcmc.get_samples() == {}
+
+
 @pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
-@pytest.mark.filterwarnings("ignore:`vectorized`:UserWarning")
 def test_chain(use_init_params, chain_method):
     N, dim = 3000, 3
     num_chains = 2
