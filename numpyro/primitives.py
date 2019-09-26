@@ -240,9 +240,12 @@ class plate(Messenger):
             raise ValueError('Expected dimensions within plate = {}, which is less than the '
                              'distribution\'s batch shape = {}.'.format(len(expected_shape), len(dist_batch_shape)))
         trailing_shape = expected_shape[overlap_idx:]
-        if sum(map(sub, lax.broadcast_shapes(trailing_shape, dist_batch_shape), dist_batch_shape)) > 0:
-            raise ValueError('Distribution batch shape = {} cannot be broadcast to {}.'
-                             .format(trailing_shape, dist_batch_shape))
+        # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
+        broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+        if sum(map(sub, broadcast_shape, dist_batch_shape)) > 0:
+            raise ValueError('Distribution batch shape = {} cannot be broadcast up to {}. '
+                             'Consider using unbatched distributions.'
+                             .format(dist_batch_shape, broadcast_shape))
         batch_shape = expected_shape[:overlap_idx]
         if 'sample_shape' in msg['kwargs']:
             batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
