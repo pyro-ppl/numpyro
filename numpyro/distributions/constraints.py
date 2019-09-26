@@ -29,6 +29,7 @@ from jax.flatten_util import ravel_pytree
 from jax.lib.xla_bridge import canonicalize_dtype
 from jax.nn import softplus
 import jax.numpy as np
+from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions.util import (
@@ -430,6 +431,39 @@ class LowerCholeskyTransform(Transform):
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return x[..., -n:].sum(-1)
+
+
+class MultivariateAffineTransform(Transform):
+    r"""
+    Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`.
+
+    :param loc: a real vector.
+    :param scale_tril: a lower triangular matrix with positive diagonal.
+    """
+    domain = real_vector
+    codomain = real_vector
+    event_dim = 1
+
+    def __init__(self, loc, scale_tril):
+        # TODO: relax this condition per user request
+        if np.ndim(scale_tril) != 2:
+            raise ValueError("Only support 2-dimensional scale_tril matrix.")
+        self.loc = loc
+        self.scale_tril = scale_tril
+
+    def __call__(self, x):
+        return self.loc + np.squeeze(np.matmul(self.scale_tril, x[..., np.newaxis]), axis=-1)
+
+    def inv(self, y):
+        y = y - self.loc
+        original_shape = np.shape(y)
+        yt = np.reshape(y, (-1, original_shape[-1])).T
+        xt = solve_triangular(self.scale_tril, yt, lower=True)
+        return np.reshape(xt.T, original_shape)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return np.broadcast_to(np.log(np.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
+                               np.shape(x)[:-1])
 
 
 class PermuteTransform(Transform):

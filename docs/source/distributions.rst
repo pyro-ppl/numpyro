@@ -424,6 +424,14 @@ LowerCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+MultivariateAffineTransform
+---------------------------
+.. autoclass:: numpyro.distributions.constraints.MultivariateAffineTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 PermuteTransform
 ----------------
 .. autoclass:: numpyro.distributions.constraints.PermuteTransform
