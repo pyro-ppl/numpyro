@@ -1,4 +1,5 @@
 import argparse
+from functools import partial
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
@@ -15,7 +16,9 @@ from numpyro import optim
 from numpyro.contrib.autoguide import AutoBNAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
+from numpyro.distributions import constraints
 from numpyro.hmc_util import initialize_model
+from numpyro.infer_util import transformed_potential_energy
 from numpyro.mcmc import MCMC, NUTS
 from numpyro.svi import SVI, elbo
 
@@ -28,25 +31,25 @@ Gaussian-like one. The transform will be used to get better mixing rate for NUTS
 """
 
 
-def dual_moon_pe(x):
-    term1 = 0.5 * ((np.linalg.norm(x, axis=-1) - 2) / 0.4) ** 2
-    term2 = -0.5 * ((x[..., :1] + np.array([-2., 2.])) / 0.6) ** 2
-    return term1 - logsumexp(term2, axis=-1)
+class DualMoonDistribution(dist.Distribution):
+    support = constraints.real_vector
+
+    def __init__(self):
+        super(DualMoonDistribution, self).__init__(event_shape=(2,))
+
+    def sample(self, key, sample_shape=()):
+        # it is enough to return an arbitrary sample with correct shape
+        return np.zeros(sample_shape + self.event_shape)
+
+    def log_prob(self, x):
+        term1 = 0.5 * ((np.linalg.norm(x, axis=-1) - 2) / 0.4) ** 2
+        term2 = -0.5 * ((x[..., :1] + np.array([-2., 2.])) / 0.6) ** 2
+        pe = term1 - logsumexp(term2, axis=-1)
+        return -pe
 
 
 def dual_moon_model():
-    x = numpyro.sample('x', dist.Normal(np.zeros(2), 100))
-    pe = dual_moon_pe(x)
-    numpyro.sample('log_density', dist.Delta(log_density=-pe), obs=0.)
-
-
-def make_transformed_pe(potential_fn, transform, unpack_fn):
-    def transformed_potential_fn(z):
-        u, intermediates = transform.call_with_intermediates(z)
-        logdet = transform.log_abs_det_jacobian(z, u, intermediates=intermediates)
-        return potential_fn(unpack_fn(u)) - logdet
-
-    return transformed_potential_fn
+    numpyro.sample('x', DualMoonDistribution())
 
 
 def main(args):
@@ -72,33 +75,32 @@ def main(args):
                                            sample_shape=(args.num_samples,))['x'].copy()
 
     transform = guide.get_transform(params)
-    unpack_fn = guide.unpack_latent
-
-    _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), dual_moon_model)
-    transformed_potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
-    transformed_constrain_fn = lambda x: constrain_fn(unpack_fn(transform(x)))  # noqa: E731
+    _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), dual_moon_model)
+    transformed_potential_fn = partial(transformed_potential_energy, potential_fn, transform)
+    transformed_constrain_fn = lambda x: constrain_fn(transform(x))  # noqa: E731
 
     print("\nStart NeuTra HMC...")
     nuts_kernel = NUTS(potential_fn=transformed_potential_fn)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
     init_params = np.zeros(guide.latent_size)
-    mcmc.run(random.PRNGKey(2), init_params=init_params)
+    mcmc.run(random.PRNGKey(3), init_params=init_params)
     mcmc.print_summary()
     zs = mcmc.get_samples()
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)['x'].copy()
     summary(tree_map(lambda x: x[None, ...], samples))
+    samples = samples['x'].copy()
 
     # make plots
 
-    # BNAF guide samples (for plotting)
-    bnaf_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(0), (1000,))
-    bnaf_trans_samples = vmap(transformed_constrain_fn)(bnaf_base_samples)['x']
+    # guide samples (for plotting)
+    guide_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(4), (1000,))
+    guide_trans_samples = vmap(transformed_constrain_fn)(guide_base_samples)['x']
 
     x1 = np.linspace(-3, 3, 100)
     x2 = np.linspace(-3, 3, 100)
     X1, X2 = np.meshgrid(x1, x2)
-    P = np.clip(np.exp(-dual_moon_pe(np.stack([X1, X2], axis=-1))), a_min=0.)
+    P = np.exp(DualMoonDistribution().log_prob(np.stack([X1, X2], axis=-1)))
 
     fig = plt.figure(figsize=(12, 16), constrained_layout=True)
     gs = GridSpec(3, 2, figure=fig)
@@ -117,7 +119,8 @@ def main(args):
     ax2.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using AutoBNAFNormal guide')
 
-    sns.scatterplot(bnaf_base_samples[:, 0], bnaf_base_samples[:, 1], ax=ax3, hue=bnaf_trans_samples[:, 0] < 0.)
+    sns.scatterplot(guide_base_samples[:, 0], guide_base_samples[:, 1], ax=ax3,
+                    hue=guide_trans_samples[:, 0] < 0.)
     ax3.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='AutoBNAFNormal base samples (True=left moon; False=right moon)')
 

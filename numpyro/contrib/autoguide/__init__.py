@@ -13,7 +13,13 @@ from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AffineTransform, ComposeTransform, PermuteTransform, biject_to
+from numpyro.distributions.constraints import (
+    AffineTransform,
+    ComposeTransform,
+    PermuteTransform,
+    UnpackTransform,
+    biject_to
+)
 from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
 from numpyro.distributions.util import sum_rightmost
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
@@ -112,7 +118,6 @@ class AutoContinuous(AutoGuide):
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
         rng = numpyro.sample("_{}_rng_init".format(self.prefix), dist.PRNGIdentity())
-        # FIXME: without block statement, get AssertionError: all sites must have unique names
         init_params, _ = handlers.block(find_valid_initial_params)(rng, self.model, *args,
                                                                    init_strategy=self.init_strategy,
                                                                    **kwargs)
@@ -131,7 +136,7 @@ class AutoContinuous(AutoGuide):
                     self._inv_transforms[name] = transform
                     unconstrained_sites[name] = transform.inv(site['value'])
 
-        self._init_latent, self.unpack_latent = ravel_pytree(init_params)
+        self._init_latent, self._unpack_latent = ravel_pytree(init_params)
         self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
             self.base_dist = _Normal(np.zeros(self.latent_size), 1.)
@@ -165,7 +170,7 @@ class AutoContinuous(AutoGuide):
         # unpack continuous latent samples
         result = {}
 
-        for name, unconstrained_value in self.unpack_latent(latent).items():
+        for name, unconstrained_value in self._unpack_latent(latent).items():
             transform = self._inv_transforms[name]
             site = self.prototype_trace[name]
             value = transform(unconstrained_value)
@@ -192,7 +197,7 @@ class AutoContinuous(AutoGuide):
         model_kwargs = self._kwargs
 
         def unpack_single_latent(latent):
-            unpacked_samples = self.unpack_latent(latent)
+            unpacked_samples = self._unpack_latent(latent)
             if self._has_transformed_dist:
                 # first, substitute to `param` statements in model
                 model = handlers.substitute(self.model, params)
@@ -226,7 +231,8 @@ class AutoContinuous(AutoGuide):
         :return: the transform of posterior distribution
         :rtype: :class:`~numpyro.distributions.constraints.Transform`
         """
-        return handlers.substitute(self._get_transform, params)()
+        return ComposeTransform([handlers.substitute(self._get_transform, params)(),
+                                 UnpackTransform(self._unpack_latent)])
 
     def sample_posterior(self, rng, params, sample_shape=()):
         """
@@ -341,9 +347,7 @@ class AutoIAFNormal(AutoContinuous):
         # and Neutra paper (https://arxiv.org/abs/1903.03704)
         self._hidden_dims = arn_kwargs.get('hidden_dims')
         self._skip_connections = arn_kwargs.get('skip_connections', False)
-        # TODO: follow the recommendation of the above two papers, use stax.Elu by defaults
-        # currently, using stax.Elu seems not stable
-        self._nonlinearity = arn_kwargs.get('nonlinearity', stax.Relu)
+        self._nonlinearity = arn_kwargs.get('nonlinearity', stax.Elu)
         super(AutoIAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
 
     def _get_transform(self):

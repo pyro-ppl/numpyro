@@ -125,14 +125,15 @@ def test_iaf():
                                         nonlinearity=guide._nonlinearity)
         arn = partial(arn_apply, params['auto_arn__{}$params'.format(i)])
         flows.append(InverseAutoregressiveTransform(arn))
+    flows.append(constraints.UnpackTransform(guide._unpack_latent))
 
     transform = constraints.ComposeTransform(flows)
-    expected_sample = guide.unpack_latent(transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng)))
+    expected_sample = transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng))
     expected_output = transform(x)
     assert_allclose(actual_sample['coefs'], expected_sample['coefs'])
     assert_allclose(actual_sample['offset'],
                     constraints.biject_to(constraints.interval(-1, 1))(expected_sample['offset']))
-    assert_allclose(actual_output, expected_output)
+    check_eq(actual_output, expected_output)
 
 
 def test_uniform_normal():

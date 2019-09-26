@@ -761,3 +761,13 @@ def test_compose_transform_with_intermediates(transforms):
     logdet = transform.log_abs_det_jacobian(x, y, intermediates)
     assert_allclose(y, transform(x))
     assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))
+
+
+def test_unpack_transform():
+    x = np.ones(3)
+    unpack_fn = lambda x: {'key': x}  # noqa: E731
+    transform = constraints.UnpackTransform(unpack_fn)
+    y = transform(x)
+    z = transform.inv(y)
+    assert_allclose(y['key'], x)
+    assert_allclose(z, x)
