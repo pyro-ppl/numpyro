@@ -1,3 +1,5 @@
+import warnings
+
 import jax
 from jax import random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
@@ -275,10 +277,10 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     return init_params, is_valid
 
 
-def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs):
+def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
-    values at sample sites from the forward run. By default, only sites not contained in
+    values at sample sites from the forward run. By default, only sample sites not contained in
     `posterior_samples` are returned. This can be modified by changing the `return_sites`
     keyword argument.
 
@@ -289,18 +291,32 @@ def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs
     :param jax.random.PRNGKey rng: seed to draw samples
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
+    :param args: model arguments.
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
-    :param args: model arguments.
+    :param int num_samples: number of samples
     :param kwargs: model kwargs.
     :return: dict of samples from the predictive distribution.
     """
-    # TODO: consider to support `num_samples`, `return_traces`, `parallel` kwargs
     def single_prediction(rng, samples):
         model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
-        sites = model_trace.keys() - samples.keys() if return_sites is None else return_sites
+        if return_sites is not None:
+            sites = return_sites
+        else:
+            sites = {k for k, site in model_trace.items()
+                     if site['type'] != 'plate' and k not in samples}
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
-    num_samples = tree_flatten(posterior_samples)[0][0].shape[0]
+    if posterior_samples:
+        batch_size = tree_flatten(posterior_samples)[0][0].shape[0]
+        if num_samples is not None and num_samples != batch_size:
+            warnings.warn("Sample's leading dimension size {} is different from the "
+                          "provided {} num_samples argument. Defaulting to {}."
+                          .format(batch_size, num_samples, batch_size), UserWarning)
+        num_samples = batch_size
+
+    if num_samples is None:
+        raise ValueError("No sample sites in model to infer `num_samples`.")
+
     rngs = random.split(rng, num_samples)
     return vmap(single_prediction)(rngs, posterior_samples)
