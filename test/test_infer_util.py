@@ -17,7 +17,7 @@ def beta_bernoulli():
 
     def model(data=None):
         beta = numpyro.sample("beta", dist.Beta(np.ones(5), np.ones(5)))
-        with numpyro.plate("plate", 1000):
+        with numpyro.plate("plate", 1000, dim=-2):
             numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
 
     return model, data, true_probs
