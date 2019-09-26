@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import os
 import time
 
 import numpy as onp
@@ -10,10 +11,9 @@ from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
+import numpyro
 import numpyro.distributions as dist
-from numpyro.handlers import sample
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 
 """
@@ -53,20 +53,20 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
 def model(X, Y, hypers):
     S, P, N = hypers['expected_sparsity'], X.shape[1], X.shape[0]
 
-    sigma = sample("sigma", dist.HalfNormal(hypers['alpha3']))
+    sigma = numpyro.sample("sigma", dist.HalfNormal(hypers['alpha3']))
     phi = sigma * (S / np.sqrt(N)) / (P - S)
-    eta1 = sample("eta1", dist.HalfCauchy(phi))
+    eta1 = numpyro.sample("eta1", dist.HalfCauchy(phi))
 
-    msq = sample("msq", dist.InverseGamma(hypers['alpha1'], hypers['beta1']))
-    xisq = sample("xisq", dist.InverseGamma(hypers['alpha2'], hypers['beta2']))
+    msq = numpyro.sample("msq", dist.InverseGamma(hypers['alpha1'], hypers['beta1']))
+    xisq = numpyro.sample("xisq", dist.InverseGamma(hypers['alpha2'], hypers['beta2']))
 
     eta2 = np.square(eta1) * np.sqrt(xisq) / msq
 
-    lam = sample("lambda", dist.HalfCauchy(np.ones(P)))
+    lam = numpyro.sample("lambda", dist.HalfCauchy(np.ones(P)))
     kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
 
     # sample observation noise
-    var_obs = sample("var_obs", dist.InverseGamma(hypers['alpha_obs'], hypers['beta_obs']))
+    var_obs = numpyro.sample("var_obs", dist.InverseGamma(hypers['alpha_obs'], hypers['beta_obs']))
 
     # compute kernel
     kX = kappa * X
@@ -74,8 +74,8 @@ def model(X, Y, hypers):
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
-    sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
-           obs=Y)
+    numpyro.sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
+                   obs=Y)
 
 
 # Compute the mean and variance of coefficient theta_i (where i = dimension) for a
@@ -199,14 +199,12 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, var_obs):
 
 # Helper function for doing HMC inference
 def run_inference(model, args, rng, X, Y, hypers):
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y, hypers)
     start = time.time()
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng, X, Y, hypers)
     print('\nMCMC elapsed time:', time.time() - start)
-    return samples
+    return mcmc.get_samples()
 
 
 # Get the mean and variance of a gaussian mixture
@@ -317,6 +315,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=500, type=int)
@@ -326,4 +325,9 @@ if __name__ == "__main__":
     parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)

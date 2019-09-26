@@ -6,8 +6,9 @@ import numpy as onp
 import tqdm
 
 from jax import jit, lax, ops, vmap
+from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
-from jax.tree_util import tree_flatten, tree_unflatten, tree_map
+from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
@@ -58,7 +59,6 @@ def while_loop(cond_fun, body_fun, init_val):
             val = body_fun(val)
         return val
     else:
-        # TODO: consider jitting while_loop similar to fori_loop
         return lax.while_loop(cond_fun, body_fun, init_val)
 
 
@@ -69,7 +69,7 @@ def fori_loop(lower, upper, body_fun, init_val):
             val = body_fun(i, val)
         return val
     else:
-        return jit(lax.fori_loop, static_argnums=(2,))(lower, upper, body_fun, init_val)
+        return lax.fori_loop(lower, upper, body_fun, init_val)
 
 
 def identity(x):
@@ -119,15 +119,16 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
         _, collection = fori_loop(0, upper, _body_fn, (init_val, collection))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
-        progbar_desc = progbar_opts.pop('progbar_desc', '')
+        progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
         collection = []
 
         val = init_val
-        with tqdm.trange(upper, desc=progbar_desc) as t:
+        with tqdm.trange(upper) as t:
             for i in t:
-                val = body_fun(val)
+                val = jit(body_fun)(val)
                 if i >= lower:
                     collection.append(jit(ravel_fn)(val))
+                t.set_description(progbar_desc(i), refresh=False)
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
@@ -178,8 +179,8 @@ pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype
 
 
 def _ravel_list(*leaves):
-    leaves_metadata = tree_map(lambda l: pytree_metadata(np.ravel(l), np.shape(l), np.size(l), lax.dtype(l)),
-                               leaves)
+    leaves_metadata = tree_map(lambda l: pytree_metadata(
+        np.ravel(l), np.shape(l), np.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
     leaves_idx = np.cumsum(np.array((0,) + tuple(d.size for d in leaves_metadata)))
 
     def unravel_list(arr):

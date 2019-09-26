@@ -1,19 +1,27 @@
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
 
-from jax import random, vmap
+from jax import vmap
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.tree_util import tree_map
 
+import numpyro
+from numpyro import handlers
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
+from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AffineTransform, ComposeTransform, PermuteTransform, biject_to
-from numpyro.distributions.flows import InverseAutoregressiveTransform
+from numpyro.distributions.constraints import (
+    AffineTransform,
+    ComposeTransform,
+    PermuteTransform,
+    UnpackTransform,
+    biject_to
+)
+from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
 from numpyro.distributions.util import sum_rightmost
-from numpyro.handlers import block, param, sample, seed, substitute, trace
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
 
 __all__ = [
@@ -33,23 +41,11 @@ class AutoGuide(ABC):
     :param str prefix: a prefix that will be prefixed to all param internal sites
     """
 
-    def __init__(self, model, get_params_fn, prefix='auto'):
+    def __init__(self, model, prefix='auto'):
+        assert isinstance(prefix, str)
         self.model = model
-        self.get_params = get_params_fn
         self.prefix = prefix
         self.prototype_trace = None
-
-    def setup(self, *args, **kwargs):
-        """
-        First call to set up any necessary state. Returns initial
-        value of parameters in the guide.
-
-        :param args: model args.
-        :param kwargs: model kwargs.
-        :return: dict of initial parameters.
-        """
-        self._setup_prototype(*args, **kwargs)
-        return {}
 
     @abstractmethod
     def __call__(self, *args, **kwargs):
@@ -62,13 +58,13 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def sample_posterior(self, rng, opt_state, *args, **kwargs):
+    def sample_posterior(self, rng, params, *args, **kwargs):
         """
         Generate samples from the approximate posterior over the latent
         sites in the model.
 
         :param jax.random.PRNGKey rng: PRNG seed.
-        :param opt_state: Current state of the optimizer.
+        :param params: Current parameters of model and autoguide.
         :param sample_shape: (keyword argument) shape of samples to be drawn.
         :return: batch of samples from the approximate posterior.
         """
@@ -84,7 +80,9 @@ class AutoGuide(ABC):
 
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
-        self.prototype_trace = block(trace(self.model).get_trace)(*args, **kwargs)
+        rng = numpyro.sample("_{}_rng_setup".format(self.prefix), dist.PRNGIdentity())
+        model = handlers.seed(self.model, rng)
+        self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
         self._args = args
         self._kwargs = kwargs
 
@@ -105,22 +103,24 @@ class AutoContinuous(AutoGuide):
         Alp Kucukelbir, Dustin Tran, Rajesh Ranganath, Andrew Gelman, David M.
         Blei
 
-    :param callable model: A Pyro model.
+    :param jax.random.PRNGKey rng: random key to be used as the source of randomness
+        to initialize the guide.
+    :param callable model: A NumPyro model.
+    :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_strategy: A per-site initialization function.
         See :ref:`autoguide-initialization` section for available functions.
     """
-    def __init__(self, rng, model, get_params_fn, prefix="auto", init_strategy=init_to_median):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_median):
         self.init_strategy = init_strategy
-        rng, self._init_rng = random.split(rng)
-        model = seed(model, rng)
-        super(AutoContinuous, self).__init__(model, get_params_fn, prefix=prefix)
+        self._base_dist = None
+        super(AutoContinuous, self).__init__(model, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
-        # FIXME: without block statement, get AssertionError: all sites must have unique names
-        init_params, is_valid = block(find_valid_initial_params)(self._init_rng, self.model, *args,
-                                                                 init_strategy=self.init_strategy,
-                                                                 **kwargs)
+        rng = numpyro.sample("_{}_rng_init".format(self.prefix), dist.PRNGIdentity())
+        init_params, _ = handlers.block(find_valid_initial_params)(rng, self.model, *args,
+                                                                   init_strategy=self.init_strategy,
+                                                                   **kwargs)
         self._inv_transforms = {}
         self._has_transformed_dist = False
         unconstrained_sites = {}
@@ -136,8 +136,10 @@ class AutoContinuous(AutoGuide):
                     self._inv_transforms[name] = transform
                     unconstrained_sites[name] = transform.inv(site['value'])
 
-        self._init_latent, self.unpack_latent = ravel_pytree(init_params)
+        self._init_latent, self._unpack_latent = ravel_pytree(init_params)
         self.latent_size = np.size(self._init_latent)
+        if self.base_dist is None:
+            self.base_dist = _Normal(np.zeros(self.latent_size), 1.)
         if self.latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'
                                .format(type(self).__name__))
@@ -150,7 +152,7 @@ class AutoContinuous(AutoGuide):
         sample_shape = kwargs.pop('sample_shape', ())
         transform = self._get_transform()
         posterior = dist.TransformedDistribution(base_dist, transform)
-        return sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
+        return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
 
     def __call__(self, *args, **kwargs):
         """
@@ -159,21 +161,16 @@ class AutoContinuous(AutoGuide):
         :return: A dict mapping sample site name to sampled value.
         :rtype: dict
         """
-        sample_latent_fn = self._sample_latent
         if self.prototype_trace is None:
             # run model to inspect the model structure
-            params = self.setup(*args, **kwargs)
-            sample_latent_fn = substitute(sample_latent_fn, params)
+            self._setup_prototype(*args, **kwargs)
 
-        base_dist = kwargs.pop('base_dist', None)
-        if base_dist is None:
-            base_dist = _Normal(np.zeros(self.latent_size), 1.)
-        latent = sample_latent_fn(base_dist, *args, **kwargs)
+        latent = self._sample_latent(self.base_dist, *args, **kwargs)
 
         # unpack continuous latent samples
         result = {}
 
-        for name, unconstrained_value in self.unpack_latent(latent).items():
+        for name, unconstrained_value in self._unpack_latent(latent).items():
             transform = self._inv_transforms[name]
             site = self.prototype_trace[name]
             value = transform(unconstrained_value)
@@ -185,22 +182,27 @@ class AutoContinuous(AutoGuide):
             log_density = sum_rightmost(log_density,
                                         np.ndim(log_density) - np.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_ndim=event_ndim)
-            result[name] = sample(name, delta_dist)
+            result[name] = numpyro.sample(name, delta_dist)
 
         return result
 
-    def _unpack_and_transform(self, latent_sample, params, model_args=None, model_kwargs=None):
+    def _unpack_and_constrain(self, latent_sample, params):
         sample_shape = np.shape(latent_sample)[:-1]
         latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
-        model_args = self._args if model_args is None else model_args
-        model_kwargs = self._kwargs if model_kwargs is None else model_kwargs
+        # XXX: we do not support priors with supports depending on dynamic data
+        # because it adds complexity to the interface.
+        # Users can achieve that behaviour by changing the default `self._args`
+        # but we will not recommend doing so.
+        model_args = self._args
+        model_kwargs = self._kwargs
 
         def unpack_single_latent(latent):
-            unpacked_samples = self.unpack_latent(latent)
+            unpacked_samples = self._unpack_latent(latent)
             if self._has_transformed_dist:
-                base_param_map = {**params, **unpacked_samples}
-                return constrain_fn(self.model, model_args, model_kwargs,
-                                    self._inv_transforms, base_param_map)
+                # first, substitute to `param` statements in model
+                model = handlers.substitute(self.model, params)
+                return constrain_fn(model, model_args, model_kwargs,
+                                    self._inv_transforms, unpacked_samples)
             else:
                 return transform_fn(self._inv_transforms, unpacked_samples)
 
@@ -209,18 +211,42 @@ class AutoContinuous(AutoGuide):
                                     unpacked_samples)
         return unpacked_samples
 
-    def get_transform(self, opt_state):
-        return substitute(self._get_transform, self.get_params(opt_state))()
+    @property
+    def base_dist(self):
+        """
+        Base distribution of the posterior. By default, it is standard normal.
+        """
+        return self._base_dist
 
-    def sample_posterior(self, rng, opt_state, sample_shape=(), base_dist=None,
-                         model_args=None, model_kwargs=None):
-        if base_dist is None:
-            base_dist = _Normal(np.zeros(self.latent_size), 1.)
-        params = self.get_params(opt_state)
-        latent_sample = substitute(seed(self._sample_latent, rng), params)(
-            base_dist, sample_shape=sample_shape)
-        return self._unpack_and_transform(latent_sample, params,
-                                          model_args=model_args, model_kwargs=model_kwargs)
+    @base_dist.setter
+    def base_dist(self, base_dist):
+        self._base_dist = base_dist
+
+    def get_transform(self, params):
+        """
+        Returns the transformation learned by the guide to generate samples from the unconstrained
+        (approximate) posterior.
+
+        :param dict params: Current parameters of model and autoguide.
+        :return: the transform of posterior distribution
+        :rtype: :class:`~numpyro.distributions.constraints.Transform`
+        """
+        return ComposeTransform([handlers.substitute(self._get_transform, params)(),
+                                 UnpackTransform(self._unpack_latent)])
+
+    def sample_posterior(self, rng, params, sample_shape=()):
+        """
+        Get samples from the learned posterior.
+
+        :param jax.random.PRNGKey rng: random key to be used draw samples.
+        :param dict params: Current parameters of model and autoguide.
+        :param tuple sample_shape: batch shape of each latent sample, defaults to ().
+        :return: a dict containing samples drawn the this guide.
+        :rtype: dict
+        """
+        latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng), params)(
+            self.base_dist, sample_shape=sample_shape)
+        return self._unpack_and_constrain(latent_sample, params)
 
 
 class AutoDiagonalNormal(AutoContinuous):
@@ -231,38 +257,31 @@ class AutoDiagonalNormal(AutoContinuous):
 
     Usage::
 
-        guide = AutoDiagonalNormal(rng, model, get_params, ...)
-        svi_init, svi_update, _ = svi(model, guide, ...)
+        guide = AutoDiagonalNormal(rng, model, ...)
+        svi = SVI(model, guide, ...)
     """
     def _get_transform(self):
         loc, scale = self._loc_scale()
         return AffineTransform(loc, scale, domain=constraints.real_vector)
 
     def _loc_scale(self):
-        loc = param('{}_loc'.format(self.prefix), None)
-        scale = param('{}_scale'.format(self.prefix), None, constraint=constraints.positive)
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
+                              constraint=constraints.positive)
         return loc, scale
 
-    def setup(self, *args, **kwargs):
-        super(AutoDiagonalNormal, self).setup(*args, **kwargs)
-        return {
-            '{}_loc'.format(self.prefix): self._init_latent,
-            '{}_scale'.format(self.prefix): np.ones(self.latent_size),
-        }
-
-    def median(self, opt_state, model_args=None, model_kwargs=None):
+    def median(self, params):
         """
         Returns the posterior median value of each latent variable.
 
-        :param opt_state: Current state of the optimizer.
+        :param dict params: A dict containing parameter values.
         :return: A dict mapping sample site name to median tensor.
         :rtype: dict
         """
-        params = self.get_params(opt_state)
-        loc, _ = substitute(self._loc_scale, params)()
-        return self._unpack_and_transform(loc, params, model_args=model_args, model_kwargs=model_kwargs)
+        loc, _ = handlers.substitute(self._loc_scale, params)()
+        return self._unpack_and_constrain(loc, params)
 
-    def quantiles(self, opt_state, quantiles, model_args=None, model_kwargs=None):
+    def quantiles(self, params, quantiles):
         """
         Returns posterior quantiles each latent variable. Example::
 
@@ -274,11 +293,10 @@ class AutoDiagonalNormal(AutoContinuous):
         :return: A dict mapping sample site name to a list of quantile values.
         :rtype: dict
         """
-        params = self.get_params(opt_state)
-        loc, scale = substitute(self._loc_scale, params)()
+        loc, scale = handlers.substitute(self._loc_scale, params)()
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(loc, scale).icdf(quantiles)
-        return self._unpack_and_transform(latent, params, model_args=model_args, model_kwargs=model_kwargs)
+        return self._unpack_and_constrain(latent, params)
 
 
 # TODO: remove when to_event is supported
@@ -304,53 +322,94 @@ class AutoIAFNormal(AutoContinuous):
     Usage::
 
         guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[20], skip_connections=True, ...)
-        svi_init, svi_update, _ = svi(model, guide, ...)
+        svi = SVI(model, guide, ...)
 
     :param jax.random.PRNGKey rng: random key to be used as the source of randomness
         to initialize the guide.
     :param callable model: a generative model.
-    :param callable get_params_fn: a function to get params from an optimization state.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
-    :param callable init_loc_fn: A per-site initialization function.
+    :param callable init_strategy: A per-site initialization function.
     :param int num_flows: the number of flows to be used, defaults to 3.
-    :param `**arn_kwargs`: keywords for constructing autoregressive neural networks.
+    :param `**arn_kwargs`: keywords for constructing autoregressive neural networks, which includes:
+
+        * **hidden_dims** (``list[int]``) - the dimensionality of the hidden units per layer.
+          Defaults to ``[latent_size, latent_size]``.
+        * **skip_connections** (``bool``) - whether to add skip connections from the input to the
+          output of each flow. Defaults to False.
+        * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
+          Defaults to :func:`jax.experimental.stax.Relu`.
     """
-    def __init__(self, rng, model, get_params_fn, prefix="auto", init_strategy=init_to_median,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_median,
                  num_flows=3, **arn_kwargs):
-        self.arn_kwargs = arn_kwargs
-        self.arns = []
         self.num_flows = num_flows
-        rng, *self.arn_rngs = random.split(rng, num_flows + 1)
-        super(AutoIAFNormal, self).__init__(rng, model, get_params_fn, prefix=prefix,
-                                            init_strategy=init_strategy)
-
-    def setup(self, *args, **kwargs):
-        super(AutoIAFNormal, self).setup(*args, **kwargs)
-        if self.latent_size == 1:
-            raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
-        params = {}
-        if not self.arns:
-            # 2-layer by default following the experiments in IAF paper
-            # (https://arxiv.org/abs/1606.04934) and Neutra paper (https://arxiv.org/abs/1903.03704)
-            hidden_dims = self.arn_kwargs.get('hidden_dims', [self.latent_size, self.latent_size])
-            skip_connections = self.arn_kwargs.get('skip_connections', True)
-            nonlinearity = self.arn_kwargs.get('nonlinearity', stax.Relu)
-
-            for i in range(self.num_flows):
-                arn_init, arn = AutoregressiveNN(self.latent_size, hidden_dims,
-                                                 permutation=np.arange(self.latent_size),
-                                                 skip_connections=skip_connections,
-                                                 nonlinearity=nonlinearity)
-                _, init_params = arn_init(self.arn_rngs[i], (self.latent_size,))
-                params['{}_arn__{}'.format(self.prefix, i)] = init_params
-                self.arns.append(arn)
-        return params
+        # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
+        # IAF paper (https://arxiv.org/abs/1606.04934)
+        # and Neutra paper (https://arxiv.org/abs/1903.03704)
+        self._hidden_dims = arn_kwargs.get('hidden_dims')
+        self._skip_connections = arn_kwargs.get('skip_connections', False)
+        self._nonlinearity = arn_kwargs.get('nonlinearity', stax.Elu)
+        super(AutoIAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
 
     def _get_transform(self):
+        if self.latent_size == 1:
+            raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
+        hidden_dims = [self.latent_size, self.latent_size] if self._hidden_dims is None else self._hidden_dims
         flows = []
         for i in range(self.num_flows):
-            arn_params = param('{}_arn__{}'.format(self.prefix, i), None)
             if i > 0:
                 flows.append(PermuteTransform(np.arange(self.latent_size)[::-1]))
-            flows.append(InverseAutoregressiveTransform(self.arns[i], arn_params))
+            arn = AutoregressiveNN(self.latent_size, hidden_dims,
+                                   permutation=np.arange(self.latent_size),
+                                   skip_connections=self._skip_connections,
+                                   nonlinearity=self._nonlinearity)
+            arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_size,))
+            flows.append(InverseAutoregressiveTransform(arnn))
+        return ComposeTransform(flows)
+
+
+class AutoBNAFNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a Diagonal Normal
+    distribution transformed via a
+    :class:`~numpyro.distributions.iaf.InverseAutoregressiveTransform`
+    to construct a guide over the entire latent space. The guide does not
+    depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoBNAFNormal(rng, model, get_params, num_flows=1, hidden_factors=[50, 50])
+        svi = SVI(model, guide, ...)
+
+    **References**
+
+    1. *Block Neural Autoregressive Flow*,
+       Nicola De Cao, Ivan Titov, Wilker Aziz
+
+    :param jax.random.PRNGKey rng: random key to be used as the source of randomness
+        to initialize the guide.
+    :param callable model: a generative model.
+    :param str prefix: a prefix that will be prefixed to all param internal sites.
+    :param callable init_strategy: A per-site initialization function.
+    :param int num_flows: the number of flows to be used, defaults to 3.
+    :param list hidden_factors: Hidden layer i has ``hidden_factors[i]`` hidden units per
+        input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
+        The elements of hidden_factors must be integers.
+    """
+    def __init__(self, model, prefix="auto", init_strategy=init_to_median, num_flows=1,
+                 hidden_factors=[50, 50]):
+        self.num_flows = num_flows
+        self._hidden_factors = hidden_factors
+        super(AutoBNAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
+
+    def _get_transform(self):
+        if self.latent_size == 1:
+            raise ValueError('latent dim = 1. Consider using AutoDiagonalNormal instead')
+        flows = []
+        for i in range(self.num_flows):
+            if i > 0:
+                flows.append(PermuteTransform(np.arange(self.latent_size)[::-1]))
+            residual = "gated" if i < (self.num_flows - 1) else None
+            arn = BlockNeuralAutoregressiveNN(self.latent_size, self._hidden_factors, residual)
+            arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_size,))
+            flows.append(BlockNeuralAutoregressiveTransform(arnn))
         return ComposeTransform(flows)

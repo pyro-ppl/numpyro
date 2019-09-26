@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 import jax
-from jax import device_get, grad, jit, lax, partial, random, value_and_grad, vmap
+from jax import device_get, grad, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.ops import index_update
@@ -9,11 +9,11 @@ from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import biject_to, real, ComposeTransform
-from numpyro.distributions.util import cholesky_inverse
+from numpyro.distributions.constraints import ComposeTransform, biject_to, real
+from numpyro.distributions.util import cholesky_inverse, get_dtype
 from numpyro.handlers import seed, trace
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
-from numpyro.util import cond, fori_loop, while_loop
+from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
@@ -239,7 +239,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
-    tiny = np.finfo(lax.dtype(init_step_size)).tiny
+    tiny = np.finfo(get_dtype(init_step_size)).tiny
 
     def _body_fn(state):
         step_size, _, direction, rng = state
@@ -421,7 +421,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
                                  np.exp(log_step_size_avg),
                                  np.exp(log_step_size))
             # account the the case log_step_size is a so small negative number
-            step_size = np.clip(step_size, a_min=np.finfo(lax.dtype(step_size)).tiny)
+            step_size = np.clip(step_size, a_min=np.finfo(get_dtype(step_size)).tiny)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
@@ -478,8 +478,6 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
-# TODO: consider to remove jit here if there is no error triggered in new version of JAX
-@partial(jit, static_argnums=(5,))
 def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
@@ -580,6 +578,14 @@ def _leaf_idx_to_ckpt_idxs(n):
     _, num_subtrees = while_loop(lambda nc: (nc[0] & 1) != 0,
                                  lambda nc: (nc[0] >> 1, nc[1] + 1),
                                  (n, 0))
+    # TODO: explore the potential of setting idx_min=0 to allow more turning checks
+    # It will be useful in case: e.g. assume a tree 0 -> 7 is a circle,
+    # subtrees 0 -> 3, 4 -> 7 are half-circles, which two leaves might not
+    # satisfy turning condition;
+    # the full tree 0 -> 7 is a circle, which two leaves might also not satisfy
+    # turning condition;
+    # however, we can check the turning condition of the subtree 0 -> 5, which
+    # likely satisfies turning condition because its trajectory 3/4 of a circle.
     idx_min = idx_max - num_subtrees + 1
     return idx_min, idx_max
 
@@ -734,54 +740,58 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    def single_chain_init(key):
-        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
-                                         param_as_improper=True, **model_kwargs)
-
     seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-    inv_transforms = {}
+    constrained_values, inv_transforms = {}, {}
     has_transformed_dist = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
             if v['intermediates']:
+                constrained_values[k] = v['intermediates'][0][0]
                 inv_transforms[k] = biject_to(v['fn'].base_dist.support)
                 has_transformed_dist = True
             else:
+                constrained_values[k] = v['value']
                 inv_transforms[k] = biject_to(v['fn'].support)
         elif v['type'] == 'param':
             constraint = v['kwargs'].pop('constraint', real)
             transform = biject_to(constraint)
             if isinstance(transform, ComposeTransform):
                 base_transform = transform.parts[0]
+                constrained_values[k] = base_transform(transform.inv(v['value']))
                 inv_transforms[k] = base_transform
                 has_transformed_dist = True
             else:
                 inv_transforms[k] = transform
+                constrained_values[k] = v['value']
 
-    potential_fn = jax.partial(potential_energy, seeded_model, model_args, model_kwargs, inv_transforms)
+    prototype_params = transform_fn(inv_transforms,
+                                    {k: v for k, v in constrained_values.items()},
+                                    invert=True)
+
+    # NB: we use model instead of seeded_model to prevent unexpected behaviours (if any)
+    potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
     if has_transformed_dist:
-        # we might want to replay the trace here
-        constrain_fun = jax.partial(constrain_fn, seeded_model, model_args, model_kwargs, inv_transforms)
+        # FIXME: why using seeded_model here triggers an error for funnel reparam example
+        # if we use MCMC class (mcmc function works fine)
+        constrain_fun = jax.partial(constrain_fn, model, model_args, model_kwargs, inv_transforms)
     else:
         constrain_fun = jax.partial(transform_fn, inv_transforms)
+
+    def single_chain_init(key):
+        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
+                                         param_as_improper=True, prototype_params=prototype_params,
+                                         **model_kwargs)
 
     if rng.ndim == 1:
         init_params, is_valid = single_chain_init(rng)
     else:
-        init_params, is_valid = vmap(single_chain_init)(rng)
+        init_params, is_valid = lax.map(single_chain_init, rng)
 
-    if device_get(~np.all(is_valid)):
-        raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
+    if isinstance(is_valid, jax.interpreters.xla.DeviceArray):
+        if device_get(~np.all(is_valid)):
+            raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return init_params, potential_fn, constrain_fun
-
-
-# TODO: to be replaced by np.cov ddof=1 for the next JAX version
-def _cov(samples):
-    wc_init, wc_update, wc_final = welford_covariance(diagonal=False)
-    state = wc_init(samples.shape[1])
-    state = fori_loop(0, samples.shape[0], lambda i, state: wc_update(samples[i], state), state)
-    return wc_final(state)[0]
 
 
 def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
@@ -818,12 +828,12 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
 
     if diagonal:
         # compute weights for each subposterior (ref: Section 3.1 of [1])
-        weights = vmap(lambda x: (1 - 1 / n_samples) / np.var(x, axis=0))(joined_subposteriors)
+        weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
         normalized_weights = weights / np.sum(weights, axis=0)
         # get weighted samples
         samples_flat = np.einsum('ij,ikj->kj', normalized_weights, joined_subposteriors)
     else:
-        weights = vmap(lambda x: np.linalg.inv(_cov(x)))(joined_subposteriors)
+        weights = vmap(lambda x: np.linalg.inv(np.cov(x.T)))(joined_subposteriors)
         normalized_weights = np.matmul(np.linalg.inv(np.sum(weights, axis=0)), weights)
         samples_flat = np.einsum('ijk,ilk->lj', normalized_weights, joined_subposteriors)
 
@@ -850,10 +860,8 @@ def parametric(subposteriors, diagonal=False):
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
 
     submeans = np.mean(joined_subposteriors, axis=1)
-    n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
     if diagonal:
-        # NB: jax.numpy.var does not support ddof=1, so we do it manually
-        weights = vmap(lambda x: (1 - 1 / n_samples) / np.var(x, axis=0))(joined_subposteriors)
+        weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
         var = 1 / np.sum(weights, axis=0)
         normalized_weights = var * weights
 
@@ -861,7 +869,7 @@ def parametric(subposteriors, diagonal=False):
         mean = np.einsum('ij,ij->j', normalized_weights, submeans)
         return mean, var
     else:
-        weights = vmap(lambda x: np.linalg.inv(_cov(x)))(joined_subposteriors)
+        weights = vmap(lambda x: np.linalg.inv(np.cov(x.T)))(joined_subposteriors)
         cov = np.linalg.inv(np.sum(weights, axis=0))
         normalized_weights = np.matmul(cov, weights)
 

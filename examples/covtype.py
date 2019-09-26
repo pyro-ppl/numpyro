@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 
 import numpy as onp
@@ -7,11 +8,10 @@ from jax import random
 from jax.config import config as jax_config
 import jax.numpy as np
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import COVTYPE, load_dataset
-from numpyro.handlers import sample
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 
 def _load_dataset():
@@ -36,22 +36,19 @@ def _load_dataset():
 
 def model(data, labels):
     dim = data.shape[1]
-    coefs = sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
+    coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
     logits = np.dot(data, coefs)
-    return sample('obs', dist.Bernoulli(logits=logits), obs=labels)
+    return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
 
 def benchmark_hmc(args, features, labels):
     step_size = np.sqrt(0.5 / features.shape[0])
     trajectory_length = step_size * args.num_steps
     rng = random.PRNGKey(1)
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, _ = initialize_model(rng, model, features, labels)
-
     start = time.time()
-    mcmc(0, args.num_samples, init_params, num_chains=args.num_chains,
-         potential_fn=potential_fn, trajectory_length=trajectory_length)
+    kernel = NUTS(model, trajectory_length=trajectory_length)
+    mcmc = MCMC(kernel, 0, args.num_samples)
+    mcmc.run(rng, features, labels)
     print('\nMCMC elapsed time:', time.time() - start)
 
 
@@ -62,6 +59,7 @@ def main(args):
 
 
 if __name__ == '__main__':
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('-n', '--num-samples', default=100, type=int, help='number of samples')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
@@ -69,4 +67,9 @@ if __name__ == '__main__':
     parser.add_argument('--algo', default='NUTS', type=str, help='whether to run "HMC" or "NUTS"')
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)

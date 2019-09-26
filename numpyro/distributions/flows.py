@@ -19,49 +19,43 @@ class InverseAutoregressiveTransform(Transform):
     where :math:`\\mathbf{x}` are the inputs, :math:`\\mathbf{y}` are the outputs, :math:`\\mu_t,\\sigma_t`
     are calculated from an autoregressive network on :math:`\\mathbf{x}`, and :math:`\\sigma_t>0`.
 
-    References
+    **References**
 
-    1. Improving Variational Inference with Inverse Autoregressive Flow [arXiv:1606.04934]
-    Diederik P. Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, Max Welling
+    1. *Improving Variational Inference with Inverse Autoregressive Flow* [arXiv:1606.04934],
+       Diederik P. Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, Max Welling
     """
     domain = real_vector
     codomain = real_vector
     event_dim = 1
 
-    def __init__(self, autoregressive_nn, params,
-                 log_scale_min_clip=-5., log_scale_max_clip=3.):
+    def __init__(self, autoregressive_nn, log_scale_min_clip=-5., log_scale_max_clip=3.):
         """
         :param autoregressive_nn: an autoregressive neural network whose forward call returns a real-valued
             mean and log scale as a tuple
-        :param params: the parameters for the autoregressive neural network
-        :type list:
         """
         self.arn = autoregressive_nn
-        self.params = params
         self.log_scale_min_clip = log_scale_min_clip
         self.log_scale_max_clip = log_scale_max_clip
 
     def __call__(self, x):
         """
-        :param x: the input into the transform
-        :type x: numpy array
+        :param numpy.ndarray x: the input into the transform
         """
         return self.call_with_intermediates(x)[0]
 
     def call_with_intermediates(self, x):
-        mean, log_scale = self.arn(self.params, x)
+        mean, log_scale = self.arn(x)
         log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
         scale = np.exp(log_scale)
         return scale * x + mean, log_scale
 
     def inv(self, y):
         """
-        :param y: the output of the transform to be inverted
-        :type y: numpy array
+        :param numpy.ndarray y: the output of the transform to be inverted
         """
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
         def _update_x(i, x):
-            mean, log_scale = self.arn(self.params, x)
+            mean, log_scale = self.arn(x)
             inverse_scale = np.exp(-_clamp_preserve_gradients(
                 log_scale, min=self.log_scale_min_clip, max=self.log_scale_max_clip))
             x = (y - mean) * inverse_scale
@@ -72,16 +66,58 @@ class InverseAutoregressiveTransform(Transform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         """
-        Calculates the elementwise determinant of the log jacobian
-        :param x: the input to the transform
-        :type x: numpy array
-        :param y: the output of the transform
-        :type y: numpy array
+        Calculates the elementwise determinant of the log jacobian.
+
+        :param numpy.ndarray x: the input to the transform
+        :param numpy.ndarray y: the output of the transform
         """
         if intermediates is None:
-            log_scale = self.arn(self.params, x)[1]
+            log_scale = self.arn(x)[1]
             log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
             return log_scale.sum(-1)
         else:
             log_scale = intermediates
             return log_scale.sum(-1)
+
+
+class BlockNeuralAutoregressiveTransform(Transform):
+    """
+    An implementation of Block Neural Autoregressive flow.
+
+    **References**
+
+    1. *Block Neural Autoregressive Flow*,
+       Nicola De Cao, Ivan Titov, Wilker Aziz
+    """
+    event_dim = 1
+
+    def __init__(self, bn_arn):
+        self.bn_arn = bn_arn
+
+    def __call__(self, x):
+        """
+        :param numpy.ndarray x: the input into the transform
+        """
+        return self.call_with_intermediates(x)[0]
+
+    def call_with_intermediates(self, x):
+        y, logdet = self.bn_arn(x)
+        return y, logdet
+
+    def inv(self, y):
+        raise RuntimeError("Block neural autoregressive transform does not have an analytic"
+                           " inverse implemented.")
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        """
+        Calculates the elementwise determinant of the log jacobian.
+
+        :param numpy.ndarray x: the input to the transform
+        :param numpy.ndarray y: the output of the transform
+        """
+        if intermediates is None:
+            logdet = self.bn_arn(x)[1]
+            return logdet.sum(-1)
+        else:
+            logdet = intermediates
+            return logdet.sum(-1)

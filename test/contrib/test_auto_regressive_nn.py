@@ -1,12 +1,15 @@
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/tests/nn/test_autoregressive.py
 
 import numpy as onp
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 
-from jax import jacfwd, random
+from jax import jacfwd, random, vmap
+import jax.numpy as np
 
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
+from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
+from numpyro.distributions.util import matrix_to_tril_vec
 
 
 @pytest.mark.parametrize('input_dim', [5])
@@ -14,10 +17,11 @@ from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
 @pytest.mark.parametrize('hidden_dims', [[8], [6, 7]])
 @pytest.mark.parametrize('skip_connections', [True, False])
 def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
+    rng, rng_perm = random.split(random.PRNGKey(0))
+    perm = random.shuffle(rng_perm, onp.arange(input_dim))
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims,
-                                     skip_connections=skip_connections)
+                                     skip_connections=skip_connections, permutation=perm)
 
-    rng = random.PRNGKey(0)
     batch_size = 4
     input_shape = (batch_size, input_dim)
     _, init_params = arn_init(rng, input_shape)
@@ -41,8 +45,6 @@ def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
 
     # permute jacobian as necessary
     permuted_jac = onp.zeros(jac.shape)
-    _, rng_perm = random.split(rng)
-    perm = random.shuffle(rng_perm, onp.arange(input_dim))
 
     for j in range(input_dim):
         for k in range(input_dim):
@@ -98,3 +100,31 @@ def test_masks(input_dim, n_layers, output_dim_multiplier):
                 if mask_skip[idx + jdx * input_dim, kdx]:
                     skip_connections.add(kdx)
             assert_array_equal(list(sorted(skip_connections)), correct)
+
+
+@pytest.mark.parametrize('input_dim', [5])
+@pytest.mark.parametrize('hidden_factors', [[4], [2, 3]])
+@pytest.mark.parametrize('residual', [None, "normal", "gated"])
+@pytest.mark.parametrize('batch_shape', [(3,), ()])
+def test_block_neural_arn(input_dim, hidden_factors, residual, batch_shape):
+    arn_init, arn = BlockNeuralAutoregressiveNN(input_dim, hidden_factors, residual)
+
+    rng = random.PRNGKey(0)
+    input_shape = batch_shape + (input_dim,)
+    out_shape, init_params = arn_init(rng, input_shape)
+    assert out_shape == input_shape
+
+    x = random.normal(random.PRNGKey(1), input_shape)
+    output, logdet = arn(init_params, x)
+    assert output.shape == input_shape
+    assert logdet.shape == input_shape
+
+    if len(batch_shape) == 1:
+        jac = vmap(jacfwd(lambda x: arn(init_params, x)[0]))(x)
+    else:
+        jac = jacfwd(lambda x: arn(init_params, x)[0])(x)
+    assert_allclose(logdet.sum(-1), np.linalg.slogdet(jac)[1], rtol=1e-6)
+
+    # make sure jacobians are lower triangular
+    assert onp.sum(onp.abs(onp.triu(jac, k=1))) == 0.0
+    assert onp.all(onp.abs(matrix_to_tril_vec(jac)) > 0)

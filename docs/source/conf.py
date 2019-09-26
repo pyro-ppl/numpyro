@@ -29,11 +29,11 @@ os.environ['SPHINX_BUILD'] = '1'
 from numpyro.mcmc import hmc  # noqa: E402
 from numpyro.svi import svi  # noqa: E402
 hmc(None, None)
-svi(None, None, None, None, None, None)
+svi(None, None, None, None)
 
 # -- Project information -----------------------------------------------------
 
-project = u'Numpyro'
+project = u'NumPyro'
 copyright = u'2019, Uber Technologies, Inc'
 author = u'Uber AI Labs'
 
@@ -165,7 +165,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'Numpyro.tex', u'Numpyro Documentation', u'Uber AI Labs', 'manual'),
+    (master_doc, 'NumPyro.tex', u'NumPyro Documentation', u'Uber AI Labs', 'manual'),
 ]
 
 # -- Options for manual page output ------------------------------------------
@@ -173,7 +173,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'Numpyro', u'Numpyro Documentation',
+    (master_doc, 'NumPyro', u'NumPyro Documentation',
      [author], 1)
 ]
 
@@ -183,8 +183,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'Numpyro', u'Numpyro Documentation',
-     author, 'Numpyro', 'Pyro PPL on Numpy',
+    (master_doc, 'NumPyro', u'NumPyro Documentation',
+     author, 'NumPyro', 'Pyro PPL on Numpy',
      'Miscellaneous'),
 ]
 

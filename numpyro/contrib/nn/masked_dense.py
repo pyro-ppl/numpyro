@@ -1,9 +1,9 @@
 from jax import random
-from jax.experimental.stax import glorot, randn
+from jax.nn.initializers import glorot_normal, normal
 import jax.numpy as np
 
 
-def MaskedDense(mask, bias=True, W_init=glorot(), b_init=randn()):
+def MaskedDense(mask, bias=True, W_init=glorot_normal(), b_init=normal()):
     """
     As in jax.experimental.stax, each layer constructor function returns
     an (init_fun, apply_fun) pair, where `init_fun` takes an rng key and

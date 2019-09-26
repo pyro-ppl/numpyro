@@ -108,8 +108,9 @@ class Distribution(object):
         be filled with iid draws from the distribution instance.
 
         :param jax.random.PRNGKey key: the rng key to be used for the distribution.
-        :param size: the sample shape for the distribution.
-        :return: a `numpy.ndarray` of shape `sample_shape + batch_shape + event_shape`
+        :param tuple sample_shape: the sample shape for the distribution.
+        :return: an array of shape `sample_shape + batch_shape + event_shape`
+        :rtype: numpy.ndarray
         """
         raise NotImplementedError
 
@@ -119,8 +120,9 @@ class Distribution(object):
         returned (useful for `TransformedDistribution`).
 
         :param jax.random.PRNGKey key: the rng key to be used for the distribution.
-        :param size: the sample shape for the distribution.
-        :return: a `numpy.ndarray` of shape `sample_shape + batch_shape + event_shape`
+        :param tuple sample_shape: the sample shape for the distribution.
+        :return: an array of shape `sample_shape + batch_shape + event_shape`
+        :rtype: numpy.ndarray
         """
         return self.sample(key, sample_shape=sample_shape), []
 
@@ -133,7 +135,8 @@ class Distribution(object):
         `value`.
 
         :param value: A batch of samples from the distribution.
-        :return: a `numpy.ndarray` with shape `value.shape[:-self.event_shape]`
+        :return: an array with shape `value.shape[:-self.event_shape]`
+        :rtype: numpy.ndarray
         """
         raise NotImplementedError
 

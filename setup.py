@@ -23,7 +23,7 @@ except Exception as e:
 
 setup(
     name='numpyro',
-    version='0.1.0',
+    version=version,
     description='Pyro PPL on Numpy',
     packages=find_packages(include=['numpyro', 'numpyro.*']),
     url='https://github.com/pyro-ppl/numpyro',
@@ -31,8 +31,8 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the next release (unless JAX's API becomes stable)
-        'jax @ git+https://github.com/google/jax.git@5861e37edd82ec5bd737fdb33b1ac6f2684e4827#egg=jax',
-        'jaxlib>=0.1.22',
+        'jax>=0.1.46',
+        'jaxlib>=0.1.28',
         'tqdm',
     ],
     extras_require={

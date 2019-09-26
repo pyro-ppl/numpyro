@@ -4,6 +4,7 @@ Bayesian neural network with two hidden layers.
 """
 
 import argparse
+import os
 import time
 
 import matplotlib
@@ -15,10 +16,10 @@ from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
+import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.handlers import sample, seed, substitute, trace
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -32,45 +33,46 @@ def nonlin(x):
 # given by D_X => D_H => D_H => D_Y where D_H is the number of
 # hidden units. (note we indicate tensor dimensions in the comments)
 def model(X, Y, D_H):
+
     D_X, D_Y = X.shape[1], 1
 
     # sample first layer (we put unit normal priors on all weights)
-    w1 = sample("w1", dist.Normal(np.zeros((D_X, D_H)), np.ones((D_X, D_H))))  # D_X D_H
+    w1 = numpyro.sample("w1", dist.Normal(np.zeros((D_X, D_H)), np.ones((D_X, D_H))))  # D_X D_H
     z1 = nonlin(np.matmul(X, w1))   # N D_H  <= first layer of activations
 
     # sample second layer
-    w2 = sample("w2", dist.Normal(np.zeros((D_H, D_H)), np.ones((D_H, D_H))))  # D_H D_H
+    w2 = numpyro.sample("w2", dist.Normal(np.zeros((D_H, D_H)), np.ones((D_H, D_H))))  # D_H D_H
     z2 = nonlin(np.matmul(z1, w2))  # N D_H  <= second layer of activations
 
     # sample final layer of weights and neural network output
-    w3 = sample("w3", dist.Normal(np.zeros((D_H, D_Y)), np.ones((D_H, D_Y))))  # D_H D_Y
+    w3 = numpyro.sample("w3", dist.Normal(np.zeros((D_H, D_Y)), np.ones((D_H, D_Y))))  # D_H D_Y
     z3 = np.matmul(z2, w3)  # N D_Y  <= output of the neural network
 
     # we put a prior on the observation noise
-    prec_obs = sample("prec_obs", dist.Gamma(3.0, 1.0))
+    prec_obs = numpyro.sample("prec_obs", dist.Gamma(3.0, 1.0))
     sigma_obs = 1.0 / np.sqrt(prec_obs)
 
     # observe data
-    sample("Y", dist.Normal(z3, sigma_obs), obs=Y)
+    numpyro.sample("Y", dist.Normal(z3, sigma_obs), obs=Y)
 
 
 # helper function for HMC inference
 def run_inference(model, args, rng, X, Y, D_H):
     if args.num_chains > 1:
         rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y, D_H)
     start = time.time()
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng, X, Y, D_H)
     print('\nMCMC elapsed time:', time.time() - start)
-    return samples
+    return mcmc.get_samples()
 
 
 # helper function for prediction
 def predict(model, rng, samples, X, D_H):
-    model = substitute(seed(model, rng), samples)
+    model = handlers.substitute(handlers.seed(model, rng), samples)
     # note that Y will be sampled in the model because we pass Y=None here
-    model_trace = trace(model).get_trace(X=X, Y=None, D_H=D_H)
+    model_trace = handlers.trace(model).get_trace(X=X, Y=None, D_H=D_H)
     return model_trace['Y']['value']
 
 
@@ -130,6 +132,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="Bayesian neural network example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
@@ -138,4 +141,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-hidden", nargs='?', default=5, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)

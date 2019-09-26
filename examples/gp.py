@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 
 import matplotlib
@@ -11,10 +12,9 @@ from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
+import numpyro
 import numpyro.distributions as dist
-from numpyro.handlers import sample
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import mcmc
+from numpyro.mcmc import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -35,28 +35,26 @@ def kernel(X, Z, var, length, noise, jitter=1.0e-6, include_noise=True):
 
 def model(X, Y):
     # set uninformative log-normal priors on our three kernel hyperparameters
-    var = sample("kernel_var", dist.LogNormal(0.0, 10.0))
-    noise = sample("kernel_noise", dist.LogNormal(0.0, 10.0))
-    length = sample("kernel_length", dist.LogNormal(0.0, 10.0))
+    var = numpyro.sample("kernel_var", dist.LogNormal(0.0, 10.0))
+    noise = numpyro.sample("kernel_noise", dist.LogNormal(0.0, 10.0))
+    length = numpyro.sample("kernel_length", dist.LogNormal(0.0, 10.0))
 
     # compute kernel
     k = kernel(X, X, var, length, noise)
 
     # sample Y according to the standard gaussian process formula
-    sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
-           obs=Y)
+    numpyro.sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
+                   obs=Y)
 
 
 # helper function for doing hmc inference
 def run_inference(model, args, rng, X, Y):
-    if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
-    init_params, potential_fn, constrain_fn = initialize_model(rng, model, X, Y)
     start = time.time()
-    samples = mcmc(args.num_warmup, args.num_samples, init_params, num_chains=args.num_chains,
-                   sampler='hmc', potential_fn=potential_fn, constrain_fn=constrain_fn)
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng, X, Y)
     print('\nMCMC elapsed time:', time.time() - start)
-    return samples
+    return mcmc.get_samples()
 
 
 # do GP prediction for a given set of hyperparameters. this makes use of the well-known
@@ -125,6 +123,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
@@ -132,4 +131,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-data", nargs='?', default=25, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
+        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
+            args.num_chains)
+
     main(args)

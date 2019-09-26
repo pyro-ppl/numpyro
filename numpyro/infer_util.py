@@ -1,11 +1,13 @@
 import jax
-from jax import grad, random
+from jax import random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
+from jax.tree_util import tree_flatten
 
+import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import biject_to, real, ComposeTransform
-from numpyro.handlers import block, sample, seed, substitute, trace
+from numpyro.distributions.constraints import ComposeTransform, biject_to, real
+from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.util import while_loop
 
 
@@ -23,7 +25,16 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
         domain.
     :return: log of joint density and a corresponding model trace
     """
-    model = substitute(model, base_param_map=params)
+    # We skip transforms in
+    #   + autoguide's model
+    #   + hmc's model
+    # We apply transforms in
+    #   + autoguide's guide
+    #   + svi's model + guide
+    if skip_dist_transforms:
+        model = substitute(model, base_param_map=params)
+    else:
+        model = substitute(model, param_map=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = 0.
     for site in model_trace.values():
@@ -86,7 +97,7 @@ def constrain_fn(model, model_args, model_kwargs, transforms, params):
 
 def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     """
-    Makes a callable which computes potential energy of a model given unconstrained params.
+    Computes potential energy of a model given unconstrained params.
     The `inv_transforms` is used to transform these unconstrained parameters to base values
     of the corresponding priors in `model`. If a prior is a transformed distribution,
     the corresponding base value lies in the support of base distribution. Otherwise,
@@ -96,7 +107,8 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs`: kwargs provided to the model.
     :param dict inv_transforms: dictionary of transforms keyed by names.
-    :return: a callable that computes potential energy given unconstrained parameters.
+    :param dict params: unconstrained parameters of `model`.
+    :return: potential energy given unconstrained parameters.
     """
     params_constrained = transform_fn(inv_transforms, params)
     log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
@@ -109,6 +121,23 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     return - log_joint
 
 
+def transformed_potential_energy(potential_energy, inv_transform, z):
+    """
+    Given a potential energy `p(x)`, compute potential energy of `p(z)`
+    with `z = transform(x)` (i.e. `x = inv_transform(z)`).
+
+    :param potential_energy: a callable to compute potential energy of original
+        variable `x`.
+    :param ~numpyro.distributions.constraints.Transform inv_transform: a
+        transform from the new variable `z` to `x`.
+    :param z: new variable to compute potential energy
+    :return: potential energy of `z`.
+    """
+    x, intermediates = inv_transform.call_with_intermediates(z)
+    logdet = inv_transform.log_abs_det_jacobian(z, x, intermediates=intermediates)
+    return potential_energy(x) - logdet
+
+
 def init_to_median(site, num_samples=15, skip_param=False):
     """
     Initialize to the prior median.
@@ -118,9 +147,9 @@ def init_to_median(site, num_samples=15, skip_param=False):
             fn = site['fn'].base_dist
         else:
             fn = site['fn']
-        samples = sample('_init', fn, sample_shape=(num_samples,))
-        # TODO: use np.median when it is available upstream
-        return np.mean(samples, axis=0)
+        samples = numpyro.sample('_init', fn,
+                                 sample_shape=(num_samples,) + site['kwargs']['sample_shape'])
+        return np.median(samples, axis=0)
 
     if site['type'] == 'param' and not skip_param:
         # return base value of param site
@@ -150,10 +179,10 @@ def init_to_uniform(site, radius=2, skip_param=False):
             fn = site['fn'].base_dist
         else:
             fn = site['fn']
-        value = sample('_init', fn)
+        value = numpyro.sample('_init', fn, sample_shape=site['kwargs']['sample_shape'])
         base_transform = biject_to(fn.support)
-        unconstrained_value = sample('_unconstrained_init', dist.Uniform(-radius, radius),
-                                     sample_shape=np.shape(base_transform.inv(value)))
+        unconstrained_value = numpyro.sample('_unconstrained_init', dist.Uniform(-radius, radius),
+                                             sample_shape=np.shape(base_transform.inv(value)))
         return base_transform(unconstrained_value)
 
     if site['type'] == 'param' and not skip_param:
@@ -161,8 +190,8 @@ def init_to_uniform(site, radius=2, skip_param=False):
         constraint = site['kwargs'].pop('constraint', real)
         transform = biject_to(constraint)
         value = site['args'][0]
-        unconstrained_value = sample('_unconstrained_init', dist.Uniform(-radius, radius),
-                                     sample_shape=np.shape(transform.inv(value)))
+        unconstrained_value = numpyro.sample('_unconstrained_init', dist.Uniform(-radius, radius),
+                                             sample_shape=np.shape(transform.inv(value)))
         if isinstance(transform, ComposeTransform):
             base_transform = transform.parts[0]
         else:
@@ -179,7 +208,7 @@ def init_to_feasible(site, skip_param=False):
 
 
 def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform,
-                              param_as_improper=False, **model_kwargs):
+                              param_as_improper=False, prototype_params=None, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
     parameters. This function also returns an `is_valid` flag to say whether the
@@ -232,15 +261,46 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)
-
         potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
-        param_grads = grad(potential_fn)(params)
-        z = ravel_pytree(params)[0]
+        pe, param_grads = value_and_grad(potential_fn)(params)
         z_grad = ravel_pytree(param_grads)[0]
-        is_valid = np.all(np.isfinite(z)) & np.all(np.isfinite(z_grad))
+        is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
         return i + 1, key, params, is_valid
 
-    # NB: the logic here is kind of do-while instead of while-do
-    init_state = body_fn((0, rng, None, None))
+    if prototype_params is not None:
+        init_state = (0, rng, prototype_params, False)
+    else:
+        init_state = body_fn((0, rng, None, None))
     _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
     return init_params, is_valid
+
+
+def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs):
+    """
+    Run model by sampling latent parameters from `posterior_samples`, and return
+    values at sample sites from the forward run. By default, only sites not contained in
+    `posterior_samples` are returned. This can be modified by changing the `return_sites`
+    keyword argument.
+
+    .. warning::
+        The interface for the `predictive` function is experimental, and
+        might change in the future.
+
+    :param jax.random.PRNGKey rng: seed to draw samples
+    :param model: Python callable containing Pyro primitives.
+    :param dict posterior_samples: dictionary of samples from the posterior.
+    :param list return_sites: sites to return; by default only sample sites not present
+        in `posterior_samples` are returned.
+    :param args: model arguments.
+    :param kwargs: model kwargs.
+    :return: dict of samples from the predictive distribution.
+    """
+    # TODO: consider to support `num_samples`, `return_traces`, `parallel` kwargs
+    def single_prediction(rng, samples):
+        model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
+        sites = model_trace.keys() - samples.keys() if return_sites is None else return_sites
+        return {name: site['value'] for name, site in model_trace.items() if name in sites}
+
+    num_samples = tree_flatten(posterior_samples)[0][0].shape[0]
+    rngs = random.split(rng, num_samples)
+    return vmap(single_prediction)(rngs, posterior_samples)

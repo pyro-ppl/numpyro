@@ -9,12 +9,12 @@ import pytest
 from jax import device_put, disable_jit, grad, jit, random, tree_map
 import jax.numpy as np
 
+import numpyro
+from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import biject_to
-from numpyro.handlers import sample, seed
 from numpyro.hmc_util import (
     AdaptWindow,
-    _cov,
     _is_iterative_turning,
     _leaf_idx_to_ckpt_idxs,
     build_adaptation_schedule,
@@ -31,11 +31,11 @@ from numpyro.hmc_util import (
 )
 from numpyro.infer_util import (
     constrain_fn,
+    init_to_feasible,
+    init_to_median,
     init_to_prior,
     init_to_uniform,
-    init_to_median,
-    init_to_feasible,
-    transform_fn,
+    transform_fn
 )
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 
@@ -406,11 +406,11 @@ def test_model_with_transformed_distribution():
     y_prior = dist.LogNormal(scale=3.)  # transformed distribution
 
     def model():
-        sample('x', x_prior)
-        sample('y', y_prior)
+        numpyro.sample('x', x_prior)
+        numpyro.sample('y', y_prior)
 
     params = {'x': np.array(-5.), 'y': np.array(7.)}
-    model = seed(model, random.PRNGKey(0))
+    model = handlers.seed(model, random.PRNGKey(0))
     inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.support)}
     expected_samples = partial(transform_fn, inv_transforms)(params)
     expected_potential_energy = (
@@ -422,7 +422,7 @@ def test_model_with_transformed_distribution():
 
     base_inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.base_dist.support)}
     actual_samples = constrain_fn(
-        seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms, params)
+        handlers.seed(model, random.PRNGKey(0)), (), {}, base_inv_transforms, params)
     actual_potential_energy = potential_energy(model, (), {}, base_inv_transforms, params)
 
     assert_allclose(expected_samples['x'], actual_samples['x'])
@@ -439,11 +439,11 @@ def test_model_with_transformed_distribution():
 def test_initialize_model_change_point(init_strategy):
     def model(data):
         alpha = 1 / np.mean(data)
-        lambda1 = sample('lambda1', dist.Exponential(alpha))
-        lambda2 = sample('lambda2', dist.Exponential(alpha))
-        tau = sample('tau', dist.Uniform(0, 1))
+        lambda1 = numpyro.sample('lambda1', dist.Exponential(alpha))
+        lambda2 = numpyro.sample('lambda2', dist.Exponential(alpha))
+        tau = numpyro.sample('tau', dist.Uniform(0, 1))
         lambda12 = np.where(np.arange(len(data)) < tau * len(data), lambda1, lambda2)
-        sample('obs', dist.Poisson(lambda12), obs=data)
+        numpyro.sample('obs', dist.Poisson(lambda12), obs=data)
 
     count_data = np.array([
         13,  24,   8,  24,   7,  35,  14,  11,  15,  11,  22,  22,  11,  57,
@@ -474,8 +474,8 @@ def test_initialize_model_change_point(init_strategy):
 def test_initialize_model_dirichlet_categorical(init_strategy):
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
-        p_latent = sample('p_latent', dist.Dirichlet(concentration))
-        sample('obs', dist.Categorical(p_latent), obs=data)
+        p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
+        numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
         return p_latent
 
     true_probs = np.array([0.1, 0.6, 0.3])
@@ -492,6 +492,9 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
             assert_allclose(p[i], init_params_i[name], atol=1e-6)
 
 
+# TODO: raise this warning issue upstream, the issue is at this line
+# https://github.com/google/jax/blob/master/jax/numpy/lax_numpy.py#L2732
+@pytest.mark.filterwarnings('ignore:Explicitly requested dtype float64')
 @pytest.mark.parametrize('method', [consensus, parametric_draws])
 @pytest.mark.parametrize('diagonal', [True, False])
 def test_gaussian_subposterior(method, diagonal):
@@ -512,9 +515,10 @@ def test_gaussian_subposterior(method, diagonal):
     if diagonal:
         assert_allclose(np.var(draws, axis=0), np.diag(cov), atol=0.05)
     else:
-        assert_allclose(_cov(draws), cov, atol=0.05)
+        assert_allclose(np.cov(draws.T), cov, atol=0.05)
 
 
+@pytest.mark.filterwarnings('ignore:Explicitly requested dtype float64')
 @pytest.mark.parametrize('method', [consensus, parametric_draws])
 def test_subposterior_structure(method):
     subposteriors = [{'x': np.ones((100, 3)), 'y': np.zeros((100,))} for i in range(10)]

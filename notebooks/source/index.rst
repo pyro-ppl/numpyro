@@ -24,6 +24,8 @@ Welcome to NumPyro Examples and Tutorials!
    hmm
    stochastic_volatility
    vae
+   funnel
+   sparse_regression
 
 
 Indices and tables

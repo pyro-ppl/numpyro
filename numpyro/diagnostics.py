@@ -1,3 +1,7 @@
+"""
+This provides a small set of utilities in NumPyro that are used to diagnose posterior samples.
+"""
+
 from itertools import product
 
 import numpy as onp
@@ -25,7 +29,7 @@ def gelman_rubin(x):
     """
     Computes R-hat over chains of samples ``x``, where the first dimension of
     ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
-    It is required that ``input.shape[0] >= 2`` and ``input.shape[1] >= 2``.
+    It is required that ``x.shape[0] >= 2`` and ``x.shape[1] >= 2``.
 
     :param numpy.ndarray x: the input array.
     :return: R-hat of ``x``.
@@ -43,7 +47,7 @@ def split_gelman_rubin(x):
     """
     Computes split R-hat over chains of samples ``x``, where the first dimension
     of ``x`` is chain dimension and the second dimension of ``x`` is draw dimension.
-    It is required that ``input.shape[1] >= 4``.
+    It is required that ``x.shape[1] >= 4``.
 
     :param numpy.ndarray x: the input array.
     :return: split R-hat of ``x``.
@@ -167,7 +171,7 @@ def effective_sample_size(x):
     return n_eff
 
 
-def hpdi(x, prob=0.89, axis=0):
+def hpdi(x, prob=0.90, axis=0):
     """
     Computes "highest posterior density interval" (HPDI) which is the narrowest
     interval with probability mass ``prob``.
@@ -175,8 +179,8 @@ def hpdi(x, prob=0.89, axis=0):
     :param numpy.ndarray x: the input array.
     :param float prob: the probability mass of samples within the interval.
     :param int axis: the dimension to calculate hpdi.
-    :return: quantiles of ``input`` at ``(1 - probs) / 2`` and
-        ``(1 + probs) / 2``.
+    :return: quantiles of ``x`` at ``(1 - prob) / 2`` and
+        ``(1 + prob) / 2``.
     :rtype: numpy.ndarray
     """
     x = onp.swapaxes(x, axis, 0)
@@ -198,12 +202,14 @@ def hpdi(x, prob=0.89, axis=0):
 def summary(samples, prob=0.90):
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
-    posterior. The diagnostics displayed are mean, standard deviation,
-    the 90% Credibility Interval, :func:`~numpyro.diagnostics.effective_sample_size`
+    posterior. The diagnostics displayed are mean, standard deviation, median,
+    the 90% Credibility Interval :func:`~numpyro.diagnostics.hpdi`,
+    :func:`~numpyro.diagnostics.effective_sample_size`, and
     :func:`~numpyro.diagnostics.split_gelman_rubin`.
 
     :param samples: a collection of input samples with left most dimension is chain
         dimension and second to left most dimension is draw dimension.
+    :type samples: dict or numpy.ndarray
     :param float prob: the probability mass of samples within the HPDI interval.
     """
     if not isinstance(samples, dict):

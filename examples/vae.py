@@ -5,31 +5,15 @@ import time
 import matplotlib.pyplot as plt
 
 from jax import jit, lax, random
-from jax.experimental import optimizers, stax
+from jax.experimental import stax
 import jax.numpy as np
 from jax.random import PRNGKey
 
+import numpyro
+from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.examples.datasets import MNIST, load_dataset
-from numpyro.handlers import param, sample
-from numpyro.svi import elbo, svi
-
-
-def sigmoid(x):
-    return 1 / (1 + np.exp(-x))
-
-
-# TODO: move to JAX
-def _elemwise_no_params(fun, **kwargs):
-    def init_fun(rng, input_shape): return input_shape, ()
-
-    def apply_fun(params, inputs, rng=None): return fun(inputs, **kwargs)
-
-    return init_fun, apply_fun
-
-
-Sigmoid = _elemwise_no_params(sigmoid)
-
+from numpyro.svi import SVI, elbo
 
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                               '.results'))
@@ -48,26 +32,25 @@ def encoder(hidden_dim, z_dim):
 def decoder(hidden_dim, out_dim):
     return stax.serial(
         stax.Dense(hidden_dim, W_init=stax.randn()), stax.Softplus,
-        stax.Dense(out_dim, W_init=stax.randn()), Sigmoid,
+        stax.Dense(out_dim, W_init=stax.randn()), stax.Sigmoid,
     )
 
 
-def model(batch, **kwargs):
-    decode = kwargs['decode']
-    decoder_params = param('decoder', None)
-    z_dim = kwargs['z_dim']
+def model(batch, hidden_dim=400, z_dim=100):
     batch = np.reshape(batch, (batch.shape[0], -1))
-    z = sample('z', dist.Normal(np.zeros((z_dim,)), np.ones((z_dim,))))
-    img_loc = decode(decoder_params, z)
-    return sample('obs', dist.Bernoulli(img_loc), obs=batch)
+    batch_dim, out_dim = np.shape(batch)
+    decode = numpyro.module('decoder', decoder(hidden_dim, out_dim), (batch_dim, z_dim))
+    z = numpyro.sample('z', dist.Normal(np.zeros((z_dim,)), np.ones((z_dim,))))
+    img_loc = decode(z)
+    return numpyro.sample('obs', dist.Bernoulli(img_loc), obs=batch)
 
 
-def guide(batch, **kwargs):
-    encode = kwargs['encode']
-    encoder_params = param('encoder', None)
+def guide(batch, hidden_dim=400, z_dim=100):
     batch = np.reshape(batch, (batch.shape[0], -1))
-    z_loc, z_std = encode(encoder_params, batch)
-    z = sample('z', dist.Normal(z_loc, z_std))
+    batch_dim, out_dim = np.shape(batch)
+    encode = numpyro.module('encoder', encoder(hidden_dim, z_dim), (batch_dim, out_dim))
+    z_loc, z_std = encode(batch)
+    z = numpyro.sample('z', dist.Normal(z_loc, z_std))
     return z
 
 
@@ -77,45 +60,43 @@ def binarize(rng, batch):
 
 
 def main(args):
-    encoder_init, encode = encoder(args.hidden_dim, args.z_dim)
-    decoder_init, decode = decoder(args.hidden_dim, 28 * 28)
-    opt_init, opt_update, get_params = optimizers.adam(args.learning_rate)
-    svi_init, svi_update, svi_eval = svi(model, guide, elbo, opt_init, opt_update, get_params,
-                                         encode=encode, decode=decode, z_dim=args.z_dim)
+    encoder_nn = encoder(args.hidden_dim, args.z_dim)
+    decoder_nn = decoder(args.hidden_dim, 28 * 28)
+    adam = optim.Adam(args.learning_rate)
+    svi = SVI(model, guide, elbo, adam,
+              z_dim=args.z_dim,
+              hidden_dim=args.hidden_dim)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
     num_train, train_idx = train_init()
-    rng, rng_enc, rng_dec, rng_binarize, rng_init = random.split(rng, 5)
-    _, encoder_params = encoder_init(rng_enc, (args.batch_size, 28 * 28))
-    _, decoder_params = decoder_init(rng_dec, (args.batch_size, args.z_dim))
-    params = {'encoder': encoder_params, 'decoder': decoder_params}
+    rng, rng_binarize, rng_init = random.split(rng, 3)
     sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
-    opt_state, constrain_fn = svi_init(rng_init, (sample_batch,), (sample_batch,), params)
+    svi_state = svi.init(rng_init, (sample_batch,), (sample_batch,))
 
     @jit
-    def epoch_train(opt_state, rng):
+    def epoch_train(svi_state, rng):
         def body_fn(i, val):
-            loss_sum, opt_state, rng = val
-            rng, rng_binarize = random.split(rng)
+            loss_sum, svi_state = val
+            rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, train_fetch(i, train_idx)[0])
-            loss, opt_state, rng = svi_update(i, rng, opt_state, (batch,), (batch,),)
+            svi_state, loss = svi.update(svi_state, (batch,), (batch,))
             loss_sum += loss
-            return loss_sum, opt_state, rng
+            return loss_sum, svi_state
 
-        return lax.fori_loop(0, num_train, body_fn, (0., opt_state, rng))
+        return lax.fori_loop(0, num_train, body_fn, (0., svi_state))
 
     @jit
-    def eval_test(opt_state, rng):
-        def body_fun(i, val):
-            loss_sum, rng = val
-            rng, rng_binarize, rng_eval = random.split(rng, 3)
+    def eval_test(svi_state, rng):
+        def body_fun(i, loss_sum):
+            rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, test_fetch(i, test_idx)[0])
-            loss = svi_eval(rng_eval, opt_state, (batch,), (batch,)) / len(batch)
+            # FIXME: does this lead to a requirement for an rng arg in svi_eval?
+            loss = svi.evaluate(svi_state, (batch,), (batch,)) / len(batch)
             loss_sum += loss
-            return loss_sum, rng
+            return loss_sum
 
-        loss, _ = lax.fori_loop(0, num_test, body_fun, (0., rng))
+        loss = lax.fori_loop(0, num_test, body_fun, 0.)
         loss = loss / num_test
         return loss
 
@@ -124,24 +105,26 @@ def main(args):
         plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), img, cmap='gray')
         rng_binarize, rng_sample = random.split(rng)
         test_sample = binarize(rng_binarize, img)
-        params = get_params(opt_state)
-        z_mean, z_var = encode(params['encoder'], test_sample.reshape([1, -1]))
+        params = svi.get_params(svi_state)
+        z_mean, z_var = encoder_nn[1](params['encoder$params'], test_sample.reshape([1, -1]))
         z = dist.Normal(z_mean, z_var).sample(rng_sample)
-        img_loc = decode(params['decoder'], z).reshape([28, 28])
+        img_loc = decoder_nn[1](params['decoder$params'], z).reshape([28, 28])
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 
     for i in range(args.num_epochs):
+        rng, rng_train, rng_test, rng_reconstruct = random.split(rng, 4)
         t_start = time.time()
         num_train, train_idx = train_init()
-        _, opt_state, rng = epoch_train(opt_state, rng)
+        _, svi_state = epoch_train(svi_state, rng_train)
         rng, rng_test, rng_reconstruct = random.split(rng, 3)
         num_test, test_idx = test_init()
-        test_loss = eval_test(opt_state, rng_test)
+        test_loss = eval_test(svi_state, rng_test)
         reconstruct_img(i, rng_reconstruct)
         print("Epoch {}: loss = {} ({:.2f} s.)".format(i, test_loss, time.time() - t_start))
 
 
 if __name__ == '__main__':
+    assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('-n', '--num-epochs', default=20, type=int, help='number of training epochs')
     parser.add_argument('-lr', '--learning-rate', default=1.0e-3, type=float, help='learning rate')
