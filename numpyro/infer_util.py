@@ -280,7 +280,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
 def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
-    values at sample sites from the forward run. By default, only non-plate sites not contained in
+    values at sample sites from the forward run. By default, only sample sites not contained in
     `posterior_samples` are returned. This can be modified by changing the `return_sites`
     keyword argument.
 
@@ -292,7 +292,7 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
     :param args: model arguments.
-    :param list return_sites: sites to return; by default only non-plate sites not present
+    :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
     :param int num_samples: number of samples
     :param kwargs: model kwargs.
