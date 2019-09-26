@@ -241,7 +241,7 @@ class plate(Messenger):
         trailing_shape = expected_shape[overlap_idx:]
         # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
         broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
-        if sum(map(sub, broadcast_shape, dist_batch_shape)) > 0:
+        if broadcast_shape != dist_batch_shape:
             raise ValueError('Distribution batch shape = {} cannot be broadcast up to {}. '
                              'Consider using unbatched distributions.'
                              .format(dist_batch_shape, broadcast_shape))
