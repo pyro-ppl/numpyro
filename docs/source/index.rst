@@ -1,7 +1,7 @@
 :github_url: https://github.com/pyro-ppl/numpyro
 
 
-Numpyro documentation
+NumPyro documentation
 =====================
 
 .. toctree::
