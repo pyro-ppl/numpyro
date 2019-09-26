@@ -99,7 +99,7 @@ def constrain_fn(model, model_args, model_kwargs, transforms, params):
 
 def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     """
-    Makes a callable which computes potential energy of a model given unconstrained params.
+    Computes potential energy of a model given unconstrained params.
     The `inv_transforms` is used to transform these unconstrained parameters to base values
     of the corresponding priors in `model`. If a prior is a transformed distribution,
     the corresponding base value lies in the support of base distribution. Otherwise,
@@ -109,7 +109,8 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs`: kwargs provided to the model.
     :param dict inv_transforms: dictionary of transforms keyed by names.
-    :return: a callable that computes potential energy given unconstrained parameters.
+    :param dict params: unconstrained parameters of `model`.
+    :return: potential energy given unconstrained parameters.
     """
     params_constrained = transform_fn(inv_transforms, params)
     log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
@@ -120,6 +121,23 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
             t_log_det = model_trace[name]['scale'] * t_log_det
         log_joint = log_joint + t_log_det
     return - log_joint
+
+
+def transformed_potential_energy(potential_energy, inv_transform, z):
+    """
+    Given a potential energy `p(x)`, compute potential energy of `p(z)`
+    with `z = transform(x)` (i.e. `x = inv_transform(z)`).
+
+    :param potential_energy: a callable to compute potential energy of original
+        variable `x`.
+    :param ~numpyro.distributions.constraints.Transform inv_transform: a
+        transform from the new variable `z` to `x`.
+    :param z: new variable to compute potential energy
+    :return: potential energy of `z`.
+    """
+    x, intermediates = inv_transform.call_with_intermediates(z)
+    logdet = inv_transform.log_abs_det_jacobian(z, x, intermediates=intermediates)
+    return potential_energy(x) - logdet
 
 
 def init_to_median(site, num_samples=15, skip_param=False):
@@ -262,7 +280,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
 def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
-    values at sample sites from the forward run. By default, only non-plate sites not contained in
+    values at sample sites from the forward run. By default, only sample sites not contained in
     `posterior_samples` are returned. This can be modified by changing the `return_sites`
     keyword argument.
 
@@ -274,7 +292,7 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
     :param args: model arguments.
-    :param list return_sites: sites to return; by default only non-plate sites not present
+    :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
     :param int num_samples: number of samples
     :param kwargs: model kwargs.

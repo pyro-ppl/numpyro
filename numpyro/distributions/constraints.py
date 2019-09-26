@@ -25,6 +25,7 @@
 import math
 
 from jax import ops
+from jax.flatten_util import ravel_pytree
 from jax.lib.xla_bridge import canonicalize_dtype
 from jax.nn import softplus
 import jax.numpy as np
@@ -518,6 +519,28 @@ class StickBreakingTransform(Transform):
         # XXX we use the identity 1 - z = z * exp(-x) to not worry about
         # the case z ~ 1
         return np.sum(np.log(y[..., :-1] * z) - x, axis=-1)
+
+
+class UnpackTransform(Transform):
+    """
+    Transforms a contiguous array to a pytree of subarrays.
+
+    :param unpack_fn: callable used to unpack a contiguous array.
+    """
+    domain = real_vector
+    event_dim = 1
+
+    def __init__(self, unpack_fn):
+        self.unpack_fn = unpack_fn
+
+    def __call__(self, x):
+        return self.unpack_fn(x)
+
+    def inv(self, y):
+        return ravel_pytree(y)[0]
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return np.zeros(np.shape(x)[:-1])
 
 
 ##########################################################
