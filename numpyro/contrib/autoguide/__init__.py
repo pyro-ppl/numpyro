@@ -23,7 +23,7 @@ from numpyro.distributions.constraints import (
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import cholesky_inverse, sum_rightmost
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
-from numpyro.svi import elbo
+import numpyro.svi
 
 __all__ = [
     'AutoContinuous',
@@ -347,11 +347,13 @@ class AutoLaplaceApproximation(AutoContinuous):
         return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
 
     def _get_transform(self, params):
+        def loss_fn(z):
+            params1 = params.copy()
+            params1['{}_loc'.format(self.prefix)] = z
+            return numpyro.svi.elbo(random.PRNGKey(0), params1, self.model, self,
+                                    self._args, self._args, self._kwargs)
+
         loc = params['{}_loc'.format(self.prefix)]
-        params = params.copy()
-        loss_fn = lambda z: elbo(  # noqa: E731
-            random.PRNGKey(0), params.update({'{}_loc'.format(self.prefix): z}),
-            self.model, self, self._args, self._args, self._kwargs)
         precision = hessian(loss_fn)(loc)
         scale_tril = cholesky_inverse(precision)
         return MultivariateAffineTransform(loc, scale_tril)
