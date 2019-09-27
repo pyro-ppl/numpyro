@@ -355,6 +355,20 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+def test_independent_shape(jax_dist, sp_dist, params):
+    d = jax_dist(*params)
+    batch_shape, event_shape = d.batch_shape, d.event_shape
+    shape = batch_shape + event_shape
+    for i in range(len(batch_shape)):
+        indep = dist.Independent(d, reinterpreted_batch_ndims=i)
+        sample = indep.sample(random.PRNGKey(0))
+        event_boundary = len(shape) - len(event_shape) - i
+        assert indep.batch_shape == shape[:event_boundary]
+        assert indep.event_shape == shape[event_boundary:]
+        assert np.shape(indep.log_prob(sample)) == shape[:event_boundary]
+
+
 def _tril_cholesky_to_tril_corr(x):
     w = vec_to_tril_matrix(x, diagonal=-1)
     diag = np.sqrt(1 - np.sum(w ** 2, axis=-1))

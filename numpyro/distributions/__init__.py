@@ -36,7 +36,7 @@ from numpyro.distributions.discrete import (
     Poisson,
     PRNGIdentity
 )
-from numpyro.distributions.distribution import Distribution, TransformedDistribution
+from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
 
 __all__ = [
     'Bernoulli',
@@ -59,6 +59,7 @@ __all__ = [
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
+    'Independent',
     'InverseGamma',
     'LKJCholesky',
     'LogNormal',

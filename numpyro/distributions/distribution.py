@@ -166,6 +166,75 @@ class Distribution(object):
             return self.sample_with_intermediates(key, *args, **kwargs)
         return self.sample(key, *args, **kwargs)
 
+    def to_event(self, reinterpreted_batch_ndims=None):
+        if reinterpreted_batch_ndims is None:
+            reinterpreted_batch_ndims = len(self.batch_shape)
+        return Independent(self, reinterpreted_batch_ndims)
+
+
+class Independent(Distribution):
+    """
+    Reinterprets batch dimensions of a distribution as event dims by shifting
+    the batch-event dim boundary further to the left.
+
+    From a practical standpoint, this is useful when changing the result of
+    :meth:`log_prob`. For example, a univariate Normal distribution can be
+    interpreted as a multivariate Normal with diagonal covariance::
+
+    .. testsetup::
+
+       import numpyro.distributions as dist
+
+    .. doctest::
+
+        >>> normal = dist.Normal(np.zeros(3), np.ones(3))
+        >>> [normal.batch_shape, normal.event_shape]
+        [torch.Size((3,)), torch.Size(())]
+        >>> diag_normal = Independent(normal, 1)
+        >>> [diag_normal.batch_shape, diag_normal.event_shape]
+        [torch.Size(()), torch.Size((3,))]
+
+    :param numpyro.distribution.Distribution base_distribution: a distribution instance.
+    :param int reinterpreted_batch_ndims: the number of batch dims to reinterpret as event dims.
+    """
+    arg_constraints = {}
+
+    def __init__(self, base_dist, reinterpreted_batch_ndims, validate_args=None):
+        if reinterpreted_batch_ndims > len(base_dist.batch_shape):
+            raise ValueError("Expected reinterpreted_batch_ndims <= len(base_distribution.batch_shape), "
+                             "actual {} vs {}".format(reinterpreted_batch_ndims,
+                                                      len(base_dist.batch_shape)))
+        shape = base_dist.batch_shape + base_dist.event_shape
+        event_dim = reinterpreted_batch_ndims + len(base_dist.event_shape)
+        batch_shape = shape[:len(shape) - event_dim]
+        event_shape = shape[len(shape) - event_dim:]
+        self.base_dist = base_dist
+        self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
+        super(Independent, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    @property
+    def support(self):
+        return self.base_dist.support
+
+    @property
+    def reparameterized_params(self):
+        return self.base_dist.reparameterized_params
+
+    @property
+    def mean(self):
+        return self.base_dist.mean
+
+    @property
+    def variance(self):
+        return self.base_dist.variance
+
+    def sample(self, key, sample_shape=()):
+        return self.base_dist.sample(key, sample_shape=sample_shape)
+
+    def log_prob(self, value):
+        log_prob = self.base_dist.log_prob(value)
+        return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
+
 
 class TransformedDistribution(Distribution):
     """
