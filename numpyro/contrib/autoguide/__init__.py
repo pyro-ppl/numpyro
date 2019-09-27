@@ -1,7 +1,7 @@
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
 
-from jax import vmap
+from jax import hessian, random, vmap
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
@@ -21,8 +21,9 @@ from numpyro.distributions.constraints import (
     biject_to
 )
 from numpyro.distributions.flows import InverseAutoregressiveTransform
-from numpyro.distributions.util import sum_rightmost
+from numpyro.distributions.util import cholesky_inverse, sum_rightmost
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
+from numpyro.svi import elbo
 
 __all__ = [
     'AutoContinuous',
@@ -292,14 +293,14 @@ class AutoDiagonalNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
     def _get_transform(self):
-        loc, scale = self._loc_scale()
-        return AffineTransform(loc, scale, domain=constraints.real_vector)
-
-    def _loc_scale(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
         scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
                               constraint=constraints.positive)
-        return loc, scale
+        return AffineTransform(loc, scale, domain=constraints.real_vector)
+
+    def _loc_scale(self):
+        transform = self._get_transform()
+        return transform.loc, transform.scale
 
 
 class AutoMultivariateNormal(AutoContinuous):
@@ -320,10 +321,61 @@ class AutoMultivariateNormal(AutoContinuous):
         return MultivariateAffineTransform(loc, scale_tril)
 
     def _loc_scale(self):
+        transform = self._get_transform()
+        return transform.loc, np.diagonal(transform.scale_tril)
+
+
+class AutoLaplaceApproximation(AutoContinuous):
+    r"""
+    Laplace approximation (quadratic approximation) approximates the posterior
+    :math:`\log p(z | x)` by a multivariate normal distribution in the
+    unconstrained space. Under the hood, it uses Delta distributions to
+    construct a MAP guide over the entire (unconstrained) latent space. Its
+    covariance is given by the inverse of the hessian of :math:`-\log p(x, z)`
+    at the MAP point of `z`.
+
+    Usage::
+
+        guide = AutoLaplaceApproximation(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _sample_latent(self, base_dist, *args, **kwargs):
+        # sample from Delta guide
+        sample_shape = kwargs.pop('sample_shape', ())
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix), np.identity(self.latent_size),
-                                   constraint=constraints.lower_cholesky)
-        return loc, np.diagonal(scale_tril)
+        posterior = dist.Delta(loc, event_ndim=1)
+        return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
+
+    def _get_transform(self, params):
+        loc = params['{}_loc'.format(self.prefix)]
+        params = params.copy()
+        loss_fn = lambda z: elbo(  # noqa: E731
+            random.PRNGKey(0), params.update({'{}_loc'.format(self.prefix): z}),
+            self.model, self, self._args, self._args, self._kwargs)
+        precision = hessian(loss_fn)(loc)
+        scale_tril = cholesky_inverse(precision)
+        return MultivariateAffineTransform(loc, scale_tril)
+
+    def sample_posterior(self, rng, params, sample_shape=()):
+        transform = self._get_transform(params)
+        latent_sample = dist.MultivariateNormal(transform.loc, transform.scale_tril).sample(rng, sample_shape)
+        return self._unpack_and_constrain(latent_sample, params)
+
+    def get_transform(self, params):
+        return ComposeTransform([self._get_transform(params),
+                                 UnpackTransform(self._unpack_latent)])
+
+    def median(self, params):
+        loc = params['{}_loc'.format(self.prefix)]
+        return self._unpack_and_constrain(loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = self._get_transform(params)
+        loc = transform.loc
+        scale = np.diagonal(transform.scale_tril)
+        quantiles = np.array(quantiles)[..., None]
+        latent = dist.Normal(loc, scale).icdf(quantiles)
+        return self._unpack_and_constrain(latent, params)
 
 
 class AutoIAFNormal(AutoContinuous):

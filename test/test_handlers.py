@@ -2,7 +2,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import jit, random, vmap
-from jax import numpy as np
+import jax.numpy as np
 
 import numpyro
 from numpyro import handlers

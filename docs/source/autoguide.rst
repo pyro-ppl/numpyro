@@ -12,7 +12,7 @@ AutoDiagonalNormal
     :member-order: bysource
 
 AutoMultivariateNormal
-------------------
+----------------------
 .. autoclass:: numpyro.contrib.autoguide.AutoMultivariateNormal
     :members:
     :undoc-members:
@@ -22,6 +22,14 @@ AutoMultivariateNormal
 AutoIAFNormal
 -------------
 .. autoclass:: numpyro.contrib.autoguide.AutoIAFNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+AutoLaplaceApproximation
+------------------------
+.. autoclass:: numpyro.contrib.autoguide.AutoLaplaceApproximation
     :members:
     :undoc-members:
     :show-inheritance:

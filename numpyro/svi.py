@@ -5,7 +5,7 @@ import warnings
 import jax
 from jax import random, value_and_grad
 
-from numpyro.contrib.autoguide import AutoContinuous
+import numpyro.contrib.autoguide
 from numpyro.distributions import constraints
 from numpyro.distributions.constraints import biject_to
 from numpyro.handlers import replay, seed, substitute, trace
@@ -155,7 +155,7 @@ def elbo(rng, param_map, model, guide, model_args, guide_args, kwargs):
     """
     model, guide = _seed(model, guide, rng)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
-    if isinstance(guide.__wrapped__, AutoContinuous):
+    if isinstance(guide.__wrapped__, numpyro.contrib.autoguide.AutoContinuous):
         # first, we substitute `param_map` to `param` primitives of `model`
         model = substitute(model, param_map)
         # then creates a new `param_map` which holds base values of `sample` primitives
