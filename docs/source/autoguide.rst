@@ -11,6 +11,14 @@ AutoDiagonalNormal
     :show-inheritance:
     :member-order: bysource
 
+AutoMultivariateNormal
+------------------
+.. autoclass:: numpyro.contrib.autoguide.AutoMultivariateNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 AutoIAFNormal
 -------------
 .. autoclass:: numpyro.contrib.autoguide.AutoIAFNormal

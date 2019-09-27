@@ -15,6 +15,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.constraints import (
     AffineTransform,
     ComposeTransform,
+    MultivariateAffineTransform,
     PermuteTransform,
     UnpackTransform,
     biject_to
@@ -138,7 +139,7 @@ class AutoContinuous(AutoGuide):
         self._init_latent, self._unpack_latent = ravel_pytree(init_params)
         self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
-            self.base_dist = _Normal(np.zeros(self.latent_size), 1.)
+            self.base_dist = dist.Normal(np.zeros(self.latent_size), 1.).to_event(1)
         if self.latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'
                                .format(type(self).__name__))
@@ -247,27 +248,8 @@ class AutoContinuous(AutoGuide):
             self.base_dist, sample_shape=sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-
-class AutoDiagonalNormal(AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a Normal distribution
-    with a diagonal covariance matrix to construct a guide over the entire
-    latent space. The guide does not depend on the model's ``*args, **kwargs``.
-
-    Usage::
-
-        guide = AutoDiagonalNormal(rng, model, ...)
-        svi = SVI(model, guide, ...)
-    """
-    def _get_transform(self):
-        loc, scale = self._loc_scale()
-        return AffineTransform(loc, scale, domain=constraints.real_vector)
-
-    def _loc_scale(self):
-        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
-                              constraint=constraints.positive)
-        return loc, scale
+    def _loc_scale(self, *args, **kwargs):
+        raise NotImplementedError
 
     def median(self, params):
         """
@@ -298,16 +280,50 @@ class AutoDiagonalNormal(AutoContinuous):
         return self._unpack_and_constrain(latent, params)
 
 
-# TODO: remove when to_event is supported
-class _Normal(dist.Normal):
-    # work as Normal but has event_dim=1
-    def __init__(self, *args, **kwargs):
-        super(_Normal, self).__init__(*args, **kwargs)
-        self._event_shape = self._batch_shape[-1:]
-        self._batch_shape = self._batch_shape[:-1]
+class AutoDiagonalNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a Normal distribution
+    with a diagonal covariance matrix to construct a guide over the entire
+    latent space. The guide does not depend on the model's ``*args, **kwargs``.
 
-    def log_prob(self, value):
-        return super(_Normal, self).log_prob(value).sum(-1)
+    Usage::
+
+        guide = AutoDiagonalNormal(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _get_transform(self):
+        loc, scale = self._loc_scale()
+        return AffineTransform(loc, scale, domain=constraints.real_vector)
+
+    def _loc_scale(self):
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
+                              constraint=constraints.positive)
+        return loc, scale
+
+
+class AutoMultivariateNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a MultivariateNormal
+    distribution to construct a guide over the entire latent space.
+    The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoMultivariateNormal(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _get_transform(self):
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix), np.identity(self.latent_size),
+                                   constraint=constraints.lower_cholesky)
+        return MultivariateAffineTransform(loc, scale_tril)
+
+    def _loc_scale(self):
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix), np.identity(self.latent_size),
+                                   constraint=constraints.lower_cholesky)
+        return loc, np.diagonal(scale_tril)
 
 
 class AutoIAFNormal(AutoContinuous):
@@ -320,8 +336,8 @@ class AutoIAFNormal(AutoContinuous):
 
     Usage::
 
-        guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[20], skip_connections=True, ...)
-        svi_init, svi_update, _ = svi(model, guide, ...)
+        guide = AutoIAFNormal(model, hidden_dims=[20], skip_connections=True, ...)
+        svi = SVI(model, guide, ...)
 
     :param jax.random.PRNGKey rng: random key to be used as the source of randomness
         to initialize the guide.
