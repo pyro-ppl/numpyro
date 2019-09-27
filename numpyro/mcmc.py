@@ -758,6 +758,8 @@ class MCMC(object):
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
+        self._args = args
+        self._kwargs = kwargs
         chain_method = self.chain_method
         if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
             chain_method = 'sequential'
