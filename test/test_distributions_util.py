@@ -4,7 +4,6 @@ import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
 import scipy.special as osp_special
-import scipy.stats as osp_stats
 
 from jax import grad, jacobian, jit, lax, random, vmap
 import jax.numpy as np
