@@ -138,7 +138,7 @@ class AutoContinuous(AutoGuide):
         self._init_latent, self._unpack_latent = ravel_pytree(init_params)
         self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
-            self.base_dist = _Normal(np.zeros(self.latent_size), 1.)
+            self.base_dist = dist.Independent(dist.Normal(np.zeros(self.latent_size), 1.), 1)
         if self.latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'
                                .format(type(self).__name__))
@@ -296,18 +296,6 @@ class AutoDiagonalNormal(AutoContinuous):
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(loc, scale).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
-
-
-# TODO: remove when to_event is supported
-class _Normal(dist.Normal):
-    # work as Normal but has event_dim=1
-    def __init__(self, *args, **kwargs):
-        super(_Normal, self).__init__(*args, **kwargs)
-        self._event_shape = self._batch_shape[-1:]
-        self._batch_shape = self._batch_shape[:-1]
-
-    def log_prob(self, value):
-        return super(_Normal, self).log_prob(value).sum(-1)
 
 
 class AutoIAFNormal(AutoContinuous):

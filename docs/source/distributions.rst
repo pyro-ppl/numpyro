@@ -9,6 +9,14 @@ Distribution
     :show-inheritance:
     :member-order: bysource
 
+Independent
+-----------
+.. autoclass:: numpyro.distributions.distribution.Independent
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 TransformedDistribution
 -----------------------
 .. autoclass:: numpyro.distributions.distribution.TransformedDistribution
