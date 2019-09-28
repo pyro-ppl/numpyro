@@ -189,10 +189,10 @@ class Independent(Distribution):
 
         >>> normal = dist.Normal(np.zeros(3), np.ones(3))
         >>> [normal.batch_shape, normal.event_shape]
-        [torch.Size((3,)), torch.Size(())]
-        >>> diag_normal = Independent(normal, 1)
+        [(3,), ()]
+        >>> diag_normal = dist.Independent(normal, 1)
         >>> [diag_normal.batch_shape, diag_normal.event_shape]
-        [torch.Size(()), torch.Size((3,))]
+        [(), (3,)]
 
     :param numpyro.distribution.Distribution base_distribution: a distribution instance.
     :param int reinterpreted_batch_ndims: the number of batch dims to reinterpret as event dims.
