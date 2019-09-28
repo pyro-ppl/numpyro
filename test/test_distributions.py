@@ -1,6 +1,7 @@
 from collections import namedtuple
 from functools import partial
 import inspect
+import os
 
 import numpy as onp
 from numpy.testing import assert_allclose, assert_array_equal
@@ -99,8 +100,10 @@ CONTINUOUS = [
     T(dist.LKJCholesky, 2, 0.5, "onion"),
     T(dist.LKJCholesky, 2, 0.5, "cvine"),
     T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "onion"),
-    T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "cvine"),
-    T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
+    pytest.param(*T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "cvine"),
+                 marks=pytest.mark.skipif('CI' in os.environ, reason="reduce time for Travis")),
+    pytest.param(*T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
+                 marks=pytest.mark.skipif('CI' in os.environ, reason="reduce time for Travis")),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
     T(dist.LogNormal, 1., 0.2),
     T(dist.LogNormal, -1., np.array([0.5, 1.3])),
@@ -472,7 +475,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_mean_var(jax_dist, sp_dist, params):
-    n = 200000
+    n = 20000 if jax_dist is dist.LKJCholesky else 200000
     d_jax = jax_dist(*params)
     k = random.PRNGKey(0)
     samples = d_jax.sample(k, sample_shape=(n,))
@@ -516,8 +519,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         expected_mean = expected_mean * (1 - np.identity(dimension)) + np.identity(dimension)
         expected_std = expected_std * (1 - np.identity(dimension))
 
-        assert_allclose(np.mean(corr_samples, axis=0), expected_mean, atol=0.005)
-        assert_allclose(np.std(corr_samples, axis=0), expected_std, atol=0.005)
+        assert_allclose(np.mean(corr_samples, axis=0), expected_mean, atol=0.01)
+        assert_allclose(np.std(corr_samples, axis=0), expected_std, atol=0.01)
     else:
         if np.all(np.isfinite(d_jax.mean)):
             assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
