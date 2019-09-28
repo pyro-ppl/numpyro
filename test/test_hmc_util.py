@@ -284,7 +284,7 @@ def test_warmup_adapter(jitted):
     mass_matrix_size = 3
 
     wa_init, wa_update = warmup_adapter(num_steps, find_reasonable_step_size)
-    wa_update = jit(wa_update)
+    wa_update = jit(wa_update) if jitted else wa_update
 
     rng = random.PRNGKey(0)
     z = np.ones(3)
