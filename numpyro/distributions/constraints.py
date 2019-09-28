@@ -67,6 +67,17 @@ class _CorrCholesky(Constraint):
         return lower_triangular & positive_diagonal & unit_norm_row
 
 
+class _CorrMatrix(Constraint):
+    def __call__(self, x):
+        # check for symmetric
+        symmetric = np.all(np.all(x == np.swapaxes(x, -2, -1), axis=-1), axis=-1)
+        # check for the smallest eigenvalue is positive
+        positive = np.linalg.eigh(x)[0][..., 0] > 0
+        # check for diagonal equal to 1
+        unit_variance = np.all(np.abs(np.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
+        return symmetric & positive & unit_variance
+
+
 class _Dependent(Constraint):
     def __call__(self, x):
         raise ValueError('Cannot determine validity of dependent constraint')
@@ -155,6 +166,7 @@ class _Simplex(Constraint):
 
 boolean = _Boolean()
 corr_cholesky = _CorrCholesky()
+corr_matrix = _CorrMatrix()
 dependent = _Dependent()
 greater_than = _GreaterThan
 integer_interval = _IntegerInterval
@@ -332,7 +344,7 @@ class CorrCholeskyTransform(Transform):
     """
     domain = real_vector
     codomain = corr_cholesky
-    event_dim = 1
+    event_dim = 2
 
     def __call__(self, x):
         # we interchange step 1 and step 2.a for a better performance
@@ -412,10 +424,47 @@ class IdentityTransform(Transform):
         return np.full(np.shape(x) if self.event_dim == 0 else np.shape(x)[:-1], 0.)
 
 
+class InvCholeskyTransform(Transform):
+    r"""
+    Transform via the mapping :math:`y = x @ x.T`, where `x` is a lower
+    triangular matrix with positive diagonal.
+    """
+    event_dim = 2
+
+    def __init__(self, domain=lower_cholesky):
+        assert domain in [lower_cholesky, corr_cholesky]
+        self.domain = domain
+
+    @property
+    def codomain(self):
+        if self.domain is lower_cholesky:
+            return positive_definite
+        elif self.domain:
+            return corr_matrix
+
+    def __call__(self, x):
+        return np.matmul(x, np.swapaxes(x, -2, -1))
+
+    def inv(self, y):
+        return np.linalg.cholesky(y)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        if self.domain is lower_cholesky:
+            # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
+            n = np.shape(x)[-1]
+            order = np.arange(n, 0, -1)
+            return n * np.log(2) + np.sum(order * np.log(np.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
+        else:
+            # NB: see derivation in LKJCholesky implementation
+            n = np.shape(x)[-1]
+            order = np.arange(n - 1, -1, -1)
+            return np.sum(order * np.log(np.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
+
+
 class LowerCholeskyTransform(Transform):
     domain = real_vector
     codomain = lower_cholesky
-    event_dim = 1
+    event_dim = 2
 
     def __call__(self, x):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
@@ -611,6 +660,11 @@ def _transform_to_corr_cholesky(constraint):
     return CorrCholeskyTransform()
 
 
+@biject_to.register(corr_matrix)
+def _transform_to_corr_matrix(constraint):
+    return ComposeTransform([CorrCholeskyTransform(), InvCholeskyTransform(domain=corr_cholesky)])
+
+
 @biject_to.register(greater_than)
 def _transform_to_greater_than(constraint):
     if constraint is positive:
@@ -633,6 +687,11 @@ def _transform_to_interval(constraint):
 @biject_to.register(lower_cholesky)
 def _transform_to_lower_cholesky(constraint):
     return LowerCholeskyTransform()
+
+
+@biject_to.register(positive_definite)
+def _transform_to_positive_definite(constraint):
+    return ComposeTransform([LowerCholeskyTransform(), InvCholeskyTransform()])
 
 
 @biject_to.register(real)

@@ -30,7 +30,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AffineTransform, ExpTransform, PowerTransform
+from numpyro.distributions.constraints import AffineTransform, ExpTransform, InvCholeskyTransform, PowerTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.util import (
     cholesky_inverse,
@@ -328,6 +328,47 @@ class InverseGamma(TransformedDistribution):
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return np.where(self.concentration <= 2, np.inf, a)
+
+
+@copy_docs_from(Distribution)
+class LKJ(TransformedDistribution):
+    r"""
+    LKJ distribution for correlation matrices. The distribution is controlled by ``concentration``
+    parameter :math:`\eta` to make the probability of the correlation matrix :math:`M` propotional
+    to :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
+    uniform distribution over correlation matrices.
+
+    When ``concentration > 1``, the distribution favors samples with large large determinent. This
+    is useful when we know a priori that the underlying variables are not correlated.
+
+    When ``concentration < 1``, the distribution favors samples with small determinent. This is
+    useful when we know a priori that some underlying variables are correlated.
+
+    :param int dimension: dimension of the matrices
+    :param ndarray concentration: concentration/shape parameter of the
+        distribution (often referred to as eta)
+    :param str sample_method: Either "cvine" or "onion". Both methods are proposed in [1] and
+        offer the same distribution over correlation matrices. But they are different in how
+        to generate samples. Defaults to "onion".
+
+    **References**
+
+    [1] `Generating random correlation matrices based on vines and extended onion method`,
+    Daniel Lewandowski, Dorota Kurowicka, Harry Joe
+    """
+    arg_constraints = {'concentration': constraints.positive}
+    support = constraints.corr_matrix
+
+    def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
+        base_dist = LKJCholesky(dimension, concentration, sample_method)
+        self.dimension, self.concentration = base_dist.dimension, base_dist.concentration
+        self.sample_method = sample_method
+        super(LKJ, self).__init__(base_dist, InvCholeskyTransform(domain=constraints.corr_cholesky),
+                                  validate_args=validate_args)
+
+    @property
+    def mean(self):
+        return np.broadcast_to(np.identity(self.dimension), self.batch_shape + (self.dimension, self.dimension))
 
 
 @copy_docs_from(Distribution)
