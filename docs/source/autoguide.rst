@@ -12,7 +12,7 @@ AutoDiagonalNormal
     :member-order: bysource
 
 AutoMultivariateNormal
-------------------
+----------------------
 .. autoclass:: numpyro.contrib.autoguide.AutoMultivariateNormal
     :members:
     :undoc-members:

@@ -139,7 +139,7 @@ class AutoContinuous(AutoGuide):
         self._init_latent, self._unpack_latent = ravel_pytree(init_params)
         self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
-            self.base_dist = dist.Normal(np.zeros(self.latent_size), 1.).to_event(1)
+            self.base_dist = dist.Independent(dist.Normal(np.zeros(self.latent_size), 1.), 1)
         if self.latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'
                                .format(type(self).__name__))
@@ -248,7 +248,7 @@ class AutoContinuous(AutoGuide):
             self.base_dist, sample_shape=sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-    def _loc_scale(self, *args, **kwargs):
+    def _loc_scale(self):
         raise NotImplementedError
 
     def median(self, params):
@@ -292,14 +292,14 @@ class AutoDiagonalNormal(AutoContinuous):
         svi = SVI(model, guide, ...)
     """
     def _get_transform(self):
-        loc, scale = self._loc_scale()
-        return AffineTransform(loc, scale, domain=constraints.real_vector)
-
-    def _loc_scale(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
         scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
                               constraint=constraints.positive)
-        return loc, scale
+        return AffineTransform(loc, scale, domain=constraints.real_vector)
+
+    def _loc_scale(self):
+        transform = self._get_transform()
+        return transform.loc, transform.scale
 
 
 class AutoMultivariateNormal(AutoContinuous):
@@ -320,10 +320,8 @@ class AutoMultivariateNormal(AutoContinuous):
         return MultivariateAffineTransform(loc, scale_tril)
 
     def _loc_scale(self):
-        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix), np.identity(self.latent_size),
-                                   constraint=constraints.lower_cholesky)
-        return loc, np.diagonal(scale_tril)
+        transform = self._get_transform()
+        return transform.loc, np.diagonal(transform.scale_tril)
 
 
 class AutoIAFNormal(AutoContinuous):

@@ -14,6 +14,7 @@ from numpyro.examples.datasets import BASEBALL, load_dataset
 from numpyro.infer_util import log_likelihood, predictive
 from numpyro.mcmc import MCMC, NUTS
 
+
 """
 Original example from Pyro:
 https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py
