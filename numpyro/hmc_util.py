@@ -22,7 +22,7 @@ IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', '
 
 TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
                                    'z_right', 'r_right', 'z_right_grad',
-                                   'z_proposal', 'z_proposal_pe', 'z_proposal_grad',
+                                   'z_proposal', 'z_proposal_pe', 'z_proposal_grad', 'z_proposal_energy',
                                    'depth', 'weight', 'r_sum', 'turning', 'diverging',
                                    'sum_accept_probs', 'num_proposals'])
 
@@ -506,10 +506,10 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
         turning = current_tree.turning
 
     transition = random.bernoulli(rng, transition_prob)
-    z_proposal, z_proposal_pe, z_proposal_grad = cond(
+    z_proposal, z_proposal_pe, z_proposal_grad, z_proposal_energy = cond(
         transition,
-        new_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad),
-        current_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad)
+        new_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad, tree.z_proposal_energy),
+        current_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad, tree.z_proposal_energy)
     )
 
     tree_depth = current_tree.depth + 1
@@ -520,7 +520,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
     num_proposals = current_tree.num_proposals + new_tree.num_proposals
 
     return TreeInfo(z_left, r_left, z_left_grad, z_right, r_right, r_right_grad,
-                    z_proposal, z_proposal_pe, z_proposal_grad,
+                    z_proposal, z_proposal_pe, z_proposal_grad, z_proposal_energy,
                     tree_depth, tree_weight, r_sum, turning, diverging,
                     sum_accept_probs, num_proposals)
 
@@ -543,7 +543,7 @@ def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, st
     diverging = delta_energy > max_delta_energy
     accept_prob = np.clip(np.exp(-delta_energy), a_max=1.0)
     return TreeInfo(z_new, r_new, z_new_grad, z_new, r_new, z_new_grad,
-                    z_new, potential_energy_new, z_new_grad,
+                    z_new, potential_energy_new, z_new_grad, energy_new,
                     depth=0, weight=tree_weight, r_sum=r_new, turning=False,
                     diverging=diverging, sum_accept_probs=accept_prob, num_proposals=1)
 
@@ -654,7 +654,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     # update depth and turning condition
     return TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
                     tree.z_right, tree.r_right, tree.z_right_grad,
-                    tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad,
+                    tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad, tree.z_proposal_energy,
                     depth, tree.weight, tree.r_sum, turning, tree.diverging,
                     tree.sum_accept_probs, tree.num_proposals)
 
@@ -689,7 +689,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     r_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
     r_sum_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
 
-    tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad,
+    tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad, energy_current,
                     depth=0, weight=0., r_sum=r, turning=False, diverging=False,
                     sum_accept_probs=0., num_proposals=0)
 
