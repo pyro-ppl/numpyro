@@ -23,7 +23,7 @@ def set_rng_seed(rng_seed):
 
 def set_platform(platform=None):
     """
-    :param str device: either 'cpu', 'gpu', 'tpu'.
+    :param str platform: either 'cpu', 'gpu', 'tpu'.
     """
     if platform is None:
         platform = os.getenv('JAX_PLATFORM_NAME', 'cpu')
