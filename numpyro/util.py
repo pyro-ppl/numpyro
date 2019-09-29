@@ -1,10 +1,12 @@
 from collections import namedtuple
 from contextlib import contextmanager
+import os
 import random
 
 import numpy as onp
 import tqdm
 
+import jax
 from jax import jit, lax, ops, vmap
 from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
@@ -17,6 +19,23 @@ _DISABLE_CONTROL_FLOW_PRIM = False
 def set_rng_seed(rng_seed):
     random.seed(rng_seed)
     onp.random.seed(rng_seed)
+
+
+def set_platform(platform=None):
+    """
+    :param str device: either 'cpu', 'gpu', 'tpu'.
+    """
+    if platform is None:
+        platform = os.getenv('JAX_PLATFORM_NAME', 'cpu')
+    jax.config.update('jax_platform_name', platform)
+
+
+def set_host_devices(n):
+    """
+    :param int n: number of CPU devices to use.
+    """
+    xla_flags = os.getenv('XLA_FLAGS', '--xla_force_host_platform_device_count={}'.format(n))
+    os.environ['XLA_FLAGS'] = xla_flags
 
 
 @contextmanager
