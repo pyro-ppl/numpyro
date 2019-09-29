@@ -4,3 +4,5 @@ from numpyro.version import __version__  # noqa: F401
 import numpyro.util as util
 
 # TODO: set defaults to numpyro
+# import os
+# set_host_devices(os.cpu_count())
