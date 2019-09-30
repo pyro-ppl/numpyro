@@ -1,6 +1,7 @@
 from collections import namedtuple
 from functools import partial
 import logging
+import os
 
 import numpy as onp
 from numpy.testing import assert_allclose
@@ -269,7 +270,10 @@ def test_build_adaptation_schedule(num_steps, expected):
     assert adaptation_schedule == expected_schedule
 
 
-@pytest.mark.parametrize('jitted', [True, False])
+@pytest.mark.parametrize('jitted', [
+    True,
+    pytest.param(False, marks=pytest.mark.skipif("CI" in os.environ, reason="slow in Travis"))
+])
 def test_warmup_adapter(jitted):
     def find_reasonable_step_size(m_inv, z, rng, step_size):
         return np.where(step_size < 1, step_size * 4, step_size / 4)
@@ -432,7 +436,7 @@ def test_model_with_transformed_distribution():
 
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible,
-    init_to_median,
+    partial(init_to_median, num_samples=2),
     init_to_prior,
     init_to_uniform,
 ])
@@ -454,10 +458,10 @@ def test_initialize_model_change_point(init_strategy):
         5,  14,  13,  22,
     ])
 
-    rngs = random.split(random.PRNGKey(1), 12)
+    rngs = random.split(random.PRNGKey(1), 2)
     init_params, _, _ = initialize_model(rngs, model, count_data,
                                          init_strategy=init_strategy)
-    for i in range(12):
+    for i in range(2):
         init_params_i, _, _ = initialize_model(rngs[i], model, count_data,
                                                init_strategy=init_strategy)
         for name, p in init_params.items():
@@ -467,7 +471,7 @@ def test_initialize_model_change_point(init_strategy):
 
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible,
-    init_to_median,
+    partial(init_to_median, num_samples=2),
     init_to_prior,
     init_to_uniform,
 ])
@@ -481,10 +485,10 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
 
-    rngs = random.split(random.PRNGKey(1), 12)
+    rngs = random.split(random.PRNGKey(1), 2)
     init_params, _, _ = initialize_model(rngs, model, data,
                                          init_strategy=init_strategy)
-    for i in range(12):
+    for i in range(2):
         init_params_i, _, _ = initialize_model(rngs[i], model, data,
                                                init_strategy=init_strategy)
         for name, p in init_params.items():

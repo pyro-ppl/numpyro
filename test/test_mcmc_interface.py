@@ -298,7 +298,7 @@ def test_empty_model(num_chains, chain_method, progress_bar):
 
 @pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
-@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+@pytest.mark.skipif('XLA_FLAGS' not in os.environ, reason='without this mark, we have duplicated tests in Travis')
 def test_chain(use_init_params, chain_method):
     N, dim = 3000, 3
     num_chains = 2

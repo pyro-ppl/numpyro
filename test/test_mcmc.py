@@ -67,6 +67,7 @@ def test_beta_bernoulli(algo):
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 @pytest.mark.parametrize('map_fn', [vmap, pmap])
+@pytest.mark.skipif('JAX_ENABLE_x64' in os.environ, reason='skip x64 test')
 def test_map(algo, map_fn):
     if map_fn is pmap and xla_bridge.device_count() == 1:
         pytest.skip('pmap test requires device_count greater than 1.')

@@ -15,8 +15,12 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
+from numpyro.infer_util import init_to_median
 from numpyro.svi import SVI, elbo
 from numpyro.util import fori_loop
+
+
+init_strategy = partial(init_to_median, num_samples=2)
 
 
 @pytest.mark.parametrize('auto_class', [
@@ -32,7 +36,7 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample('obs', dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    guide = auto_class(model)
+    guide = auto_class(model, init_strategy=init_strategy)
     svi = SVI(model, guide, elbo, adam)
     svi_state = svi.init(random.PRNGKey(1), model_args=(data,), guide_args=(data,))
 
@@ -66,7 +70,7 @@ def test_logistic_regression(auto_class):
 
     adam = optim.Adam(0.01)
     rng_init = random.PRNGKey(1)
-    guide = auto_class(model)
+    guide = auto_class(model, init_strategy=init_strategy)
     svi = SVI(model, guide, elbo, adam)
     svi_state = svi.init(rng_init, model_args=(data, labels), guide_args=(data, labels))
 

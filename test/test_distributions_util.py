@@ -4,7 +4,6 @@ import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
 import scipy.special as osp_special
-import scipy.stats as osp_stats
 
 from jax import grad, jacobian, jit, lax, random, vmap
 import jax.numpy as np
@@ -121,60 +120,6 @@ def test_cumprod_jac(shape):
 
     assert_allclose(cumprod(x), test_fn(x))
     assert_allclose(jacobian(cumprod)(x), jacobian(test_fn)(x), atol=1e-7)
-
-
-@pytest.mark.parametrize('alpha, shape', [
-    (1., ()),
-    (1., (2,)),
-    (np.array([1., 2.]), ()),
-    (np.array([1., 2.]), (3, 2)),
-])
-def test_standard_gamma_shape(alpha, shape):
-    rng = random.PRNGKey(0)
-    expected_shape = lax.broadcast_shapes(np.shape(alpha), shape)
-    assert np.shape(random.gamma(rng, alpha, shape=shape)) == expected_shape
-
-
-@pytest.mark.parametrize("alpha", [0.6, 2., 10.])
-def test_standard_gamma_stats(alpha):
-    rng = random.PRNGKey(0)
-    z = random.gamma(rng, np.full((1000,), alpha))
-    assert_allclose(np.mean(z), alpha, rtol=0.06)
-    assert_allclose(np.var(z), alpha, rtol=0.2)
-
-
-@pytest.mark.parametrize("alpha", [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4])
-def test_standard_gamma_grad(alpha):
-    rng = random.PRNGKey(0)
-    alphas = np.full((100,), alpha)
-    z = random.gamma(rng, alphas)
-    actual_grad = grad(lambda x: np.sum(random.gamma(rng, x)))(alphas)
-
-    eps = 0.01 * alpha / (1.0 + np.sqrt(alpha))
-    cdf_dot = (osp_stats.gamma.cdf(z, alpha + eps)
-               - osp_stats.gamma.cdf(z, alpha - eps)) / (2 * eps)
-    pdf = osp_stats.gamma.pdf(z, alpha)
-    expected_grad = -cdf_dot / pdf
-
-    assert_allclose(actual_grad, expected_grad, atol=1e-8, rtol=0.0005)
-
-
-def test_standard_gamma_batch():
-    rng = random.PRNGKey(0)
-    alphas = np.array([1., 2., 3.])
-    rngs = random.split(rng, 3)
-
-    samples = vmap(lambda rng, alpha: random.gamma(rng, alpha))(rngs, alphas)
-    for i in range(3):
-        assert_allclose(samples[i], random.gamma(rngs[i], alphas[i]))
-
-    samples = vmap(lambda rng: random.gamma(rng, alphas[:2]))(rngs)
-    for i in range(3):
-        assert_allclose(samples[i], random.gamma(rngs[i], alphas[:2]))
-
-    samples = vmap(lambda alpha: random.gamma(rng, alpha))(alphas)
-    for i in range(3):
-        assert_allclose(samples[i], random.gamma(rng, alphas[i]))
 
 
 @pytest.mark.parametrize('prim', [
