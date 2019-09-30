@@ -23,7 +23,10 @@ def set_rng_seed(rng_seed):
 
 def set_platform(platform=None):
     """
-    :param str platform: either 'cpu', 'gpu', 'tpu'.
+    Changes platform to CPU, GPU, or TPU. This utility only takes
+    effect at the beginning of your program.
+
+    :param str platform: either 'cpu', 'gpu', or 'tpu'.
     """
     if platform is None:
         platform = os.getenv('JAX_PLATFORM_NAME', 'cpu')
@@ -32,6 +35,25 @@ def set_platform(platform=None):
 
 def set_host_devices(n):
     """
+    By default, XLA considers all CPU cores as one device. This utility tells XLA
+    that there are `n` host (CPU) devices available to use. As a consequence, this
+    allows parallel mapping in JAX :func:`jax.pmap` to work in CPU platform.
+
+    .. note:: This utility only takes effect at the beginning of your program.
+        Under the sence, this sets the environment variable
+        `XLA_FLAGS=--xla_force_host_platform_device_count=[num_devices]`, where
+        `[num_device]` is the desired number of CPU devices `n`.
+
+    .. warning:: We do not understand much the side effects when using
+        `xla_force_host_platform_device_count` flag. If you observe some strange
+        phenomenon when using this utility, please let us know through our issue
+        or forum page. Here we quote from XLA source code the meaning of this flag:
+        "Force the host platform to pretend that there are these many host
+        'devices'. All of these host devices are backed by the same threadpool.
+        Setting this to anything other than 1 can increase overhead from context
+        switching but we let the user override this behavior to help run tests
+        on the host that run models in parallel across multiple devices."
+
     :param int n: number of CPU devices to use.
     """
     xla_flags = os.getenv('XLA_FLAGS', '--xla_force_host_platform_device_count={}'.format(n))
