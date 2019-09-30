@@ -58,8 +58,7 @@ def set_host_devices(n):
     :param int n: number of CPU devices to use.
     """
     xla_flags = os.getenv('XLA_FLAGS', '').lstrip('--')
-    xla_flags = re.sub(re.compile(r'xla_force_host_platform_device_count=.+\s'),
-                       '', xla_flags).split()
+    xla_flags = re.sub(r'xla_force_host_platform_device_count=.+\s', '', xla_flags).split()
     os.environ['XLA_FLAGS'] = ' '.join(['--xla_force_host_platform_device_count={}'.format(n)]
                                        + xla_flags)
 
