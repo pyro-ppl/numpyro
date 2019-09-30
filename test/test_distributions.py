@@ -97,6 +97,8 @@ CONTINUOUS = [
     T(dist.HalfNormal, np.array([1., 2.])),
     T(dist.InverseGamma, np.array([1.7]), np.array([[2.], [3.]])),
     T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
+    T(dist.LKJ, 2, 0.5, "onion"),
+    T(dist.LKJ, 5, np.array([0.5, 1., 2.]), "cvine"),
     T(dist.LKJCholesky, 2, 0.5, "onion"),
     T(dist.LKJCholesky, 2, 0.5, "cvine"),
     T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "onion"),
@@ -189,8 +191,11 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
     elif isinstance(constraint, constraints._CorrCholesky):
         return signed_stick_breaking_tril(
-            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
-                           minval=-1, maxval=1))
+            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
+    elif isinstance(constraint, constraints._CorrMatrix):
+        cholesky = signed_stick_breaking_tril(
+            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
+        return np.matmul(cholesky, np.swapaxes(cholesky, -2, -1))
     elif isinstance(constraint, constraints._LowerCholesky):
         return np.tril(random.uniform(key, size))
     elif isinstance(constraint, constraints._PositiveDefinite):
@@ -224,6 +229,10 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
                            minval=-1, maxval=1)) + 1e-2
+    elif isinstance(constraint, constraints._CorrMatrix):
+        cholesky = 1e-2 + signed_stick_breaking_tril(
+            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
+        return np.matmul(cholesky, np.swapaxes(cholesky, -2, -1))
     elif isinstance(constraint, constraints._LowerCholesky):
         return random.uniform(key, size)
     elif isinstance(constraint, constraints._PositiveDefinite):
@@ -445,7 +454,7 @@ def test_log_prob_LKJCholesky(dimension, concentration):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_log_prob_gradient(jax_dist, sp_dist, params):
-    if jax_dist is dist.LKJCholesky:
+    if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip('we have separated tests for LKJCholesky distribution')
     rng = random.PRNGKey(0)
 
@@ -502,8 +511,11 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
         if np.all(np.isfinite(sp_var)):
             assert_allclose(np.std(samples, 0), np.sqrt(d_jax.variance), rtol=0.05, atol=1e-2)
-    elif jax_dist is dist.LKJCholesky:
-        corr_samples = np.matmul(samples, np.swapaxes(samples, -2, -1))
+    elif jax_dist in [dist.LKJ, dist.LKJCholesky]:
+        if jax_dist is dist.LKJCholesky:
+            corr_samples = np.matmul(samples, np.swapaxes(samples, -2, -1))
+        else:
+            corr_samples = samples
         dimension, concentration, _ = params
         # marginal of off-diagonal entries
         marginal = dist.Beta(concentration + 0.5 * (dimension - 2),
@@ -541,7 +553,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     key = random.PRNGKey(1)
     dependent_constraint = False
     for i in range(len(params)):
-        if jax_dist is dist.LKJCholesky and dist_args[i] != "concentration":
+        if jax_dist in (dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
             continue
         if params[i] is None:
             oob_params[i] = None
@@ -595,6 +607,10 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
      np.array([True, False])),  # NB: not lower_triangular
     (constraints.corr_cholesky, np.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
      np.array([False, False])),  # NB: not positive_diagonal & not unit_norm_row
+    (constraints.corr_matrix, np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
+     np.array([True, False])),  # NB: not lower_triangular
+    (constraints.corr_matrix, np.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
+     np.array([False, False])),  # NB: not unit diagonal
     (constraints.greater_than(1), 3, True),
     (constraints.greater_than(1), np.array([-1, 1, 5]), np.array([False, False, True])),
     (constraints.integer_interval(-3, 5), 0, True),
@@ -631,10 +647,12 @@ def test_constraints(constraint, x, expected):
 
 @pytest.mark.parametrize('constraint', [
     constraints.corr_cholesky,
+    constraints.corr_matrix,
     constraints.greater_than(2),
     constraints.interval(-3, 5),
     constraints.lower_cholesky,
     constraints.positive,
+    constraints.positive_definite,
     constraints.real,
     constraints.simplex,
     constraints.unit_interval,
@@ -642,19 +660,23 @@ def test_constraints(constraint, x, expected):
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
+    if transform.event_dim == 2:
+        event_dim = 1  # actual dim of unconstrained domain
+    else:
+        event_dim = transform.event_dim
     if isinstance(constraint, constraints._Interval):
         assert transform.codomain.upper_bound == constraint.upper_bound
         assert transform.codomain.lower_bound == constraint.lower_bound
     elif isinstance(constraint, constraints._GreaterThan):
         assert transform.codomain.lower_bound == constraint.lower_bound
-    if len(shape) < transform.event_dim:
+    if len(shape) < event_dim:
         return
     rng = random.PRNGKey(0)
     x = random.normal(rng, shape)
     y = transform(x)
 
     # test codomain
-    batch_shape = shape if transform.event_dim == 0 else shape[:-1]
+    batch_shape = shape if event_dim == 0 else shape[:-1]
     assert_array_equal(transform.codomain(y), np.ones(batch_shape, dtype=np.bool_))
 
     # test inv
@@ -667,28 +689,42 @@ def test_biject_to(constraint, shape):
     # test log_abs_det_jacobian
     actual = transform.log_abs_det_jacobian(x, y)
     assert np.shape(actual) == batch_shape
-    if len(shape) == transform.event_dim:
+    if len(shape) == event_dim:
         if constraint is constraints.simplex:
             expected = onp.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
-        elif constraint is constraints.corr_cholesky:
+        elif constraint in [constraints.corr_cholesky, constraints.corr_matrix]:
             vec_transform = lambda x: matrix_to_tril_vec(transform(x), diagonal=-1)  # noqa: E731
             y_tril = matrix_to_tril_vec(y, diagonal=-1)
-            inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x, diagonal=-1))  # noqa: E731
+
+            def inv_vec_transform(y):
+                matrix = vec_to_tril_matrix(y, diagonal=-1)
+                if constraint is constraints.corr_matrix:
+                    # fill the upper triangular part
+                    matrix = matrix + np.swapaxes(matrix, -2, -1) + np.identity(matrix.shape[-1])
+                return transform.inv(matrix)
+
             expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
-        elif constraint is constraints.lower_cholesky:
+        elif constraint in [constraints.lower_cholesky, constraints.positive_definite]:
             vec_transform = lambda x: matrix_to_tril_vec(transform(x))  # noqa: E731
             y_tril = matrix_to_tril_vec(y)
-            inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x))  # noqa: E731
+
+            def inv_vec_transform(y):
+                matrix = vec_to_tril_matrix(y)
+                if constraint is constraints.positive_definite:
+                    # fill the upper triangular part
+                    matrix = matrix + np.swapaxes(matrix, -2, -1) - np.diag(np.diag(matrix))
+                return transform.inv(matrix)
+
             expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         else:
             expected = np.log(np.abs(grad(transform)(x)))
             inv_expected = np.log(np.abs(grad(transform.inv)(y)))
 
-        assert_allclose(actual, expected, atol=1e-6)
-        assert_allclose(actual, -inv_expected, atol=1e-6)
+        assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+        assert_allclose(actual, -inv_expected, atol=1e-6, rtol=1e-6)
 
 
 # NB: skip transforms which are tested in `test_biject_to`
