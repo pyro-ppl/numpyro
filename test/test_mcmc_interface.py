@@ -77,7 +77,7 @@ def test_logistic_regression(kernel_cls):
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(2), labels)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
+    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
     if 'JAX_ENABLE_x64' in os.environ:
         assert samples['coefs'].dtype == np.float64
