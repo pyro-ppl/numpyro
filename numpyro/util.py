@@ -2,6 +2,7 @@ from collections import namedtuple
 from contextlib import contextmanager
 import os
 import random
+import re
 
 import numpy as onp
 import tqdm
@@ -40,7 +41,7 @@ def set_host_devices(n):
     allows parallel mapping in JAX :func:`jax.pmap` to work in CPU platform.
 
     .. note:: This utility only takes effect at the beginning of your program.
-        Under the sence, this sets the environment variable
+        Under the hood, this sets the environment variable
         `XLA_FLAGS=--xla_force_host_platform_device_count=[num_devices]`, where
         `[num_device]` is the desired number of CPU devices `n`.
 
@@ -56,8 +57,10 @@ def set_host_devices(n):
 
     :param int n: number of CPU devices to use.
     """
-    xla_flags = os.getenv('XLA_FLAGS', '--xla_force_host_platform_device_count={}'.format(n))
-    os.environ['XLA_FLAGS'] = xla_flags
+    xla_flags = os.getenv('XLA_FLAGS', '').lstrip('--')
+    xla_flags = re.sub('xla_force_host_platform_device_count=.+\s', '', xla_flags).split()
+    os.environ['XLA_FLAGS'] = ' '.join(['--xla_force_host_platform_device_count={}'.format(n)]
+                                       + xla_flags)
 
 
 @contextmanager
