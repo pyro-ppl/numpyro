@@ -9,6 +9,14 @@ Distribution
     :show-inheritance:
     :member-order: bysource
 
+Independent
+-----------
+.. autoclass:: numpyro.distributions.distribution.Independent
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 TransformedDistribution
 -----------------------
 .. autoclass:: numpyro.distributions.distribution.TransformedDistribution
@@ -96,6 +104,14 @@ HalfNormal
 InverseGamma
 ------------
 .. autoclass:: numpyro.distributions.continuous.InverseGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+LKJ
+---
+.. autoclass:: numpyro.distributions.continuous.LKJ
     :members:
     :undoc-members:
     :show-inheritance:
@@ -296,6 +312,10 @@ corr_cholesky
 -------------
 .. autodata:: numpyro.distributions.constraints.corr_cholesky
 
+corr_matrix
+-----------
+.. autodata:: numpyro.distributions.constraints.corr_matrix
+
 dependent
 ---------
 .. autodata:: numpyro.distributions.constraints.dependent
@@ -411,6 +431,14 @@ ExpTransform
 IdentityTransform
 -----------------
 .. autoclass:: numpyro.distributions.constraints.IdentityTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+InvCholeskyTransform
+--------------------
+.. autoclass:: numpyro.distributions.constraints.InvCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:

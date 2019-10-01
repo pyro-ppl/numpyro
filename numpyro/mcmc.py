@@ -27,7 +27,7 @@ from numpyro.hmc_util import (
 )
 from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
 
-HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'num_steps', 'accept_prob',
+HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
@@ -37,6 +37,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
    the posterior) at latent sites.
  - **z_grad** - Gradient of potential energy w.r.t. latent sample sites.
  - **potential_energy** - Potential energy computed at the given value of ``z``.
+ - **energy** - Sum of potential energy and kinetic energy of the current state.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
  - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
    does not correspond to the proposal if it is rejected.
@@ -236,8 +237,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
         r = momentum_generator(wa_state.mass_matrix_sqrt, rng)
         vv_state = vv_init(z, r)
-        hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, 0, 0., 0.,
-                             False, wa_state, rng_hmc)
+        energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
+        hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
+                             0, 0., 0., False, wa_state, rng_hmc)
 
         # TODO: Remove; this should be the responsibility of the MCMC class.
         if run_warmup and num_warmup > 0:
@@ -263,10 +265,10 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         accept_prob = np.clip(np.exp(-delta_energy), a_max=1.0)
         diverging = delta_energy > max_delta_energy
         transition = random.bernoulli(rng, accept_prob)
-        vv_state = cond(transition,
-                        vv_state_new, lambda state: state,
-                        vv_state, lambda state: state)
-        return vv_state, num_steps, accept_prob, diverging
+        vv_state, energy = cond(transition,
+                                (vv_state_new, energy_new), lambda args: args,
+                                (vv_state, energy_old), lambda args: args)
+        return vv_state, energy, num_steps, accept_prob, diverging
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state, rng):
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
@@ -279,7 +281,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                    r=vv_state.r,
                                    potential_energy=binary_tree.z_proposal_pe,
                                    z_grad=binary_tree.z_proposal_grad)
-        return vv_state, num_steps, accept_prob, binary_tree.diverging
+        return vv_state, binary_tree.z_proposal_energy, num_steps, accept_prob, binary_tree.diverging
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
@@ -295,9 +297,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
         r = momentum_generator(hmc_state.adapt_state.mass_matrix_sqrt, rng_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
-        vv_state, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
-                                                            hmc_state.adapt_state.inverse_mass_matrix,
-                                                            vv_state, rng_transition)
+        vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
+                                                                    hmc_state.adapt_state.inverse_mass_matrix,
+                                                                    vv_state, rng_transition)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
                            (hmc_state.i, accept_prob, vv_state.z, hmc_state.adapt_state),
@@ -309,7 +311,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         n = np.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
 
-        return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, num_steps,
+        return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy, num_steps,
                         accept_prob, mean_accept_prob, diverging, adapt_state, rng)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once

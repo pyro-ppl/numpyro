@@ -1,12 +1,14 @@
-# lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/tests/nn/test_autoregressive.py
+# lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/tests/nn/
 
 import numpy as onp
 from numpy.testing import assert_array_equal
 import pytest
 
 from jax import jacfwd, random
+from jax.experimental.stax import serial
 
-from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN, create_mask
+from numpyro.contrib.nn import AutoregressiveNN, MaskedDense
+from numpyro.contrib.nn.auto_reg_nn import create_mask
 
 
 @pytest.mark.parametrize('input_dim', [5])
@@ -51,9 +53,9 @@ def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
     assert onp.sum(onp.abs(onp.triu(permuted_jac))) == 0.0
 
 
-@pytest.mark.parametrize('input_dim', [5, 8])
-@pytest.mark.parametrize('n_layers', [1, 3])
-@pytest.mark.parametrize('output_dim_multiplier', [1, 4])
+@pytest.mark.parametrize('input_dim', [2, 6])
+@pytest.mark.parametrize('n_layers', [1, 2])
+@pytest.mark.parametrize('output_dim_multiplier', [1, 2])
 def test_masks(input_dim, n_layers, output_dim_multiplier):
     hidden_dim = input_dim * 3
     hidden_dims = [hidden_dim] * n_layers
@@ -97,3 +99,18 @@ def test_masks(input_dim, n_layers, output_dim_multiplier):
                 if mask_skip[idx + jdx * input_dim, kdx]:
                     skip_connections.add(kdx)
             assert_array_equal(list(sorted(skip_connections)), correct)
+
+
+@pytest.mark.parametrize('input_dim', [5, 7])
+def test_masked_dense(input_dim):
+    hidden_dim = input_dim * 3
+    output_dim_multiplier = input_dim - 4
+    mask, _ = create_mask(input_dim, [hidden_dim], onp.random.permutation(input_dim), output_dim_multiplier)
+    init_random_params, masked_dense = serial(MaskedDense(mask[0]))
+
+    rng = random.PRNGKey(0)
+    batch_size = 4
+    input_shape = (batch_size, input_dim)
+    _, init_params = init_random_params(rng, input_shape)
+    output = masked_dense(init_params, onp.random.rand(*input_shape))
+    assert output.shape == (batch_size, hidden_dim)

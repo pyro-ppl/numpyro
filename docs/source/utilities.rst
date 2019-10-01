@@ -1,10 +1,23 @@
+Utilities
+=========
+
+.. automodule:: numpyro.util
+
+set_platform
+------------
+.. autofunction:: numpyro.util.set_platform
+
+set_host_devices
+----------------
+.. autofunction:: numpyro.util.set_host_devices
+
 Inference Utilities
 ===================
 
 .. automodule:: numpyro.infer_util
 
 predictive
------------
+----------
 .. autofunction:: numpyro.infer_util.predictive
 
 log_density
@@ -23,6 +36,14 @@ potential_energy
 ----------------
 .. autofunction:: numpyro.infer_util.potential_energy
 
+log_likelihood
+--------------
+.. autofunction:: numpyro.infer_util.log_likelihood
+
+find_valid_initial_params
+-------------------------
+.. autofunction:: numpyro.infer_util.find_valid_initial_params
+
 init_to_median
 --------------
 .. autofunction:: numpyro.infer_util.init_to_median
@@ -38,7 +59,3 @@ init_to_uniform
 init_to_feasible
 ----------------
 .. autofunction:: numpyro.infer_util.init_to_feasible
-
-find_valid_initial_params
--------------------------
-.. autofunction:: numpyro.infer_util.find_valid_initial_params

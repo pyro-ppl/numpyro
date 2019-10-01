@@ -1,8 +1,9 @@
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, random, vmap
-import jax.numpy as np
+from jax import jit
+from jax import numpy as np
+from jax import random, vmap
 
 import numpyro
 from numpyro import handlers
