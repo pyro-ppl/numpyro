@@ -1,8 +1,8 @@
 import math
 
-from jax import random
-
+import numpyro
 from numpyro import mcmc
+import numpyro.distributions as dist
 
 
 class HMC(mcmc.HMC):
@@ -83,7 +83,9 @@ class MCMC(object):
                                num_chains=num_chains,
                                progress_bar=(not disable_progbar))
 
-    def run(self, *args, rng=random.PRNGKey(0), **kwargs):
+    def run(self, *args, rng=None, **kwargs):
+        if rng is None:
+            rng = numpyro.sample('mcmc.run', dist.PRNGIdentity())
         self._mcmc.run(rng, *args, init_params=self._initial_params, **kwargs)
 
     def get_samples(self, num_samples=None, group_by_chain=False):
