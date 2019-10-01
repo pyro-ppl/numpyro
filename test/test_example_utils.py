@@ -1,9 +1,12 @@
+import pytest
+
 import jax.numpy as np
 
 from numpyro.examples.datasets import BASEBALL, COVTYPE, MNIST, SP500, load_dataset
 from numpyro.util import fori_loop
 
 
+@pytest.mark.test_examples
 def test_baseball_data_load():
     init, fetch = load_dataset(BASEBALL, split='train', shuffle=False)
     num_batches, idx = init()
@@ -12,6 +15,7 @@ def test_baseball_data_load():
     assert np.shape(dataset[1]) == (18,)
 
 
+@pytest.mark.test_examples
 def test_covtype_data_load():
     _, fetch = load_dataset(COVTYPE, shuffle=False)
     x, y = fetch()
@@ -19,6 +23,7 @@ def test_covtype_data_load():
     assert np.shape(y) == (581012,)
 
 
+@pytest.mark.test_examples
 def test_mnist_data_load():
     def mean_pixels(i, mean_pix):
         batch, _ = fetch(i, idx)
@@ -29,6 +34,7 @@ def test_mnist_data_load():
     assert fori_loop(0, num_batches, mean_pixels, np.float32(0.)) / num_batches < 0.15
 
 
+@pytest.mark.test_examples
 def test_sp500_data_load():
     _, fetch = load_dataset(SP500, split='train', shuffle=False)
     date, value = fetch()

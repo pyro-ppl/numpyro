@@ -77,7 +77,7 @@ def test_logistic_regression(kernel_cls):
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(2), labels)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
+    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
     if 'JAX_ENABLE_x64' in os.environ:
         assert samples['coefs'].dtype == np.float64
@@ -298,7 +298,7 @@ def test_empty_model(num_chains, chain_method, progress_bar):
 
 @pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
-@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+@pytest.mark.skipif('XLA_FLAGS' not in os.environ, reason='without this mark, we have duplicated tests in Travis')
 def test_chain(use_init_params, chain_method):
     N, dim = 3000, 3
     num_chains = 2

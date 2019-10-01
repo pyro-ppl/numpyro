@@ -56,7 +56,7 @@ NumPyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
-   :caption: Inference Utilities:
+   :caption: Utilities:
 
    utilities
 
