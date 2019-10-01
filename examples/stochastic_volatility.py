@@ -2,7 +2,6 @@ import argparse
 
 import numpy as onp
 
-from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
@@ -64,7 +63,6 @@ def print_results(posterior, dates):
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
     _, fetch = load_dataset(SP500, shuffle=False)
     dates, returns = fetch()
     init_rng, sample_rng = random.split(random.PRNGKey(args.rng))
@@ -84,4 +82,7 @@ if __name__ == "__main__":
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument('--rng', default=21, type=int, help='random number generator seed')
     args = parser.parse_args()
+
+    numpyro.util.set_platform(args.device)
+
     main(args)
