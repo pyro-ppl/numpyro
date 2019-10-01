@@ -248,9 +248,6 @@ class AutoContinuous(AutoGuide):
             self.base_dist, sample_shape=sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-    def _loc_scale(self):
-        raise NotImplementedError
-
     def median(self, params):
         """
         Returns the posterior median value of each latent variable.
@@ -259,8 +256,7 @@ class AutoContinuous(AutoGuide):
         :return: A dict mapping sample site name to median tensor.
         :rtype: dict
         """
-        loc, _ = handlers.substitute(self._loc_scale, params)()
-        return self._unpack_and_constrain(loc, params)
+        raise NotImplementedError
 
     def quantiles(self, params, quantiles):
         """
@@ -274,10 +270,7 @@ class AutoContinuous(AutoGuide):
         :return: A dict mapping sample site name to a list of quantile values.
         :rtype: dict
         """
-        loc, scale = handlers.substitute(self._loc_scale, params)()
-        quantiles = np.array(quantiles)[..., None]
-        latent = dist.Normal(loc, scale).icdf(quantiles)
-        return self._unpack_and_constrain(latent, params)
+        raise NotImplementedError
 
 
 class AutoDiagonalNormal(AutoContinuous):
@@ -297,9 +290,15 @@ class AutoDiagonalNormal(AutoContinuous):
                               constraint=constraints.positive)
         return AffineTransform(loc, scale, domain=constraints.real_vector)
 
-    def _loc_scale(self):
-        transform = self._get_transform()
-        return transform.loc, transform.scale
+    def median(self, params):
+        transform = handlers.substitute(self._get_transform, params)()
+        return self._unpack_and_constrain(transform.loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = handlers.substitute(self._get_transform, params)()
+        quantiles = np.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, transform.scale).icdf(quantiles)
+        return self._unpack_and_constrain(latent, params)
 
 
 class AutoMultivariateNormal(AutoContinuous):
@@ -319,9 +318,15 @@ class AutoMultivariateNormal(AutoContinuous):
                                    constraint=constraints.lower_cholesky)
         return MultivariateAffineTransform(loc, scale_tril)
 
-    def _loc_scale(self):
-        transform = self._get_transform()
-        return transform.loc, np.diagonal(transform.scale_tril)
+    def median(self, params):
+        transform = handlers.substitute(self._get_transform, params)()
+        return self._unpack_and_constrain(transform.loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = handlers.substitute(self._get_transform, params)()
+        quantiles = np.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
+        return self._unpack_and_constrain(latent, params)
 
 
 class AutoIAFNormal(AutoContinuous):
