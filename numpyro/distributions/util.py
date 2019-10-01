@@ -3,7 +3,7 @@ import math
 
 import scipy.special as osp_special
 
-from jax import custom_transforms, defjvp, jit, lax, random, vmap, device_get
+from jax import custom_transforms, defjvp, jit, lax, random, vmap
 from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_args_like
