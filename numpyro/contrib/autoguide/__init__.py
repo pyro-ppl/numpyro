@@ -15,6 +15,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.constraints import (
     AffineTransform,
     ComposeTransform,
+    MultivariateAffineTransform,
     PermuteTransform,
     UnpackTransform,
     biject_to
@@ -247,28 +248,6 @@ class AutoContinuous(AutoGuide):
             self.base_dist, sample_shape=sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-
-class AutoDiagonalNormal(AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a Normal distribution
-    with a diagonal covariance matrix to construct a guide over the entire
-    latent space. The guide does not depend on the model's ``*args, **kwargs``.
-
-    Usage::
-
-        guide = AutoDiagonalNormal(rng, model, ...)
-        svi = SVI(model, guide, ...)
-    """
-    def _get_transform(self):
-        loc, scale = self._loc_scale()
-        return AffineTransform(loc, scale, domain=constraints.real_vector)
-
-    def _loc_scale(self):
-        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
-                              constraint=constraints.positive)
-        return loc, scale
-
     def median(self, params):
         """
         Returns the posterior median value of each latent variable.
@@ -277,8 +256,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :return: A dict mapping sample site name to median tensor.
         :rtype: dict
         """
-        loc, _ = handlers.substitute(self._loc_scale, params)()
-        return self._unpack_and_constrain(loc, params)
+        raise NotImplementedError
 
     def quantiles(self, params, quantiles):
         """
@@ -292,9 +270,62 @@ class AutoDiagonalNormal(AutoContinuous):
         :return: A dict mapping sample site name to a list of quantile values.
         :rtype: dict
         """
-        loc, scale = handlers.substitute(self._loc_scale, params)()
+        raise NotImplementedError
+
+
+class AutoDiagonalNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a Normal distribution
+    with a diagonal covariance matrix to construct a guide over the entire
+    latent space. The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoDiagonalNormal(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _get_transform(self):
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
+                              constraint=constraints.positive)
+        return AffineTransform(loc, scale, domain=constraints.real_vector)
+
+    def median(self, params):
+        transform = handlers.substitute(self._get_transform, params)()
+        return self._unpack_and_constrain(transform.loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = handlers.substitute(self._get_transform, params)()
         quantiles = np.array(quantiles)[..., None]
-        latent = dist.Normal(loc, scale).icdf(quantiles)
+        latent = dist.Normal(transform.loc, transform.scale).icdf(quantiles)
+        return self._unpack_and_constrain(latent, params)
+
+
+class AutoMultivariateNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a MultivariateNormal
+    distribution to construct a guide over the entire latent space.
+    The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoMultivariateNormal(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _get_transform(self):
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix), np.identity(self.latent_size),
+                                   constraint=constraints.lower_cholesky)
+        return MultivariateAffineTransform(loc, scale_tril)
+
+    def median(self, params):
+        transform = handlers.substitute(self._get_transform, params)()
+        return self._unpack_and_constrain(transform.loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = handlers.substitute(self._get_transform, params)()
+        quantiles = np.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
@@ -308,8 +339,8 @@ class AutoIAFNormal(AutoContinuous):
 
     Usage::
 
-        guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[20], skip_connections=True, ...)
-        svi_init, svi_update, _ = svi(model, guide, ...)
+        guide = AutoIAFNormal(model, hidden_dims=[20], skip_connections=True, ...)
+        svi = SVI(model, guide, ...)
 
     :param jax.random.PRNGKey rng: random key to be used as the source of randomness
         to initialize the guide.
