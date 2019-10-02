@@ -1,10 +1,9 @@
 from functools import update_wrapper
 import math
-from numbers import Number
 
 import scipy.special as osp_special
 
-from jax import custom_transforms, defjvp, device_get, jit, lax, random, vmap
+from jax import custom_transforms, defjvp, jit, lax, random, vmap
 from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_args_like
@@ -12,13 +11,10 @@ from jax.scipy.linalg import solve_triangular
 from jax.util import partial
 
 
-# TODO: inefficient implementation; jit currently fails due to
-# dynamic size of random.uniform.
-@partial(jit, static_argnums=(2, 3))
-def _binomial(key, p, n, shape):
+@partial(jit, static_argnums=(3, 4))
+def _binomial(key, p, n, n_max, shape):
     p, n = promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
-    n_max = int(np.max(n))
     uniforms = random.uniform(key, shape + (n_max,))
     n = np.expand_dims(n, axis=-1)
     p = np.expand_dims(p, axis=-1)
@@ -28,8 +24,8 @@ def _binomial(key, p, n, shape):
 
 
 def binomial(key, p, n=1, shape=()):
-    n = device_get(n)
-    return _binomial(key, p, n, shape)
+    n_max = int(np.max(n))
+    return _binomial(key, p, n, n_max, shape)
 
 
 @partial(jit, static_argnums=(2,))
@@ -80,18 +76,17 @@ def _scatter_add_one(operand, indices, updates):
                                                        scatter_dims_to_operand_dims=(0,)))
 
 
-@partial(jit, static_argnums=(2, 3))
-def _multinomial(key, p, n, shape=()):
+@partial(jit, static_argnums=(3, 4))
+def _multinomial(key, p, n, n_max, shape=()):
     if np.shape(n) != np.shape(p)[:-1]:
         broadcast_shape = lax.broadcast_shapes(np.shape(n), np.shape(p)[:-1])
         n = np.broadcast_to(n, broadcast_shape)
         p = np.broadcast_to(p, broadcast_shape + np.shape(p)[-1:])
     shape = shape or p.shape[:-1]
-    n_max = int(np.max(n))
     # get indices from categorical distribution then gather the result
     indices = categorical(key, p, (n_max,) + shape)
     # mask out values when counts is heterogeneous
-    if not isinstance(n, Number):
+    if np.ndim(n) > 0:
         mask = promote_shapes(np.arange(n_max) < np.expand_dims(n, -1), shape=shape + (n_max,))[0]
         mask = np.moveaxis(mask, -1, 0).astype(indices.dtype)
         excess = np.concatenate([np.expand_dims(n_max - n, -1), np.zeros(np.shape(n) + (p.shape[-1] - 1,))], -1)
@@ -108,7 +103,8 @@ def _multinomial(key, p, n, shape=()):
 
 
 def multinomial(key, p, n, shape=()):
-    return _multinomial(key, p, n, shape)
+    n_max = int(np.max(n))
+    return _multinomial(key, p, n, n_max, shape)
 
 
 def _xlogy_jvp_lhs(g, ans, x, y):
