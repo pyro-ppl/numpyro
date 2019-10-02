@@ -766,9 +766,9 @@ class MCMC(object):
         if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
             chain_method = 'sequential'
             warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
-                          ' Chains will be drawn sequentially. If you are running `mcmc` in CPU,'
-                          ' consider to disable XLA intra-op parallelism by setting the environment'
-                          ' flag "XLA_FLAGS=--xla_force_host_platform_device_count={}".'
+                          ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
+                          ' consider to use `numpyro.util.set_host_devices({})` at the beginning'
+                          ' of your program.'
                           .format(self.num_chains, xla_bridge.device_count(), self.num_chains))
 
         if init_params is not None and self.num_chains > 1:
