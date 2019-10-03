@@ -5,7 +5,7 @@ import jax.numpy as np
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions import constraints
+from numpyro.distributions import transforms
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer_util import log_likelihood, predictive, transformed_potential_energy
 
@@ -62,8 +62,8 @@ def test_log_likelihood():
 
 def test_transformed_potential_energy():
     beta_dist = dist.Beta(np.ones(5), np.ones(5))
-    transform = constraints.AffineTransform(3, 4)
-    inv_transform = constraints.AffineTransform(-0.75, 0.25)
+    transform = transforms.AffineTransform(3, 4)
+    inv_transform = transforms.AffineTransform(-0.75, 0.25)
 
     z = random.normal(random.PRNGKey(0), (5,))
     pe_expected = -dist.TransformedDistribution(beta_dist, transform).log_prob(z)
