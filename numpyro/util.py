@@ -17,6 +17,17 @@ _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
 
 
+__all__ = [
+    'cond',
+    'set_host_devices',
+    'set_platform',
+    'set_rng_seed',
+    'fori_collect',
+    'fori_loop',
+    'while_loop',
+]
+
+
 def set_rng_seed(rng_seed):
     random.seed(rng_seed)
     onp.random.seed(rng_seed)

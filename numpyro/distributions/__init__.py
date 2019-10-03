@@ -1,4 +1,5 @@
 from numpyro.distributions.continuous import (
+    LKJ,
     Beta,
     Cauchy,
     Chi2,
@@ -9,7 +10,6 @@ from numpyro.distributions.continuous import (
     HalfCauchy,
     HalfNormal,
     InverseGamma,
-    LKJ,
     LKJCholesky,
     LogNormal,
     MultivariateNormal,

@@ -12,7 +12,7 @@ from jax.scipy.special import logit
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.mcmc import HMC, MCMC, NUTS
+from numpyro.infer import HMC, MCMC, NUTS
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])

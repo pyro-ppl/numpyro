@@ -14,7 +14,7 @@ import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
 

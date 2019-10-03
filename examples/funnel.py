@@ -10,8 +10,8 @@ import jax.numpy as np
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import AffineTransform
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.distributions.transforms import AffineTransform
+from numpyro.infer import MCMC, NUTS
 
 sns.set(context='talk')
 

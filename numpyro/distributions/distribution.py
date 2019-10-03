@@ -24,7 +24,8 @@
 
 import jax.numpy as np
 
-from numpyro.distributions.constraints import Transform, is_dependent
+from numpyro.distributions.constraints import is_dependent
+from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import lazy_property, sum_rightmost
 
 

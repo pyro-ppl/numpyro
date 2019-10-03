@@ -19,7 +19,6 @@ from numpyro.infer_util import init_to_median
 from numpyro.svi import SVI, elbo
 from numpyro.util import fori_loop
 
-
 init_strategy = partial(init_to_median, num_samples=2)
 
 

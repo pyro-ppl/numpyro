@@ -9,7 +9,8 @@ from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import ComposeTransform, biject_to, real
+from numpyro.distributions.constraints import real
+from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.distributions.util import cholesky_inverse, get_dtype
 from numpyro.handlers import seed, trace
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_uniform, potential_energy, transform_fn
