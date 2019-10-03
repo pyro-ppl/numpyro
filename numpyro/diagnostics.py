@@ -8,7 +8,6 @@ import numpy as onp
 
 from jax import device_get, tree_flatten
 
-
 __all__ = [
     'autocorrelation',
     'autocovariance',

@@ -13,7 +13,6 @@ from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.util import while_loop
 
-
 __all__ = [
     'find_valid_initial_params',
     'log_density',

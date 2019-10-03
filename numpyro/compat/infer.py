@@ -1,8 +1,8 @@
 import math
 
 import numpyro
-from numpyro import mcmc
 import numpyro.distributions as dist
+from numpyro.infer import mcmc
 
 
 class HMC(mcmc.HMC):
