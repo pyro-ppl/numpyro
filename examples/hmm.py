@@ -1,11 +1,9 @@
 import argparse
-import os
 import time
 
 import numpy as onp
 
 from jax import lax, random
-from jax.config import config as jax_config
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 
@@ -138,7 +136,6 @@ def print_results(posterior, transition_prob, emission_prob):
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
     print('Simulating data...')
     (transition_prior, emission_prior, transition_prob, emission_prob,
      supervised_categories, supervised_words, unsupervised_words) = simulate_data(
@@ -173,8 +170,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
-        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
-            args.num_chains)
+    numpyro.util.set_platform(args.device)
+    numpyro.util.set_host_devices(args.num_chains)
 
     main(args)

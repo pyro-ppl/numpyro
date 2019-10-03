@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from jax import lax, random, vmap
-from jax.config import config as jax_config
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
@@ -58,8 +57,6 @@ def dual_moon_model():
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
-
     print("Start vanilla HMC...")
     nuts_kernel = NUTS(dual_moon_model)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
@@ -161,4 +158,7 @@ if __name__ == "__main__":
     parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    numpyro.util.set_platform(args.device)
+
     main(args)
