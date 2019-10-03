@@ -1,6 +1,4 @@
-import numpyro.distributions.constraints   # noqa: F401
-import numpyro.distributions.transforms   # noqa: F401
-
+import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -41,6 +39,7 @@ from numpyro.distributions.discrete import (
     PRNGIdentity
 )
 from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
+import numpyro.distributions.transforms  # noqa: F401
 
 __all__ = [
     'constraints',
