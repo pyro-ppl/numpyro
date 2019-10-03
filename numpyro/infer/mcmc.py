@@ -118,7 +118,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     .. warning::
         Instead of using this interface directly, we would highly recommend you
-        to use the higher level :class:`numpyro.mcmc.MCMC` API instead.
+        to use the higher level :class:`numpyro.infer.MCMC` API instead.
 
     **Example**
 
@@ -130,7 +130,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         import numpyro
         import numpyro.distributions as dist
         from numpyro.hmc_util import initialize_model
-        from numpyro.mcmc import hmc
+        from numpyro.infer.mcmc import hmc
         from numpyro.util import fori_collect
 
     .. doctest::
@@ -205,7 +205,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10.
         :param bool run_warmup: Flag to decide whether warmup is run. If ``True``,
-            `init_kernel` returns an initial :data:`~numpyro.mcmc.HMCState` that can be used to
+            `init_kernel` returns an initial :data:`~numpyro.infer.mcmc.HMCState` that can be used to
             generate samples using MCMC. Else, returns the arguments and callable
             that does the initial adaptation.
         :param bool progbar: Whether to enable progress bar updates. Defaults to
@@ -287,11 +287,11 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     def sample_kernel(hmc_state):
         """
-        Given an existing :data:`~numpyro.mcmc.HMCState`, run HMC with fixed (possibly adapted)
-        step size and return a new :data:`~numpyro.mcmc.HMCState`.
+        Given an existing :data:`~numpyro.infer.mcmc.HMCState`, run HMC with fixed (possibly adapted)
+        step size and return a new :data:`~numpyro.infer.mcmc.HMCState`.
 
         :param hmc_state: Current sample (and associated state).
-        :return: new proposed :data:`~numpyro.mcmc.HMCState` from simulating
+        :return: new proposed :data:`~numpyro.infer.mcmc.HMCState` from simulating
             Hamiltonian dynamics given existing state.
         """
         rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
@@ -342,8 +342,8 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
         each sample site. Default is ``True``.
     :param `**sampler_kwargs`: Sampler specific keyword arguments.
 
-         - *HMC*: Refer to :func:`~numpyro.mcmc.hmc` and
-           :func:`~numpyro.mcmc.hmc.init_kernel` for accepted arguments. Note
+         - *HMC*: Refer to :func:`~numpyro.infer.mcmc.hmc` and
+           :func:`~numpyro.infer.mcmc.hmc.init_kernel` for accepted arguments. Note
            that all arguments must be provided as keywords.
 
     :return: collection of samples from the posterior.
@@ -356,7 +356,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
        import numpyro
        import numpyro.distributions as dist
        from numpyro.hmc_util import initialize_model
-       from numpyro.mcmc import hmc
+       from numpyro.infer.mcmc import hmc
        from numpyro.util import fori_collect
 
     .. doctest::
@@ -389,7 +389,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
            intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
     """
     warnings.warn("This interface to MCMC is deprecated and will be removed in the "
-                  "next version. Please use `numpyro.mcmc.MCMC` instead.",
+                  "next version. Please use `numpyro.infer.MCMC` instead.",
                   DeprecationWarning)
     sequential_chain = False
     if xla_bridge.device_count() < num_chains:
@@ -456,7 +456,7 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
 class MCMCKernel(ABC):
     """
     Defines the interface for the Markov transition kernel that is
-    used for :class:`~numpyro.mcmc.MCMC` inference.
+    used for :class:`~numpyro.infer.MCMC` inference.
 
     :param random.PRNGKey rng: Random number generator key to initialize
         the kernel.
@@ -478,7 +478,7 @@ class MCMCKernel(ABC):
         transition kernel.
 
         :param state: Arbitrary data structure representing the state for the
-            kernel. For HMC, this is given by :data:`~numpyro.mcmc.HMCState`.
+            kernel. For HMC, this is given by :data:`~numpyro.infer.mcmc.HMCState`.
         :return: Next `state`.
         """
         raise NotImplementedError
@@ -587,8 +587,8 @@ class HMC(MCMCKernel):
 
     def sample(self, state):
         """
-        Run HMC from the given :data:`~numpyro.mcmc.HMCState` and return the resulting
-        :data:`~numpyro.mcmc.HMCState`.
+        Run HMC from the given :data:`~numpyro.infer.mcmc.HMCState` and return the resulting
+        :data:`~numpyro.infer.mcmc.HMCState`.
 
         :param HMCState state: Represents the current state.
         :return: Next `state` after running HMC.
@@ -677,9 +677,9 @@ class MCMC(object):
 
     .. note:: Setting `progress_bar=False` will improve the speed for many cases.
 
-    :param MCMCKernel sampler: an instance of :class:`~numpyro.mcmc.MCMCKernel` that
-        determines the sampler for running MCMC. Currently, only :class:`~numpyro.mcmc.HMC`
-        and :class:`~numpyro.mcmc.NUTS` are available.
+    :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
+        determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.mcmc.HMC`
+        and :class:`~numpyro.infer.mcmc.NUTS` are available.
     :param int num_warmup: Number of warmup steps.
     :param int num_samples: Number of samples to generate from the Markov chain.
     :param int num_chains: Number of Number of MCMC chains to run. By default,
@@ -748,16 +748,16 @@ class MCMC(object):
         Run the MCMC samplers and collect samples.
 
         :param random.PRNGKey rng: Random number generator key to be used for the sampling.
-        :param args: Arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init` method.
+        :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param collect_fields: Fields from :data:`numpyro.mcmc.HMCState` to collect
+        :param collect_fields: Fields from :data:`numpyro.infer.mcmc.HMCState` to collect
             during the MCMC run. By default, only the latent sample sites `z` is collected.
         :type collect_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
             to `False`.
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn`.
-        :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.mcmc.MCMCKernel.init`
+        :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
         self._args = args
@@ -813,7 +813,7 @@ class MCMC(object):
         :param bool group_by_chain: Whether to preserve the chain dimension. If True,
             all samples will have num_chains as the size of their leading dimension.
         :return: Samples having the same data type as `init_params`. If multiple fields
-            are collected via the `collect_fields` arg to :meth:`~numpyro.mcmc.MCMC.run`,
+            are collected via the `collect_fields` arg to :meth:`~numpyro.infer.mcmc.MCMC.run`,
             then a tuple with the same data type is returned, one for each of the fields.
             The data type for a particular field is a `dict` keyed on site names if a
             model containing Pyro primitives is used, but can be any :func:`jaxlib.pytree`,

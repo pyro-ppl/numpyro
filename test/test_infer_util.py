@@ -7,7 +7,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer_util import log_likelihood, predictive, transformed_potential_energy
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 
 
 def beta_bernoulli():

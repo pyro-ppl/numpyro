@@ -513,7 +513,7 @@ def _transform_to_corr_cholesky(constraint):
 
 @biject_to.register(constraints.corr_matrix)
 def _transform_to_corr_matrix(constraint):
-    return ComposeTransform([CorrCholeskyTransform(), InvCholeskyTransform(domain=corr_cholesky)])
+    return ComposeTransform([CorrCholeskyTransform(), InvCholeskyTransform(domain=constraints.corr_cholesky)])
 
 
 @biject_to.register(constraints.greater_than)

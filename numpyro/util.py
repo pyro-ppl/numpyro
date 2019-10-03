@@ -137,7 +137,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
     effect of collecting values from the loop body. In addition, this allows for
     post-processing of these samples via `transform`, and progress bar updates.
     Note that, `progbar=False` will be faster, especially when collecting a
-    lot of samples. Refer to example usage in :func:`~numpyro.mcmc.hmc`.
+    lot of samples. Refer to example usage in :func:`~numpyro.infer.mcmc.hmc`.
 
     :param int lower: the index to start the collective work. In other words,
         we will skip collecting the first `lower` values.

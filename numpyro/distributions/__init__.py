@@ -1,3 +1,6 @@
+import numpyro.distributions.constraints   # noqa: F401
+import numpyro.distributions.transforms   # noqa: F401
+
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -40,6 +43,8 @@ from numpyro.distributions.discrete import (
 from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
 
 __all__ = [
+    'constraints',
+    'transforms',
     'Bernoulli',
     'BernoulliLogits',
     'BernoulliProbs',
