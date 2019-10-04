@@ -1,5 +1,5 @@
 import numpyro.patch  # noqa: F401
-from numpyro import compat, diagnostics, distributions, infer, infer_util, util
+from numpyro import compat, diagnostics, distributions, handlers, infer, infer_util, util
 from numpyro.primitives import module, param, plate, sample
 from numpyro.version import __version__
 
@@ -11,6 +11,7 @@ __all__ = [
     'compat',
     'diagnostics',
     'distributions',
+    'handlers',
     'infer',
     'infer_util',
     'module',
