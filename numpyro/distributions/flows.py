@@ -1,7 +1,8 @@
 from jax import lax
 import jax.numpy as np
 
-from numpyro.distributions.constraints import Transform, real_vector
+from numpyro.distributions.constraints import real_vector
+from numpyro.distributions.transforms import Transform
 from numpyro.util import fori_loop
 
 

@@ -13,7 +13,7 @@ import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.examples.datasets import MNIST, load_dataset
-from numpyro.svi import SVI, elbo
+from numpyro.infer import SVI, elbo
 
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                               '.results'))

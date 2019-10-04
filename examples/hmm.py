@@ -9,7 +9,7 @@ from jax.scipy.special import logsumexp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 
 
 """

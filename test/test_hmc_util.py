@@ -13,7 +13,7 @@ import jax.numpy as np
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.transforms import biject_to
 from numpyro.hmc_util import (
     AdaptWindow,
     _is_iterative_turning,

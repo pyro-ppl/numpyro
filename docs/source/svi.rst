@@ -1,7 +1,7 @@
 Stochastic Variational Inference (SVI)
 ======================================
 
-.. autoclass:: numpyro.svi.SVI
+.. autoclass:: numpyro.infer.svi.SVI
     :members:
     :undoc-members:
     :show-inheritance:
@@ -9,4 +9,4 @@ Stochastic Variational Inference (SVI)
 
 ELBo
 ----
-.. autofunction:: numpyro.svi.elbo
+.. autofunction:: numpyro.infer.svi.elbo

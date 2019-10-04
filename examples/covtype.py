@@ -9,7 +9,7 @@ import jax.numpy as np
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import COVTYPE, load_dataset
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 
 
 def _load_dataset():
