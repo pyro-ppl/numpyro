@@ -227,7 +227,7 @@ def summary(samples, prob=0.90, group_by_chain=True):
         corresponding shape will be `num_samples x sample_shape` (i.e. without
         chain dimension).
     """
-    if group_by_chain:
+    if not group_by_chain:
         samples = tree_map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
         samples = {'Param:{}'.format(i): v for i, v in enumerate(tree_flatten(samples)[0])}
