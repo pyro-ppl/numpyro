@@ -18,6 +18,7 @@ __all__ = [
     'log_density',
     'log_likelihood',
     'init_to_feasible',
+    'init_to_median',
     'init_to_prior',
     'init_to_uniform',
     'potential_energy',

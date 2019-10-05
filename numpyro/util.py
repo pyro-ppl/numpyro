@@ -17,14 +17,6 @@ _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
 
 
-__all__ = [
-    'set_host_device_count',
-    'set_platform',
-    'set_rng_seed',
-    'fori_collect',
-]
-
-
 def set_rng_seed(rng_seed):
     """
     Initializes internal state for the Python and NumPy random number generators.
