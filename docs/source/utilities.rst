@@ -7,9 +7,9 @@ set_platform
 ------------
 .. autofunction:: numpyro.util.set_platform
 
-set_host_devices
-----------------
-.. autofunction:: numpyro.util.set_host_devices
+set_host_device_count
+---------------------
+.. autofunction:: numpyro.util.set_host_device_count
 
 Inference Utilities
 ===================
