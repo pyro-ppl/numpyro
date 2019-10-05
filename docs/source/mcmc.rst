@@ -34,12 +34,12 @@ Hamiltonian Monte Carlo
 MCMC Utilities
 --------------
 
-.. autofunction:: numpyro.hmc_util.initialize_model
+.. autofunction:: numpyro.infer.hmc_util.initialize_model
 
 .. autofunction:: numpyro.util.fori_collect
 
-.. autofunction:: numpyro.hmc_util.consensus
+.. autofunction:: numpyro.infer.hmc_util.consensus
 
-.. autofunction:: numpyro.hmc_util.parametric
+.. autofunction:: numpyro.infer.hmc_util.parametric
 
-.. autofunction:: numpyro.hmc_util.parametric_draws
+.. autofunction:: numpyro.infer.hmc_util.parametric_draws
