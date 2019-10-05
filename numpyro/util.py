@@ -45,7 +45,7 @@ def set_platform(platform=None):
     jax.config.update('jax_platform_name', platform)
 
 
-def set_host_devices(n):
+def set_host_device_count(n):
     """
     By default, XLA considers all CPU cores as one device. This utility tells XLA
     that there are `n` host (CPU) devices available to use. As a consequence, this

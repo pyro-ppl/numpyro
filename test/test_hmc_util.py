@@ -14,7 +14,7 @@ import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import biject_to
-from numpyro.hmc_util import (
+from numpyro.infer.hmc_util import (
     AdaptWindow,
     _is_iterative_turning,
     _leaf_idx_to_ckpt_idxs,

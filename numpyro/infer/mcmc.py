@@ -767,7 +767,7 @@ class MCMC(object):
             chain_method = 'sequential'
             warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
                           ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
-                          ' consider to use `numpyro.util.set_host_devices({})` at the beginning'
+                          ' consider to use `numpyro.util.set_host_device_count({})` at the beginning'
                           ' of your program.'
                           .format(self.num_chains, xla_bridge.device_count(), self.num_chains))
 

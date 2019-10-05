@@ -110,6 +110,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     numpyro.util.set_platform(args.device)
-    numpyro.util.set_host_devices(args.num_chains)
+    numpyro.util.set_host_device_count(args.num_chains)
 
     main(args)

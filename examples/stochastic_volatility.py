@@ -8,7 +8,7 @@ import jax.random as random
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import SP500, load_dataset
-from numpyro.hmc_util import initialize_model
+from numpyro.infer.hmc_util import initialize_model
 from numpyro.infer.mcmc import hmc
 from numpyro.util import fori_collect
 
