@@ -59,3 +59,7 @@ init_to_uniform
 init_to_feasible
 ----------------
 .. autofunction:: numpyro.infer_util.init_to_feasible
+
+init_to_value
+-------------
+.. autofunction:: numpyro.infer_util.init_to_value
