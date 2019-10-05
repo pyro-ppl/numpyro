@@ -36,6 +36,7 @@ from numpyro.infer_util import (
     init_to_median,
     init_to_prior,
     init_to_uniform,
+    init_to_value,
     transform_fn
 )
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
@@ -435,10 +436,11 @@ def test_model_with_transformed_distribution():
 
 
 @pytest.mark.parametrize('init_strategy', [
-    init_to_feasible,
-    partial(init_to_median, num_samples=2),
-    init_to_prior,
-    init_to_uniform,
+    init_to_feasible(),
+    init_to_median(num_samples=2),
+    init_to_prior(),
+    init_to_uniform(),
+    init_to_value({'lambda1': 2}),
 ])
 def test_initialize_model_change_point(init_strategy):
     def model(data):
@@ -470,10 +472,11 @@ def test_initialize_model_change_point(init_strategy):
 
 
 @pytest.mark.parametrize('init_strategy', [
-    init_to_feasible,
-    partial(init_to_median, num_samples=2),
-    init_to_prior,
-    init_to_uniform,
+    init_to_feasible(),
+    init_to_median(num_samples=2),
+    init_to_prior(),
+    init_to_uniform(),
+    init_to_value({"p_latent": np.ones(3) / 3}),
 ])
 def test_initialize_model_dirichlet_categorical(init_strategy):
     def model(data):
