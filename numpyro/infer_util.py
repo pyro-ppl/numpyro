@@ -267,7 +267,7 @@ def init_to_value(values):
     return partial(_init_to_value, values=values)
 
 
-def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform,
+def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform(),
                               param_as_improper=False, prototype_params=None, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
