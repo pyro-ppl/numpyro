@@ -12,7 +12,8 @@ from numpyro import handlers
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import (
+from numpyro.distributions.flows import InverseAutoregressiveTransform
+from numpyro.distributions.transforms import (
     AffineTransform,
     ComposeTransform,
     MultivariateAffineTransform,
@@ -20,7 +21,6 @@ from numpyro.distributions.constraints import (
     UnpackTransform,
     biject_to
 )
-from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.util import cholesky_inverse, sum_rightmost
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
 import numpyro.svi

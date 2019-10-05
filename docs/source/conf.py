@@ -26,8 +26,8 @@ sys.path.insert(0, os.path.abspath('../..'))
 os.environ['SPHINX_BUILD'] = '1'
 
 # HACK: This is to ensure that local functions are documented by sphinx.
-from numpyro.mcmc import hmc  # noqa: E402
-from numpyro.svi import svi  # noqa: E402
+from numpyro.infer.mcmc import hmc  # noqa: E402
+from numpyro.infer.svi import svi  # noqa: E402
 hmc(None, None)
 svi(None, None, None, None)
 

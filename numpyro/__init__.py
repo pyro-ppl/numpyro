@@ -1,6 +1,22 @@
 import numpyro.patch  # noqa: F401
-from numpyro.primitives import module, param, plate, sample  # noqa: F401
-from numpyro.version import __version__  # noqa: F401
-import numpyro.util as util
+from numpyro import compat, diagnostics, distributions, handlers, infer, infer_util, util
+from numpyro.primitives import module, param, plate, sample
+from numpyro.version import __version__
 
 util.set_platform('cpu')
+
+
+__all__ = [
+    '__version__',
+    'compat',
+    'diagnostics',
+    'distributions',
+    'handlers',
+    'infer',
+    'infer_util',
+    'module',
+    'param',
+    'plate',
+    'sample',
+    'util',
+]

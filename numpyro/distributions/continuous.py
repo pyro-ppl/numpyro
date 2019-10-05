@@ -30,8 +30,8 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AffineTransform, ExpTransform, InvCholeskyTransform, PowerTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
+from numpyro.distributions.transforms import AffineTransform, ExpTransform, InvCholeskyTransform, PowerTransform
 from numpyro.distributions.util import (
     cholesky_inverse,
     cumsum,

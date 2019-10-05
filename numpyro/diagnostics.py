@@ -8,6 +8,16 @@ import numpy as onp
 
 from jax import device_get, tree_flatten
 
+__all__ = [
+    'autocorrelation',
+    'autocovariance',
+    'effective_sample_size',
+    'gelman_rubin',
+    'hpdi',
+    'split_gelman_rubin',
+    'summary',
+]
+
 
 def _compute_chain_variance_stats(x):
     # compute within-chain variance and variance estimator

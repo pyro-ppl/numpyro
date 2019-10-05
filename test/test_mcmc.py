@@ -10,7 +10,7 @@ import jax.numpy as np
 import numpyro
 import numpyro.distributions as dist
 from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import hmc, mcmc
+from numpyro.infer.mcmc import hmc, mcmc
 from numpyro.util import fori_collect
 
 

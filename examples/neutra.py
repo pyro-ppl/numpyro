@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from jax import lax, random, vmap
-from jax.config import config as jax_config
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
@@ -19,9 +18,8 @@ from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.hmc_util import initialize_model
+from numpyro.infer import MCMC, NUTS, SVI, elbo
 from numpyro.infer_util import transformed_potential_energy
-from numpyro.mcmc import MCMC, NUTS
-from numpyro.svi import SVI, elbo
 
 # TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
 # The behaviour when training guide under fast math mode is unstable.
@@ -58,8 +56,6 @@ def dual_moon_model():
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
-
     print("Start vanilla HMC...")
     nuts_kernel = NUTS(dual_moon_model)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
@@ -161,4 +157,7 @@ if __name__ == "__main__":
     parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    numpyro.util.set_platform(args.device)
+
     main(args)

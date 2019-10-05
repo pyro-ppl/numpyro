@@ -300,10 +300,6 @@ PRNGIdentity
 Constraints
 ===========
 
-biject_to
----------
-.. autofunction:: numpyro.distributions.constraints.biject_to
-
 boolean
 -------
 .. autodata:: numpyro.distributions.constraints.boolean
@@ -380,9 +376,13 @@ unit_interval
 Transforms
 ==========
 
+biject_to
+---------
+.. autofunction:: numpyro.distributions.transforms.biject_to
+
 Transform
 ---------
-.. autoclass:: numpyro.distributions.constraints.Transform
+.. autoclass:: numpyro.distributions.transforms.Transform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -390,7 +390,7 @@ Transform
 
 AbsTransform
 ------------
-.. autoclass:: numpyro.distributions.constraints.AbsTransform
+.. autoclass:: numpyro.distributions.transforms.AbsTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -398,7 +398,7 @@ AbsTransform
 
 AffineTransform
 ---------------
-.. autoclass:: numpyro.distributions.constraints.AffineTransform
+.. autoclass:: numpyro.distributions.transforms.AffineTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -406,7 +406,7 @@ AffineTransform
 
 ComposeTransform
 ----------------
-.. autoclass:: numpyro.distributions.constraints.ComposeTransform
+.. autoclass:: numpyro.distributions.transforms.ComposeTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -414,7 +414,7 @@ ComposeTransform
 
 CorrCholeskyTransform
 ---------------------
-.. autoclass:: numpyro.distributions.constraints.CorrCholeskyTransform
+.. autoclass:: numpyro.distributions.transforms.CorrCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -422,7 +422,7 @@ CorrCholeskyTransform
 
 ExpTransform
 ------------
-.. autoclass:: numpyro.distributions.constraints.ExpTransform
+.. autoclass:: numpyro.distributions.transforms.ExpTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -430,7 +430,7 @@ ExpTransform
 
 IdentityTransform
 -----------------
-.. autoclass:: numpyro.distributions.constraints.IdentityTransform
+.. autoclass:: numpyro.distributions.transforms.IdentityTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -438,7 +438,7 @@ IdentityTransform
 
 InvCholeskyTransform
 --------------------
-.. autoclass:: numpyro.distributions.constraints.InvCholeskyTransform
+.. autoclass:: numpyro.distributions.transforms.InvCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -446,7 +446,7 @@ InvCholeskyTransform
 
 LowerCholeskyTransform
 ----------------------
-.. autoclass:: numpyro.distributions.constraints.LowerCholeskyTransform
+.. autoclass:: numpyro.distributions.transforms.LowerCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -454,7 +454,7 @@ LowerCholeskyTransform
 
 MultivariateAffineTransform
 ---------------------------
-.. autoclass:: numpyro.distributions.constraints.MultivariateAffineTransform
+.. autoclass:: numpyro.distributions.transforms.MultivariateAffineTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -462,7 +462,7 @@ MultivariateAffineTransform
 
 PermuteTransform
 ----------------
-.. autoclass:: numpyro.distributions.constraints.PermuteTransform
+.. autoclass:: numpyro.distributions.transforms.PermuteTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -470,7 +470,7 @@ PermuteTransform
 
 PowerTransform
 --------------
-.. autoclass:: numpyro.distributions.constraints.PowerTransform
+.. autoclass:: numpyro.distributions.transforms.PowerTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -478,7 +478,7 @@ PowerTransform
 
 SigmoidTransform
 ----------------
-.. autoclass:: numpyro.distributions.constraints.SigmoidTransform
+.. autoclass:: numpyro.distributions.transforms.SigmoidTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -486,7 +486,7 @@ SigmoidTransform
 
 StickBreakingTransform
 ----------------------
-.. autoclass:: numpyro.distributions.constraints.StickBreakingTransform
+.. autoclass:: numpyro.distributions.transforms.StickBreakingTransform
     :members:
     :undoc-members:
     :show-inheritance:

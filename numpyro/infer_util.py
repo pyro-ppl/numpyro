@@ -8,9 +8,22 @@ from jax.tree_util import tree_flatten
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import ComposeTransform, biject_to, real
+from numpyro.distributions.constraints import real
+from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.util import while_loop
+
+__all__ = [
+    'find_valid_initial_params',
+    'log_density',
+    'log_likelihood',
+    'init_to_feasible',
+    'init_to_prior',
+    'init_to_uniform',
+    'potential_energy',
+    'predictive',
+    'transformed_potential_energy',
+]
 
 
 def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):

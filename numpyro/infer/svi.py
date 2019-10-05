@@ -7,7 +7,7 @@ from jax import random, value_and_grad
 
 import numpyro.contrib.autoguide
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import biject_to
+from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer_util import log_density, transform_fn
 

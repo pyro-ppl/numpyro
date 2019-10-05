@@ -4,31 +4,31 @@ Markov Chain Monte Carlo (MCMC)
 Hamiltonian Monte Carlo
 -----------------------
 
-.. autoclass:: numpyro.mcmc.MCMC
+.. autoclass:: numpyro.infer.mcmc.MCMC
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-.. autoclass:: numpyro.mcmc.HMC
+.. autoclass:: numpyro.infer.mcmc.HMC
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-.. autoclass:: numpyro.mcmc.NUTS
+.. autoclass:: numpyro.infer.mcmc.NUTS
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-.. autofunction:: numpyro.mcmc.hmc
+.. autofunction:: numpyro.infer.mcmc.hmc
 
-.. autofunction:: numpyro.mcmc.hmc.init_kernel
+.. autofunction:: numpyro.infer.mcmc.hmc.init_kernel
 
-.. autofunction:: numpyro.mcmc.hmc.sample_kernel
+.. autofunction:: numpyro.infer.mcmc.hmc.sample_kernel
 
-.. autodata:: numpyro.mcmc.HMCState
+.. autodata:: numpyro.infer.mcmc.HMCState
 
 
 MCMC Utilities

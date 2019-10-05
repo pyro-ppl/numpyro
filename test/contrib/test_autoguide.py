@@ -13,17 +13,16 @@ from numpyro.contrib.autoguide import (
     AutoDiagonalNormal,
     AutoIAFNormal,
     AutoLaplaceApproximation,
-    AutoMultivariateNormal
+    AutoMultivariateNormal,
 )
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
-from numpyro.distributions import constraints
+from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
+from numpyro.infer import SVI, elbo
 from numpyro.infer_util import init_to_median
-from numpyro.svi import SVI, elbo
 from numpyro.util import fori_loop
-
 
 init_strategy = partial(init_to_median, num_samples=2)
 
@@ -129,22 +128,22 @@ def test_iaf():
     flows = []
     for i in range(guide.num_flows):
         if i > 0:
-            flows.append(constraints.PermuteTransform(np.arange(dim + 1)[::-1]))
+            flows.append(transforms.PermuteTransform(np.arange(dim + 1)[::-1]))
         arn_init, arn_apply = AutoregressiveNN(dim + 1, [dim + 1, dim + 1],
                                                permutation=np.arange(dim + 1),
                                                skip_connections=guide._skip_connections,
                                                nonlinearity=guide._nonlinearity)
         arn = partial(arn_apply, params['auto_arn__{}$params'.format(i)])
         flows.append(InverseAutoregressiveTransform(arn))
-    flows.append(constraints.UnpackTransform(guide._unpack_latent))
+    flows.append(transforms.UnpackTransform(guide._unpack_latent))
 
-    transform = constraints.ComposeTransform(flows)
+    transform = transforms.ComposeTransform(flows)
     rng_seed, rng_sample = random.split(rng)
     expected_sample = transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng_sample))
     expected_output = transform(x)
     assert_allclose(actual_sample['coefs'], expected_sample['coefs'])
     assert_allclose(actual_sample['offset'],
-                    constraints.biject_to(constraints.interval(-1, 1))(expected_sample['offset']))
+                    transforms.biject_to(constraints.interval(-1, 1))(expected_sample['offset']))
     check_eq(actual_output, expected_output)
 
 
@@ -276,7 +275,7 @@ def test_elbo_dynamic_support():
     assert np.isfinite(actual_loss)
 
     guide_log_prob = dist.Normal(guide._init_latent).log_prob(x_unconstrained).sum()
-    transfrom = constraints.biject_to(constraints.interval(0, 5))
+    transfrom = transforms.biject_to(constraints.interval(0, 5))
     x = transfrom(x_unconstrained)
     logdet = transfrom.log_abs_det_jacobian(x_unconstrained, x)
     model_log_prob = x_prior.log_prob(x) + logdet

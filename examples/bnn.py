@@ -4,7 +4,6 @@ Bayesian neural network with two hidden layers.
 """
 
 import argparse
-import os
 import time
 
 import matplotlib
@@ -12,14 +11,13 @@ import matplotlib.pyplot as plt
 import numpy as onp
 
 from jax import vmap
-from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -99,7 +97,6 @@ def get_data(N=50, D_X=3, sigma_obs=0.05, N_test=500):
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
     N, D_X, D_H = args.num_data, 3, args.num_hidden
     X, Y, X_test = get_data(N=N, D_X=D_X)
 
@@ -142,8 +139,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
-        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
-            args.num_chains)
+    numpyro.util.set_platform(args.device)
+    numpyro.util.set_host_devices(args.num_chains)
 
     main(args)

@@ -15,10 +15,10 @@ import jax.random as random
 
 from numpyro.contrib.nn import AutoregressiveNN
 import numpyro.distributions as dist
-import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import MultivariateAffineTransform, PermuteTransform, PowerTransform, biject_to
+from numpyro.distributions import constraints, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
+from numpyro.distributions.transforms import MultivariateAffineTransform, PermuteTransform, PowerTransform, biject_to
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
@@ -766,10 +766,10 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
 
 @pytest.mark.parametrize('transformed_dist', [
-    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), constraints.ExpTransform()),
+    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), transforms.ExpTransform()),
     dist.TransformedDistribution(dist.Exponential(np.ones(2)), [
-        constraints.PowerTransform(0.7),
-        constraints.AffineTransform(0., np.ones(2) * 3)
+        transforms.PowerTransform(0.7),
+        transforms.AffineTransform(0., np.ones(2) * 3)
     ]),
 ])
 def test_transformed_distribution_intermediates(transformed_dist):
@@ -779,12 +779,12 @@ def test_transformed_distribution_intermediates(transformed_dist):
 
 def test_transformed_transformed_distribution():
     loc, scale = -2, 3
-    dist1 = dist.TransformedDistribution(dist.Normal(2, 3), constraints.PowerTransform(2.))
-    dist2 = dist.TransformedDistribution(dist1, constraints.AffineTransform(-2, 3))
+    dist1 = dist.TransformedDistribution(dist.Normal(2, 3), transforms.PowerTransform(2.))
+    dist2 = dist.TransformedDistribution(dist1, transforms.AffineTransform(-2, 3))
     assert isinstance(dist2.base_dist, dist.Normal)
     assert len(dist2.transforms) == 2
-    assert isinstance(dist2.transforms[0], constraints.PowerTransform)
-    assert isinstance(dist2.transforms[1], constraints.AffineTransform)
+    assert isinstance(dist2.transforms[0], transforms.PowerTransform)
+    assert isinstance(dist2.transforms[1], transforms.AffineTransform)
 
     rng = random.PRNGKey(0)
     assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
@@ -798,18 +798,18 @@ def _make_iaf(input_dim, hidden_dims, rng):
     return InverseAutoregressiveTransform(partial(arn, init_params))
 
 
-@pytest.mark.parametrize('transforms', [
-    [constraints.PowerTransform(0.7), constraints.AffineTransform(2., 3.)],
-    [constraints.ExpTransform()],
-    [constraints.ComposeTransform([constraints.AffineTransform(-2, 3),
-                                   constraints.ExpTransform()]),
-     constraints.PowerTransform(3.)],
+@pytest.mark.parametrize('ts', [
+    [transforms.PowerTransform(0.7), transforms.AffineTransform(2., 3.)],
+    [transforms.ExpTransform()],
+    [transforms.ComposeTransform([transforms.AffineTransform(-2, 3),
+                                  transforms.ExpTransform()]),
+     transforms.PowerTransform(3.)],
     [_make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(0)),
-     constraints.PermuteTransform(np.arange(5)[::-1]),
+     transforms.PermuteTransform(np.arange(5)[::-1]),
      _make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(1))]
 ])
-def test_compose_transform_with_intermediates(transforms):
-    transform = constraints.ComposeTransform(transforms)
+def test_compose_transform_with_intermediates(ts):
+    transform = transforms.ComposeTransform(ts)
     x = random.normal(random.PRNGKey(2), (7, 5))
     y, intermediates = transform.call_with_intermediates(x)
     logdet = transform.log_abs_det_jacobian(x, y, intermediates)
@@ -820,7 +820,7 @@ def test_compose_transform_with_intermediates(transforms):
 def test_unpack_transform():
     x = np.ones(3)
     unpack_fn = lambda x: {'key': x}  # noqa: E731
-    transform = constraints.UnpackTransform(unpack_fn)
+    transform = transforms.UnpackTransform(unpack_fn)
     y = transform(x)
     z = transform.inv(y)
     assert_allclose(y['key'], x)
