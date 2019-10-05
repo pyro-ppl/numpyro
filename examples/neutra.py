@@ -17,8 +17,8 @@ from numpyro.contrib.autoguide import AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.hmc_util import initialize_model
 from numpyro.infer import MCMC, NUTS, SVI, elbo
+from numpyro.infer.hmc_util import initialize_model
 from numpyro.infer_util import transformed_potential_energy
 
 # TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream

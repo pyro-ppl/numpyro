@@ -16,7 +16,7 @@ from jax.random import PRNGKey
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import summary
-from numpyro.hmc_util import (
+from numpyro.infer.hmc_util import (
     IntegratorState,
     build_tree,
     euclidean_kinetic_energy,
