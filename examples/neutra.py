@@ -158,6 +158,6 @@ if __name__ == "__main__":
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    numpyro.util.set_platform(args.device)
+    numpyro.set_platform(args.device)
 
     main(args)

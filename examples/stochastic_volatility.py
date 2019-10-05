@@ -83,6 +83,6 @@ if __name__ == "__main__":
     parser.add_argument('--rng', default=21, type=int, help='random number generator seed')
     args = parser.parse_args()
 
-    numpyro.util.set_platform(args.device)
+    numpyro.set_platform(args.device)
 
     main(args)
