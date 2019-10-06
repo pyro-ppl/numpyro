@@ -23,7 +23,7 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.util import cholesky_inverse, sum_rightmost
 from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
-import numpyro.svi
+import numpyro.infer.svi
 
 __all__ = [
     'AutoContinuous',
@@ -355,8 +355,8 @@ class AutoLaplaceApproximation(AutoContinuous):
         def loss_fn(z):
             params1 = params.copy()
             params1['{}_loc'.format(self.prefix)] = z
-            return numpyro.svi.elbo(random.PRNGKey(0), params1, self.model, self,
-                                    self._args, self._args, self._kwargs)
+            return numpyro.infer.svi.elbo(random.PRNGKey(0), params1, self.model, self,
+                                          self._args, self._args, self._kwargs)
 
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(loss_fn)(loc)

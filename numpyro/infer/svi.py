@@ -5,7 +5,7 @@ import warnings
 import jax
 from jax import random, value_and_grad
 
-import numpyro.contrib.autoguide
+from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, substitute, trace
@@ -40,7 +40,7 @@ def svi(model, guide, loss, optim, **kwargs):
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
     warnings.warn("This interface to SVI is deprecated and will be removed in the "
-                  "next version. Please use `numpyro.svi.SVI` instead.",
+                  "next version. Please use `numpyro.infer.svi.SVI` instead.",
                   DeprecationWarning)
     constrain_fn = None
 
@@ -155,7 +155,7 @@ def elbo(rng, param_map, model, guide, model_args, guide_args, kwargs):
     """
     model, guide = _seed(model, guide, rng)
     guide_log_density, guide_trace = log_density(guide, guide_args, kwargs, param_map)
-    if isinstance(guide.__wrapped__, numpyro.contrib.autoguide.AutoContinuous):
+    if isinstance(guide.__wrapped__, AutoContinuous):
         # first, we substitute `param_map` to `param` primitives of `model`
         model = substitute(model, param_map)
         # then creates a new `param_map` which holds base values of `sample` primitives
