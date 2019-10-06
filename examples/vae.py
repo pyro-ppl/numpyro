@@ -63,16 +63,14 @@ def main(args):
     encoder_nn = encoder(args.hidden_dim, args.z_dim)
     decoder_nn = decoder(args.hidden_dim, 28 * 28)
     adam = optim.Adam(args.learning_rate)
-    svi = SVI(model, guide, elbo, adam,
-              z_dim=args.z_dim,
-              hidden_dim=args.hidden_dim)
+    svi = SVI(model, guide, elbo, adam)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
     num_train, train_idx = train_init()
     rng, rng_binarize, rng_init = random.split(rng, 3)
     sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
-    svi_state = svi.init(rng_init, (sample_batch,), (sample_batch,))
+    svi_state = svi.init(rng_init, sample_batch, z_dim=args.z_dim, hidden_dim=args.hidden_dim)
 
     @jit
     def epoch_train(svi_state, rng):
@@ -80,7 +78,7 @@ def main(args):
             loss_sum, svi_state = val
             rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, train_fetch(i, train_idx)[0])
-            svi_state, loss = svi.update(svi_state, (batch,), (batch,))
+            svi_state, loss = svi.update(svi_state, batch, args.z_dim, args.hidden_dim)
             loss_sum += loss
             return loss_sum, svi_state
 
@@ -92,7 +90,7 @@ def main(args):
             rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, test_fetch(i, test_idx)[0])
             # FIXME: does this lead to a requirement for an rng arg in svi_eval?
-            loss = svi.evaluate(svi_state, (batch,), (batch,)) / len(batch)
+            loss = svi.evaluate(svi_state, batch, args.z_dim, args.hidden_dim) / len(batch)
             loss_sum += loss
             return loss_sum
 

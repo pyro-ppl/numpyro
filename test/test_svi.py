@@ -29,11 +29,11 @@ def test_beta_bernoulli():
 
     adam = optim.Adam(0.05)
     svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(random.PRNGKey(1), model_args=(data,))
+    svi_state = svi.init(random.PRNGKey(1), data)
     assert_allclose(adam.get_params(svi_state.optim_state)['alpha_q'], 0.)
 
     def body_fn(i, val):
-        svi_state, _ = svi.update(val, model_args=(data,))
+        svi_state, _ = svi.update(val, data)
         return svi_state
 
     svi_state = fori_loop(0, 300, body_fn, svi_state)
