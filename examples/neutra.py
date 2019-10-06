@@ -67,7 +67,7 @@ def main(args):
     # TODO: it is hard to find good hyperparameters such that IAF guide can learn this model.
     # We will use BNAF instead!
     guide = AutoIAFNormal(dual_moon_model, num_flows=2, hidden_dims=[args.num_hidden, args.num_hidden])
-    svi = SVI(dual_moon_model, guide, elbo, adam)
+    svi = SVI(dual_moon_model, guide, elbo(), adam)
     svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")

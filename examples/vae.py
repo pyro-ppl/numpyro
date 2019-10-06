@@ -63,7 +63,7 @@ def main(args):
     encoder_nn = encoder(args.hidden_dim, args.z_dim)
     decoder_nn = decoder(args.hidden_dim, 28 * 28)
     adam = optim.Adam(args.learning_rate)
-    svi = SVI(model, guide, elbo, adam,
+    svi = SVI(model, guide, elbo(), adam,
               z_dim=args.z_dim,
               hidden_dim=args.hidden_dim)
     rng = PRNGKey(0)

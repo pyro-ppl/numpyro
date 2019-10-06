@@ -1,6 +1,5 @@
 import argparse
 
-import jax
 from jax import random
 import jax.numpy as np
 from jax.random import PRNGKey
@@ -33,11 +32,7 @@ def main(args):
     # model/guide pair.
     adam = optim.Adam(args.learning_rate)
 
-    def loss(rng, *args, num_particles=100):
-        rng = random.split(rng, num_particles)
-        return np.mean(jax.vmap(lambda rng_: elbo(rng_, *args))(rng))
-
-    svi = SVI(model, guide, loss, adam)
+    svi = SVI(model, guide, elbo(num_particles=100), adam)
     svi_state = svi.init(PRNGKey(0), model_args=(data,))
 
     # Training loop
