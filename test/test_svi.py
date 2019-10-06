@@ -20,7 +20,7 @@ def test_beta_bernoulli():
         f = numpyro.sample("beta", dist.Beta(1., 1.))
         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
-    def guide():
+    def guide(data):
         alpha_q = numpyro.param("alpha_q", 1.0,
                                 constraint=constraints.positive)
         beta_q = numpyro.param("beta_q", 1.0,
@@ -66,7 +66,7 @@ def test_param():
 
     adam = optim.Adam(0.01)
     svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(random.PRNGKey(0), (), ())
+    svi_state = svi.init(random.PRNGKey(0))
 
     params = svi.get_params(svi_state)
     assert_allclose(params['a'], a_init)
@@ -97,7 +97,7 @@ def test_elbo_dynamic_support():
     x_base = 0.9
     guide = substitute(guide, base_param_map={'x': x_base})
     svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(random.PRNGKey(0), (), ())
+    svi_state = svi.init(random.PRNGKey(0))
     actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
     x, _ = x_guide.transform_with_intermediates(x_base)
