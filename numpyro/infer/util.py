@@ -1,7 +1,7 @@
 import warnings
 
 import jax
-from jax import random, value_and_grad, vmap
+from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.tree_util import tree_flatten
@@ -18,9 +18,10 @@ __all__ = [
     'log_density',
     'log_likelihood',
     'init_to_feasible',
+    'init_to_median',
     'init_to_prior',
     'init_to_uniform',
-    'potential_energy',
+    'initialize_model',
     'predictive',
     'transformed_potential_energy',
 ]
@@ -288,6 +289,82 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         init_state = body_fn((0, rng, None, None))
     _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
     return init_params, is_valid
+
+
+def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **model_kwargs):
+    """
+    Given a model with Pyro primitives, returns a function which, given
+    unconstrained parameters, evaluates the potential energy (negative
+    joint density). In addition, this also returns initial parameters
+    sampled from the prior to initiate MCMC sampling and functions to
+    transform unconstrained values at sample sites to constrained values
+    within their respective support.
+
+    :param jax.random.PRNGKey rng: random number generator seed to
+        sample from the prior. The returned `init_params` will have the
+        batch shape ``rng.shape[:-1]``.
+    :param model: Python callable containing Pyro primitives.
+    :param `*model_args`: args provided to the model.
+    :param callable init_strategy: a per-site initialization function.
+    :param `**model_kwargs`: kwargs provided to the model.
+    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
+        `init_params` are values from the prior used to initiate MCMC,
+        `constrain_fn` is a callable that uses inverse transforms
+        to convert unconstrained HMC samples to constrained values that
+        lie within the site's support.
+    """
+    seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
+    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    constrained_values, inv_transforms = {}, {}
+    has_transformed_dist = False
+    for k, v in model_trace.items():
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['intermediates']:
+                constrained_values[k] = v['intermediates'][0][0]
+                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                has_transformed_dist = True
+            else:
+                constrained_values[k] = v['value']
+                inv_transforms[k] = biject_to(v['fn'].support)
+        elif v['type'] == 'param':
+            constraint = v['kwargs'].pop('constraint', real)
+            transform = biject_to(constraint)
+            if isinstance(transform, ComposeTransform):
+                base_transform = transform.parts[0]
+                constrained_values[k] = base_transform(transform.inv(v['value']))
+                inv_transforms[k] = base_transform
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = transform
+                constrained_values[k] = v['value']
+
+    prototype_params = transform_fn(inv_transforms,
+                                    {k: v for k, v in constrained_values.items()},
+                                    invert=True)
+
+    # NB: we use model instead of seeded_model to prevent unexpected behaviours (if any)
+    potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
+    if has_transformed_dist:
+        # FIXME: why using seeded_model here triggers an error for funnel reparam example
+        # if we use MCMC class (mcmc function works fine)
+        constrain_fun = jax.partial(constrain_fn, model, model_args, model_kwargs, inv_transforms)
+    else:
+        constrain_fun = jax.partial(transform_fn, inv_transforms)
+
+    def single_chain_init(key):
+        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
+                                         param_as_improper=True, prototype_params=prototype_params,
+                                         **model_kwargs)
+
+    if rng.ndim == 1:
+        init_params, is_valid = single_chain_init(rng)
+    else:
+        init_params, is_valid = lax.map(single_chain_init, rng)
+
+    if isinstance(is_valid, jax.interpreters.xla.DeviceArray):
+        if device_get(~np.all(is_valid)):
+            raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
+    return init_params, potential_fn, constrain_fun
 
 
 def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
