@@ -82,7 +82,7 @@ class BernoulliProbs(Distribution):
         if self._validate_args:
             self._validate_sample(value)
         logprob = xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
-        return np.where(np.bitwise_or(x == 0, x == 1), logprob, -np.inf)
+        return np.where(np.bitwise_or(value == 0, value == 1), logprob, -np.inf)
 
     @property
     def mean(self):
