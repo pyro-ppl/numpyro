@@ -236,11 +236,11 @@ class CategoricalProbs(Distribution):
         if self._validate_args:
             self._validate_sample(value)
         batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
-        value = np.expand_dims(value, axis=-1)
-        value = np.broadcast_to(value, batch_shape + (1,))
+        expanded_value = np.expand_dims(value, axis=-1)
+        expanded_value = np.broadcast_to(expanded_value, batch_shape + (1,))
         logits = _to_logits_multinom(self.probs)
         log_pmf = np.broadcast_to(logits, batch_shape + np.shape(logits)[-1:])
-        logprob = np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
+        logprob = np.take_along_axis(log_pmf, expanded_value, axis=-1)[..., 0]
         return np.where(np.bitwise_or(value >= 0, value <= np.shape(self.probs)[-1]),
                         logprob, -np.inf)
 
@@ -274,11 +274,10 @@ class CategoricalLogits(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        value = np.expand_dims(value, -1)
         log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
-        value, log_pmf = promote_shapes(value, log_pmf)
-        value = value[..., :1]
-        logprob = np.take_along_axis(log_pmf, value, -1)[..., 0]
+        expanded_value, log_pmf = promote_shapes(np.expand_dims(value, -1), log_pmf)
+        expanded_value = expanded_value[..., :1]
+        logprob = np.take_along_axis(log_pmf, expanded_value, -1)[..., 0]
         return np.where(np.bitwise_or(value >= 0, value <= np.shape(self.probs)[-1]),
                         logprob, -np.inf)
 
