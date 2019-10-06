@@ -365,7 +365,8 @@ class AutoLaplaceApproximation(AutoContinuous):
 
     def sample_posterior(self, rng, params, sample_shape=()):
         transform = self._get_transform(params)
-        latent_sample = dist.MultivariateNormal(transform.loc, transform.scale_tril).sample(rng, sample_shape)
+        loc, scale_tril = transform.loc, transform.scale_tril
+        latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
     def get_transform(self, params):
