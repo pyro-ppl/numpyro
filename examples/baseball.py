@@ -9,8 +9,7 @@ from jax.scipy.special import logsumexp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.infer import MCMC, NUTS
-from numpyro.infer_util import log_likelihood, predictive
+from numpyro.infer import MCMC, NUTS, log_likelihood, predictive
 
 
 """

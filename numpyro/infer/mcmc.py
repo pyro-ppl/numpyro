@@ -21,10 +21,10 @@ from numpyro.infer.hmc_util import (
     build_tree,
     euclidean_kinetic_energy,
     find_reasonable_step_size,
-    initialize_model,
     velocity_verlet,
     warmup_adapter
 )
+from numpyro.infer.util import initialize_model
 from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
@@ -129,8 +129,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         import jax.numpy as np
         import numpyro
         import numpyro.distributions as dist
-        from numpyro.infer.hmc_util import initialize_model
         from numpyro.infer.mcmc import hmc
+        from numpyro.infer.util import initialize_model
         from numpyro.util import fori_collect
 
     .. doctest::
@@ -355,8 +355,8 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
        import jax.numpy as np
        import numpyro
        import numpyro.distributions as dist
-       from numpyro.hmc_util import initialize_model
        from numpyro.infer.mcmc import hmc
+       from numpyro.infer.util import initialize_model
        from numpyro.util import fori_collect
 
     .. doctest::

@@ -9,8 +9,8 @@ import jax.numpy as np
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer.hmc_util import initialize_model
 from numpyro.infer.mcmc import hmc, mcmc
+from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
 
