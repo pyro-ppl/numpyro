@@ -156,7 +156,7 @@ class Exponential(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return np.log(self.rate) - self.rate * value
+        return np.where(value >= 0, np.log(self.rate) - self.rate * value, -np.inf)
 
     @property
     def mean(self):
@@ -262,7 +262,7 @@ class HalfCauchy(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return self._cauchy.log_prob(value) + np.log(2)
+        return np.where(value >= 0, self._cauchy.log_prob(value) + np.log(2), -np.inf)
 
     @property
     def mean(self):
@@ -290,7 +290,7 @@ class HalfNormal(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return self._normal.log_prob(value) + np.log(2)
+        return np.where(value >= 0, self._normal.log_prob(value) + np.log(2), -np.inf)
 
     @property
     def mean(self):
@@ -786,7 +786,8 @@ class _BaseTruncatedCauchy(Distribution):
             self._validate_sample(value)
         # pi / 2 is arctan of self.high when that arg is supported
         normalize_term = np.log(np.pi / 2 + np.arctan(self.base_loc))
-        return - np.log1p((value - self.base_loc) ** 2) - normalize_term
+        logprob = - np.log1p((value - self.base_loc) ** 2) - normalize_term
+        return np.where(value >= 0, logprob, -np.inf)
 
 
 @copy_docs_from(Distribution)
@@ -835,7 +836,8 @@ class _BaseTruncatedNormal(Distribution):
         if self._validate_args:
             self._validate_sample(value)
         # log(cdf(high) - cdf(low)) = log(1 - cdf(low)) = log(cdf(-low))
-        return self._normal.log_prob(value) - log_ndtr(self.base_loc)
+        logprob = self._normal.log_prob(value) - log_ndtr(self.base_loc)
+        return np.where(value >= 0, logprob, -np.inf)
 
 
 @copy_docs_from(Distribution)
@@ -877,7 +879,7 @@ class _BaseUniform(Distribution):
         if self._validate_args:
             self._validate_sample(value)
         batch_shape = lax.broadcast_shapes(self.batch_shape, np.shape(value))
-        return - np.zeros(batch_shape)
+        return np.where(np.bitwise_and(0 <= value, value <= 1), np.zeros(batch_shape), -np.inf)
 
 
 @copy_docs_from(Distribution)
