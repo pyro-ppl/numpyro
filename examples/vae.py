@@ -70,7 +70,7 @@ def main(args):
     num_train, train_idx = train_init()
     rng, rng_binarize, rng_init = random.split(rng, 3)
     sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
-    svi_state = svi.init(rng_init, sample_batch, z_dim=args.z_dim, hidden_dim=args.hidden_dim)
+    svi_state = svi.init(rng_init, sample_batch, hidden_dim=args.hidden_dim, z_dim=args.z_dim)
 
     @jit
     def epoch_train(svi_state, rng):
@@ -78,7 +78,7 @@ def main(args):
             loss_sum, svi_state = val
             rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, train_fetch(i, train_idx)[0])
-            svi_state, loss = svi.update(svi_state, batch, args.z_dim, args.hidden_dim)
+            svi_state, loss = svi.update(svi_state, batch, args.hidden_dim, args.z_dim)
             loss_sum += loss
             return loss_sum, svi_state
 
@@ -90,7 +90,7 @@ def main(args):
             rng_binarize = random.fold_in(rng, i)
             batch = binarize(rng_binarize, test_fetch(i, test_idx)[0])
             # FIXME: does this lead to a requirement for an rng arg in svi_eval?
-            loss = svi.evaluate(svi_state, batch, args.z_dim, args.hidden_dim) / len(batch)
+            loss = svi.evaluate(svi_state, batch, args.hidden_dim, args.z_dim) / len(batch)
             loss_sum += loss
             return loss_sum
 
