@@ -81,7 +81,8 @@ class BernoulliProbs(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
+        logprob = xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
+        return np.where(np.bitwise_or(x == 0, x == 1), logprob, -np.inf)
 
     @property
     def mean(self):
@@ -107,7 +108,8 @@ class BernoulliLogits(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return -binary_cross_entropy_with_logits(self.logits, value)
+        logprob = -binary_cross_entropy_with_logits(self.logits, value)
+        return np.where(np.bitwise_or(value == 0, value == 1), logprob, -np.inf)
 
     @lazy_property
     def probs(self):
@@ -238,7 +240,9 @@ class CategoricalProbs(Distribution):
         value = np.broadcast_to(value, batch_shape + (1,))
         logits = _to_logits_multinom(self.probs)
         log_pmf = np.broadcast_to(logits, batch_shape + np.shape(logits)[-1:])
-        return np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
+        logprob = np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
+        return np.where(np.bitwise_or(value >= 0, value <= np.shape(self.probs)[-1]),
+                        logprob, -np.inf)
 
     @property
     def mean(self):
@@ -274,7 +278,9 @@ class CategoricalLogits(Distribution):
         log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
         value, log_pmf = promote_shapes(value, log_pmf)
         value = value[..., :1]
-        return np.take_along_axis(log_pmf, value, -1)[..., 0]
+        logprob = np.take_along_axis(log_pmf, value, -1)[..., 0]
+        return np.where(np.bitwise_or(value >= 0, value <= np.shape(self.probs)[-1]),
+                        logprob, -np.inf)
 
     @lazy_property
     def probs(self):
