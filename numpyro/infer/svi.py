@@ -157,7 +157,7 @@ def _elbo(rng, param_map, model, guide, model_args, guide_args, kwargs, num_part
     def single_particle_elbo(rng):
         seeded_model, seeded_guide = _seed(model, guide, rng)
         guide_log_density, guide_trace = log_density(seeded_guide, guide_args, kwargs, param_map)
-        if isinstance(guide.__wrapped__, AutoContinuous):
+        if isinstance(seeded_guide.__wrapped__, AutoContinuous):
             # first, we substitute `param_map` to `param` primitives of `model`
             seeded_model = substitute(seeded_model, param_map)
             # then creates a new `param_map` which holds base values of `sample` primitives
@@ -170,9 +170,9 @@ def _elbo(rng, param_map, model, guide, model_args, guide_args, kwargs, num_part
                                                skip_dist_transforms=True)
         else:
             # NB: we only want to substitute params not available in guide_trace
-            param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
+            model_param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
             seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, _ = log_density(seeded_model, model_args, kwargs, param_map)
+            model_log_density, _ = log_density(seeded_model, model_args, kwargs, model_param_map)
 
         # log p(z) - log q(z)
         elbo = model_log_density - guide_log_density
