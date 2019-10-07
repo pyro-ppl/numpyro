@@ -288,12 +288,6 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     """
     init_strategy = jax.partial(init_strategy, skip_param=not param_as_improper)
 
-    def validate_params(params, inv_transforms):
-        potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
-        pe, param_grads = value_and_grad(potential_fn)(params)
-        z_grad = ravel_pytree(param_grads)[0]
-        return np.isfinite(pe) & np.all(np.isfinite(z_grad))
-
     def cond_fn(state):
         i, _, _, is_valid = state
         return (i < 100) & (~is_valid)
@@ -328,7 +322,10 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)
-        is_valid = validate_params(params, inv_transforms)
+        potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
+        pe, param_grads = value_and_grad(potential_fn)(params)
+        z_grad = ravel_pytree(param_grads)[0]
+        is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
         return i + 1, key, params, is_valid
 
     if prototype_params is not None:
