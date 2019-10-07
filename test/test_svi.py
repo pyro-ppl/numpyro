@@ -59,9 +59,9 @@ def test_jitted_update_fn():
     adam = optim.Adam(0.05)
     svi = SVI(model, guide, elbo, adam)
     svi_state = svi.init(random.PRNGKey(1), data)
-    expected = svi.get_params(svi.update(svi_state, data))
+    expected = svi.get_params(svi.update(svi_state, data)[0])
 
-    actual = svi.get_params(jit(svi.update)(svi_state, data=data))
+    actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
     check_eq(actual, expected)
 
 
