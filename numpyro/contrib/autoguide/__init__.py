@@ -22,7 +22,7 @@ from numpyro.distributions.transforms import (
     biject_to
 )
 from numpyro.distributions.util import sum_rightmost
-from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
+from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, transform_fn
 
 __all__ = [
     'AutoContinuous',
@@ -110,7 +110,7 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`autoguide-initialization` section for available functions.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_median()):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
         self.init_strategy = init_strategy
         self._base_dist = None
         super(AutoContinuous, self).__init__(model, prefix=prefix)
@@ -357,7 +357,7 @@ class AutoIAFNormal(AutoContinuous):
         * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
           Defaults to :func:`jax.experimental.stax.Relu`.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_median(),
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(),
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in

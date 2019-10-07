@@ -9,6 +9,8 @@ import tqdm
 
 import jax
 from jax import jit, lax, ops, vmap
+from jax.interpreters.batching import BatchTracer
+from jax.interpreters.partial_eval import JaxprTracer
 from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
@@ -119,6 +121,13 @@ def fori_loop(lower, upper, body_fun, init_val):
         return val
     else:
         return lax.fori_loop(lower, upper, body_fun, init_val)
+
+
+def not_jax_tracer(x):
+    """
+    Checks if `x` is not an array generated inside `jit`, `pmap`, `vmap`, or `lax_control_flow`.
+    """
+    return not isinstance(x, (JaxprTracer, BatchTracer))
 
 
 def identity(x):

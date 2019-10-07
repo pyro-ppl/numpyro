@@ -12,7 +12,7 @@ import numpyro.distributions as dist
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.handlers import block, condition, seed, substitute, trace
-from numpyro.util import while_loop
+from numpyro.util import not_jax_tracer, while_loop
 
 __all__ = [
     'find_valid_initial_params',
@@ -269,7 +269,7 @@ def init_to_value(values):
 
 
 def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform(),
-                              param_as_improper=False, prototype_params=None, **model_kwargs):
+                              param_as_improper=False, prototype=None, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
     parameters. This function also returns an `is_valid` flag to say whether the
@@ -287,6 +287,12 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     :return: tuple of (`init_params`, `is_valid`).
     """
     init_strategy = jax.partial(init_strategy, skip_param=not param_as_improper)
+
+    def validate_params(params, inv_transforms):
+        potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
+        pe, param_grads = value_and_grad(potential_fn)(params)
+        z_grad = ravel_pytree(param_grads)[0]
+        return np.isfinite(pe) & np.all(np.isfinite(z_grad))
 
     def cond_fn(state):
         i, _, _, is_valid = state
@@ -322,18 +328,25 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)
-        potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
-        pe, param_grads = value_and_grad(potential_fn)(params)
-        z_grad = ravel_pytree(param_grads)[0]
-        is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
+        is_valid = validate_params(params, inv_transforms)
         return i + 1, key, params, is_valid
 
-    if prototype_params is not None:
-        init_state = (0, rng, prototype_params, False)
+    if prototype is not None:
+        # XXX assume we already got `prototype` with corresponding inv_transforms,
+        # we can compute the validity pf those params to avoid the below
+        # while_loop, which might be slow to compile.
+        prototype_params, inv_transforms = prototype
+        is_valid = validate_params(prototype_params, inv_transforms)
+        init_state = (0, rng, prototype_params, is_valid)
     else:
-        init_state = body_fn((0, rng, None, None))
-    _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
-    return init_params, is_valid
+        _, _, prototype_params, is_valid = init_state = body_fn((0, rng, None, None))
+
+    if not_jax_tracer(is_valid):
+        if device_get(is_valid):
+            return prototype_params, is_valid
+    else:
+        _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
+        return init_params, is_valid
 
 
 def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **model_kwargs):
@@ -398,7 +411,8 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
 
     def single_chain_init(key):
         return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
-                                         param_as_improper=True, prototype_params=prototype_params,
+                                         param_as_improper=True,
+                                         prototype=(prototype_params, inv_transforms),
                                          **model_kwargs)
 
     if rng.ndim == 1:
@@ -406,7 +420,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **m
     else:
         init_params, is_valid = lax.map(single_chain_init, rng)
 
-    if isinstance(is_valid, jax.interpreters.xla.DeviceArray):
+    if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return init_params, potential_fn, constrain_fun
