@@ -349,7 +349,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         return init_params, is_valid
 
 
-def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform, **model_kwargs):
+def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative

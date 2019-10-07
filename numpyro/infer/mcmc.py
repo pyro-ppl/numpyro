@@ -544,6 +544,7 @@ class HMC(MCMCKernel):
         self._sample_fn = None
         self.algo = 'HMC'
         self.max_tree_depth = 10
+        self.init_strategy = init_strategy
 
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
@@ -553,8 +554,8 @@ class HMC(MCMCKernel):
                 rng, rng_init_model = random.split(rng)
             else:
                 rng, rng_init_model = np.swapaxes(vmap(random.split)(rng), 0, 1)
-            init_params_, self.potential_fn, constrain_fn = initialize_model(rng_init_model, self.model,
-                                                                             *model_args, **model_kwargs)
+            init_params_, self.potential_fn, constrain_fn = initialize_model(
+                rng_init_model, self.model, *model_args, init_strategy=self.init_strategy, **model_kwargs)
             if init_params is None:
                 init_params = init_params_
         else:
