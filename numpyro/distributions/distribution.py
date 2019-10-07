@@ -28,7 +28,8 @@ import jax.numpy as np
 
 from numpyro.distributions.constraints import is_dependent
 from numpyro.distributions.transforms import Transform
-from numpyro.distributions.util import lazy_property, sum_rightmost
+from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
+from numpyro.util import not_jax_tracer
 
 
 class Distribution(object):
@@ -78,8 +79,10 @@ class Distribution(object):
                     continue
                 if is_dependent(constraint):
                     continue  # skip constraints that cannot be checked
-                if not np.all(constraint(getattr(self, param))):
-                    raise ValueError("The parameter {} has invalid values".format(param))
+                is_valid = np.all(constraint(getattr(self, param)))
+                if not_jax_tracer(is_valid):
+                    if not is_valid:
+                        raise ValueError("The parameter {} has invalid values".format(param))
         super(Distribution, self).__init__()
 
     @property
@@ -158,9 +161,12 @@ class Distribution(object):
         raise NotImplementedError
 
     def _validate_sample(self, value):
-        if not np.all(self.support(value)):
-            warnings.warn('Out-of-support values provided to log prob method. '
-                          'The value argument should be within the support.')
+        mask = self.support(value)
+        if not_jax_tracer(mask):
+            if not np.all(mask):
+                warnings.warn('Out-of-support values provided to log prob method. '
+                              'The value argument should be within the support.')
+        return mask
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('random_state')
@@ -304,9 +310,8 @@ class TransformedDistribution(Distribution):
             intermediates.append([x_tmp, t_inter])
         return x, intermediates
 
+    @validate_sample
     def log_prob(self, value, intermediates=None):
-        if self._validate_args:
-            self._validate_sample(value)
         if intermediates is not None:
             if len(intermediates) != len(self.transforms):
                 raise ValueError('Intermediates array has length = {}. Expected = {}.'
