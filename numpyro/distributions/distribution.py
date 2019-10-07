@@ -22,6 +22,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import warnings
+
 import jax.numpy as np
 
 from numpyro.distributions.constraints import is_dependent
@@ -157,8 +159,8 @@ class Distribution(object):
 
     def _validate_sample(self, value):
         if not np.all(self.support(value)):
-            raise ValueError('Invalid values provided to log prob method. '
-                             'The value argument must be within the support.')
+            warnings.warn('Out-of-support values provided to log prob method. '
+                          'The value argument should be within the support.')
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('random_state')

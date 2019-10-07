@@ -255,6 +255,11 @@ def signed_stick_breaking_tril(t):
     return y
 
 
+def clamp_probs(probs):
+    finfo = np.finfo(get_dtype(probs))
+    return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
+
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
@@ -297,6 +302,12 @@ class lazy_property(object):
         return value
 
 
-def clamp_probs(probs):
-    finfo = np.finfo(get_dtype(probs))
-    return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
+def validate_sample(log_prob_fn):
+    def wrapper(self, value):
+        log_prob = log_prob_fn(self, value)
+        if self._validate_args:
+            mask = self._validate_sample(value)
+            log_prob = np.where(mask, log_prob, -np.inf)
+        return log_prob
+
+    return wrapper
