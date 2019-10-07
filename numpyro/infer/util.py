@@ -269,7 +269,7 @@ def init_to_value(values):
 
 
 def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform(),
-                              param_as_improper=False, prototype=None, **model_kwargs):
+                              param_as_improper=False, prototype_params=None, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
     parameters. This function also returns an `is_valid` flag to say whether the
@@ -331,22 +331,16 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         is_valid = validate_params(params, inv_transforms)
         return i + 1, key, params, is_valid
 
-    if prototype is not None:
-        # XXX assume we already got `prototype` with corresponding inv_transforms,
-        # we can compute the validity pf those params to avoid the below
-        # while_loop, which might be slow to compile.
-        prototype_params, inv_transforms = prototype
-        is_valid = validate_params(prototype_params, inv_transforms)
-        init_state = (0, rng, prototype_params, is_valid)
+    if prototype_params is not None:
+        init_state = (0, rng, prototype_params, False)
     else:
         _, _, prototype_params, is_valid = init_state = body_fn((0, rng, None, None))
+        if not_jax_tracer(is_valid):
+            if device_get(is_valid):
+                return prototype_params, is_valid
 
-    if not_jax_tracer(is_valid):
-        if device_get(is_valid):
-            return prototype_params, is_valid
-    else:
-        _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
-        return init_params, is_valid
+    _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
+    return init_params, is_valid
 
 
 def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
@@ -411,8 +405,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
 
     def single_chain_init(key):
         return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
-                                         param_as_improper=True,
-                                         prototype=(prototype_params, inv_transforms),
+                                         param_as_improper=True, prototype_params=prototype_params,
                                          **model_kwargs)
 
     if rng.ndim == 1:
