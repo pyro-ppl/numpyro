@@ -26,7 +26,7 @@ def _seed(model, guide, rng):
     return model_init, guide_init
 
 
-def svi(model, guide, loss, optim):
+def svi(model, guide, loss, optim, **static_kwargs):
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -35,6 +35,8 @@ def svi(model, guide, loss, optim):
         (recognition network).
     :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
+    :param **`static_kwargs`: static arguments for the model / guide, i.e. arguments
+        that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
     warnings.warn("This interface to SVI is deprecated and will be removed in the "
@@ -57,8 +59,8 @@ def svi(model, guide, loss, optim):
 
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(model, guide, rng_seed)
-        guide_trace = trace(guide_init).get_trace(*args, **kwargs)
-        model_trace = trace(model_init).get_trace(*args, **kwargs)
+        guide_trace = trace(guide_init).get_trace(*args, **kwargs, **static_kwargs)
+        model_trace = trace(model_init).get_trace(*args, **kwargs, **static_kwargs)
         params = {}
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
@@ -95,7 +97,8 @@ def svi(model, guide, loss, optim):
         rng, rng_seed = random.split(svi_state.rng)
         params = optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: loss(rng_seed, constrain_fn(x), model, guide, args, kwargs))(params)
+            lambda x: loss(rng_seed, constrain_fn(x), model, guide,
+                           *args, **kwargs, **static_kwargs))(params)
         optim_state = optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng), loss_val
 
@@ -113,7 +116,7 @@ def svi(model, guide, loss, optim):
         # we split to have the same seed as `update_fn` given an svi_state
         _, rng_seed = random.split(svi_state.rng)
         params = get_params(svi_state)
-        return loss(rng_seed, params, model, guide, args, kwargs)
+        return loss(rng_seed, params, model, guide, *args, **kwargs, **static_kwargs)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
@@ -125,7 +128,7 @@ def svi(model, guide, loss, optim):
     return init_fn, update_fn, evaluate
 
 
-def elbo(rng, param_map, model, guide, args, kwargs):
+def elbo(rng, param_map, model, guide, *args, **kwargs):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
     fundamental objective in Variational Inference. This implementation has various
@@ -184,13 +187,16 @@ class SVI(object):
         (recognition network).
     :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
+    :param **`static_kwargs`: static arguments for the model / guide, i.e. arguments
+        that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
-    def __init__(self, model, guide, loss, optim):
+    def __init__(self, model, guide, loss, optim, **static_kwargs):
         self.model = model
         self.guide = guide
         self.loss = loss
         self.optim = optim
+        self.static_kwargs = static_kwargs
         self.constrain_fn = None
 
     def init(self, rng, *args, **kwargs):
@@ -206,8 +212,8 @@ class SVI(object):
         """
         rng, rng_seed = random.split(rng)
         model_init, guide_init = _seed(self.model, self.guide, rng_seed)
-        guide_trace = trace(guide_init).get_trace(*args, **kwargs)
-        model_trace = trace(model_init).get_trace(*args, **kwargs)
+        guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
+        model_trace = trace(model_init).get_trace(*args, **kwargs, **self.static_kwargs)
         params = {}
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
@@ -245,7 +251,7 @@ class SVI(object):
         params = self.optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
             lambda x: self.loss(rng_seed, self.constrain_fn(x), self.model, self.guide,
-                                args, kwargs))(params)
+                                *args, **kwargs, **self.static_kwargs))(params)
         optim_state = self.optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng), loss_val
 
@@ -263,4 +269,5 @@ class SVI(object):
         # we split to have the same seed as `update_fn` given an svi_state
         _, rng_seed = random.split(svi_state.rng)
         params = self.get_params(svi_state)
-        return self.loss(rng_seed, params, self.model, self.guide, args, kwargs)
+        return self.loss(rng_seed, params, self.model, self.guide,
+                         *args, **kwargs, **self.static_kwargs)
