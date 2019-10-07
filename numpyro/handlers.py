@@ -28,7 +28,6 @@ need to loop over all the data points.
    import numpyro
    import numpyro.distributions as dist
    from numpyro import handlers
-   from numpyro.hmc_util import initialize_model
    from numpyro.infer import MCMC, NUTS
 
 .. doctest::

@@ -9,7 +9,7 @@ from numpyro.contrib.autoguide import AutoContinuous
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, substitute, trace
-from numpyro.infer_util import log_density, transform_fn
+from numpyro.infer.util import log_density, transform_fn
 
 SVIState = namedtuple('SVIState', ['optim_state', 'rng'])
 """

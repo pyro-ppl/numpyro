@@ -16,7 +16,7 @@ from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.infer import SVI, elbo
-from numpyro.infer_util import init_to_median
+from numpyro.infer.util import init_to_median
 from numpyro.util import fori_loop
 
 init_strategy = partial(init_to_median, num_samples=2)

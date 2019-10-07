@@ -22,7 +22,7 @@ from numpyro.distributions.transforms import (
     biject_to
 )
 from numpyro.distributions.util import sum_rightmost
-from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
+from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
 
 __all__ = [
     'AutoContinuous',
