@@ -586,6 +586,7 @@ def _leaf_idx_to_ckpt_idxs(n):
     # turning condition;
     # however, we can check the turning condition of the subtree 0 -> 5, which
     # likely satisfies turning condition because its trajectory 3/4 of a circle.
+    # XXX: make sure that detailed balance is satisfied if we follow this direction
     idx_min = idx_max - num_subtrees + 1
     return idx_min, idx_max
 

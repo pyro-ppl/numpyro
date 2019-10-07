@@ -19,7 +19,7 @@ from numpyro.infer import SVI, elbo
 from numpyro.infer.util import init_to_median
 from numpyro.util import fori_loop
 
-init_strategy = partial(init_to_median, num_samples=2)
+init_strategy = init_to_median(num_samples=2)
 
 
 @pytest.mark.parametrize('auto_class', [

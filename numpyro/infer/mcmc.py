@@ -24,7 +24,7 @@ from numpyro.infer.hmc_util import (
     velocity_verlet,
     warmup_adapter
 )
-from numpyro.infer.util import initialize_model
+from numpyro.infer.util import init_to_uniform, initialize_model
 from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
@@ -517,6 +517,7 @@ class HMC(MCMCKernel):
         step size, hence the sampling will be slower but more robust. Default to 0.8.
     :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
         value is :math:`2\\pi`.
+    :param callable init_strategy: a per-site initialization function.
     """
     def __init__(self,
                  model=None,
@@ -527,7 +528,8 @@ class HMC(MCMCKernel):
                  adapt_mass_matrix=True,
                  dense_mass=False,
                  target_accept_prob=0.8,
-                 trajectory_length=2*math.pi):
+                 trajectory_length=2 * math.pi,
+                 init_strategy=init_to_uniform()):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self.model = model
@@ -542,6 +544,7 @@ class HMC(MCMCKernel):
         self._sample_fn = None
         self.algo = 'HMC'
         self.max_tree_depth = 10
+        self.init_strategy = init_strategy
 
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
@@ -551,8 +554,8 @@ class HMC(MCMCKernel):
                 rng, rng_init_model = random.split(rng)
             else:
                 rng, rng_init_model = np.swapaxes(vmap(random.split)(rng), 0, 1)
-            init_params_, self.potential_fn, constrain_fn = initialize_model(rng_init_model, self.model,
-                                                                             *model_args, **model_kwargs)
+            init_params_, self.potential_fn, constrain_fn = initialize_model(
+                rng_init_model, self.model, *model_args, init_strategy=self.init_strategy, **model_kwargs)
             if init_params is None:
                 init_params = init_params_
         else:
@@ -631,10 +634,11 @@ class NUTS(HMC):
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
-    :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
-        value is :math:`2\\pi`.
+    :param float trajectory_length: Length of a MCMC trajectory for HMC. This arg has
+        no effect in NUTS sampler.
     :param int max_tree_depth: Max depth of the binary tree created during the doubling
         scheme of NUTS sampler. Defaults to 10.
+    :param callable init_strategy: a per-site initialization function.
     """
     def __init__(self,
                  model=None,
@@ -645,12 +649,14 @@ class NUTS(HMC):
                  adapt_mass_matrix=True,
                  dense_mass=False,
                  target_accept_prob=0.8,
-                 trajectory_length=2 * math.pi,
-                 max_tree_depth=10):
+                 trajectory_length=None,
+                 max_tree_depth=10,
+                 init_strategy=init_to_uniform()):
         super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
                                    step_size=step_size, adapt_step_size=adapt_step_size,
                                    adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
-                                   target_accept_prob=target_accept_prob, trajectory_length=trajectory_length)
+                                   target_accept_prob=target_accept_prob,
+                                   trajectory_length=trajectory_length, init_strategy=init_strategy)
         self.max_tree_depth = max_tree_depth
         self.algo = 'NUTS'
 

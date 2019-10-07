@@ -119,10 +119,10 @@ def test_model_with_transformed_distribution():
 
 
 @pytest.mark.parametrize('init_strategy', [
-    init_to_feasible,
-    partial(init_to_median, num_samples=2),
-    init_to_prior,
-    init_to_uniform,
+    init_to_feasible(),
+    init_to_median(num_samples=2),
+    init_to_prior(),
+    init_to_uniform(),
 ])
 def test_initialize_model_change_point(init_strategy):
     def model(data):
@@ -154,10 +154,10 @@ def test_initialize_model_change_point(init_strategy):
 
 
 @pytest.mark.parametrize('init_strategy', [
-    init_to_feasible,
-    partial(init_to_median, num_samples=2),
-    init_to_prior,
-    init_to_uniform,
+    init_to_feasible(),
+    init_to_median(num_samples=2),
+    init_to_prior(),
+    init_to_uniform(),
 ])
 def test_initialize_model_dirichlet_categorical(init_strategy):
     def model(data):
