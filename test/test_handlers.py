@@ -8,7 +8,7 @@ from jax import random, vmap
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.infer_util import log_density
+from numpyro.infer.util import log_density
 from numpyro.util import optional
 
 
