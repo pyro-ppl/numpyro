@@ -16,15 +16,15 @@ from jax.random import PRNGKey
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import summary
-from numpyro.hmc_util import (
+from numpyro.infer.hmc_util import (
     IntegratorState,
     build_tree,
     euclidean_kinetic_energy,
     find_reasonable_step_size,
-    initialize_model,
     velocity_verlet,
     warmup_adapter
 )
+from numpyro.infer.util import initialize_model
 from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
@@ -129,8 +129,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         import jax.numpy as np
         import numpyro
         import numpyro.distributions as dist
-        from numpyro.hmc_util import initialize_model
         from numpyro.infer.mcmc import hmc
+        from numpyro.infer.util import initialize_model
         from numpyro.util import fori_collect
 
     .. doctest::
@@ -355,8 +355,8 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
        import jax.numpy as np
        import numpyro
        import numpyro.distributions as dist
-       from numpyro.hmc_util import initialize_model
        from numpyro.infer.mcmc import hmc
+       from numpyro.infer.util import initialize_model
        from numpyro.util import fori_collect
 
     .. doctest::
@@ -767,7 +767,7 @@ class MCMC(object):
             chain_method = 'sequential'
             warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
                           ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
-                          ' consider to use `numpyro.util.set_host_devices({})` at the beginning'
+                          ' consider to use `numpyro.set_host_device_count({})` at the beginning'
                           ' of your program.'
                           .format(self.num_chains, xla_bridge.device_count(), self.num_chains))
 

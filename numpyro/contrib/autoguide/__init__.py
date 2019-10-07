@@ -22,7 +22,7 @@ from numpyro.distributions.transforms import (
     biject_to
 )
 from numpyro.distributions.util import cholesky_inverse, sum_rightmost
-from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
+from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
 import numpyro.infer.svi
 
 __all__ = [

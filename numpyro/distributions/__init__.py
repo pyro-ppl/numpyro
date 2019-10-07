@@ -40,8 +40,10 @@ from numpyro.distributions.discrete import (
 )
 from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
 import numpyro.distributions.transforms  # noqa: F401
+from numpyro.distributions.transforms import biject_to
 
 __all__ = [
+    'biject_to',
     'constraints',
     'transforms',
     'Bernoulli',
