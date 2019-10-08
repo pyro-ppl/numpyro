@@ -17,18 +17,12 @@ _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
 
 
-__all__ = [
-    'cond',
-    'set_host_devices',
-    'set_platform',
-    'set_rng_seed',
-    'fori_collect',
-    'fori_loop',
-    'while_loop',
-]
-
-
 def set_rng_seed(rng_seed):
+    """
+    Initializes internal state for the Python and NumPy random number generators.
+
+    :param int rng_seed: seed for Python and NumPy random states.
+    """
     random.seed(rng_seed)
     onp.random.seed(rng_seed)
 
@@ -45,7 +39,7 @@ def set_platform(platform=None):
     jax.config.update('jax_platform_name', platform)
 
 
-def set_host_devices(n):
+def set_host_device_count(n):
     """
     By default, XLA considers all CPU cores as one device. This utility tells XLA
     that there are `n` host (CPU) devices available to use. As a consequence, this

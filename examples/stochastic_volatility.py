@@ -8,8 +8,8 @@ import jax.random as random
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import SP500, load_dataset
-from numpyro.hmc_util import initialize_model
 from numpyro.infer.mcmc import hmc
+from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
 
@@ -83,6 +83,6 @@ if __name__ == "__main__":
     parser.add_argument('--rng', default=21, type=int, help='random number generator seed')
     args = parser.parse_args()
 
-    numpyro.util.set_platform(args.device)
+    numpyro.set_platform(args.device)
 
     main(args)

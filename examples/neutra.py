@@ -17,9 +17,8 @@ from numpyro.contrib.autoguide import AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.hmc_util import initialize_model
 from numpyro.infer import MCMC, NUTS, SVI, elbo
-from numpyro.infer_util import transformed_potential_energy
+from numpyro.infer.util import initialize_model, transformed_potential_energy
 
 # TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
 # The behaviour when training guide under fast math mode is unstable.
@@ -158,6 +157,6 @@ if __name__ == "__main__":
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    numpyro.util.set_platform(args.device)
+    numpyro.set_platform(args.device)
 
     main(args)
