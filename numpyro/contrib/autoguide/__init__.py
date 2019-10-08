@@ -28,6 +28,7 @@ from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_
 
 __all__ = [
     'AutoContinuous',
+    'AutoContinuousELBO',
     'AutoGuide',
     'AutoDiagonalNormal',
     'AutoMultivariateNormal',
