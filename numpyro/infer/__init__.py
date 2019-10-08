@@ -15,6 +15,7 @@ __all__ = [
     'init_to_median',
     'init_to_prior',
     'init_to_uniform',
+    'init_to_value',
     'predictive',
     'log_likelihood',
     'ELBO',
