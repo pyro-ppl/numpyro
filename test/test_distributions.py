@@ -590,7 +590,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
 
     # Out of support samples throw ValueError
     oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
-    with pytest.raises(ValueError):
+    with pytest.warns(UserWarning):
         d.log_prob(oob_samples)
 
 

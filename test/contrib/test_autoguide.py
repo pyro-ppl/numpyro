@@ -9,7 +9,7 @@ from jax.test_util import check_eq
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoIAFNormal, AutoMultivariateNormal, AutoContinuousELBO
+from numpyro.contrib.autoguide import AutoContinuousELBO, AutoDiagonalNormal, AutoIAFNormal, AutoMultivariateNormal
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms

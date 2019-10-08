@@ -7,7 +7,7 @@ from jax.random import PRNGKey
 import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
-from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer import ELBO, SVI
 from numpyro.util import fori_loop
 
 
@@ -32,7 +32,7 @@ def main(args):
     # model/guide pair.
     adam = optim.Adam(args.learning_rate)
 
-    svi = SVI(model, guide, Trace_ELBO(num_particles=100), adam)
+    svi = SVI(model, guide, ELBO(num_particles=100), adam)
     svi_state = svi.init(PRNGKey(0), data)
 
     # Training loop
