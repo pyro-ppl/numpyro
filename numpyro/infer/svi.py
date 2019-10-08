@@ -50,7 +50,8 @@ def svi(model, guide, loss, optim, **static_kwargs):
         :param jax.random.PRNGKey rng: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param kwargs: keyword arguments to the model / guide.
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple containing initial :data:`SVIState`, and `get_params`, a callable
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
@@ -91,7 +92,8 @@ def svi(model, guide, loss, optim, **static_kwargs):
         :param svi_state: current state of SVI.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param kwargs: keyword arguments to the model / guide.
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
         rng, rng_seed = random.split(svi_state.rng)
@@ -109,7 +111,8 @@ def svi(model, guide, loss, optim, **static_kwargs):
         :param svi_state: current state of SVI.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param kwargs: keyword arguments to the model / guide.
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: evaluate ELBo loss given the current parameter values
             (held within `svi_state.optim_state`).
         """
@@ -146,7 +149,8 @@ def elbo(rng, param_map, model, guide, *args, **kwargs):
         (recognition network).
     :param args: arguments to the model / guide (these can possibly vary during
         the course of fitting).
-    :param dict kwargs: keyword arguments to the model / guide.
+    :param dict kwargs: keyword arguments to the model / guide (these can possibly
+        vary during the course of fitting).
     :return: negative of the Evidence Lower Bound (ELBo) to be minimized.
     """
     model, guide = _seed(model, guide, rng)
@@ -205,7 +209,8 @@ class SVI(object):
         :param jax.random.PRNGKey rng: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param kwargs: keyword arguments to the model / guide.
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple containing initial :data:`SVIState`, and `get_params`, a callable
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
@@ -244,7 +249,8 @@ class SVI(object):
         :param svi_state: current state of SVI.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param kwargs: keyword arguments to the model / guide.
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
         rng, rng_seed = random.split(svi_state.rng)
