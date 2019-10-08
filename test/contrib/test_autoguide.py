@@ -10,21 +10,22 @@ from jax.test_util import check_eq
 import numpyro
 from numpyro import optim
 from numpyro.contrib.autoguide import (
+    AutoContinuousELBO,
     AutoDiagonalNormal,
     AutoIAFNormal,
     AutoLaplaceApproximation,
-    AutoMultivariateNormal,
+    AutoMultivariateNormal
 )
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
-from numpyro.infer import SVI, elbo
-from numpyro.infer_util import init_to_median
+from numpyro.infer import SVI
+from numpyro.infer.util import init_to_median
 from numpyro.util import fori_loop
 
-init_strategy = partial(init_to_median, num_samples=2)
+init_strategy = init_to_median(num_samples=2)
 
 
 @pytest.mark.parametrize('auto_class', [
@@ -43,11 +44,11 @@ def test_beta_bernoulli(auto_class):
 
     adam = optim.Adam(0.01)
     guide = auto_class(model, init_strategy=init_strategy)
-    svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(random.PRNGKey(1), model_args=(data,), guide_args=(data,))
+    svi = SVI(model, guide, AutoContinuousELBO(), adam)
+    svi_state = svi.init(random.PRNGKey(1), data)
 
     def body_fn(i, val):
-        svi_state, loss = svi.update(val, model_args=(data,), guide_args=(data,))
+        svi_state, loss = svi.update(val, data)
         return svi_state
 
     svi_state = fori_loop(0, 2000, body_fn, svi_state)
@@ -79,11 +80,11 @@ def test_logistic_regression(auto_class):
     adam = optim.Adam(0.01)
     rng_init = random.PRNGKey(1)
     guide = auto_class(model, init_strategy=init_strategy)
-    svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(rng_init, model_args=(data, labels), guide_args=(data, labels))
+    svi = SVI(model, guide, AutoContinuousELBO(), adam)
+    svi_state = svi.init(rng_init, data, labels)
 
     def body_fn(i, val):
-        svi_state, loss = svi.update(val, model_args=(data, labels), guide_args=(data, labels))
+        svi_state, loss = svi.update(val, data, labels)
         return svi_state
 
     svi_state = fori_loop(0, 2000, body_fn, svi_state)
@@ -116,8 +117,8 @@ def test_iaf():
     adam = optim.Adam(0.01)
     rng_init = random.PRNGKey(1)
     guide = AutoIAFNormal(model)
-    svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(rng_init, model_args=(data, labels), guide_args=(data, labels))
+    svi = SVI(model, guide, AutoContinuousELBO(), adam)
+    svi_state = svi.init(rng_init, data, labels)
     params = svi.get_params(svi_state)
 
     x = random.normal(random.PRNGKey(0), (dim + 1,))
@@ -159,11 +160,11 @@ def test_uniform_normal():
     adam = optim.Adam(0.01)
     rng_init = random.PRNGKey(1)
     guide = AutoDiagonalNormal(model)
-    svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(rng_init, model_args=(data,), guide_args=(data,))
+    svi = SVI(model, guide, AutoContinuousELBO(), adam)
+    svi_state = svi.init(rng_init, data)
 
     def body_fn(i, val):
-        svi_state, loss = svi.update(val, model_args=(data,), guide_args=(data,))
+        svi_state, loss = svi.update(val, data)
         return svi_state
 
     svi_state = fori_loop(0, 1000, body_fn, svi_state)
@@ -198,7 +199,7 @@ def test_param():
     adam = optim.Adam(0.01)
     rng_init = random.PRNGKey(1)
     guide = _AutoGuide(model)
-    svi = SVI(model, guide, elbo, adam)
+    svi = SVI(model, guide, AutoContinuousELBO(), adam)
     svi_state = svi.init(rng_init)
 
     params = svi.get_params(svi_state)
@@ -231,20 +232,20 @@ def test_dynamic_supports():
     rng_init = random.PRNGKey(1)
 
     guide = AutoDiagonalNormal(actual_model)
-    svi = SVI(actual_model, guide, elbo, adam)
-    svi_state = svi.init(rng_init, (data,), (data,))
+    svi = SVI(actual_model, guide, AutoContinuousELBO(), adam)
+    svi_state = svi.init(rng_init, data)
     actual_opt_params = adam.get_params(svi_state.optim_state)
     actual_params = svi.get_params(svi_state)
     actual_values = guide.median(actual_params)
-    actual_loss = svi.evaluate(svi_state, (data,), (data,))
+    actual_loss = svi.evaluate(svi_state, data)
 
     guide = AutoDiagonalNormal(expected_model)
-    svi = SVI(expected_model, guide, elbo, adam)
-    svi_state = svi.init(rng_init, (data,), (data,))
+    svi = SVI(expected_model, guide, AutoContinuousELBO(), adam)
+    svi_state = svi.init(rng_init, data)
     expected_opt_params = adam.get_params(svi_state.optim_state)
     expected_params = svi.get_params(svi_state)
     expected_values = guide.median(expected_params)
-    expected_loss = svi.evaluate(svi_state, (data,), (data,))
+    expected_loss = svi.evaluate(svi_state, data)
 
     # test auto_loc, auto_scale
     check_eq(actual_opt_params, expected_opt_params)
@@ -269,8 +270,8 @@ def test_elbo_dynamic_support():
 
     adam = optim.Adam(0.01)
     guide = _AutoGuide(model)
-    svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(random.PRNGKey(0), (), ())
+    svi = SVI(model, guide, AutoContinuousELBO(), adam)
+    svi_state = svi.init(random.PRNGKey(0))
     actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
 

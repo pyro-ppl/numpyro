@@ -22,13 +22,17 @@ from numpyro.distributions.transforms import (
     biject_to
 )
 from numpyro.distributions.util import cholesky_inverse, sum_rightmost
-from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
-import numpyro.infer.svi
+from numpyro.handlers import seed, substitute
+from numpyro.infer.elbo import ELBO
+from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, log_density, transform_fn
 
 __all__ = [
     'AutoContinuous',
+    'AutoContinuousELBO',
     'AutoGuide',
     'AutoDiagonalNormal',
+    'AutoMultivariateNormal',
+    'AutoIAFNormal',
 ]
 
 
@@ -111,7 +115,7 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`autoguide-initialization` section for available functions.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_median):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
         self.init_strategy = init_strategy
         self._base_dist = None
         super(AutoContinuous, self).__init__(model, prefix=prefix)
@@ -355,8 +359,9 @@ class AutoLaplaceApproximation(AutoContinuous):
         def loss_fn(z):
             params1 = params.copy()
             params1['{}_loc'.format(self.prefix)] = z
-            return numpyro.infer.svi.elbo(random.PRNGKey(0), params1, self.model, self,
-                                          self._args, self._args, self._kwargs)
+            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng.
+            return AutoContinuousELBO()(random.PRNGKey(0), params1, self.model, self,
+                                        self._args, self._args, self._kwargs)
 
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(loss_fn)(loc)
@@ -412,7 +417,7 @@ class AutoIAFNormal(AutoContinuous):
         * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
           Defaults to :func:`jax.experimental.stax.Relu`.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_median,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(),
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
@@ -438,3 +443,42 @@ class AutoIAFNormal(AutoContinuous):
             arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_size,))
             flows.append(InverseAutoregressiveTransform(arnn))
         return ComposeTransform(flows)
+
+
+class AutoContinuousELBO(ELBO):
+    """
+    An ELBO implementation specific to :class:`AutoContinuous` guides. In those guide, the latent
+    variables of the model are transformed to unconstrained domains. This class provides ELBO of
+    the "transformed" model (i.e. the corresponding model with unconstrained variables) and the
+    guide.
+    """
+    def loss(self, rng, param_map, model, guide, *args, **kwargs):
+        assert isinstance(guide, AutoContinuous)
+
+        def single_particle_elbo(rng):
+            model_seed, guide_seed = random.split(rng)
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+            guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
+            # first, we substitute `param_map` to `param` primitives of `model`
+            seeded_model = substitute(seeded_model, param_map)
+            # then creates a new `param_map` which holds base values of `sample` primitives
+            base_param_map = {}
+            # in autoguide, a site's value holds intermediate value
+            for name, site in guide_trace.items():
+                if site['type'] == 'sample':
+                    base_param_map[name] = site['value']
+            model_log_density, _ = log_density(seeded_model, args, kwargs, base_param_map,
+                                               skip_dist_transforms=True)
+
+            # log p(z) - log q(z)
+            elbo = model_log_density - guide_log_density
+            # Return (-elbo) since by convention we do gradient descent on a loss and
+            # the ELBO is a lower bound that needs to be maximized.
+            return -elbo
+
+        if self.num_particles == 1:
+            return single_particle_elbo(rng)
+        else:
+            rngs = random.split(rng, self.num_particles)
+            return np.mean(vmap(single_particle_elbo)(rngs))

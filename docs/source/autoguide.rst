@@ -34,3 +34,11 @@ AutoLaplaceApproximation
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+AutoContinuousELBO
+------------------
+.. autoclass:: numpyro.contrib.autoguide.AutoContinuousELBO
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
