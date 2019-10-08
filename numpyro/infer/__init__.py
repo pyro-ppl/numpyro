@@ -6,6 +6,7 @@ from numpyro.infer.util import (
     init_to_median,
     init_to_prior,
     init_to_uniform,
+    init_to_value,
     log_likelihood,
     predictive
 )
