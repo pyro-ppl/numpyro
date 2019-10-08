@@ -1,3 +1,35 @@
+from abc import ABCMeta, abstractmethod
+
+import jax.numpy as np
+from jax import vmap
+
+from numpyro.handlers import replay, substitute
+from numpyro.infer.util import log_density
+
+
+class ELBO(object, metaclass=ABCMeta):
+    def __init__(self, num_particles=1):
+        self.num_particles = num_particles
+
+    @abstractmethod
+    def loss(self, model, guide, *args, **kwargs):
+        """
+        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+
+        :param model: Python callable with NumPyro primitives for the model.
+        :param guide: Python callable with NumPyro primitives for the guide.
+        :param args: arguments to the model (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the guide (these can possibly vary
+            during the course of fitting).
+        """
+        raise NotImplementedError
+
+
+class Trace_ELBO(ELBO):
+    ...
+
+
 def _elbo(rng, param_map, model, guide, model_args, guide_args, kwargs, num_particles=1):
     """
     This is the most basic implementation of the Evidence Lower Bound, which is the
