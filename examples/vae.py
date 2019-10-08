@@ -13,7 +13,7 @@ import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.examples.datasets import MNIST, load_dataset
-from numpyro.infer import SVI, elbo
+from numpyro.infer import ELBO, SVI
 
 RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
                               '.results'))
@@ -63,7 +63,7 @@ def main(args):
     encoder_nn = encoder(args.hidden_dim, args.z_dim)
     decoder_nn = decoder(args.hidden_dim, 28 * 28)
     adam = optim.Adam(args.learning_rate)
-    svi = SVI(model, guide, elbo, adam, hidden_dim=args.hidden_dim, z_dim=args.z_dim)
+    svi = SVI(model, guide, ELBO(), adam, hidden_dim=args.hidden_dim, z_dim=args.z_dim)
     rng = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
