@@ -18,14 +18,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 """
 
 
-def _seed(model, guide, rng):
-    model_seed, guide_seed = random.split(rng, 2)
-    model_init = seed(model, model_seed)
-    guide_init = seed(guide, guide_seed)
-    return model_init, guide_init
-
-
-def svi(model, guide, loss, optim, **kwargs):
+def svi(model, guide, loss, optim, **static_kwargs):
     """
     Stochastic Variational Inference given an ELBo loss objective.
 
@@ -34,7 +27,7 @@ def svi(model, guide, loss, optim, **kwargs):
         (recognition network).
     :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
-    :param `**kwargs`: static arguments for the model / guide, i.e. arguments
+    :param **`static_kwargs`: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
@@ -43,26 +36,25 @@ def svi(model, guide, loss, optim, **kwargs):
                   DeprecationWarning)
     constrain_fn = None
 
-    def init_fn(rng, model_args=(), guide_args=()):
+    def init_fn(rng, *args, **kwargs):
         """
 
         :param jax.random.PRNGKey rng: random number generator seed.
-        :param tuple model_args: arguments to the model (these can possibly vary during
+        :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param tuple guide_args: arguments to the guide (these can possibly vary during
-            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple containing initial :data:`SVIState`, and `get_params`, a callable
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
         """
         nonlocal constrain_fn
 
-        assert isinstance(model_args, tuple)
-        assert isinstance(guide_args, tuple)
-        rng, rng_seed = random.split(rng)
-        model_init, guide_init = _seed(model, guide, rng_seed)
-        guide_trace = trace(guide_init).get_trace(*guide_args, **kwargs)
-        model_trace = trace(model_init).get_trace(*model_args, **kwargs)
+        rng, model_seed, guide_seed = random.split(rng, 3)
+        model_init = seed(model, model_seed)
+        guide_init = seed(guide, guide_seed)
+        guide_trace = trace(guide_init).get_trace(*args, **kwargs, **static_kwargs)
+        model_trace = trace(model_init).get_trace(*args, **kwargs, **static_kwargs)
         params = {}
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
@@ -85,39 +77,42 @@ def svi(model, guide, loss, optim, **kwargs):
         params = constrain_fn(optim.get_params(svi_state.optim_state))
         return params
 
-    def update_fn(svi_state, model_args=(), guide_args=()):
+    def update_fn(svi_state, *args, **kwargs):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data),
         using the optimizer.
 
         :param svi_state: current state of SVI.
-        :param tuple model_args: dynamic arguments to the model.
-        :param tuple guide_args: dynamic arguments to the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
         rng, rng_seed = random.split(svi_state.rng)
         params = optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: loss(rng_seed, constrain_fn(x), model, guide, model_args, guide_args, kwargs))(params)
+            lambda x: loss.loss(rng_seed, constrain_fn(x), model, guide,
+                                *args, **kwargs, **static_kwargs))(params)
         optim_state = optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng), loss_val
 
-    def evaluate(svi_state, model_args=(), guide_args=()):
+    def evaluate(svi_state, *args, **kwargs):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data).
 
         :param svi_state: current state of SVI.
-        :param tuple model_args: arguments to the model (these can possibly vary during
+        :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param tuple guide_args: arguments to the guide (these can possibly vary during
-            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: evaluate ELBo loss given the current parameter values
             (held within `svi_state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given an svi_state
         _, rng_seed = random.split(svi_state.rng)
         params = get_params(svi_state)
-        return loss(rng_seed, params, model, guide, model_args, guide_args, kwargs)
+        return loss.loss(rng_seed, params, model, guide, *args, **kwargs, **static_kwargs)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
@@ -141,36 +136,35 @@ class SVI(object):
         (recognition network).
     :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
-    :param `**kwargs`: static arguments for the model / guide, i.e. arguments
+    :param **`static_kwargs`: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
-    def __init__(self, model, guide, loss, optim, **kwargs):
+    def __init__(self, model, guide, loss, optim, **static_kwargs):
         self.model = model
         self.guide = guide
         self.loss = loss
         self.optim = optim
-        self.kwargs = kwargs
+        self.static_kwargs = static_kwargs
         self.constrain_fn = None
 
-    def init(self, rng, model_args=(), guide_args=()):
+    def init(self, rng, *args, **kwargs):
         """
 
         :param jax.random.PRNGKey rng: random number generator seed.
-        :param tuple model_args: arguments to the model (these can possibly vary during
+        :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param tuple guide_args: arguments to the guide (these can possibly vary during
-            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple containing initial :data:`SVIState`, and `get_params`, a callable
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
         """
-        assert isinstance(model_args, tuple)
-        assert isinstance(guide_args, tuple)
-        rng, rng_seed = random.split(rng)
-        model_init, guide_init = _seed(self.model, self.guide, rng_seed)
-        guide_trace = trace(guide_init).get_trace(*guide_args, **self.kwargs)
-        model_trace = trace(model_init).get_trace(*model_args, **self.kwargs)
+        rng, model_seed, guide_seed = random.split(rng, 3)
+        model_init = seed(self.model, model_seed)
+        guide_init = seed(self.guide, guide_seed)
+        guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
+        model_trace = trace(model_init).get_trace(*args, **kwargs, **self.static_kwargs)
         params = {}
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
@@ -193,37 +187,39 @@ class SVI(object):
         params = self.constrain_fn(self.optim.get_params(svi_state.optim_state))
         return params
 
-    def update(self, svi_state, model_args=(), guide_args=()):
+    def update(self, svi_state, *args, **kwargs):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data),
         using the optimizer.
 
         :param svi_state: current state of SVI.
-        :param tuple model_args: dynamic arguments to the model.
-        :param tuple guide_args: dynamic arguments to the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
         rng, rng_seed = random.split(svi_state.rng)
         params = self.optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: self.loss(rng_seed, self.constrain_fn(x), self.model, self.guide,
-                                model_args, guide_args, self.kwargs))(params)
+            lambda x: self.loss.loss(rng_seed, self.constrain_fn(x), self.model, self.guide,
+                                     *args, **kwargs, **self.static_kwargs))(params)
         optim_state = self.optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng), loss_val
 
-    def evaluate(self, svi_state, model_args=(), guide_args=()):
+    def evaluate(self, svi_state, *args, **kwargs):
         """
         Take a single step of SVI (possibly on a batch / minibatch of data).
 
         :param svi_state: current state of SVI.
-        :param tuple model_args: arguments to the model (these can possibly vary during
+        :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
-        :param tuple guide_args: arguments to the guide (these can possibly vary during
-            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide.
         :return: evaluate ELBo loss given the current parameter values
             (held within `svi_state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given an svi_state
         _, rng_seed = random.split(svi_state.rng)
         params = self.get_params(svi_state)
-        return self.loss(rng_seed, params, self.model, self.guide, model_args, guide_args, self.kwargs)
+        return self.loss.loss(rng_seed, params, self.model, self.guide,
+                              *args, **kwargs, **self.static_kwargs)

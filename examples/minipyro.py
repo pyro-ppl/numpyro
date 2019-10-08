@@ -7,7 +7,7 @@ from jax.random import PRNGKey
 import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
-from numpyro.infer import SVI, elbo
+from numpyro.infer import SVI, Trace_ELBO
 from numpyro.util import fori_loop
 
 
@@ -18,7 +18,7 @@ def model(data):
 
 # Define a guide (i.e. variational distribution) with a Normal
 # distribution over the latent random variable `loc`.
-def guide():
+def guide(data):
     guide_loc = numpyro.param("guide_loc", 0.)
     guide_scale = np.exp(numpyro.param("guide_scale_log", 0.))
     numpyro.sample("loc", dist.Normal(guide_loc, guide_scale))
@@ -32,12 +32,12 @@ def main(args):
     # model/guide pair.
     adam = optim.Adam(args.learning_rate)
 
-    svi = SVI(model, guide, elbo(num_particles=100), adam)
-    svi_state = svi.init(PRNGKey(0), model_args=(data,))
+    svi = SVI(model, guide, Trace_ELBO(num_particles=100), adam)
+    svi_state = svi.init(PRNGKey(0), data)
 
     # Training loop
     def body_fn(i, val):
-        svi_state, loss = svi.update(val, model_args=(data,))
+        svi_state, loss = svi.update(val, data)
         return svi_state
 
     svi_state = fori_loop(0, args.num_steps, body_fn, svi_state)
