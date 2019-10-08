@@ -22,6 +22,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from contextlib import contextmanager
 import warnings
 
 import jax.numpy as np
@@ -30,6 +31,39 @@ from numpyro.distributions.constraints import is_dependent
 from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
+
+_VALIDATION_ENABLED = False
+
+
+def enable_validation(is_validate=True):
+    """
+    Enable or disable validation checks in NumPyro. Validation checks provide useful warnings and
+    errors, e.g. NaN checks, validating distribution arguments and support values, etc. which is
+    useful for debugging.
+
+    .. note:: This utility does not take effect under JAX's JIT compilation or vectorized
+        transformation :func:`jax.vmap`.
+
+    :param bool is_validate: whether to enable validation checks.
+    """
+    global _VALIDATION_ENABLED
+    _VALIDATION_ENABLED = is_validate
+    Distribution.set_default_validate_args(is_validate)
+
+
+@contextmanager
+def validation_enabled(is_validate=True):
+    """
+    Context manager that is useful when temporarily enabling/disabling validation checks.
+
+    :param bool is_validate: whether to enable validation checks.
+    """
+    distribution_validation_status = _VALIDATION_ENABLED
+    try:
+        enable_validation(is_validate)
+        yield
+    finally:
+        enable_validation(distribution_validation_status)
 
 
 class Distribution(object):
@@ -67,6 +101,12 @@ class Distribution(object):
     support = None
     reparametrized_params = []
     _validate_args = False
+
+    @staticmethod
+    def set_default_validate_args(value):
+        if value not in [True, False]:
+            raise ValueError
+        Distribution._validate_args = value
 
     def __init__(self, batch_shape=(), event_shape=(), validate_args=None):
         self._batch_shape = batch_shape
