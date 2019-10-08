@@ -117,7 +117,7 @@ class SVI(svi.SVI):
         self.svi_state = None
 
     def evaluate_loss(self, *args, **kwargs):
-        return self.evaluate(self.svi_state, *args, **kwargs).item()
+        return self.evaluate(self.svi_state, *args, **kwargs)
 
     def step(self, *args, rng=None, **kwargs):
         if self.svi_state is None:
@@ -132,7 +132,7 @@ class SVI(svi.SVI):
                                 'dicts of arrays.')
             else:
                 raise e
-        return loss.item()
+        return loss
 
     def get_param_store(self):
         return self.get_params(self.svi_state)
