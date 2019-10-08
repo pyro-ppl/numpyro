@@ -1,7 +1,8 @@
 from numpy.testing import assert_allclose
 
-from jax import random
+from jax import jit, random
 import jax.numpy as np
+from jax.test_util import check_eq
 
 import numpyro
 from numpyro import optim
@@ -20,7 +21,7 @@ def test_beta_bernoulli():
         f = numpyro.sample("beta", dist.Beta(1., 1.))
         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
-    def guide():
+    def guide(data):
         alpha_q = numpyro.param("alpha_q", 1.0,
                                 constraint=constraints.positive)
         beta_q = numpyro.param("beta_q", 1.0,
@@ -29,16 +30,39 @@ def test_beta_bernoulli():
 
     adam = optim.Adam(0.05)
     svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(random.PRNGKey(1), model_args=(data,))
+    svi_state = svi.init(random.PRNGKey(1), data)
     assert_allclose(adam.get_params(svi_state.optim_state)['alpha_q'], 0.)
 
     def body_fn(i, val):
-        svi_state, _ = svi.update(val, model_args=(data,))
+        svi_state, _ = svi.update(val, data)
         return svi_state
 
     svi_state = fori_loop(0, 300, body_fn, svi_state)
     params = svi.get_params(svi_state)
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
+
+
+def test_jitted_update_fn():
+    data = np.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        f = numpyro.sample("beta", dist.Beta(1., 1.))
+        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    def guide(data):
+        alpha_q = numpyro.param("alpha_q", 1.0,
+                                constraint=constraints.positive)
+        beta_q = numpyro.param("beta_q", 1.0,
+                               constraint=constraints.positive)
+        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
+
+    adam = optim.Adam(0.05)
+    svi = SVI(model, guide, elbo, adam)
+    svi_state = svi.init(random.PRNGKey(1), data)
+    expected = svi.get_params(svi.update(svi_state, data)[0])
+
+    actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
+    check_eq(actual, expected)
 
 
 def test_param():
@@ -66,7 +90,7 @@ def test_param():
 
     adam = optim.Adam(0.01)
     svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(random.PRNGKey(0), (), ())
+    svi_state = svi.init(random.PRNGKey(0))
 
     params = svi.get_params(svi_state)
     assert_allclose(params['a'], a_init)
@@ -97,7 +121,7 @@ def test_elbo_dynamic_support():
     x_base = 0.9
     guide = substitute(guide, base_param_map={'x': x_base})
     svi = SVI(model, guide, elbo, adam)
-    svi_state = svi.init(random.PRNGKey(0), (), ())
+    svi_state = svi.init(random.PRNGKey(0))
     actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
     x, _ = x_guide.transform_with_intermediates(x_base)
