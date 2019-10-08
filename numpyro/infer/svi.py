@@ -136,7 +136,7 @@ class SVI(object):
         (recognition network).
     :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
-    :param **`static_kwargs`: static arguments for the model / guide, i.e. arguments
+    :param static_kwargs: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
