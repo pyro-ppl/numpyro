@@ -20,12 +20,12 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
 def svi(model, guide, loss, optim, **static_kwargs):
     """
-    Stochastic Variational Inference given an ELBo loss objective.
+    Stochastic Variational Inference given an ELBO loss objective.
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
-    :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
+    :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
     :param **`static_kwargs`: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
@@ -106,7 +106,7 @@ def svi(model, guide, loss, optim, **static_kwargs):
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
-        :return: evaluate ELBo loss given the current parameter values
+        :return: evaluate ELBO loss given the current parameter values
             (held within `svi_state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given an svi_state
@@ -129,12 +129,12 @@ def svi(model, guide, loss, optim, **static_kwargs):
 
 class SVI(object):
     """
-    Stochastic Variational Inference given an ELBo loss objective.
+    Stochastic Variational Inference given an ELBO loss objective.
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
-    :param loss: ELBo loss, i.e. negative Evidence Lower Bound, to minimize.
+    :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
     :param static_kwargs: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
@@ -215,7 +215,7 @@ class SVI(object):
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide.
-        :return: evaluate ELBo loss given the current parameter values
+        :return: evaluate ELBO loss given the current parameter values
             (held within `svi_state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given an svi_state
