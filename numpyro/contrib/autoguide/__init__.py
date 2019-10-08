@@ -361,7 +361,7 @@ class AutoLaplaceApproximation(AutoContinuous):
             params1['{}_loc'.format(self.prefix)] = z
             # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng.
             return AutoContinuousELBO().loss(random.PRNGKey(0), params1, self.model, self,
-                                             self._args, self._args, self._kwargs)
+                                             *self._args, **self._kwargs)
 
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(loss_fn)(loc)
