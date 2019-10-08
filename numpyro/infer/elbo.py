@@ -1,50 +1,11 @@
-from abc import ABCMeta, abstractmethod
-
-import jax.numpy as np
 from jax import random, vmap
+import jax.numpy as np
 
 from numpyro.handlers import replay, seed
 from numpyro.infer.util import log_density
 
 
-class ELBO(object, metaclass=ABCMeta):
-    """
-    :class:`ELBO` is the top-level interface for stochastic variational
-    inference via optimization of the evidence lower bound.
-
-    **References:**
-
-    1. *Automated Variational Inference in Probabilistic Programming*,
-       David Wingate, Theo Weber
-    2. *Black Box Variational Inference*,
-       Rajesh Ranganath, Sean Gerrish, David M. Blei
-
-    :param num_particles: The number of particles/samples used to form the ELBo
-        (gradient) estimators.
-    """
-    def __init__(self, num_particles=1):
-        self.num_particles = num_particles
-
-    @abstractmethod
-    def loss(self, rng, param_map, model, guide, *args, **kwargs):
-        """
-        Evaluates the ELBo with an estimator that uses num_particles many samples/particles.
-
-        :param jax.random.PRNGKey rng: random number generator seed.
-        :param dict param_map: dictionary of current parameter values keyed by site
-            name.
-        :param model: Python callable with NumPyro primitives for the model.
-        :param guide: Python callable with NumPyro primitives for the guide.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
-        :return: negative of the Evidence Lower Bound (ELBo) to be minimized.
-        """
-        raise NotImplementedError
-
-
-class Trace_ELBO(ELBO):
+class ELBO(object):
     """
     A trace implementation of ELBO-based SVI. The estimator is constructed
     along the lines of references [1] and [2]. There are no restrictions on the
@@ -64,8 +25,28 @@ class Trace_ELBO(ELBO):
        David Wingate, Theo Weber
     2. *Black Box Variational Inference*,
        Rajesh Ranganath, Sean Gerrish, David M. Blei
+
+    :param num_particles: The number of particles/samples used to form the ELBO
+        (gradient) estimators.
     """
+    def __init__(self, num_particles=1):
+        self.num_particles = num_particles
+
     def loss(self, rng, param_map, model, guide, *args, **kwargs):
+        """
+        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+
+        :param jax.random.PRNGKey rng: random number generator seed.
+        :param dict param_map: dictionary of current parameter values keyed by site
+            name.
+        :param model: Python callable with NumPyro primitives for the model.
+        :param guide: Python callable with NumPyro primitives for the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
+        """
         def single_particle_elbo(rng):
             model_seed, guide_seed = random.split(rng)
             seeded_model = seed(model, model_seed)

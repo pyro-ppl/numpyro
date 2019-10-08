@@ -1,4 +1,4 @@
-from numpyro.infer.elbo import ELBO, Trace_ELBO
+from numpyro.infer.elbo import ELBO
 from numpyro.infer.mcmc import HMC, MCMC, NUTS
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import (
@@ -22,5 +22,4 @@ __all__ = [
     'MCMC',
     'NUTS',
     'SVI',
-    'Trace_ELBO',
 ]

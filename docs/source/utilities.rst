@@ -1,6 +1,14 @@
 Utilities
 =========
 
+enable_validation
+-----------------
+.. autofunction:: numpyro.distributions.distribution.enable_validation
+
+validation_enabled
+------------------
+.. autofunction:: numpyro.distributions.distribution.validation_enabled
+
 .. automodule:: numpyro.util
 
 set_platform
