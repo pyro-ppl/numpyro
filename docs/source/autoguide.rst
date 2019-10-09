@@ -27,6 +27,14 @@ AutoIAFNormal
     :show-inheritance:
     :member-order: bysource
 
+AutoLaplaceApproximation
+------------------------
+.. autoclass:: numpyro.contrib.autoguide.AutoLaplaceApproximation
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 AutoContinuousELBO
 ------------------
 .. autoclass:: numpyro.contrib.autoguide.AutoContinuousELBO

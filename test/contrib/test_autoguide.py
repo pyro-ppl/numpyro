@@ -9,7 +9,13 @@ from jax.test_util import check_eq
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoContinuousELBO, AutoDiagonalNormal, AutoIAFNormal, AutoMultivariateNormal
+from numpyro.contrib.autoguide import (
+    AutoContinuousELBO,
+    AutoDiagonalNormal,
+    AutoIAFNormal,
+    AutoLaplaceApproximation,
+    AutoMultivariateNormal
+)
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
@@ -26,6 +32,7 @@ init_strategy = init_to_median(num_samples=2)
     AutoDiagonalNormal,
     AutoIAFNormal,
     AutoMultivariateNormal,
+    AutoLaplaceApproximation,
 ])
 def test_beta_bernoulli(auto_class):
     data = np.array([[1.0] * 8 + [0.0] * 2,
@@ -56,6 +63,7 @@ def test_beta_bernoulli(auto_class):
     AutoDiagonalNormal,
     AutoIAFNormal,
     AutoMultivariateNormal,
+    AutoLaplaceApproximation,
 ])
 def test_logistic_regression(auto_class):
     N, dim = 3000, 3

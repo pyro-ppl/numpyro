@@ -1,7 +1,7 @@
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
 
-from jax import random, vmap
+from jax import hessian, random, vmap
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
@@ -21,7 +21,7 @@ from numpyro.distributions.transforms import (
     UnpackTransform,
     biject_to
 )
-from numpyro.distributions.util import sum_rightmost
+from numpyro.distributions.util import cholesky_inverse, sum_rightmost
 from numpyro.handlers import seed, substitute
 from numpyro.infer.elbo import ELBO
 from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, log_density, transform_fn
@@ -329,6 +329,61 @@ class AutoMultivariateNormal(AutoContinuous):
 
     def quantiles(self, params, quantiles):
         transform = handlers.substitute(self._get_transform, params)()
+        quantiles = np.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
+        return self._unpack_and_constrain(latent, params)
+
+
+class AutoLaplaceApproximation(AutoContinuous):
+    r"""
+    Laplace approximation (quadratic approximation) approximates the posterior
+    :math:`\log p(z | x)` by a multivariate normal distribution in the
+    unconstrained space. Under the hood, it uses Delta distributions to
+    construct a MAP guide over the entire (unconstrained) latent space. Its
+    covariance is given by the inverse of the hessian of :math:`-\log p(x, z)`
+    at the MAP point of `z`.
+
+    Usage::
+
+        guide = AutoLaplaceApproximation(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _sample_latent(self, base_dist, *args, **kwargs):
+        # sample from Delta guide
+        sample_shape = kwargs.pop('sample_shape', ())
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        posterior = dist.Delta(loc, event_ndim=1)
+        return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
+
+    def _get_transform(self, params):
+        def loss_fn(z):
+            params1 = params.copy()
+            params1['{}_loc'.format(self.prefix)] = z
+            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng.
+            return AutoContinuousELBO().loss(random.PRNGKey(0), params1, self.model, self,
+                                             *self._args, **self._kwargs)
+
+        loc = params['{}_loc'.format(self.prefix)]
+        precision = hessian(loss_fn)(loc)
+        scale_tril = cholesky_inverse(precision)
+        return MultivariateAffineTransform(loc, scale_tril)
+
+    def sample_posterior(self, rng, params, sample_shape=()):
+        transform = self._get_transform(params)
+        loc, scale_tril = transform.loc, transform.scale_tril
+        latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng, sample_shape)
+        return self._unpack_and_constrain(latent_sample, params)
+
+    def get_transform(self, params):
+        return ComposeTransform([self._get_transform(params),
+                                 UnpackTransform(self._unpack_latent)])
+
+    def median(self, params):
+        loc = params['{}_loc'.format(self.prefix)]
+        return self._unpack_and_constrain(loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = self._get_transform(params)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)

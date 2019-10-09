@@ -32,7 +32,7 @@ def svi(model, guide, loss, optim, **static_kwargs):
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
     warnings.warn("This interface to SVI is deprecated and will be removed in the "
-                  "next version. Please use `numpyro.svi.SVI` instead.",
+                  "next version. Please use `numpyro.infer.svi.SVI` instead.",
                   DeprecationWarning)
     constrain_fn = None
 
