@@ -346,7 +346,7 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
     r = 1.
     r_sum = 3.
     r_ckpts = np.array([1., 2., 3., -2.])
-    r_sum_ckpts = r_ckpts + 1
+    r_sum_ckpts = np.array([2., 4., 4., -1.])
 
     actual_turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
                                            *ckpt_idxs)
