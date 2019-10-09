@@ -722,7 +722,7 @@ class MCMC(object):
                 "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
             self.progress_bar = False
 
-        self._collect_fields = ('z',)
+        self.collect_fields = ('z',)
         self._samples = None
         self._samples_flat = None
 
@@ -783,7 +783,7 @@ class MCMC(object):
                 raise ValueError('`init_params` must have the same leading dimension'
                                  ' as `num_chains`.')
         assert isinstance(collect_fields, (tuple, list))
-        self._collect_fields = collect_fields
+        self.collect_fields = collect_fields
         if self.num_chains == 1:
             samples_flat = self._single_chain_mcmc((rng, init_params), collect_fields, collect_warmup,
                                                    args, kwargs)
@@ -829,7 +829,7 @@ class MCMC(object):
             more generally (e.g. when defining a `potential_fn` for HMC that takes
             `list` args).
         """
-        get_items = itemgetter(*self._collect_fields)
+        get_items = itemgetter(*self.collect_fields)
         return get_items(self._samples) if group_by_chain else get_items(self._samples_flat)
 
     def print_summary(self, prob=0.9):
