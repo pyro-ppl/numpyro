@@ -12,7 +12,7 @@ from jax.scipy.special import logit
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.mcmc import HMC, MCMC, NUTS
+from numpyro.infer import HMC, MCMC, NUTS
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -77,7 +77,7 @@ def test_logistic_regression(kernel_cls):
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(2), labels)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
+    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
     if 'JAX_ENABLE_x64' in os.environ:
         assert samples['coefs'].dtype == np.float64
@@ -282,10 +282,23 @@ def test_prior_with_sample_shape():
     assert mcmc.get_samples()['theta'].shape == (num_samples, data['J'])
 
 
+@pytest.mark.parametrize('num_chains', [1, 2])
+@pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
+@pytest.mark.parametrize('progress_bar', [True, False])
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+def test_empty_model(num_chains, chain_method, progress_bar):
+    def model():
+        pass
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10, num_chains=num_chains,
+                chain_method=chain_method, progress_bar=progress_bar)
+    mcmc.run(random.PRNGKey(0))
+    assert mcmc.get_samples() == {}
+
+
 @pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
-@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
-@pytest.mark.filterwarnings("ignore:`vectorized`:UserWarning")
+@pytest.mark.skipif('XLA_FLAGS' not in os.environ, reason='without this mark, we have duplicated tests in Travis')
 def test_chain(use_init_params, chain_method):
     N, dim = 3000, 3
     num_chains = 2
@@ -347,7 +360,8 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     def get_samples(rng, data, step_size, trajectory_length, target_accept_prob):
         kernel = kernel_cls(model, step_size=step_size, trajectory_length=trajectory_length,
                             target_accept_prob=target_accept_prob)
-        mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method)
+        mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method,
+                    progress_bar=False)
         mcmc.run(rng, data)
         return mcmc.get_samples()
 

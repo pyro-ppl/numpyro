@@ -1,18 +1,16 @@
 import argparse
-import os
 
 import numpy as onp
 
-from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 from jax.scipy.special import logsumexp
 
 import numpyro
-from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, log_likelihood, predictive
+
 
 """
 Original example from Pyro:
@@ -54,16 +52,6 @@ hyper-parameters) of running HMC on different problems.
 """
 
 
-# TODO: Remove broadcasting logic when support for `pyro.plate` is
-# available.
-#
-# Note that the current manual broadcasting logic is designed to
-# also work when the latent variables are batched along the leading
-# axis. This is useful for doing vectorized predictions, i.e. getting
-# the entire empirical distribution in one pass through the model.
-# This broadcasting logic can be removed when support for plates is
-# available.
-
 def fully_pooled(at_bats, hits=None):
     r"""
     Number of hits in $K$ at bats for each player has a Binomial
@@ -73,9 +61,11 @@ def fully_pooled(at_bats, hits=None):
     :param (np.DeviceArray) hits: Number of hits for the given at bats.
     :return: Number of hits predicted by the model.
     """
-    phi_prior = dist.Uniform(np.array([0.]), np.array([1.]))
+    phi_prior = dist.Uniform(0, 1)
     phi = numpyro.sample("phi", phi_prior)
-    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    num_players = at_bats.shape[0]
+    with numpyro.plate("num_players", num_players):
+        return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def not_pooled(at_bats, hits=None):
@@ -88,10 +78,10 @@ def not_pooled(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     num_players = at_bats.shape[0]
-    phi_prior = dist.Uniform(np.zeros((num_players,)),
-                             np.ones((num_players,)))
-    phi = numpyro.sample("phi", phi_prior)
-    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    with numpyro.plate("num_players", num_players):
+        phi_prior = dist.Uniform(0, 1)
+        phi = numpyro.sample("phi", phi_prior)
+        return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def partially_pooled(at_bats, hits=None):
@@ -106,14 +96,13 @@ def partially_pooled(at_bats, hits=None):
     :param (np.DeviceArray) hits: Number of hits for the given at bats.
     :return: Number of hits predicted by the model.
     """
+    m = numpyro.sample("m", dist.Uniform(0, 1))
+    kappa = numpyro.sample("kappa", dist.Pareto(1.5))
     num_players = at_bats.shape[0]
-    m = numpyro.sample("m", dist.Uniform(np.array([0.]), np.array([1.])))
-    kappa = numpyro.sample("kappa", dist.Pareto(np.array([1.5])))
-    shape = np.shape(kappa)[:np.ndim(kappa) - 1] + (num_players,)
-    phi_prior = dist.Beta(np.broadcast_to(m * kappa, shape),
-                          np.broadcast_to((1 - m) * kappa, shape))
-    phi = numpyro.sample("phi", phi_prior)
-    return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
+    with numpyro.plate("num_players", num_players):
+        phi_prior = dist.Beta(m * kappa, (1 - m) * kappa)
+        phi = numpyro.sample("phi", phi_prior)
+        return numpyro.sample("obs", dist.Binomial(at_bats, probs=phi), obs=hits)
 
 
 def partially_pooled_with_logit(at_bats, hits=None):
@@ -126,13 +115,12 @@ def partially_pooled_with_logit(at_bats, hits=None):
     :param (np.DeviceArray) hits: Number of hits for the given at bats.
     :return: Number of hits predicted by the model.
     """
+    loc = numpyro.sample("loc", dist.Normal(-1, 1))
+    scale = numpyro.sample("scale", dist.HalfCauchy(1))
     num_players = at_bats.shape[0]
-    loc = numpyro.sample("loc", dist.Normal(np.array([-1.]), np.array([1.])))
-    scale = numpyro.sample("scale", dist.HalfCauchy(np.array([1.])))
-    shape = np.shape(loc)[:np.ndim(loc) - 1] + (num_players,)
-    alpha = numpyro.sample("alpha", dist.Normal(np.broadcast_to(loc, shape),
-                                                np.broadcast_to(scale, shape)))
-    return numpyro.sample("obs", dist.Binomial(at_bats, logits=alpha), obs=hits)
+    with numpyro.plate("num_players", num_players):
+        alpha = numpyro.sample("alpha", dist.Normal(loc, scale))
+        return numpyro.sample("obs", dist.Binomial(at_bats, logits=alpha), obs=hits)
 
 
 def run_inference(model, at_bats, hits, rng, args):
@@ -142,28 +130,20 @@ def run_inference(model, at_bats, hits, rng, args):
     return mcmc.get_samples()
 
 
-# TODO: Consider providing generic utilities for doing predictions
-# and computing posterior log density
 def predict(model, at_bats, hits, z, rng, player_names, train=True):
     header = model.__name__ + (' - TRAIN' if train else ' - TEST')
-    model = handlers.substitute(handlers.seed(model, rng), z)
-    model_trace = handlers.trace(model).get_trace(at_bats)
-    predictions = model_trace['obs']['value']
+    predictions = predictive(rng, model, z, at_bats)['obs']
     print_results('=' * 30 + header + '=' * 30,
                   predictions,
                   player_names,
                   at_bats,
                   hits)
     if not train:
-        model = handlers.substitute(model, z)
-        model_trace = handlers.trace(model).get_trace(at_bats, hits)
-        log_joint = 0.
-        for site in model_trace.values():
-            site_log_prob = site['fn'].log_prob(site['value'])
-            log_joint = log_joint + np.sum(site_log_prob.reshape(site_log_prob.shape[:1] + (-1,)),
-                                           -1)
-        log_post_density = logsumexp(log_joint) - np.log(np.shape(log_joint)[0])
-        print('\nPosterior log density: {:.2f}\n'.format(log_post_density))
+        post_loglik = log_likelihood(model, z, at_bats, hits)['obs']
+        # computes expected log predictive density at each data point
+        exp_log_density = logsumexp(post_loglik, axis=0) - np.log(np.shape(post_loglik)[0])
+        # reports log predictive density of all test points
+        print('\nLog pointwise predictive density: {:.2f}\n'.format(exp_log_density.sum()))
 
 
 def print_results(header, preds, player_names, at_bats, hits):
@@ -178,7 +158,6 @@ def print_results(header, preds, player_names, at_bats, hits):
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
     _, fetch_train = load_dataset(BASEBALL, split='train', shuffle=False)
     train, player_names = fetch_train()
     _, fetch_test = load_dataset(BASEBALL, split='test', shuffle=False)
@@ -205,8 +184,7 @@ if __name__ == "__main__":
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
-        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
-            args.num_chains)
+    numpyro.set_platform(args.device)
+    numpyro.set_host_device_count(args.num_chains)
 
     main(args)

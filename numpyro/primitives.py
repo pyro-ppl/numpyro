@@ -60,21 +60,28 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, sample_shape=()):
+def sample(name, fn, obs=None, random_state=None, sample_shape=()):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
     :class:`~numpyro.handlers.substitute`.
 
+    .. note::
+        By design, `sample` primitive is meant to be used inside a NumPyro model.
+        Then :class:`~numpyro.handlers.seed` handler is used to inject a random
+        state to `fn`. In those situations, `random_state` keyword will take no
+        effect.
+
     :param str name: name of the sample site
     :param fn: Python callable
     :param numpy.ndarray obs: observed value
+    :param jax.random.PRNGKey random_state: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        return fn(sample_shape=sample_shape)
+        return fn(random_state=random_state, sample_shape=sample_shape)
 
     # Otherwise, we initialize a message...
     initial_msg = {
@@ -82,7 +89,7 @@ def sample(name, fn, obs=None, sample_shape=()):
         'name': name,
         'fn': fn,
         'args': (),
-        'kwargs': {'sample_shape': sample_shape},
+        'kwargs': {'random_state': random_state, 'sample_shape': sample_shape},
         'value': obs,
         'scale': 1.0,
         'is_observed': obs is not None,
@@ -191,7 +198,6 @@ class plate(Messenger):
     def _validate_and_set_dim(self):
         msg = {
             'type': 'plate',
-            'is_observed': False,
             'fn': identity,
             'name': self.name,
             'args': (None,),
@@ -225,7 +231,20 @@ class plate(Messenger):
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
-        batch_shape = self._get_batch_shape(cond_indep_stack)
+        expected_shape = self._get_batch_shape(cond_indep_stack)
+        dist_batch_shape = msg['fn'].batch_shape if msg['type'] == 'sample' else ()
+        overlap_idx = len(expected_shape) - len(dist_batch_shape)
+        if overlap_idx < 0:
+            raise ValueError('Expected dimensions within plate = {}, which is less than the '
+                             'distribution\'s batch shape = {}.'.format(len(expected_shape), len(dist_batch_shape)))
+        trailing_shape = expected_shape[overlap_idx:]
+        # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
+        broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+        if broadcast_shape != dist_batch_shape:
+            raise ValueError('Distribution batch shape = {} cannot be broadcast up to {}. '
+                             'Consider using unbatched distributions.'
+                             .format(dist_batch_shape, broadcast_shape))
+        batch_shape = expected_shape[:overlap_idx]
         if 'sample_shape' in msg['kwargs']:
             batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
         msg['kwargs']['sample_shape'] = batch_shape
