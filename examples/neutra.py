@@ -6,21 +6,18 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from jax import lax, random, vmap
-from jax.config import config as jax_config
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoBNAFNormal
+from numpyro.contrib.autoguide import AutoContinuousELBO, AutoBNAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.hmc_util import initialize_model
-from numpyro.infer_util import transformed_potential_energy
-from numpyro.mcmc import MCMC, NUTS
-from numpyro.svi import SVI, elbo
+from numpyro.infer import MCMC, NUTS, SVI
+from numpyro.infer.util import initialize_model, transformed_potential_energy
 
 """
 This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
@@ -53,8 +50,6 @@ def dual_moon_model():
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
-
     print("Start vanilla HMC...")
     nuts_kernel = NUTS(dual_moon_model)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
@@ -63,8 +58,10 @@ def main(args):
     vanilla_samples = mcmc.get_samples()['x'].copy()
 
     adam = optim.Adam(0.01)
+    # TODO: it is hard to find good hyperparameters such that IAF guide can learn this model.
+    # We will use BNAF instead!
     guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
-    svi = SVI(dual_moon_model, guide, elbo, adam)
+    svi = SVI(dual_moon_model, guide, AutoContinuousELBO(), adam)
     svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
@@ -154,4 +151,7 @@ if __name__ == "__main__":
     parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    numpyro.set_platform(args.device)
+
     main(args)

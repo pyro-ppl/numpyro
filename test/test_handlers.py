@@ -1,13 +1,14 @@
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, random, vmap
+from jax import jit
 from jax import numpy as np
+from jax import random, vmap
 
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.infer_util import log_density
+from numpyro.infer.util import log_density
 from numpyro.util import optional
 
 
@@ -110,6 +111,21 @@ def model_nested_plates_2():
         assert xy.shape == (5, 1, 10)
 
 
+def model_dist_batch_shape():
+    outer = numpyro.plate('outer', 10)
+    inner = numpyro.plate('inner', 5, dim=-3)
+    with outer:
+        x = numpyro.sample('x', dist.Normal(np.zeros(10), 1.))
+        assert x.shape == (10,)
+    with inner:
+        y = numpyro.sample('y', dist.Normal(0., np.ones(10)))
+        assert y.shape == (5, 1, 10)
+
+    with outer, inner:
+        xy = numpyro.sample('xy', dist.Normal(0., np.ones(10)), sample_shape=(10,))
+        assert xy.shape == (5, 10, 10)
+
+
 def model_subsample_1():
     outer = numpyro.plate('outer', 20, subsample_size=10)
     inner = numpyro.plate('inner', 10, subsample_size=5, dim=-3)
@@ -129,6 +145,7 @@ def model_subsample_1():
     model_nested_plates_0,
     model_nested_plates_1,
     model_nested_plates_2,
+    model_dist_batch_shape,
     model_subsample_1,
 ])
 def test_plate(model):

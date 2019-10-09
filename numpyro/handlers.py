@@ -12,7 +12,7 @@ inference utilities and algorithms.
 As an example, we are using :class:`~numpyro.handlers.seed`, :class:`~numpyro.handlers.trace`
 and :class:`~numpyro.handlers.substitute` handlers to define the `log_likelihood` function below.
 We first create a logistic regression model and sample from the posterior distribution over
-the regression parameters using :func:`~numpyro.mcmc.MCMC`. The `log_likelihood` function
+the regression parameters using :func:`~numpyro.infer.MCMC`. The `log_likelihood` function
 uses effect handlers to run the model by substituting sample sites with values from the posterior
 distribution and computes the log density for a single data point. The `expected_log_likelihood`
 function computes the log likelihood for each draw from the joint posterior and aggregates the
@@ -28,8 +28,7 @@ need to loop over all the data points.
    import numpyro
    import numpyro.distributions as dist
    from numpyro import handlers
-   from numpyro.hmc_util import initialize_model
-   from numpyro.mcmc import MCMC, NUTS
+   from numpyro.infer import MCMC, NUTS
 
 .. doctest::
 
@@ -81,7 +80,8 @@ from collections import OrderedDict
 from jax import random
 import jax.numpy as np
 
-from numpyro.distributions.constraints import ComposeTransform, biject_to, real
+from numpyro.distributions.constraints import real
+from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.primitives import Messenger
 
 __all__ = [

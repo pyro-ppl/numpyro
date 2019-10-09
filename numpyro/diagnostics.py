@@ -6,7 +6,18 @@ from itertools import product
 
 import numpy as onp
 
-from jax import device_get, tree_flatten
+from jax import device_get
+from jax.tree_util import tree_flatten, tree_map
+
+__all__ = [
+    'autocorrelation',
+    'autocovariance',
+    'effective_sample_size',
+    'gelman_rubin',
+    'hpdi',
+    'split_gelman_rubin',
+    'summary',
+]
 
 
 def _compute_chain_variance_stats(x):
@@ -199,7 +210,7 @@ def hpdi(x, prob=0.90, axis=0):
     return onp.concatenate([hpd_left, hpd_right], axis=axis)
 
 
-def summary(samples, prob=0.90):
+def summary(samples, prob=0.90, group_by_chain=True):
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
     posterior. The diagnostics displayed are mean, standard deviation, median,
@@ -211,7 +222,13 @@ def summary(samples, prob=0.90):
         dimension and second to left most dimension is draw dimension.
     :type samples: dict or numpy.ndarray
     :param float prob: the probability mass of samples within the HPDI interval.
+    :param bool group_by_chain: If True, each variable in `samples` will be treated
+        as having shape `num_chains x num_samples x sample_shape`. Otherwise, the
+        corresponding shape will be `num_samples x sample_shape` (i.e. without
+        chain dimension).
     """
+    if not group_by_chain:
+        samples = tree_map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
         samples = {'Param:{}'.format(i): v for i, v in enumerate(tree_flatten(samples)[0])}
 
@@ -225,8 +242,9 @@ def summary(samples, prob=0.90):
     print('\n')
     print(header_format.format(*columns))
 
-    # FIXME: maybe allow a `digits` arg to set how many floatting points are needed?
-    row_format = name_format + ' {:>9.2f} {:>9.2f} {:>9.2f} {:>9.2f} {:>9.2f} {:>9.2f} {:>9.2f}'
+    # XXX: consider to expose digits, depending on user requests
+    digits = 2
+    row_format = name_format + (' {' + ':>9.{}f'.format(digits) + '}') * 7
     for name, value in samples.items():
         value = device_get(value)
         value_flat = onp.reshape(value, (-1,) + value.shape[2:])

@@ -30,8 +30,8 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AffineTransform, ExpTransform, PowerTransform
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
+from numpyro.distributions.transforms import AffineTransform, ExpTransform, InvCholeskyTransform, PowerTransform
 from numpyro.distributions.util import (
     cholesky_inverse,
     cumsum,
@@ -39,6 +39,7 @@ from numpyro.distributions.util import (
     matrix_to_tril_vec,
     promote_shapes,
     signed_stick_breaking_tril,
+    validate_sample,
     vec_to_tril_matrix
 )
 from numpyro.util import copy_docs_from
@@ -60,9 +61,8 @@ class Beta(Distribution):
     def sample(self, key, sample_shape=()):
         return self._dirichlet.sample(key, sample_shape)[..., 0]
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         return self._dirichlet.log_prob(np.stack([value, 1. - value], -1))
 
     @property
@@ -90,9 +90,8 @@ class Cauchy(Distribution):
         eps = random.cauchy(key, shape=sample_shape + self.batch_shape)
         return self.loc + eps * self.scale
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         return - np.log(np.pi) - np.log(self.scale) - np.log1p(((value - self.loc) / self.scale) ** 2)
 
     @property
@@ -123,9 +122,8 @@ class Dirichlet(Distribution):
         gamma_samples = random.gamma(key, self.concentration, shape=shape)
         return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         normalize_term = (np.sum(gammaln(self.concentration), axis=-1) -
                           gammaln(np.sum(self.concentration, axis=-1)))
         return np.sum(np.log(value) * (self.concentration - 1.), axis=-1) - normalize_term
@@ -153,9 +151,8 @@ class Exponential(Distribution):
     def sample(self, key, sample_shape=()):
         return random.exponential(key, shape=sample_shape + self.batch_shape) / self.rate
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         return np.log(self.rate) - self.rate * value
 
     @property
@@ -184,9 +181,8 @@ class Gamma(Distribution):
         shape = sample_shape + self.batch_shape + self.event_shape
         return random.gamma(key, self.concentration, shape=shape) / self.rate
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         normalize_term = (gammaln(self.concentration) -
                           self.concentration * np.log(self.rate))
         return (self.concentration - 1) * np.log(value) - self.rate * value - normalize_term
@@ -227,9 +223,8 @@ class GaussianRandomWalk(Distribution):
         walks = random.normal(key, shape=shape)
         return cumsum(walks) * np.expand_dims(self.scale, axis=-1)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         init_prob = Normal(0., self.scale).log_prob(value[..., 0])
         scale = np.expand_dims(self.scale, -1)
         step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
@@ -259,9 +254,8 @@ class HalfCauchy(Distribution):
     def sample(self, key, sample_shape=()):
         return np.abs(self._cauchy.sample(key, sample_shape))
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         return self._cauchy.log_prob(value) + np.log(2)
 
     @property
@@ -287,9 +281,8 @@ class HalfNormal(Distribution):
     def sample(self, key, sample_shape=()):
         return np.abs(self._normal.sample(key, sample_shape))
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         return self._normal.log_prob(value) + np.log(2)
 
     @property
@@ -328,6 +321,47 @@ class InverseGamma(TransformedDistribution):
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return np.where(self.concentration <= 2, np.inf, a)
+
+
+@copy_docs_from(Distribution)
+class LKJ(TransformedDistribution):
+    r"""
+    LKJ distribution for correlation matrices. The distribution is controlled by ``concentration``
+    parameter :math:`\eta` to make the probability of the correlation matrix :math:`M` propotional
+    to :math:`\det(M)^{\eta - 1}`. Because of that, when ``concentration == 1``, we have a
+    uniform distribution over correlation matrices.
+
+    When ``concentration > 1``, the distribution favors samples with large large determinent. This
+    is useful when we know a priori that the underlying variables are not correlated.
+
+    When ``concentration < 1``, the distribution favors samples with small determinent. This is
+    useful when we know a priori that some underlying variables are correlated.
+
+    :param int dimension: dimension of the matrices
+    :param ndarray concentration: concentration/shape parameter of the
+        distribution (often referred to as eta)
+    :param str sample_method: Either "cvine" or "onion". Both methods are proposed in [1] and
+        offer the same distribution over correlation matrices. But they are different in how
+        to generate samples. Defaults to "onion".
+
+    **References**
+
+    [1] `Generating random correlation matrices based on vines and extended onion method`,
+    Daniel Lewandowski, Dorota Kurowicka, Harry Joe
+    """
+    arg_constraints = {'concentration': constraints.positive}
+    support = constraints.corr_matrix
+
+    def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
+        base_dist = LKJCholesky(dimension, concentration, sample_method)
+        self.dimension, self.concentration = base_dist.dimension, base_dist.concentration
+        self.sample_method = sample_method
+        super(LKJ, self).__init__(base_dist, InvCholeskyTransform(domain=constraints.corr_cholesky),
+                                  validate_args=validate_args)
+
+    @property
+    def mean(self):
+        return np.broadcast_to(np.identity(self.dimension), self.batch_shape + (self.dimension, self.dimension))
 
 
 @copy_docs_from(Distribution)
@@ -450,9 +484,8 @@ class LKJCholesky(Distribution):
         else:
             return self._cvine(key, sample_shape)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         # Note about computing Jacobian of the transformation from Cholesky factor to
         # correlation matrix:
         #
@@ -592,9 +625,8 @@ class MultivariateNormal(Distribution):
         eps = random.normal(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + np.squeeze(np.matmul(self.scale_tril, eps[..., np.newaxis]), axis=-1)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         M = _batch_mahalanobis(self.scale_tril, value - self.loc)
         half_log_det = np.log(np.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
         normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * np.log(2 * np.pi)
@@ -634,9 +666,8 @@ class Normal(Distribution):
         eps = random.normal(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + eps * self.scale
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         normalize_term = np.log(np.sqrt(2 * np.pi) * self.scale)
         value_scaled = (value - self.loc) / self.scale
         return -0.5 * value_scaled ** 2 - normalize_term
@@ -702,9 +733,8 @@ class StudentT(Distribution):
         y = std_normal * np.sqrt(self.df / z)
         return self.loc + self.scale * y
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         y = (value - self.loc) / self.scale
         z = (np.log(self.scale) + 0.5 * np.log(self.df) + 0.5 * np.log(np.pi) +
              gammaln(0.5 * self.df) - gammaln(0.5 * (self.df + 1.)))
@@ -740,9 +770,8 @@ class _BaseTruncatedCauchy(Distribution):
         u = minval + random.uniform(key, shape=size) * (maxval - minval)
         return self.base_loc + np.tan(u)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         # pi / 2 is arctan of self.high when that arg is supported
         normalize_term = np.log(np.pi / 2 + np.arctan(self.base_loc))
         return - np.log1p((value - self.base_loc) ** 2) - normalize_term
@@ -790,9 +819,8 @@ class _BaseTruncatedNormal(Distribution):
         #                                 = - icdf[(1 - cdf_a)(1 - u)]
         return self.base_loc - ndtri(ndtr(self.base_loc) * (1 - u))
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         # log(cdf(high) - cdf(low)) = log(1 - cdf(low)) = log(cdf(-low))
         return self._normal.log_prob(value) - log_ndtr(self.base_loc)
 
@@ -832,9 +860,8 @@ class _BaseUniform(Distribution):
         size = sample_shape + self.batch_shape
         return random.uniform(key, shape=size)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         batch_shape = lax.broadcast_shapes(self.batch_shape, np.shape(value))
         return - np.zeros(batch_shape)
 

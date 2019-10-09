@@ -1,14 +1,33 @@
+from functools import partial
+import warnings
+
 import jax
-from jax import random, value_and_grad, vmap
+from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 from jax.tree_util import tree_flatten
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.constraints import ComposeTransform, biject_to, real
+from numpyro.distributions.constraints import real
+from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.handlers import block, condition, seed, substitute, trace
-from numpyro.util import while_loop
+from numpyro.util import not_jax_tracer, while_loop
+
+__all__ = [
+    'find_valid_initial_params',
+    'log_density',
+    'log_likelihood',
+    'init_to_feasible',
+    'init_to_median',
+    'init_to_prior',
+    'init_to_uniform',
+    'init_to_value',
+    'potential_energy',
+    'initialize_model',
+    'predictive',
+    'transformed_potential_energy',
+]
 
 
 def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
@@ -138,10 +157,7 @@ def transformed_potential_energy(potential_energy, inv_transform, z):
     return potential_energy(x) - logdet
 
 
-def init_to_median(site, num_samples=15, skip_param=False):
-    """
-    Initialize to the prior median.
-    """
+def _init_to_median(site, num_samples=15, skip_param=False):
     if site['type'] == 'sample' and not site['is_observed']:
         if isinstance(site['fn'], dist.TransformedDistribution):
             fn = site['fn'].base_dist
@@ -162,18 +178,23 @@ def init_to_median(site, num_samples=15, skip_param=False):
         return value
 
 
-def init_to_prior(site, skip_param=False):
+def init_to_median(num_samples=15):
+    """
+    Initialize to the prior median.
+
+    :param int num_samples: number of prior points to calculate median.
+    """
+    return partial(_init_to_median, num_samples=num_samples)
+
+
+def init_to_prior():
     """
     Initialize to a prior sample.
     """
-    return init_to_median(site, num_samples=1, skip_param=skip_param)
+    return init_to_median(num_samples=1)
 
 
-def init_to_uniform(site, radius=2, skip_param=False):
-    """
-    Initialize to an arbitrary feasible point, ignoring distribution
-    parameters.
-    """
+def _init_to_uniform(site, radius=2, skip_param=False):
     if site['type'] == 'sample' and not site['is_observed']:
         if isinstance(site['fn'], dist.TransformedDistribution):
             fn = site['fn'].base_dist
@@ -199,15 +220,55 @@ def init_to_uniform(site, radius=2, skip_param=False):
         return base_transform(unconstrained_value)
 
 
-def init_to_feasible(site, skip_param=False):
+def init_to_uniform(radius=2):
+    """
+    Initialize to a random point in the area `(-radius, radius)` of unconstrained domain.
+
+    :param float radius: specifies the range to draw an initial point in the unconstrained domain.
+    """
+    return partial(_init_to_uniform, radius=radius)
+
+
+def init_to_feasible():
     """
     Initialize to an arbitrary feasible point, ignoring distribution
     parameters.
     """
-    return init_to_uniform(site, radius=0, skip_param=skip_param)
+    return init_to_uniform(radius=0)
 
 
-def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform,
+def _init_to_value(site, values={}, skip_param=False):
+    if site['type'] == 'sample' and not site['is_observed']:
+        if site['name'] not in values:
+            return _init_to_uniform(site, skip_param=skip_param)
+
+        value = values[site['name']]
+        if isinstance(site['fn'], dist.TransformedDistribution):
+            value = ComposeTransform(site['fn'].transforms).inv(value)
+        return value
+
+    if site['type'] == 'param' and not skip_param:
+        # return base value of param site
+        constraint = site['kwargs'].pop('constraint', real)
+        transform = biject_to(constraint)
+        value = site['args'][0]
+        if isinstance(transform, ComposeTransform):
+            base_transform = transform.parts[0]
+            value = base_transform(transform.inv(value))
+        return value
+
+
+def init_to_value(values):
+    """
+    Initialize to the value specified in `values`. We defer to
+    :func:`init_to_uniform` strategy for sites which do not appear in `values`.
+
+    :param dict values: dictionary of initial values keyed by site name.
+    """
+    return partial(_init_to_value, values=values)
+
+
+def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform(),
                               param_as_improper=False, prototype_params=None, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
@@ -270,15 +331,95 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     if prototype_params is not None:
         init_state = (0, rng, prototype_params, False)
     else:
-        init_state = body_fn((0, rng, None, None))
+        _, _, prototype_params, is_valid = init_state = body_fn((0, rng, None, None))
+        if not_jax_tracer(is_valid):
+            if device_get(is_valid):
+                return prototype_params, is_valid
+
     _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
     return init_params, is_valid
 
 
-def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs):
+def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
+    """
+    Given a model with Pyro primitives, returns a function which, given
+    unconstrained parameters, evaluates the potential energy (negative
+    joint density). In addition, this also returns initial parameters
+    sampled from the prior to initiate MCMC sampling and functions to
+    transform unconstrained values at sample sites to constrained values
+    within their respective support.
+
+    :param jax.random.PRNGKey rng: random number generator seed to
+        sample from the prior. The returned `init_params` will have the
+        batch shape ``rng.shape[:-1]``.
+    :param model: Python callable containing Pyro primitives.
+    :param `*model_args`: args provided to the model.
+    :param callable init_strategy: a per-site initialization function.
+    :param `**model_kwargs`: kwargs provided to the model.
+    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
+        `init_params` are values from the prior used to initiate MCMC,
+        `constrain_fn` is a callable that uses inverse transforms
+        to convert unconstrained HMC samples to constrained values that
+        lie within the site's support.
+    """
+    seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
+    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    constrained_values, inv_transforms = {}, {}
+    has_transformed_dist = False
+    for k, v in model_trace.items():
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['intermediates']:
+                constrained_values[k] = v['intermediates'][0][0]
+                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                has_transformed_dist = True
+            else:
+                constrained_values[k] = v['value']
+                inv_transforms[k] = biject_to(v['fn'].support)
+        elif v['type'] == 'param':
+            constraint = v['kwargs'].pop('constraint', real)
+            transform = biject_to(constraint)
+            if isinstance(transform, ComposeTransform):
+                base_transform = transform.parts[0]
+                constrained_values[k] = base_transform(transform.inv(v['value']))
+                inv_transforms[k] = base_transform
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = transform
+                constrained_values[k] = v['value']
+
+    prototype_params = transform_fn(inv_transforms,
+                                    {k: v for k, v in constrained_values.items()},
+                                    invert=True)
+
+    # NB: we use model instead of seeded_model to prevent unexpected behaviours (if any)
+    potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
+    if has_transformed_dist:
+        # FIXME: why using seeded_model here triggers an error for funnel reparam example
+        # if we use MCMC class (mcmc function works fine)
+        constrain_fun = jax.partial(constrain_fn, model, model_args, model_kwargs, inv_transforms)
+    else:
+        constrain_fun = jax.partial(transform_fn, inv_transforms)
+
+    def single_chain_init(key):
+        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
+                                         param_as_improper=True, prototype_params=prototype_params,
+                                         **model_kwargs)
+
+    if rng.ndim == 1:
+        init_params, is_valid = single_chain_init(rng)
+    else:
+        init_params, is_valid = lax.map(single_chain_init, rng)
+
+    if not_jax_tracer(is_valid):
+        if device_get(~np.all(is_valid)):
+            raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
+    return init_params, potential_fn, constrain_fun
+
+
+def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
-    values at sample sites from the forward run. By default, only sites not contained in
+    values at sample sites from the forward run. By default, only sample sites not contained in
     `posterior_samples` are returned. This can be modified by changing the `return_sites`
     keyword argument.
 
@@ -289,18 +430,54 @@ def predictive(rng, model, posterior_samples, return_sites=None, *args, **kwargs
     :param jax.random.PRNGKey rng: seed to draw samples
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
+    :param args: model arguments.
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
-    :param args: model arguments.
+    :param int num_samples: number of samples
     :param kwargs: model kwargs.
     :return: dict of samples from the predictive distribution.
     """
-    # TODO: consider to support `num_samples`, `return_traces`, `parallel` kwargs
     def single_prediction(rng, samples):
         model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
-        sites = model_trace.keys() - samples.keys() if return_sites is None else return_sites
+        if return_sites is not None:
+            sites = return_sites
+        else:
+            sites = {k for k, site in model_trace.items()
+                     if site['type'] != 'plate' and k not in samples}
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
-    num_samples = tree_flatten(posterior_samples)[0][0].shape[0]
+    if posterior_samples:
+        batch_size = tree_flatten(posterior_samples)[0][0].shape[0]
+        if num_samples is not None and num_samples != batch_size:
+            warnings.warn("Sample's leading dimension size {} is different from the "
+                          "provided {} num_samples argument. Defaulting to {}."
+                          .format(batch_size, num_samples, batch_size), UserWarning)
+        num_samples = batch_size
+
+    if num_samples is None:
+        raise ValueError("No sample sites in model to infer `num_samples`.")
+
     rngs = random.split(rng, num_samples)
     return vmap(single_prediction)(rngs, posterior_samples)
+
+
+def log_likelihood(model, posterior_samples, *args, **kwargs):
+    """
+    Returns log likelihood at observation nodes of model, given samples of all latent variables.
+
+    .. warning::
+        The interface for the `log_likelihood` function is experimental, and
+        might change in the future.
+
+    :param model: Python callable containing Pyro primitives.
+    :param dict posterior_samples: dictionary of samples from the posterior.
+    :param args: model arguments.
+    :param kwargs: model kwargs.
+    :return: dict of log likelihoods at observation sites.
+    """
+    def single_loglik(samples):
+        model_trace = trace(substitute(model, samples)).get_trace(*args, **kwargs)
+        return {name: site['fn'].log_prob(site['value']) for name, site in model_trace.items()
+                if site['type'] == 'sample' and site['is_observed']}
+
+    return vmap(single_loglik)(posterior_samples)

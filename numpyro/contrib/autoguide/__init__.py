@@ -1,7 +1,7 @@
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
 
-from jax import vmap
+from jax import hessian, random, vmap
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
@@ -13,21 +13,27 @@ from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import (
+from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
+from numpyro.distributions.transforms import (
     AffineTransform,
     ComposeTransform,
+    MultivariateAffineTransform,
     PermuteTransform,
     UnpackTransform,
     biject_to
 )
-from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
-from numpyro.distributions.util import sum_rightmost
-from numpyro.infer_util import constrain_fn, find_valid_initial_params, init_to_median, transform_fn
+from numpyro.distributions.util import cholesky_inverse, sum_rightmost
+from numpyro.handlers import seed, substitute
+from numpyro.infer.elbo import ELBO
+from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, log_density, transform_fn
 
 __all__ = [
     'AutoContinuous',
+    'AutoContinuousELBO',
     'AutoGuide',
     'AutoDiagonalNormal',
+    'AutoMultivariateNormal',
+    'AutoIAFNormal',
 ]
 
 
@@ -110,7 +116,7 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`autoguide-initialization` section for available functions.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_median):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
         self.init_strategy = init_strategy
         self._base_dist = None
         super(AutoContinuous, self).__init__(model, prefix=prefix)
@@ -139,7 +145,7 @@ class AutoContinuous(AutoGuide):
         self._init_latent, self._unpack_latent = ravel_pytree(init_params)
         self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
-            self.base_dist = _Normal(np.zeros(self.latent_size), 1.)
+            self.base_dist = dist.Independent(dist.Normal(np.zeros(self.latent_size), 1.), 1)
         if self.latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'
                                .format(type(self).__name__))
@@ -248,28 +254,6 @@ class AutoContinuous(AutoGuide):
             self.base_dist, sample_shape=sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-
-class AutoDiagonalNormal(AutoContinuous):
-    """
-    This implementation of :class:`AutoContinuous` uses a Normal distribution
-    with a diagonal covariance matrix to construct a guide over the entire
-    latent space. The guide does not depend on the model's ``*args, **kwargs``.
-
-    Usage::
-
-        guide = AutoDiagonalNormal(rng, model, ...)
-        svi = SVI(model, guide, ...)
-    """
-    def _get_transform(self):
-        loc, scale = self._loc_scale()
-        return AffineTransform(loc, scale, domain=constraints.real_vector)
-
-    def _loc_scale(self):
-        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
-                              constraint=constraints.positive)
-        return loc, scale
-
     def median(self, params):
         """
         Returns the posterior median value of each latent variable.
@@ -278,8 +262,7 @@ class AutoDiagonalNormal(AutoContinuous):
         :return: A dict mapping sample site name to median tensor.
         :rtype: dict
         """
-        loc, _ = handlers.substitute(self._loc_scale, params)()
-        return self._unpack_and_constrain(loc, params)
+        raise NotImplementedError
 
     def quantiles(self, params, quantiles):
         """
@@ -293,22 +276,118 @@ class AutoDiagonalNormal(AutoContinuous):
         :return: A dict mapping sample site name to a list of quantile values.
         :rtype: dict
         """
-        loc, scale = handlers.substitute(self._loc_scale, params)()
+        raise NotImplementedError
+
+
+class AutoDiagonalNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a Normal distribution
+    with a diagonal covariance matrix to construct a guide over the entire
+    latent space. The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoDiagonalNormal(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _get_transform(self):
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
+                              constraint=constraints.positive)
+        return AffineTransform(loc, scale, domain=constraints.real_vector)
+
+    def median(self, params):
+        transform = handlers.substitute(self._get_transform, params)()
+        return self._unpack_and_constrain(transform.loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = handlers.substitute(self._get_transform, params)()
         quantiles = np.array(quantiles)[..., None]
-        latent = dist.Normal(loc, scale).icdf(quantiles)
+        latent = dist.Normal(transform.loc, transform.scale).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
-# TODO: remove when to_event is supported
-class _Normal(dist.Normal):
-    # work as Normal but has event_dim=1
-    def __init__(self, *args, **kwargs):
-        super(_Normal, self).__init__(*args, **kwargs)
-        self._event_shape = self._batch_shape[-1:]
-        self._batch_shape = self._batch_shape[:-1]
+class AutoMultivariateNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a MultivariateNormal
+    distribution to construct a guide over the entire latent space.
+    The guide does not depend on the model's ``*args, **kwargs``.
 
-    def log_prob(self, value):
-        return super(_Normal, self).log_prob(value).sum(-1)
+    Usage::
+
+        guide = AutoMultivariateNormal(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _get_transform(self):
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix), np.identity(self.latent_size),
+                                   constraint=constraints.lower_cholesky)
+        return MultivariateAffineTransform(loc, scale_tril)
+
+    def median(self, params):
+        transform = handlers.substitute(self._get_transform, params)()
+        return self._unpack_and_constrain(transform.loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = handlers.substitute(self._get_transform, params)()
+        quantiles = np.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
+        return self._unpack_and_constrain(latent, params)
+
+
+class AutoLaplaceApproximation(AutoContinuous):
+    r"""
+    Laplace approximation (quadratic approximation) approximates the posterior
+    :math:`\log p(z | x)` by a multivariate normal distribution in the
+    unconstrained space. Under the hood, it uses Delta distributions to
+    construct a MAP guide over the entire (unconstrained) latent space. Its
+    covariance is given by the inverse of the hessian of :math:`-\log p(x, z)`
+    at the MAP point of `z`.
+
+    Usage::
+
+        guide = AutoLaplaceApproximation(model, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def _sample_latent(self, base_dist, *args, **kwargs):
+        # sample from Delta guide
+        sample_shape = kwargs.pop('sample_shape', ())
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        posterior = dist.Delta(loc, event_ndim=1)
+        return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
+
+    def _get_transform(self, params):
+        def loss_fn(z):
+            params1 = params.copy()
+            params1['{}_loc'.format(self.prefix)] = z
+            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng.
+            return AutoContinuousELBO().loss(random.PRNGKey(0), params1, self.model, self,
+                                             *self._args, **self._kwargs)
+
+        loc = params['{}_loc'.format(self.prefix)]
+        precision = hessian(loss_fn)(loc)
+        scale_tril = cholesky_inverse(precision)
+        return MultivariateAffineTransform(loc, scale_tril)
+
+    def sample_posterior(self, rng, params, sample_shape=()):
+        transform = self._get_transform(params)
+        loc, scale_tril = transform.loc, transform.scale_tril
+        latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng, sample_shape)
+        return self._unpack_and_constrain(latent_sample, params)
+
+    def get_transform(self, params):
+        return ComposeTransform([self._get_transform(params),
+                                 UnpackTransform(self._unpack_latent)])
+
+    def median(self, params):
+        loc = params['{}_loc'.format(self.prefix)]
+        return self._unpack_and_constrain(loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = self._get_transform(params)
+        quantiles = np.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
+        return self._unpack_and_constrain(latent, params)
 
 
 class AutoIAFNormal(AutoContinuous):
@@ -321,7 +400,7 @@ class AutoIAFNormal(AutoContinuous):
 
     Usage::
 
-        guide = AutoIAFNormal(rng, model, get_params, hidden_dims=[20], skip_connections=True, ...)
+        guide = AutoIAFNormal(model, hidden_dims=[20], skip_connections=True, ...)
         svi = SVI(model, guide, ...)
 
     :param jax.random.PRNGKey rng: random key to be used as the source of randomness
@@ -339,7 +418,7 @@ class AutoIAFNormal(AutoContinuous):
         * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
           Defaults to :func:`jax.experimental.stax.Relu`.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_median,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(),
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
@@ -395,7 +474,7 @@ class AutoBNAFNormal(AutoContinuous):
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_median, num_flows=1,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), num_flows=1,
                  hidden_factors=[50, 50]):
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
@@ -413,3 +492,42 @@ class AutoBNAFNormal(AutoContinuous):
             arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_size,))
             flows.append(BlockNeuralAutoregressiveTransform(arnn))
         return ComposeTransform(flows)
+
+
+class AutoContinuousELBO(ELBO):
+    """
+    An ELBO implementation specific to :class:`AutoContinuous` guides. In those guide, the latent
+    variables of the model are transformed to unconstrained domains. This class provides ELBO of
+    the "transformed" model (i.e. the corresponding model with unconstrained variables) and the
+    guide.
+    """
+    def loss(self, rng, param_map, model, guide, *args, **kwargs):
+        assert isinstance(guide, AutoContinuous)
+
+        def single_particle_elbo(rng):
+            model_seed, guide_seed = random.split(rng)
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+            guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
+            # first, we substitute `param_map` to `param` primitives of `model`
+            seeded_model = substitute(seeded_model, param_map)
+            # then creates a new `param_map` which holds base values of `sample` primitives
+            base_param_map = {}
+            # in autoguide, a site's value holds intermediate value
+            for name, site in guide_trace.items():
+                if site['type'] == 'sample':
+                    base_param_map[name] = site['value']
+            model_log_density, _ = log_density(seeded_model, args, kwargs, base_param_map,
+                                               skip_dist_transforms=True)
+
+            # log p(z) - log q(z)
+            elbo = model_log_density - guide_log_density
+            # Return (-elbo) since by convention we do gradient descent on a loss and
+            # the ELBO is a lower bound that needs to be maximized.
+            return -elbo
+
+        if self.num_particles == 1:
+            return single_particle_elbo(rng)
+        else:
+            rngs = random.split(rng, self.num_particles)
+            return np.mean(vmap(single_particle_elbo)(rngs))

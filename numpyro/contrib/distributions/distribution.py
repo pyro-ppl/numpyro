@@ -17,7 +17,7 @@ from jax.random import _is_prng_key
 from jax.scipy import stats
 
 from numpyro.distributions import constraints
-from numpyro.distributions.constraints import AffineTransform
+from numpyro.distributions.transforms import AffineTransform
 
 
 class jax_frozen(rv_frozen):
