@@ -113,7 +113,6 @@ class SVI(svi.SVI):
                                   guide=guide,
                                   optim=optim,
                                   loss=loss)
-        self.num_steps = num_steps
         self.svi_state = None
 
     def evaluate_loss(self, *args, **kwargs):
@@ -134,8 +133,8 @@ class SVI(svi.SVI):
                 raise e
         return loss
 
-    def get_param_store(self):
-        return self.get_params(self.svi_state)
+    def get_params(self):
+        return super(SVI, self).get_params(self.svi_state)
 
 
 class Trace_ELBO(elbo.ELBO):
