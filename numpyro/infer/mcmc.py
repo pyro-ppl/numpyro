@@ -808,6 +808,9 @@ class MCMC(object):
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')
             samples = map_fn((rngs, init_params))
+            if chain_method == 'vectorized':
+                # swap num_samples x num_chains to num_chains x num_samples
+                samples = tree_map(lambda x: np.swapaxes(x, 0, 1), samples)
             samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
         self._samples = samples
         self._samples_flat = samples_flat
