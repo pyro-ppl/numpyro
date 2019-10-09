@@ -1,8 +1,10 @@
 import math
 
+from jax import jit
+
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import mcmc
+from numpyro.infer import elbo, mcmc, svi
 
 
 class HMC(mcmc.HMC):
@@ -95,3 +97,55 @@ class MCMC(object):
 
     def summary(self, prob=0.9):
         self._mcmc.print_summary()
+
+
+class SVI(svi.SVI):
+    def __init__(self,
+                 model,
+                 guide,
+                 optim,
+                 loss,
+                 loss_and_grads=None,
+                 num_samples=10,
+                 num_steps=0,
+                 **kwargs):
+        super(SVI, self).__init__(model=model,
+                                  guide=guide,
+                                  optim=optim,
+                                  loss=loss)
+        self.svi_state = None
+
+    def evaluate_loss(self, *args, **kwargs):
+        return self.evaluate(self.svi_state, *args, **kwargs)
+
+    def step(self, *args, rng=None, **kwargs):
+        if self.svi_state is None:
+            if rng is None:
+                rng = numpyro.sample('svi.init', dist.PRNGIdentity())
+            self.svi_state = self.init(rng, *args, **kwargs)
+        try:
+            self.svi_state, loss = jit(self.update)(self.svi_state, *args, **kwargs)
+        except TypeError as e:
+            if 'not a valid JAX type' in str(e):
+                raise TypeError('NumPyro backend requires args, kwargs to be arrays or tuples, '
+                                'dicts of arrays.')
+            else:
+                raise e
+        return loss
+
+    def get_params(self):
+        return super(SVI, self).get_params(self.svi_state)
+
+
+class Trace_ELBO(elbo.ELBO):
+    def __init__(self,
+                 num_particles=1,
+                 max_plate_nesting=float('inf'),
+                 max_iarange_nesting=None,  # DEPRECATED
+                 vectorize_particles=False,
+                 strict_enumeration_warning=True,
+                 ignore_jit_warnings=False,
+                 jit_options=None,
+                 retain_graph=None,
+                 tail_adaptive_beta=-1.0):
+        super(Trace_ELBO, self).__init__(num_particles=num_particles)
