@@ -1,4 +1,6 @@
+import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.continuous import (
+    LKJ,
     Beta,
     Cauchy,
     Chi2,
@@ -36,9 +38,14 @@ from numpyro.distributions.discrete import (
     Poisson,
     PRNGIdentity
 )
-from numpyro.distributions.distribution import Distribution, TransformedDistribution
+from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
+import numpyro.distributions.transforms  # noqa: F401
+from numpyro.distributions.transforms import biject_to
 
 __all__ = [
+    'biject_to',
+    'constraints',
+    'transforms',
     'Bernoulli',
     'BernoulliLogits',
     'BernoulliProbs',
@@ -59,7 +66,9 @@ __all__ = [
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
+    'Independent',
     'InverseGamma',
+    'LKJ',
     'LKJCholesky',
     'LogNormal',
     'Multinomial',

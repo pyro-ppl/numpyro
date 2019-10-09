@@ -1,19 +1,17 @@
 import argparse
 import itertools
-import os
 import time
 
 import numpy as onp
 
 import jax
 from jax import vmap
-from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 
 
 """
@@ -258,7 +256,6 @@ def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
     X, Y, expected_thetas, expected_pairwise = get_data(N=args.num_data, P=args.num_dimensions,
                                                         S=args.active_dimensions)
 
@@ -326,8 +323,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
-        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
-            args.num_chains)
+    numpyro.set_platform(args.device)
+    numpyro.set_host_device_count(args.num_chains)
 
     main(args)

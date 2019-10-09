@@ -198,7 +198,6 @@ class plate(Messenger):
     def _validate_and_set_dim(self):
         msg = {
             'type': 'plate',
-            'is_observed': False,
             'fn': identity,
             'name': self.name,
             'args': (None,),
@@ -232,7 +231,20 @@ class plate(Messenger):
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
-        batch_shape = self._get_batch_shape(cond_indep_stack)
+        expected_shape = self._get_batch_shape(cond_indep_stack)
+        dist_batch_shape = msg['fn'].batch_shape if msg['type'] == 'sample' else ()
+        overlap_idx = len(expected_shape) - len(dist_batch_shape)
+        if overlap_idx < 0:
+            raise ValueError('Expected dimensions within plate = {}, which is less than the '
+                             'distribution\'s batch shape = {}.'.format(len(expected_shape), len(dist_batch_shape)))
+        trailing_shape = expected_shape[overlap_idx:]
+        # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
+        broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+        if broadcast_shape != dist_batch_shape:
+            raise ValueError('Distribution batch shape = {} cannot be broadcast up to {}. '
+                             'Consider using unbatched distributions.'
+                             .format(dist_batch_shape, broadcast_shape))
+        batch_shape = expected_shape[:overlap_idx]
         if 'sample_shape' in msg['kwargs']:
             batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
         msg['kwargs']['sample_shape'] = batch_shape

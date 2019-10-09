@@ -22,10 +22,48 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from contextlib import contextmanager
+import warnings
+
 import jax.numpy as np
 
-from numpyro.distributions.constraints import Transform, is_dependent
-from numpyro.distributions.util import lazy_property, sum_rightmost
+from numpyro.distributions.constraints import is_dependent
+from numpyro.distributions.transforms import Transform
+from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
+from numpyro.util import not_jax_tracer
+
+_VALIDATION_ENABLED = False
+
+
+def enable_validation(is_validate=True):
+    """
+    Enable or disable validation checks in NumPyro. Validation checks provide useful warnings and
+    errors, e.g. NaN checks, validating distribution arguments and support values, etc. which is
+    useful for debugging.
+
+    .. note:: This utility does not take effect under JAX's JIT compilation or vectorized
+        transformation :func:`jax.vmap`.
+
+    :param bool is_validate: whether to enable validation checks.
+    """
+    global _VALIDATION_ENABLED
+    _VALIDATION_ENABLED = is_validate
+    Distribution.set_default_validate_args(is_validate)
+
+
+@contextmanager
+def validation_enabled(is_validate=True):
+    """
+    Context manager that is useful when temporarily enabling/disabling validation checks.
+
+    :param bool is_validate: whether to enable validation checks.
+    """
+    distribution_validation_status = _VALIDATION_ENABLED
+    try:
+        enable_validation(is_validate)
+        yield
+    finally:
+        enable_validation(distribution_validation_status)
 
 
 class Distribution(object):
@@ -64,6 +102,12 @@ class Distribution(object):
     reparametrized_params = []
     _validate_args = False
 
+    @staticmethod
+    def set_default_validate_args(value):
+        if value not in [True, False]:
+            raise ValueError
+        Distribution._validate_args = value
+
     def __init__(self, batch_shape=(), event_shape=(), validate_args=None):
         self._batch_shape = batch_shape
         self._event_shape = event_shape
@@ -75,8 +119,10 @@ class Distribution(object):
                     continue
                 if is_dependent(constraint):
                     continue  # skip constraints that cannot be checked
-                if not np.all(constraint(getattr(self, param))):
-                    raise ValueError("The parameter {} has invalid values".format(param))
+                is_valid = np.all(constraint(getattr(self, param)))
+                if not_jax_tracer(is_valid):
+                    if not is_valid:
+                        raise ValueError("The parameter {} has invalid values".format(param))
         super(Distribution, self).__init__()
 
     @property
@@ -155,9 +201,12 @@ class Distribution(object):
         raise NotImplementedError
 
     def _validate_sample(self, value):
-        if not np.all(self.support(value)):
-            raise ValueError('Invalid values provided to log prob method. '
-                             'The value argument must be within the support.')
+        mask = self.support(value)
+        if not_jax_tracer(mask):
+            if not np.all(mask):
+                warnings.warn('Out-of-support values provided to log prob method. '
+                              'The value argument should be within the support.')
+        return mask
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('random_state')
@@ -165,6 +214,75 @@ class Distribution(object):
         if sample_intermediates:
             return self.sample_with_intermediates(key, *args, **kwargs)
         return self.sample(key, *args, **kwargs)
+
+    def to_event(self, reinterpreted_batch_ndims=None):
+        if reinterpreted_batch_ndims is None:
+            reinterpreted_batch_ndims = len(self.batch_shape)
+        return Independent(self, reinterpreted_batch_ndims)
+
+
+class Independent(Distribution):
+    """
+    Reinterprets batch dimensions of a distribution as event dims by shifting
+    the batch-event dim boundary further to the left.
+
+    From a practical standpoint, this is useful when changing the result of
+    :meth:`log_prob`. For example, a univariate Normal distribution can be
+    interpreted as a multivariate Normal with diagonal covariance::
+
+    .. testsetup::
+
+       import numpyro.distributions as dist
+
+    .. doctest::
+
+        >>> normal = dist.Normal(np.zeros(3), np.ones(3))
+        >>> [normal.batch_shape, normal.event_shape]
+        [(3,), ()]
+        >>> diag_normal = dist.Independent(normal, 1)
+        >>> [diag_normal.batch_shape, diag_normal.event_shape]
+        [(), (3,)]
+
+    :param numpyro.distribution.Distribution base_distribution: a distribution instance.
+    :param int reinterpreted_batch_ndims: the number of batch dims to reinterpret as event dims.
+    """
+    arg_constraints = {}
+
+    def __init__(self, base_dist, reinterpreted_batch_ndims, validate_args=None):
+        if reinterpreted_batch_ndims > len(base_dist.batch_shape):
+            raise ValueError("Expected reinterpreted_batch_ndims <= len(base_distribution.batch_shape), "
+                             "actual {} vs {}".format(reinterpreted_batch_ndims,
+                                                      len(base_dist.batch_shape)))
+        shape = base_dist.batch_shape + base_dist.event_shape
+        event_dim = reinterpreted_batch_ndims + len(base_dist.event_shape)
+        batch_shape = shape[:len(shape) - event_dim]
+        event_shape = shape[len(shape) - event_dim:]
+        self.base_dist = base_dist
+        self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
+        super(Independent, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    @property
+    def support(self):
+        return self.base_dist.support
+
+    @property
+    def reparameterized_params(self):
+        return self.base_dist.reparameterized_params
+
+    @property
+    def mean(self):
+        return self.base_dist.mean
+
+    @property
+    def variance(self):
+        return self.base_dist.variance
+
+    def sample(self, key, sample_shape=()):
+        return self.base_dist.sample(key, sample_shape=sample_shape)
+
+    def log_prob(self, value):
+        log_prob = self.base_dist.log_prob(value)
+        return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
 
 class TransformedDistribution(Distribution):
@@ -232,9 +350,8 @@ class TransformedDistribution(Distribution):
             intermediates.append([x_tmp, t_inter])
         return x, intermediates
 
+    @validate_sample
     def log_prob(self, value, intermediates=None):
-        if self._validate_args:
-            self._validate_sample(value)
         if intermediates is not None:
             if len(intermediates) != len(self.transforms):
                 raise ValueError('Intermediates array has length = {}. Expected = {}.'

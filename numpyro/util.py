@@ -1,11 +1,16 @@
 from collections import namedtuple
 from contextlib import contextmanager
+import os
 import random
+import re
 
 import numpy as onp
 import tqdm
 
+import jax
 from jax import jit, lax, ops, vmap
+from jax.interpreters.batching import BatchTracer
+from jax.interpreters.partial_eval import JaxprTracer
 from jax.lib.xla_bridge import canonicalize_dtype
 import jax.numpy as np
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
@@ -15,8 +20,54 @@ _DISABLE_CONTROL_FLOW_PRIM = False
 
 
 def set_rng_seed(rng_seed):
+    """
+    Initializes internal state for the Python and NumPy random number generators.
+
+    :param int rng_seed: seed for Python and NumPy random states.
+    """
     random.seed(rng_seed)
     onp.random.seed(rng_seed)
+
+
+def set_platform(platform=None):
+    """
+    Changes platform to CPU, GPU, or TPU. This utility only takes
+    effect at the beginning of your program.
+
+    :param str platform: either 'cpu', 'gpu', or 'tpu'.
+    """
+    if platform is None:
+        platform = os.getenv('JAX_PLATFORM_NAME', 'cpu')
+    jax.config.update('jax_platform_name', platform)
+
+
+def set_host_device_count(n):
+    """
+    By default, XLA considers all CPU cores as one device. This utility tells XLA
+    that there are `n` host (CPU) devices available to use. As a consequence, this
+    allows parallel mapping in JAX :func:`jax.pmap` to work in CPU platform.
+
+    .. note:: This utility only takes effect at the beginning of your program.
+        Under the hood, this sets the environment variable
+        `XLA_FLAGS=--xla_force_host_platform_device_count=[num_devices]`, where
+        `[num_device]` is the desired number of CPU devices `n`.
+
+    .. warning:: We do not understand much the side effects when using
+        `xla_force_host_platform_device_count` flag. If you observe some strange
+        phenomenon when using this utility, please let us know through our issue
+        or forum page. Here we quote from XLA source code the meaning of this flag:
+        "Force the host platform to pretend that there are these many host
+        'devices'. All of these host devices are backed by the same threadpool.
+        Setting this to anything other than 1 can increase overhead from context
+        switching but we let the user override this behavior to help run tests
+        on the host that run models in parallel across multiple devices."
+
+    :param int n: number of CPU devices to use.
+    """
+    xla_flags = os.getenv('XLA_FLAGS', '').lstrip('--')
+    xla_flags = re.sub(r'xla_force_host_platform_device_count=.+\s', '', xla_flags).split()
+    os.environ['XLA_FLAGS'] = ' '.join(['--xla_force_host_platform_device_count={}'.format(n)]
+                                       + xla_flags)
 
 
 @contextmanager
@@ -72,6 +123,13 @@ def fori_loop(lower, upper, body_fun, init_val):
         return lax.fori_loop(lower, upper, body_fun, init_val)
 
 
+def not_jax_tracer(x):
+    """
+    Checks if `x` is not an array generated inside `jit`, `pmap`, `vmap`, or `lax_control_flow`.
+    """
+    return not isinstance(x, (JaxprTracer, BatchTracer))
+
+
 def identity(x):
     return x
 
@@ -82,7 +140,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
     effect of collecting values from the loop body. In addition, this allows for
     post-processing of these samples via `transform`, and progress bar updates.
     Note that, `progbar=False` will be faster, especially when collecting a
-    lot of samples. Refer to example usage in :func:`~numpyro.mcmc.hmc`.
+    lot of samples. Refer to example usage in :func:`~numpyro.infer.mcmc.hmc`.
 
     :param int lower: the index to start the collective work. In other words,
         we will skip collecting the first `lower` values.
@@ -188,7 +246,8 @@ def _ravel_list(*leaves):
                            m.shape).astype(m.dtype)
                 for i, m in enumerate(leaves_metadata)]
 
-    return np.concatenate([m.flat for m in leaves_metadata]), unravel_list
+    flat = np.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else np.array([])
+    return flat, unravel_list
 
 
 def ravel_pytree(pytree):

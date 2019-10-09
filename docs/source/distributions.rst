@@ -9,6 +9,14 @@ Distribution
     :show-inheritance:
     :member-order: bysource
 
+Independent
+-----------
+.. autoclass:: numpyro.distributions.distribution.Independent
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 TransformedDistribution
 -----------------------
 .. autoclass:: numpyro.distributions.distribution.TransformedDistribution
@@ -96,6 +104,14 @@ HalfNormal
 InverseGamma
 ------------
 .. autoclass:: numpyro.distributions.continuous.InverseGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+LKJ
+---
+.. autoclass:: numpyro.distributions.continuous.LKJ
     :members:
     :undoc-members:
     :show-inheritance:
@@ -284,10 +300,6 @@ PRNGIdentity
 Constraints
 ===========
 
-biject_to
----------
-.. autofunction:: numpyro.distributions.constraints.biject_to
-
 boolean
 -------
 .. autodata:: numpyro.distributions.constraints.boolean
@@ -295,6 +307,10 @@ boolean
 corr_cholesky
 -------------
 .. autodata:: numpyro.distributions.constraints.corr_cholesky
+
+corr_matrix
+-----------
+.. autodata:: numpyro.distributions.constraints.corr_matrix
 
 dependent
 ---------
@@ -360,9 +376,13 @@ unit_interval
 Transforms
 ==========
 
+biject_to
+---------
+.. autofunction:: numpyro.distributions.transforms.biject_to
+
 Transform
 ---------
-.. autoclass:: numpyro.distributions.constraints.Transform
+.. autoclass:: numpyro.distributions.transforms.Transform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -370,7 +390,7 @@ Transform
 
 AbsTransform
 ------------
-.. autoclass:: numpyro.distributions.constraints.AbsTransform
+.. autoclass:: numpyro.distributions.transforms.AbsTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -378,7 +398,7 @@ AbsTransform
 
 AffineTransform
 ---------------
-.. autoclass:: numpyro.distributions.constraints.AffineTransform
+.. autoclass:: numpyro.distributions.transforms.AffineTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -386,7 +406,7 @@ AffineTransform
 
 ComposeTransform
 ----------------
-.. autoclass:: numpyro.distributions.constraints.ComposeTransform
+.. autoclass:: numpyro.distributions.transforms.ComposeTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -394,7 +414,7 @@ ComposeTransform
 
 CorrCholeskyTransform
 ---------------------
-.. autoclass:: numpyro.distributions.constraints.CorrCholeskyTransform
+.. autoclass:: numpyro.distributions.transforms.CorrCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -402,7 +422,7 @@ CorrCholeskyTransform
 
 ExpTransform
 ------------
-.. autoclass:: numpyro.distributions.constraints.ExpTransform
+.. autoclass:: numpyro.distributions.transforms.ExpTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -410,7 +430,15 @@ ExpTransform
 
 IdentityTransform
 -----------------
-.. autoclass:: numpyro.distributions.constraints.IdentityTransform
+.. autoclass:: numpyro.distributions.transforms.IdentityTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+InvCholeskyTransform
+--------------------
+.. autoclass:: numpyro.distributions.transforms.InvCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -418,7 +446,15 @@ IdentityTransform
 
 LowerCholeskyTransform
 ----------------------
-.. autoclass:: numpyro.distributions.constraints.LowerCholeskyTransform
+.. autoclass:: numpyro.distributions.transforms.LowerCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+MultivariateAffineTransform
+---------------------------
+.. autoclass:: numpyro.distributions.transforms.MultivariateAffineTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -426,7 +462,7 @@ LowerCholeskyTransform
 
 PermuteTransform
 ----------------
-.. autoclass:: numpyro.distributions.constraints.PermuteTransform
+.. autoclass:: numpyro.distributions.transforms.PermuteTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -434,7 +470,7 @@ PermuteTransform
 
 PowerTransform
 --------------
-.. autoclass:: numpyro.distributions.constraints.PowerTransform
+.. autoclass:: numpyro.distributions.transforms.PowerTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -442,7 +478,7 @@ PowerTransform
 
 SigmoidTransform
 ----------------
-.. autoclass:: numpyro.distributions.constraints.SigmoidTransform
+.. autoclass:: numpyro.distributions.transforms.SigmoidTransform
     :members:
     :undoc-members:
     :show-inheritance:
@@ -450,7 +486,7 @@ SigmoidTransform
 
 StickBreakingTransform
 ----------------------
-.. autoclass:: numpyro.distributions.constraints.StickBreakingTransform
+.. autoclass:: numpyro.distributions.transforms.StickBreakingTransform
     :members:
     :undoc-members:
     :show-inheritance:

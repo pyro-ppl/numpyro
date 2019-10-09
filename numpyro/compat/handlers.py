@@ -1,11 +1,7 @@
-from jax import random
-
 from numpyro.handlers import *  # noqa: F401, F403
-from numpyro.handlers import seed as _seed
+from numpyro.handlers import seed as numpyro_seed
 
 
-# This is so that users do not have to import PRNGKey from jax.random.
-# XXX: Should we make this the default?
-class seed(_seed):
-    def __init__(self, fn, rng):
-        super(seed, self).__init__(fn, random.PRNGKey(rng))
+# Compatibility wrapper for matching arg names
+def seed(fn=None, rng_seed=None):
+    return numpyro_seed(fn=fn, rng=rng_seed)

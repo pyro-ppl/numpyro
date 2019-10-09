@@ -1,17 +1,15 @@
 import argparse
-import os
 
 import numpy as onp
 
 from jax import random, vmap
-from jax.config import config as jax_config
 import jax.numpy as np
 
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import UCBADMIT, load_dataset
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 
 
 """
@@ -92,7 +90,6 @@ def print_results(header, preds, dept, male, probs):
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
     _, fetch_train = load_dataset(UCBADMIT, split='train', shuffle=False)
     dept, male, applications, admit = fetch_train()
     rng, rng_predict = random.split(random.PRNGKey(1))
@@ -112,8 +109,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
-        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
-            args.num_chains)
+    numpyro.set_platform(args.device)
+    numpyro.set_host_device_count(args.num_chains)
 
     main(args)
