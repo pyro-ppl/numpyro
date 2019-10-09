@@ -134,13 +134,13 @@ class SVI(object):
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
-    :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
+    :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param static_kwargs: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
-    def __init__(self, model, guide, loss, optim, **static_kwargs):
+    def __init__(self, model, guide, optim, loss, **static_kwargs):
         self.model = model
         self.guide = guide
         self.loss = loss
