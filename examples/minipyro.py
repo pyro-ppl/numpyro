@@ -32,7 +32,7 @@ def main(args):
     # model/guide pair.
     adam = optim.Adam(args.learning_rate)
 
-    svi = SVI(model, guide, ELBO(num_particles=100), adam)
+    svi = SVI(model, guide, adam, ELBO(num_particles=100))
     svi_state = svi.init(PRNGKey(0), data)
 
     # Training loop
