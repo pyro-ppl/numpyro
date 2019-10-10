@@ -484,7 +484,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_mean_var(jax_dist, sp_dist, params):
-    n = 20000 if jax_dist is dist.LKJCholesky else 200000
+    n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)
     k = random.PRNGKey(0)
     samples = d_jax.sample(k, sample_shape=(n,))
