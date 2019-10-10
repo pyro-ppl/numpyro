@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections import namedtuple
 import functools
 import math
-from operator import attrgetter, itemgetter
+from operator import attrgetter
 import os
 import warnings
 
@@ -722,43 +722,42 @@ class MCMC(object):
                 "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
             self.progress_bar = False
 
-        self.collect_fields = ('z',)
-        self._samples = None
-        self._samples_flat = None
+        self._states = None
+        self._states_flat = None
 
     def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
         rng, init_params = init
-        hmc_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
-                                                    model_args=args, model_kwargs=kwargs)
+        init_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
+                                                     model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
             constrain_fn = identity if constrain_fn is None else constrain_fn
         else:
             constrain_fn = self.constrain_fn
         collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else self.num_warmup
-        samples = fori_collect(lower, self.num_warmup + self.num_samples,
-                               self.sampler.sample,
-                               hmc_state,
-                               transform=collect_fn,
-                               progbar=self.progress_bar,
-                               progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
-                               diagnostics_fn=get_diagnostics_str if rng.ndim == 1 else None)
+        states = fori_collect(lower, self.num_warmup + self.num_samples,
+                              self.sampler.sample,
+                              init_state,
+                              transform=collect_fn,
+                              progbar=self.progress_bar,
+                              progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
+                              diagnostics_fn=get_diagnostics_str if rng.ndim == 1 else None)
         if len(collect_fields) == 1:
-            samples = (samples,)
-        samples = dict(zip(collect_fields, samples))
-        samples['z'] = vmap(constrain_fn)(samples['z']) if len(tree_flatten(samples)[0]) > 0 else samples['z']
-        return samples
+            states = (states,)
+        states = dict(zip(collect_fields, states))
+        states['z'] = vmap(constrain_fn)(states['z']) if len(tree_flatten(states)[0]) > 0 else states['z']
+        return states
 
-    def run(self, rng, *args, collect_fields=('z',), collect_warmup=False, init_params=None, **kwargs):
+    def run(self, rng, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
         Run the MCMC samplers and collect samples.
 
         :param random.PRNGKey rng: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param collect_fields: Fields from :data:`numpyro.infer.mcmc.HMCState` to collect
-            during the MCMC run. By default, only the latent sample sites `z` is collected.
-        :type collect_fields: tuple or list
+        :param extra_fields: Extra fields (aside from `z`) from :data:`numpyro.infer.mcmc.HMCState`
+            to collect during the MCMC run.
+        :type extra_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
             to `False`.
         :param init_params: Initial parameters to begin sampling. The type must be consistent
@@ -782,12 +781,12 @@ class MCMC(object):
             if np.shape(prototype_init_val)[0] != self.num_chains:
                 raise ValueError('`init_params` must have the same leading dimension'
                                  ' as `num_chains`.')
-        assert isinstance(collect_fields, (tuple, list))
-        self.collect_fields = collect_fields
+        assert isinstance(extra_fields, (tuple, list))
+        collect_fields = ('z',) + tuple(extra_fields) if 'z' not in extra_fields else extra_fields
         if self.num_chains == 1:
-            samples_flat = self._single_chain_mcmc((rng, init_params), collect_fields, collect_warmup,
-                                                   args, kwargs)
-            samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
+            states_flat = self._single_chain_mcmc((rng, init_params), collect_fields, collect_warmup,
+                                                  args, kwargs)
+            states = tree_map(lambda x: x[np.newaxis, ...], states_flat)
         else:
             rngs = random.split(rng, self.num_chains)
             partial_map_fn = partial(self._single_chain_mcmc,
@@ -807,13 +806,13 @@ class MCMC(object):
             else:
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')
-            samples = map_fn((rngs, init_params))
+            states = map_fn((rngs, init_params))
             if chain_method == 'vectorized':
                 # swap num_samples x num_chains to num_chains x num_samples
-                samples = tree_map(lambda x: np.swapaxes(x, 0, 1), samples)
-            samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
-        self._samples = samples
-        self._samples_flat = samples_flat
+                states = tree_map(lambda x: np.swapaxes(x, 0, 1), states)
+            states_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), states)
+        self._states = states
+        self._states_flat = states_flat
 
     def get_samples(self, group_by_chain=False):
         """
@@ -821,18 +820,24 @@ class MCMC(object):
 
         :param bool group_by_chain: Whether to preserve the chain dimension. If True,
             all samples will have num_chains as the size of their leading dimension.
-        :return: Samples having the same data type as `init_params`. If multiple fields
-            are collected via the `collect_fields` arg to :meth:`~numpyro.infer.mcmc.MCMC.run`,
-            then a tuple with the same data type is returned, one for each of the fields.
-            The data type for a particular field is a `dict` keyed on site names if a
-            model containing Pyro primitives is used, but can be any :func:`jaxlib.pytree`,
-            more generally (e.g. when defining a `potential_fn` for HMC that takes
-            `list` args).
+        :return: Samples having the same data type as `init_params`. The data type is a
+            `dict` keyed on site names if a model containing Pyro primitives is used,
+            but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
+            `potential_fn` for HMC that takes `list` args).
         """
-        get_items = itemgetter(*self.collect_fields)
-        return get_items(self._samples) if group_by_chain else get_items(self._samples_flat)
+        return self._states['z'] if group_by_chain else self._states_flat['z']
+
+    def get_extra_fields(self, group_by_chain=False):
+        """
+        Get extra fields from the MCMC run.
+
+        :param bool group_by_chain: Whether to preserve the chain dimension. If True,
+            all samples will have num_chains as the size of their leading dimension.
+        :return: Extra fields keyed by field names which are specified in the
+            `extra_fields` keyword of :meth:`run`.
+        """
+        states = self._states if group_by_chain else self._states_flat
+        return {k: v for k, v in states.items() if k != 'z'}
 
     def print_summary(self, prob=0.9):
-        if 'z' not in self._samples:
-            raise ValueError('No latent samples `z` collected. Pass `z` to `collect_fields` arg.')
-        summary(self._samples['z'], prob=prob)
+        summary(self._states['z'], prob=prob)

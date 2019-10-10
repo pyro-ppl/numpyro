@@ -371,3 +371,18 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     samples = get_samples(rng, data, step_size, trajectory_length, target_accept_prob)
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
+
+
+def test_extra_fields():
+    def model():
+        numpyro.sample('x', dist.Normal(0, 1), sample_shape=(5,))
+
+    mcmc = MCMC(NUTS(model), 1000, 1000)
+    mcmc.run(random.PRNGKey(0), extra_fields=('num_steps', 'adapt_state.step_size'))
+    samples = mcmc.get_samples(group_by_chain=True)
+    assert samples['x'].shape == (1, 1000, 5)
+    stats = mcmc.get_extra_fields(group_by_chain=True)
+    assert 'num_steps' in stats
+    assert stats['num_steps'].shape == (1, 1000)
+    assert 'adapt_state.step_size' in stats
+    assert stats['adapt_state.step_size'].shape == (1, 1000)
