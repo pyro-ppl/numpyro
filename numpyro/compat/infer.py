@@ -149,3 +149,7 @@ class Trace_ELBO(elbo.ELBO):
                  retain_graph=None,
                  tail_adaptive_beta=-1.0):
         super(Trace_ELBO, self).__init__(num_particles=num_particles)
+
+
+# JIT is enabled by default
+JitTrace_ELBO = Trace_ELBO
