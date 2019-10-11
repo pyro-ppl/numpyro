@@ -53,6 +53,21 @@ def test_seed():
     assert_allclose(xs, ys, atol=1e-6)
 
 
+def test_nested_seeding():
+    def fn(rng_1, rng_2, rng_3, sample_x=False):
+        xs = []
+        with handlers.seed(rng=rng_1):
+            if sample_x:
+                xs.append(numpyro.sample('x', dist.Normal(0., 1.)))
+            with handlers.seed(rng=rng_2):
+                with handlers.seed(rng=rng_3):
+                    xs.append(numpyro.sample('y', dist.Normal(0., 1.)))
+        return np.stack(xs)
+
+    assert_allclose(fn(0, 1, 2), fn(1, 3, 2))  # only innermost seed must be same
+    assert_allclose(fn(0, 1, 2), fn(0, 4, 2))  # first and last seed must be same
+
+
 def test_condition():
     def model():
         x = numpyro.sample('x', dist.Delta(0.))
