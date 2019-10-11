@@ -1,7 +1,5 @@
 import os
 
-import pytest
-
 from numpyro.util import set_rng_seed
 
 from jax.config import config; config.update('jax_platform_name', 'cpu')  # noqa: E702
