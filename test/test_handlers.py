@@ -1,4 +1,4 @@
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_raises
 import pytest
 
 from jax import jit
@@ -54,18 +54,20 @@ def test_seed():
 
 
 def test_nested_seeding():
-    def fn(rng_1, rng_2, rng_3, sample_x=False):
+    def fn(rng_1, rng_2, rng_3):
         xs = []
         with handlers.seed(rng=rng_1):
-            if sample_x:
-                xs.append(numpyro.sample('x', dist.Normal(0., 1.)))
             with handlers.seed(rng=rng_2):
+                xs.append(numpyro.sample('x', dist.Normal(0., 1.)))
                 with handlers.seed(rng=rng_3):
                     xs.append(numpyro.sample('y', dist.Normal(0., 1.)))
         return np.stack(xs)
 
-    assert_allclose(fn(0, 1, 2), fn(1, 3, 2))  # only innermost seed must be same
-    assert_allclose(fn(0, 1, 2), fn(0, 4, 2))  # first and last seed must be same
+    s1, s2 = fn(0, 1, 2), fn(3, 1, 2)
+    assert_allclose(s1, s2)
+    s1, s2 = fn(0, 1, 2), fn(3, 1, 4)
+    assert_allclose(s1[0], s2[0])
+    assert_raises(AssertionError, assert_allclose, s1[1], s2[1])
 
 
 def test_condition():
