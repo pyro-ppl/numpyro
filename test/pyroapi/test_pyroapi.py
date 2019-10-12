@@ -8,5 +8,4 @@ pytestmark = pytest.mark.filterwarnings("ignore::numpyro.compat.util.Unsupported
 @pytest.yield_fixture
 def backend():
     with pyro_backend('numpy'):
-        with handlers.seed(rng_seed=1):
-            yield
+        yield
