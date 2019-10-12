@@ -1,4 +1,4 @@
-from pyroapi import handlers, pyro_backend
+from pyroapi import pyro_backend
 from pyroapi.tests import *  # noqa F401
 import pytest
 
