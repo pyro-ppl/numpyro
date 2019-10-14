@@ -1,5 +1,6 @@
 import argparse
 from functools import partial
+import os
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
@@ -12,12 +13,16 @@ from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoContinuousELBO, AutoBNAFNormal
+from numpyro.contrib.autoguide import AutoContinuousELBO, AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import MCMC, NUTS, SVI
 from numpyro.infer.util import initialize_model, transformed_potential_energy
+
+# TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
+# The behaviour when training guide under fast math mode is unstable.
+os.environ["XLA_FLAGS"] = "--xla_cpu_enable_fast_math=false"
 
 """
 This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
@@ -60,8 +65,8 @@ def main(args):
     adam = optim.Adam(0.01)
     # TODO: it is hard to find good hyperparameters such that IAF guide can learn this model.
     # We will use BNAF instead!
-    guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
-    svi = SVI(dual_moon_model, guide, AutoContinuousELBO(), adam)
+    guide = AutoIAFNormal(dual_moon_model, num_flows=2, hidden_dims=[args.num_hidden, args.num_hidden])
+    svi = SVI(dual_moon_model, guide, adam, AutoContinuousELBO())
     svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
@@ -114,12 +119,12 @@ def main(args):
     ax2.contourf(X1, X2, P, cmap='OrRd')
     sns.kdeplot(guide_samples[:, 0], guide_samples[:, 1], n_levels=30, ax=ax2)
     ax2.set(xlim=[-3, 3], ylim=[-3, 3],
-            xlabel='x0', ylabel='x1', title='Posterior using AutoBNAFNormal guide')
+            xlabel='x0', ylabel='x1', title='Posterior using AutoIAFNormal guide')
 
     sns.scatterplot(guide_base_samples[:, 0], guide_base_samples[:, 1], ax=ax3,
                     hue=guide_trans_samples[:, 0] < 0.)
     ax3.set(xlim=[-3, 3], ylim=[-3, 3],
-            xlabel='x0', ylabel='x1', title='AutoBNAFNormal base samples (True=left moon; False=right moon)')
+            xlabel='x0', ylabel='x1', title='AutoIAFNormal base samples (True=left moon; False=right moon)')
 
     ax4.contourf(X1, X2, P, cmap='OrRd')
     sns.kdeplot(vanilla_samples[:, 0], vanilla_samples[:, 1], n_levels=30, ax=ax4)
@@ -147,7 +152,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NeuTra HMC")
     parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=1000, type=int)
-    parser.add_argument('--hidden-factor', nargs='?', default=50, type=int)
+    parser.add_argument('--num-hidden', nargs='?', default=10, type=int)
     parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()

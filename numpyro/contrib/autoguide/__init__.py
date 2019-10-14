@@ -367,6 +367,8 @@ class AutoLaplaceApproximation(AutoContinuous):
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(loss_fn)(loc)
         scale_tril = cholesky_inverse(precision)
+        # fallback to AutoDelta if hessian is singular
+        scale_tril = np.where(np.isnan(scale_tril), 0., scale_tril)
         return MultivariateAffineTransform(loc, scale_tril)
 
     def sample_posterior(self, rng, params, sample_shape=()):

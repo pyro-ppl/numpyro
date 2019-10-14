@@ -437,7 +437,8 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
     :param kwargs: model kwargs.
     :return: dict of samples from the predictive distribution.
     """
-    def single_prediction(rng, samples):
+    def single_prediction(state):
+        rng, samples = state
         model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
         if return_sites is not None:
             sites = return_sites
@@ -458,7 +459,7 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
         raise ValueError("No sample sites in model to infer `num_samples`.")
 
     rngs = random.split(rng, num_samples)
-    return vmap(single_prediction)(rngs, posterior_samples)
+    return lax.map(single_prediction, (rngs, posterior_samples))
 
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):
