@@ -282,3 +282,21 @@ def test_elbo_dynamic_support():
     model_log_prob = x_prior.log_prob(x) + logdet
     expected_loss = guide_log_prob - model_log_prob
     assert_allclose(actual_loss, expected_loss)
+
+
+def test_laplace_approximation_warning():
+    def model(x, y):
+        a = numpyro.sample("a", dist.Normal(0, 10))
+        b = numpyro.sample("b", dist.Normal(0, 10), sample_shape=(3,))
+        mu = a + b[0] * x + b[1] * x ** 2 + b[2] * x ** 3
+        numpyro.sample("y", dist.Normal(mu, 0.001), obs=y)
+
+    x = random.normal(random.PRNGKey(0), (3,))
+    y = 1 + 2 * x + 3 * x ** 2 + 4 * x ** 3
+    guide = AutoLaplaceApproximation(model)
+    svi = SVI(model, guide, optim.Adam(0.1), AutoContinuousELBO(), x=x, y=y)
+    init_state = svi.init(random.PRNGKey(0))
+    svi_state = fori_loop(0, 10000, lambda i, val: svi.update(val)[0], init_state)
+    params = svi.get_params(svi_state)
+    with pytest.warns(UserWarning, match="Hessian of log posterior"):
+        guide.sample_posterior(random.PRNGKey(1), params)

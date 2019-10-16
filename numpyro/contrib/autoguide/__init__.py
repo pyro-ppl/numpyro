@@ -1,5 +1,6 @@
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
+import warnings
 
 from jax import hessian, random, vmap
 from jax.experimental import stax
@@ -25,6 +26,7 @@ from numpyro.distributions.util import cholesky_inverse, sum_rightmost
 from numpyro.handlers import seed, substitute
 from numpyro.infer.elbo import ELBO
 from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, log_density, transform_fn
+from numpyro.util import not_jax_tracer
 
 __all__ = [
     'AutoContinuous',
@@ -366,6 +368,11 @@ class AutoLaplaceApproximation(AutoContinuous):
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(loss_fn)(loc)
         scale_tril = cholesky_inverse(precision)
+        if not_jax_tracer(scale_tril):
+            if np.any(np.isnan(scale_tril)):
+                warnings.warn("Hessian of log posterior at the MAP point is singular. Posterior"
+                              " samples from AutoLaplaceApproxmiation will be constant (equal to"
+                              " the MAP point).")
         scale_tril = np.where(np.isnan(scale_tril), 0., scale_tril)
         return MultivariateAffineTransform(loc, scale_tril)
 
