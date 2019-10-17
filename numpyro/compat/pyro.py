@@ -24,7 +24,7 @@ def param(name, *args, **kwargs):
     val = _param(name, *args, **kwargs)
     # If no value is found, check param store.
     if val is None:
-        # If other arguments are provided. e.g. for initialization raise error.
+        # If other arguments are provided, e.g. for initialization, raise error.
         if args or kwargs:
             raise NotImplementedError
         param_store = get_param_store()
