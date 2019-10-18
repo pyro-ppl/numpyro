@@ -703,8 +703,6 @@ class LowRankMultivariateNormal(Distribution):
                        "cov_factor": constraints.real,
                        "cov_diag": constraints.positive}
     support = constraints.real
-    # not sure why this is needed in pytorch's implementation
-    has_rsample = True
 
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
         if loc.ndim < 1:
@@ -722,14 +720,15 @@ class LowRankMultivariateNormal(Distribution):
         loc_ = np.expand_dims(loc, -1)
         cov_diag_ = np.expand_dims(cov_diag, -1)
         try:
-            loc_, self.cov_factor, cov_diag_ = torch.broadcast_tensors(loc_, cov_factor, cov_diag_)
+            loc_, self.cov_factor, cov_diag_ = np.broadcast_arrays(loc_, cov_factor, cov_diag_)
         except RuntimeError:
             raise ValueError("Incompatible batch shapes: loc {}, cov_factor {}, cov_diag {}"
                              .format(loc.shape, cov_factor.shape, cov_diag.shape))
         self.loc = loc_[..., 0]
         self.cov_diag = cov_diag_[..., 0]
         batch_shape = self.loc.shape[:-1]
-
+        self._unbroadcasted_cov_factor = cov_factor
+        self._unbroadcasted_cov_diag = cov_diag
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
         super(LowRankMultivariateNormal, self).__init__(batch_shape, event_shape,
                                                         validate_args=validate_args)
@@ -740,8 +739,8 @@ class LowRankMultivariateNormal(Distribution):
 
     @lazy_property
     def variance(self):
-        return (self._unbroadcasted_cov_factor.pow(2).sum(-1)
-                + self._unbroadcasted_cov_diag).expand(self._batch_shape + self._event_shape)
+        #no expand needed here ?? 
+        return np.sum(np.square(self._unbroadcasted_cov_factor), axis=-1) + self._unbroadcasted_cov_diag
 
 
     @lazy_property
@@ -752,21 +751,23 @@ class LowRankMultivariateNormal(Distribution):
         # The matrix "I + D-1/2 @ W @ W.T @ D-1/2" has eigenvalues bounded from below by 1,
         # hence it is well-conditioned and safe to take Cholesky decomposition.
         n = self._event_shape[0]
-        cov_diag_sqrt_unsqueeze = self._unbroadcasted_cov_diag.sqrt().unsqueeze(-1)
+        cov_diag_sqrt_unsqueeze = np.expand_dims(np.sqrt(self._unbroadcasted_cov_diag), axis = -1)
         Dinvsqrt_W = self._unbroadcasted_cov_factor / cov_diag_sqrt_unsqueeze
-        K = torch.matmul(Dinvsqrt_W, Dinvsqrt_W.transpose(-1, -2)).contiguous()
-        K.view(-1, n * n)[:, ::n + 1] += 1  # add identity matrix to K
-        scale_tril = cov_diag_sqrt_unsqueeze * torch.cholesky(K)
-        return scale_tril.expand(self._batch_shape + self._event_shape + self._event_shape)
+        K = np.matmul(Dinvsqrt_W, np.transpose(Dinvsqrt_W, axes=[-1, -2]))
+        I = np.identity(K.shape(-1))
+        K = np.add(K,I)
+        scale_tril = cov_diag_sqrt_unsqueeze * np.linalg.cholesky(K)
+        # again no expand function here ? 
+        return scale_tril
 
 
     @lazy_property
     def covariance_matrix(self):
-        covariance_matrix = (torch.matmul(self._unbroadcasted_cov_factor,
-                                          self._unbroadcasted_cov_factor.transpose(-1, -2))
-                             + torch.diag_embed(self._unbroadcasted_cov_diag))
-        return covariance_matrix.expand(self._batch_shape + self._event_shape +
-                                        self._event_shape)
+        covariance_matrix = np.matmul(self._unbroadcasted_cov_factor, \
+            np.transpose(self._unbroadcasted_cov_factor, axes= [-1, -2])) \
+                # not sure how to get torch.diag_embed with Jax
+                + self._unbroadcasted_cov_diag
+        return covariance_matrix
 
 
     @lazy_property
@@ -774,22 +775,18 @@ class LowRankMultivariateNormal(Distribution):
         # We use "Woodbury matrix identity" to take advantage of low rank form::
         #     inv(W @ W.T + D) = inv(D) - inv(D) @ W @ inv(C) @ W.T @ inv(D)
         # where :math:`C` is the capacitance matrix.
-        Wt_Dinv = (self._unbroadcasted_cov_factor.transpose(-1, -2)
-                   / self._unbroadcasted_cov_diag.unsqueeze(-2))
-        A = torch.triangular_solve(Wt_Dinv, self._capacitance_tril, upper=False)[0]
-        precision_matrix = (torch.diag_embed(self._unbroadcasted_cov_diag.reciprocal())
-                            - torch.matmul(A.transpose(-1, -2), A))
-        return precision_matrix.expand(self._batch_shape + self._event_shape +
-                                       self._event_shape)
+        Wt_Dinv = (np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])
+                   / np.expand_dims(self._unbroadcasted_cov_diag, axis = -2))
+        A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
+        return np.reciprocal(self._unbroadcasted_cov_diag) - np.matmul(np.transpose(A, axes = [-1, -2]), A)
 
 
-    def rsample(self, sample_shape=torch.Size()):
-        shape = self._extended_shape(sample_shape)
-        W_shape = shape[:-1] + self.cov_factor.shape[-1:]
-        eps_W = _standard_normal(W_shape, dtype=self.loc.dtype, device=self.loc.device)
-        eps_D = _standard_normal(shape, dtype=self.loc.dtype, device=self.loc.device)
+    def sample(self, key, sample_shape=()):
+        W_shape = sample_shape + self.cov_factor.shape[-1:]
+        eps_W = random.normal(key, W_shape)
+        eps_D = random.normal(key, sample_shape)
         return (self.loc + _batch_mv(self._unbroadcasted_cov_factor, eps_W)
-                + self._unbroadcasted_cov_diag.sqrt() * eps_D)
+                + np.sqrt(self._unbroadcasted_cov_diag) * eps_D)
 
 
     def log_prob(self, value):
@@ -803,18 +800,15 @@ class LowRankMultivariateNormal(Distribution):
         log_det = _batch_lowrank_logdet(self._unbroadcasted_cov_factor,
                                         self._unbroadcasted_cov_diag,
                                         self._capacitance_tril)
-        return -0.5 * (self._event_shape[0] * math.log(2 * math.pi) + log_det + M)
+        return -0.5 * (self._event_shape[0] * np.log(2 * np.pi) + log_det + M)
 
 
     def entropy(self):
         log_det = _batch_lowrank_logdet(self._unbroadcasted_cov_factor,
                                         self._unbroadcasted_cov_diag,
                                         self._capacitance_tril)
-        H = 0.5 * (self._event_shape[0] * (1.0 + math.log(2 * math.pi)) + log_det)
-        if len(self._batch_shape) == 0:
-            return H
-        else:
-            return H.expand(self._batch_shape)
+        H = 0.5 * (self._event_shape[0] * (1.0 + np.log(2 * np.pi)) + log_det)
+        return H 
 
 @copy_docs_from(Distribution)
 class Normal(Distribution):
