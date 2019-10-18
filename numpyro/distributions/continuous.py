@@ -675,6 +675,7 @@ def _batch_capacitance_tril(W, D):
     # could be inefficient
     return np.linalg.cholesky(np.add(K, I))
 
+
 def _batch_lowrank_logdet(W, D, capacitance_tril):
     r"""
     Uses "matrix determinant lemma"::
@@ -684,6 +685,7 @@ def _batch_lowrank_logdet(W, D, capacitance_tril):
     """
     sign_det_D, log_det_D = np.linalg.slogdet(D)
     return 2 * np.sum(np.log(np.diagonal(capacitance_tril, axis1=-2, axis2=-1)), axis=-1) + sign_det_D * log_det_D
+
 
 def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
     r"""
@@ -697,6 +699,7 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
     mahalanobis_term1 = np.sum(np.square(x) / D, axis=-1)
     mahalanobis_term2 = _batch_mahalanobis(capacitance_tril, Wt_Dinv_x)
     return mahalanobis_term1 - mahalanobis_term2
+
 
 @copy_docs_from(Distribution)
 class LowRankMultivariateNormal(Distribution):
@@ -760,9 +763,8 @@ class LowRankMultivariateNormal(Distribution):
     @lazy_property
     def covariance_matrix(self):
         covariance_matrix = np.matmul(self._unbroadcasted_cov_factor,
-            np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])) + 
-            self._unbroadcasted_cov_diag                 
-            # not sure how to get torch.diag_embed with Jax
+                                    np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])) +
+                                    self._unbroadcasted_cov_diag                 
         return covariance_matrix
 
     @lazy_property
@@ -800,7 +802,8 @@ class LowRankMultivariateNormal(Distribution):
                                         self._unbroadcasted_cov_diag,
                                         self._capacitance_tril)
         H = 0.5 * (self._event_shape[0] * (1.0 + np.log(2 * np.pi)) + log_det)
-        return H 
+        return H
+
 
 @copy_docs_from(Distribution)
 class Normal(Distribution):
