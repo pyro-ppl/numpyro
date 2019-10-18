@@ -213,6 +213,14 @@ BernoulliProbs
     :show-inheritance:
     :member-order: bysource
 
+BetaBinomial
+------------
+.. autoclass:: numpyro.distributions.conjugate.BetaBinomial
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Binomial
 ---------
 .. autofunction:: numpyro.distributions.discrete.Binomial
@@ -261,6 +269,14 @@ Delta
     :show-inheritance:
     :member-order: bysource
 
+GammaPoisson
+------------
+.. autoclass:: numpyro.distributions.conjugate.GammaPoisson
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Multinomial
 -----------
 .. autofunction:: numpyro.distributions.discrete.Multinomial
@@ -292,6 +308,14 @@ Poisson
 PRNGIdentity
 ------------
 .. autoclass:: numpyro.distributions.discrete.PRNGIdentity
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ZeroInflatedPoisson
+-------------------
+.. autoclass:: numpyro.distributions.discrete.ZeroInflatedPoisson
     :members:
     :undoc-members:
     :show-inheritance:

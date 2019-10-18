@@ -138,6 +138,8 @@ CONTINUOUS = [
 
 
 DISCRETE = [
+    T(dist.BetaBinomial, 2., 5., 10),
+    T(dist.BetaBinomial, np.array([2., 4.]), np.array([5., 3.]), np.array([10, 12])),
     T(dist.BernoulliProbs, 0.2),
     T(dist.BernoulliProbs, np.array([0.2, 0.7])),
     T(dist.BernoulliLogits, np.array([-1., 3.])),
@@ -153,11 +155,15 @@ DISCRETE = [
     T(dist.Delta, np.array([0., 2.])),
     T(dist.Delta, np.array([0., 2.]), np.array([-2., -4.])),
     T(dist.CategoricalLogits, np.array([[-1, 2., 3.], [3., -4., -2.]])),
+    T(dist.GammaPoisson, 2., 2.),
+    T(dist.GammaPoisson, np.array([6., 2]), np.array([2., 8.])),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
     T(dist.MultinomialLogits, np.array([-1., 3.]), np.array([[5], [8]])),
     T(dist.Poisson, 2.),
     T(dist.Poisson, np.array([2., 3., 5.])),
+    T(dist.ZeroInflatedPoisson, 0.6, 2.),
+    T(dist.ZeroInflatedPoisson, np.array([0.2, 0.7, 0.3]), np.array([2., 3., 5.])),
 ]
 
 
