@@ -759,8 +759,9 @@ class LowRankMultivariateNormal(Distribution):
 
     @lazy_property
     def covariance_matrix(self):
-        covariance_matrix = self._unbroadcasted_cov_diag + np.matmul(self._unbroadcasted_cov_factor,
-                                    np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2]))
+        covariance_matrix = self._unbroadcasted_cov_diag + np.matmul(
+            self._unbroadcasted_cov_factor, np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])
+            )
         return covariance_matrix
 
     @lazy_property
