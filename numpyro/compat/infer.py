@@ -4,6 +4,7 @@ from jax import jit
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.compat.pyro import get_param_store
 from numpyro.infer import elbo, mcmc, svi
 
 
@@ -131,6 +132,8 @@ class SVI(svi.SVI):
                                 'dicts of arrays.')
             else:
                 raise e
+        params = jit(super(SVI, self).get_params)(self.svi_state)
+        get_param_store().update(params)
         return loss
 
     def get_params(self):
