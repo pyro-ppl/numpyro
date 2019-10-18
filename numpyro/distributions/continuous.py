@@ -757,14 +757,14 @@ class LowRankMultivariateNormal(Distribution):
         I = np.identity(K.shape(-1))
         K = np.add(K, I)
         scale_tril = cov_diag_sqrt_unsqueeze * np.linalg.cholesky(K)
-        # again no expand function here ? 
+        # again no expand function here ?
         return scale_tril
 
     @lazy_property
     def covariance_matrix(self):
-        covariance_matrix = np.matmul(self._unbroadcasted_cov_factor,
-                                    np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])) +
-                                    self._unbroadcasted_cov_diag                 
+        covariance_matrix = self._unbroadcasted_cov_diag + np.matmul(self._unbroadcasted_cov_factor,
+                                    np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2]))
+                                    
         return covariance_matrix
 
     @lazy_property
