@@ -737,9 +737,8 @@ class LowRankMultivariateNormal(Distribution):
 
     @lazy_property
     def variance(self):
-        #no expand needed here ?? 
+        # no expand needed here ??
         return np.sum(np.square(self._unbroadcasted_cov_factor), axis=-1) + self._unbroadcasted_cov_diag
-
 
     @lazy_property
     def scale_tril(self):
@@ -753,20 +752,18 @@ class LowRankMultivariateNormal(Distribution):
         Dinvsqrt_W = self._unbroadcasted_cov_factor / cov_diag_sqrt_unsqueeze
         K = np.matmul(Dinvsqrt_W, np.transpose(Dinvsqrt_W, axes=[-1, -2]))
         I = np.identity(K.shape(-1))
-        K = np.add(K,I)
+        K = np.add(K, I)
         scale_tril = cov_diag_sqrt_unsqueeze * np.linalg.cholesky(K)
         # again no expand function here ? 
         return scale_tril
 
-
     @lazy_property
     def covariance_matrix(self):
-        covariance_matrix = np.matmul(self._unbroadcasted_cov_factor, \
-            np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])) \
-                # not sure how to get torch.diag_embed with Jax
-                + self._unbroadcasted_cov_diag
+        covariance_matrix = np.matmul(self._unbroadcasted_cov_factor,
+            np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])) + 
+            self._unbroadcasted_cov_diag                 
+            # not sure how to get torch.diag_embed with Jax
         return covariance_matrix
-
 
     @lazy_property
     def precision_matrix(self):
@@ -778,14 +775,12 @@ class LowRankMultivariateNormal(Distribution):
         A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
         return np.reciprocal(self._unbroadcasted_cov_diag) - np.matmul(np.transpose(A, axes=[-1, -2]), A)
 
-
     def sample(self, key, sample_shape=()):
         W_shape = sample_shape + self.cov_factor.shape[-1:]
         eps_W = random.normal(key, W_shape)
         eps_D = random.normal(key, sample_shape)
         return (self.loc + _batch_mv(self._unbroadcasted_cov_factor, eps_W)
                 + np.sqrt(self._unbroadcasted_cov_diag) * eps_D)
-
 
     def log_prob(self, value):
         if self._validate_args:
@@ -799,7 +794,6 @@ class LowRankMultivariateNormal(Distribution):
                                         self._unbroadcasted_cov_diag,
                                         self._capacitance_tril)
         return -0.5 * (self._event_shape[0] * np.log(2 * np.pi) + log_det + M)
-
 
     def entropy(self):
         log_det = _batch_lowrank_logdet(self._unbroadcasted_cov_factor,
