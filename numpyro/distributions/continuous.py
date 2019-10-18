@@ -660,7 +660,8 @@ def _batch_mv(bmat, bvec):
     to a batch shape. They are not necessarily assumed to have the same batch shape,
     just ones which can be broadcasted.
     """
-    return np.squeeze(np.matmul(bmat, np.expand_dims(bvec, axis = -1)), axis=-1)
+    return np.squeeze(np.matmul(bmat, np.expand_dims(bvec, axis=-1)), axis=-1)
+
 
 def _batch_capacitance_tril(W, D):
     r"""
@@ -668,10 +669,10 @@ def _batch_capacitance_tril(W, D):
     and a batch of vectors :math:`D`.
     """
     # is this the right way to specify np.transpose ?
-    Wt_Dinv = np.transpose(W, axes = [-1, -2]) / np.expand_dims(D, -2)
+    Wt_Dinv = np.transpose(W, axes=[-1, -2]) / np.expand_dims(D, -2)
     K = np.matmul(Wt_Dinv, W)
     I = np.identity(K.shape(-1))
-    #could be inefficient
+    # could be inefficient
     return np.linalg.cholesky(np.add(K, I))
 
 def _batch_lowrank_logdet(W, D, capacitance_tril):
@@ -682,7 +683,7 @@ def _batch_lowrank_logdet(W, D, capacitance_tril):
     the log determinant.
     """
     sign_det_D, log_det_D = np.linalg.slogdet(D)
-    return 2 * np.sum(np.log(np.diagonal(capacitance_tril, axis1 = -2, axis2 = -1)), axis=-1) + sign_det_D * log_det_D
+    return 2 * np.sum(np.log(np.diagonal(capacitance_tril, axis1=-2, axis2=-1)), axis=-1) + sign_det_D * log_det_D
 
 def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
     r"""
@@ -691,17 +692,15 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
     where :math:`C` is the capacitance matrix :math:`I + W.T @ inv(D) @ W`, to compute the squared
     Mahalanobis distance :math:`x.T @ inv(W @ W.T + D) @ x`.
     """
-    Wt_Dinv = np.transpose(W, axes = [-1, -2]) / np.expand_dims(D, -2)
+    Wt_Dinv = np.transpose(W, axes=[-1, -2]) / np.expand_dims(D, -2)
     Wt_Dinv_x = _batch_mv(Wt_Dinv, x)
-    mahalanobis_term1 = np.sum(np.square(x) / D, axis = -1)
+    mahalanobis_term1 = np.sum(np.square(x) / D, axis=-1)
     mahalanobis_term2 = _batch_mahalanobis(capacitance_tril, Wt_Dinv_x)
     return mahalanobis_term1 - mahalanobis_term2
 
 @copy_docs_from(Distribution)
 class LowRankMultivariateNormal(Distribution):
-    arg_constraints = {"loc": constraints.real,
-                       "cov_factor": constraints.real,
-                       "cov_diag": constraints.positive}
+    arg_constraints = {"loc": constraints.real, "cov_factor": constraints.real, "cov_diag": constraints.positive}
     support = constraints.real
 
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
@@ -730,8 +729,7 @@ class LowRankMultivariateNormal(Distribution):
         self._unbroadcasted_cov_factor = cov_factor
         self._unbroadcasted_cov_diag = cov_diag
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
-        super(LowRankMultivariateNormal, self).__init__(batch_shape, event_shape,
-                                                        validate_args=validate_args)
+        super(LowRankMultivariateNormal, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @property
     def mean(self):
@@ -751,7 +749,7 @@ class LowRankMultivariateNormal(Distribution):
         # The matrix "I + D-1/2 @ W @ W.T @ D-1/2" has eigenvalues bounded from below by 1,
         # hence it is well-conditioned and safe to take Cholesky decomposition.
         n = self._event_shape[0]
-        cov_diag_sqrt_unsqueeze = np.expand_dims(np.sqrt(self._unbroadcasted_cov_diag), axis = -1)
+        cov_diag_sqrt_unsqueeze = np.expand_dims(np.sqrt(self._unbroadcasted_cov_diag), axis=-1)
         Dinvsqrt_W = self._unbroadcasted_cov_factor / cov_diag_sqrt_unsqueeze
         K = np.matmul(Dinvsqrt_W, np.transpose(Dinvsqrt_W, axes=[-1, -2]))
         I = np.identity(K.shape(-1))
@@ -764,7 +762,7 @@ class LowRankMultivariateNormal(Distribution):
     @lazy_property
     def covariance_matrix(self):
         covariance_matrix = np.matmul(self._unbroadcasted_cov_factor, \
-            np.transpose(self._unbroadcasted_cov_factor, axes= [-1, -2])) \
+            np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])) \
                 # not sure how to get torch.diag_embed with Jax
                 + self._unbroadcasted_cov_diag
         return covariance_matrix
@@ -776,9 +774,9 @@ class LowRankMultivariateNormal(Distribution):
         #     inv(W @ W.T + D) = inv(D) - inv(D) @ W @ inv(C) @ W.T @ inv(D)
         # where :math:`C` is the capacitance matrix.
         Wt_Dinv = (np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])
-                   / np.expand_dims(self._unbroadcasted_cov_diag, axis = -2))
+                   / np.expand_dims(self._unbroadcasted_cov_diag, axis=-2))
         A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
-        return np.reciprocal(self._unbroadcasted_cov_diag) - np.matmul(np.transpose(A, axes = [-1, -2]), A)
+        return np.reciprocal(self._unbroadcasted_cov_diag) - np.matmul(np.transpose(A, axes=[-1, -2]), A)
 
 
     def sample(self, key, sample_shape=()):
