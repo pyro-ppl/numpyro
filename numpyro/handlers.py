@@ -83,6 +83,7 @@ import jax.numpy as np
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.primitives import Messenger
+from numpyro.util import not_jax_tracer
 
 __all__ = [
     'block',
@@ -293,8 +294,9 @@ class scale(Messenger):
     :param float scale_factor: a positive scaling factor
     """
     def __init__(self, fn=None, scale_factor=1.):
-        if scale_factor <= 0:
-            raise ValueError("scale factor should be a positive number.")
+        if not_jax_tracer(scale_factor):
+            if scale_factor <= 0:
+                raise ValueError("scale factor should be a positive number.")
         self.scale = scale_factor
         super(scale, self).__init__(fn)
 
