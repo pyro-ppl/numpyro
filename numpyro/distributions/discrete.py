@@ -265,10 +265,11 @@ class CategoricalLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value):
+        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
         value = np.expand_dims(value, -1)
+        value = np.broadcast_to(value, batch_shape + (1,))
         log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
-        value, log_pmf = promote_shapes(value, log_pmf)
-        value = value[..., :1]
+        log_pmf = np.broadcast_to(log_pmf, batch_shape + np.shape(log_pmf)[-1:])
         return np.take_along_axis(log_pmf, value, -1)[..., 0]
 
     @lazy_property

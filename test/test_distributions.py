@@ -594,6 +594,22 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         d.log_prob(oob_samples)
 
 
+def test_categorical_log_prob_grad():
+    data = np.repeat(np.arange(3), 10)
+
+    def f(x):
+        return dist.Categorical(jax.nn.softmax(x * np.arange(1, 4))).log_prob(data).sum()
+
+    def g(x):
+        return dist.Categorical(logits=x * np.arange(1, 4)).log_prob(data).sum()
+
+    x = 0.5
+    fx, grad_fx = jax.value_and_grad(f)(x)
+    gx, grad_gx = jax.value_and_grad(g)(x)
+    assert_allclose(fx, gx)
+    assert_allclose(grad_fx, grad_gx)
+
+
 ########################################
 # Tests for constraints and transforms #
 ########################################
