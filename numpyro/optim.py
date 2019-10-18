@@ -81,13 +81,16 @@ class ClippedAdam(_NumpyroOptim):
     """
     :class:`~numpyro.optim.Adam` optimizer with gradient clipping.
 
+    :param float clip_norm: All gradient values will be clipped between
+    [-`clip_norm`, `clip_norm`].
+
     **Reference:**
 
     `A Method for Stochastic Optimization`, Diederik P. Kingma, Jimmy Ba
     https://arxiv.org/abs/1412.6980
     """
-    def __init__(self, *args, **kwargs):
-        self.clip_norm = kwargs.pop('clip_norm', 10.)
+    def __init__(self, *args, clip_norm=10., **kwargs):
+        self.clip_norm = clip_norm
         super(ClippedAdam, self).__init__(optimizers.adam, *args, **kwargs)
 
     def update(self, g, state):

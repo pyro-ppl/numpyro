@@ -132,7 +132,7 @@ class SVI(svi.SVI):
                                 'dicts of arrays.')
             else:
                 raise e
-        params = super(SVI, self).get_params(self.svi_state)
+        params = jit(super(SVI, self).get_params)(self.svi_state)
         get_param_store().update(params)
         return loss
 
