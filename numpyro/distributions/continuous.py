@@ -671,9 +671,8 @@ def _batch_capacitance_tril(W, D):
     # is this the right way to specify np.transpose ?
     Wt_Dinv = np.transpose(W, axes=[-1, -2]) / np.expand_dims(D, -2)
     K = np.matmul(Wt_Dinv, W)
-    I = np.identity(K.shape(-1))
     # could be inefficient
-    return np.linalg.cholesky(np.add(K, I))
+    return np.linalg.cholesky(np.add(K, np.identity(K.shape(-1))))
 
 
 def _batch_lowrank_logdet(W, D, capacitance_tril):
@@ -750,12 +749,10 @@ class LowRankMultivariateNormal(Distribution):
         #     W @ W.T + D = D1/2 @ (I + D-1/2 @ W @ W.T @ D-1/2) @ D1/2
         # The matrix "I + D-1/2 @ W @ W.T @ D-1/2" has eigenvalues bounded from below by 1,
         # hence it is well-conditioned and safe to take Cholesky decomposition.
-        n = self._event_shape[0]
         cov_diag_sqrt_unsqueeze = np.expand_dims(np.sqrt(self._unbroadcasted_cov_diag), axis=-1)
         Dinvsqrt_W = self._unbroadcasted_cov_factor / cov_diag_sqrt_unsqueeze
         K = np.matmul(Dinvsqrt_W, np.transpose(Dinvsqrt_W, axes=[-1, -2]))
-        I = np.identity(K.shape(-1))
-        K = np.add(K, I)
+        K = np.add(K, np.identity(K.shape(-1)))
         scale_tril = cov_diag_sqrt_unsqueeze * np.linalg.cholesky(K)
         # again no expand function here ?
         return scale_tril
@@ -764,7 +761,6 @@ class LowRankMultivariateNormal(Distribution):
     def covariance_matrix(self):
         covariance_matrix = self._unbroadcasted_cov_diag + np.matmul(self._unbroadcasted_cov_factor,
                                     np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2]))
-                                    
         return covariance_matrix
 
     @lazy_property
