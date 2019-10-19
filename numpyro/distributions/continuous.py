@@ -682,8 +682,7 @@ def _batch_lowrank_logdet(W, D, capacitance_tril):
     where :math:`C` is the capacitance matrix :math:`I + W.T @ inv(D) @ W`, to compute
     the log determinant.
     """
-    sign_det_D, log_det_D = np.linalg.slogdet(D)
-    return 2 * np.sum(np.log(np.diagonal(capacitance_tril, axis1=-2, axis2=-1)), axis=-1) + sign_det_D * log_det_D
+    return 2 * np.sum(np.log(np.diagonal(capacitance_tril, axis1=-2, axis2=-1)), axis=-1) + np.log(D).sum(-1)
 
 
 def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
@@ -702,36 +701,29 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
 
 @copy_docs_from(Distribution)
 class LowRankMultivariateNormal(Distribution):
-    arg_constraints = {"loc": constraints.real, "cov_factor": constraints.real, "cov_diag": constraints.positive}
+    arg_constraints = {"loc": constraints.real_vector, "cov_factor": constraints.real_vector, "cov_diag": constraints.positive}
     support = constraints.real
 
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
         if loc.ndim < 1:
             raise ValueError("`loc` must be at least one-dimensional.")
-        event_shape = loc.shape[-1:]
+        self.event_shape = loc.shape[-1:]
         if cov_factor.ndim < 2:
             raise ValueError("`cov_factor` must be at least two-dimensional, "
                              "with optional leading batch dimensions")
-        if cov_factor.shape[-2:-1] != event_shape:
+        if cov_factor.shape[-2:-1] != self.event_shape:
             raise ValueError("`cov_factor` must be a batch of matrices with shape {} x m"
-                             .format(event_shape[0]))
-        if cov_diag.shape[-1:] != event_shape:
-            raise ValueError("`cov_diag` must be a batch of vectors with shape {}".format(event_shape))
+                             .format(self.event_shape[0]))
+        if cov_diag.shape[-1:] != self.event_shape:
+            raise ValueError("`cov_diag` must be a batch of vectors with shape {}".format(self.event_shape))
 
-        loc_ = np.expand_dims(loc, -1)
-        cov_diag_ = np.expand_dims(cov_diag, -1)
-        try:
-            loc_, self.cov_factor, cov_diag_ = np.broadcast_arrays(loc_, cov_factor, cov_diag_)
-        except RuntimeError:
-            raise ValueError("Incompatible batch shapes: loc {}, cov_factor {}, cov_diag {}"
-                             .format(loc.shape, cov_factor.shape, cov_diag.shape))
-        self.loc = loc_[..., 0]
-        self.cov_diag = cov_diag_[..., 0]
-        batch_shape = self.loc.shape[:-1]
-        self._unbroadcasted_cov_factor = cov_factor
-        self._unbroadcasted_cov_diag = cov_diag
+        loc, cov_factor, cov_diag = promote_shapes(loc[..., np.newaxis], cov_factor, cov_diag[..., np.newaxis])
+        self.batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(cov_factor), np.shape(cov_diag))[:-2]
+        self.loc = np.broadcast_to(loc[..., 0], self.batch_shape + self.event_shape)
+        self.cov_factor = cov_factor
+        self.cov_diag = cov_diag
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
-        super(LowRankMultivariateNormal, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+        super(LowRankMultivariateNormal, self).__init__(self.batch_shape, self.event_shape, validate_args=validate_args)
 
     @property
     def mean(self):
@@ -739,8 +731,8 @@ class LowRankMultivariateNormal(Distribution):
 
     @lazy_property
     def variance(self):
-        # no expand needed here ??
-        return np.sum(np.square(self._unbroadcasted_cov_factor), axis=-1) + self._unbroadcasted_cov_diag
+        raw_variance = np.square(self.cov_factor).sum(-1) + self.cov_diag
+        return np.broadcast_to(raw_variance, self.batch_shape + self.event_shape)
 
     @lazy_property
     def scale_tril(self):
@@ -749,18 +741,17 @@ class LowRankMultivariateNormal(Distribution):
         #     W @ W.T + D = D1/2 @ (I + D-1/2 @ W @ W.T @ D-1/2) @ D1/2
         # The matrix "I + D-1/2 @ W @ W.T @ D-1/2" has eigenvalues bounded from below by 1,
         # hence it is well-conditioned and safe to take Cholesky decomposition.
-        cov_diag_sqrt_unsqueeze = np.expand_dims(np.sqrt(self._unbroadcasted_cov_diag), axis=-1)
-        Dinvsqrt_W = self._unbroadcasted_cov_factor / cov_diag_sqrt_unsqueeze
+        cov_diag_sqrt_unsqueeze = np.expand_dims(np.sqrt(self.cov_diag), axis=-1)
+        Dinvsqrt_W = self.cov_factor / cov_diag_sqrt_unsqueeze
         K = np.matmul(Dinvsqrt_W, np.transpose(Dinvsqrt_W, axes=[-1, -2]))
         K = np.add(K, np.identity(K.shape(-1)))
         scale_tril = cov_diag_sqrt_unsqueeze * np.linalg.cholesky(K)
-        # again no expand function here ?
         return scale_tril
 
     @lazy_property
     def covariance_matrix(self):
-        covariance_matrix = self._unbroadcasted_cov_diag + np.matmul(
-            self._unbroadcasted_cov_factor, np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])
+        covariance_matrix = self.cov_diag + np.matmul(
+            self.cov_factor, np.transpose(self.cov_factor, axes=[-1, -2])
             )
         return covariance_matrix
 
@@ -769,37 +760,37 @@ class LowRankMultivariateNormal(Distribution):
         # We use "Woodbury matrix identity" to take advantage of low rank form::
         #     inv(W @ W.T + D) = inv(D) - inv(D) @ W @ inv(C) @ W.T @ inv(D)
         # where :math:`C` is the capacitance matrix.
-        Wt_Dinv = (np.transpose(self._unbroadcasted_cov_factor, axes=[-1, -2])
-                   / np.expand_dims(self._unbroadcasted_cov_diag, axis=-2))
+        Wt_Dinv = (np.transpose(self.cov_factor, axes=[-1, -2])
+                   / np.expand_dims(self.cov_diag, axis=-2))
         A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
-        return np.reciprocal(self._unbroadcasted_cov_diag) - np.matmul(np.transpose(A, axes=[-1, -2]), A)
+        return np.reciprocal(self.cov_diag) - np.matmul(np.transpose(A, axes=[-1, -2]), A)
 
     def sample(self, key, sample_shape=()):
         W_shape = sample_shape + self.cov_factor.shape[-1:]
         eps_W = random.normal(key, W_shape)
         eps_D = random.normal(key, sample_shape)
-        return (self.loc + _batch_mv(self._unbroadcasted_cov_factor, eps_W)
-                + np.sqrt(self._unbroadcasted_cov_diag) * eps_D)
+        return (self.loc + _batch_mv(self.cov_factor, eps_W)
+                + np.sqrt(self.cov_diag) * eps_D)
 
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
         diff = value - self.loc
-        M = _batch_lowrank_mahalanobis(self._unbroadcasted_cov_factor,
-                                       self._unbroadcasted_cov_diag,
+        M = _batch_lowrank_mahalanobis(self.cov_factor,
+                                       self.cov_diag,
                                        diff,
                                        self._capacitance_tril)
-        log_det = _batch_lowrank_logdet(self._unbroadcasted_cov_factor,
-                                        self._unbroadcasted_cov_diag,
+        log_det = _batch_lowrank_logdet(self.cov_factor,
+                                        self.cov_diag,
                                         self._capacitance_tril)
-        return -0.5 * (self._event_shape[0] * np.log(2 * np.pi) + log_det + M)
+        return -0.5 * (self.loc.shape[-1] * np.log(2 * np.pi) + log_det + M)
 
     def entropy(self):
-        log_det = _batch_lowrank_logdet(self._unbroadcasted_cov_factor,
-                                        self._unbroadcasted_cov_diag,
+        log_det = _batch_lowrank_logdet(self.cov_factor,
+                                        self.cov_diag,
                                         self._capacitance_tril)
-        H = 0.5 * (self._event_shape[0] * (1.0 + np.log(2 * np.pi)) + log_det)
-        return H
+        H = 0.5 * (self.loc.shape[-1] * (1.0 + np.log(2 * np.pi)) + log_det)
+        return np.broadcast_to(H, self.batch_shape)
 
 
 @copy_docs_from(Distribution)
