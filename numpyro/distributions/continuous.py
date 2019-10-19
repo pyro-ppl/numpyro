@@ -668,8 +668,7 @@ def _batch_capacitance_tril(W, D):
     Computes Cholesky of :math:`I + W.T @ inv(D) @ W` for a batch of matrices :math:`W`
     and a batch of vectors :math:`D`.
     """
-    # is this the right way to specify np.transpose ?
-    Wt_Dinv = np.transpose(W, axes=[-1, -2]) / np.expand_dims(D, -2)
+    Wt_Dinv = np.swapaxes(W, -1, -2) / np.expand_dims(D, -2)
     K = np.matmul(Wt_Dinv, W)
     # could be inefficient
     return np.linalg.cholesky(np.add(K, np.identity(K.shape(-1))))
@@ -692,7 +691,7 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
     where :math:`C` is the capacitance matrix :math:`I + W.T @ inv(D) @ W`, to compute the squared
     Mahalanobis distance :math:`x.T @ inv(W @ W.T + D) @ x`.
     """
-    Wt_Dinv = np.transpose(W, axes=[-1, -2]) / np.expand_dims(D, -2)
+    Wt_Dinv = np.swapaxes(W, -1, -2) / np.expand_dims(D, -2)
     Wt_Dinv_x = _batch_mv(Wt_Dinv, x)
     mahalanobis_term1 = np.sum(np.square(x) / D, axis=-1)
     mahalanobis_term2 = _batch_mahalanobis(capacitance_tril, Wt_Dinv_x)
@@ -701,7 +700,9 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
 
 @copy_docs_from(Distribution)
 class LowRankMultivariateNormal(Distribution):
-    arg_constraints = {"loc": constraints.real_vector, "cov_factor": constraints.real_vector, "cov_diag": constraints.positive}
+    arg_constraints = {"loc": constraints.real_vector, 
+                        "cov_factor": constraints.real_vector, 
+                        "cov_diag": constraints.positive}
     support = constraints.real
 
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
@@ -743,7 +744,7 @@ class LowRankMultivariateNormal(Distribution):
         # hence it is well-conditioned and safe to take Cholesky decomposition.
         cov_diag_sqrt_unsqueeze = np.expand_dims(np.sqrt(self.cov_diag), axis=-1)
         Dinvsqrt_W = self.cov_factor / cov_diag_sqrt_unsqueeze
-        K = np.matmul(Dinvsqrt_W, np.transpose(Dinvsqrt_W, axes=[-1, -2]))
+        K = np.matmul(Dinvsqrt_W, np.swapaxes(Dinvsqrt_W, -1, -2))
         K = np.add(K, np.identity(K.shape(-1)))
         scale_tril = cov_diag_sqrt_unsqueeze * np.linalg.cholesky(K)
         return scale_tril
@@ -751,7 +752,7 @@ class LowRankMultivariateNormal(Distribution):
     @lazy_property
     def covariance_matrix(self):
         covariance_matrix = self.cov_diag + np.matmul(
-            self.cov_factor, np.transpose(self.cov_factor, axes=[-1, -2])
+            self.cov_factor, np.swapaxes(self.cov_factor, -1, -2)
             )
         return covariance_matrix
 
@@ -760,10 +761,10 @@ class LowRankMultivariateNormal(Distribution):
         # We use "Woodbury matrix identity" to take advantage of low rank form::
         #     inv(W @ W.T + D) = inv(D) - inv(D) @ W @ inv(C) @ W.T @ inv(D)
         # where :math:`C` is the capacitance matrix.
-        Wt_Dinv = (np.transpose(self.cov_factor, axes=[-1, -2])
+        Wt_Dinv = (np.swapaxes(self.cov_factor, -1, -2)
                    / np.expand_dims(self.cov_diag, axis=-2))
         A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
-        return np.reciprocal(self.cov_diag) - np.matmul(np.transpose(A, axes=[-1, -2]), A)
+        return np.reciprocal(self.cov_diag) - np.matmul(np.swapaxes(A, -1, -2), A)
 
     def sample(self, key, sample_shape=()):
         W_shape = sample_shape + self.cov_factor.shape[-1:]
