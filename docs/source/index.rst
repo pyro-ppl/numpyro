@@ -1,7 +1,7 @@
 :github_url: https://github.com/pyro-ppl/numpyro
 
 
-Numpyro documentation
+NumPyro documentation
 =====================
 
 .. toctree::
@@ -56,7 +56,7 @@ Numpyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
-   :caption: Inference Utilities:
+   :caption: Utilities:
 
    utilities
 

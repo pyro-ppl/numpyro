@@ -1,5 +1,4 @@
 import argparse
-import os
 import time
 
 import matplotlib
@@ -8,13 +7,12 @@ import numpy as onp
 
 import jax
 from jax import vmap
-from jax.config import config as jax_config
 import jax.numpy as np
 import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -91,7 +89,6 @@ def get_data(N=30, sigma_obs=0.15, N_test=400):
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
     X, Y, X_test = get_data(N=args.num_data)
 
     # do inference
@@ -132,8 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
-    if args.device == 'cpu' and args.num_chains <= os.cpu_count():
-        os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count={}'.format(
-            args.num_chains)
+    numpyro.set_platform(args.device)
+    numpyro.set_host_device_count(args.num_chains)
 
     main(args)

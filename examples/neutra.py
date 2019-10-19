@@ -1,4 +1,5 @@
 import argparse
+from functools import partial
 import os
 
 from matplotlib.gridspec import GridSpec
@@ -6,19 +7,18 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from jax import lax, random, vmap
-from jax.config import config as jax_config
 import jax.numpy as np
 from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoIAFNormal
+from numpyro.contrib.autoguide import AutoContinuousELBO, AutoIAFNormal
 from numpyro.diagnostics import summary
 import numpyro.distributions as dist
-from numpyro.hmc_util import initialize_model
-from numpyro.mcmc import MCMC, NUTS
-from numpyro.svi import SVI, elbo
+from numpyro.distributions import constraints
+from numpyro.infer import MCMC, NUTS, SVI
+from numpyro.infer.util import initialize_model, transformed_potential_energy
 
 # TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
 # The behaviour when training guide under fast math mode is unstable.
@@ -33,78 +33,76 @@ Gaussian-like one. The transform will be used to get better mixing rate for NUTS
 """
 
 
-def dual_moon_pe(x):
-    term1 = 0.5 * ((np.linalg.norm(x, axis=-1) - 2) / 0.4) ** 2
-    term2 = -0.5 * ((x[..., :1] + np.array([-2., 2.])) / 0.6) ** 2
-    return term1 - logsumexp(term2, axis=-1)
+class DualMoonDistribution(dist.Distribution):
+    support = constraints.real_vector
+
+    def __init__(self):
+        super(DualMoonDistribution, self).__init__(event_shape=(2,))
+
+    def sample(self, key, sample_shape=()):
+        # it is enough to return an arbitrary sample with correct shape
+        return np.zeros(sample_shape + self.event_shape)
+
+    def log_prob(self, x):
+        term1 = 0.5 * ((np.linalg.norm(x, axis=-1) - 2) / 0.4) ** 2
+        term2 = -0.5 * ((x[..., :1] + np.array([-2., 2.])) / 0.6) ** 2
+        pe = term1 - logsumexp(term2, axis=-1)
+        return -pe
 
 
 def dual_moon_model():
-    x = numpyro.sample('x', dist.Uniform(-4 * np.ones(2), 4 * np.ones(2)))
-    pe = dual_moon_pe(x)
-    numpyro.sample('log_density', dist.Delta(log_density=-pe), obs=0.)
-
-
-def make_transformed_pe(potential_fn, transform, unpack_fn):
-    def transformed_potential_fn(z):
-        u, intermediates = transform.call_with_intermediates(z)
-        logdet = transform.log_abs_det_jacobian(z, u, intermediates=intermediates)
-        return potential_fn(unpack_fn(u)) + logdet
-
-    return transformed_potential_fn
+    numpyro.sample('x', DualMoonDistribution())
 
 
 def main(args):
-    jax_config.update('jax_platform_name', args.device)
-
     print("Start vanilla HMC...")
-    nuts_kernel = NUTS(potential_fn=dual_moon_pe)
+    nuts_kernel = NUTS(dual_moon_model)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
-    mcmc.run(random.PRNGKey(11), init_params=np.array([2., 0.]))
-    vanilla_samples = mcmc.get_samples()
+    mcmc.run(random.PRNGKey(0))
+    mcmc.print_summary()
+    vanilla_samples = mcmc.get_samples()['x'].copy()
 
-    adam = optim.Adam(0.001)
-    rng_init, rng_train = random.split(random.PRNGKey(1), 2)
-    guide = AutoIAFNormal(dual_moon_model, hidden_dims=[args.num_hidden], skip_connections=True)
-    svi = SVI(dual_moon_model, guide, elbo, adam)
-    svi_state = svi.init(rng_init)
+    adam = optim.Adam(0.01)
+    # TODO: it is hard to find good hyperparameters such that IAF guide can learn this model.
+    # We will use BNAF instead!
+    guide = AutoIAFNormal(dual_moon_model, num_flows=2, hidden_dims=[args.num_hidden, args.num_hidden])
+    svi = SVI(dual_moon_model, guide, adam, AutoContinuousELBO())
+    svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
     last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, np.zeros(args.num_iters))
     params = svi.get_params(last_state)
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(random.PRNGKey(0), params,
-                                           sample_shape=(args.num_samples,))
+                                           sample_shape=(args.num_samples,))['x'].copy()
 
     transform = guide.get_transform(params)
-    unpack_fn = guide.unpack_latent
+    _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), dual_moon_model)
+    transformed_potential_fn = partial(transformed_potential_energy, potential_fn, transform)
+    transformed_constrain_fn = lambda x: constrain_fn(transform(x))  # noqa: E731
 
-    _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), dual_moon_model)
-    transformed_potential_fn = make_transformed_pe(potential_fn, transform, unpack_fn)
-    transformed_constrain_fn = lambda x: constrain_fn(unpack_fn(transform(x)))  # noqa: E731
-
-    init_params = np.zeros(guide.latent_size)
     print("\nStart NeuTra HMC...")
-    # TODO: exlore why neutra samples are not good
-    # Issue: https://github.com/pyro-ppl/numpyro/issues/256
     nuts_kernel = NUTS(potential_fn=transformed_potential_fn)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples)
-    mcmc.run(random.PRNGKey(10), init_params=init_params)
+    init_params = np.zeros(guide.latent_size)
+    mcmc.run(random.PRNGKey(3), init_params=init_params)
+    mcmc.print_summary()
     zs = mcmc.get_samples()
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)
     summary(tree_map(lambda x: x[None, ...], samples))
+    samples = samples['x'].copy()
 
     # make plots
 
-    # IAF guide samples (for plotting)
-    iaf_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(0), (1000,))
-    iaf_trans_samples = vmap(transformed_constrain_fn)(iaf_base_samples)['x']
+    # guide samples (for plotting)
+    guide_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(4), (1000,))
+    guide_trans_samples = vmap(transformed_constrain_fn)(guide_base_samples)['x']
 
     x1 = np.linspace(-3, 3, 100)
     x2 = np.linspace(-3, 3, 100)
     X1, X2 = np.meshgrid(x1, x2)
-    P = np.clip(np.exp(-dual_moon_pe(np.stack([X1, X2], axis=-1))), a_min=0.)
+    P = np.exp(DualMoonDistribution().log_prob(np.stack([X1, X2], axis=-1)))
 
     fig = plt.figure(figsize=(12, 16), constrained_layout=True)
     gs = GridSpec(3, 2, figure=fig)
@@ -119,28 +117,29 @@ def main(args):
     ax1.set_title('Autoguide training log loss (after 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(guide_samples['x'][:, 0].copy(), guide_samples['x'][:, 1].copy(), n_levels=30, ax=ax2)
+    sns.kdeplot(guide_samples[:, 0], guide_samples[:, 1], n_levels=30, ax=ax2)
     ax2.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using AutoIAFNormal guide')
 
-    sns.scatterplot(iaf_base_samples[:, 0], iaf_base_samples[:, 1], ax=ax3, hue=iaf_trans_samples[:, 0] < 0.)
+    sns.scatterplot(guide_base_samples[:, 0], guide_base_samples[:, 1], ax=ax3,
+                    hue=guide_trans_samples[:, 0] < 0.)
     ax3.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='AutoIAFNormal base samples (True=left moon; False=right moon)')
 
     ax4.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(vanilla_samples[:, 0].copy(), vanilla_samples[:, 1].copy(), n_levels=30, ax=ax4)
+    sns.kdeplot(vanilla_samples[:, 0], vanilla_samples[:, 1], n_levels=30, ax=ax4)
     ax4.plot(vanilla_samples[-50:, 0], vanilla_samples[-50:, 1], 'bo-', alpha=0.5)
     ax4.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using vanilla HMC sampler')
 
-    sns.scatterplot(zs[:, 0], zs[:, 1], ax=ax5, hue=samples['x'][:, 0] < 0.,
+    sns.scatterplot(zs[:, 0], zs[:, 1], ax=ax5, hue=samples[:, 0] < 0.,
                     s=30, alpha=0.5, edgecolor="none")
     ax5.set(xlim=[-5, 5], ylim=[-5, 5],
             xlabel='x0', ylabel='x1', title='Samples from the warped posterior - p(z)')
 
     ax6.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(samples['x'][:, 0].copy(), samples['x'][:, 1].copy(), n_levels=30, ax=ax6)
-    ax6.plot(samples['x'][-50:, 0], samples['x'][-50:, 1], 'bo-', alpha=0.2)
+    sns.kdeplot(samples[:, 0], samples[:, 1], n_levels=30, ax=ax6)
+    ax6.plot(samples[-50:, 0], samples[-50:, 1], 'bo-', alpha=0.2)
     ax6.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using NeuTra HMC sampler')
 
@@ -151,10 +150,13 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.0')
     parser = argparse.ArgumentParser(description="NeuTra HMC")
-    parser.add_argument('-n', '--num-samples', nargs='?', default=20000, type=int)
-    parser.add_argument('--num-warmup', nargs='?', default=0, type=int)
-    parser.add_argument('--num-hidden', nargs='?', default=20, type=int)
-    parser.add_argument('--num-iters', nargs='?', default=200000, type=int)
+    parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
+    parser.add_argument('--num-warmup', nargs='?', default=1000, type=int)
+    parser.add_argument('--num-hidden', nargs='?', default=10, type=int)
+    parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
+
+    numpyro.set_platform(args.device)
+
     main(args)

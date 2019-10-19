@@ -24,6 +24,7 @@
 
 from jax import lax
 from jax.lib import xla_bridge
+from jax.nn import softmax
 import jax.numpy as np
 import jax.random as random
 from jax.scipy.special import gammaln, logsumexp
@@ -40,8 +41,8 @@ from numpyro.distributions.util import (
     multinomial,
     poisson,
     promote_shapes,
-    softmax,
     sum_rightmost,
+    validate_sample,
     xlog1py,
     xlogy
 )
@@ -78,9 +79,8 @@ class BernoulliProbs(Distribution):
     def sample(self, key, sample_shape=()):
         return random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         return xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
 
     @property
@@ -104,9 +104,8 @@ class BernoulliLogits(Distribution):
     def sample(self, key, sample_shape=()):
         return random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         return -binary_cross_entropy_with_logits(self.logits, value)
 
     @lazy_property
@@ -144,9 +143,8 @@ class BinomialProbs(Distribution):
     def sample(self, key, sample_shape=()):
         return binomial(key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
@@ -179,9 +177,8 @@ class BinomialLogits(Distribution):
     def sample(self, key, sample_shape=()):
         return binomial(key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
@@ -230,9 +227,8 @@ class CategoricalProbs(Distribution):
     def sample(self, key, sample_shape=()):
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
         value = np.expand_dims(value, axis=-1)
         value = np.broadcast_to(value, batch_shape + (1,))
@@ -267,13 +263,13 @@ class CategoricalLogits(Distribution):
     def sample(self, key, sample_shape=()):
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
+        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
         value = np.expand_dims(value, -1)
+        value = np.broadcast_to(value, batch_shape + (1,))
         log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
-        value, log_pmf = promote_shapes(value, log_pmf)
-        value = value[..., :1]
+        log_pmf = np.broadcast_to(log_pmf, batch_shape + np.shape(log_pmf)[-1:])
         return np.take_along_axis(log_pmf, value, -1)[..., 0]
 
     @lazy_property
@@ -323,10 +319,9 @@ class Delta(Distribution):
         shape = sample_shape + self.batch_shape + self.event_shape
         return np.broadcast_to(self.value, shape)
 
-    def log_prob(self, x):
-        if self._validate_args:
-            self._validate_sample(x)
-        log_prob = np.log(x == self.value)
+    @validate_sample
+    def log_prob(self, value):
+        log_prob = np.log(value == self.value)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
 
@@ -371,6 +366,7 @@ class MultinomialProbs(Distribution):
     def sample(self, key, sample_shape=()):
         return multinomial(key, self.probs, self.total_count, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
@@ -408,6 +404,7 @@ class MultinomialLogits(Distribution):
     def sample(self, key, sample_shape=()):
         return multinomial(key, self.probs, self.total_count, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
@@ -453,6 +450,7 @@ class Poisson(Distribution):
     def sample(self, key, sample_shape=()):
         return poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
+    @validate_sample
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)

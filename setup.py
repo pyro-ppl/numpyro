@@ -31,13 +31,17 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the next release (unless JAX's API becomes stable)
-        'jax==0.1.44',
-        'jaxlib==0.1.27',
+        'jax>=0.1.46',
+        'jaxlib>=0.1.28',
         'tqdm',
     ],
     extras_require={
         'doc': ['sphinx', 'sphinx_rtd_theme'],
-        'test': ['flake8', 'pytest>=4.1'],
+        'test': [
+            'flake8',
+            'pytest>=4.1',
+            'pyro-api@https://api.github.com/repos/pyro-ppl/pyro-api/tarball/master'
+        ],
         'dev': ['ipython'],
         'examples': ['matplotlib'],
     },

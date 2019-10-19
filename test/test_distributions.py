@@ -1,6 +1,7 @@
 from collections import namedtuple
 from functools import partial
 import inspect
+import os
 
 import numpy as onp
 from numpy.testing import assert_allclose, assert_array_equal
@@ -14,10 +15,10 @@ import jax.random as random
 
 from numpyro.contrib.nn import AutoregressiveNN
 import numpyro.distributions as dist
-import numpyro.distributions.constraints as constraints
-from numpyro.distributions.constraints import PermuteTransform, PowerTransform, biject_to
+from numpyro.distributions import constraints, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
+from numpyro.distributions.transforms import MultivariateAffineTransform, PermuteTransform, PowerTransform, biject_to
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
@@ -96,11 +97,15 @@ CONTINUOUS = [
     T(dist.HalfNormal, np.array([1., 2.])),
     T(dist.InverseGamma, np.array([1.7]), np.array([[2.], [3.]])),
     T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
+    T(dist.LKJ, 2, 0.5, "onion"),
+    T(dist.LKJ, 5, np.array([0.5, 1., 2.]), "cvine"),
     T(dist.LKJCholesky, 2, 0.5, "onion"),
     T(dist.LKJCholesky, 2, 0.5, "cvine"),
     T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "onion"),
-    T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "cvine"),
-    T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
+    pytest.param(*T(dist.LKJCholesky, 5, np.array([0.5, 1., 2.]), "cvine"),
+                 marks=pytest.mark.skipif('CI' in os.environ, reason="reduce time for Travis")),
+    pytest.param(*T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
+                 marks=pytest.mark.skipif('CI' in os.environ, reason="reduce time for Travis")),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
     T(dist.LogNormal, 1., 0.2),
     T(dist.LogNormal, -1., np.array([0.5, 1.3])),
@@ -186,8 +191,11 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return multinomial(key, p=np.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
     elif isinstance(constraint, constraints._CorrCholesky):
         return signed_stick_breaking_tril(
-            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
-                           minval=-1, maxval=1))
+            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
+    elif isinstance(constraint, constraints._CorrMatrix):
+        cholesky = signed_stick_breaking_tril(
+            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
+        return np.matmul(cholesky, np.swapaxes(cholesky, -2, -1))
     elif isinstance(constraint, constraints._LowerCholesky):
         return np.tril(random.uniform(key, size))
     elif isinstance(constraint, constraints._PositiveDefinite):
@@ -221,6 +229,10 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
                            minval=-1, maxval=1)) + 1e-2
+    elif isinstance(constraint, constraints._CorrMatrix):
+        cholesky = 1e-2 + signed_stick_breaking_tril(
+            random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
+        return np.matmul(cholesky, np.swapaxes(cholesky, -2, -1))
     elif isinstance(constraint, constraints._LowerCholesky):
         return random.uniform(key, size)
     elif isinstance(constraint, constraints._PositiveDefinite):
@@ -355,6 +367,20 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+def test_independent_shape(jax_dist, sp_dist, params):
+    d = jax_dist(*params)
+    batch_shape, event_shape = d.batch_shape, d.event_shape
+    shape = batch_shape + event_shape
+    for i in range(len(batch_shape)):
+        indep = dist.Independent(d, reinterpreted_batch_ndims=i)
+        sample = indep.sample(random.PRNGKey(0))
+        event_boundary = len(shape) - len(event_shape) - i
+        assert indep.batch_shape == shape[:event_boundary]
+        assert indep.event_shape == shape[event_boundary:]
+        assert np.shape(indep.log_prob(sample)) == shape[:event_boundary]
+
+
 def _tril_cholesky_to_tril_corr(x):
     w = vec_to_tril_matrix(x, diagonal=-1)
     diag = np.sqrt(1 - np.sum(w ** 2, axis=-1))
@@ -428,7 +454,7 @@ def test_log_prob_LKJCholesky(dimension, concentration):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_log_prob_gradient(jax_dist, sp_dist, params):
-    if jax_dist is dist.LKJCholesky:
+    if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip('we have separated tests for LKJCholesky distribution')
     rng = random.PRNGKey(0)
 
@@ -458,7 +484,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_mean_var(jax_dist, sp_dist, params):
-    n = 200000
+    n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)
     k = random.PRNGKey(0)
     samples = d_jax.sample(k, sample_shape=(n,))
@@ -485,8 +511,11 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
         if np.all(np.isfinite(sp_var)):
             assert_allclose(np.std(samples, 0), np.sqrt(d_jax.variance), rtol=0.05, atol=1e-2)
-    elif jax_dist is dist.LKJCholesky:
-        corr_samples = np.matmul(samples, np.swapaxes(samples, -2, -1))
+    elif jax_dist in [dist.LKJ, dist.LKJCholesky]:
+        if jax_dist is dist.LKJCholesky:
+            corr_samples = np.matmul(samples, np.swapaxes(samples, -2, -1))
+        else:
+            corr_samples = samples
         dimension, concentration, _ = params
         # marginal of off-diagonal entries
         marginal = dist.Beta(concentration + 0.5 * (dimension - 2),
@@ -502,8 +531,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         expected_mean = expected_mean * (1 - np.identity(dimension)) + np.identity(dimension)
         expected_std = expected_std * (1 - np.identity(dimension))
 
-        assert_allclose(np.mean(corr_samples, axis=0), expected_mean, atol=0.005)
-        assert_allclose(np.std(corr_samples, axis=0), expected_std, atol=0.005)
+        assert_allclose(np.mean(corr_samples, axis=0), expected_mean, atol=0.01)
+        assert_allclose(np.std(corr_samples, axis=0), expected_std, atol=0.01)
     else:
         if np.all(np.isfinite(d_jax.mean)):
             assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
@@ -524,7 +553,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     key = random.PRNGKey(1)
     dependent_constraint = False
     for i in range(len(params)):
-        if jax_dist is dist.LKJCholesky and dist_args[i] != "concentration":
+        if jax_dist in (dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
             continue
         if params[i] is None:
             oob_params[i] = None
@@ -535,8 +564,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             dependent_constraint = True
             break
         key, key_gen = random.split(key)
-        oob_params[i] = gen_values_outside_bounds(constraint, np.shape(params[i]), key)
-        valid_params[i] = gen_values_within_bounds(constraint, np.shape(params[i]), key)
+        oob_params[i] = gen_values_outside_bounds(constraint, np.shape(params[i]), key_gen)
+        valid_params[i] = gen_values_within_bounds(constraint, np.shape(params[i]), key_gen)
 
     assert jax_dist(*oob_params)
 
@@ -557,12 +586,28 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
             expected = sp_dist(*valid_params).logpdf(valid_samples)
         except AttributeError:
             expected = sp_dist(*valid_params).logpmf(valid_samples)
-        assert_allclose(d.log_prob(valid_samples), expected, atol=1e-5)
+        assert_allclose(d.log_prob(valid_samples), expected, atol=1e-5, rtol=1e-5)
 
     # Out of support samples throw ValueError
     oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
-    with pytest.raises(ValueError):
+    with pytest.warns(UserWarning):
         d.log_prob(oob_samples)
+
+
+def test_categorical_log_prob_grad():
+    data = np.repeat(np.arange(3), 10)
+
+    def f(x):
+        return dist.Categorical(jax.nn.softmax(x * np.arange(1, 4))).log_prob(data).sum()
+
+    def g(x):
+        return dist.Categorical(logits=x * np.arange(1, 4)).log_prob(data).sum()
+
+    x = 0.5
+    fx, grad_fx = jax.value_and_grad(f)(x)
+    gx, grad_gx = jax.value_and_grad(g)(x)
+    assert_allclose(fx, gx)
+    assert_allclose(grad_fx, grad_gx)
 
 
 ########################################
@@ -578,6 +623,10 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
      np.array([True, False])),  # NB: not lower_triangular
     (constraints.corr_cholesky, np.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
      np.array([False, False])),  # NB: not positive_diagonal & not unit_norm_row
+    (constraints.corr_matrix, np.array([[[1, 0], [0, 1]], [[1, 0.1], [0, 1]]]),
+     np.array([True, False])),  # NB: not lower_triangular
+    (constraints.corr_matrix, np.array([[[1, 0], [1, 0]], [[1, 0], [0.5, 0.5]]]),
+     np.array([False, False])),  # NB: not unit diagonal
     (constraints.greater_than(1), 3, True),
     (constraints.greater_than(1), np.array([-1, 1, 5]), np.array([False, False, True])),
     (constraints.integer_interval(-3, 5), 0, True),
@@ -614,10 +663,12 @@ def test_constraints(constraint, x, expected):
 
 @pytest.mark.parametrize('constraint', [
     constraints.corr_cholesky,
+    constraints.corr_matrix,
     constraints.greater_than(2),
     constraints.interval(-3, 5),
     constraints.lower_cholesky,
     constraints.positive,
+    constraints.positive_definite,
     constraints.real,
     constraints.simplex,
     constraints.unit_interval,
@@ -625,19 +676,23 @@ def test_constraints(constraint, x, expected):
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
+    if transform.event_dim == 2:
+        event_dim = 1  # actual dim of unconstrained domain
+    else:
+        event_dim = transform.event_dim
     if isinstance(constraint, constraints._Interval):
         assert transform.codomain.upper_bound == constraint.upper_bound
         assert transform.codomain.lower_bound == constraint.lower_bound
     elif isinstance(constraint, constraints._GreaterThan):
         assert transform.codomain.lower_bound == constraint.lower_bound
-    if len(shape) < transform.event_dim:
+    if len(shape) < event_dim:
         return
     rng = random.PRNGKey(0)
     x = random.normal(rng, shape)
     y = transform(x)
 
     # test codomain
-    batch_shape = shape if transform.event_dim == 0 else shape[:-1]
+    batch_shape = shape if event_dim == 0 else shape[:-1]
     assert_array_equal(transform.codomain(y), np.ones(batch_shape, dtype=np.bool_))
 
     # test inv
@@ -650,34 +705,49 @@ def test_biject_to(constraint, shape):
     # test log_abs_det_jacobian
     actual = transform.log_abs_det_jacobian(x, y)
     assert np.shape(actual) == batch_shape
-    if len(shape) == transform.event_dim:
+    if len(shape) == event_dim:
         if constraint is constraints.simplex:
             expected = onp.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
-        elif constraint is constraints.corr_cholesky:
+        elif constraint in [constraints.corr_cholesky, constraints.corr_matrix]:
             vec_transform = lambda x: matrix_to_tril_vec(transform(x), diagonal=-1)  # noqa: E731
             y_tril = matrix_to_tril_vec(y, diagonal=-1)
-            inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x, diagonal=-1))  # noqa: E731
+
+            def inv_vec_transform(y):
+                matrix = vec_to_tril_matrix(y, diagonal=-1)
+                if constraint is constraints.corr_matrix:
+                    # fill the upper triangular part
+                    matrix = matrix + np.swapaxes(matrix, -2, -1) + np.identity(matrix.shape[-1])
+                return transform.inv(matrix)
+
             expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
-        elif constraint is constraints.lower_cholesky:
+        elif constraint in [constraints.lower_cholesky, constraints.positive_definite]:
             vec_transform = lambda x: matrix_to_tril_vec(transform(x))  # noqa: E731
             y_tril = matrix_to_tril_vec(y)
-            inv_vec_transform = lambda x: transform.inv(vec_to_tril_matrix(x))  # noqa: E731
+
+            def inv_vec_transform(y):
+                matrix = vec_to_tril_matrix(y)
+                if constraint is constraints.positive_definite:
+                    # fill the upper triangular part
+                    matrix = matrix + np.swapaxes(matrix, -2, -1) - np.diag(np.diag(matrix))
+                return transform.inv(matrix)
+
             expected = onp.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
         else:
             expected = np.log(np.abs(grad(transform)(x)))
             inv_expected = np.log(np.abs(grad(transform.inv)(y)))
 
-        assert_allclose(actual, expected, atol=1e-6)
-        assert_allclose(actual, -inv_expected, atol=1e-6)
+        assert_allclose(actual, expected, atol=1e-6, rtol=1e-6)
+        assert_allclose(actual, -inv_expected, atol=1e-6, rtol=1e-6)
 
 
 # NB: skip transforms which are tested in `test_biject_to`
 @pytest.mark.parametrize('transform, event_shape', [
     (PermuteTransform(np.array([3, 0, 4, 1, 2])), (5,)),
     (PowerTransform(2.), ()),
+    (MultivariateAffineTransform(np.array([1., 2.]), np.array([[0.6, 0.], [1.5, 0.4]])), (2,))
 ])
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_bijective_transforms(transform, event_shape, batch_shape):
@@ -700,7 +770,7 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
     actual = transform.log_abs_det_jacobian(x, y)
     assert np.shape(actual) == batch_shape
     if len(shape) == transform.event_dim:
-        if isinstance(transform, PermuteTransform):
+        if len(event_shape) == 1:
             expected = onp.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
         else:
@@ -712,10 +782,10 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
 
 @pytest.mark.parametrize('transformed_dist', [
-    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), constraints.ExpTransform()),
+    dist.TransformedDistribution(dist.Normal(np.array([2., 3.]), 1.), transforms.ExpTransform()),
     dist.TransformedDistribution(dist.Exponential(np.ones(2)), [
-        constraints.PowerTransform(0.7),
-        constraints.AffineTransform(0., np.ones(2) * 3)
+        transforms.PowerTransform(0.7),
+        transforms.AffineTransform(0., np.ones(2) * 3)
     ]),
 ])
 def test_transformed_distribution_intermediates(transformed_dist):
@@ -725,12 +795,12 @@ def test_transformed_distribution_intermediates(transformed_dist):
 
 def test_transformed_transformed_distribution():
     loc, scale = -2, 3
-    dist1 = dist.TransformedDistribution(dist.Normal(2, 3), constraints.PowerTransform(2.))
-    dist2 = dist.TransformedDistribution(dist1, constraints.AffineTransform(-2, 3))
+    dist1 = dist.TransformedDistribution(dist.Normal(2, 3), transforms.PowerTransform(2.))
+    dist2 = dist.TransformedDistribution(dist1, transforms.AffineTransform(-2, 3))
     assert isinstance(dist2.base_dist, dist.Normal)
     assert len(dist2.transforms) == 2
-    assert isinstance(dist2.transforms[0], constraints.PowerTransform)
-    assert isinstance(dist2.transforms[1], constraints.AffineTransform)
+    assert isinstance(dist2.transforms[0], transforms.PowerTransform)
+    assert isinstance(dist2.transforms[1], transforms.AffineTransform)
 
     rng = random.PRNGKey(0)
     assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
@@ -744,20 +814,30 @@ def _make_iaf(input_dim, hidden_dims, rng):
     return InverseAutoregressiveTransform(partial(arn, init_params))
 
 
-@pytest.mark.parametrize('transforms', [
-    [constraints.PowerTransform(0.7), constraints.AffineTransform(2., 3.)],
-    [constraints.ExpTransform()],
-    [constraints.ComposeTransform([constraints.AffineTransform(-2, 3),
-                                   constraints.ExpTransform()]),
-     constraints.PowerTransform(3.)],
+@pytest.mark.parametrize('ts', [
+    [transforms.PowerTransform(0.7), transforms.AffineTransform(2., 3.)],
+    [transforms.ExpTransform()],
+    [transforms.ComposeTransform([transforms.AffineTransform(-2, 3),
+                                  transforms.ExpTransform()]),
+     transforms.PowerTransform(3.)],
     [_make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(0)),
-     constraints.PermuteTransform(np.arange(5)[::-1]),
+     transforms.PermuteTransform(np.arange(5)[::-1]),
      _make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(1))]
 ])
-def test_compose_transform_with_intermediates(transforms):
-    transform = constraints.ComposeTransform(transforms)
+def test_compose_transform_with_intermediates(ts):
+    transform = transforms.ComposeTransform(ts)
     x = random.normal(random.PRNGKey(2), (7, 5))
     y, intermediates = transform.call_with_intermediates(x)
     logdet = transform.log_abs_det_jacobian(x, y, intermediates)
     assert_allclose(y, transform(x))
     assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))
+
+
+def test_unpack_transform():
+    x = np.ones(3)
+    unpack_fn = lambda x: {'key': x}  # noqa: E731
+    transform = transforms.UnpackTransform(unpack_fn)
+    y = transform(x)
+    z = transform.inv(y)
+    assert_allclose(y['key'], x)
+    assert_allclose(z, x)

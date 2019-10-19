@@ -12,7 +12,7 @@ inference utilities and algorithms.
 As an example, we are using :class:`~numpyro.handlers.seed`, :class:`~numpyro.handlers.trace`
 and :class:`~numpyro.handlers.substitute` handlers to define the `log_likelihood` function below.
 We first create a logistic regression model and sample from the posterior distribution over
-the regression parameters using :func:`~numpyro.mcmc.MCMC`. The `log_likelihood` function
+the regression parameters using :func:`~numpyro.infer.MCMC`. The `log_likelihood` function
 uses effect handlers to run the model by substituting sample sites with values from the posterior
 distribution and computes the log density for a single data point. The `expected_log_likelihood`
 function computes the log likelihood for each draw from the joint posterior and aggregates the
@@ -28,8 +28,7 @@ need to loop over all the data points.
    import numpyro
    import numpyro.distributions as dist
    from numpyro import handlers
-   from numpyro.hmc_util import initialize_model
-   from numpyro.mcmc import MCMC, NUTS
+   from numpyro.infer import MCMC, NUTS
 
 .. doctest::
 
@@ -77,35 +76,24 @@ need to loop over all the data points.
 from __future__ import absolute_import, division, print_function
 
 from collections import OrderedDict
-import functools
 
 from jax import random
+import jax.numpy as np
 
-from numpyro.distributions.constraints import ComposeTransform, biject_to, real
-from numpyro.primitives import _PYRO_STACK
+from numpyro.distributions.constraints import real
+from numpyro.distributions.transforms import ComposeTransform, biject_to
+from numpyro.primitives import Messenger
+from numpyro.util import not_jax_tracer
 
-
-class Messenger(object):
-    def __init__(self, fn=None):
-        self.fn = fn
-        functools.update_wrapper(self, fn, updated=[])
-
-    def __enter__(self):
-        _PYRO_STACK.append(self)
-
-    def __exit__(self, *args, **kwargs):
-        assert _PYRO_STACK[-1] is self
-        _PYRO_STACK.pop()
-
-    def process_message(self, msg):
-        pass
-
-    def postprocess_message(self, msg):
-        pass
-
-    def __call__(self, *args, **kwargs):
-        with self:
-            return self.fn(*args, **kwargs)
+__all__ = [
+    'block',
+    'condition',
+    'replay',
+    'scale',
+    'seed',
+    'substitute',
+    'trace',
+]
 
 
 class trace(Messenger):
@@ -306,8 +294,9 @@ class scale(Messenger):
     :param float scale_factor: a positive scaling factor
     """
     def __init__(self, fn=None, scale_factor=1.):
-        if scale_factor <= 0:
-            raise ValueError("scale factor should be a positive number.")
+        if not_jax_tracer(scale_factor):
+            if scale_factor <= 0:
+                raise ValueError("scale factor should be a positive number.")
         self.scale = scale_factor
         super(scale, self).__init__(fn)
 
@@ -324,13 +313,45 @@ class seed(Messenger):
     primitive inside the function results in a splitting of this initial seed
     so that we use a fresh seed for each subsequent call without having to
     explicitly pass in a `PRNGKey` to each `sample` call.
+
+    .. note::
+
+        Unlike in Pyro, `numpyro.sample` primitive cannot be used without wrapping
+        it in seed handler since there is no global random state. As such,
+        users need to use `seed` as a contextmanager to generate samples from
+        distributions or as a decorator for their model callable (See below).
+
+    **Example:**
+
+    .. testsetup::
+
+      from jax import random
+      import numpyro
+      import numpyro.handlers
+      import numpyro.distributions as dist
+
+    .. doctest::
+
+       >>> # as context manager
+       >>> with handlers.seed(rng=1):
+       ...     x = numpyro.sample('x', dist.Normal(0., 1.))
+
+       >>> def model():
+       ...     return numpyro.sample('y', dist.Normal(0., 1.))
+
+       >>> # as function decorator (/modifier)
+       >>> y = seed(model, rng=1)()
+       >>> assert x == y
     """
-    def __init__(self, fn, rng):
+    def __init__(self, fn=None, rng=None):
+        if isinstance(rng, int) or np.size(rng) == 1:
+            rng = random.PRNGKey(rng)
         self.rng = rng
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample' and not msg['is_observed']:
+        if msg['type'] == 'sample' and not msg['is_observed'] and \
+                msg['kwargs']['random_state'] is None:
             self.rng, rng_sample = random.split(self.rng)
             msg['kwargs']['random_state'] = rng_sample
 

@@ -12,7 +12,7 @@ from jax.scipy.special import logit
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.mcmc import HMC, MCMC, NUTS
+from numpyro.infer import HMC, MCMC, NUTS
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -77,7 +77,7 @@ def test_logistic_regression(kernel_cls):
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(2), labels)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
+    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
     if 'JAX_ENABLE_x64' in os.environ:
         assert samples['coefs'].dtype == np.float64
@@ -95,11 +95,10 @@ def test_uniform_normal():
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
-    mcmc.run(random.PRNGKey(2), data, collect_warmup=True,
-             collect_fields=('z', 'num_steps', 'adapt_state.step_size'))
+    mcmc.run(random.PRNGKey(2), data, collect_warmup=True)
     samples = mcmc.get_samples()
-    assert len(samples[0]['loc']) == num_warmup + num_samples
-    assert_allclose(np.mean(samples[0]['loc'], 0), true_coef, atol=0.05)
+    assert len(samples['loc']) == num_warmup + num_samples
+    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
 def test_improper_normal():
@@ -255,8 +254,8 @@ def test_diverging(kernel_cls, adapt_step_size):
     kernel = kernel_cls(model, step_size=10., adapt_step_size=adapt_step_size, adapt_mass_matrix=False)
     num_warmup = num_samples = 1000
     mcmc = MCMC(kernel, num_warmup, num_samples)
-    mcmc.run(random.PRNGKey(1), data, collect_fields=('z', 'diverging'), collect_warmup=True)
-    num_divergences = mcmc.get_samples()[1].sum()
+    mcmc.run(random.PRNGKey(1), data, extra_fields=['diverging'], collect_warmup=True)
+    num_divergences = mcmc.get_extra_fields()['diverging'].sum()
     if adapt_step_size:
         assert num_divergences <= num_warmup
     else:
@@ -282,10 +281,23 @@ def test_prior_with_sample_shape():
     assert mcmc.get_samples()['theta'].shape == (num_samples, data['J'])
 
 
+@pytest.mark.parametrize('num_chains', [1, 2])
+@pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
+@pytest.mark.parametrize('progress_bar', [True, False])
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+def test_empty_model(num_chains, chain_method, progress_bar):
+    def model():
+        pass
+
+    mcmc = MCMC(NUTS(model), num_warmup=10, num_samples=10, num_chains=num_chains,
+                chain_method=chain_method, progress_bar=progress_bar)
+    mcmc.run(random.PRNGKey(0))
+    assert mcmc.get_samples() == {}
+
+
 @pytest.mark.parametrize('use_init_params', [False, True])
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
-@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
-@pytest.mark.filterwarnings("ignore:`vectorized`:UserWarning")
+@pytest.mark.skipif('XLA_FLAGS' not in os.environ, reason='without this mark, we have duplicated tests in Travis')
 def test_chain(use_init_params, chain_method):
     N, dim = 3000, 3
     num_chains = 2
@@ -306,9 +318,11 @@ def test_chain(use_init_params, chain_method):
     init_params = None if not use_init_params else \
         {'coefs': np.tile(np.ones(dim), num_chains).reshape(num_chains, dim)}
     mcmc.run(random.PRNGKey(2), labels, init_params=init_params)
-    samples = mcmc.get_samples()
-    assert samples['coefs'].shape[0] == num_chains * num_samples
-    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.21)
+    samples_flat = mcmc.get_samples()
+    assert samples_flat['coefs'].shape[0] == num_chains * num_samples
+    samples = mcmc.get_samples(group_by_chain=True)
+    assert samples['coefs'].shape[:2] == (num_chains, num_samples)
+    assert_allclose(np.mean(samples_flat['coefs'], 0), true_coefs, atol=0.21)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -347,7 +361,8 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     def get_samples(rng, data, step_size, trajectory_length, target_accept_prob):
         kernel = kernel_cls(model, step_size=step_size, trajectory_length=trajectory_length,
                             target_accept_prob=target_accept_prob)
-        mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method)
+        mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method,
+                    progress_bar=False)
         mcmc.run(rng, data)
         return mcmc.get_samples()
 
@@ -355,3 +370,18 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     samples = get_samples(rng, data, step_size, trajectory_length, target_accept_prob)
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
+
+
+def test_extra_fields():
+    def model():
+        numpyro.sample('x', dist.Normal(0, 1), sample_shape=(5,))
+
+    mcmc = MCMC(NUTS(model), 1000, 1000)
+    mcmc.run(random.PRNGKey(0), extra_fields=('num_steps', 'adapt_state.step_size'))
+    samples = mcmc.get_samples(group_by_chain=True)
+    assert samples['x'].shape == (1, 1000, 5)
+    stats = mcmc.get_extra_fields(group_by_chain=True)
+    assert 'num_steps' in stats
+    assert stats['num_steps'].shape == (1, 1000)
+    assert 'adapt_state.step_size' in stats
+    assert stats['adapt_state.step_size'].shape == (1, 1000)
