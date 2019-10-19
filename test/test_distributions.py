@@ -12,6 +12,7 @@ import jax
 from jax import grad, jacfwd, lax, vmap
 import jax.numpy as np
 import jax.random as random
+from jax.scipy.special import logsumexp
 
 from numpyro.contrib.nn import AutoregressiveNN
 import numpyro.distributions as dist
@@ -456,6 +457,55 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
 
     assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=1e-7)
+
+
+@pytest.mark.parametrize('rate', [0.1, 0.5, 0.9, 1.0, 1.1, 2.0, 10.0])
+def test_ZIP_log_prob(rate):
+    # if gate is 0 ZIP is Poisson
+    zip_ = dist.ZeroInflatedPoisson(0., rate)
+    pois = dist.Poisson(rate)
+    s = zip_.sample(random.PRNGKey(0), (20,))
+    zip_prob = zip_.log_prob(s)
+    pois_prob = pois.log_prob(s)
+    assert_allclose(zip_prob, pois_prob)
+
+    # if gate is 1 ZIP is Delta(0)
+    zip_ = dist.ZeroInflatedPoisson(1., rate)
+    delta = dist.Delta(0.)
+    s = np.array([0., 1.])
+    zip_prob = zip_.log_prob(s)
+    delta_prob = delta.log_prob(s)
+    assert_allclose(zip_prob, delta_prob)
+
+
+@pytest.mark.parametrize("total_count", [1, 2, 3, 10])
+@pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
+def test_beta_binomial_log_prob(total_count, shape):
+    concentration0 = onp.exp(onp.random.normal(size=shape))
+    concentration1 = onp.exp(onp.random.normal(size=shape))
+    value = np.arange(1 + total_count)
+
+    num_samples = 100000
+    probs = onp.random.beta(concentration1, concentration0, size=(num_samples,) + shape)
+    log_probs = dist.Binomial(total_count, probs).log_prob(value)
+    expected = logsumexp(log_probs, 0) - np.log(num_samples)
+
+    actual = dist.BetaBinomial(concentration1, concentration0, total_count).log_prob(value)
+    assert_allclose(actual, expected, rtol=0.02)
+
+
+@pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
+def test_gamma_poisson_log_prob(shape):
+    gamma_conc = onp.exp(onp.random.normal(size=shape))
+    gamma_rate = onp.exp(onp.random.normal(size=shape))
+    value = np.arange(15)
+
+    num_samples = 300000
+    poisson_rate = onp.random.gamma(gamma_conc, 1 / gamma_rate, size=(num_samples,) + shape)
+    log_probs = dist.Poisson(poisson_rate).log_prob(value)
+    expected = logsumexp(log_probs, 0) - np.log(num_samples)
+    actual = dist.GammaPoisson(gamma_conc, gamma_rate).log_prob(value)
+    assert_allclose(actual, expected, rtol=0.05)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
