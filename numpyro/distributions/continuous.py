@@ -700,10 +700,12 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
 
 @copy_docs_from(Distribution)
 class LowRankMultivariateNormal(Distribution):
-    arg_constraints = {"loc": constraints.real_vector, 
-                        "cov_factor": constraints.real_vector, 
-                        "cov_diag": constraints.positive}
-    support = constraints.real
+    arg_constraints = {
+        "loc": constraints.real_vector,
+        "cov_factor": constraints.real,
+        "cov_diag": constraints.positive
+        }
+    support = constraints.real_vector
 
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
         if loc.ndim < 1:
