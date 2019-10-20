@@ -126,7 +126,7 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, 0., None, np.broadcast_to(np.identity(3), (2, 3, 3)), None),
     T(dist.LowRankMultivariateNormal, np.zeros(2), np.array([1, 0]), np.diag(np.array([1, 1]))),
     T(dist.LowRankMultivariateNormal, np.arange(6, dtype=np.float32).reshape((2, 3)),
-     np.arange(12, dtype=np.float32).reshape((3, 4)), np.diag(np.array([1, 2, 3]))),
+      np.arange(12, dtype=np.float32).reshape((3, 4)), np.diag(np.array([1, 2, 3]))),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),

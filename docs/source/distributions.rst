@@ -142,7 +142,7 @@ MultivariateNormal
     :member-order: bysource
 
 LowRankMultivariateNormal
-------------------
+-------------------------
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
     :members:
     :undoc-members:
