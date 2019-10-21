@@ -710,23 +710,23 @@ class LowRankMultivariateNormal(Distribution):
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
         if np.ndim(loc) < 1:
             raise ValueError("`loc` must be at least one-dimensional.")
-        self.event_shape = np.shape(loc)[-1:]
+        event_shape = np.shape(loc)[-1:]
         if np.ndim(cov_factor) < 2:
             raise ValueError("`cov_factor` must be at least two-dimensional, "
                              "with optional leading batch dimensions")
-        if np.shape(cov_factor)[-2:-1] != self.event_shape:
+        if np.shape(cov_factor)[-2:-1] != event_shape:
             raise ValueError("`cov_factor` must be a batch of matrices with shape {} x m"
-                             .format(self.event_shape[0]))
-        if np.shape(cov_diag)[-1:] != self.event_shape:
+                             .format(event_shape[0]))
+        if np.shape(cov_diag)[-1:] != event_shape:
             raise ValueError("`cov_diag` must be a batch of vectors with shape {}".format(self.event_shape))
 
         loc, cov_factor, cov_diag = promote_shapes(loc[..., np.newaxis], cov_factor, cov_diag[..., np.newaxis])
-        self.batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(cov_factor), np.shape(cov_diag))[:-2]
-        self.loc = np.broadcast_to(loc[..., 0], self.batch_shape + self.event_shape)
+        batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(cov_factor), np.shape(cov_diag))[:-2]
+        self.loc = np.broadcast_to(loc[..., 0], batch_shape + event_shape)
         self.cov_factor = cov_factor
         self.cov_diag = cov_diag
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
-        super(LowRankMultivariateNormal, self).__init__(self.batch_shape, self.event_shape, validate_args=validate_args)
+        super(LowRankMultivariateNormal, self).__init__(batch_shape = batch_shape, event_shape = event_shape, validate_args=validate_args)
 
     @property
     def mean(self):
