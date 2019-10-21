@@ -463,3 +463,39 @@ class Poisson(Distribution):
     @property
     def variance(self):
         return self.rate
+
+
+class ZeroInflatedPoisson(Distribution):
+    """
+    A Zero Inflated Poisson distribution.
+
+    :param numpy.ndarray gate: probability of extra zeros.
+    :param numpy.ndarray rate: rate of Poisson distribution.
+    """
+    arg_constraints = {'gate': constraints.unit_interval, 'rate': constraints.positive}
+    support = constraints.nonnegative_integer
+
+    def __init__(self, gate, rate=1., validate_args=None):
+        batch_shape = lax.broadcast_shapes(np.shape(gate), np.shape(rate))
+        self.gate, self.rate = promote_shapes(gate, rate)
+        super(ZeroInflatedPoisson, self).__init__(batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        key_bern, key_poisson = random.split(key)
+        shape = sample_shape + self.batch_shape
+        mask = random.bernoulli(key_bern, self.gate, shape)
+        samples = poisson(key_poisson, self.rate, shape)
+        return np.where(mask, 0, samples)
+
+    @validate_sample
+    def log_prob(self, value):
+        log_prob = np.log(self.rate) * value - gammaln(value + 1) + (np.log1p(-self.gate) - self.rate)
+        return np.where(value == 0, np.logaddexp(np.log(self.gate), log_prob), log_prob)
+
+    @lazy_property
+    def mean(self):
+        return (1 - self.gate) * self.rate
+
+    @lazy_property
+    def variance(self):
+        return (1 - self.gate) * self.rate * (1 + self.rate * self.gate)

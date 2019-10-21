@@ -1,4 +1,5 @@
 import numpyro.distributions.constraints  # noqa: F401
+from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -36,7 +37,8 @@ from numpyro.distributions.discrete import (
     MultinomialLogits,
     MultinomialProbs,
     Poisson,
-    PRNGIdentity
+    PRNGIdentity,
+    ZeroInflatedPoisson
 )
 from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
 import numpyro.distributions.transforms  # noqa: F401
@@ -50,6 +52,7 @@ __all__ = [
     'BernoulliLogits',
     'BernoulliProbs',
     'Beta',
+    'BetaBinomial',
     'Binomial',
     'BinomialLogits',
     'BinomialProbs',
@@ -63,6 +66,7 @@ __all__ = [
     'Distribution',
     'Exponential',
     'Gamma',
+    'GammaPoisson',
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
@@ -84,4 +88,5 @@ __all__ = [
     'TruncatedCauchy',
     'TruncatedNormal',
     'Uniform',
+    'ZeroInflatedPoisson',
 ]
