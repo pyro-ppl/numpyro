@@ -6,9 +6,9 @@ import jax.numpy as np
 def MaskedDense(mask, bias=True, W_init=glorot_normal(), b_init=normal()):
     """
     As in jax.experimental.stax, each layer constructor function returns
-    an (init_fun, apply_fun) pair, where `init_fun` takes an rng key and
+    an (init_fun, apply_fun) pair, where `init_fun` takes an rng_key key and
     an input shape and returns an (output_shape, params) pair, and
-    `apply_fun` takes params, inputs, and an rng key and applies the layer.
+    `apply_fun` takes params, inputs, and an rng_key key and applies the layer.
 
     :param array mask: Mask of shape (input_dim, out_dim) applied to the weights of the layer.
     :param bool bias: whether to include bias term.
@@ -16,8 +16,8 @@ def MaskedDense(mask, bias=True, W_init=glorot_normal(), b_init=normal()):
     :param array b_init: initialization method for the bias terms.
     :return: a (`init_fn`, `update_fn`) pair.
     """
-    def init_fun(rng, input_shape):
-        k1, k2 = random.split(rng)
+    def init_fun(rng_key, input_shape):
+        k1, k2 = random.split(rng_key)
         W = W_init(k1, mask.shape)
         if bias:
             b = b_init(k2, mask.shape[-1:])

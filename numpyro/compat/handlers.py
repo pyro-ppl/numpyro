@@ -4,4 +4,4 @@ from numpyro.handlers import seed as numpyro_seed
 
 # Compatibility wrapper for matching arg names
 def seed(fn=None, rng_seed=None):
-    return numpyro_seed(fn=fn, rng=rng_seed)
+    return numpyro_seed(fn=fn, rng_key=rng_seed)

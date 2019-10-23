@@ -142,11 +142,11 @@ def test_initialize_model_change_point(init_strategy):
         5,  14,  13,  22,
     ])
 
-    rngs = random.split(random.PRNGKey(1), 2)
-    init_params, _, _ = initialize_model(rngs, model, count_data,
+    rng_keys = random.split(random.PRNGKey(1), 2)
+    init_params, _, _ = initialize_model(rng_keys, model, count_data,
                                          init_strategy=init_strategy)
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rngs[i], model, count_data,
+        init_params_i, _, _ = initialize_model(rng_keys[i], model, count_data,
                                                init_strategy=init_strategy)
         for name, p in init_params.items():
             # XXX: the result is equal if we disable fast-math-mode
@@ -169,11 +169,11 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
 
-    rngs = random.split(random.PRNGKey(1), 2)
-    init_params, _, _ = initialize_model(rngs, model, data,
+    rng_keys = random.split(random.PRNGKey(1), 2)
+    init_params, _, _ = initialize_model(rng_keys, model, data,
                                          init_strategy=init_strategy)
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rngs[i], model, data,
+        init_params_i, _, _ = initialize_model(rng_keys[i], model, data,
                                                init_strategy=init_strategy)
         for name, p in init_params.items():
             # XXX: the result is equal if we disable fast-math-mode

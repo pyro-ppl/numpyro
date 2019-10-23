@@ -268,16 +268,16 @@ def init_to_value(values):
     return partial(_init_to_value, values=values)
 
 
-def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform(),
+def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to_uniform(),
                               param_as_improper=False, prototype_params=None, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
     parameters. This function also returns an `is_valid` flag to say whether the
     initial parameters are valid.
 
-    :param jax.random.PRNGKey rng: random number generator seed to
+    :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
-        batch shape ``rng.shape[:-1]``.
+        batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
@@ -329,9 +329,9 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         return i + 1, key, params, is_valid
 
     if prototype_params is not None:
-        init_state = (0, rng, prototype_params, False)
+        init_state = (0, rng_key, prototype_params, False)
     else:
-        _, _, prototype_params, is_valid = init_state = body_fn((0, rng, None, None))
+        _, _, prototype_params, is_valid = init_state = body_fn((0, rng_key, None, None))
         if not_jax_tracer(is_valid):
             if device_get(is_valid):
                 return prototype_params, is_valid
@@ -340,7 +340,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     return init_params, is_valid
 
 
-def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
+def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative
@@ -349,9 +349,9 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
     transform unconstrained values at sample sites to constrained values
     within their respective support.
 
-    :param jax.random.PRNGKey rng: random number generator seed to
+    :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
-        batch shape ``rng.shape[:-1]``.
+        batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
@@ -362,7 +362,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
+    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
     constrained_values, inv_transforms = {}, {}
     has_transformed_dist = False
@@ -405,10 +405,10 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
                                          param_as_improper=True, prototype_params=prototype_params,
                                          **model_kwargs)
 
-    if rng.ndim == 1:
-        init_params, is_valid = single_chain_init(rng)
+    if rng_key.ndim == 1:
+        init_params, is_valid = single_chain_init(rng_key)
     else:
-        init_params, is_valid = lax.map(single_chain_init, rng)
+        init_params, is_valid = lax.map(single_chain_init, rng_key)
 
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
@@ -416,7 +416,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
     return init_params, potential_fn, constrain_fun
 
 
-def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
+def predictive(rng_key, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
     values at sample sites from the forward run. By default, only sample sites not contained in
@@ -427,7 +427,7 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
         The interface for the `predictive` function is experimental, and
         might change in the future.
 
-    :param jax.random.PRNGKey rng: seed to draw samples
+    :param jax.random.PRNGKey rng_key: seed to draw samples
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
     :param args: model arguments.
@@ -437,8 +437,8 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
     :param kwargs: model kwargs.
     :return: dict of samples from the predictive distribution.
     """
-    def single_prediction(rng, samples):
-        model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
+    def single_prediction(rng_key, samples):
+        model_trace = trace(seed(condition(model, samples), rng_key)).get_trace(*args, **kwargs)
         if return_sites is not None:
             sites = return_sites
         else:
@@ -457,8 +457,8 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
     if num_samples is None:
         raise ValueError("No sample sites in model to infer `num_samples`.")
 
-    rngs = random.split(rng, num_samples)
-    return vmap(single_prediction)(rngs, posterior_samples)
+    rng_keys = random.split(rng_key, num_samples)
+    return vmap(single_prediction)(rng_keys, posterior_samples)
 
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):

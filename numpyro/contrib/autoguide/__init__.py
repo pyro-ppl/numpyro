@@ -65,12 +65,12 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def sample_posterior(self, rng, params, *args, **kwargs):
+    def sample_posterior(self, rng_key, params, *args, **kwargs):
         """
         Generate samples from the approximate posterior over the latent
         sites in the model.
 
-        :param jax.random.PRNGKey rng: PRNG seed.
+        :param jax.random.PRNGKey rng_key: PRNG seed.
         :param params: Current parameters of model and autoguide.
         :param sample_shape: (keyword argument) shape of samples to be drawn.
         :return: batch of samples from the approximate posterior.
@@ -87,8 +87,8 @@ class AutoGuide(ABC):
 
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
-        rng = numpyro.sample("_{}_rng_setup".format(self.prefix), dist.PRNGIdentity())
-        model = handlers.seed(self.model, rng)
+        rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
+        model = handlers.seed(self.model, rng_key)
         self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
         self._args = args
         self._kwargs = kwargs
@@ -110,7 +110,7 @@ class AutoContinuous(AutoGuide):
         Alp Kucukelbir, Dustin Tran, Rajesh Ranganath, Andrew Gelman, David M.
         Blei
 
-    :param jax.random.PRNGKey rng: random key to be used as the source of randomness
+    :param jax.random.PRNGKey rng_key: random key to be used as the source of randomness
         to initialize the guide.
     :param callable model: A NumPyro model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
@@ -124,8 +124,8 @@ class AutoContinuous(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
-        rng = numpyro.sample("_{}_rng_init".format(self.prefix), dist.PRNGIdentity())
-        init_params, _ = handlers.block(find_valid_initial_params)(rng, self.model, *args,
+        rng_key = numpyro.sample("_{}_rng_key_init".format(self.prefix), dist.PRNGIdentity())
+        init_params, _ = handlers.block(find_valid_initial_params)(rng_key, self.model, *args,
                                                                    init_strategy=self.init_strategy,
                                                                    **kwargs)
         self._inv_transforms = {}
@@ -241,17 +241,17 @@ class AutoContinuous(AutoGuide):
         return ComposeTransform([handlers.substitute(self._get_transform, params)(),
                                  UnpackTransform(self._unpack_latent)])
 
-    def sample_posterior(self, rng, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, sample_shape=()):
         """
         Get samples from the learned posterior.
 
-        :param jax.random.PRNGKey rng: random key to be used draw samples.
+        :param jax.random.PRNGKey rng_key: random key to be used draw samples.
         :param dict params: Current parameters of model and autoguide.
         :param tuple sample_shape: batch shape of each latent sample, defaults to ().
         :return: a dict containing samples drawn the this guide.
         :rtype: dict
         """
-        latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng), params)(
+        latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng_key), params)(
             self.base_dist, sample_shape=sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
@@ -361,7 +361,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         def loss_fn(z):
             params1 = params.copy()
             params1['{}_loc'.format(self.prefix)] = z
-            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng.
+            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
             return AutoContinuousELBO().loss(random.PRNGKey(0), params1, self.model, self,
                                              *self._args, **self._kwargs)
 
@@ -376,10 +376,10 @@ class AutoLaplaceApproximation(AutoContinuous):
         scale_tril = np.where(np.isnan(scale_tril), 0., scale_tril)
         return MultivariateAffineTransform(loc, scale_tril)
 
-    def sample_posterior(self, rng, params, sample_shape=()):
+    def sample_posterior(self, rng_key, params, sample_shape=()):
         transform = self._get_transform(params)
         loc, scale_tril = transform.loc, transform.scale_tril
-        latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng, sample_shape)
+        latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng_key, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
     def get_transform(self, params):
@@ -410,7 +410,7 @@ class AutoIAFNormal(AutoContinuous):
         guide = AutoIAFNormal(model, hidden_dims=[20], skip_connections=True, ...)
         svi = SVI(model, guide, ...)
 
-    :param jax.random.PRNGKey rng: random key to be used as the source of randomness
+    :param jax.random.PRNGKey rng_key: random key to be used as the source of randomness
         to initialize the guide.
     :param callable model: a generative model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
@@ -460,11 +460,11 @@ class AutoContinuousELBO(ELBO):
     the "transformed" model (i.e. the corresponding model with unconstrained variables) and the
     guide.
     """
-    def loss(self, rng, param_map, model, guide, *args, **kwargs):
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         assert isinstance(guide, AutoContinuous)
 
-        def single_particle_elbo(rng):
-            model_seed, guide_seed = random.split(rng)
+        def single_particle_elbo(rng_key):
+            model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
             guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
@@ -486,7 +486,7 @@ class AutoContinuousELBO(ELBO):
             return -elbo
 
         if self.num_particles == 1:
-            return single_particle_elbo(rng)
+            return single_particle_elbo(rng_key)
         else:
-            rngs = random.split(rng, self.num_particles)
-            return np.mean(vmap(single_particle_elbo)(rngs))
+            rng_keys = random.split(rng_key, self.num_particles)
+            return np.mean(vmap(single_particle_elbo)(rng_keys))

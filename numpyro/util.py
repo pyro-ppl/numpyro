@@ -19,14 +19,14 @@ _DATA_TYPES = {}
 _DISABLE_CONTROL_FLOW_PRIM = False
 
 
-def set_rng_seed(rng_seed):
+def set_rng_key_seed(rng_key_seed):
     """
     Initializes internal state for the Python and NumPy random number generators.
 
-    :param int rng_seed: seed for Python and NumPy random states.
+    :param int rng_key_seed: seed for Python and NumPy random states.
     """
-    random.seed(rng_seed)
-    onp.random.seed(rng_seed)
+    random.seed(rng_key_seed)
+    onp.random.seed(rng_key_seed)
 
 
 def set_platform(platform=None):
