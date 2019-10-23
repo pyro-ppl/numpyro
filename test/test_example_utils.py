@@ -1,5 +1,3 @@
-import pytest
-
 import jax.numpy as np
 
 from numpyro.examples.datasets import BASEBALL, COVTYPE, MNIST, SP500, load_dataset
