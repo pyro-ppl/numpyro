@@ -23,7 +23,6 @@ EXAMPLES = [
 
 
 @pytest.mark.parametrize('example', EXAMPLES)
-@pytest.mark.test_examples
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
 def test_cpu(example):
     print('Running:\npython examples/{}'.format(example))
