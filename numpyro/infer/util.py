@@ -416,7 +416,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
     return init_params, potential_fn, constrain_fun
 
 
-def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
+def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, parallel=True, **kwargs):
     """
     Run model by sampling latent parameters from `posterior_samples`, and return
     values at sample sites from the forward run. By default, only sample sites not contained in
@@ -431,13 +431,15 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
     :param args: model arguments.
+    :param int num_samples: number of samples
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
-    :param int num_samples: number of samples
+    :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
     :param kwargs: model kwargs.
     :return: dict of samples from the predictive distribution.
     """
-    def single_prediction(rng, samples):
+    def single_prediction(val):
+        rng, samples = val
         model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
         if return_sites is not None:
             sites = return_sites
@@ -458,7 +460,10 @@ def predictive(rng, model, posterior_samples, *args, num_samples=None, return_si
         raise ValueError("No sample sites in model to infer `num_samples`.")
 
     rngs = random.split(rng, num_samples)
-    return vmap(single_prediction)(rngs, posterior_samples)
+    if parallel:
+        return vmap(single_prediction)((rngs, posterior_samples))
+    else:
+        return lax.map(single_prediction, (rngs, posterior_samples))
 
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):

@@ -40,7 +40,8 @@ def beta_bernoulli():
     return model, data, true_probs
 
 
-def test_predictive():
+@pytest.mark.parametrize('parallel', [True, False])
+def test_predictive(parallel):
     model, data, true_probs = beta_bernoulli()
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
     mcmc.run(random.PRNGKey(0), data)
@@ -48,7 +49,7 @@ def test_predictive():
     predictive_samples = predictive(random.PRNGKey(1), model, samples)
     assert predictive_samples.keys() == {"obs"}
 
-    predictive_samples = predictive(random.PRNGKey(1), model, samples,
+    predictive_samples = predictive(random.PRNGKey(1), model, samples, parallel=parallel,
                                     return_sites=["beta", "obs"])
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape
