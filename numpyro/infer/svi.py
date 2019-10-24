@@ -199,10 +199,10 @@ class SVI(object):
             during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
-        rng_key, rng_key_seed = random.split(svi_state.rng_key)
+        rng_key, rng_key_step = random.split(svi_state.rng_key)
         params = self.optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: self.loss.loss(rng_key_seed, self.constrain_fn(x), self.model, self.guide,
+            lambda x: self.loss.loss(rng_key_step, self.constrain_fn(x), self.model, self.guide,
                                      *args, **kwargs, **self.static_kwargs))(params)
         optim_state = self.optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng_key), loss_val
@@ -219,7 +219,7 @@ class SVI(object):
             (held within `svi_state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given an svi_state
-        _, rng_key_seed = random.split(svi_state.rng_key)
+        _, rng_key_eval = random.split(svi_state.rng_key)
         params = self.get_params(svi_state)
-        return self.loss.loss(rng_key_seed, params, self.model, self.guide,
+        return self.loss.loss(rng_key_eval, params, self.model, self.guide,
                               *args, **kwargs, **self.static_kwargs)

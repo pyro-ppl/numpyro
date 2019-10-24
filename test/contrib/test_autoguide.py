@@ -139,7 +139,7 @@ def test_iaf():
     flows.append(transforms.UnpackTransform(guide._unpack_latent))
 
     transform = transforms.ComposeTransform(flows)
-    rng_key_seed, rng_key_sample = random.split(rng_key)
+    _, rng_key_sample = random.split(rng_key)
     expected_sample = transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng_key_sample))
     expected_output = transform(x)
     assert_allclose(actual_sample['coefs'], expected_sample['coefs'])

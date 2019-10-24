@@ -315,6 +315,10 @@ class seed(Messenger):
     so that we use a fresh seed for each subsequent call without having to
     explicitly pass in a `PRNGKey` to each `sample` call.
 
+    :param fn: Python callable with NumPyro primitives.
+    :param rng_seed: a random number generator seed.
+    :type rng_seed: int, np.ndarray scalar, or jax.random.PRNGKey
+
     .. note::
 
         Unlike in Pyro, `numpyro.sample` primitive cannot be used without wrapping
@@ -334,23 +338,25 @@ class seed(Messenger):
     .. doctest::
 
        >>> # as context manager
-       >>> with handlers.seed(rng_key=1):
+       >>> with handlers.seed(rng_seed=1):
        ...     x = numpyro.sample('x', dist.Normal(0., 1.))
 
        >>> def model():
        ...     return numpyro.sample('y', dist.Normal(0., 1.))
 
        >>> # as function decorator (/modifier)
-       >>> y = seed(model, rng_key=1)()
+       >>> y = handlers.seed(model, rng_seed=1)()
        >>> assert x == y
     """
-    def __init__(self, fn=None, rng_key=None, rng=None):
+    def __init__(self, fn=None, rng_seed=None, rng=None):
         if rng is not None:
-            warnings.warn('`rng` argument is deprecated and renamed to `rng_key_key` instead.', DeprecationWarning)
-            rng_key = rng
-        if isinstance(rng_key, int) or np.size(rng_key) == 1:
-            rng_key = random.PRNGKey(rng_key)
-        self.rng_key = rng_key
+            warnings.warn('`rng` argument is deprecated and renamed to `rng_key` instead.', DeprecationWarning)
+            rng_seed = rng
+        if isinstance(rng_seed, int) or (isinstance(rng_seed, np.ndarray) and not np.shape(rng_seed)):
+            rng_seed = random.PRNGKey(rng_seed)
+        if not (isinstance(rng_seed, np.ndarray) and rng_seed.dtype == np.uint32 and rng_seed.shape == (2,)):
+            raise TypeError('Incorrect type for rng_seed: {}'.format(type(rng_seed)))
+        self.rng_key = rng_seed
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
