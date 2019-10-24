@@ -724,7 +724,8 @@ class LowRankMultivariateNormal(Distribution):
         batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(cov_factor), np.shape(cov_diag))[:-2]
         self.loc = np.broadcast_to(loc[..., 0], batch_shape + event_shape)
         self.cov_factor = cov_factor
-        self.cov_diag = cov_diag[..., 0]
+        cov_diag = cov_diag[..., 0]
+        self.cov_diag = cov_diag
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
         super(LowRankMultivariateNormal, self).__init__(
             batch_shape=batch_shape, event_shape=event_shape, validate_args=validate_args
@@ -776,11 +777,12 @@ class LowRankMultivariateNormal(Distribution):
         return diag_embed - np.matmul(np.swapaxes(A, -1, -2), A)
 
     def sample(self, key, sample_shape=()):
+        key_W, key_D = random.split(key)
         batch_shape = sample_shape + self.batch_shape
         W_shape = batch_shape + self.cov_factor.shape[-1:]
         D_shape = batch_shape + self.cov_diag.shape[-1:]
-        eps_W = random.normal(key, W_shape)
-        eps_D = random.normal(key, D_shape)
+        eps_W = random.normal(key_W, W_shape)
+        eps_D = random.normal(key_D, D_shape)
         return (self.loc + _batch_mv(self.cov_factor, eps_W)
                 + np.sqrt(self.cov_diag) * eps_D)
 
