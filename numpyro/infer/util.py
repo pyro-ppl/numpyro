@@ -5,7 +5,6 @@ import jax
 from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
-from jax.tree_util import tree_flatten
 
 import numpyro
 import numpyro.distributions as dist
@@ -25,7 +24,7 @@ __all__ = [
     'init_to_value',
     'potential_energy',
     'initialize_model',
-    'predictive',
+    'Predictive',
     'transformed_potential_energy',
 ]
 
@@ -416,54 +415,82 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
     return init_params, potential_fn, constrain_fun
 
 
-def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, parallel=True, **kwargs):
+class Predictive(object):
     """
-    Run model by sampling latent parameters from `posterior_samples`, and return
-    values at sample sites from the forward run. By default, only sample sites not contained in
-    `posterior_samples` are returned. This can be modified by changing the `return_sites`
-    keyword argument.
+    This class is used to construct predictive distribution. The predictive distribution is obtained
+    by running model conditioned on latent samples from `posterior_samples`.
 
     .. warning::
-        The interface for the `predictive` function is experimental, and
+        The interface for the `Predictive` class is experimental, and
         might change in the future.
 
-    :param jax.random.PRNGKey rng: seed to draw samples
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
-    :param args: model arguments.
+    :param callable guide: optional guide to get posterior samples of sites not present
+        in `posterior_samples`.
+    :param dict params: dictionary of values for param sites of model/guide.
     :param int num_samples: number of samples
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
-    :param kwargs: model kwargs.
+
     :return: dict of samples from the predictive distribution.
     """
-    def single_prediction(val):
-        rng, samples = val
-        model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
+    def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
+                 return_sites=None, parallel=False):
+        if posterior_samples is None and num_samples is None:
+            raise ValueError("Either posterior_samples or num_samples must be specified.")
+
+        posterior_samples = {} if posterior_samples is None else posterior_samples
+
+        for name, sample in posterior_samples.items():
+            batch_size = sample.shape[0]
+            if (num_samples is not None) and (num_samples != batch_size):
+                warnings.warn("Sample's leading dimension size {} is different from the "
+                              "provided {} num_samples argument. Defaulting to {}."
+                              .format(batch_size, num_samples, batch_size), UserWarning)
+            num_samples = batch_size
+
+        if num_samples is None:
+            raise ValueError("No sample sites in posterior samples to infer `num_samples`.")
+
         if return_sites is not None:
-            sites = return_sites
+            assert isinstance(return_sites, (list, tuple, set))
+
+        self.model = model
+        self.posterior_samples = {} if posterior_samples is None else posterior_samples
+        self.num_samples = num_samples
+        self.guide = guide
+        self.params = params
+        self.return_sites = return_sites
+        self.parallel = parallel
+
+    def _single_prediction(self, val, model_args=(), model_kwargs={}):
+        rng_key, samples = val
+        model_trace = trace(seed(condition(self.model, samples), rng_key)).get_trace(
+            *model_args, **model_kwargs)
+        if self.return_sites is not None:
+            sites = self.return_sites
         else:
             sites = {k for k, site in model_trace.items()
                      if site['type'] != 'plate' and k not in samples}
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
-    if posterior_samples:
-        batch_size = tree_flatten(posterior_samples)[0][0].shape[0]
-        if num_samples is not None and num_samples != batch_size:
-            warnings.warn("Sample's leading dimension size {} is different from the "
-                          "provided {} num_samples argument. Defaulting to {}."
-                          .format(batch_size, num_samples, batch_size), UserWarning)
-        num_samples = batch_size
+    def get_samples(self, rng_key, *args, **kwargs):
+        """
+        Returns dict of samples from the predictive distribution. By default, only sample sites not
+        contained in `posterior_samples` are returned. This can be modified by changing the
+        `return_sites` keyword argument of this :class:`Predictive` instance.
 
-    if num_samples is None:
-        raise ValueError("No sample sites in model to infer `num_samples`.")
-
-    rngs = random.split(rng, num_samples)
-    if parallel:
-        return vmap(single_prediction)((rngs, posterior_samples))
-    else:
-        return lax.map(single_prediction, (rngs, posterior_samples))
+        :param jax.random.PRNGKey rng: random key to draw samples.
+        :param args: model arguments.
+        :param kwargs: model kwargs.
+        """
+        rng_keys = random.split(rng_key, self.num_samples)
+        if self.parallel:
+            return vmap(self._single_prediction)((rng_keys, self.posterior_samples))
+        else:
+            return lax.map(self._single_prediction, (rng_keys, self.posterior_samples))
 
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):

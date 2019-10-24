@@ -13,6 +13,7 @@ from numpyro.distributions import transforms
 from numpyro.distributions.transforms import biject_to
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.util import (
+    Predictive,
     constrain_fn,
     init_to_feasible,
     init_to_median,
@@ -21,7 +22,6 @@ from numpyro.infer.util import (
     initialize_model,
     log_likelihood,
     potential_energy,
-    predictive,
     transform_fn,
     transformed_potential_energy
 )
@@ -46,11 +46,12 @@ def test_predictive(parallel):
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
-    predictive_samples = predictive(random.PRNGKey(1), model, samples)
+    predictive = Predictive(model, samples, parallel=parallel)
+    predictive_samples = predictive.get_samples(random.PRNGKey(1))
     assert predictive_samples.keys() == {"obs"}
 
-    predictive_samples = predictive(random.PRNGKey(1), model, samples, parallel=parallel,
-                                    return_sites=["beta", "obs"])
+    predictive.return_sites = ["beta", "obs"]
+    predictive_samples = predictive.get_samples(random.PRNGKey(1))
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape
     assert predictive_samples["obs"].shape == (100,) + data.shape
@@ -60,7 +61,7 @@ def test_predictive(parallel):
 
 def test_prior_predictive():
     model, data, true_probs = beta_bernoulli()
-    predictive_samples = predictive(random.PRNGKey(1), model, {}, num_samples=100)
+    predictive_samples = Predictive(model, num_samples=100).get_samples(random.PRNGKey(1))
     assert predictive_samples.keys() == {"beta", "obs"}
 
     # check shapes
@@ -70,7 +71,7 @@ def test_prior_predictive():
 
 def test_log_likelihood():
     model, data, _ = beta_bernoulli()
-    samples = predictive(random.PRNGKey(1), model, {}, return_sites=["beta"], num_samples=100)
+    samples = Predictive(model, return_sites=["beta"], num_samples=100).get_samples(random.PRNGKey(1))
     loglik = log_likelihood(model, samples, data)
     assert loglik.keys() == {"obs"}
     # check shapes
