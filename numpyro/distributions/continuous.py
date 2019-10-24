@@ -726,8 +726,9 @@ class LowRankMultivariateNormal(Distribution):
         self.cov_factor = cov_factor
         self.cov_diag = cov_diag[..., 0]
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
-        super(LowRankMultivariateNormal, self).__init__(batch_shape=batch_shape,
-         event_shape=event_shape, validate_args=validate_args)
+        super(LowRankMultivariateNormal, self).__init__(
+            batch_shape=batch_shape, event_shape=event_shape, validate_args=validate_args
+            )
 
     @property
     def mean(self):
@@ -779,14 +780,12 @@ class LowRankMultivariateNormal(Distribution):
         W_shape = batch_shape + self.cov_factor.shape[-1:]
         D_shape = batch_shape + self.cov_diag.shape[-1:]
         eps_W = random.normal(key, W_shape)
-        eps_D = random.normal(key, sample_shape)
+        eps_D = random.normal(key, D_shape)
         return (self.loc + _batch_mv(self.cov_factor, eps_W)
                 + np.sqrt(self.cov_diag) * eps_D)
-    
+
     @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
         diff = value - self.loc
         M = _batch_lowrank_mahalanobis(self.cov_factor,
                                        self.cov_diag,
