@@ -45,7 +45,7 @@ def test_seed():
 
     xs = []
     for i in range(100):
-        with handlers.seed(rng_key=i):
+        with handlers.seed(rng_seed=i):
             xs.append(_sample())
     xs = np.stack(xs)
 
@@ -56,10 +56,10 @@ def test_seed():
 def test_nested_seeding():
     def fn(rng_key_1, rng_key_2, rng_key_3):
         xs = []
-        with handlers.seed(rng_key=rng_key_1):
-            with handlers.seed(rng_key=rng_key_2):
+        with handlers.seed(rng_seed=rng_key_1):
+            with handlers.seed(rng_seed=rng_key_2):
                 xs.append(numpyro.sample('x', dist.Normal(0., 1.)))
-                with handlers.seed(rng_key=rng_key_3):
+                with handlers.seed(rng_seed=rng_key_3):
                     xs.append(numpyro.sample('y', dist.Normal(0., 1.)))
         return np.stack(xs)
 

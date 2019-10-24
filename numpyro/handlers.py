@@ -350,7 +350,7 @@ class seed(Messenger):
     """
     def __init__(self, fn=None, rng_seed=None, rng=None):
         if rng is not None:
-            warnings.warn('`rng` argument is deprecated and renamed to `rng_key` instead.', DeprecationWarning)
+            warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', DeprecationWarning)
             rng_seed = rng
         if isinstance(rng_seed, int) or (isinstance(rng_seed, np.ndarray) and not np.shape(rng_seed)):
             rng_seed = random.PRNGKey(rng_seed)
