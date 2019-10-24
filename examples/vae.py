@@ -55,8 +55,8 @@ def guide(batch, hidden_dim=400, z_dim=100):
 
 
 @jit
-def binarize(rng, batch):
-    return random.bernoulli(rng, batch).astype(batch.dtype)
+def binarize(rng_key, batch):
+    return random.bernoulli(rng_key, batch).astype(batch.dtype)
 
 
 def main(args):
@@ -64,20 +64,20 @@ def main(args):
     decoder_nn = decoder(args.hidden_dim, 28 * 28)
     adam = optim.Adam(args.learning_rate)
     svi = SVI(model, guide, adam, ELBO(), hidden_dim=args.hidden_dim, z_dim=args.z_dim)
-    rng = PRNGKey(0)
+    rng_key = PRNGKey(0)
     train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
     test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
     num_train, train_idx = train_init()
-    rng, rng_binarize, rng_init = random.split(rng, 3)
-    sample_batch = binarize(rng_binarize, train_fetch(0, train_idx)[0])
-    svi_state = svi.init(rng_init, sample_batch)
+    rng_key, rng_key_binarize, rng_key_init = random.split(rng_key, 3)
+    sample_batch = binarize(rng_key_binarize, train_fetch(0, train_idx)[0])
+    svi_state = svi.init(rng_key_init, sample_batch)
 
     @jit
-    def epoch_train(svi_state, rng):
+    def epoch_train(svi_state, rng_key):
         def body_fn(i, val):
             loss_sum, svi_state = val
-            rng_binarize = random.fold_in(rng, i)
-            batch = binarize(rng_binarize, train_fetch(i, train_idx)[0])
+            rng_key_binarize = random.fold_in(rng_key, i)
+            batch = binarize(rng_key_binarize, train_fetch(i, train_idx)[0])
             svi_state, loss = svi.update(svi_state, batch)
             loss_sum += loss
             return loss_sum, svi_state
@@ -85,11 +85,11 @@ def main(args):
         return lax.fori_loop(0, num_train, body_fn, (0., svi_state))
 
     @jit
-    def eval_test(svi_state, rng):
+    def eval_test(svi_state, rng_key):
         def body_fun(i, loss_sum):
-            rng_binarize = random.fold_in(rng, i)
-            batch = binarize(rng_binarize, test_fetch(i, test_idx)[0])
-            # FIXME: does this lead to a requirement for an rng arg in svi_eval?
+            rng_key_binarize = random.fold_in(rng_key, i)
+            batch = binarize(rng_key_binarize, test_fetch(i, test_idx)[0])
+            # FIXME: does this lead to a requirement for an rng_key arg in svi_eval?
             loss = svi.evaluate(svi_state, batch) / len(batch)
             loss_sum += loss
             return loss_sum
@@ -98,26 +98,26 @@ def main(args):
         loss = loss / num_test
         return loss
 
-    def reconstruct_img(epoch, rng):
+    def reconstruct_img(epoch, rng_key):
         img = test_fetch(0, test_idx)[0][0]
         plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), img, cmap='gray')
-        rng_binarize, rng_sample = random.split(rng)
-        test_sample = binarize(rng_binarize, img)
+        rng_key_binarize, rng_key_sample = random.split(rng_key)
+        test_sample = binarize(rng_key_binarize, img)
         params = svi.get_params(svi_state)
         z_mean, z_var = encoder_nn[1](params['encoder$params'], test_sample.reshape([1, -1]))
-        z = dist.Normal(z_mean, z_var).sample(rng_sample)
+        z = dist.Normal(z_mean, z_var).sample(rng_key_sample)
         img_loc = decoder_nn[1](params['decoder$params'], z).reshape([28, 28])
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 
     for i in range(args.num_epochs):
-        rng, rng_train, rng_test, rng_reconstruct = random.split(rng, 4)
+        rng_key, rng_key_train, rng_key_test, rng_key_reconstruct = random.split(rng_key, 4)
         t_start = time.time()
         num_train, train_idx = train_init()
-        _, svi_state = epoch_train(svi_state, rng_train)
-        rng, rng_test, rng_reconstruct = random.split(rng, 3)
+        _, svi_state = epoch_train(svi_state, rng_key_train)
+        rng_key, rng_key_test, rng_key_reconstruct = random.split(rng_key, 3)
         num_test, test_idx = test_init()
-        test_loss = eval_test(svi_state, rng_test)
-        reconstruct_img(i, rng_reconstruct)
+        test_loss = eval_test(svi_state, rng_key_test)
+        reconstruct_img(i, rng_key_reconstruct)
         print("Epoch {}: loss = {} ({:.2f} s.)".format(i, test_loss, time.time() - t_start))
 
 

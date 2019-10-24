@@ -46,21 +46,21 @@ def reparam_model(dim=10):
         dist.Normal(np.zeros(dim - 1), 1), AffineTransform(0, np.exp(y / 2))))
 
 
-def run_inference(model, args, rng):
+def run_inference(model, args, rng_key):
     kernel = NUTS(model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
-    mcmc.run(rng)
+    mcmc.run(rng_key)
     return mcmc.get_samples()
 
 
 def main(args):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
 
     # do inference with centered parameterization
-    samples = run_inference(model, args, rng)
+    samples = run_inference(model, args, rng_key)
 
     # do inference with non-centered parameterization
-    reparam_samples = run_inference(reparam_model, args, rng)
+    reparam_samples = run_inference(reparam_model, args, rng_key)
 
     # make plots
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 16))

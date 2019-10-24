@@ -65,15 +65,15 @@ def glmm(dept, male, applications, admit):
     numpyro.sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
 
 
-def run_inference(dept, male, applications, admit, rng, args):
+def run_inference(dept, male, applications, admit, rng_key, args):
     kernel = NUTS(glmm)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains)
-    mcmc.run(rng, dept, male, applications, admit)
+    mcmc.run(rng_key, dept, male, applications, admit)
     return mcmc.get_samples()
 
 
-def predict(dept, male, applications, z, rng):
-    model = handlers.substitute(handlers.seed(glmm, rng), z)
+def predict(dept, male, applications, z, rng_key):
+    model = handlers.substitute(handlers.seed(glmm, rng_key), z)
     model_trace = handlers.trace(model).get_trace(dept, male, applications, admit=None)
     return model_trace['admit']['fn'].probs
 
@@ -92,10 +92,10 @@ def print_results(header, preds, dept, male, probs):
 def main(args):
     _, fetch_train = load_dataset(UCBADMIT, split='train', shuffle=False)
     dept, male, applications, admit = fetch_train()
-    rng, rng_predict = random.split(random.PRNGKey(1))
-    zs = run_inference(dept, male, applications, admit, rng, args)
-    rngs = random.split(rng_predict, args.num_samples * args.num_chains)
-    pred_probs = vmap(lambda z, rng: predict(dept, male, applications, z, rng))(zs, rngs)
+    rng_key, rng_key_predict = random.split(random.PRNGKey(1))
+    zs = run_inference(dept, male, applications, admit, rng_key, args)
+    rng_keys = random.split(rng_key_predict, args.num_samples * args.num_chains)
+    pred_probs = vmap(lambda z, rng_key: predict(dept, male, applications, z, rng_key))(zs, rng_keys)
     header = '=' * 30 + 'glmm - TRAIN' + '=' * 30
     print_results(header, pred_probs, dept, male, admit / applications)
 
