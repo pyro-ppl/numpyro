@@ -671,7 +671,7 @@ def _batch_capacitance_tril(W, D):
     Wt_Dinv = np.swapaxes(W, -1, -2) / np.expand_dims(D, -2)
     K = np.matmul(Wt_Dinv, W)
     # could be inefficient
-    return np.linalg.cholesky(np.add(K, np.identity(K.shape(-1))))
+    return np.linalg.cholesky(np.add(K, np.identity(K.shape[-1])))
 
 
 def _batch_lowrank_logdet(W, D, capacitance_tril):
@@ -724,9 +724,10 @@ class LowRankMultivariateNormal(Distribution):
         batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(cov_factor), np.shape(cov_diag))[:-2]
         self.loc = np.broadcast_to(loc[..., 0], batch_shape + event_shape)
         self.cov_factor = cov_factor
-        self.cov_diag = cov_diag
+        self.cov_diag = cov_diag[..., 0]
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
-        super(LowRankMultivariateNormal, self).__init__(batch_shape = batch_shape, event_shape = event_shape, validate_args=validate_args)
+        super(LowRankMultivariateNormal, self).__init__(batch_shape=batch_shape,
+         event_shape=event_shape, validate_args=validate_args)
 
     @property
     def mean(self):
@@ -747,13 +748,15 @@ class LowRankMultivariateNormal(Distribution):
         cov_diag_sqrt_unsqueeze = np.expand_dims(np.sqrt(self.cov_diag), axis=-1)
         Dinvsqrt_W = self.cov_factor / cov_diag_sqrt_unsqueeze
         K = np.matmul(Dinvsqrt_W, np.swapaxes(Dinvsqrt_W, -1, -2))
-        K = np.add(K, np.identity(K.shape(-1)))
+        K = np.add(K, np.identity(K.shape[-1]))
         scale_tril = cov_diag_sqrt_unsqueeze * np.linalg.cholesky(K)
         return scale_tril
 
     @lazy_property
     def covariance_matrix(self):
-        covariance_matrix = self.cov_diag + np.matmul(
+        # TODO: find a better solution to create a diagonal matrix
+        new_diag = self.cov_diag[..., np.newaxis] * np.identity(self.loc.shape[-1])
+        covariance_matrix = new_diag + np.matmul(
             self.cov_factor, np.swapaxes(self.cov_factor, -1, -2)
             )
         return covariance_matrix
@@ -766,15 +769,21 @@ class LowRankMultivariateNormal(Distribution):
         Wt_Dinv = (np.swapaxes(self.cov_factor, -1, -2)
                    / np.expand_dims(self.cov_diag, axis=-2))
         A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
-        return np.reciprocal(self.cov_diag) - np.matmul(np.swapaxes(A, -1, -2), A)
+        # TODO: find a better solution to create a diagonal matrix
+        inverse_cov_diag = np.reciprocal(self.cov_diag)
+        diag_embed = inverse_cov_diag[..., np.newaxis] * np.identity(self.loc.shape[-1])
+        return diag_embed - np.matmul(np.swapaxes(A, -1, -2), A)
 
     def sample(self, key, sample_shape=()):
-        W_shape = sample_shape + self.cov_factor.shape[-1:]
+        batch_shape = sample_shape + self.batch_shape
+        W_shape = batch_shape + self.cov_factor.shape[-1:]
+        D_shape = batch_shape + self.cov_diag.shape[-1:]
         eps_W = random.normal(key, W_shape)
         eps_D = random.normal(key, sample_shape)
         return (self.loc + _batch_mv(self.cov_factor, eps_W)
                 + np.sqrt(self.cov_diag) * eps_D)
-
+    
+    @validate_sample
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
