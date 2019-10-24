@@ -141,6 +141,14 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
+LowRankMultivariateNormal
+-------------------------
+.. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Normal
 ------
 .. autoclass:: numpyro.distributions.continuous.Normal

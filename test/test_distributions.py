@@ -47,6 +47,13 @@ def _mvn_to_scipy(loc, cov, prec, tril):
     return osp.multivariate_normal(mean=mean, cov=cov)
 
 
+def _lowrank_mvn_to_scipy(loc, cov_fac, cov_diag):
+    jax_dist = dist.LowRankMultivariateNormal(loc, cov_fac, cov_diag)
+    mean = jax_dist.mean
+    cov = jax_dist.covariance_matrix
+    return osp.multivariate_normal(mean=mean, cov=cov)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -66,6 +73,7 @@ _DIST_MAP = {
     dist.MultinomialLogits: lambda logits, total_count: osp.multinomial(n=total_count,
                                                                         p=_to_probs_multinom(logits)),
     dist.MultivariateNormal: _mvn_to_scipy,
+    dist.LowRankMultivariateNormal: _lowrank_mvn_to_scipy,
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
     dist.Pareto: lambda alpha, scale: osp.pareto(alpha, scale=scale),
     dist.Poisson: lambda rate: osp.poisson(rate),
@@ -117,6 +125,9 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, np.arange(6, dtype=np.float32).reshape((3, 2)), None, None,
       np.array([[1., 0.], [0., 1.]])),
     T(dist.MultivariateNormal, 0., None, np.broadcast_to(np.identity(3), (2, 3, 3)), None),
+    T(dist.LowRankMultivariateNormal, np.zeros(2), np.array([[1], [0]]), np.array([1, 1])),
+    T(dist.LowRankMultivariateNormal, np.arange(6, dtype=np.float32).reshape((2, 3)),
+      np.arange(6, dtype=np.float32).reshape((3, 2)), np.array([1, 2, 3])),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),
