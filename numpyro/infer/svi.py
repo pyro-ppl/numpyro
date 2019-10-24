@@ -89,10 +89,10 @@ def svi(model, guide, loss, optim, **static_kwargs):
             during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
-        rng_key, rng_key_seed = random.split(svi_state.rng_key)
+        rng_key, rng_key_step = random.split(svi_state.rng_key)
         params = optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: loss.loss(rng_key_seed, constrain_fn(x), model, guide,
+            lambda x: loss.loss(rng_key_step, constrain_fn(x), model, guide,
                                 *args, **kwargs, **static_kwargs))(params)
         optim_state = optim.update(grads, svi_state.optim_state)
         return SVIState(optim_state, rng_key), loss_val
@@ -110,9 +110,9 @@ def svi(model, guide, loss, optim, **static_kwargs):
             (held within `svi_state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given an svi_state
-        _, rng_key_seed = random.split(svi_state.rng_key)
+        _, rng_key_eval = random.split(svi_state.rng_key)
         params = get_params(svi_state)
-        return loss.loss(rng_key_seed, params, model, guide, *args, **kwargs, **static_kwargs)
+        return loss.loss(rng_key_eval, params, model, guide, *args, **kwargs, **static_kwargs)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
