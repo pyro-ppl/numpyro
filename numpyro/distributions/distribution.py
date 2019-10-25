@@ -153,7 +153,7 @@ class Distribution(object):
         leading dimensions (of size `sample_shape`) of the returned sample will
         be filled with iid draws from the distribution instance.
 
-        :param jax.random.PRNGKey key: the rng key to be used for the distribution.
+        :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: an array of shape `sample_shape + batch_shape + event_shape`
         :rtype: numpy.ndarray
@@ -165,7 +165,7 @@ class Distribution(object):
         Same as ``sample`` except that any intermediate computations are
         returned (useful for `TransformedDistribution`).
 
-        :param jax.random.PRNGKey key: the rng key to be used for the distribution.
+        :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: an array of shape `sample_shape + batch_shape + event_shape`
         :rtype: numpy.ndarray

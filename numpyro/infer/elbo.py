@@ -32,11 +32,11 @@ class ELBO(object):
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
 
-    def loss(self, rng, param_map, model, guide, *args, **kwargs):
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
 
-        :param jax.random.PRNGKey rng: random number generator seed.
+        :param jax.random.PRNGKey rng_key: random number generator seed.
         :param dict param_map: dictionary of current parameter values keyed by site
             name.
         :param model: Python callable with NumPyro primitives for the model.
@@ -47,8 +47,8 @@ class ELBO(object):
             during the course of fitting).
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
-        def single_particle_elbo(rng):
-            model_seed, guide_seed = random.split(rng)
+        def single_particle_elbo(rng_key):
+            model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
             guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
@@ -64,7 +64,7 @@ class ELBO(object):
             return -elbo
 
         if self.num_particles == 1:
-            return single_particle_elbo(rng)
+            return single_particle_elbo(rng_key)
         else:
-            rngs = random.split(rng, self.num_particles)
-            return np.mean(vmap(single_particle_elbo)(rngs))
+            rng_keys = random.split(rng_key, self.num_particles)
+            return np.mean(vmap(single_particle_elbo)(rng_keys))

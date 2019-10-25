@@ -10,11 +10,11 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import seed, trace
 from numpyro.infer.util import transform_fn
 
-SVIState = namedtuple('SVIState', ['optim_state', 'rng'])
+SVIState = namedtuple('SVIState', ['optim_state', 'rng_key'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **optim_state** - current optimizer's state.
- - **rng** - random number generator seed used for the iteration.
+ - **rng_key** - random number generator seed used for the iteration.
 """
 
 
@@ -36,10 +36,10 @@ def svi(model, guide, loss, optim, **static_kwargs):
                   DeprecationWarning)
     constrain_fn = None
 
-    def init_fn(rng, *args, **kwargs):
+    def init_fn(rng_key, *args, **kwargs):
         """
 
-        :param jax.random.PRNGKey rng: random number generator seed.
+        :param jax.random.PRNGKey rng_key: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
@@ -50,7 +50,7 @@ def svi(model, guide, loss, optim, **static_kwargs):
         """
         nonlocal constrain_fn
 
-        rng, model_seed, guide_seed = random.split(rng, 3)
+        rng_key, model_seed, guide_seed = random.split(rng_key, 3)
         model_init = seed(model, model_seed)
         guide_init = seed(guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **static_kwargs)
@@ -66,7 +66,7 @@ def svi(model, guide, loss, optim, **static_kwargs):
                 params[site['name']] = transform.inv(site['value'])
 
         constrain_fn = jax.partial(transform_fn, inv_transforms)
-        return SVIState(optim.init(params), rng), get_params
+        return SVIState(optim.init(params), rng_key), get_params
 
     def get_params(svi_state):
         """
@@ -89,13 +89,13 @@ def svi(model, guide, loss, optim, **static_kwargs):
             during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
-        rng, rng_seed = random.split(svi_state.rng)
+        rng_key, rng_key_step = random.split(svi_state.rng_key)
         params = optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: loss.loss(rng_seed, constrain_fn(x), model, guide,
+            lambda x: loss.loss(rng_key_step, constrain_fn(x), model, guide,
                                 *args, **kwargs, **static_kwargs))(params)
         optim_state = optim.update(grads, svi_state.optim_state)
-        return SVIState(optim_state, rng), loss_val
+        return SVIState(optim_state, rng_key), loss_val
 
     def evaluate(svi_state, *args, **kwargs):
         """
@@ -110,9 +110,9 @@ def svi(model, guide, loss, optim, **static_kwargs):
             (held within `svi_state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given an svi_state
-        _, rng_seed = random.split(svi_state.rng)
+        _, rng_key_eval = random.split(svi_state.rng_key)
         params = get_params(svi_state)
-        return loss.loss(rng_seed, params, model, guide, *args, **kwargs, **static_kwargs)
+        return loss.loss(rng_key_eval, params, model, guide, *args, **kwargs, **static_kwargs)
 
     # Make local functions visible from the global scope once
     # `svi` is called for sphinx doc generation.
@@ -148,10 +148,10 @@ class SVI(object):
         self.static_kwargs = static_kwargs
         self.constrain_fn = None
 
-    def init(self, rng, *args, **kwargs):
+    def init(self, rng_key, *args, **kwargs):
         """
 
-        :param jax.random.PRNGKey rng: random number generator seed.
+        :param jax.random.PRNGKey rng_key: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
@@ -160,7 +160,7 @@ class SVI(object):
             that transforms unconstrained parameter values from the optimizer to the
             specified constrained domain
         """
-        rng, model_seed, guide_seed = random.split(rng, 3)
+        rng_key, model_seed, guide_seed = random.split(rng_key, 3)
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
@@ -176,7 +176,7 @@ class SVI(object):
                 params[site['name']] = transform.inv(site['value'])
 
         self.constrain_fn = jax.partial(transform_fn, inv_transforms)
-        return SVIState(self.optim.init(params), rng)
+        return SVIState(self.optim.init(params), rng_key)
 
     def get_params(self, svi_state):
         """
@@ -199,13 +199,13 @@ class SVI(object):
             during the course of fitting).
         :return: tuple of `(svi_state, loss)`.
         """
-        rng, rng_seed = random.split(svi_state.rng)
+        rng_key, rng_key_step = random.split(svi_state.rng_key)
         params = self.optim.get_params(svi_state.optim_state)
         loss_val, grads = value_and_grad(
-            lambda x: self.loss.loss(rng_seed, self.constrain_fn(x), self.model, self.guide,
+            lambda x: self.loss.loss(rng_key_step, self.constrain_fn(x), self.model, self.guide,
                                      *args, **kwargs, **self.static_kwargs))(params)
         optim_state = self.optim.update(grads, svi_state.optim_state)
-        return SVIState(optim_state, rng), loss_val
+        return SVIState(optim_state, rng_key), loss_val
 
     def evaluate(self, svi_state, *args, **kwargs):
         """
@@ -219,7 +219,7 @@ class SVI(object):
             (held within `svi_state.optim_state`).
         """
         # we split to have the same seed as `update_fn` given an svi_state
-        _, rng_seed = random.split(svi_state.rng)
+        _, rng_key_eval = random.split(svi_state.rng_key)
         params = self.get_params(svi_state)
-        return self.loss.loss(rng_seed, params, self.model, self.guide,
+        return self.loss.loss(rng_key_eval, params, self.model, self.guide,
                               *args, **kwargs, **self.static_kwargs)

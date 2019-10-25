@@ -57,16 +57,16 @@ need to loop over all the data points.
        coefs[2]       3.18       0.13       2.96       3.37     320.27       1.00
       intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
 
-   >>> def log_likelihood(rng, params, model, *args, **kwargs):
-   ...     model = handlers.substitute(handlers.seed(model, rng), params)
+   >>> def log_likelihood(rng_key, params, model, *args, **kwargs):
+   ...     model = handlers.substitute(handlers.seed(model, rng_key), params)
    ...     model_trace = handlers.trace(model).get_trace(*args, **kwargs)
    ...     obs_node = model_trace['obs']
    ...     return np.sum(obs_node['fn'].log_prob(obs_node['value']))
 
-   >>> def expected_log_likelihood(rng, params, model, *args, **kwargs):
+   >>> def expected_log_likelihood(rng_key, params, model, *args, **kwargs):
    ...     n = list(params.values())[0].shape[0]
-   ...     log_lk_fn = vmap(lambda rng, params: log_likelihood(rng, params, model, *args, **kwargs))
-   ...     log_lk_vals = log_lk_fn(random.split(rng, n), params)
+   ...     log_lk_fn = vmap(lambda rng_key, params: log_likelihood(rng_key, params, model, *args, **kwargs))
+   ...     log_lk_vals = log_lk_fn(random.split(rng_key, n), params)
    ...     return logsumexp(log_lk_vals) - np.log(n)
 
    >>> print(expected_log_likelihood(random.PRNGKey(2), samples, logistic_regression, data, labels))  # doctest: +SKIP
@@ -75,6 +75,7 @@ need to loop over all the data points.
 
 from __future__ import absolute_import, division, print_function
 
+import warnings
 from collections import OrderedDict
 
 from jax import random
@@ -314,6 +315,10 @@ class seed(Messenger):
     so that we use a fresh seed for each subsequent call without having to
     explicitly pass in a `PRNGKey` to each `sample` call.
 
+    :param fn: Python callable with NumPyro primitives.
+    :param rng_seed: a random number generator seed.
+    :type rng_seed: int, np.ndarray scalar, or jax.random.PRNGKey
+
     .. note::
 
         Unlike in Pyro, `numpyro.sample` primitive cannot be used without wrapping
@@ -333,27 +338,32 @@ class seed(Messenger):
     .. doctest::
 
        >>> # as context manager
-       >>> with handlers.seed(rng=1):
+       >>> with handlers.seed(rng_seed=1):
        ...     x = numpyro.sample('x', dist.Normal(0., 1.))
 
        >>> def model():
        ...     return numpyro.sample('y', dist.Normal(0., 1.))
 
        >>> # as function decorator (/modifier)
-       >>> y = seed(model, rng=1)()
+       >>> y = handlers.seed(model, rng_seed=1)()
        >>> assert x == y
     """
-    def __init__(self, fn=None, rng=None):
-        if isinstance(rng, int) or np.size(rng) == 1:
-            rng = random.PRNGKey(rng)
-        self.rng = rng
+    def __init__(self, fn=None, rng_seed=None, rng=None):
+        if rng is not None:
+            warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', DeprecationWarning)
+            rng_seed = rng
+        if isinstance(rng_seed, int) or (isinstance(rng_seed, np.ndarray) and not np.shape(rng_seed)):
+            rng_seed = random.PRNGKey(rng_seed)
+        if not (isinstance(rng_seed, np.ndarray) and rng_seed.dtype == np.uint32 and rng_seed.shape == (2,)):
+            raise TypeError('Incorrect type for rng_seed: {}'.format(type(rng_seed)))
+        self.rng_key = rng_seed
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
         if msg['type'] == 'sample' and not msg['is_observed'] and \
                 msg['kwargs']['random_state'] is None:
-            self.rng, rng_sample = random.split(self.rng)
-            msg['kwargs']['random_state'] = rng_sample
+            self.rng_key, rng_key_sample = random.split(self.rng_key)
+            msg['kwargs']['random_state'] = rng_key_sample
 
 
 class substitute(Messenger):

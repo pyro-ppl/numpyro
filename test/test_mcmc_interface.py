@@ -340,7 +340,7 @@ def test_chain_inside_jit(kernel_cls, chain_method):
         pytest.skip('parallel method requires device_count greater than 1.')
     warmup_steps, num_samples = 100, 2000
     # Here are settings which is currently supported.
-    rng = random.PRNGKey(2)
+    rng_key = random.PRNGKey(2)
     step_size = 1.
     target_accept_prob = 0.8
     trajectory_length = 1.
@@ -358,17 +358,17 @@ def test_chain_inside_jit(kernel_cls, chain_method):
         return p_latent
 
     @jit
-    def get_samples(rng, data, step_size, trajectory_length, target_accept_prob):
+    def get_samples(rng_key, data, step_size, trajectory_length, target_accept_prob):
         kernel = kernel_cls(model, step_size=step_size, trajectory_length=trajectory_length,
                             target_accept_prob=target_accept_prob)
         mcmc = MCMC(kernel, warmup_steps, num_samples, num_chains=2, chain_method=chain_method,
                     progress_bar=False)
-        mcmc.run(rng, data)
+        mcmc.run(rng_key, data)
         return mcmc.get_samples()
 
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
-    samples = get_samples(rng, data, step_size, trajectory_length, target_accept_prob)
+    samples = get_samples(rng_key, data, step_size, trajectory_length, target_accept_prob)
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
 
 

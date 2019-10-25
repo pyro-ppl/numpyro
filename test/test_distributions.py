@@ -47,6 +47,13 @@ def _mvn_to_scipy(loc, cov, prec, tril):
     return osp.multivariate_normal(mean=mean, cov=cov)
 
 
+def _lowrank_mvn_to_scipy(loc, cov_fac, cov_diag):
+    jax_dist = dist.LowRankMultivariateNormal(loc, cov_fac, cov_diag)
+    mean = jax_dist.mean
+    cov = jax_dist.covariance_matrix
+    return osp.multivariate_normal(mean=mean, cov=cov)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -66,6 +73,7 @@ _DIST_MAP = {
     dist.MultinomialLogits: lambda logits, total_count: osp.multinomial(n=total_count,
                                                                         p=_to_probs_multinom(logits)),
     dist.MultivariateNormal: _mvn_to_scipy,
+    dist.LowRankMultivariateNormal: _lowrank_mvn_to_scipy,
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
     dist.Pareto: lambda alpha, scale: osp.pareto(alpha, scale=scale),
     dist.Poisson: lambda rate: osp.poisson(rate),
@@ -117,6 +125,9 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, np.arange(6, dtype=np.float32).reshape((3, 2)), None, None,
       np.array([[1., 0.], [0., 1.]])),
     T(dist.MultivariateNormal, 0., None, np.broadcast_to(np.identity(3), (2, 3, 3)), None),
+    T(dist.LowRankMultivariateNormal, np.zeros(2), np.array([[1], [0]]), np.array([1, 1])),
+    T(dist.LowRankMultivariateNormal, np.arange(6, dtype=np.float32).reshape((2, 3)),
+      np.arange(6, dtype=np.float32).reshape((3, 2)), np.array([1, 2, 3])),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),
@@ -256,9 +267,9 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
 ])
 def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     jax_dist = jax_dist(*params)
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
-    samples = jax_dist.sample(key=rng, sample_shape=prepend_shape)
+    samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
     assert np.shape(samples) == expected_shape
     if sp_dist and not _is_batched_multivariate(jax_dist):
@@ -279,11 +290,11 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     repara_params = tuple(v for k, v in params_dict.items()
                           if k in jax_dist.reparametrized_params)
 
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
 
     def fn(args):
         args_dict = dict(zip(jax_dist.reparametrized_params, args))
-        return np.sum(jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng))
+        return np.sum(jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng_key))
 
     actual_grad = jax.grad(fn)(repara_params)
     assert len(actual_grad) == len(repara_params)
@@ -314,10 +325,10 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         reason='currently, variance of grad of t sampler is large')),
 ])
 def test_pathwise_gradient(jax_dist, sp_dist, params):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     N = 100
-    z = jax_dist(*params).sample(key=rng, sample_shape=(N,))
-    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng, sample_shape=(N,)))(params)
+    z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
+    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng_key, sample_shape=(N,)))(params)
     eps = 1e-3
     for i in range(len(params)):
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
@@ -337,8 +348,8 @@ def test_pathwise_gradient(jax_dist, sp_dist, params):
 def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     jit_fn = _identity if not jit else jax.jit
     jax_dist = jax_dist(*params)
-    rng = random.PRNGKey(0)
-    samples = jax_dist.sample(key=rng, sample_shape=prepend_shape)
+    rng_key = random.PRNGKey(0)
+    samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
     if not sp_dist:
         if isinstance(jax_dist, dist.TruncatedCauchy) or isinstance(jax_dist, dist.TruncatedNormal):
@@ -512,9 +523,9 @@ def test_gamma_poisson_log_prob(shape):
 def test_log_prob_gradient(jax_dist, sp_dist, params):
     if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip('we have separated tests for LKJCholesky distribution')
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
 
-    value = jax_dist(*params).sample(rng)
+    value = jax_dist(*params).sample(rng_key)
 
     def fn(*args):
         return np.sum(jax_dist(*args).log_prob(value))
@@ -743,8 +754,8 @@ def test_biject_to(constraint, shape):
         assert transform.codomain.lower_bound == constraint.lower_bound
     if len(shape) < event_dim:
         return
-    rng = random.PRNGKey(0)
-    x = random.normal(rng, shape)
+    rng_key = random.PRNGKey(0)
+    x = random.normal(rng_key, shape)
     y = transform(x)
 
     # test codomain
@@ -808,8 +819,8 @@ def test_biject_to(constraint, shape):
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_bijective_transforms(transform, event_shape, batch_shape):
     shape = batch_shape + event_shape
-    rng = random.PRNGKey(0)
-    x = biject_to(transform.domain)(random.normal(rng, shape))
+    rng_key = random.PRNGKey(0)
+    x = biject_to(transform.domain)(random.normal(rng_key, shape))
     y = transform(x)
 
     # test codomain
@@ -858,15 +869,15 @@ def test_transformed_transformed_distribution():
     assert isinstance(dist2.transforms[0], transforms.PowerTransform)
     assert isinstance(dist2.transforms[1], transforms.AffineTransform)
 
-    rng = random.PRNGKey(0)
-    assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
-    intermediates = dist2.sample_with_intermediates(rng)
+    rng_key = random.PRNGKey(0)
+    assert_allclose(loc + scale * dist1.sample(rng_key), dist2.sample(rng_key))
+    intermediates = dist2.sample_with_intermediates(rng_key)
     assert len(intermediates) == 2
 
 
-def _make_iaf(input_dim, hidden_dims, rng):
+def _make_iaf(input_dim, hidden_dims, rng_key):
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
-    _, init_params = arn_init(rng, (input_dim,))
+    _, init_params = arn_init(rng_key, (input_dim,))
     return InverseAutoregressiveTransform(partial(arn, init_params))
 
 
@@ -876,9 +887,9 @@ def _make_iaf(input_dim, hidden_dims, rng):
     [transforms.ComposeTransform([transforms.AffineTransform(-2, 3),
                                   transforms.ExpTransform()]),
      transforms.PowerTransform(3.)],
-    [_make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(0)),
+    [_make_iaf(5, hidden_dims=[10], rng_key=random.PRNGKey(0)),
      transforms.PermuteTransform(np.arange(5)[::-1]),
-     _make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(1))]
+     _make_iaf(5, hidden_dims=[10], rng_key=random.PRNGKey(1))]
 ])
 def test_compose_transform_with_intermediates(ts):
     transform = transforms.ComposeTransform(ts)

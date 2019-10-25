@@ -28,7 +28,7 @@ from numpyro.infer.util import init_to_uniform, initialize_model
 from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
-                                   'mean_accept_prob', 'diverging', 'adapt_state', 'rng'])
+                                   'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
 
@@ -54,7 +54,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
      iteration. In case of dense mass, this is the Cholesky factorization of the
      mass matrix.
 
- - **rng** - random number generator seed used for the iteration.
+ - **rng_key** - random number generator seed used for the iteration.
 """
 
 
@@ -65,8 +65,8 @@ def _get_num_steps(step_size, trajectory_length):
     return num_steps.astype(xla_bridge.canonicalize_dtype(np.int64))
 
 
-def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng):
-    eps = random.normal(rng, np.shape(mass_matrix_sqrt)[:1])
+def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng_key):
+    eps = random.normal(rng_key, np.shape(mass_matrix_sqrt)[:1])
     if mass_matrix_sqrt.ndim == 1:
         r = np.multiply(mass_matrix_sqrt, eps)
         return unpack_fn(r)
@@ -180,7 +180,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     max_tree_depth=10,
                     run_warmup=True,
                     progbar=True,
-                    rng=PRNGKey(0)):
+                    rng_key=PRNGKey(0)):
         """
         Initializes the HMC sampler.
 
@@ -210,7 +210,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             that does the initial adaptation.
         :param bool progbar: Whether to enable progress bar updates. Defaults to
             ``True``.
-        :param jax.random.PRNGKey rng: random key to be used as the source of
+        :param jax.random.PRNGKey rng_key: random key to be used as the source of
             randomness.
         """
         step_size = lax.convert_element_type(step_size, xla_bridge.canonicalize_dtype(np.float64))
@@ -233,13 +233,13 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                             target_accept_prob=target_accept_prob,
                                             find_reasonable_step_size=find_reasonable_ss)
 
-        rng_hmc, rng_wa = random.split(rng)
-        wa_state = wa_init(z, rng_wa, step_size, mass_matrix_size=np.size(z_flat))
-        r = momentum_generator(wa_state.mass_matrix_sqrt, rng)
+        rng_key_hmc, rng_key_wa = random.split(rng_key)
+        wa_state = wa_init(z, rng_key_wa, step_size, mass_matrix_size=np.size(z_flat))
+        r = momentum_generator(wa_state.mass_matrix_sqrt, rng_key)
         vv_state = vv_init(z, r)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
-                             0, 0., 0., False, wa_state, rng_hmc)
+                             0, 0., 0., False, wa_state, rng_key_hmc)
 
         # TODO: Remove; this should be the responsibility of the MCMC class.
         if run_warmup and num_warmup > 0:
@@ -253,7 +253,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                         t.set_postfix_str(get_diagnostics_str(hmc_state), refresh=False)
         return hmc_state
 
-    def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng):
+    def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng_key):
         num_steps = _get_num_steps(step_size, trajectory_len)
         vv_state_new = fori_loop(0, num_steps,
                                  lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
@@ -264,15 +264,15 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         delta_energy = np.where(np.isnan(delta_energy), np.inf, delta_energy)
         accept_prob = np.clip(np.exp(-delta_energy), a_max=1.0)
         diverging = delta_energy > max_delta_energy
-        transition = random.bernoulli(rng, accept_prob)
+        transition = random.bernoulli(rng_key, accept_prob)
         vv_state, energy = cond(transition,
                                 (vv_state_new, energy_new), lambda args: args,
                                 (vv_state, energy_old), lambda args: args)
         return vv_state, energy, num_steps, accept_prob, diverging
 
-    def _nuts_next(step_size, inverse_mass_matrix, vv_state, rng):
+    def _nuts_next(step_size, inverse_mass_matrix, vv_state, rng_key):
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
-                                 inverse_mass_matrix, step_size, rng,
+                                 inverse_mass_matrix, step_size, rng_key,
                                  max_delta_energy=max_delta_energy,
                                  max_tree_depth=max_treedepth)
         accept_prob = binary_tree.sum_accept_probs / binary_tree.num_proposals
@@ -294,12 +294,12 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         :return: new proposed :data:`~numpyro.infer.mcmc.HMCState` from simulating
             Hamiltonian dynamics given existing state.
         """
-        rng, rng_momentum, rng_transition = random.split(hmc_state.rng, 3)
-        r = momentum_generator(hmc_state.adapt_state.mass_matrix_sqrt, rng_momentum)
+        rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
+        r = momentum_generator(hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
                                                                     hmc_state.adapt_state.inverse_mass_matrix,
-                                                                    vv_state, rng_transition)
+                                                                    vv_state, rng_key_transition)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
                            (hmc_state.i, accept_prob, vv_state.z, hmc_state.adapt_state),
@@ -312,7 +312,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
 
         return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy, num_steps,
-                        accept_prob, mean_accept_prob, diverging, adapt_state, rng)
+                        accept_prob, mean_accept_prob, diverging, adapt_state, rng_key)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
@@ -410,13 +410,13 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
         kinetic_fn = sampler_kwargs.pop('kinetic_fn', None)
         algo = sampler_kwargs.pop('algo', 'NUTS')
         if num_chains > 1:
-            rngs = sampler_kwargs.pop('rng', vmap(PRNGKey)(np.arange(num_chains)))
+            rng_keys = sampler_kwargs.pop('rng_key', vmap(PRNGKey)(np.arange(num_chains)))
         else:
-            rng = sampler_kwargs.pop('rng', PRNGKey(0))
+            rng_key = sampler_kwargs.pop('rng_key', PRNGKey(0))
 
         init_kernel, sample_kernel = hmc(potential_fn, kinetic_fn, algo)
         if progbar:
-            hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, rng=rng,
+            hmc_state = init_kernel(init_params, num_warmup, progbar=progbar, rng_key=rng_key,
                                     **sampler_kwargs)
             samples_flat = fori_collect(0, num_samples, sample_kernel, hmc_state,
                                         transform=lambda x: constrain_fn(x.z),
@@ -425,8 +425,8 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                                         progbar_desc=lambda x: 'sample')
             samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
         else:
-            def single_chain_mcmc(rng, init_params):
-                hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, rng=rng,
+            def single_chain_mcmc(rng_key, init_params):
+                hmc_state = init_kernel(init_params, num_warmup, run_warmup=False, rng_key=rng_key,
                                         **sampler_kwargs)
                 samples = fori_collect(num_warmup, num_warmup + num_samples, sample_kernel, hmc_state,
                                        transform=lambda x: constrain_fn(x.z),
@@ -434,13 +434,13 @@ def mcmc(num_warmup, num_samples, init_params, num_chains=1, sampler='hmc',
                 return samples
 
             if num_chains == 1:
-                samples_flat = single_chain_mcmc(rng, init_params)
+                samples_flat = single_chain_mcmc(rng_key, init_params)
                 samples = tree_map(lambda x: x[np.newaxis, ...], samples_flat)
             else:
                 if sequential_chain:
-                    samples = lax.map(lambda args: single_chain_mcmc(*args), (rngs, init_params))
+                    samples = lax.map(lambda args: single_chain_mcmc(*args), (rng_keys, init_params))
                 else:
-                    samples = pmap(single_chain_mcmc)(rngs, init_params)
+                    samples = pmap(single_chain_mcmc)(rng_keys, init_params)
                 samples_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), samples)
 
         if print_summary:
@@ -458,7 +458,7 @@ class MCMCKernel(ABC):
     Defines the interface for the Markov transition kernel that is
     used for :class:`~numpyro.infer.MCMC` inference.
 
-    :param random.PRNGKey rng: Random number generator key to initialize
+    :param random.PRNGKey rng_key: Random number generator key to initialize
         the kernel.
     :param int num_warmup: Number of warmup steps. This can be useful
         when doing adaptation during warmup.
@@ -468,7 +468,7 @@ class MCMCKernel(ABC):
     :param model_kwargs: Keyword arguments provided to the model.
     """
     @abstractmethod
-    def init(self, rng, num_warmup, init_params, model_args, model_kwargs):
+    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         raise NotImplementedError
 
     @abstractmethod
@@ -547,15 +547,15 @@ class HMC(MCMCKernel):
         self.init_strategy = init_strategy
 
     @copy_docs_from(MCMCKernel.init)
-    def init(self, rng, num_warmup, init_params=None, model_args=(), model_kwargs={}):
+    def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         constrain_fn = None
         if self.model is not None:
-            if rng.ndim == 1:
-                rng, rng_init_model = random.split(rng)
+            if rng_key.ndim == 1:
+                rng_key, rng_key_init_model = random.split(rng_key)
             else:
-                rng, rng_init_model = np.swapaxes(vmap(random.split)(rng), 0, 1)
+                rng_key, rng_key_init_model = np.swapaxes(vmap(random.split)(rng_key), 0, 1)
             init_params_, self.potential_fn, constrain_fn = initialize_model(
-                rng_init_model, self.model, *model_args, init_strategy=self.init_strategy, **model_kwargs)
+                rng_key_init_model, self.model, *model_args, init_strategy=self.init_strategy, **model_kwargs)
             if init_params is None:
                 init_params = init_params_
         else:
@@ -564,7 +564,7 @@ class HMC(MCMCKernel):
                 raise ValueError('Valid value of `init_params` must be provided with'
                                  ' `potential_fn`.')
         hmc_init, sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
-        hmc_init_fn = lambda init_params, rng: hmc_init(  # noqa: E731
+        hmc_init_fn = lambda init_params, rng_key: hmc_init(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
             step_size=self.step_size,
@@ -575,16 +575,16 @@ class HMC(MCMCKernel):
             trajectory_length=self.trajectory_length,
             max_tree_depth=self.max_tree_depth,
             run_warmup=False,
-            rng=rng,
+            rng_key=rng_key,
         )
-        if rng.ndim == 1:
-            init_state = hmc_init_fn(init_params, rng)
+        if rng_key.ndim == 1:
+            init_state = hmc_init_fn(init_params, rng_key)
             self._sample_fn = sample_fn
         else:
             # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
-            # wa_steps because those variables do not depend on traced args: init_params, rng.
-            init_state = vmap(hmc_init_fn)(init_params, rng)
+            # wa_steps because those variables do not depend on traced args: init_params, rng_key.
+            init_state = vmap(hmc_init_fn)(init_params, rng_key)
             self._sample_fn = vmap(sample_fn)
         return init_state, constrain_fn
 
@@ -726,8 +726,8 @@ class MCMC(object):
         self._states_flat = None
 
     def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
-        rng, init_params = init
-        init_state, constrain_fn = self.sampler.init(rng, self.num_warmup, init_params,
+        rng_key, init_params = init
+        init_state, constrain_fn = self.sampler.init(rng_key, self.num_warmup, init_params,
                                                      model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
             constrain_fn = identity if constrain_fn is None else constrain_fn
@@ -741,18 +741,18 @@ class MCMC(object):
                               transform=collect_fn,
                               progbar=self.progress_bar,
                               progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
-                              diagnostics_fn=get_diagnostics_str if rng.ndim == 1 else None)
+                              diagnostics_fn=get_diagnostics_str if rng_key.ndim == 1 else None)
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
         states['z'] = vmap(constrain_fn)(states['z']) if len(tree_flatten(states)[0]) > 0 else states['z']
         return states
 
-    def run(self, rng, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
+    def run(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
         Run the MCMC samplers and collect samples.
 
-        :param random.PRNGKey rng: Random number generator key to be used for the sampling.
+        :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
         :param extra_fields: Extra fields (aside from `z`) from :data:`numpyro.infer.mcmc.HMCState`
@@ -784,11 +784,11 @@ class MCMC(object):
         assert isinstance(extra_fields, (tuple, list))
         collect_fields = ('z',) + tuple(extra_fields) if 'z' not in extra_fields else extra_fields
         if self.num_chains == 1:
-            states_flat = self._single_chain_mcmc((rng, init_params), collect_fields, collect_warmup,
+            states_flat = self._single_chain_mcmc((rng_key, init_params), collect_fields, collect_warmup,
                                                   args, kwargs)
             states = tree_map(lambda x: x[np.newaxis, ...], states_flat)
         else:
-            rngs = random.split(rng, self.num_chains)
+            rng_keys = random.split(rng_key, self.num_chains)
             partial_map_fn = partial(self._single_chain_mcmc,
                                      collect_fields=collect_fields,
                                      collect_warmup=collect_warmup,
@@ -806,7 +806,7 @@ class MCMC(object):
             else:
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')
-            states = map_fn((rngs, init_params))
+            states = map_fn((rng_keys, init_params))
             if chain_method == 'vectorized':
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: np.swapaxes(x, 0, 1), states)
