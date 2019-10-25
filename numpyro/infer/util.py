@@ -10,7 +10,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import ComposeTransform, biject_to
-from numpyro.handlers import block, condition, seed, substitute, trace
+from numpyro.handlers import block, seed, substitute, trace
 from numpyro.util import not_jax_tracer, while_loop
 
 __all__ = [
@@ -415,6 +415,30 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
     return init_params, potential_fn, constrain_fun
 
 
+def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,
+                parallel=True, model_args=(), model_kwargs={}):
+    rng_keys = random.split(rng_key, num_samples)
+
+    def single_prediction(val):
+        rng_key, samples = val
+        model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(
+            *model_args, **model_kwargs)
+        if return_sites is not None:
+            if return_sites == '':
+                sites = {k for k, site in model_trace.items() if site['type'] != 'plate'}
+            else:
+                sites = return_sites
+        else:
+            sites = {k for k, site in model_trace.items()
+                     if site['type'] != 'plate' and k not in samples}
+        return {name: site['value'] for name, site in model_trace.items() if name in sites}
+
+    if parallel:
+        return vmap(single_prediction)((rng_keys, posterior_samples))
+    else:
+        return lax.map(single_prediction, (rng_keys, posterior_samples))
+
+
 class Predictive(object):
     """
     This class is used to construct predictive distribution. The predictive distribution is obtained
@@ -437,7 +461,7 @@ class Predictive(object):
     :return: dict of samples from the predictive distribution.
     """
     def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
-                 return_sites=None, parallel=False):
+                 return_sites=None, parallel=True):
         if posterior_samples is None and num_samples is None:
             raise ValueError("Either posterior_samples or num_samples must be specified.")
 
@@ -461,20 +485,9 @@ class Predictive(object):
         self.posterior_samples = {} if posterior_samples is None else posterior_samples
         self.num_samples = num_samples
         self.guide = guide
-        self.params = params
+        self.params = {} if params is None else params
         self.return_sites = return_sites
         self.parallel = parallel
-
-    def _single_prediction(self, val, model_args=(), model_kwargs={}):
-        rng_key, samples = val
-        model_trace = trace(seed(condition(self.model, samples), rng_key)).get_trace(
-            *model_args, **model_kwargs)
-        if self.return_sites is not None:
-            sites = self.return_sites
-        else:
-            sites = {k for k, site in model_trace.items()
-                     if site['type'] != 'plate' and k not in samples}
-        return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
     def get_samples(self, rng_key, *args, **kwargs):
         """
@@ -486,11 +499,18 @@ class Predictive(object):
         :param args: model arguments.
         :param kwargs: model kwargs.
         """
-        rng_keys = random.split(rng_key, self.num_samples)
-        if self.parallel:
-            return vmap(self._single_prediction)((rng_keys, self.posterior_samples))
-        else:
-            return lax.map(self._single_prediction, (rng_keys, self.posterior_samples))
+        posterior_samples = self.posterior_samples
+        if self.guide is not None:
+            rng_key, guide_rng_key = random.split(rng_key)
+            # use return_sites='' as a special signal to return all sites
+            guide = substitute(self.guide, self.params)
+            posterior_samples = _predictive(guide_rng_key, guide, posterior_samples,
+                                            self.num_samples, return_sites='', parallel=self.parallel,
+                                            model_args=args, model_kwargs=kwargs)
+        model = substitute(self.model, self.params)
+        return _predictive(rng_key, model, posterior_samples, self.num_samples,
+                           return_sites=self.return_sites, parallel=self.parallel,
+                           model_args=args, model_kwargs=kwargs)
 
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):

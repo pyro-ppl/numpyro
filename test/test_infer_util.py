@@ -3,15 +3,15 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import lax, random
 import jax.numpy as np
 
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.distributions import transforms
+from numpyro.distributions import transforms, constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.util import (
     Predictive,
     constrain_fn,
@@ -25,6 +25,7 @@ from numpyro.infer.util import (
     transform_fn,
     transformed_potential_energy
 )
+import numpyro.optim as optim
 
 
 def beta_bernoulli():
@@ -57,6 +58,52 @@ def test_predictive(parallel):
     assert predictive_samples["obs"].shape == (100,) + data.shape
     # check sample mean
     assert_allclose(predictive_samples["obs"].reshape((-1,) + true_probs.shape).mean(0), true_probs, rtol=0.1)
+
+
+def test_predictive_with_guide():
+    data = np.array([1] * 8 + [0] * 2)
+
+    def model(data):
+        f = numpyro.sample("beta", dist.Beta(1., 1.))
+        with numpyro.plate("plate", 10):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    def guide(data):
+        alpha_q = numpyro.param("alpha_q", 1.0,
+                                constraint=constraints.positive)
+        beta_q = numpyro.param("beta_q", 1.0,
+                               constraint=constraints.positive)
+        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
+
+    svi = SVI(model, guide, optim.Adam(0.1), ELBO())
+    svi_state = svi.init(random.PRNGKey(1), data)
+
+    def body_fn(i, val):
+        svi_state, _ = svi.update(val, data)
+        return svi_state
+
+    svi_state = lax.fori_loop(0, 1000, body_fn, svi_state)
+    params = svi.get_params(svi_state)
+    predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
+    obs_pred = predictive.get_samples(random.PRNGKey(2), data=None)["obs"]
+    assert_allclose(np.mean(obs_pred), 0.8, atol=0.05)
+
+
+def test_predictive_with_improper():
+    true_coef = 0.9
+
+    def model(data):
+        alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
+        loc = numpyro.param('loc', 0., constraint=constraints.interval(0., alpha))
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
+
+    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
+    mcmc.run(random.PRNGKey(0), data)
+    samples = mcmc.get_samples()
+    obs_pred = Predictive(model, samples).get_samples(random.PRNGKey(1), data=None)["obs"]
+    assert_allclose(np.mean(obs_pred), true_coef, atol=0.05)
 
 
 def test_prior_predictive():
