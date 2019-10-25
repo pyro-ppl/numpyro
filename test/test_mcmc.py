@@ -20,7 +20,7 @@ from numpyro.util import fori_collect
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 @pytest.mark.parametrize('dense_mass', [False, True])
-def test_unnormalized_normal(kernel_cls, dense_mass):
+def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     true_mean, true_std = 1., 2.
     warmup_steps, num_samples = 1000, 8000
 
@@ -28,7 +28,7 @@ def test_unnormalized_normal(kernel_cls, dense_mass):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
     init_params = np.array(0.)
-    kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=9, dense_mass=dense_mass)
+    kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     hmc_states = mcmc.get_samples()
@@ -63,7 +63,7 @@ def test_correlated_mvn():
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-def test_logistic_regression(kernel_cls):
+def test_logistic_regression_x64(kernel_cls):
     N, dim = 3000, 3
     warmup_steps, num_samples = 1000, 8000
     data = random.normal(random.PRNGKey(0), (N, dim))
@@ -76,7 +76,7 @@ def test_logistic_regression(kernel_cls):
         logits = np.sum(coefs * data, axis=-1)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-    kernel = kernel_cls(model=model, trajectory_length=10)
+    kernel = kernel_cls(model=model, trajectory_length=8)
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(2), labels)
     samples = mcmc.get_samples()
@@ -121,7 +121,7 @@ def test_improper_normal():
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-def test_beta_bernoulli(kernel_cls):
+def test_beta_bernoulli_x64(kernel_cls):
     warmup_steps, num_samples = 500, 20000
 
     def model(data):
@@ -145,7 +145,7 @@ def test_beta_bernoulli(kernel_cls):
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 @pytest.mark.parametrize('dense_mass', [False, True])
-def test_dirichlet_categorical(kernel_cls, dense_mass):
+def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
     warmup_steps, num_samples = 100, 20000
 
     def model(data):
@@ -166,8 +166,7 @@ def test_dirichlet_categorical(kernel_cls, dense_mass):
         assert samples['p_latent'].dtype == np.float64
 
 
-@pytest.mark.xfail(reason='TODO: Fix this flaky test.')
-def test_change_point():
+def test_change_point_x64():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
     warmup_steps, num_samples = 500, 3000
 
@@ -204,7 +203,7 @@ def test_change_point():
 
 
 @pytest.mark.parametrize('with_logits', ['True', 'False'])
-def test_binomial_stable(with_logits):
+def test_binomial_stable_x64(with_logits):
     # Ref: https://github.com/pyro-ppl/pyro/issues/1706
     warmup_steps, num_samples = 200, 200
 
@@ -391,7 +390,7 @@ def test_extra_fields():
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
-def test_functional_beta_bernoulli(algo):
+def test_functional_beta_bernoulli_x64(algo):
     warmup_steps, num_samples = 500, 20000
 
     def model(data):
@@ -420,7 +419,7 @@ def test_functional_beta_bernoulli(algo):
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 @pytest.mark.parametrize('map_fn', [vmap, pmap])
-@pytest.mark.skipif('JAX_ENABLE_x64' in os.environ, reason='skip x64 test')
+@pytest.mark.skipif('XLA_FLAGS' not in os.environ, reason='without this mark, we have duplicated tests in Travis')
 def test_functional_map(algo, map_fn):
     if map_fn is pmap and xla_bridge.device_count() == 1:
         pytest.skip('pmap test requires device_count greater than 1.')
