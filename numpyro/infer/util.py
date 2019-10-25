@@ -495,7 +495,7 @@ class Predictive(object):
         contained in `posterior_samples` are returned. This can be modified by changing the
         `return_sites` keyword argument of this :class:`Predictive` instance.
 
-        :param jax.random.PRNGKey rng: random key to draw samples.
+        :param jax.random.PRNGKey rng_key: random key to draw samples.
         :param args: model arguments.
         :param kwargs: model kwargs.
         """
