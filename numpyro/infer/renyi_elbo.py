@@ -34,6 +34,7 @@ class RenyiELBO(object):
 
     def __init__(self, alpha=0, num_particles=2):
         if alpha == 1:
+            # Trace_ELBO is not implemented for numpyro, what to do here? 
             raise ValueError("The order alpha should not be equal to 1. Please use Trace_ELBO class"
                              "for the case alpha = 1.")
         self.alpha = alpha
@@ -58,7 +59,8 @@ class RenyiELBO(object):
 
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
-            renyi_elbo = 1 / (1. - self.alpha) * np.exp((1. - self.alpha) * elbo)
+            # not sure if this is numerically stable
+            renyi_elbo = np.exp((1. - self.alpha) * elbo) / (1. - self.alpha)
             return -renyi_elbo
 
         rng_keys = random.split(rng, self.num_particles)
