@@ -305,6 +305,14 @@ MultinomialProbs
     :show-inheritance:
     :member-order: bysource
 
+OrderedLogistic
+---------------
+.. autoclass:: numpyro.distributions.discrete.OrderedLogistic
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Poisson
 -------
 .. autoclass:: numpyro.distributions.discrete.Poisson
@@ -375,6 +383,10 @@ multinomial
 nonnegative_integer
 -------------------
 .. autodata:: numpyro.distributions.constraints.nonnegative_integer
+
+ordered_vector
+--------------
+.. autodata:: numpyro.distributions.constraints.ordered_vector
 
 positive
 --------
@@ -487,6 +499,14 @@ LowerCholeskyTransform
 MultivariateAffineTransform
 ---------------------------
 .. autoclass:: numpyro.distributions.transforms.MultivariateAffineTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+OrderedTransform
+----------------
+.. autoclass:: numpyro.distributions.transforms.OrderedTransform
     :members:
     :undoc-members:
     :show-inheritance:

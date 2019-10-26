@@ -27,7 +27,7 @@ from jax.lib import xla_bridge
 from jax.nn import softmax
 import jax.numpy as np
 import jax.random as random
-from jax.scipy.special import gammaln, logsumexp
+from jax.scipy.special import expit, gammaln, logsumexp
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -332,6 +332,33 @@ class Delta(Distribution):
     @property
     def variance(self):
         return np.zeros(self.batch_shape + self.event_shape)
+
+
+class OrderedLogistic(CategoricalProbs):
+    """
+    A categorical distribution with ordered outcomes.
+
+    **References:**
+
+    1. *Stan Functions Reference, v2.20 section 12.6*,
+       Stan Development Team
+
+    :param numpy.ndarray predictor: prediction in real domain; typically this is output
+        of a linear model.
+    :param numpy.ndarray cutpoints: positions in real domain to separate categories.
+    """
+    arg_constraints = {'predictor': constraints.real,
+                       'cutpoints': constraints.ordered_vector}
+
+    def __init__(self, predictor, cutpoints, validate_args=None):
+        predictor, self.cutpoints = promote_shapes(np.expand_dims(predictor, -1), cutpoints)
+        self.predictor = predictor[..., 0]
+        cumulative_probs = expit(cutpoints - predictor)
+        # add two boundary points 0 and 1
+        pad_width = [(0, 0)] * (np.ndim(cumulative_probs) - 1) + [(1, 1)]
+        cumulative_probs = np.pad(cumulative_probs, pad_width, constant_values=(0, 1))
+        probs = cumulative_probs[..., 1:] - cumulative_probs[..., :-1]
+        super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
 
 class PRNGIdentity(Distribution):

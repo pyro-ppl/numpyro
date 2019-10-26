@@ -37,6 +37,7 @@ from numpyro.distributions.discrete import (
     Multinomial,
     MultinomialLogits,
     MultinomialProbs,
+    OrderedLogistic,
     Poisson,
     PRNGIdentity,
     ZeroInflatedPoisson
@@ -82,6 +83,7 @@ __all__ = [
     'MultivariateNormal',
     'LowRankMultivariateNormal',
     'Normal',
+    'OrderedLogistic',
     'Pareto',
     'Poisson',
     'PRNGIdentity',

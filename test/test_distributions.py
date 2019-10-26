@@ -172,6 +172,8 @@ DISCRETE = [
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
     T(dist.MultinomialLogits, np.array([-1., 3.]), np.array([[5], [8]])),
+    T(dist.OrderedLogistic, -2, np.array([-10., 4., 9.])),
+    T(dist.OrderedLogistic, np.array([-4, 3, 4, 5]), np.array([-1.5])),
     T(dist.Poisson, 2.),
     T(dist.Poisson, np.array([2., 3., 5.])),
     T(dist.ZeroInflatedPoisson, 0.6, 2.),
@@ -219,6 +221,9 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._PositiveDefinite):
         x = random.normal(key, size)
         return np.matmul(x, np.swapaxes(x, -2, -1))
+    elif isinstance(constraint, constraints._OrderedVector):
+        x = np.cumsum(random.exponential(key, size), -1)
+        return x - random.normal(key, size[:-1])
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -255,6 +260,9 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.uniform(key, size)
     elif isinstance(constraint, constraints._PositiveDefinite):
         return random.normal(key, size)
+    elif isinstance(constraint, constraints._OrderedVector):
+        x = np.cumsum(random.exponential(key, size), -1)
+        return x[..., ::-1]
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -734,12 +742,13 @@ def test_constraints(constraint, x, expected):
     constraints.greater_than(2),
     constraints.interval(-3, 5),
     constraints.lower_cholesky,
+    constraints.ordered_vector,
     constraints.positive,
     constraints.positive_definite,
     constraints.real,
     constraints.simplex,
     constraints.unit_interval,
-])
+], ids=lambda x: x.__class__)
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
@@ -776,6 +785,9 @@ def test_biject_to(constraint, shape):
         if constraint is constraints.simplex:
             expected = onp.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
+        elif constraint is constraints.ordered_vector:
+            expected = onp.linalg.slogdet(jax.jacobian(transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
         elif constraint in [constraints.corr_cholesky, constraints.corr_matrix]:
             vec_transform = lambda x: matrix_to_tril_vec(transform(x), diagonal=-1)  # noqa: E731
             y_tril = matrix_to_tril_vec(y, diagonal=-1)
