@@ -50,7 +50,7 @@ def gelman_rubin(x):
     assert x.shape[0] >= 2
     assert x.shape[1] >= 2
     var_within, var_estimator = _compute_chain_variance_stats(x)
-    with onp.errstate(invalid="ignore"):
+    with onp.errstate(invalid="ignore", divide="ignore"):
         rhat = onp.sqrt(var_estimator / var_within)
     return rhat
 
@@ -124,7 +124,7 @@ def autocorrelation(x, axis=0):
     # truncate and normalize the result, then transpose back to original shape
     autocorr = autocorr[..., :N]
     autocorr = autocorr / onp.arange(N, 0., -1)
-    with onp.errstate(invalid="ignore"):
+    with onp.errstate(invalid="ignore", divide="ignore"):
         autocorr = autocorr / autocorr[..., :1]
     return onp.swapaxes(autocorr, axis, -1)
 
