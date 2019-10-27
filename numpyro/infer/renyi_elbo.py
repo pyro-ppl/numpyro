@@ -82,12 +82,40 @@ class RenyiELBO(ELBO):
         Computes the ELBO as well as the surrogate ELBO that is used to form the gradient estimator.
         Performs backward on the latter. Num_particle many samples are used to form the estimators.
         """
+        def single_particle_elbo(rng, stop_gradient=False):
+            model_seed, guide_seed = random.split(rng)
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+            guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
+            # NB: we only want to substitute params not available in guide_trace
+            model_param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
+            seeded_model = replay(seeded_model, guide_trace)
+            model_log_density, _ = log_density(seeded_model, args, kwargs, model_param_map)
+
+            # log p(z) - log q(z)
+            if stop_gradient:
+                elbo = stop_gradient(model_log_density) - stop_gradient(guide_log_density)
+            else:
+                elbo = model_log_density - guide_log_density
+            # Return (-elbo) since by convention we do gradient descent on a loss and
+            # the ELBO is a lower bound that needs to be maximized.
+            return -elbo
+
+        def single_particle_renyi_elbo(rng):
+            elbo = - single_particle_elbo(rng)
+            # not sure if this is numerically stable
+            renyi_elbo = np.exp((1. - self.alpha) * elbo) / (1. - self.alpha)
+            return -renyi_elbo
+
         rng_keys = random.split(rng, self.num_particles)
         stop_gradients = [True for i in range(self.num_particles)]
         # not sure how to pass multiple args into vmap
         elbo_particles = vmap(single_particle_elbo)(rng_keys, stop_gradients)
         surrogate_elbo_particles = vmap(single_particle_renyi_elbo)(rng_keys)
         log_weights = (1. - self.alpha) * elbo_particles
-        log_mean_weight = logsumexp(log_weights, axis=0) - math.log(self.num_particles)
+        log_mean_weight = logsumexp(log_weights, axis=0) - np.log(self.num_particles)
         elbo = np.sum(log_mean_weight) / (1. - self.alpha)
-
+        normalized_weights = np.exp(log_weights - log_mean_weight)
+        surrogate_elbo = np.sum(normalized_weights * surrogate_elbo_particles) / self.num_particles
+        surrogate_loss = -surrogate_elbo #what to do with this?
+        return -elbo
