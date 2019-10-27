@@ -1,6 +1,6 @@
 from jax import random, vmap
 from jax.lax import stop_gradient
-from jax.scipy.linalg import logsumexp
+from jax.scipy.special import logsumexp
 import jax.numpy as np
 from numpyro.infer.elbo import ELBO
 from numpyro.infer.util import log_density
