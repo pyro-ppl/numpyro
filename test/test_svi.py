@@ -3,43 +3,15 @@ from numpy.testing import assert_allclose
 from jax import jit, random
 import jax.numpy as np
 from jax.test_util import check_eq
-
+import pytest
 import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import ELBO, SVI
+from numpyro.infer import ELBO, SVI, RenyiELBO
 from numpyro.util import fori_loop
-
-
-def test_beta_bernoulli():
-    data = np.array([1.0] * 8 + [0.0] * 2)
-
-    def model(data):
-        f = numpyro.sample("beta", dist.Beta(1., 1.))
-        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
-
-    def guide(data):
-        alpha_q = numpyro.param("alpha_q", 1.0,
-                                constraint=constraints.positive)
-        beta_q = numpyro.param("beta_q", 1.0,
-                               constraint=constraints.positive)
-        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
-
-    adam = optim.Adam(0.05)
-    svi = SVI(model, guide, adam, ELBO())
-    svi_state = svi.init(random.PRNGKey(1), data)
-    assert_allclose(adam.get_params(svi_state.optim_state)['alpha_q'], 0.)
-
-    def body_fn(i, val):
-        svi_state, _ = svi.update(val, data)
-        return svi_state
-
-    svi_state = fori_loop(0, 300, body_fn, svi_state)
-    params = svi.get_params(svi_state)
-    assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
 
 @pytest.mark.parametrize('elbo', [ELBO(), RenyiELBO(num_particles=10)])

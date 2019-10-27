@@ -59,7 +59,7 @@ class RenyiELBO(ELBO):
             elbo = model_log_density - guide_log_density
             # Return (-elbo) since by convention we do gradient descent on a loss and
             # the ELBO is a lower bound that needs to be maximized.
-            return -elbo
+            return elbo
 
         rng_keys = random.split(rng, self.num_particles)
         elbos = vmap(single_particle_elbo)(rng_keys)
@@ -67,5 +67,4 @@ class RenyiELBO(ELBO):
         avg_log_exp = logsumexp(scaled_elbos) / self.num_particles
         weights = np.exp(scaled_elbos - avg_log_exp)
         renyi_elbo = avg_log_exp / (1. - self.alpha)
-        return stop_gradient(renyi_elbo - np.dot(weights, elbos)) + np.dot(stop_gradient(weights), elbos)
-        
+        return - (stop_gradient(renyi_elbo - np.dot(weights, elbos)) + np.dot(stop_gradient(weights), elbos))
