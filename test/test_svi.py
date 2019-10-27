@@ -1,6 +1,6 @@
 from numpy.testing import assert_allclose
 
-from jax import jit, random
+from jax import jit, random, value_and_grad
 import jax.numpy as np
 from jax.test_util import check_eq
 import pytest
@@ -13,6 +13,24 @@ from numpyro.handlers import substitute
 from numpyro.infer import ELBO, SVI, RenyiELBO
 from numpyro.util import fori_loop
 
+@pytest.mark.parametrize('alpha', [0., 2.])
+def test_renyi_elbo(alpha):
+    def model(x):
+        numpyro.sample("obs", dist.Normal(0, 1), obs=x)
+
+    def guide(x):
+        pass
+
+    def elbo_loss_fn(x):
+        return ELBO().loss(random.PRNGKey(0), {}, model, guide, x)
+
+    def renyi_loss_fn(x):
+        return RenyiELBO(alpha=alpha, num_particles=10).loss(random.PRNGKey(0), {}, model, guide, x)
+
+    elbo_loss, elbo_grad = value_and_grad(elbo_loss_fn)(2.)
+    renyi_loss, renyi_grad = value_and_grad(renyi_loss_fn)(2.)
+    assert_allclose(elbo_loss, renyi_loss)
+    assert_allclose(elbo_grad, renyi_grad)
 
 @pytest.mark.parametrize('elbo', [ELBO(), RenyiELBO(num_particles=10)])
 def test_beta_bernoulli(elbo):
