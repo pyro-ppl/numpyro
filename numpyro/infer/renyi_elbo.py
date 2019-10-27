@@ -1,11 +1,13 @@
-from jax import random, vmap, lax
+from jax import random, vmap
 from jax.lax import stop_gradient
 from jax.scipy.linalg import logsumexp
 import jax.numpy as np
+from numpyro.infer.elbo import ELBO
 from numpyro.infer.util import log_density
 from numpyro.handlers import replay, seed
 
-class RenyiELBO(object):
+
+class RenyiELBO(ELBO):
     r"""
     An implementation of Renyi's :math:`\alpha`-divergence variational inference
     following reference [1].
@@ -31,13 +33,11 @@ class RenyiELBO(object):
     """
 
     def __init__(self, alpha=0, num_particles=2):
-        #TODO: Handle case alpha == 0
         if alpha == 1:
-            # Trace_ELBO is not implemented for numpyro, what to do here? 
-            raise ValueError("The order alpha should not be equal to 1. Please use Trace_ELBO class"
+            raise ValueError("The order alpha should not be equal to 1. Please use ELBO class"
                              "for the case alpha = 1.")
         self.alpha = alpha
-        self.num_particles = num_particles
+        super(RenyiELBO, self).__init__(num_particles=num_particles)
 
     def loss(self, rng, param_map, model, guide, *args, **kwargs):
         r"""
@@ -60,10 +60,11 @@ class RenyiELBO(object):
             # Return (-elbo) since by convention we do gradient descent on a loss and
             # the ELBO is a lower bound that needs to be maximized.
             return -elbo
-            
+
         rng_keys = random.split(rng, self.num_particles)
         elbos = vmap(single_particle_elbo)(rng_keys)
         scaled_elbos = (1. - self.alpha) * elbos
-        weights = scaled_elbos - logsumexp(scaled_elbos)
-        renyi_elbo = np.mean(np.exp(logsumexp(scaled_elbos))) / (1. - self.alpha)
-        return stop_gradient(renyi_elbo - weights.dot(elbos)) + stop_gradient(weights).dot(elbos)
+        avg_log_exp = logsumexp(scaled_elbos) / self.num_particles
+        weights = np.exp(scaled_elbos - avg_log_exp)
+        renyi_elbo = avg_log_exp / (1. - self.alpha)
+        return stop_gradient(renyi_elbo - np.dot(weights, elbos)) + np.dot(stop_gradient(weights), elbos)
