@@ -15,3 +15,12 @@ ELBO
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+RenyiELBO
+---------
+
+.. autoclass:: numpyro.infer.renyi_elbo.RenyiELBO
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
