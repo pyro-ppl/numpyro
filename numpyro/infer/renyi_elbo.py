@@ -68,3 +68,4 @@ class RenyiELBO(ELBO):
         weights = np.exp(scaled_elbos - avg_log_exp)
         renyi_elbo = avg_log_exp / (1. - self.alpha)
         return stop_gradient(renyi_elbo - np.dot(weights, elbos)) + np.dot(stop_gradient(weights), elbos)
+        
