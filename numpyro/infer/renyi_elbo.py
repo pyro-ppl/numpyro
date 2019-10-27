@@ -67,4 +67,5 @@ class RenyiELBO(ELBO):
         avg_log_exp = logsumexp(scaled_elbos) - np.log(self.num_particles)
         weights = np.exp(scaled_elbos - avg_log_exp)
         renyi_elbo = avg_log_exp / (1. - self.alpha)
-        return - (stop_gradient(renyi_elbo - np.dot(weights, elbos)) + np.dot(stop_gradient(weights), elbos))
+        weighted_elbo = np.dot(stop_gradient(weights), elbos) / self.num_particles
+        return - (stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
