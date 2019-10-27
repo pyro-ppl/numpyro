@@ -1,4 +1,5 @@
 from numpyro.infer.elbo import ELBO
+from numpyro.infer.renyi_elbo import RenyiELBO
 from numpyro.infer.mcmc import HMC, MCMC, NUTS
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import (
@@ -20,6 +21,7 @@ __all__ = [
     'predictive',
     'log_likelihood',
     'ELBO',
+    'RenyiELBO',
     'HMC',
     'MCMC',
     'NUTS',
