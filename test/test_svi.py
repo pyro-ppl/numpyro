@@ -15,7 +15,7 @@ from numpyro.util import fori_loop
 
 
 @pytest.mark.parametrize('elbo', [ELBO(), RenyiELBO(num_particles=10)])
-def test_beta_bernoulli():
+def test_beta_bernoulli(elbo):
     data = np.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
@@ -30,7 +30,7 @@ def test_beta_bernoulli():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     adam = optim.Adam(0.05)
-    svi = SVI(model, guide, adam, 'elbo')
+    svi = SVI(model, guide, adam, elbo)
     svi_state = svi.init(random.PRNGKey(1), data)
     assert_allclose(adam.get_params(svi_state.optim_state)['alpha_q'], 0.)
 
