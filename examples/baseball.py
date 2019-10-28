@@ -9,7 +9,7 @@ from jax.scipy.special import logsumexp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.infer import MCMC, NUTS, log_likelihood, predictive
+from numpyro.infer import MCMC, NUTS, Predictive, log_likelihood
 
 
 """
@@ -132,7 +132,7 @@ def run_inference(model, at_bats, hits, rng_key, args):
 
 def predict(model, at_bats, hits, z, rng_key, player_names, train=True):
     header = model.__name__ + (' - TRAIN' if train else ' - TEST')
-    predictions = predictive(rng_key, model, z, at_bats)['obs']
+    predictions = Predictive(model, posterior_samples=z).get_samples(rng_key, at_bats)['obs']
     print_results('=' * 30 + header + '=' * 30,
                   predictions,
                   player_names,
