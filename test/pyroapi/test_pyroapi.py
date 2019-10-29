@@ -1,6 +1,7 @@
+import pytest
+
 from pyroapi import pyro_backend
 from pyroapi.tests import *  # noqa F401
-import pytest
 
 pytestmark = pytest.mark.filterwarnings("ignore::numpyro.compat.util.UnsupportedAPIWarning")
 

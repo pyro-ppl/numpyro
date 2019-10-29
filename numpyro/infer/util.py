@@ -5,13 +5,12 @@ import jax
 from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
-from jax.tree_util import tree_flatten
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import ComposeTransform, biject_to
-from numpyro.handlers import block, condition, seed, substitute, trace
+from numpyro.handlers import block, seed, substitute, trace
 from numpyro.util import not_jax_tracer, while_loop
 
 __all__ = [
@@ -25,7 +24,7 @@ __all__ = [
     'init_to_value',
     'potential_energy',
     'initialize_model',
-    'predictive',
+    'Predictive',
     'transformed_potential_energy',
 ]
 
@@ -268,16 +267,16 @@ def init_to_value(values):
     return partial(_init_to_value, values=values)
 
 
-def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform(),
+def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to_uniform(),
                               param_as_improper=False, prototype_params=None, **model_kwargs):
     """
     Given a model with Pyro primitives, returns an initial valid unconstrained
     parameters. This function also returns an `is_valid` flag to say whether the
     initial parameters are valid.
 
-    :param jax.random.PRNGKey rng: random number generator seed to
+    :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
-        batch shape ``rng.shape[:-1]``.
+        batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
@@ -329,9 +328,9 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         return i + 1, key, params, is_valid
 
     if prototype_params is not None:
-        init_state = (0, rng, prototype_params, False)
+        init_state = (0, rng_key, prototype_params, False)
     else:
-        _, _, prototype_params, is_valid = init_state = body_fn((0, rng, None, None))
+        _, _, prototype_params, is_valid = init_state = body_fn((0, rng_key, None, None))
         if not_jax_tracer(is_valid):
             if device_get(is_valid):
                 return prototype_params, is_valid
@@ -340,7 +339,7 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
     return init_params, is_valid
 
 
-def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
+def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative
@@ -349,9 +348,9 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
     transform unconstrained values at sample sites to constrained values
     within their respective support.
 
-    :param jax.random.PRNGKey rng: random number generator seed to
+    :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
-        batch shape ``rng.shape[:-1]``.
+        batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
@@ -362,7 +361,7 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
+    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
     constrained_values, inv_transforms = {}, {}
     has_transformed_dist = False
@@ -405,10 +404,10 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
                                          param_as_improper=True, prototype_params=prototype_params,
                                          **model_kwargs)
 
-    if rng.ndim == 1:
-        init_params, is_valid = single_chain_init(rng)
+    if rng_key.ndim == 1:
+        init_params, is_valid = single_chain_init(rng_key)
     else:
-        init_params, is_valid = lax.map(single_chain_init, rng)
+        init_params, is_valid = lax.map(single_chain_init, rng_key)
 
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
@@ -416,49 +415,102 @@ def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), *
     return init_params, potential_fn, constrain_fun
 
 
-def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
-    """
-    Run model by sampling latent parameters from `posterior_samples`, and return
-    values at sample sites from the forward run. By default, only sample sites not contained in
-    `posterior_samples` are returned. This can be modified by changing the `return_sites`
-    keyword argument.
+def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,
+                parallel=True, model_args=(), model_kwargs={}):
+    rng_keys = random.split(rng_key, num_samples)
 
-    .. warning::
-        The interface for the `predictive` function is experimental, and
-        might change in the future.
-
-    :param jax.random.PRNGKey rng: seed to draw samples
-    :param model: Python callable containing Pyro primitives.
-    :param dict posterior_samples: dictionary of samples from the posterior.
-    :param args: model arguments.
-    :param list return_sites: sites to return; by default only sample sites not present
-        in `posterior_samples` are returned.
-    :param int num_samples: number of samples
-    :param kwargs: model kwargs.
-    :return: dict of samples from the predictive distribution.
-    """
-    def single_prediction(rng, samples):
-        model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
+    def single_prediction(val):
+        rng_key, samples = val
+        model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(
+            *model_args, **model_kwargs)
         if return_sites is not None:
-            sites = return_sites
+            if return_sites == '':
+                sites = {k for k, site in model_trace.items() if site['type'] != 'plate'}
+            else:
+                sites = return_sites
         else:
             sites = {k for k, site in model_trace.items()
                      if site['type'] != 'plate' and k not in samples}
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
-    if posterior_samples:
-        batch_size = tree_flatten(posterior_samples)[0][0].shape[0]
-        if num_samples is not None and num_samples != batch_size:
-            warnings.warn("Sample's leading dimension size {} is different from the "
-                          "provided {} num_samples argument. Defaulting to {}."
-                          .format(batch_size, num_samples, batch_size), UserWarning)
-        num_samples = batch_size
+    if parallel:
+        return vmap(single_prediction)((rng_keys, posterior_samples))
+    else:
+        return lax.map(single_prediction, (rng_keys, posterior_samples))
 
-    if num_samples is None:
-        raise ValueError("No sample sites in model to infer `num_samples`.")
 
-    rngs = random.split(rng, num_samples)
-    return vmap(single_prediction)(rngs, posterior_samples)
+class Predictive(object):
+    """
+    This class is used to construct predictive distribution. The predictive distribution is obtained
+    by running model conditioned on latent samples from `posterior_samples`.
+
+    .. warning::
+        The interface for the `Predictive` class is experimental, and
+        might change in the future.
+
+    :param model: Python callable containing Pyro primitives.
+    :param dict posterior_samples: dictionary of samples from the posterior.
+    :param callable guide: optional guide to get posterior samples of sites not present
+        in `posterior_samples`.
+    :param dict params: dictionary of values for param sites of model/guide.
+    :param int num_samples: number of samples
+    :param list return_sites: sites to return; by default only sample sites not present
+        in `posterior_samples` are returned.
+    :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
+
+    :return: dict of samples from the predictive distribution.
+    """
+    def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
+                 return_sites=None, parallel=True):
+        if posterior_samples is None and num_samples is None:
+            raise ValueError("Either posterior_samples or num_samples must be specified.")
+
+        posterior_samples = {} if posterior_samples is None else posterior_samples
+
+        for name, sample in posterior_samples.items():
+            batch_size = sample.shape[0]
+            if (num_samples is not None) and (num_samples != batch_size):
+                warnings.warn("Sample's leading dimension size {} is different from the "
+                              "provided {} num_samples argument. Defaulting to {}."
+                              .format(batch_size, num_samples, batch_size), UserWarning)
+            num_samples = batch_size
+
+        if num_samples is None:
+            raise ValueError("No sample sites in posterior samples to infer `num_samples`.")
+
+        if return_sites is not None:
+            assert isinstance(return_sites, (list, tuple, set))
+
+        self.model = model
+        self.posterior_samples = {} if posterior_samples is None else posterior_samples
+        self.num_samples = num_samples
+        self.guide = guide
+        self.params = {} if params is None else params
+        self.return_sites = return_sites
+        self.parallel = parallel
+
+    def get_samples(self, rng_key, *args, **kwargs):
+        """
+        Returns dict of samples from the predictive distribution. By default, only sample sites not
+        contained in `posterior_samples` are returned. This can be modified by changing the
+        `return_sites` keyword argument of this :class:`Predictive` instance.
+
+        :param jax.random.PRNGKey rng_key: random key to draw samples.
+        :param args: model arguments.
+        :param kwargs: model kwargs.
+        """
+        posterior_samples = self.posterior_samples
+        if self.guide is not None:
+            rng_key, guide_rng_key = random.split(rng_key)
+            # use return_sites='' as a special signal to return all sites
+            guide = substitute(self.guide, self.params)
+            posterior_samples = _predictive(guide_rng_key, guide, posterior_samples,
+                                            self.num_samples, return_sites='', parallel=self.parallel,
+                                            model_args=args, model_kwargs=kwargs)
+        model = substitute(self.model, self.params)
+        return _predictive(rng_key, model, posterior_samples, self.num_samples,
+                           return_sites=self.return_sites, parallel=self.parallel,
+                           model_args=args, model_kwargs=kwargs)
 
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):

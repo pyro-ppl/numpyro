@@ -55,20 +55,20 @@ def model(X, Y, D_H):
 
 
 # helper function for HMC inference
-def run_inference(model, args, rng, X, Y, D_H):
+def run_inference(model, args, rng_key, X, Y, D_H):
     if args.num_chains > 1:
-        rng = random.split(rng, args.num_chains)
+        rng_key = random.split(rng_key, args.num_chains)
     start = time.time()
     kernel = NUTS(model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
-    mcmc.run(rng, X, Y, D_H)
+    mcmc.run(rng_key, X, Y, D_H)
     print('\nMCMC elapsed time:', time.time() - start)
     return mcmc.get_samples()
 
 
 # helper function for prediction
-def predict(model, rng, samples, X, D_H):
-    model = handlers.substitute(handlers.seed(model, rng), samples)
+def predict(model, rng_key, samples, X, D_H):
+    model = handlers.substitute(handlers.seed(model, rng_key), samples)
     # note that Y will be sampled in the model because we pass Y=None here
     model_trace = handlers.trace(model).get_trace(X=X, Y=None, D_H=D_H)
     return model_trace['Y']['value']
@@ -101,12 +101,12 @@ def main(args):
     X, Y, X_test = get_data(N=N, D_X=D_X)
 
     # do inference
-    rng, rng_predict = random.split(random.PRNGKey(0))
-    samples = run_inference(model, args, rng, X, Y, D_H)
+    rng_key, rng_key_predict = random.split(random.PRNGKey(0))
+    samples = run_inference(model, args, rng_key, X, Y, D_H)
 
     # predict Y_test at inputs X_test
-    vmap_args = (samples, random.split(rng_predict, args.num_samples * args.num_chains))
-    predictions = vmap(lambda samples, rng: predict(model, rng, samples, X_test, D_H))(*vmap_args)
+    vmap_args = (samples, random.split(rng_key_predict, args.num_samples * args.num_chains))
+    predictions = vmap(lambda samples, rng_key: predict(model, rng_key, samples, X_test, D_H))(*vmap_args)
     predictions = predictions[..., 0]
 
     # compute mean prediction and confidence interval around median

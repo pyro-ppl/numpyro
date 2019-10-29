@@ -4,6 +4,7 @@ from jax import jit
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.compat.pyro import get_param_store
 from numpyro.infer import elbo, mcmc, svi
 
 
@@ -85,10 +86,10 @@ class MCMC(object):
                                num_chains=num_chains,
                                progress_bar=(not disable_progbar))
 
-    def run(self, *args, rng=None, **kwargs):
-        if rng is None:
-            rng = numpyro.sample('mcmc.run', dist.PRNGIdentity())
-        self._mcmc.run(rng, *args, init_params=self._initial_params, **kwargs)
+    def run(self, *args, rng_key=None, **kwargs):
+        if rng_key is None:
+            rng_key = numpyro.sample('mcmc.run', dist.PRNGIdentity())
+        self._mcmc.run(rng_key, *args, init_params=self._initial_params, **kwargs)
 
     def get_samples(self, num_samples=None, group_by_chain=False):
         if num_samples is not None:
@@ -118,11 +119,11 @@ class SVI(svi.SVI):
     def evaluate_loss(self, *args, **kwargs):
         return self.evaluate(self.svi_state, *args, **kwargs)
 
-    def step(self, *args, rng=None, **kwargs):
+    def step(self, *args, rng_key=None, **kwargs):
         if self.svi_state is None:
-            if rng is None:
-                rng = numpyro.sample('svi.init', dist.PRNGIdentity())
-            self.svi_state = self.init(rng, *args, **kwargs)
+            if rng_key is None:
+                rng_key = numpyro.sample('svi.init', dist.PRNGIdentity())
+            self.svi_state = self.init(rng_key, *args, **kwargs)
         try:
             self.svi_state, loss = jit(self.update)(self.svi_state, *args, **kwargs)
         except TypeError as e:
@@ -131,6 +132,8 @@ class SVI(svi.SVI):
                                 'dicts of arrays.')
             else:
                 raise e
+        params = jit(super(SVI, self).get_params)(self.svi_state)
+        get_param_store().update(params)
         return loss
 
     def get_params(self):

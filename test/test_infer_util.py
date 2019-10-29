@@ -3,16 +3,17 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import lax, random
 import jax.numpy as np
 
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.distributions import transforms
+from numpyro.distributions import transforms, constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.util import (
+    Predictive,
     constrain_fn,
     init_to_feasible,
     init_to_median,
@@ -21,10 +22,10 @@ from numpyro.infer.util import (
     initialize_model,
     log_likelihood,
     potential_energy,
-    predictive,
     transform_fn,
     transformed_potential_energy
 )
+import numpyro.optim as optim
 
 
 def beta_bernoulli():
@@ -40,16 +41,18 @@ def beta_bernoulli():
     return model, data, true_probs
 
 
-def test_predictive():
+@pytest.mark.parametrize('parallel', [True, False])
+def test_predictive(parallel):
     model, data, true_probs = beta_bernoulli()
     mcmc = MCMC(NUTS(model), num_warmup=100, num_samples=100)
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
-    predictive_samples = predictive(random.PRNGKey(1), model, samples)
+    predictive = Predictive(model, samples, parallel=parallel)
+    predictive_samples = predictive.get_samples(random.PRNGKey(1))
     assert predictive_samples.keys() == {"obs"}
 
-    predictive_samples = predictive(random.PRNGKey(1), model, samples,
-                                    return_sites=["beta", "obs"])
+    predictive.return_sites = ["beta", "obs"]
+    predictive_samples = predictive.get_samples(random.PRNGKey(1))
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape
     assert predictive_samples["obs"].shape == (100,) + data.shape
@@ -57,9 +60,55 @@ def test_predictive():
     assert_allclose(predictive_samples["obs"].reshape((-1,) + true_probs.shape).mean(0), true_probs, rtol=0.1)
 
 
+def test_predictive_with_guide():
+    data = np.array([1] * 8 + [0] * 2)
+
+    def model(data):
+        f = numpyro.sample("beta", dist.Beta(1., 1.))
+        with numpyro.plate("plate", 10):
+            numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    def guide(data):
+        alpha_q = numpyro.param("alpha_q", 1.0,
+                                constraint=constraints.positive)
+        beta_q = numpyro.param("beta_q", 1.0,
+                               constraint=constraints.positive)
+        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
+
+    svi = SVI(model, guide, optim.Adam(0.1), ELBO())
+    svi_state = svi.init(random.PRNGKey(1), data)
+
+    def body_fn(i, val):
+        svi_state, _ = svi.update(val, data)
+        return svi_state
+
+    svi_state = lax.fori_loop(0, 1000, body_fn, svi_state)
+    params = svi.get_params(svi_state)
+    predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
+    obs_pred = predictive.get_samples(random.PRNGKey(2), data=None)["obs"]
+    assert_allclose(np.mean(obs_pred), 0.8, atol=0.05)
+
+
+def test_predictive_with_improper():
+    true_coef = 0.9
+
+    def model(data):
+        alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
+        loc = numpyro.param('loc', 0., constraint=constraints.interval(0., alpha))
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
+
+    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
+    mcmc.run(random.PRNGKey(0), data)
+    samples = mcmc.get_samples()
+    obs_pred = Predictive(model, samples).get_samples(random.PRNGKey(1), data=None)["obs"]
+    assert_allclose(np.mean(obs_pred), true_coef, atol=0.05)
+
+
 def test_prior_predictive():
     model, data, true_probs = beta_bernoulli()
-    predictive_samples = predictive(random.PRNGKey(1), model, {}, num_samples=100)
+    predictive_samples = Predictive(model, num_samples=100).get_samples(random.PRNGKey(1))
     assert predictive_samples.keys() == {"beta", "obs"}
 
     # check shapes
@@ -69,7 +118,7 @@ def test_prior_predictive():
 
 def test_log_likelihood():
     model, data, _ = beta_bernoulli()
-    samples = predictive(random.PRNGKey(1), model, {}, return_sites=["beta"], num_samples=100)
+    samples = Predictive(model, return_sites=["beta"], num_samples=100).get_samples(random.PRNGKey(1))
     loglik = log_likelihood(model, samples, data)
     assert loglik.keys() == {"obs"}
     # check shapes
@@ -142,11 +191,11 @@ def test_initialize_model_change_point(init_strategy):
         5,  14,  13,  22,
     ])
 
-    rngs = random.split(random.PRNGKey(1), 2)
-    init_params, _, _ = initialize_model(rngs, model, count_data,
+    rng_keys = random.split(random.PRNGKey(1), 2)
+    init_params, _, _ = initialize_model(rng_keys, model, count_data,
                                          init_strategy=init_strategy)
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rngs[i], model, count_data,
+        init_params_i, _, _ = initialize_model(rng_keys[i], model, count_data,
                                                init_strategy=init_strategy)
         for name, p in init_params.items():
             # XXX: the result is equal if we disable fast-math-mode
@@ -169,11 +218,11 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
     true_probs = np.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
 
-    rngs = random.split(random.PRNGKey(1), 2)
-    init_params, _, _ = initialize_model(rngs, model, data,
+    rng_keys = random.split(random.PRNGKey(1), 2)
+    init_params, _, _ = initialize_model(rng_keys, model, data,
                                          init_strategy=init_strategy)
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rngs[i], model, data,
+        init_params_i, _, _ = initialize_model(rng_keys[i], model, data,
                                                init_strategy=init_strategy)
         for name, p in init_params.items():
             # XXX: the result is equal if we disable fast-math-mode

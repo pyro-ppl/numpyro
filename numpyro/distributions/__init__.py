@@ -1,4 +1,5 @@
 import numpyro.distributions.constraints  # noqa: F401
+from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -14,6 +15,7 @@ from numpyro.distributions.continuous import (
     LKJCholesky,
     LogNormal,
     MultivariateNormal,
+    LowRankMultivariateNormal,
     Normal,
     Pareto,
     StudentT,
@@ -35,8 +37,10 @@ from numpyro.distributions.discrete import (
     Multinomial,
     MultinomialLogits,
     MultinomialProbs,
+    OrderedLogistic,
     Poisson,
-    PRNGIdentity
+    PRNGIdentity,
+    ZeroInflatedPoisson
 )
 from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
 import numpyro.distributions.transforms  # noqa: F401
@@ -50,6 +54,7 @@ __all__ = [
     'BernoulliLogits',
     'BernoulliProbs',
     'Beta',
+    'BetaBinomial',
     'Binomial',
     'BinomialLogits',
     'BinomialProbs',
@@ -63,6 +68,7 @@ __all__ = [
     'Distribution',
     'Exponential',
     'Gamma',
+    'GammaPoisson',
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
@@ -75,7 +81,9 @@ __all__ = [
     'MultinomialLogits',
     'MultinomialProbs',
     'MultivariateNormal',
+    'LowRankMultivariateNormal',
     'Normal',
+    'OrderedLogistic',
     'Pareto',
     'Poisson',
     'PRNGIdentity',
@@ -84,4 +92,5 @@ __all__ = [
     'TruncatedCauchy',
     'TruncatedNormal',
     'Uniform',
+    'ZeroInflatedPoisson',
 ]
