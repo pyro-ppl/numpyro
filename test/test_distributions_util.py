@@ -97,8 +97,8 @@ def test_binary_cross_entropy_with_logits(x, y):
     (5, 3),
 ])
 def test_cumsum_jac(shape):
-    rng = random.PRNGKey(0)
-    x = random.normal(rng, shape=shape)
+    rng_key = random.PRNGKey(0)
+    x = random.normal(rng_key, shape=shape)
 
     def test_fn(x):
         return np.stack([x[..., 0], x[..., 0] + x[..., 1], x[..., 0] + x[..., 1] + x[..., 2]], -1)
@@ -112,8 +112,8 @@ def test_cumsum_jac(shape):
     (5, 3),
 ])
 def test_cumprod_jac(shape):
-    rng = random.PRNGKey(0)
-    x = random.uniform(rng, shape=shape)
+    rng_key = random.PRNGKey(0)
+    x = random.uniform(rng_key, shape=shape)
 
     def test_fn(x):
         return np.stack([x[..., 0], x[..., 0] * x[..., 1], x[..., 0] * x[..., 1] * x[..., 2]], -1)
@@ -150,8 +150,8 @@ def test_binop_batch_rule(prim):
     cumprod,
 ])
 def test_unop_batch_rule(prim):
-    rng = random.PRNGKey(0)
-    bx = random.normal(rng, (3, 5))
+    rng_key = random.PRNGKey(0)
+    bx = random.normal(rng_key, (3, 5))
 
     actual = vmap(prim)(bx)
     for i in range(3):
@@ -165,9 +165,9 @@ def test_unop_batch_rule(prim):
     (np.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
 ])
 def test_categorical_shape(p, shape):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     expected_shape = lax.broadcast_shapes(p.shape[:-1], shape)
-    assert np.shape(categorical(rng, p, shape)) == expected_shape
+    assert np.shape(categorical(rng_key, p, shape)) == expected_shape
 
 
 @pytest.mark.parametrize("p", [
@@ -175,9 +175,9 @@ def test_categorical_shape(p, shape):
     np.array([0.8, 0.1, 0.1]),
 ])
 def test_categorical_stats(p):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     n = 10000
-    z = categorical(rng, p, (n,))
+    z = categorical(rng_key, p, (n,))
     _, counts = onp.unique(z, return_counts=True)
     assert_allclose(counts / float(n), p, atol=0.01)
 
@@ -189,10 +189,10 @@ def test_categorical_stats(p):
     (np.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
 ])
 def test_multinomial_shape(p, shape):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     n = 10000
     expected_shape = lax.broadcast_shapes(p.shape[:-1], shape) + p.shape[-1:]
-    assert np.shape(multinomial(rng, p, n, shape)) == expected_shape
+    assert np.shape(multinomial(rng_key, p, n, shape)) == expected_shape
 
 
 @pytest.mark.parametrize("p", [
@@ -204,8 +204,8 @@ def test_multinomial_shape(p, shape):
     np.array([10000, 20000]),
 ])
 def test_multinomial_stats(p, n):
-    rng = random.PRNGKey(0)
-    z = multinomial(rng, p, n)
+    rng_key = random.PRNGKey(0)
+    z = multinomial(rng_key, p, n)
     n = float(n) if isinstance(n, Number) else np.expand_dims(n.astype(p.dtype), -1)
     p = np.broadcast_to(p, z.shape)
     assert_allclose(z / n, p, atol=0.01)
@@ -222,8 +222,8 @@ def test_multinomial_stats(p, n):
     -2,
 ])
 def test_vec_to_tril_matrix(shape, diagonal):
-    rng = random.PRNGKey(0)
-    x = random.normal(rng, shape)
+    rng_key = random.PRNGKey(0)
+    x = random.normal(rng_key, shape)
     actual = vec_to_tril_matrix(x, diagonal)
     expected = onp.zeros(shape[:-1] + actual.shape[-2:])
     tril_idxs = onp.tril_indices(expected.shape[-1], diagonal)

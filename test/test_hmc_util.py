@@ -216,14 +216,14 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     def potential_fn(q):
         return 0.5 * q ** 2
 
-    p_generator = lambda m_inv, rng: 1.0  # noqa: E731
+    p_generator = lambda m_inv, rng_key: 1.0  # noqa: E731
     q = 0.0
     m_inv = np.array([1.])
 
     fn = (jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
           if jitted else find_reasonable_step_size)
-    rng = random.PRNGKey(0)
-    step_size = fn(potential_fn, kinetic_fn, p_generator, m_inv, q, rng, init_step_size)
+    rng_key = random.PRNGKey(0)
+    step_size = fn(potential_fn, kinetic_fn, p_generator, m_inv, q, rng_key, init_step_size)
 
     # Apply 1 velocity verlet step with step_size=eps, we have
     # z_new = eps, r_new = 1 - eps^2 / 2, hence energy_new = 0.5 + eps^4 / 8,
@@ -261,7 +261,7 @@ def test_build_adaptation_schedule(num_steps, expected):
     pytest.param(False, marks=pytest.mark.skipif("CI" in os.environ, reason="slow in Travis"))
 ])
 def test_warmup_adapter(jitted):
-    def find_reasonable_step_size(m_inv, z, rng, step_size):
+    def find_reasonable_step_size(m_inv, z, rng_key, step_size):
         return np.where(step_size < 1, step_size * 4, step_size / 4)
 
     num_steps = 150
@@ -272,11 +272,11 @@ def test_warmup_adapter(jitted):
     wa_init, wa_update = warmup_adapter(num_steps, find_reasonable_step_size)
     wa_update = jit(wa_update) if jitted else wa_update
 
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     z = np.ones(3)
-    wa_state = wa_init(z, rng, init_step_size, mass_matrix_size=mass_matrix_size)
+    wa_state = wa_init(z, rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
     step_size, inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
-    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, rng, init_step_size)
+    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, rng_key, init_step_size)
     assert_allclose(inverse_mass_matrix, np.ones(mass_matrix_size))
     assert window_idx == 0
 
@@ -364,12 +364,12 @@ def test_build_tree(step_size):
     vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     vv_state = vv_init(0.0, 1.0)
     inverse_mass_matrix = np.array([1.])
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
 
     @jit
     def fn(vv_state):
         tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix,
-                          step_size, rng)
+                          step_size, rng_key)
         return tree
 
     tree = fn(vv_state)

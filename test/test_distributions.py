@@ -12,6 +12,7 @@ import jax
 from jax import grad, jacfwd, lax, vmap
 import jax.numpy as np
 import jax.random as random
+from jax.scipy.special import logsumexp
 
 from numpyro.contrib.nn import AutoregressiveNN
 import numpyro.distributions as dist
@@ -46,6 +47,13 @@ def _mvn_to_scipy(loc, cov, prec, tril):
     return osp.multivariate_normal(mean=mean, cov=cov)
 
 
+def _lowrank_mvn_to_scipy(loc, cov_fac, cov_diag):
+    jax_dist = dist.LowRankMultivariateNormal(loc, cov_fac, cov_diag)
+    mean = jax_dist.mean
+    cov = jax_dist.covariance_matrix
+    return osp.multivariate_normal(mean=mean, cov=cov)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -65,6 +73,7 @@ _DIST_MAP = {
     dist.MultinomialLogits: lambda logits, total_count: osp.multinomial(n=total_count,
                                                                         p=_to_probs_multinom(logits)),
     dist.MultivariateNormal: _mvn_to_scipy,
+    dist.LowRankMultivariateNormal: _lowrank_mvn_to_scipy,
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
     dist.Pareto: lambda alpha, scale: osp.pareto(alpha, scale=scale),
     dist.Poisson: lambda rate: osp.poisson(rate),
@@ -116,6 +125,9 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, np.arange(6, dtype=np.float32).reshape((3, 2)), None, None,
       np.array([[1., 0.], [0., 1.]])),
     T(dist.MultivariateNormal, 0., None, np.broadcast_to(np.identity(3), (2, 3, 3)), None),
+    T(dist.LowRankMultivariateNormal, np.zeros(2), np.array([[1], [0]]), np.array([1, 1])),
+    T(dist.LowRankMultivariateNormal, np.arange(6, dtype=np.float32).reshape((2, 3)),
+      np.arange(6, dtype=np.float32).reshape((3, 2)), np.array([1, 2, 3])),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., np.array([1., 2.])),
     T(dist.Normal, np.array([0., 1.]), np.array([[1.], [2.]])),
@@ -138,6 +150,8 @@ CONTINUOUS = [
 
 
 DISCRETE = [
+    T(dist.BetaBinomial, 2., 5., 10),
+    T(dist.BetaBinomial, np.array([2., 4.]), np.array([5., 3.]), np.array([10, 12])),
     T(dist.BernoulliProbs, 0.2),
     T(dist.BernoulliProbs, np.array([0.2, 0.7])),
     T(dist.BernoulliLogits, np.array([-1., 3.])),
@@ -153,11 +167,17 @@ DISCRETE = [
     T(dist.Delta, np.array([0., 2.])),
     T(dist.Delta, np.array([0., 2.]), np.array([-2., -4.])),
     T(dist.CategoricalLogits, np.array([[-1, 2., 3.], [3., -4., -2.]])),
+    T(dist.GammaPoisson, 2., 2.),
+    T(dist.GammaPoisson, np.array([6., 2]), np.array([2., 8.])),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, np.array([0.2, 0.7, 0.1]), np.array([5, 8])),
     T(dist.MultinomialLogits, np.array([-1., 3.]), np.array([[5], [8]])),
+    T(dist.OrderedLogistic, -2, np.array([-10., 4., 9.])),
+    T(dist.OrderedLogistic, np.array([-4, 3, 4, 5]), np.array([-1.5])),
     T(dist.Poisson, 2.),
     T(dist.Poisson, np.array([2., 3., 5.])),
+    T(dist.ZeroInflatedPoisson, 0.6, 2.),
+    T(dist.ZeroInflatedPoisson, np.array([0.2, 0.7, 0.3]), np.array([2., 3., 5.])),
 ]
 
 
@@ -201,6 +221,9 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
     elif isinstance(constraint, constraints._PositiveDefinite):
         x = random.normal(key, size)
         return np.matmul(x, np.swapaxes(x, -2, -1))
+    elif isinstance(constraint, constraints._OrderedVector):
+        x = np.cumsum(random.exponential(key, size), -1)
+        return x - random.normal(key, size[:-1])
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -237,6 +260,9 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.uniform(key, size)
     elif isinstance(constraint, constraints._PositiveDefinite):
         return random.normal(key, size)
+    elif isinstance(constraint, constraints._OrderedVector):
+        x = np.cumsum(random.exponential(key, size), -1)
+        return x[..., ::-1]
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -249,9 +275,9 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
 ])
 def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     jax_dist = jax_dist(*params)
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     expected_shape = prepend_shape + jax_dist.batch_shape + jax_dist.event_shape
-    samples = jax_dist.sample(key=rng, sample_shape=prepend_shape)
+    samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
     assert np.shape(samples) == expected_shape
     if sp_dist and not _is_batched_multivariate(jax_dist):
@@ -272,11 +298,11 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     repara_params = tuple(v for k, v in params_dict.items()
                           if k in jax_dist.reparametrized_params)
 
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
 
     def fn(args):
         args_dict = dict(zip(jax_dist.reparametrized_params, args))
-        return np.sum(jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng))
+        return np.sum(jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng_key))
 
     actual_grad = jax.grad(fn)(repara_params)
     assert len(actual_grad) == len(repara_params)
@@ -307,10 +333,10 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         reason='currently, variance of grad of t sampler is large')),
 ])
 def test_pathwise_gradient(jax_dist, sp_dist, params):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     N = 100
-    z = jax_dist(*params).sample(key=rng, sample_shape=(N,))
-    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng, sample_shape=(N,)))(params)
+    z = jax_dist(*params).sample(key=rng_key, sample_shape=(N,))
+    actual_grad = jacfwd(lambda x: jax_dist(*x).sample(key=rng_key, sample_shape=(N,)))(params)
     eps = 1e-3
     for i in range(len(params)):
         args_lhs = [p if j != i else p - eps for j, p in enumerate(params)]
@@ -330,8 +356,8 @@ def test_pathwise_gradient(jax_dist, sp_dist, params):
 def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     jit_fn = _identity if not jit else jax.jit
     jax_dist = jax_dist(*params)
-    rng = random.PRNGKey(0)
-    samples = jax_dist.sample(key=rng, sample_shape=prepend_shape)
+    rng_key = random.PRNGKey(0)
+    samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
     if not sp_dist:
         if isinstance(jax_dist, dist.TruncatedCauchy) or isinstance(jax_dist, dist.TruncatedNormal):
@@ -452,13 +478,62 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=1e-7)
 
 
+@pytest.mark.parametrize('rate', [0.1, 0.5, 0.9, 1.0, 1.1, 2.0, 10.0])
+def test_ZIP_log_prob(rate):
+    # if gate is 0 ZIP is Poisson
+    zip_ = dist.ZeroInflatedPoisson(0., rate)
+    pois = dist.Poisson(rate)
+    s = zip_.sample(random.PRNGKey(0), (20,))
+    zip_prob = zip_.log_prob(s)
+    pois_prob = pois.log_prob(s)
+    assert_allclose(zip_prob, pois_prob)
+
+    # if gate is 1 ZIP is Delta(0)
+    zip_ = dist.ZeroInflatedPoisson(1., rate)
+    delta = dist.Delta(0.)
+    s = np.array([0., 1.])
+    zip_prob = zip_.log_prob(s)
+    delta_prob = delta.log_prob(s)
+    assert_allclose(zip_prob, delta_prob)
+
+
+@pytest.mark.parametrize("total_count", [1, 2, 3, 10])
+@pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
+def test_beta_binomial_log_prob(total_count, shape):
+    concentration0 = onp.exp(onp.random.normal(size=shape))
+    concentration1 = onp.exp(onp.random.normal(size=shape))
+    value = np.arange(1 + total_count)
+
+    num_samples = 100000
+    probs = onp.random.beta(concentration1, concentration0, size=(num_samples,) + shape)
+    log_probs = dist.Binomial(total_count, probs).log_prob(value)
+    expected = logsumexp(log_probs, 0) - np.log(num_samples)
+
+    actual = dist.BetaBinomial(concentration1, concentration0, total_count).log_prob(value)
+    assert_allclose(actual, expected, rtol=0.02)
+
+
+@pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
+def test_gamma_poisson_log_prob(shape):
+    gamma_conc = onp.exp(onp.random.normal(size=shape))
+    gamma_rate = onp.exp(onp.random.normal(size=shape))
+    value = np.arange(15)
+
+    num_samples = 300000
+    poisson_rate = onp.random.gamma(gamma_conc, 1 / gamma_rate, size=(num_samples,) + shape)
+    log_probs = dist.Poisson(poisson_rate).log_prob(value)
+    expected = logsumexp(log_probs, 0) - np.log(num_samples)
+    actual = dist.GammaPoisson(gamma_conc, gamma_rate).log_prob(value)
+    assert_allclose(actual, expected, rtol=0.05)
+
+
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_log_prob_gradient(jax_dist, sp_dist, params):
     if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip('we have separated tests for LKJCholesky distribution')
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
 
-    value = jax_dist(*params).sample(rng)
+    value = jax_dist(*params).sample(rng_key)
 
     def fn(*args):
         return np.sum(jax_dist(*args).log_prob(value))
@@ -594,6 +669,22 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         d.log_prob(oob_samples)
 
 
+def test_categorical_log_prob_grad():
+    data = np.repeat(np.arange(3), 10)
+
+    def f(x):
+        return dist.Categorical(jax.nn.softmax(x * np.arange(1, 4))).log_prob(data).sum()
+
+    def g(x):
+        return dist.Categorical(logits=x * np.arange(1, 4)).log_prob(data).sum()
+
+    x = 0.5
+    fx, grad_fx = jax.value_and_grad(f)(x)
+    gx, grad_gx = jax.value_and_grad(g)(x)
+    assert_allclose(fx, gx)
+    assert_allclose(grad_fx, grad_gx)
+
+
 ########################################
 # Tests for constraints and transforms #
 ########################################
@@ -651,12 +742,13 @@ def test_constraints(constraint, x, expected):
     constraints.greater_than(2),
     constraints.interval(-3, 5),
     constraints.lower_cholesky,
+    constraints.ordered_vector,
     constraints.positive,
     constraints.positive_definite,
     constraints.real,
     constraints.simplex,
     constraints.unit_interval,
-])
+], ids=lambda x: x.__class__)
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
@@ -671,8 +763,8 @@ def test_biject_to(constraint, shape):
         assert transform.codomain.lower_bound == constraint.lower_bound
     if len(shape) < event_dim:
         return
-    rng = random.PRNGKey(0)
-    x = random.normal(rng, shape)
+    rng_key = random.PRNGKey(0)
+    x = random.normal(rng_key, shape)
     y = transform(x)
 
     # test codomain
@@ -693,6 +785,9 @@ def test_biject_to(constraint, shape):
         if constraint is constraints.simplex:
             expected = onp.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
             inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
+        elif constraint is constraints.ordered_vector:
+            expected = onp.linalg.slogdet(jax.jacobian(transform)(x))[1]
+            inv_expected = onp.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
         elif constraint in [constraints.corr_cholesky, constraints.corr_matrix]:
             vec_transform = lambda x: matrix_to_tril_vec(transform(x), diagonal=-1)  # noqa: E731
             y_tril = matrix_to_tril_vec(y, diagonal=-1)
@@ -736,8 +831,8 @@ def test_biject_to(constraint, shape):
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_bijective_transforms(transform, event_shape, batch_shape):
     shape = batch_shape + event_shape
-    rng = random.PRNGKey(0)
-    x = biject_to(transform.domain)(random.normal(rng, shape))
+    rng_key = random.PRNGKey(0)
+    x = biject_to(transform.domain)(random.normal(rng_key, shape))
     y = transform(x)
 
     # test codomain
@@ -786,15 +881,15 @@ def test_transformed_transformed_distribution():
     assert isinstance(dist2.transforms[0], transforms.PowerTransform)
     assert isinstance(dist2.transforms[1], transforms.AffineTransform)
 
-    rng = random.PRNGKey(0)
-    assert_allclose(loc + scale * dist1.sample(rng), dist2.sample(rng))
-    intermediates = dist2.sample_with_intermediates(rng)
+    rng_key = random.PRNGKey(0)
+    assert_allclose(loc + scale * dist1.sample(rng_key), dist2.sample(rng_key))
+    intermediates = dist2.sample_with_intermediates(rng_key)
     assert len(intermediates) == 2
 
 
-def _make_iaf(input_dim, hidden_dims, rng):
+def _make_iaf(input_dim, hidden_dims, rng_key):
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1])
-    _, init_params = arn_init(rng, (input_dim,))
+    _, init_params = arn_init(rng_key, (input_dim,))
     return InverseAutoregressiveTransform(partial(arn, init_params))
 
 
@@ -804,9 +899,9 @@ def _make_iaf(input_dim, hidden_dims, rng):
     [transforms.ComposeTransform([transforms.AffineTransform(-2, 3),
                                   transforms.ExpTransform()]),
      transforms.PowerTransform(3.)],
-    [_make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(0)),
+    [_make_iaf(5, hidden_dims=[10], rng_key=random.PRNGKey(0)),
      transforms.PermuteTransform(np.arange(5)[::-1]),
-     _make_iaf(5, hidden_dims=[10], rng=random.PRNGKey(1))]
+     _make_iaf(5, hidden_dims=[10], rng_key=random.PRNGKey(1))]
 ])
 def test_compose_transform_with_intermediates(ts):
     transform = transforms.ComposeTransform(ts)

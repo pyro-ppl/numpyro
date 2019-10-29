@@ -45,21 +45,21 @@ def test_seed():
 
     xs = []
     for i in range(100):
-        with handlers.seed(rng=i):
+        with handlers.seed(rng_seed=i):
             xs.append(_sample())
     xs = np.stack(xs)
 
-    ys = vmap(lambda rng: handlers.seed(lambda: _sample(), rng)())(np.arange(100))
+    ys = vmap(lambda rng_key: handlers.seed(lambda: _sample(), rng_key)())(np.arange(100))
     assert_allclose(xs, ys, atol=1e-6)
 
 
 def test_nested_seeding():
-    def fn(rng_1, rng_2, rng_3):
+    def fn(rng_key_1, rng_key_2, rng_key_3):
         xs = []
-        with handlers.seed(rng=rng_1):
-            with handlers.seed(rng=rng_2):
+        with handlers.seed(rng_seed=rng_key_1):
+            with handlers.seed(rng_seed=rng_key_2):
                 xs.append(numpyro.sample('x', dist.Normal(0., 1.)))
-                with handlers.seed(rng=rng_3):
+                with handlers.seed(rng_seed=rng_key_3):
                     xs.append(numpyro.sample('y', dist.Normal(0., 1.)))
         return np.stack(xs)
 

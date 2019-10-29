@@ -90,15 +90,15 @@ def test_jitted_update_fn():
 def test_param():
     # this test the validity of model/guide sites having
     # param constraints contain composed transformed
-    rngs = random.split(random.PRNGKey(0), 5)
+    rng_keys = random.split(random.PRNGKey(0), 5)
     a_minval = 1
     c_minval = -2
     c_maxval = -1
-    a_init = np.exp(random.normal(rngs[0])) + a_minval
-    b_init = np.exp(random.normal(rngs[1]))
-    c_init = random.uniform(rngs[2], minval=c_minval, maxval=c_maxval)
-    d_init = random.uniform(rngs[3])
-    obs = random.normal(rngs[4])
+    a_init = np.exp(random.normal(rng_keys[0])) + a_minval
+    b_init = np.exp(random.normal(rng_keys[1]))
+    c_init = random.uniform(rng_keys[2], minval=c_minval, maxval=c_maxval)
+    d_init = random.uniform(rng_keys[3])
+    obs = random.normal(rng_keys[4])
 
     def model():
         a = numpyro.param('a', a_init, constraint=constraints.greater_than(a_minval))

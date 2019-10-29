@@ -33,26 +33,26 @@ model.
 """
 
 
-def simulate_data(rng, num_categories, num_words, num_supervised_data, num_unsupervised_data):
-    rng, rng_transition, rng_emission = random.split(rng, 3)
+def simulate_data(rng_key, num_categories, num_words, num_supervised_data, num_unsupervised_data):
+    rng_key, rng_key_transition, rng_key_emission = random.split(rng_key, 3)
 
     transition_prior = np.ones(num_categories)
     emission_prior = np.repeat(0.1, num_words)
 
-    transition_prob = dist.Dirichlet(transition_prior).sample(key=rng_transition,
+    transition_prob = dist.Dirichlet(transition_prior).sample(key=rng_key_transition,
                                                               sample_shape=(num_categories,))
-    emission_prob = dist.Dirichlet(emission_prior).sample(key=rng_emission,
+    emission_prob = dist.Dirichlet(emission_prior).sample(key=rng_key_emission,
                                                           sample_shape=(num_categories,))
 
     start_prob = np.repeat(1. / num_categories, num_categories)
     categories, words = [], []
     for t in range(num_supervised_data + num_unsupervised_data):
-        rng, rng_transition, rng_emission = random.split(rng, 3)
+        rng_key, rng_key_transition, rng_key_emission = random.split(rng_key, 3)
         if t == 0 or t == num_supervised_data:
-            category = dist.Categorical(start_prob).sample(key=rng_transition)
+            category = dist.Categorical(start_prob).sample(key=rng_key_transition)
         else:
-            category = dist.Categorical(transition_prob[category]).sample(key=rng_transition)
-        word = dist.Categorical(emission_prob[category]).sample(key=rng_emission)
+            category = dist.Categorical(transition_prob[category]).sample(key=rng_key_transition)
+        word = dist.Categorical(emission_prob[category]).sample(key=rng_key_emission)
         categories.append(category)
         words.append(word)
 
@@ -146,11 +146,11 @@ def main(args):
         num_unsupervised_data=args.num_unsupervised,
     )
     print('Starting inference...')
-    rng = random.PRNGKey(2)
+    rng_key = random.PRNGKey(2)
     start = time.time()
     kernel = NUTS(semi_supervised_hmm)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
-    mcmc.run(rng, transition_prior, emission_prior, supervised_categories,
+    mcmc.run(rng_key, transition_prior, emission_prior, supervised_categories,
              supervised_words, unsupervised_words)
     samples = mcmc.get_samples()
     print('\nMCMC elapsed time:', time.time() - start)

@@ -9,7 +9,7 @@ from jax.scipy.special import logsumexp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.infer import MCMC, NUTS, log_likelihood, predictive
+from numpyro.infer import MCMC, NUTS, Predictive, log_likelihood
 
 
 """
@@ -123,16 +123,16 @@ def partially_pooled_with_logit(at_bats, hits=None):
         return numpyro.sample("obs", dist.Binomial(at_bats, logits=alpha), obs=hits)
 
 
-def run_inference(model, at_bats, hits, rng, args):
+def run_inference(model, at_bats, hits, rng_key, args):
     kernel = NUTS(model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
-    mcmc.run(rng, at_bats, hits)
+    mcmc.run(rng_key, at_bats, hits)
     return mcmc.get_samples()
 
 
-def predict(model, at_bats, hits, z, rng, player_names, train=True):
+def predict(model, at_bats, hits, z, rng_key, player_names, train=True):
     header = model.__name__ + (' - TRAIN' if train else ' - TEST')
-    predictions = predictive(rng, model, z, at_bats)['obs']
+    predictions = Predictive(model, posterior_samples=z).get_samples(rng_key, at_bats)['obs']
     print_results('=' * 30 + header + '=' * 30,
                   predictions,
                   player_names,
@@ -169,10 +169,10 @@ def main(args):
                                partially_pooled,
                                partially_pooled_with_logit,
                                )):
-        rng, rng_predict = random.split(random.PRNGKey(i + 1))
-        zs = run_inference(model, at_bats, hits, rng, args)
-        predict(model, at_bats, hits, zs, rng_predict, player_names)
-        predict(model, season_at_bats, season_hits, zs, rng_predict, player_names, train=False)
+        rng_key, rng_key_predict = random.split(random.PRNGKey(i + 1))
+        zs = run_inference(model, at_bats, hits, rng_key, args)
+        predict(model, at_bats, hits, zs, rng_key_predict, player_names)
+        predict(model, season_at_bats, season_hits, zs, rng_key_predict, player_names, train=False)
 
 
 if __name__ == "__main__":
