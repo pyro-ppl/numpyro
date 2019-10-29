@@ -13,8 +13,8 @@ from numpyro.handlers import substitute
 from numpyro.infer import ELBO, SVI, RenyiELBO
 from numpyro.util import fori_loop
 
-
-@pytest.mark.xfail.parametrize('alpha', [0., 2.])
+@pytest.mark.xfail(run=False)
+@pytest.mark.parametrize('alpha', [0., 2.])
 def test_renyi_elbo(alpha):
     def model(x):
         numpyro.sample("obs", dist.Normal(0, 1), obs=x)
@@ -33,8 +33,8 @@ def test_renyi_elbo(alpha):
     assert_allclose(elbo_loss, renyi_loss, rtol=1e-6)
     assert_allclose(elbo_grad, renyi_grad, rtol=1e-6)
 
-
-@pytest.mark.xfail.parametrize('elbo', [ELBO(), RenyiELBO(num_particles=10)])
+@pytest.mark.xfail(run=False)
+@pytest.mark.parametrize('elbo', [ELBO(), RenyiELBO(num_particles=10)])
 def test_beta_bernoulli(elbo):
     data = np.array([1.0] * 8 + [0.0] * 2)
 
