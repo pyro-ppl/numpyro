@@ -74,15 +74,15 @@ class ELBO(object):
 
 class RenyiELBO(ELBO):
     r"""
-    An implementation of Renyi's :math:`\alpha`-divergence variational inference following reference [1]. 
+    An implementation of Renyi's :math:`\alpha`-divergence variational inference following reference [1].
     In order for the objective to be a strict lower bound, we require
     :math:`\alpha \ge 0`. Note, however, that according to reference [1], depending
     on the dataset :math:`\alpha < 0` might give better results. In the special case
     :math:`\alpha = 0`, the objective function is that of the important weighted
     autoencoder derived in reference [2].
-    
+
     .. Note:: Setting :math:`\alpha < 1` gives a better bound than the usual ELBO.
-    For :math:`\alpha = 1`, it is better to use 
+    For :math:`\alpha = 1`, it is better to use
     :class:`~numpyro.infer.elbo.ELBO` class because it helps reduce variances of gradient estimations.
     
     :param float alpha: The order of :math:`\alpha`-divergence. Here

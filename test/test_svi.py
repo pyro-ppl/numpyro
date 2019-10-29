@@ -34,7 +34,6 @@ def test_renyi_elbo(alpha):
     assert_allclose(elbo_grad, renyi_grad, rtol=1e-6)
 
 
-
 @pytest.mark.xfail.parametrize('elbo', [ELBO(), RenyiELBO(num_particles=10)])
 def test_beta_bernoulli(elbo):
     data = np.array([1.0] * 8 + [0.0] * 2)
