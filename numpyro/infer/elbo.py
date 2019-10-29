@@ -84,14 +84,13 @@ class RenyiELBO(ELBO):
     .. Note:: Setting :math:`\alpha < 1` gives a better bound than the usual ELBO.
     For :math:`\alpha = 1`, it is better to use
     :class:`~numpyro.infer.elbo.ELBO` class because it helps reduce variances of gradient estimations.
-    
+
     :param float alpha: The order of :math:`\alpha`-divergence. Here
         :math:`\alpha \neq 1`. Default is 0.
     :param num_particles: The number of particles/samples used to form the objective
         (gradient) estimator. Default is 2.
 
     **References:**
-    
     1. *Renyi Divergence Variational Inference*, Yingzhen Li, Richard E. Turner
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
     """
