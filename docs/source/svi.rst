@@ -19,7 +19,7 @@ ELBO
 RenyiELBO
 ---------
 
-.. autoclass:: numpyro.infer.renyi_elbo.RenyiELBO
+.. autoclass:: numpyro.infer.elbo.RenyiELBO
     :members:
     :undoc-members:
     :show-inheritance:

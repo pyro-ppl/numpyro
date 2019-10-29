@@ -1,5 +1,4 @@
-from numpyro.infer.elbo import ELBO
-from numpyro.infer.renyi_elbo import RenyiELBO
+from numpyro.infer.elbo import ELBO, RenyiELBO
 from numpyro.infer.mcmc import HMC, MCMC, NUTS
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import (
