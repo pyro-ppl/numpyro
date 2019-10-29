@@ -81,7 +81,7 @@ class RenyiELBO(ELBO):
     :math:`\alpha = 0`, the objective function is that of the important weighted
     autoencoder derived in reference [2].
     
-    **Note:** Setting :math:`\alpha < 1` gives a better bound than the usual ELBO.
+    .. Note:: Setting :math:`\alpha < 1` gives a better bound than the usual ELBO.
     For :math:`\alpha = 1`, it is better to use 
     :class:`~numpyro.infer.elbo.ELBO` class because it helps reduce variances of gradient estimations.
     

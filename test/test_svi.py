@@ -30,8 +30,9 @@ def test_renyi_elbo(alpha):
 
     elbo_loss, elbo_grad = value_and_grad(elbo_loss_fn)(2.)
     renyi_loss, renyi_grad = value_and_grad(renyi_loss_fn)(2.)
-    assert_allclose(elbo_loss, renyi_loss)
-    assert_allclose(elbo_grad, renyi_grad)
+    assert_allclose(elbo_loss, renyi_loss, rtol=1e-6)
+    assert_allclose(elbo_grad, renyi_grad, rtol=1e-6)
+
 
 
 @pytest.mark.xfail.parametrize('elbo', [ELBO(), RenyiELBO(num_particles=10)])
