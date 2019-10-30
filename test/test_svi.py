@@ -13,7 +13,7 @@ from numpyro.handlers import substitute
 from numpyro.infer import ELBO, SVI, RenyiELBO
 from numpyro.util import fori_loop
 
-@pytest.mark.xfail(run=False)
+
 @pytest.mark.parametrize('alpha', [0., 2.])
 def test_renyi_elbo(alpha):
     def model(x):
@@ -32,6 +32,7 @@ def test_renyi_elbo(alpha):
     renyi_loss, renyi_grad = value_and_grad(renyi_loss_fn)(2.)
     assert_allclose(elbo_loss, renyi_loss, rtol=1e-6)
     assert_allclose(elbo_grad, renyi_grad, rtol=1e-6)
+
 
 @pytest.mark.xfail(run=False)
 @pytest.mark.parametrize('elbo', [ELBO(), RenyiELBO(num_particles=10)])

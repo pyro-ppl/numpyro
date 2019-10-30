@@ -74,27 +74,29 @@ class ELBO(object):
 
 class RenyiELBO(ELBO):
     r"""
-    An implementation of Renyi's :math:`\alpha`-divergence variational inference following reference [1].
+    An implementation of Renyi's :math:`\alpha`-divergence 
+    variational inference following reference [1].
     In order for the objective to be a strict lower bound, we require
     :math:`\alpha \ge 0`. Note, however, that according to reference [1], depending
     on the dataset :math:`\alpha < 0` might give better results. In the special case
     :math:`\alpha = 0`, the objective function is that of the important weighted
     autoencoder derived in reference [2].
 
-    .. Note:: Setting :math:`\alpha < 1` gives a better bound than the usual ELBO.
-    For :math:`\alpha = 1`, it is better to use
-    :class:`~numpyro.infer.elbo.ELBO` class because it helps reduce variances of gradient estimations.
+    .. Note:: Setting :math:`\alpha < 1` gives a better bound than the usual ELBO. 
+    For :math:`\alpha = 1`, it is better to use :class:`~numpyro.infer.elbo.ELBO` class because it helps reduce 
+    variances of gradient estimations.
 
-    :param float alpha: The order of :math:`\alpha`-divergence. Here
-        :math:`\alpha \neq 1`. Default is 0.
-    :param num_particles: The number of particles/samples used to form the objective
-        (gradient) estimator. Default is 2.
+    :param float alpha: The order of :math:`\alpha`-divergence. 
+        Here :math:`\alpha \neq 1`. Default is 0.
+    :param num_particles: The number of particles/samples 
+        used to form the objective (gradient) estimator. Default is 2.
 
     **References:**
+
     1. *Renyi Divergence Variational Inference*, Yingzhen Li, Richard E. Turner
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
+    
     """
-
     def __init__(self, alpha=0, num_particles=2):
         if alpha == 1:
             raise ValueError("The order alpha should not be equal to 1. Please use ELBO class"
