@@ -9,7 +9,7 @@ import jax.numpy as np
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.distributions import transforms, constraints
+from numpyro.distributions import constraints, transforms
 from numpyro.distributions.transforms import biject_to
 from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.util import (

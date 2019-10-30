@@ -19,6 +19,8 @@ set_host_device_count
 ---------------------
 .. autofunction:: numpyro.util.set_host_device_count
 
+.. _inference_utilities:
+
 Inference Utilities
 ===================
 

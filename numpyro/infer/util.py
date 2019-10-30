@@ -457,11 +457,12 @@ class Predictive(object):
     :param list return_sites: sites to return; by default only sample sites not present
         in `posterior_samples` are returned.
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
+        Defaults to False.
 
     :return: dict of samples from the predictive distribution.
     """
     def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
-                 return_sites=None, parallel=True):
+                 return_sites=None, parallel=False):
         if posterior_samples is None and num_samples is None:
             raise ValueError("Either posterior_samples or num_samples must be specified.")
 

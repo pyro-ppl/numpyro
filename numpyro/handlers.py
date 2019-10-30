@@ -75,8 +75,8 @@ need to loop over all the data points.
 
 from __future__ import absolute_import, division, print_function
 
-import warnings
 from collections import OrderedDict
+import warnings
 
 from jax import random
 import jax.numpy as np

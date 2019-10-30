@@ -1,5 +1,5 @@
-import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
+import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -14,8 +14,8 @@ from numpyro.distributions.continuous import (
     InverseGamma,
     LKJCholesky,
     LogNormal,
-    MultivariateNormal,
     LowRankMultivariateNormal,
+    MultivariateNormal,
     Normal,
     Pareto,
     StudentT,

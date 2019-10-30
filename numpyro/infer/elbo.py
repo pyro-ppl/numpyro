@@ -1,10 +1,10 @@
 from jax import random, vmap
+from jax.lax import stop_gradient
 import jax.numpy as np
+from jax.scipy.special import logsumexp
 
 from numpyro.handlers import replay, seed
 from numpyro.infer.util import log_density
-from jax.scipy.special import logsumexp
-from jax.lax import stop_gradient
 
 
 class ELBO(object):
@@ -61,15 +61,15 @@ class ELBO(object):
 
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
-            # Return (-elbo) since by convention we do gradient descent on a loss and
-            # the ELBO is a lower bound that needs to be maximized.
-            return -elbo
+            return elbo
 
+        # Return (-elbo) since by convention we do gradient descent on a loss and
+        # the ELBO is a lower bound that needs to be maximized.
         if self.num_particles == 1:
-            return single_particle_elbo(rng_key)
+            return - single_particle_elbo(rng_key)
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            return np.mean(vmap(single_particle_elbo)(rng_keys))
+            return - np.mean(vmap(single_particle_elbo)(rng_keys))
 
 
 class RenyiELBO(ELBO):
@@ -82,9 +82,7 @@ class RenyiELBO(ELBO):
     :math:`\alpha = 0`, the objective function is that of the important weighted
     autoencoder derived in reference [2].
 
-    .. Note:: Setting :math:`\alpha < 1` gives a better bound than the usual ELBO.
-    For :math:`\alpha = 1`, it is better to use :class:`~numpyro.infer.elbo.ELBO` class because it helps reduce
-    variances of gradient estimations.
+    .. note:: Setting :math:`\alpha < 1` gives a better bound than the usual ELBO.
 
     :param float alpha: The order of :math:`\alpha`-divergence.
         Here :math:`\alpha \neq 1`. Default is 0.
@@ -130,8 +128,6 @@ class RenyiELBO(ELBO):
 
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
-            # Return (-elbo) since by convention we do gradient descent on a loss and
-            # the ELBO is a lower bound that needs to be maximized.
             return elbo
 
         rng_keys = random.split(rng_key, self.num_particles)
