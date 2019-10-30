@@ -109,7 +109,7 @@ html_logo = '_static/img/Pyro_logo_wide.png'
 # documentation.
 #
 html_theme_options = {
-    'logo_only': True
+    # 'logo_only': True
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
