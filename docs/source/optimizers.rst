@@ -1,5 +1,5 @@
-NumPyro Optimizers
-==================
+Optimizers
+==========
 
 .. automodule:: numpyro.optim
 
