@@ -102,14 +102,14 @@ nbsphinx_timeout = 120
 html_theme = "sphinx_rtd_theme"
 html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 # logo
-html_logo = '_static/img/Pyro_logo_wide.png'
+# html_logo = '_static/img/Pyro_logo_wide.png'
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
 #
 html_theme_options = {
-    'logo_only': True
+    # 'logo_only': True
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
