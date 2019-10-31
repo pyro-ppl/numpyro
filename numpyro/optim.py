@@ -82,7 +82,7 @@ class ClippedAdam(_NumpyroOptim):
     :class:`~numpyro.optim.Adam` optimizer with gradient clipping.
 
     :param float clip_norm: All gradient values will be clipped between
-    [-`clip_norm`, `clip_norm`].
+        `[-clip_norm, clip_norm]`.
 
     **Reference:**
 

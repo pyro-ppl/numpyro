@@ -1,3 +1,8 @@
+"""
+.. warning::
+    The interface for the `contrib.autoguide` module is experimental, and
+    subject to frequent revisions.
+"""
 # Adapted from pyro.contrib.autoguide
 from abc import ABC, abstractmethod
 import warnings
