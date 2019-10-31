@@ -105,10 +105,12 @@ class AutoContinuous(AutoGuide):
     variables are continuous.
 
     .. note::
-        We recommend to use :class:`AutoContinuousELBO` as the
+        We recommend using :class:`AutoContinuousELBO` as the
         objective function `loss` in :class:`~numpyro.infer.svi.SVI`.
-        In addition, to get posterior samples from this autoguide, it
-        is better to use the :meth:`sample_posterior` method.
+        In addition, we recommend using :meth:`sample_posterior` method
+        for drawing posterior samples from the autoguide as it will
+        automatically do any unpacking and transformations required
+        to constrain the samples to the support of the latent sites.
 
     **Reference:**
 
@@ -119,7 +121,7 @@ class AutoContinuous(AutoGuide):
     :param callable model: A NumPyro model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_strategy: A per-site initialization function.
-        See :ref:`inference_utilities` section for available functions.
+        See :ref:`init_strategy` section for available functions.
     """
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
         self.init_strategy = init_strategy
