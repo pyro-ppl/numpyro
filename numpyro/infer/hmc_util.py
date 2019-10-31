@@ -13,7 +13,7 @@ from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
-                                       'ss_state', 'mm_state', 'window_idx', 'rng'])
+                                       'ss_state', 'mm_state', 'window_idx', 'rng_key'])
 IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
 
 TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
@@ -207,7 +207,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
 
 
 def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
-                              position, rng, init_step_size):
+                              position, rng_key, init_step_size):
     """
     Finds a reasonable step size by tuning `init_step_size`. This function is used
     to avoid working with a too large or too small step size in HMC.
@@ -222,7 +222,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     :param momentum_generator: A generator to get a random momentum variable.
     :param inverse_mass_matrix: Inverse of mass matrix.
     :param position: Current position of the particle.
-    :param jax.random.PRNGKey rng: Random key to be used as the source of randomness.
+    :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
     :param float init_step_size: Initial step size to be tuned.
     :return: a reasonable value for step size.
     :rtype: float
@@ -238,15 +238,15 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     finfo = np.finfo(get_dtype(init_step_size))
 
     def _body_fn(state):
-        step_size, _, direction, rng = state
-        rng, rng_momentum = random.split(rng)
+        step_size, _, direction, rng_key = state
+        rng_key, rng_key_momentum = random.split(rng_key)
         # scale step_size: increase 2x or decrease 2x depends on direction;
         # direction=1 means keep increasing step_size, otherwise decreasing step_size.
         # Note that the direction is -1 if delta_energy is `NaN`, which may be the
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
-        r = momentum_generator(inverse_mass_matrix, rng_momentum)
+        r = momentum_generator(inverse_mass_matrix, rng_key_momentum)
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
                                                       (z, r, potential_energy, z_grad))
@@ -254,7 +254,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         energy_new = kinetic_fn(inverse_mass_matrix, r_new) + potential_energy_new
         delta_energy = energy_new - energy_current
         direction_new = np.where(target_accept_prob < -delta_energy, 1, -1)
-        return step_size, direction, direction_new, rng
+        return step_size, direction, direction_new, rng_key
 
     def _cond_fn(state):
         step_size, last_direction, direction, _ = state
@@ -265,7 +265,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         not_extreme_cond = not_small_step_size_cond & not_large_step_size_cond
         return not_extreme_cond & ((last_direction == 0) | (direction == last_direction))
 
-    step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng))
+    step_size, _, _, _ = while_loop(_cond_fn, _body_fn, (init_step_size, 0, 0, rng_key))
     return step_size
 
 
@@ -321,7 +321,7 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
-def _identity_step_size(inverse_mass_matrix, z, rng, step_size):
+def _identity_step_size(inverse_mass_matrix, z, rng_key, step_size):
     return step_size
 
 
@@ -351,10 +351,10 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
     num_windows = len(adaptation_schedule)
 
-    def init_fn(z, rng, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
+    def init_fn(z, rng_key, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
         """
         :param z: Initial position of the integrator.
-        :param jax.random.PRNGKey rng: Random key to be used as the source of randomness.
+        :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
         :param float step_size: Initial step size.
         :param inverse_mass_matrix: Inverse of the initial mass matrix. If ``None``,
             inverse of mass matrix will be an identity matrix with size is decided
@@ -362,7 +362,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         :param int mass_matrix_size: Size of the mass matrix.
         :return: initial state of the adapt scheme.
         """
-        rng, rng_ss = random.split(rng)
+        rng_key, rng_key_ss = random.split(rng_key)
         if inverse_mass_matrix is None:
             assert mass_matrix_size is not None
             if dense_mass:
@@ -377,28 +377,28 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
                 mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
+            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
         ss_state = ss_init(np.log(10 * step_size))
 
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         window_idx = 0
         return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                          ss_state, mm_state, window_idx, rng)
+                          ss_state, mm_state, window_idx, rng_key)
 
-    def _update_at_window_end(z, rng_ss, state):
-        step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng = state
+    def _update_at_window_end(z, rng_key_ss, state):
+        step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
 
         if adapt_mass_matrix:
             inverse_mass_matrix, mass_matrix_sqrt = mm_final(mm_state, regularize=True)
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_ss, step_size)
+            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
             ss_state = ss_init(np.log(10 * step_size))
 
         return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                          ss_state, mm_state, window_idx, rng)
+                          ss_state, mm_state, window_idx, rng_key)
 
     def update_fn(t, accept_prob, z, state):
         """
@@ -408,8 +408,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         :param state: Current state of the adapt scheme.
         :return: new state of the adapt scheme.
         """
-        step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng = state
-        rng, rng_ss = random.split(rng)
+        step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
+        rng_key, rng_key_ss = random.split(rng_key)
 
         # update step size state
         if adapt_step_size:
@@ -434,9 +434,9 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
         state = AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                           ss_state, mm_state, window_idx, rng)
+                           ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
-                     (z, rng_ss, state), lambda args: _update_at_window_end(*args),
+                     (z, rng_key_ss, state), lambda args: _update_at_window_end(*args),
                      state, lambda x: x)
         return state
 
@@ -479,7 +479,7 @@ def _biased_transition_kernel(current_tree, new_tree):
     return transition_prob
 
 
-def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng, biased_transition):
+def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng_key, biased_transition):
     # Now we combine the current tree and the new tree. Note that outside
     # leaves of the combined tree are determined by the direction.
     z_left, r_left, z_left_grad, z_right, r_right, r_right_grad = cond(
@@ -502,7 +502,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng,
         transition_prob = _uniform_transition_kernel(current_tree, new_tree)
         turning = current_tree.turning
 
-    transition = random.bernoulli(rng, transition_prob)
+    transition = random.bernoulli(rng_key, transition_prob)
     z_proposal, z_proposal_pe, z_proposal_grad, z_proposal_energy = cond(
         transition,
         new_tree, lambda tree: (tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad, tree.z_proposal_energy),
@@ -554,8 +554,8 @@ def _get_leaf(tree, going_right):
 
 
 def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_size,
-                 going_right, rng, energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
-    key, transition_key = random.split(rng)
+                 going_right, rng_key, energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
+    key, transition_key = random.split(rng_key)
     # If we are going to the right, start from the right leaf of the current tree.
     z, r, z_grad = _get_leaf(current_tree, going_right)
 
@@ -605,7 +605,7 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
 
 
 def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
-                             inverse_mass_matrix, step_size, going_right, rng,
+                             inverse_mass_matrix, step_size, going_right, rng_key,
                              energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
     max_num_proposals = 2 ** depth
 
@@ -614,13 +614,13 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
         return (tree.num_proposals < max_num_proposals) & ~turning & ~tree.diverging
 
     def _body_fn(state):
-        current_tree, _, r_ckpts, r_sum_ckpts, rng = state
-        rng, transition_rng = random.split(rng)
+        current_tree, _, r_ckpts, r_sum_ckpts, rng_key = state
+        rng_key, transition_rng_key = random.split(rng_key)
         z, r, z_grad = _get_leaf(current_tree, going_right)
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
         new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
-                                 transition_rng, False)
+                                 transition_rng_key, False)
 
         leaf_idx = current_tree.num_proposals
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
@@ -636,7 +636,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
 
         turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
                                         ckpt_idx_min, ckpt_idx_max)
-        return new_tree, turning, r_ckpts, r_sum_ckpts, rng
+        return new_tree, turning, r_ckpts, r_sum_ckpts, rng_key
 
     basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                going_right, energy_current, max_delta_energy)
@@ -647,7 +647,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     tree, turning, _, _, _ = while_loop(
         _cond_fn,
         _body_fn,
-        (basetree, False, r_ckpts, r_sum_ckpts, rng)
+        (basetree, False, r_ckpts, r_sum_ckpts, rng_key)
     )
     # update depth and turning condition
     return TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
@@ -657,7 +657,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                     tree.sum_accept_probs, tree.num_proposals)
 
 
-def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, step_size, rng,
+def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, step_size, rng_key,
                max_delta_energy=1000., max_tree_depth=10):
     """
     Builds a binary tree from the `verlet_state`. This is used in NUTS sampler.
@@ -675,7 +675,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     :param verlet_state: Initial integrator state.
     :param inverse_mass_matrix: Inverse of the mass matrix.
     :param float step_size: Step size for the current trajectory.
-    :param jax.random.PRNGKey rng: random key to be used as the source of
+    :param jax.random.PRNGKey rng_key: random key to be used as the source of
         randomness.
     :param float max_delta_energy: A threshold to decide if the new state diverges
         (based on the energy difference) too much from the initial integrator state.
@@ -704,7 +704,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
                             r_ckpts, r_sum_ckpts)
         return tree, key
 
-    state = (tree, rng)
+    state = (tree, rng_key)
     tree, _ = while_loop(_cond_fn, _body_fn, state)
     return tree
 
@@ -720,7 +720,7 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     return 0.5 * np.dot(v, r)
 
 
-def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
+def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
     """
     Merges subposteriors following consensus Monte Carlo algorithm.
 
@@ -734,7 +734,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
     :param int num_draws: number of draws from the merged posterior.
     :param bool diagonal: whether to compute weights using variance or covariance, defaults to
         `False` (using covariance).
-    :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :param jax.random.PRNGKey rng_key: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
     :return: if `num_draws` is None, merges subposteriors without resampling; otherwise, returns
         a collection of `num_draws` samples with the same data structure as each subposterior.
     """
@@ -744,12 +744,12 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng=None):
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
 
     if num_draws is not None:
-        rng = random.PRNGKey(0) if rng is None else rng
+        rng_key = random.PRNGKey(0) if rng_key is None else rng_key
         # randomly gets num_draws from subposteriors
         n_subs = len(subposteriors)
         n_samples = tree_flatten(subposteriors[0])[0][0].shape[0]
         # shape of draw_idxs: n_subs x num_draws x sample_shape
-        draw_idxs = random.randint(rng, shape=(n_subs, num_draws), minval=0, maxval=n_samples)
+        draw_idxs = random.randint(rng_key, shape=(n_subs, num_draws), minval=0, maxval=n_samples)
         joined_subposteriors = vmap(lambda x, idx: x[idx])(joined_subposteriors, draw_idxs)
 
     if diagonal:
@@ -804,7 +804,7 @@ def parametric(subposteriors, diagonal=False):
         return mean, cov
 
 
-def parametric_draws(subposteriors, num_draws, diagonal=False, rng=None):
+def parametric_draws(subposteriors, num_draws, diagonal=False, rng_key=None):
     """
     Merges subposteriors following (embarrassingly parallel) parametric Monte Carlo algorithm.
 
@@ -817,16 +817,16 @@ def parametric_draws(subposteriors, num_draws, diagonal=False, rng=None):
     :param int num_draws: number of draws from the merged posterior.
     :param bool diagonal: whether to compute weights using variance or covariance, defaults to
         `False` (using covariance).
-    :param jax.random.PRNGKey rng: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
+    :param jax.random.PRNGKey rng_key: source of the randomness, defaults to `jax.random.PRNGKey(0)`.
     :return: a collection of `num_draws` samples with the same data structure as each subposterior.
     """
-    rng = random.PRNGKey(0) if rng is None else rng
+    rng_key = random.PRNGKey(0) if rng_key is None else rng_key
     if diagonal:
         mean, var = parametric(subposteriors, diagonal=True)
-        samples_flat = dist.Normal(mean, np.sqrt(var)).sample(rng, (num_draws,))
+        samples_flat = dist.Normal(mean, np.sqrt(var)).sample(rng_key, (num_draws,))
     else:
         mean, cov = parametric(subposteriors, diagonal=False)
-        samples_flat = dist.MultivariateNormal(mean, cov).sample(rng, (num_draws,))
+        samples_flat = dist.MultivariateNormal(mean, cov).sample(rng_key, (num_draws,))
 
     _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
     return vmap(lambda x: unravel_fn(x))(samples_flat)

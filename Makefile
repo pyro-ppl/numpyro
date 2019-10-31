@@ -18,4 +18,7 @@ clean: FORCE
 docs: FORCE
 	$(MAKE) -C docs html
 
+notebooks: FORCE
+	$(MAKE) -C notebooks html
+
 FORCE:

@@ -27,3 +27,7 @@
 .wy-side-nav-search>a img.logo, .wy-side-nav-search .wy-dropdown>a img.logo {
     max-width: 60%;
 }
+
+.wy-nav-content {
+    max-width: 1000px !important;
+}

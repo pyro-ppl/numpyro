@@ -1,5 +1,5 @@
-Utilities
-=========
+Runtime Utilities
+=================
 
 enable_validation
 -----------------
@@ -24,9 +24,13 @@ Inference Utilities
 
 .. automodule:: numpyro.infer.util
 
-predictive
+Predictive
 ----------
-.. autofunction:: numpyro.infer.util.predictive
+.. autoclass:: numpyro.infer.util.Predictive
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 log_density
 -----------

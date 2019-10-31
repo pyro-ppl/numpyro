@@ -13,8 +13,8 @@ from numpyro.distributions.util import matrix_to_tril_vec
 
 
 def _make_iaf_args(input_dim, hidden_dims):
-    _, rng_perm = random.split(random.PRNGKey(0))
-    perm = random.shuffle(rng_perm, onp.arange(input_dim))
+    _, rng_key_perm = random.split(random.PRNGKey(0))
+    perm = random.shuffle(rng_key_perm, onp.arange(input_dim))
     # we use Elu nonlinearity because the default one, Relu, masks out negative hidden values,
     # which in turn create some zero entries in the lower triangular part of Jacobian.
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1],
@@ -61,8 +61,8 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
         # make sure jacobian is triangular, first permute jacobian as necessary
         if isinstance(transform, InverseAutoregressiveTransform):
             permuted_jac = onp.zeros(jac.shape)
-            _, rng_perm = random.split(random.PRNGKey(0))
-            perm = random.shuffle(rng_perm, onp.arange(input_dim))
+            _, rng_key_perm = random.split(random.PRNGKey(0))
+            perm = random.shuffle(rng_key_perm, onp.arange(input_dim))
 
             for j in range(input_dim):
                 for k in range(input_dim):

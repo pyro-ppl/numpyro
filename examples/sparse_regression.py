@@ -196,11 +196,11 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, var_obs):
 
 
 # Helper function for doing HMC inference
-def run_inference(model, args, rng, X, Y, hypers):
+def run_inference(model, args, rng_key, X, Y, hypers):
     start = time.time()
     kernel = NUTS(model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
-    mcmc.run(rng, X, Y, hypers)
+    mcmc.run(rng_key, X, Y, hypers)
     print('\nMCMC elapsed time:', time.time() - start)
     return mcmc.get_samples()
 
@@ -267,8 +267,8 @@ def main(args):
               'alpha_obs': 3.0, 'beta_obs': 1.0}
 
     # do inference
-    rng = random.PRNGKey(0)
-    samples = run_inference(model, args, rng, X, Y, hypers)
+    rng_key = random.PRNGKey(0)
+    samples = run_inference(model, args, rng_key, X, Y, hypers)
 
     # compute the mean and square root variance of each coefficient theta_i
     means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))

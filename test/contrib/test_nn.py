@@ -19,14 +19,14 @@ from numpyro.distributions.util import matrix_to_tril_vec
 @pytest.mark.parametrize('hidden_dims', [[8], [6, 7]])
 @pytest.mark.parametrize('skip_connections', [True, False])
 def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
-    rng, rng_perm = random.split(random.PRNGKey(0))
-    perm = random.shuffle(rng_perm, onp.arange(input_dim))
+    rng_key, rng_key_perm = random.split(random.PRNGKey(0))
+    perm = random.shuffle(rng_key_perm, onp.arange(input_dim))
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims,
                                      skip_connections=skip_connections, permutation=perm)
 
     batch_size = 4
     input_shape = (batch_size, input_dim)
-    _, init_params = arn_init(rng, input_shape)
+    _, init_params = arn_init(rng_key, input_shape)
 
     output = arn(init_params, onp.random.rand(*input_shape))
 
@@ -111,10 +111,10 @@ def test_masked_dense(input_dim):
     mask, _ = create_mask(input_dim, [hidden_dim], onp.random.permutation(input_dim), output_dim_multiplier)
     init_random_params, masked_dense = serial(MaskedDense(mask[0]))
 
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     batch_size = 4
     input_shape = (batch_size, input_dim)
-    _, init_params = init_random_params(rng, input_shape)
+    _, init_params = init_random_params(rng_key, input_shape)
     output = masked_dense(init_params, onp.random.rand(*input_shape))
     assert output.shape == (batch_size, hidden_dim)
 

@@ -53,12 +53,12 @@ def _poisson(key, rate, shape, dtype):
     p = np.ones(shape)
 
     def body_fn(val):
-        k, p, rng = val
+        k, p, rng_key = val
         k = np.where(p > L, k + 1, k)
-        rng, rng_u = random.split(rng)
-        u = random.uniform(rng_u, shape)
+        rng_key, rng_key_u = random.split(rng_key)
+        u = random.uniform(rng_key_u, shape)
         p = p * u
-        return k, p, rng
+        return k, p, rng_key
 
     k, _, _ = lax.while_loop(lambda val: np.any(val[1] > L), body_fn, (k, p, key))
     return k - 1

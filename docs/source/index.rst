@@ -7,10 +7,10 @@ NumPyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
-   :caption: Inference:
+   :caption: Modeling:
 
-   mcmc
-   svi
+   primitives
+   handlers
 
 
 .. toctree::
@@ -24,49 +24,14 @@ NumPyro documentation
 .. toctree::
    :glob:
    :maxdepth: 2
-   :caption: Pyro Primitives:
+   :caption: Inference:
 
-   primitives
-
-
-.. toctree::
-   :glob:
-   :maxdepth: 2
-   :caption: Effect Handlers:
-
-   handlers
-
-
-.. toctree::
-   :glob:
-   :maxdepth: 2
-   :caption: Optimizers:
-
-   optimizers
-
-
-.. toctree::
-   :glob:
-   :maxdepth: 2
-   :caption: Diagnostics:
-
-   diagnostics
-
-
-.. toctree::
-   :glob:
-   :maxdepth: 2
-   :caption: Utilities:
-
-   utilities
-
-
-.. toctree::
-   :glob:
-   :maxdepth: 2
-   :caption: Automatic Guide Generation:
-
+   mcmc
+   svi
    autoguide
+   optimizers
+   diagnostics
+   utilities
 
 
 Indices and tables
