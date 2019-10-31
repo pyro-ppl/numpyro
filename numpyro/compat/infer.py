@@ -3,8 +3,8 @@ import math
 from jax import jit
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.compat.pyro import get_param_store
+import numpyro.distributions as dist
 from numpyro.infer import elbo, mcmc, svi
 
 

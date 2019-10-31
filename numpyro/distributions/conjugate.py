@@ -3,10 +3,9 @@ import jax.numpy as np
 from jax.scipy.special import gammaln
 
 from numpyro.distributions import constraints
-from numpyro.distributions.distribution import Distribution
-
 from numpyro.distributions.continuous import Beta, Gamma
 from numpyro.distributions.discrete import Binomial, Poisson
+from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import promote_shapes, validate_sample
 
 

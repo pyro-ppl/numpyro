@@ -1,9 +1,10 @@
 from numpy.testing import assert_allclose
+import pytest
 
 from jax import jit, random, value_and_grad
 import jax.numpy as np
 from jax.test_util import check_eq
-import pytest
+
 import numpyro
 from numpyro import optim
 import numpyro.distributions as dist

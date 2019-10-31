@@ -99,23 +99,29 @@ class AutoContinuous(AutoGuide):
     Base class for implementations of continuous-valued Automatic
     Differentiation Variational Inference [1].
 
-    Each derived class implements its own :meth:`get_posterior` method.
+    Each derived class implements its own :meth:`_get_transform` method.
 
     Assumes model structure and latent dimension are fixed, and all latent
     variables are continuous.
 
-    Reference:
+    .. note::
+        We recommend using :class:`AutoContinuousELBO` as the
+        objective function `loss` in :class:`~numpyro.infer.svi.SVI`.
+        In addition, we recommend using :meth:`sample_posterior` method
+        for drawing posterior samples from the autoguide as it will
+        automatically do any unpacking and transformations required
+        to constrain the samples to the support of the latent sites.
 
-    [1] `Automatic Differentiation Variational Inference`,
-        Alp Kucukelbir, Dustin Tran, Rajesh Ranganath, Andrew Gelman, David M.
-        Blei
+    **Reference:**
 
-    :param jax.random.PRNGKey rng_key: random key to be used as the source of randomness
-        to initialize the guide.
+    1. *Automatic Differentiation Variational Inference*,
+       Alp Kucukelbir, Dustin Tran, Rajesh Ranganath, Andrew Gelman, David M.
+       Blei
+
     :param callable model: A NumPyro model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
     :param callable init_strategy: A per-site initialization function.
-        See :ref:`autoguide-initialization` section for available functions.
+        See :ref:`init_strategy` section for available functions.
     """
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
         self.init_strategy = init_strategy
@@ -236,7 +242,7 @@ class AutoContinuous(AutoGuide):
 
         :param dict params: Current parameters of model and autoguide.
         :return: the transform of posterior distribution
-        :rtype: :class:`~numpyro.distributions.constraints.Transform`
+        :rtype: :class:`~numpyro.distributions.transforms.Transform`
         """
         return ComposeTransform([handlers.substitute(self._get_transform, params)(),
                                  UnpackTransform(self._unpack_latent)])
@@ -271,9 +277,8 @@ class AutoContinuous(AutoGuide):
 
             print(guide.quantiles(opt_state, [0.05, 0.5, 0.95]))
 
-        :param opt_state: Current state of the optimizer.
-        :param quantiles: A list of requested quantiles between 0 and 1.
-        :type quantiles: torch.Tensor or list
+        :param dict params: A dict containing parameter values.
+        :param list quantiles: A list of requested quantiles between 0 and 1.
         :return: A dict mapping sample site name to a list of quantile values.
         :rtype: dict
         """
