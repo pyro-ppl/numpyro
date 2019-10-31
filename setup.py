@@ -30,9 +30,9 @@ setup(
     author='Uber AI Labs',
     author_email='npradhan@uber.com',
     install_requires=[
-        # TODO: pin to a specific version for the next release (unless JAX's API becomes stable)
-        'jax>=0.1.46',
-        'jaxlib>=0.1.28',
+        # TODO: pin to a specific version for the release (unless JAX's API becomes stable)
+        'jax==0.1.49',
+        'jaxlib==0.1.32',
         'tqdm',
     ],
     extras_require={
