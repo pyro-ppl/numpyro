@@ -40,7 +40,7 @@ setup(
         'test': [
             'flake8',
             'pytest>=4.1',
-            'pyro-api@https://api.github.com/repos/pyro-ppl/pyro-api/tarball/master'
+            'pyro-api>=0.1.1'
         ],
         'dev': ['ipython'],
         'examples': ['matplotlib'],

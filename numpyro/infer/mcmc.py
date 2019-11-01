@@ -601,14 +601,14 @@ class MCMC(object):
         states['z'] = vmap(constrain_fn)(states['z']) if len(tree_flatten(states['z'])[0]) > 0 else states['z']
         return states
 
-    def run(self, rng_key, *args, extra_fields=('diverging',), collect_warmup=False, init_params=None, **kwargs):
+    def run(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
         Run the MCMC samplers and collect samples.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param extra_fields: Extra fields (aside from `z`) from :data:`numpyro.infer.mcmc.HMCState`
+        :param extra_fields: Extra fields (aside from `z`, `diverging`) from :data:`numpyro.infer.mcmc.HMCState`
             to collect during the MCMC run.
         :type extra_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
@@ -635,7 +635,7 @@ class MCMC(object):
                 raise ValueError('`init_params` must have the same leading dimension'
                                  ' as `num_chains`.')
         assert isinstance(extra_fields, (tuple, list))
-        collect_fields = ('z',) + tuple(extra_fields) if 'z' not in extra_fields else extra_fields
+        collect_fields = tuple(set(('z', 'diverging') + tuple(extra_fields)))
         if self.num_chains == 1:
             states_flat = self._single_chain_mcmc((rng_key, init_params), collect_fields, collect_warmup,
                                                   args, kwargs)
