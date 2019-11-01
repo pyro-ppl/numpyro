@@ -13,6 +13,7 @@ from jax.tree_util import tree_map
 __all__ = [
     'Adam',
     'Adagrad',
+    'ClippedAdam',
     'Momentum',
     'RMSProp',
     'RMSPropMomentum',

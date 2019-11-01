@@ -6,8 +6,6 @@ from operator import attrgetter
 import os
 import warnings
 
-import tqdm
-
 from jax import jit, lax, partial, pmap, random, vmap
 from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
@@ -178,7 +176,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
-                    run_warmup=True,
                     progbar=True,
                     rng_key=PRNGKey(0)):
         """
@@ -204,10 +201,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10.
-        :param bool run_warmup: Flag to decide whether warmup is run. If ``True``,
-            `init_kernel` returns an initial :data:`~numpyro.infer.mcmc.HMCState` that can be used to
-            generate samples using MCMC. Else, returns the arguments and callable
-            that does the initial adaptation.
         :param bool progbar: Whether to enable progress bar updates. Defaults to
             ``True``.
         :param jax.random.PRNGKey rng_key: random key to be used as the source of
@@ -240,17 +233,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
                              0, 0., 0., False, wa_state, rng_key_hmc)
-
-        # TODO: Remove; this should be the responsibility of the MCMC class.
-        if run_warmup and num_warmup > 0:
-            # JIT if progress bar updates not required
-            if not progbar:
-                hmc_state = fori_loop(0, num_warmup, lambda *args: sample_kernel(args[1]), hmc_state)
-            else:
-                with tqdm.trange(num_warmup, desc='warmup') as t:
-                    for i in t:
-                        hmc_state = jit(sample_kernel)(hmc_state)
-                        t.set_postfix_str(get_diagnostics_str(hmc_state), refresh=False)
         return hmc_state
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng_key):
@@ -388,6 +370,7 @@ class HMC(MCMCKernel):
     :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
         value is :math:`2\\pi`.
     :param callable init_strategy: a per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
     """
     def __init__(self,
                  model=None,
@@ -444,7 +427,6 @@ class HMC(MCMCKernel):
             target_accept_prob=self.target_accept_prob,
             trajectory_length=self.trajectory_length,
             max_tree_depth=self.max_tree_depth,
-            run_warmup=False,
             rng_key=rng_key,
         )
         if rng_key.ndim == 1:
@@ -509,6 +491,7 @@ class NUTS(HMC):
     :param int max_tree_depth: Max depth of the binary tree created during the doubling
         scheme of NUTS sampler. Defaults to 10.
     :param callable init_strategy: a per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
     """
     def __init__(self,
                  model=None,
