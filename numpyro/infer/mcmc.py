@@ -635,7 +635,7 @@ class MCMC(object):
                 raise ValueError('`init_params` must have the same leading dimension'
                                  ' as `num_chains`.')
         assert isinstance(extra_fields, (tuple, list))
-        collect_fields = set(('z', 'diverging') + tuple(extra_fields))
+        collect_fields = tuple(set(('z', 'diverging') + tuple(extra_fields)))
         if self.num_chains == 1:
             states_flat = self._single_chain_mcmc((rng_key, init_params), collect_fields, collect_warmup,
                                                   args, kwargs)
