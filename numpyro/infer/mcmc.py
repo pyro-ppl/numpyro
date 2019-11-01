@@ -15,7 +15,7 @@ import jax.numpy as np
 from jax.random import PRNGKey
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
-from numpyro.diagnostics import summary
+from numpyro.diagnostics import print_summary
 from numpyro.infer.hmc_util import (
     IntegratorState,
     build_tree,
@@ -618,7 +618,7 @@ class MCMC(object):
         states['z'] = vmap(constrain_fn)(states['z']) if len(tree_flatten(states)[0]) > 0 else states['z']
         return states
 
-    def run(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
+    def run(self, rng_key, *args, extra_fields=('diverging',), collect_warmup=False, init_params=None, **kwargs):
         """
         Run the MCMC samplers and collect samples.
 
@@ -710,4 +710,7 @@ class MCMC(object):
         return {k: v for k, v in states.items() if k != 'z'}
 
     def print_summary(self, prob=0.9):
-        summary(self._states['z'], prob=prob)
+        print_summary(self._states['z'], prob=prob)
+        extra_fields = self.get_extra_fields()
+        if 'diverging' in extra_fields:
+            print("Number of divergences: {}".format(np.sum(extra_fields['diverging'])))

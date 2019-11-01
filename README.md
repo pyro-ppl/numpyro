@@ -55,7 +55,7 @@ Let us infer the values of the unknown parameters in our model by running MCMC u
 We can print the summary of the MCMC run, and examine if we observed any divergences during inference:
 
 ```python
-mcmc.print_summary()
+>>> mcmc.print_summary()
 
                 mean       std    median      5.0%     95.0%     n_eff     r_hat
         mu      3.94      2.81      3.16      0.03      9.28    114.51      1.06
@@ -68,8 +68,6 @@ mcmc.print_summary()
   theta[5]      3.66      4.27      2.77     -2.79     11.06    344.57      1.02
   theta[6]      5.74      4.67      4.34     -1.92     13.25     58.42      1.05
   theta[7]      4.29      4.63      3.23     -2.14     12.37    342.50      1.02
-
->>> print("Number of divergences: {}".format(sum(mcmc.get_extra_fields()['diverging'])))
 
 Number of divergences: 139
 ```
@@ -104,8 +102,6 @@ The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates tha
   theta[5]      3.92      4.43      4.06     -2.41     11.09   1179.74      1.00
   theta[6]      5.88      4.84      5.34     -1.45     13.11    881.38      1.00
   theta[7]      4.63      4.86      4.64     -3.57     11.80   1065.27      1.00
-  
->>> print("Number of divergences: {}".format(sum(mcmc.get_extra_fields()['diverging'])))
 
 Number of divergences: 0
 ```

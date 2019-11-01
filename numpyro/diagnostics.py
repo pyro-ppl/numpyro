@@ -212,7 +212,7 @@ def hpdi(x, prob=0.90, axis=0):
     return onp.concatenate([hpd_left, hpd_right], axis=axis)
 
 
-def summary(samples, prob=0.90, group_by_chain=True):
+def print_summary(samples, prob=0.90, group_by_chain=True):
     """
     Prints a summary table displaying diagnostics of ``samples`` from the
     posterior. The diagnostics displayed are mean, standard deviation, median,
@@ -241,7 +241,7 @@ def summary(samples, prob=0.90, group_by_chain=True):
     header_format = name_format + ' {:>9} {:>9} {:>9} {:>9} {:>9} {:>9} {:>9}'
     columns = ['', 'mean', 'std', 'median', '{:.1f}%'.format(50 * (1 - prob)),
                '{:.1f}%'.format(50 * (1 + prob)), 'n_eff', 'r_hat']
-    print('\n')
+    print()
     print(header_format.format(*columns))
 
     # XXX: consider to expose digits, depending on user requests
@@ -264,4 +264,4 @@ def summary(samples, prob=0.90, group_by_chain=True):
                 idx_str = '[{}]'.format(','.join(map(str, idx)))
                 print(row_format.format(name + idx_str, mean[idx], sd[idx], median[idx],
                                         hpd[0][idx], hpd[1][idx], n_eff[idx], r_hat[idx]))
-    print('\n')
+    print()
