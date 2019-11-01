@@ -124,7 +124,7 @@ class trace(Messenger):
                      {'args': (),
                       'fn': <numpyro.distributions.continuous.Normal object at 0x7f9e689b1eb8>,
                       'is_observed': False,
-                      'kwargs': {'random_state': DeviceArray([0, 0], dtype=uint32)},
+                      'kwargs': {'rng_key': DeviceArray([0, 0], dtype=uint32)},
                       'name': 'a',
                       'type': 'sample',
                       'value': DeviceArray(-0.20584235, dtype=float32)})])
@@ -362,9 +362,9 @@ class seed(Messenger):
 
     def process_message(self, msg):
         if msg['type'] == 'sample' and not msg['is_observed'] and \
-                msg['kwargs']['random_state'] is None:
+                msg['kwargs']['rng_key'] is None:
             self.rng_key, rng_key_sample = random.split(self.rng_key)
-            msg['kwargs']['random_state'] = rng_key_sample
+            msg['kwargs']['rng_key'] = rng_key_sample
 
 
 class substitute(Messenger):

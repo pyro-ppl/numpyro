@@ -209,7 +209,7 @@ class Distribution(object):
         return mask
 
     def __call__(self, *args, **kwargs):
-        key = kwargs.pop('random_state')
+        key = kwargs.pop('rng_key')
         sample_intermediates = kwargs.pop('sample_intermediates', False)
         if sample_intermediates:
             return self.sample_with_intermediates(key, *args, **kwargs)
