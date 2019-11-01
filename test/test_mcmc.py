@@ -21,7 +21,7 @@ from numpyro.util import fori_collect
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 @pytest.mark.parametrize('dense_mass', [False, True])
 def test_unnormalized_normal_x64(kernel_cls, dense_mass):
-    true_mean, true_std = 1., 2.
+    true_mean, true_std = 1., 0.5
     warmup_steps, num_samples = 1000, 8000
 
     def potential_fn(z):

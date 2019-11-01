@@ -14,10 +14,10 @@ and :class:`~numpyro.handlers.substitute` handlers to define the `log_likelihood
 We first create a logistic regression model and sample from the posterior distribution over
 the regression parameters using :func:`~numpyro.infer.MCMC`. The `log_likelihood` function
 uses effect handlers to run the model by substituting sample sites with values from the posterior
-distribution and computes the log density for a single data point. The `expected_log_likelihood`
+distribution and computes the log density for a single data point. The `log_predictive_density`
 function computes the log likelihood for each draw from the joint posterior and aggregates the
-results, but does so by using JAX's auto-vectorize transform called `vmap` so that we do not
-need to loop over all the data points.
+results for all the data points, but does so by using JAX's auto-vectorize transform called
+`vmap` so that we do not need to loop over all the data points.
 
 
 .. testsetup::
@@ -61,16 +61,17 @@ need to loop over all the data points.
    ...     model = handlers.substitute(handlers.seed(model, rng_key), params)
    ...     model_trace = handlers.trace(model).get_trace(*args, **kwargs)
    ...     obs_node = model_trace['obs']
-   ...     return np.sum(obs_node['fn'].log_prob(obs_node['value']))
+   ...     return obs_node['fn'].log_prob(obs_node['value'])
 
-   >>> def expected_log_likelihood(rng_key, params, model, *args, **kwargs):
+   >>> def log_predictive_density(rng_key, params, model, *args, **kwargs):
    ...     n = list(params.values())[0].shape[0]
    ...     log_lk_fn = vmap(lambda rng_key, params: log_likelihood(rng_key, params, model, *args, **kwargs))
    ...     log_lk_vals = log_lk_fn(random.split(rng_key, n), params)
-   ...     return logsumexp(log_lk_vals) - np.log(n)
+   ...     return np.sum(logsumexp(log_lk_vals, 0) - np.log(n))
 
-   >>> print(expected_log_likelihood(random.PRNGKey(2), samples, logistic_regression, data, labels))  # doctest: +SKIP
-   -876.172
+   >>> print(log_predictive_density(random.PRNGKey(2), mcmc.get_samples(),
+   ...       logistic_regression, data, labels))  # doctest: +SKIP
+   -874.89813
 """
 
 from __future__ import absolute_import, division, print_function

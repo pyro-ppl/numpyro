@@ -216,6 +216,15 @@ class Distribution(object):
         return self.sample(key, *args, **kwargs)
 
     def to_event(self, reinterpreted_batch_ndims=None):
+        """
+        Interpret the rightmost `reinterpreted_batch_ndims` batch dimensions as
+        dependent event dimensions.
+
+        :param reinterpreted_batch_ndims: Number of rightmost batch dims to
+            interpret as event dims.
+        :return: An instance of `Independent` distribution.
+        :rtype: Independent
+        """
         if reinterpreted_batch_ndims is None:
             reinterpreted_batch_ndims = len(self.batch_shape)
         return Independent(self, reinterpreted_batch_ndims)
@@ -228,7 +237,7 @@ class Independent(Distribution):
 
     From a practical standpoint, this is useful when changing the result of
     :meth:`log_prob`. For example, a univariate Normal distribution can be
-    interpreted as a multivariate Normal with diagonal covariance::
+    interpreted as a multivariate Normal with diagonal covariance:
 
     .. testsetup::
 
