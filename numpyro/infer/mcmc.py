@@ -6,8 +6,6 @@ from operator import attrgetter
 import os
 import warnings
 
-import tqdm
-
 from jax import jit, lax, partial, pmap, random, vmap
 from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
