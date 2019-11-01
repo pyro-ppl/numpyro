@@ -60,7 +60,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, random_state=None, sample_shape=()):
+def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -69,19 +69,19 @@ def sample(name, fn, obs=None, random_state=None, sample_shape=()):
     .. note::
         By design, `sample` primitive is meant to be used inside a NumPyro model.
         Then :class:`~numpyro.handlers.seed` handler is used to inject a random
-        state to `fn`. In those situations, `random_state` keyword will take no
+        state to `fn`. In those situations, `rng_key` keyword will take no
         effect.
 
     :param str name: name of the sample site
     :param fn: Python callable
     :param numpy.ndarray obs: observed value
-    :param jax.random.PRNGKey random_state: an optional random key for `fn`.
+    :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        return fn(random_state=random_state, sample_shape=sample_shape)
+        return fn(rng_key=rng_key, sample_shape=sample_shape)
 
     # Otherwise, we initialize a message...
     initial_msg = {
@@ -89,7 +89,7 @@ def sample(name, fn, obs=None, random_state=None, sample_shape=()):
         'name': name,
         'fn': fn,
         'args': (),
-        'kwargs': {'random_state': random_state, 'sample_shape': sample_shape},
+        'kwargs': {'rng_key': rng_key, 'sample_shape': sample_shape},
         'value': obs,
         'scale': 1.0,
         'is_observed': obs is not None,
