@@ -354,6 +354,7 @@ def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(
     :param model: Python callable containing Pyro primitives.
     :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
         `init_params` are values from the prior used to initiate MCMC,
