@@ -16,7 +16,7 @@ __all__ = [
     'gelman_rubin',
     'hpdi',
     'split_gelman_rubin',
-    'summary',
+    'print_summary',
 ]
 
 
