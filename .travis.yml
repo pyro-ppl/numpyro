@@ -14,6 +14,8 @@ dist: xenial
 
 install:
     - pip install -U pip
+    # Keep track of pyro-api master branch
+    - pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
     - pip install jaxlib
     - pip install jax
     - pip install .[examples,test]
