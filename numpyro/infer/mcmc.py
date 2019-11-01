@@ -615,7 +615,7 @@ class MCMC(object):
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
-        states['z'] = vmap(constrain_fn)(states['z']) if len(tree_flatten(states)[0]) > 0 else states['z']
+        states['z'] = vmap(constrain_fn)(states['z']) if len(tree_flatten(states['z'])[0]) > 0 else states['z']
         return states
 
     def run(self, rng_key, *args, extra_fields=('diverging',), collect_warmup=False, init_params=None, **kwargs):
