@@ -145,6 +145,7 @@ For some more examples on specifying models and doing inference in NumPyro:
  - [Hidden Markov Model](https://github.com/pyro-ppl/numpyro/blob/master/examples/hmm.py) in NumPyro as compared to [Stan](https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html).
  - [Variational Autoencoder](https://github.com/pyro-ppl/numpyro/blob/master/examples/vae.py) - As a simple example that uses Variational Inference with neural networks. [Pyro implementation](https://github.com/pyro-ppl/pyro/blob/dev/examples/vae/vae.py) for comparison.
  - [Gaussian Process](https://github.com/pyro-ppl/numpyro/blob/master/examples/gp.py) - Provides a simple example to use NUTS to sample from the posterior over the hyper-parameters of a Gaussian Process.
+ - [Statistical Rethinking with NumPyro](https://github.com/fehiepsi/rethinking-numpyro) - [Notebooks](https://nbviewer.jupyter.org/github/fehiepsi/rethinking-numpyro/tree/master/notebooks/) containing translation of the code in Richard McElreath's [Statistical Rethinking](https://xcelab.net/rm/statistical-rethinking/) book second version, to NumPyro.
  - Other model examples can be found in the [examples](https://github.com/pyro-ppl/numpyro/tree/master/examples) folder.
 
 Pyro users will note that the API for model specification and inference is largely the same as Pyro, including the distributions API, by design. However, there are some important core differences (reflected in the internals) that users should be aware of. e.g. in NumPyro, there is no global parameter store or random state, to make it possible for us to leverage JAX's JIT compilation. Also, users may need to write their models in a more *functional* style that works better with JAX. Refer to [FAQs](#frequently-asked-questions) for a list of differences. 
@@ -181,21 +182,21 @@ pip install -e .[dev]
    - Call the distribution directly and provide a `PRNGKey`, e.g. `dist.Normal(0, 1).sample(PRNGKey(0))`
    - Provide the `rng_key` argument to `numpyro.sample`. e.g. `numpyro.sample('x', dist.Normal(0, 1), rng_key=PRNGKey(0))`. 
    - Wrap the code in a `seed` handler, used either as a context manager or as a function that wraps over the original callable. e.g. 
-    ```python
-    with handlers.seed(rng_seed=0):
-        x = numpyro.sample('x', dist.Beta(1, 1))  # random.PRNGKey(0) is used
-        y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNGKey split from the last one
-    ```
-    , or as a higher order function:
+     ```python
+     with handlers.seed(rng_seed=0):
+         x = numpyro.sample('x', dist.Beta(1, 1))  # random.PRNGKey(0) is used
+         y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNGKey split from the last one
+     ```
+     , or as a higher order function:
     
-    ```python
-    def fn():
-        x = numpyro.sample('x', dist.Beta(1, 1))
-        y = numpyro.sample('y', dist.Bernoulli(x))
-        return y
+     ```python
+     def fn():
+         x = numpyro.sample('x', dist.Beta(1, 1))
+         y = numpyro.sample('y', dist.Bernoulli(x))
+         return y
         
-    print(handlers.seed(fn, rng_seed=0)())
-    ```
+     print(handlers.seed(fn, rng_seed=0)())
+     ```
 
 2. Can I use the same Pyro model for doing inference in NumPyro?
    
@@ -205,7 +206,7 @@ pip install -e .[dev]
    - `pyro.sample` statements outside an inference context will need to be wrapped in a `seed` handler, as mentioned above.
    - There is no global parameter store, and as such using `numpyro.param` outside an inference context will have no effect. To retrieve the optimized parameter values from SVI, use the [SVI.get_params](http://num.pyro.ai/en/latest/svi.html#numpyro.infer.svi.SVI.get_params) method. Note that you can still use `param` statements inside a model and NumPyro will use the [substitute](http://num.pyro.ai/en/latest/handlers.html#substitute) effect handler internally to substitute values from the optimizer when running the model in SVI. 
    - PyTorch neural network modules will need to rewritten as [stax](https://github.com/google/jax#neural-net-building-with-stax) neural networks. See the [VAE](#examples) example for differences in syntax between the two backends.
-   - JAX code works best with functional code. As such, if your model has side-effects that are not visible to the JAX tracer, it may need to rewritten in a more functional style.
+   - JAX works best with functional code, particularly if we would like to leverage JIT compilation, which NumPyro does internally for many inference subroutines. As such, if your model has side-effects that are not visible to the JAX tracer, it may need to rewritten in a more functional style.
    
    For most small models, changes required to run inference in NumPyro should be minor. Additionally, we are working on [pyro-api](https://github.com/pyro-ppl/pyro-api) which allows you to write the same code and dispatch it to multiple backends, including NumPyro. This will necessarily be more restrictive, but has the advantage of being backend agnostic. See the [documentation](https://pyro-api.readthedocs.io/en/latest/dispatch.html#module-pyroapi.dispatch) for an example, and let us know your feedback.
 
