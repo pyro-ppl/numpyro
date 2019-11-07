@@ -176,7 +176,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
-                    progbar=True,
                     rng_key=PRNGKey(0)):
         """
         Initializes the HMC sampler.
@@ -201,8 +200,6 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10.
-        :param bool progbar: Whether to enable progress bar updates. Defaults to
-            ``True``.
         :param jax.random.PRNGKey rng_key: random key to be used as the source of
             randomness.
         """
