@@ -406,11 +406,9 @@ def test_functional_beta_bernoulli_x64(algo):
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
-                            num_warmup=warmup_steps,
-                            progbar=False)
+                            num_warmup=warmup_steps)
     samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
-                           transform=lambda x: constrain_fn(x.z),
-                           progbar=False)
+                           transform=lambda x: constrain_fn(x.z))
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
     if 'JAX_ENABLE_x64' in os.environ:
