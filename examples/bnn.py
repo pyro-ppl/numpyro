@@ -56,8 +56,6 @@ def model(X, Y, D_H):
 
 # helper function for HMC inference
 def run_inference(model, args, rng_key, X, Y, D_H):
-    if args.num_chains > 1:
-        rng_key = random.split(rng_key, args.num_chains)
     start = time.time()
     kernel = NUTS(model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
