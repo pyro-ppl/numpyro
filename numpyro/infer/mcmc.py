@@ -188,8 +188,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         :param float step_size: Determines the size of a single step taken by the
             verlet integrator while computing the trajectory using Hamiltonian
             dynamics. If not specified, it will be set to 1.
-        :param numpy.ndarray inverse_mass_matrix: Inverse of the mass matrix.
-            If not specified, it will be set to an identity matrix.
+        :param numpy.ndarray inverse_mass_matrix: Initial value for inverse mass matrix.
+            This may be adapted during warmup if adapt_mass_matrix = True.
+            If no value is specified, then it is initialized to the identity matrix.
         :param bool adapt_step_size: A flag to decide if we want to adapt step_size
             during warm-up phase using Dual Averaging scheme.
         :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
