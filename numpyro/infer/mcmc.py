@@ -170,6 +170,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     def init_kernel(init_params,
                     num_warmup,
                     step_size=1.0,
+                    inverse_mass_matrix=None,
                     adapt_step_size=True,
                     adapt_mass_matrix=True,
                     dense_mass=False,
@@ -187,6 +188,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         :param float step_size: Determines the size of a single step taken by the
             verlet integrator while computing the trajectory using Hamiltonian
             dynamics. If not specified, it will be set to 1.
+        :param numpy.ndarray inverse_mass_matrix: Initial value for inverse mass matrix.
+            This may be adapted during warmup if adapt_mass_matrix = True.
+            If no value is specified, then it is initialized to the identity matrix.
         :param bool adapt_step_size: A flag to decide if we want to adapt step_size
             during warm-up phase using Dual Averaging scheme.
         :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
@@ -224,7 +228,9 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                             find_reasonable_step_size=find_reasonable_ss)
 
         rng_key_hmc, rng_key_wa = random.split(rng_key)
-        wa_state = wa_init(z, rng_key_wa, step_size, mass_matrix_size=np.size(z_flat))
+        wa_state = wa_init(z, rng_key_wa, step_size,
+                           inverse_mass_matrix=inverse_mass_matrix,
+                           mass_matrix_size=np.size(z_flat))
         r = momentum_generator(wa_state.mass_matrix_sqrt, rng_key)
         vv_state = vv_init(z, r)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
