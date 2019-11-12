@@ -442,3 +442,21 @@ def test_functional_map(algo, map_fn):
 
     assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.05)
     assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)
+
+
+def test_reuse_mcmc_run():
+    y_obs = onp.random.normal(3, 1, (100,))
+
+    def model(y_obs):
+        mu = numpyro.sample('mu', dist.Normal(0., 1.))
+        sigma = numpyro.sample("sigma", dist.HalfCauchy(3.))
+        numpyro.sample("y", dist.Normal(mu, sigma), obs=y_obs)
+
+    # Run MCMC on zero observations.
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, 500, 1000)
+    mcmc.run(random.PRNGKey(32), np.zeros((0,)))
+
+    # Run on data, re-using `mcmc`.
+    mcmc.run(random.PRNGKey(32), y_obs)
+    assert_allclose(mcmc.get_samples()['mu'].mean(), 3., atol=0.1)

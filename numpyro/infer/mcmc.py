@@ -428,14 +428,14 @@ class HMC(MCMCKernel):
         )
         if rng_key.ndim == 1:
             init_state = hmc_init_fn(init_params, rng_key)
-            self._sample_fn = sample_fn
         else:
             # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(hmc_init_fn)(init_params, rng_key)
-            self._sample_fn = vmap(sample_fn)
-        return init_state, constrain_fn
+            sample_fn = vmap(sample_fn)
+        self._sample_fn = sample_fn
+        return init_state, sample_fn, constrain_fn
 
     def sample(self, state):
         """
@@ -445,6 +445,7 @@ class HMC(MCMCKernel):
         :param HMCState state: Represents the current state.
         :return: Next `state` after running HMC.
         """
+        # TODO: depricate this method
         return self._sample_fn(state)
 
 
@@ -577,8 +578,8 @@ class MCMC(object):
 
     def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
         rng_key, init_params = init
-        init_state, constrain_fn = self.sampler.init(rng_key, self.num_warmup, init_params,
-                                                     model_args=args, model_kwargs=kwargs)
+        init_state, sample_fn, constrain_fn = self.sampler.init(rng_key, self.num_warmup, init_params,
+                                                                model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
             constrain_fn = identity if constrain_fn is None else constrain_fn
         else:
@@ -586,7 +587,7 @@ class MCMC(object):
         collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else self.num_warmup
         states = fori_collect(lower, self.num_warmup + self.num_samples,
-                              self.sampler.sample,
+                              sample_fn,
                               init_state,
                               transform=collect_fn,
                               progbar=self.progress_bar,
