@@ -47,6 +47,7 @@ def benchmark_hmc(args, features, labels):
     kernel = NUTS(model, trajectory_length=trajectory_length)
     mcmc = MCMC(kernel, 0, args.num_samples)
     mcmc.run(rng_key, features, labels)
+    mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
 
 
