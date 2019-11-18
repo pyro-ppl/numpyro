@@ -153,8 +153,8 @@ def main(args):
     mcmc.run(rng_key, transition_prior, emission_prior, supervised_categories,
              supervised_words, unsupervised_words)
     samples = mcmc.get_samples()
-    print('\nMCMC elapsed time:', time.time() - start)
     print_results(samples, transition_prob, emission_prob)
+    print('\nMCMC elapsed time:', time.time() - start)
 
 
 if __name__ == '__main__':

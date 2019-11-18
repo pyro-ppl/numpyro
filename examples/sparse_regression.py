@@ -201,6 +201,7 @@ def run_inference(model, args, rng_key, X, Y, hypers):
     kernel = NUTS(model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
     mcmc.run(rng_key, X, Y, hypers)
+    mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
     return mcmc.get_samples()
 
