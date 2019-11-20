@@ -249,3 +249,16 @@ class plate(Messenger):
             batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
         msg['kwargs']['sample_shape'] = batch_shape
         msg['scale'] = msg['scale'] * self.size / self.subsample_size
+
+
+def factor(name, log_factor):
+    """
+    Factor statement to add arbitrary log probability factor to a
+    probabilisitic model.
+
+    :param str name: Name of the trivial sample.
+    :param numpy.ndarray log_factor: A possibly batched log probability factor.
+    """
+    unit_dist = numpyro.distributions.distribution.Unit(log_factor)
+    unit_value = unit_dist.sample()
+    sample(name, unit_dist, obs=unit_value)
