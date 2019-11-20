@@ -90,7 +90,7 @@ def transform_fn(transforms, params, invert=False):
             for k, v in params.items()}
 
 
-def constrain_fn(model, model_args, model_kwargs, transforms, params):
+def constrain_fn(model, transforms, model_args, model_kwargs, params):
     """
     Gets value at each latent site in `model` given unconstrained parameters `params`.
     The `transforms` is used to transform these unconstrained parameters to base values
@@ -113,7 +113,7 @@ def constrain_fn(model, model_args, model_kwargs, transforms, params):
     return {k: model_trace[k]['value'] for k, v in params.items() if k in model_trace}
 
 
-def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
+def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
     """
     Computes potential energy of a model given unconstrained params.
     The `inv_transforms` is used to transform these unconstrained parameters to base values
@@ -321,7 +321,7 @@ def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)
-        potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
+        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
         pe, param_grads = value_and_grad(potential_fn)(params)
         z_grad = ravel_pytree(param_grads)[0]
         is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
@@ -339,7 +339,8 @@ def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to
     return init_params, is_valid
 
 
-def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
+def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(),
+                     dynamic_args=False, **model_kwargs):
     """
     Given a model with Pyro primitives, returns a function which, given
     unconstrained parameters, evaluates the potential energy (negative
@@ -355,6 +356,10 @@ def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(
     :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
+    :param bool dynamic_args: if `True`, the `potential_fn` and
+        `constraints_fn` are themselves dependent on model arguments.
+        When provided a `*model_args, **model_kwargs`, they return
+        `potential_fn` and `constraints_fn` callables, respectively.
     :param `**model_kwargs`: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
         `init_params` are values from the prior used to initiate MCMC,
@@ -392,13 +397,23 @@ def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(
                                     invert=True)
 
     # NB: we use model instead of seeded_model to prevent unexpected behaviours (if any)
-    potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
-    if has_transformed_dist:
-        # FIXME: why using seeded_model here triggers an error for funnel reparam example
-        # if we use MCMC class (mcmc function works fine)
-        constrain_fun = jax.partial(constrain_fn, model, model_args, model_kwargs, inv_transforms)
+    if dynamic_args:
+        def potential_fn(*args, **kwargs):
+            return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
+        if has_transformed_dist:
+            def constrain_fun(*args, **kwargs):
+                return jax.partial(constrain_fn, model, inv_transforms, args, kwargs)
+        else:
+            def constrain_fun(*args, **kwargs):
+                return jax.partial(transform_fn, inv_transforms)
     else:
-        constrain_fun = jax.partial(transform_fn, inv_transforms)
+        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
+        if has_transformed_dist:
+            # FIXME: why using seeded_model here triggers an error for funnel reparam example
+            # if we use MCMC class (mcmc function works fine)
+            constrain_fun = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs)
+        else:
+            constrain_fun = jax.partial(transform_fn, inv_transforms)
 
     def single_chain_init(key):
         return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,

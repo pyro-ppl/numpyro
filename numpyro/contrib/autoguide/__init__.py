@@ -219,8 +219,8 @@ class AutoContinuous(AutoGuide):
             if self._has_transformed_dist:
                 # first, substitute to `param` statements in model
                 model = handlers.substitute(self.model, params)
-                return constrain_fn(model, model_args, model_kwargs,
-                                    self._inv_transforms, unpacked_samples)
+                return constrain_fn(model, self._inv_transforms, model_args,
+                                    model_kwargs, unpacked_samples)
             else:
                 return transform_fn(self._inv_transforms, unpacked_samples)
 
