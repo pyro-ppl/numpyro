@@ -25,6 +25,14 @@ TransformedDistribution
     :show-inheritance:
     :member-order: bysource
 
+Unit
+----
+.. autoclass:: pyro.distributions.distribution.Unit
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 
 Continuous Distributions
 ========================

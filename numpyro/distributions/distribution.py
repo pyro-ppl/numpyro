@@ -28,7 +28,7 @@ import warnings
 import jax.numpy as np
 from jax import lax
 
-from numpyro.distributions.constraints import is_dependent
+from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
@@ -397,8 +397,8 @@ class Unit(Distribution):
 
     This is used for :func:`numpyro.factor` statements.
     """
-    arg_constraints = {'log_factor': constraints.real}
-    support = constraints.real
+    arg_constraints = {'log_factor': real}
+    support = real
 
     def __init__(self, log_factor, validate_args=None):
         batch_shape = np.shape(log_factor)
@@ -410,5 +410,5 @@ class Unit(Distribution):
         return np.empty(sample_shape + self.batch_shape + self.event_shape)
 
     def log_prob(self, value):
-        shape = lax.broadcast_shape(self.batch_shape, np.shape(value)[:-1])
+        shape = lax.broadcast_shapes(self.batch_shape, np.shape(value)[:-1])
         return np.broadcast_to(self.log_factor, shape)

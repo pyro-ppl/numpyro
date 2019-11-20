@@ -15,6 +15,10 @@ plate
 -----
 .. autoclass:: numpyro.primitives.plate
 
+factor
+------
+.. autoclass:: numpyro.primitives.factor
+
 module
 ------
 .. autofunction:: numpyro.primitives.module

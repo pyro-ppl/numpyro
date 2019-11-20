@@ -110,8 +110,7 @@ def semi_supervised_hmm(transition_prior, emission_prior,
                                 transition_log_prob, emission_log_prob)
     log_prob = logsumexp(log_prob, axis=0, keepdims=True)
     # inject log_prob to potential function
-    # NB: This is a trick to add an additional term to potential energy.
-    numpyro.sample('forward_log_prob', dist.Delta(log_density=log_prob), obs=0.)
+    numpyro.factor('forward_log_prob', log_prob)
 
 
 def print_results(posterior, transition_prob, emission_prob):

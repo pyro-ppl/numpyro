@@ -260,5 +260,5 @@ def factor(name, log_factor):
     :param numpy.ndarray log_factor: A possibly batched log probability factor.
     """
     unit_dist = numpyro.distributions.distribution.Unit(log_factor)
-    unit_value = unit_dist.sample()
+    unit_value = unit_dist.sample(None)
     sample(name, unit_dist, obs=unit_value)
