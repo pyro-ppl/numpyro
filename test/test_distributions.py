@@ -286,6 +286,16 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         assert np.shape(sp_samples) == expected_shape
 
 
+@pytest.mark.parametrize('batch_shape', [(), (4,), (3, 2)])
+def test_unit(batch_shape):
+    log_factor = random.normal(random.PRNGKey(0), batch_shape)
+
+    d = dist.Unit(log_factor=log_factor)
+    x = d.sample(random.PRNGKey(1))
+    assert x.shape == batch_shape + (0,)
+    assert (d.log_prob(x) == log_factor).all()
+
+
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
 def test_sample_gradient(jax_dist, sp_dist, params):
     if not jax_dist.reparametrized_params:

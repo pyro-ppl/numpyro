@@ -26,8 +26,9 @@ from contextlib import contextmanager
 import warnings
 
 import jax.numpy as np
+from jax import lax
 
-from numpyro.distributions.constraints import is_dependent
+from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
@@ -386,3 +387,28 @@ class TransformedDistribution(Distribution):
     @property
     def variance(self):
         raise NotImplementedError
+
+
+class Unit(Distribution):
+    """
+    Trivial nonnormalized distribution representing the unit type.
+
+    The unit type has a single value with no data, i.e. ``value.size == 0``.
+
+    This is used for :func:`numpyro.factor` statements.
+    """
+    arg_constraints = {'log_factor': real}
+    support = real
+
+    def __init__(self, log_factor, validate_args=None):
+        batch_shape = np.shape(log_factor)
+        event_shape = (0,)  # This satisfies .size == 0.
+        self.log_factor = log_factor
+        super(Unit, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        return np.empty(sample_shape + self.batch_shape + self.event_shape)
+
+    def log_prob(self, value):
+        shape = lax.broadcast_shapes(self.batch_shape, np.shape(value)[:-1])
+        return np.broadcast_to(self.log_factor, shape)
