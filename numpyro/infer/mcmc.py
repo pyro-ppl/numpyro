@@ -87,7 +87,7 @@ def get_progbar_desc_str(num_warmup, i):
     return 'sample'
 
 
-def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
+def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
     r"""
     Hamiltonian Monte Carlo inference, using either fixed number of
     steps or the No U-Turn Sampler (NUTS) with adaptive path length.
@@ -105,6 +105,11 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
         given input parameters. The input parameters to `potential_fn` can be
         any python collection type, provided that `init_params` argument to
         `init_kernel` has the same type.
+    :param potential_fn_gen: Python callable that when provided with model
+        arguments / keyword arguments returns `potential_fn`. This
+        may be provided to do inference on the same model with changing data.
+        If the data shape remains the same, we can compile `sample_kernel`
+        once, and use the same for multiple inference runs.
     :param kinetic_fn: Python callable that returns the kinetic energy given
         inverse mass matrix and momentum. If not provided, the default is
         euclidean kinetic energy.
@@ -157,7 +162,7 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
     """
     if kinetic_fn is None:
         kinetic_fn = euclidean_kinetic_energy
-    vv_init, vv_update = velocity_verlet(potential_fn, kinetic_fn)
+    vv_update = None
     trajectory_len = None
     max_treedepth = None
     momentum_generator = None
@@ -177,6 +182,8 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
+                    model_args=(),
+                    model_kwargs=None,
                     rng_key=PRNGKey(0)):
         """
         Initializes the HMC sampler.
@@ -204,21 +211,30 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10.
+        :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
+        :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
         :param jax.random.PRNGKey rng_key: random key to be used as the source of
             randomness.
+
         """
         step_size = lax.convert_element_type(step_size, xla_bridge.canonicalize_dtype(np.float64))
-        nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth, wa_steps
+        nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth, vv_update, wa_steps
         wa_steps = num_warmup
         trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
         z = init_params
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
+        pe_fn = potential_fn
+        if potential_fn_gen:
+            if pe_fn is not None:
+                raise ValueError('Only one of `potential_fn` or `potential_fn_gen` must be provided.')
+            else:
+                kwargs = {} if model_kwargs is None else model_kwargs
+                pe_fn = potential_fn_gen(*model_args, **kwargs)
 
         find_reasonable_ss = partial(find_reasonable_step_size,
-                                     potential_fn, kinetic_fn,
-                                     momentum_generator)
+                                     pe_fn, kinetic_fn, momentum_generator)
 
         wa_init, wa_update = warmup_adapter(num_warmup,
                                             adapt_step_size=adapt_step_size,
@@ -232,13 +248,20 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                            inverse_mass_matrix=inverse_mass_matrix,
                            mass_matrix_size=np.size(z_flat))
         r = momentum_generator(wa_state.mass_matrix_sqrt, rng_key)
+        vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn)
         vv_state = vv_init(z, r)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
                              0, 0., 0., False, wa_state, rng_key_hmc)
         return hmc_state
 
-    def _hmc_next(step_size, inverse_mass_matrix, vv_state, rng_key):
+    def _hmc_next(step_size, inverse_mass_matrix, vv_state,
+                  model_args, model_kwargs, rng_key):
+        if potential_fn_gen:
+            nonlocal vv_update
+            pe_fn = potential_fn_gen(*model_args, **model_kwargs)
+            _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+
         num_steps = _get_num_steps(step_size, trajectory_len)
         vv_state_new = fori_loop(0, num_steps,
                                  lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
@@ -255,7 +278,13 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
                                 (vv_state, energy_old), lambda args: args)
         return vv_state, energy, num_steps, accept_prob, diverging
 
-    def _nuts_next(step_size, inverse_mass_matrix, vv_state, rng_key):
+    def _nuts_next(step_size, inverse_mass_matrix, vv_state,
+                   model_args, model_kwargs, rng_key):
+        if potential_fn_gen:
+            nonlocal vv_update
+            pe_fn = potential_fn_gen(*model_args, **model_kwargs)
+            _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
                                  inverse_mass_matrix, step_size, rng_key,
                                  max_delta_energy=max_delta_energy,
@@ -270,21 +299,28 @@ def hmc(potential_fn, kinetic_fn=None, algo='NUTS'):
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
-    def sample_kernel(hmc_state):
+    def sample_kernel(hmc_state, model_args=(), model_kwargs=None):
         """
         Given an existing :data:`~numpyro.infer.mcmc.HMCState`, run HMC with fixed (possibly adapted)
         step size and return a new :data:`~numpyro.infer.mcmc.HMCState`.
 
         :param hmc_state: Current sample (and associated state).
+        :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
+        :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
         :return: new proposed :data:`~numpyro.infer.mcmc.HMCState` from simulating
             Hamiltonian dynamics given existing state.
+
         """
+        model_kwargs = {} if model_kwargs is None else model_kwargs
         rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
         r = momentum_generator(hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
                                                                     hmc_state.adapt_state.inverse_mass_matrix,
-                                                                    vv_state, rng_key_transition)
+                                                                    vv_state,
+                                                                    model_args,
+                                                                    model_kwargs,
+                                                                    rng_key_transition)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
                            (hmc_state.i, accept_prob, vv_state.z, hmc_state.adapt_state),
@@ -419,7 +455,7 @@ class HMC(MCMCKernel):
             if init_params is None:
                 raise ValueError('Valid value of `init_params` must be provided with'
                                  ' `potential_fn`.')
-        hmc_init, sample_fn = hmc(self.potential_fn, self.kinetic_fn, algo=self.algo)
+        hmc_init, sample_fn = hmc(self.potential_fn, kinetic_fn=self.kinetic_fn, algo=self.algo)
         hmc_init_fn = lambda init_params, rng_key: hmc_init(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
