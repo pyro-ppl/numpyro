@@ -440,7 +440,7 @@ def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    potential_fun, constrain_fun = get_potential_fn(rng_key if rng_key.ndim==1 else rng_key[0],
+    potential_fun, constrain_fun = get_potential_fn(rng_key if rng_key.ndim == 1 else rng_key[0],
                                                     model,
                                                     dynamic_args=dynamic_args,
                                                     model_args=model_args,
