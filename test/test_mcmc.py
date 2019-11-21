@@ -433,7 +433,7 @@ def test_functional_map(algo, map_fn):
     rng_keys = random.split(random.PRNGKey(0), 2)
 
     init_kernel_map = map_fn(lambda init_param, rng_key: init_kernel(
-        init_param, trajectory_length=9, num_warmup=warmup_steps, progbar=False, rng_key=rng_key))
+        init_param, trajectory_length=9, num_warmup=warmup_steps, rng_key=rng_key))
     init_states = init_kernel_map(init_params, rng_keys)
 
     fori_collect_map = map_fn(lambda hmc_state: fori_collect(0, num_samples, sample_kernel, hmc_state,
