@@ -15,6 +15,7 @@ from numpyro.util import not_jax_tracer, while_loop
 
 __all__ = [
     'find_valid_initial_params',
+    'get_potential_fn',
     'log_density',
     'log_likelihood',
     'init_to_feasible',
