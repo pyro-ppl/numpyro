@@ -455,39 +455,9 @@ def test_reuse_mcmc_run():
 
     # Run MCMC on zero observations.
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, 200, 200)
+    mcmc = MCMC(kernel, 300, 500)
     mcmc.run(random.PRNGKey(32), y1)
 
-    # Run on data, re-using `mcmc`.
+    # Re-run on new data - should be much faster.
     mcmc.run(random.PRNGKey(32), y2)
     assert_allclose(mcmc.get_samples()['mu'].mean(), -3., atol=0.1)
-
-
-def test_reuse_mcmc_pe_gen():
-    y1 = onp.random.normal(3, 0.1, (100,))
-    y2 = onp.random.normal(-3, 0.1, (100,))
-
-    def model(y_obs):
-        mu = numpyro.sample('mu', dist.Normal(0., 1.))
-        sigma = numpyro.sample("sigma", dist.HalfCauchy(3.))
-        numpyro.sample("y", dist.Normal(mu, sigma), obs=y_obs)
-
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0), model,
-                                                               y1, dynamic_args=True)
-    init_kernel, sample_kernel = hmc(potential_fn_gen=potential_fn)
-    init_state = init_kernel(init_params, num_warmup=300, model_args=(y1,))
-
-    @jit
-    def _sample(state_and_args):
-        hmc_state, model_args = state_and_args
-        return sample_kernel(hmc_state, (model_args,)), model_args
-
-    samples = fori_collect(0, 500, _sample, (init_state, y1),
-                           transform=lambda state: constrain_fn(y1)(state[0].z))
-    assert_allclose(samples['mu'].mean(), 3., atol=0.1)
-
-    # Run on data, re-using `mcmc` - this should be much faster.
-    init_state = init_kernel(init_params, num_warmup=300, model_args=(y2,))
-    samples = fori_collect(0, 500, _sample, (init_state, y2),
-                           transform=lambda state: constrain_fn(y2)(state[0].z))
-    assert_allclose(samples['mu'].mean(), -3., atol=0.1)
