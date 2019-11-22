@@ -677,8 +677,8 @@ class MCMC(object):
         hmc_state, args, kwargs = state
         return self.sampler.sample(hmc_state, args, kwargs), args, kwargs
 
-    def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
-        rng_key, init_params = init
+    def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False):
+        rng_key, init_params, args, kwargs = init
         init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                        model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
@@ -737,16 +737,15 @@ class MCMC(object):
         assert isinstance(extra_fields, (tuple, list))
         collect_fields = tuple(set(('z', 'diverging') + tuple(extra_fields)))
         if self.num_chains == 1:
-            states_flat = self._single_chain_mcmc((rng_key, init_params), collect_fields, collect_warmup,
-                                                  args, kwargs)
+            states_flat = self._single_chain_mcmc((rng_key, init_params, args, kwargs), collect_fields, collect_warmup)
             states = tree_map(lambda x: x[np.newaxis, ...], states_flat)
         else:
             rng_keys = random.split(rng_key, self.num_chains)
+            args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
+            kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
             partial_map_fn = partial(self._single_chain_mcmc,
                                      collect_fields=collect_fields,
-                                     collect_warmup=collect_warmup,
-                                     args=args,
-                                     kwargs=kwargs)
+                                     collect_warmup=collect_warmup)
             if chain_method == 'sequential':
                 if self.progress_bar:
                     map_fn = partial(_laxmap, partial_map_fn)
@@ -759,7 +758,7 @@ class MCMC(object):
             else:
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')
-            states = map_fn((rng_keys, init_params))
+            states = map_fn((rng_keys, init_params, args, kwargs))
             if chain_method == 'vectorized':
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: np.swapaxes(x, 0, 1), states)
