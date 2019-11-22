@@ -348,15 +348,6 @@ class MCMCKernel(ABC):
     """
     Defines the interface for the Markov transition kernel that is
     used for :class:`~numpyro.infer.MCMC` inference.
-
-    :param random.PRNGKey rng_key: Random number generator key to initialize
-        the kernel.
-    :param int num_warmup: Number of warmup steps. This can be useful
-        when doing adaptation during warmup.
-    :param tuple init_params: Initial parameters to begin sampling. The type must be consistent
-            with the input type to `potential_fn`.
-    :param model_args: Arguments provided to the model.
-    :param model_kwargs: Keyword arguments provided to the model.
     """
     def constrain_fn(self, model_args, model_kwargs):
         """
@@ -369,7 +360,20 @@ class MCMCKernel(ABC):
         return identity
 
     @abstractmethod
-    def warmup(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
+    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
+        """
+        Initialize the `MCMCKernel` and return an initial state to begin sampling
+        from.
+
+        :param random.PRNGKey rng_key: Random number generator key to initialize
+            the kernel.
+        :param int num_warmup: Number of warmup steps. This can be useful
+            when doing adaptation during warmup.
+        :param tuple init_params: Initial parameters to begin sampling. The type must be consistent
+                with the input type to `potential_fn`.
+        :param model_args: Arguments provided to the model.
+        :param model_kwargs: Keyword arguments provided to the model.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -380,6 +384,8 @@ class MCMCKernel(ABC):
 
         :param state: Arbitrary data structure representing the state for the
             kernel. For HMC, this is given by :data:`~numpyro.infer.mcmc.HMCState`.
+        :param model_args: Arguments provided to the model.
+        :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state`.
         """
         raise NotImplementedError
@@ -451,7 +457,7 @@ class HMC(MCMCKernel):
         self._constrain_fn = None
         self._sample_fn = None
 
-    def _init(self, rng_key, model_args, model_kwargs):
+    def _init_state(self, rng_key, model_args, model_kwargs):
         if self._model is not None:
             potential_fn_gen, self._constrain_fn = get_potential_fn(
                 rng_key,
@@ -467,8 +473,8 @@ class HMC(MCMCKernel):
                                                  kinetic_fn=self._kinetic_fn,
                                                  algo=self._algo)
 
-    @copy_docs_from(MCMCKernel.warmup)
-    def warmup(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
+    @copy_docs_from(MCMCKernel.init)
+    def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         # non-vectorized
         if rng_key.ndim == 1:
             rng_key, rng_key_init_model = random.split(rng_key)
@@ -478,7 +484,7 @@ class HMC(MCMCKernel):
             # we need only a single key for initializing PE / constraints fn
             rng_key_init_model = rng_key_init_model[0]
         if not self._init_fn:
-            self._init(rng_key_init_model, model_args, model_kwargs)
+            self._init_state(rng_key_init_model, model_args, model_kwargs)
         if self._potential_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
@@ -518,20 +524,23 @@ class HMC(MCMCKernel):
             self._sample_fn = sample_fn
         return init_state
 
+    @copy_docs_from(MCMCKernel.constrain_fn)
     def constrain_fn(self, args, kwargs):
         if self._constrain_fn is None:
             return identity
         return self._constrain_fn(*args, **kwargs)
 
-    def sample(self, state, *args, **kwargs):
+    def sample(self, state, model_args, model_kwargs):
         """
         Run HMC from the given :data:`~numpyro.infer.mcmc.HMCState` and return the resulting
         :data:`~numpyro.infer.mcmc.HMCState`.
 
         :param HMCState state: Represents the current state.
+        :param model_args: Arguments provided to the model.
+        :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state` after running HMC.
         """
-        return self._sample_fn(state, args, kwargs)
+        return self._sample_fn(state, model_args, model_kwargs)
 
 
 class NUTS(HMC):
@@ -666,12 +675,12 @@ class MCMC(object):
         # XXX: Is there a better pattern for retaining good recompilation speeds?
         # FIXME: Does not work for vectorized.
         hmc_state, args, kwargs = state
-        return self.sampler.sample(hmc_state, *args, **kwargs), args, kwargs
+        return self.sampler.sample(hmc_state, args, kwargs), args, kwargs
 
     def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
         rng_key, init_params = init
-        init_state = self.sampler.warmup(rng_key, self.num_warmup, init_params,
-                                         model_args=args, model_kwargs=kwargs)
+        init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
+                                       model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
             self.constrain_fn = self.sampler.constrain_fn(args, kwargs)
         collect_fn = attrgetter(*collect_fields)
