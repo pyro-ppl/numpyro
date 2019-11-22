@@ -352,7 +352,7 @@ class MCMCKernel(ABC):
     def constrain_fn(self, model_args, model_kwargs):
         """
         Function that transforms unconstrained values at sample sites to values
-        constrained to site's support.
+        constrained to the site's support.
 
         :param model_args: Arguments to the model.
         :param model_kwargs: Keyword arguments to the model.
@@ -369,8 +369,8 @@ class MCMCKernel(ABC):
             the kernel.
         :param int num_warmup: Number of warmup steps. This can be useful
             when doing adaptation during warmup.
-        :param tuple init_params: Initial parameters to begin sampling. The type must be consistent
-                with the input type to `potential_fn`.
+        :param tuple init_params: Initial parameters to begin sampling. The type must
+            be consistent with the input type to `potential_fn`.
         :param model_args: Arguments provided to the model.
         :param model_kwargs: Keyword arguments provided to the model.
         """
@@ -672,8 +672,6 @@ class MCMC(object):
 
     @partial(jit, static_argnums=(0,))
     def _sample(self, state):
-        # XXX: Is there a better pattern for retaining good recompilation speeds?
-        # FIXME: Does not work for vectorized.
         hmc_state, args, kwargs = state
         return self.sampler.sample(hmc_state, args, kwargs), args, kwargs
 
