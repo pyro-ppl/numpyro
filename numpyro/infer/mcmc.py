@@ -654,7 +654,8 @@ class MCMC(object):
                  num_chains=1,
                  constrain_fn=None,
                  chain_method='parallel',
-                 progress_bar=True):
+                 progress_bar=True,
+                 jit_model_args=True):
         self.sampler = sampler
         self.num_warmup = num_warmup
         self.num_samples = num_samples
@@ -666,14 +667,17 @@ class MCMC(object):
         if (chain_method == 'parallel' and num_chains > 1) or (
                 "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
             self.progress_bar = False
-
+        self._jit_model_args = jit_model_args
         self._states = None
         self._states_flat = None
 
-    @partial(jit, static_argnums=(0,))
-    def _sample(self, state):
+    def _sample_fn_jit(self, state):
         hmc_state, args, kwargs = state
         return self.sampler.sample(hmc_state, args, kwargs), args, kwargs
+
+    def _sample_fn_nojit(self, state):
+        # state is a tuple of size 1 - containing HMCState
+        return self.sampler.sample(state[0], self._args, self._kwargs),
 
     def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False):
         rng_key, init_params, args, kwargs = init
@@ -684,9 +688,11 @@ class MCMC(object):
         collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else self.num_warmup
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
+        sample_fn = self._sample_fn_jit if self._jit_model_args else self._sample_fn_nojit
+        init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         states = fori_collect(lower, self.num_warmup + self.num_samples,
-                              self._sample,
-                              (init_state, args, kwargs),
+                              sample_fn,
+                              init_val,
                               transform=lambda x: collect_fn(x[0]),  # noqa: E731
                               progbar=self.progress_bar,
                               progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
