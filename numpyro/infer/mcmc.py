@@ -683,11 +683,11 @@ class MCMC(object):
             self.constrain_fn = self.sampler.constrain_fn(args, kwargs)
         collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else self.num_warmup
-        diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None
+        diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
         states = fori_collect(lower, self.num_warmup + self.num_samples,
                               self._sample,
                               (init_state, args, kwargs),
-                              transform=lambda x: collect_fn(x[0]),
+                              transform=lambda x: collect_fn(x[0]),  # noqa: E731
                               progbar=self.progress_bar,
                               progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
                               diagnostics_fn=diagnostics)
