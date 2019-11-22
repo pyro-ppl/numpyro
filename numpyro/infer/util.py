@@ -415,12 +415,9 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
 def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(),
                      dynamic_args=False, **model_kwargs):
     """
-    Given a model with Pyro primitives, returns a function which, given
-    unconstrained parameters, evaluates the potential energy (negative
-    joint density). In addition, this also returns initial parameters
-    sampled from the prior to initiate MCMC sampling and functions to
-    transform unconstrained values at sample sites to constrained values
-    within their respective support.
+    (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
+    and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
+    to return a tuple of (`init_params`, `potential_fn`, `constrain_fn`).
 
     :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
