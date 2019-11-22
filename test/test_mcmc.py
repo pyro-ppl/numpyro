@@ -455,7 +455,7 @@ def test_reuse_mcmc_run():
 
     # Run MCMC on zero observations.
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, 300, 500)
+    mcmc = MCMC(kernel, 300, 500, jit_model_args=True)
     mcmc.run(random.PRNGKey(32), y1)
 
     # Re-run on new data - should be much faster.

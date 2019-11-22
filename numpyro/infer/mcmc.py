@@ -646,6 +646,9 @@ class MCMC(object):
         drawing method, hence allowing us to collect samples in parallel on a single device.
     :param bool progress_bar: Whether to enable progress bar updates. Defaults to
         ``True``.
+    :param bool jit_model_args: If set to `True`, this will compile the potential energy
+        computation as a function of model arguments. As such, calling `MCMC.run` again
+        on a same sized but different dataset will not result in additional compilation cost.
     """
     def __init__(self,
                  sampler,
@@ -655,7 +658,7 @@ class MCMC(object):
                  constrain_fn=None,
                  chain_method='parallel',
                  progress_bar=True,
-                 jit_model_args=True):
+                 jit_model_args=False):
         self.sampler = sampler
         self.num_warmup = num_warmup
         self.num_samples = num_samples
@@ -671,13 +674,13 @@ class MCMC(object):
         self._states = None
         self._states_flat = None
 
-    def _sample_fn_jit(self, state):
+    def _sample_fn_jit_args(self, state):
         hmc_state, args, kwargs = state
         return self.sampler.sample(hmc_state, args, kwargs), args, kwargs
 
-    def _sample_fn_nojit(self, state):
+    def _sample_fn_nojit_args(self, state, args, kwargs):
         # state is a tuple of size 1 - containing HMCState
-        return self.sampler.sample(state[0], self._args, self._kwargs),
+        return self.sampler.sample(state[0], args, kwargs),
 
     def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False):
         rng_key, init_params, args, kwargs = init
@@ -688,7 +691,11 @@ class MCMC(object):
         collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else self.num_warmup
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
-        sample_fn = self._sample_fn_jit if self._jit_model_args else self._sample_fn_nojit
+        if self._jit_model_args:
+            sample_fn = self._sample_fn_jit_args
+        else:
+            # NOTE: we want to recompile every time args/kwargs changes.
+            sample_fn = partial(self._sample_fn_nojit_args, args=args, kwargs=kwargs)
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         states = fori_collect(lower, self.num_warmup + self.num_samples,
                               sample_fn,
