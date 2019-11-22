@@ -1,20 +1,7 @@
-import argparse
-
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-from jax import random
-import jax.numpy as np
-
-import numpyro
-import numpyro.distributions as dist
-from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import MCMC, NUTS
-
-sns.set(context='talk')
-
-
 """
+Neal's Funnel
+=============
+
 This example, which is adapted from [1], illustrates how to leverage non-centered
 parameterization using the class `~numpyro.distributions.TransformedDistribution`.
 We will examine the difference between two types of parameterizations on the
@@ -29,10 +16,27 @@ rule for each type of transform. Instead, in NumPyro the only requirement to let
 inference algorithms know to do reparameterization automatically is to declare
 the random variable as a transformed distribution.
 
-[1] *Stan User's Guide*, https://mc-stan.org/docs/2_19/stan-users-guide/reparameterization-section.html
-[2] Maria I. Gorinova, Dave Moore, Matthew D. Hoffman (2019), "Automatic
-    Reparameterisation of Probabilistic Programs", (https://arxiv.org/abs/1906.03028)
+**References:**
+
+1. *Stan User's Guide*, https://mc-stan.org/docs/2_19/stan-users-guide/reparameterization-section.html
+2. Maria I. Gorinova, Dave Moore, Matthew D. Hoffman (2019), "Automatic
+   Reparameterisation of Probabilistic Programs", (https://arxiv.org/abs/1906.03028)
 """
+
+import argparse
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from jax import random
+import jax.numpy as np
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.distributions.transforms import AffineTransform
+from numpyro.infer import MCMC, NUTS
+
+sns.set(context='talk')
 
 
 def model(dim=10):

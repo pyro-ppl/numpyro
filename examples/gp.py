@@ -1,3 +1,11 @@
+"""
+Gaussian Process
+================
+
+In this example we show how to use NUTS to sample from the posterior
+over the hyperparameters of a gaussian process.
+"""
+
 import argparse
 import time
 
@@ -15,11 +23,6 @@ import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
-
-"""
-In this example we show how to use NUTS to sample from the posterior
-over the hyperparameters of a gaussian process.
-"""
 
 
 # squared exponential kernel with diagonal noise term

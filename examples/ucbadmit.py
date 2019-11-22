@@ -1,3 +1,53 @@
+"""
+Generalized Linear Mixed Models
+===============================
+
+The UCBadmit data is sourced from the study [1] of gender biased in graduate admissions at
+UC Berkeley in Fall 1973:
+
+.. tabularcolumns:: |c|c|c|c|
+
+====== ====== ============== =======
+ dept   male   applications   admit
+====== ====== ============== =======
+  0      1         825         512
+  0      0         108          89
+  1      1         560         353
+  1      0          25          17
+  2      1         325         120
+  2      0         593         202
+  3      1         417         138
+  3      0         375         131
+  4      1         191          53
+  4      0         393          94
+  5      1         373          22
+  5      0         341          24
+====== ====== ============== =======
+
+This example replicates the multilevel model `m_glmm5` at [3], which is used to evaluate whether
+the data contain evidence of gender biased in admissions accross departments. This is a form of
+Generalized Linear Mixed Models for binomial regression problem, which models
+
+    - varying intercepts accross departments,
+    - varying slopes (or the effects of being male) accross departments,
+    - correlation between intercepts and slopes,
+
+and uses non-centered parameterization (or whitening).
+
+A more comprehensive explanation for binomial regression and non-centered parameterization can be
+found in Chapter 10 (Counting and Classification) and Chapter 13 (Adventures in Covariance) of [2].
+
+**References:**
+
+1. Bickel, P. J., Hammel, E. A., and O'Connell, J. W. (1975), "Sex Bias in Graduate Admissions:
+   Data from Berkeley", Science, 187(4175), 398-404.
+
+2. McElreath, R. (2018), "Statistical Rethinking: A Bayesian Course with Examples in R and Stan",
+   Chapman and Hall/CRC.
+
+3. "https://github.com/rmcelreath/rethinking/tree/Experimental#multilevel-model-formulas"
+"""
+
 import argparse
 
 import numpy as onp
@@ -10,44 +60,6 @@ from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import UCBADMIT, load_dataset
 from numpyro.infer import MCMC, NUTS
-
-
-"""
-The UCBadmit data is sourced from the study [1] of gender biased in graduate admissions at
-UC Berkeley in Fall 1973:
-
-    dept | male | applications | admit
-   ------|------|--------------|-------
-     0      1         825         512
-     0      0         108          89
-     1      1         560         353
-     1      0          25          17
-     2      1         325         120
-     2      0         593         202
-     3      1         417         138
-     3      0         375         131
-     4      1         191          53
-     4      0         393          94
-     5      1         373          22
-     5      0         341          24
-
-This example replicates the multilevel model `m_glmm5` at [3], which is used to evaluate whether
-the data contain evidence of gender biased in admissions accross departments. This is a form of
-Generalized Linear Mixed Models for binomial regression problem, which models
- - varying intercepts accross departments,
- - varying slopes (or the effects of being male) accross departments,
- - correlation between intercepts and slopes,
-and uses non-centered parameterization (or whitening).
-
-A more comprehensive explanation for binomial regression and non-centered parameterization can be
-found in Chapter 10 (Counting and Classification) and Chapter 13 (Adventures in Covariance) of [2].
-
-[1] Bickel, P. J., Hammel, E. A., and O'Connell, J. W. (1975), "Sex Bias in Graduate Admissions:
-    Data from Berkeley", Science, 187(4175), 398-404.
-[2] McElreath, R. (2018), "Statistical Rethinking: A Bayesian Course with Examples in R and Stan",
-    Chapman and Hall/CRC.
-[3] "https://github.com/rmcelreath/rethinking/tree/Experimental#multilevel-model-formulas"
-"""
 
 
 def glmm(dept, male, applications, admit):

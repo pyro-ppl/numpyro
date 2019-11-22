@@ -1,18 +1,7 @@
-import argparse
-
-import numpy as onp
-
-import jax.numpy as np
-import jax.random as random
-from jax.scipy.special import logsumexp
-
-import numpyro
-import numpyro.distributions as dist
-from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.infer import MCMC, NUTS, Predictive, log_likelihood
-
-
 """
+Baseball
+========
+
 Original example from Pyro:
 https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py
 
@@ -29,27 +18,42 @@ for each player. We then use the remaining season's data to validate the predict
 from our models.
 
 Three models are evaluated:
- - Complete pooling model: The success probability of scoring a hit is shared
-     amongst all players.
- - No pooling model: Each individual player's success probability is distinct and
-     there is no data sharing amongst players.
- - Partial pooling model: A hierarchical model with partial data sharing.
 
+    - Complete pooling model: The success probability of scoring a hit is shared
+      amongst all players.
+    - No pooling model: Each individual player's success probability is distinct and
+      there is no data sharing amongst players.
+    - Partial pooling model: A hierarchical model with partial data sharing.
 
 We recommend Radford Neal's tutorial on HMC ([3]) to users who would like to get a
 more comprehensive understanding of HMC and its variants, and to [4] for details on
 the No U-Turn Sampler, which provides an efficient and automated way (i.e. limited
 hyper-parameters) of running HMC on different problems.
 
-[1] Carpenter B. (2016), ["Hierarchical Partial Pooling for Repeated Binary Trials"]
-    (http://mc-stan.org/users/documentation/case-studies/pool-binary-trials.html).
-[2] Efron B., Morris C. (1975), "Data analysis using Stein's estimator and its
-    generalizations", J. Amer. Statist. Assoc., 70, 311-319.
-[3] Neal, R. (2012), "MCMC using Hamiltonian Dynamics",
-    (https://arxiv.org/pdf/1206.1901.pdf)
-[4] Hoffman, M. D. and Gelman, A. (2014), "The No-U-turn sampler: Adaptively setting
-    path lengths in Hamiltonian Monte Carlo", (https://arxiv.org/abs/1111.4246)
+**References:**
+
+    1. Carpenter B. (2016), `"Hierarchical Partial Pooling for Repeated Binary Trials"
+       <http://mc-stan.org/users/documentation/case-studies/pool-binary-trials.html/>`_.
+    2. Efron B., Morris C. (1975), "Data analysis using Stein's estimator and its
+       generalizations", J. Amer. Statist. Assoc., 70, 311-319.
+    3. Neal, R. (2012), "MCMC using Hamiltonian Dynamics",
+       (https://arxiv.org/pdf/1206.1901.pdf)
+    4. Hoffman, M. D. and Gelman, A. (2014), "The No-U-turn sampler: Adaptively setting
+       path lengths in Hamiltonian Monte Carlo", (https://arxiv.org/abs/1111.4246)
 """
+
+import argparse
+
+import numpy as onp
+
+import jax.numpy as np
+import jax.random as random
+from jax.scipy.special import logsumexp
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.examples.datasets import BASEBALL, load_dataset
+from numpyro.infer import MCMC, NUTS, Predictive, log_likelihood
 
 
 def fully_pooled(at_bats, hits=None):

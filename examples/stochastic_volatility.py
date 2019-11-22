@@ -1,19 +1,7 @@
-import argparse
-
-import numpy as onp
-
-import jax.numpy as np
-import jax.random as random
-
-import numpyro
-import numpyro.distributions as dist
-from numpyro.examples.datasets import SP500, load_dataset
-from numpyro.infer.mcmc import hmc
-from numpyro.infer.util import initialize_model
-from numpyro.util import fori_collect
-
-
 """
+Stochastic Volatility
+=====================
+
 Generative model:
 
 sigma ~ Exponential(50)
@@ -31,6 +19,20 @@ For more details, refer to:
  3. Forum discussion, https://forum.pyro.ai/t/problems-transforming-a-pymc3-model-to-pyro-mcmc/208/14
 
 """
+
+import argparse
+
+import numpy as onp
+
+import jax.numpy as np
+import jax.random as random
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.examples.datasets import SP500, load_dataset
+from numpyro.infer.mcmc import hmc
+from numpyro.infer.util import initialize_model
+from numpyro.util import fori_collect
 
 
 def model(returns):

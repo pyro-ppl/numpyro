@@ -1,3 +1,8 @@
+"""
+Variational Autoencoder
+=======================
+"""
+
 import argparse
 import os
 import time

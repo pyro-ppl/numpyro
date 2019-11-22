@@ -1,3 +1,24 @@
+"""
+Sparse Regression
+=================
+
+We demonstrate how to do (fully Bayesian) sparse linear regression using the
+approach described in [1]. This approach is particularly suitable for situations
+with many feature dimensions (large P) but not too many datapoints (small N).
+In particular we consider a quadratic regressor of the form:
+
+.. math::
+
+    f(X) = constant + \\sum_i \\theta_i X_i + \\sum_{i<j} \\theta_ij X_i X_j + observation noise
+
+**References:**
+
+1. *The Kernel Interaction Trick: Fast Bayesian Discovery of Pairwise
+   Interactions in High Dimensions*,
+   Raj Agrawal, Jonathan H. Huggins, Brian Trippe, Tamara Broderick
+   https://arxiv.org/abs/1905.06501
+"""
+
 import argparse
 import itertools
 import time
@@ -12,22 +33,6 @@ import jax.random as random
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
-
-
-"""
-We demonstrate how to do (fully Bayesian) sparse linear regression using the
-approach described in [1]. This approach is particularly suitable for situations
-with many feature dimensions (large P) but not too many datapoints (small N).
-In particular we consider a quadratic regressor of the form:
-
-f(X) = constant + sum_i theta_i X_i + sum_{i<j} theta_ij X_i X_j + observation noise
-
-References
-[1] The Kernel Interaction Trick: Fast Bayesian Discovery of Pairwise
-    Interactions in High Dimensions.
-    Raj Agrawal, Jonathan H. Huggins, Brian Trippe, Tamara Broderick
-    https://arxiv.org/abs/1905.06501
-"""
 
 
 def dot(X, Z):

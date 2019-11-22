@@ -1,10 +1,11 @@
 import os
 
+from sphinx_gallery.sorting import FileNameSortKey
 import sphinx_rtd_theme
 
 # -*- coding: utf-8 -*-
 #
-# Numpyro Tutorials documentation build configuration file, created by
+# NumPyro Tutorials documentation build configuration file, created by
 # sphinx-quickstart on Tue Oct 31 11:33:17 2017.
 #
 # This file is execfile()d with the current directory set to its
@@ -40,7 +41,8 @@ extensions = ['sphinx.ext.intersphinx',
               'sphinx.ext.githubpages',
               'nbsphinx',
               'sphinx.ext.autodoc',
-              'IPython.sphinxext.ipython_console_highlighting'
+              'IPython.sphinxext.ipython_console_highlighting',
+              'sphinx_gallery.gen_gallery',
               ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -73,7 +75,7 @@ author = u'Uber AI Labs'
 version = ''
 
 if 'READTHEDOCS' not in os.environ:
-    # if developing locally, use pyro.__version__ as version
+    # if developing locally, use numpyro.__version__ as version
     from numpyro import __version__  # noqaE402
     version = __version__
 
@@ -100,6 +102,39 @@ todo_include_todos = False
 
 # extend timeout
 nbsphinx_timeout = 120
+
+# -- Options for gallery --------------------------------------------------
+
+# examples with order
+EXAMPLES = [
+   'bnn.py',
+   'gp.py',
+   'ucbadmit.py',
+   'baseball.py',
+   'hmm.py',
+   'stochastic_volatility.py',
+   'vae.py',
+   'funnel.py',
+   'sparse_regression.py',
+]
+
+
+class GalleryFileNameSortKey(FileNameSortKey):
+    def __call__(self, filename):
+        if filename in EXAMPLES:
+            return "{:02d}".format(EXAMPLES.index(filename))
+        else:  # not in examples list
+            return "99" + filename
+
+
+sphinx_gallery_conf = {
+    'examples_dirs': ['../../examples'],
+    'gallery_dirs': 'examples',
+    'ignore_pattern': '(neutra|minipyro|covtype|__init__)',
+    'within_subsection_order': GalleryFileNameSortKey,
+    'show_memory': True,
+}
+
 
 # -- Options for HTML output ----------------------------------------------
 
@@ -131,7 +166,7 @@ html_style = 'css/pyro.css'
 # -- Options for HTMLHelp output ------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'NumpyroTutorialsdoc'
+htmlhelp_basename = 'NumPyroTutorialsDoc'
 
 
 # -- Options for LaTeX output ---------------------------------------------

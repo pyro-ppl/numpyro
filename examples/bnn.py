@@ -1,4 +1,7 @@
 """
+Bayesian Neural Network
+=======================
+
 We demonstrate how to use NUTS to do inference on a simple (small)
 Bayesian neural network with two hidden layers.
 """
