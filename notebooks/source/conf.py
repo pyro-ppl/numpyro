@@ -62,8 +62,8 @@ nbsphinx_allow_errors = True
 master_doc = 'index'
 
 # General information about the project.
-project = u'Numpyro Tutorials'
-copyright = u'2017-2018, Uber Technologies, Inc'
+project = u'NumPyro Tutorials'
+copyright = u'2019, Uber Technologies, Inc'
 author = u'Uber AI Labs'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -90,7 +90,7 @@ language = None
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This patterns also effect to html_static_path and html_extra_path
-exclude_patterns = ['.ipynb_checkpoints']
+exclude_patterns = ['.ipynb_checkpoints', 'logistic_regression.ipynb']
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
@@ -158,7 +158,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'NumpyroTutorials.tex', u'Numpyro Examples and Tutorials',
+    (master_doc, 'NumPyroTutorials.tex', u'Numpyro Examples and Tutorials',
      u'Uber AI Labs', 'manual'),
 ]
 
@@ -168,7 +168,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'Numpyrotutorials', u'Numpyro Examples and Tutorials',
+    (master_doc, 'NumPyroTutorials', u'Numpyro Examples and Tutorials',
      [author], 1)
 ]
 
@@ -179,7 +179,7 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'NumpyroTutorials', u'Numpyro Examples and Tutorials',
-     author, 'NumpyroTutorials', 'One line description of project.',
+    (master_doc, 'NumPyroTutorials', u'NumPyro Examples and Tutorials',
+     author, 'NumPyroTutorials', 'One line description of project.',
      'Miscellaneous'),
 ]
