@@ -329,15 +329,12 @@ def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to
         is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
         return i + 1, key, params, is_valid
 
-    def _find_valid_params(rng_key_, prototype_params=None):
-        if prototype_params is not None:
-            init_state = (0, rng_key, prototype_params, False)
-        else:
-            _, _, prototype_params, is_valid = init_state = body_fn((0, rng_key_, None, None))
-            # Early return if valid params found.
-            if not_jax_tracer(is_valid):
-                if device_get(is_valid):
-                    return prototype_params, is_valid
+    def _find_valid_params(rng_key_):
+        _, _, prototype_params, is_valid = init_state = body_fn((0, rng_key_, None, None))
+        # Early return if valid params found.
+        if not_jax_tracer(is_valid):
+            if device_get(is_valid):
+                return prototype_params, is_valid
 
         _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
         return init_params, is_valid
