@@ -254,7 +254,7 @@ class plate(Messenger):
 def factor(name, log_factor):
     """
     Factor statement to add arbitrary log probability factor to a
-    probabilisitic model.
+    probabilistic model.
 
     :param str name: Name of the trivial sample.
     :param numpy.ndarray log_factor: A possibly batched log probability factor.
