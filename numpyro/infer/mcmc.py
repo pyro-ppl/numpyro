@@ -766,7 +766,7 @@ class MCMC(object):
                                          collect_fields=collect_fields,
                                          collect_warmup=collect_warmup)
             else:
-                # XXX: Why is this needed?
+                # XXX: This is unfortunately still needed. Is there a better pattern?
                 if chain_method == 'vectorized':
                     args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
                     kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
