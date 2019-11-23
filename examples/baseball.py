@@ -43,6 +43,7 @@ hyper-parameters) of running HMC on different problems.
 """
 
 import argparse
+import os
 
 import numpy as onp
 
@@ -129,7 +130,8 @@ def partially_pooled_with_logit(at_bats, hits=None):
 
 def run_inference(model, at_bats, hits, rng_key, args):
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, at_bats, hits)
     return mcmc.get_samples()
 

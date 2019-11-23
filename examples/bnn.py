@@ -7,6 +7,7 @@ Bayesian neural network with two hidden layers.
 """
 
 import argparse
+import os
 import time
 
 import matplotlib
@@ -61,7 +62,8 @@ def model(X, Y, D_H):
 def run_inference(model, args, rng_key, X, Y, D_H):
     start = time.time()
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y, D_H)
     mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
@@ -127,7 +129,7 @@ def main(args):
     ax.set(xlabel="X", ylabel="Y", title="Mean predictions with 90% CI")
 
     plt.savefig('bnn_plot.pdf')
-    plt.close()
+    plt.tight_layout()
 
 
 if __name__ == "__main__":

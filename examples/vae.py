@@ -4,6 +4,7 @@ Variational Autoencoder
 """
 
 import argparse
+import inspect
 import os
 import time
 
@@ -20,7 +21,7 @@ import numpyro.distributions as dist
 from numpyro.examples.datasets import MNIST, load_dataset
 from numpyro.infer import ELBO, SVI
 
-RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
+RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(inspect.getfile(lambda: None)),
                               '.results'))
 os.makedirs(RESULTS_DIR, exist_ok=True)
 

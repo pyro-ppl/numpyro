@@ -36,7 +36,7 @@ setup(
         'tqdm',
     ],
     extras_require={
-        'doc': ['sphinx', 'sphinx_rtd_theme', 'sphinx-gallery', 'memory_profiler'],
+        'doc': ['sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
         'test': [
             'flake8',
             'pytest>=4.1',

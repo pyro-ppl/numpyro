@@ -17,16 +17,19 @@ model.
 
 **References:**
 
-1. https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html
-2. http://pyro.ai/examples/hmm.html
-3. https://en.wikipedia.org/wiki/Forward_algorithm
-4. https://discourse.pymc.io/t/how-to-marginalized-markov-chain-with-categorical/2230
+    1. https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html
+    2. http://pyro.ai/examples/hmm.html
+    3. https://en.wikipedia.org/wiki/Forward_algorithm
+    4. https://discourse.pymc.io/t/how-to-marginalized-markov-chain-with-categorical/2230
 """
 
 import argparse
+import os
 import time
 
+import matplotlib.pyplot as plt
 import numpy as onp
+import seaborn as sns
 
 from jax import lax, random
 import jax.numpy as np
@@ -152,12 +155,27 @@ def main(args):
     rng_key = random.PRNGKey(2)
     start = time.time()
     kernel = NUTS(semi_supervised_hmm)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, transition_prior, emission_prior, supervised_categories,
              supervised_words, unsupervised_words)
     samples = mcmc.get_samples()
     print_results(samples, transition_prob, emission_prob)
     print('\nMCMC elapsed time:', time.time() - start)
+
+    # make plots
+    fig, ax = plt.subplots(1, 1)
+
+    for i in range(transition_prob.shape[0]):
+        for j in range(transition_prob.shape[1]):
+            sns.distplot(samples['transition_prob'][:, i, j], hist=False, kde_kws={"lw": 2},
+                         label="transition_prob[{}, {}], true value = {:.2f}"
+                         .format(i, j, transition_prob[i, j]), ax=ax)
+    ax.set(xlabel="Probability", ylabel="Frequency",
+           title="Transition probability posterior")
+
+    plt.savefig("hmm_plot.pdf")
+    plt.tight_layout()
 
 
 if __name__ == '__main__':

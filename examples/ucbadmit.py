@@ -5,24 +5,25 @@ Generalized Linear Mixed Models
 The UCBadmit data is sourced from the study [1] of gender biased in graduate admissions at
 UC Berkeley in Fall 1973:
 
-.. tabularcolumns:: |c|c|c|c|
+.. table:: UCBadmit dataset
+   :align: center
 
-====== ====== ============== =======
- dept   male   applications   admit
-====== ====== ============== =======
-  0      1         825         512
-  0      0         108          89
-  1      1         560         353
-  1      0          25          17
-  2      1         325         120
-  2      0         593         202
-  3      1         417         138
-  3      0         375         131
-  4      1         191          53
-  4      0         393          94
-  5      1         373          22
-  5      0         341          24
-====== ====== ============== =======
+   ====== ====== ============== =======
+    dept   male   applications   admit
+   ====== ====== ============== =======
+     0      1         825         512
+     0      0         108          89
+     1      1         560         353
+     1      0          25          17
+     2      1         325         120
+     2      0         593         202
+     3      1         417         138
+     3      0         375         131
+     4      1         191          53
+     4      0         393          94
+     5      1         373          22
+     5      0         341          24
+   ====== ====== ============== =======
 
 This example replicates the multilevel model `m_glmm5` at [3], which is used to evaluate whether
 the data contain evidence of gender biased in admissions accross departments. This is a form of
@@ -39,34 +40,34 @@ found in Chapter 10 (Counting and Classification) and Chapter 13 (Adventures in 
 
 **References:**
 
-1. Bickel, P. J., Hammel, E. A., and O'Connell, J. W. (1975), "Sex Bias in Graduate Admissions:
-   Data from Berkeley", Science, 187(4175), 398-404.
-
-2. McElreath, R. (2018), "Statistical Rethinking: A Bayesian Course with Examples in R and Stan",
-   Chapman and Hall/CRC.
-
-3. "https://github.com/rmcelreath/rethinking/tree/Experimental#multilevel-model-formulas"
+    1. Bickel, P. J., Hammel, E. A., and O'Connell, J. W. (1975), "Sex Bias in Graduate Admissions:
+       Data from Berkeley", Science, 187(4175), 398-404.
+    2. McElreath, R. (2018), "Statistical Rethinking: A Bayesian Course with Examples in R and Stan",
+       Chapman and Hall/CRC.
+    3. https://github.com/rmcelreath/rethinking/tree/Experimental#multilevel-model-formulas
 """
 
 import argparse
+import os
 
+import matplotlib.pyplot as plt
 import numpy as onp
 
-from jax import random, vmap
+from jax import random
 import jax.numpy as np
+from jax.scipy.special import expit
 
 import numpyro
-from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.examples.datasets import UCBADMIT, load_dataset
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, Predictive
 
 
-def glmm(dept, male, applications, admit):
+def glmm(dept, male, applications, admit=None):
     v_mu = numpyro.sample('v_mu', dist.Normal(0, np.array([4., 1.])))
 
     sigma = numpyro.sample('sigma', dist.HalfNormal(np.ones(2)))
-    L_Rho = numpyro.sample('L_Rho', dist.LKJCholesky(2))
+    L_Rho = numpyro.sample('L_Rho', dist.LKJCholesky(2, concentration=2))
     scale_tril = sigma[..., np.newaxis] * L_Rho
     # non-centered parameterization
     num_dept = len(onp.unique(dept))
@@ -74,20 +75,19 @@ def glmm(dept, male, applications, admit):
     v = np.dot(scale_tril, z.T).T
 
     logits = v_mu[0] + v[dept, 0] + (v_mu[1] + v[dept, 1]) * male
+    if admit is None:
+        # we use a Delta site to record probs for predictive distribution
+        probs = expit(logits)
+        numpyro.sample('probs', dist.Delta(probs), obs=probs)
     numpyro.sample('admit', dist.Binomial(applications, logits=logits), obs=admit)
 
 
 def run_inference(dept, male, applications, admit, rng_key, args):
     kernel = NUTS(glmm)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, dept, male, applications, admit)
     return mcmc.get_samples()
-
-
-def predict(dept, male, applications, z, rng_key):
-    model = handlers.substitute(handlers.seed(glmm, rng_key), z)
-    model_trace = handlers.trace(model).get_trace(dept, male, applications, admit=None)
-    return model_trace['admit']['fn'].probs
 
 
 def print_results(header, preds, dept, male, probs):
@@ -106,10 +106,23 @@ def main(args):
     dept, male, applications, admit = fetch_train()
     rng_key, rng_key_predict = random.split(random.PRNGKey(1))
     zs = run_inference(dept, male, applications, admit, rng_key, args)
-    rng_keys = random.split(rng_key_predict, args.num_samples * args.num_chains)
-    pred_probs = vmap(lambda z, rng_key: predict(dept, male, applications, z, rng_key))(zs, rng_keys)
+    pred_probs = Predictive(glmm, zs).get_samples(rng_key_predict, dept, male, applications)['probs']
     header = '=' * 30 + 'glmm - TRAIN' + '=' * 30
     print_results(header, pred_probs, dept, male, admit / applications)
+
+    # make plots
+    fig, ax = plt.subplots(1, 1)
+
+    ax.scatter(range(1, 13), admit / applications, label="actual rate")
+    ax.errorbar(range(1, 13), np.mean(pred_probs, 0), np.std(pred_probs, 0),
+                fmt="o", c="k", mfc="none", ms=7, elinewidth=1, label=r"mean $\pm$ std")
+    ax.plot(range(1, 13), np.percentile(pred_probs, 5, 0), "k+")
+    ax.plot(range(1, 13), np.percentile(pred_probs, 95, 0), "k+")
+    ax.set(xlabel="cases", ylabel="admit rate", title="Posterior Predictive Check with 90% CI")
+    ax.legend()
+
+    plt.savefig("ucbadmit_plot.pdf")
+    plt.tight_layout()
 
 
 if __name__ == '__main__':

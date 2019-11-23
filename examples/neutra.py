@@ -2,8 +2,10 @@
 This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
 Gaussian-like one. The transform will be used to get better mixing rate for NUTS sampler.
 
-[1] Hoffman, M. et al. (2019), ["NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport"]
-    (https://arxiv.org/abs/1903.03704).
+**References:**
+
+    1. Hoffman, M. et al. (2019), "NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport",
+       (https://arxiv.org/abs/1903.03704)
 """
 
 
