@@ -682,8 +682,7 @@ class MCMC(object):
         # state is a tuple of size 1 - containing HMCState
         return self.sampler.sample(state[0], args, kwargs),
 
-    def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False):
-        rng_key, init_params, args, kwargs = init
+    def _single_chain_mcmc(self, rng_key, init_params, args, kwargs, collect_fields=('z',), collect_warmup=False):
         init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                        model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
@@ -711,6 +710,14 @@ class MCMC(object):
         if len(tree_flatten(states['z'])[0]) > 0:
             states['z'] = vmap(self.constrain_fn)(states['z'])
         return states
+
+    def _single_chain_jit_args(self, init, collect_fields=('z',), collect_warmup=False):
+        return self._single_chain_mcmc(*init, collect_fields=collect_fields, collect_warmup=collect_warmup)
+
+    def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields=('z',), collect_warmup=False):
+        return self._single_chain_mcmc(*init, model_args, model_kwargs,
+                                       collect_fields=collect_fields,
+                                       collect_warmup=collect_warmup)
 
     def run(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
@@ -748,15 +755,22 @@ class MCMC(object):
         assert isinstance(extra_fields, (tuple, list))
         collect_fields = tuple(set(('z', 'diverging') + tuple(extra_fields)))
         if self.num_chains == 1:
-            states_flat = self._single_chain_mcmc((rng_key, init_params, args, kwargs), collect_fields, collect_warmup)
+            states_flat = self._single_chain_mcmc(rng_key, init_params, args, kwargs, collect_fields, collect_warmup)
             states = tree_map(lambda x: x[np.newaxis, ...], states_flat)
         else:
             rng_keys = random.split(rng_key, self.num_chains)
-            args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
-            kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
-            partial_map_fn = partial(self._single_chain_mcmc,
-                                     collect_fields=collect_fields,
-                                     collect_warmup=collect_warmup)
+            if self._jit_model_args:
+                args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
+                kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
+                partial_map_fn = partial(self._single_chain_jit_args,
+                                         collect_fields=collect_fields,
+                                         collect_warmup=collect_warmup)
+            else:
+                partial_map_fn = partial(self._single_chain_nojit_args,
+                                         model_args=args,
+                                         model_kwargs=kwargs,
+                                         collect_fields=collect_fields,
+                                         collect_warmup=collect_warmup)
             if chain_method == 'sequential':
                 if self.progress_bar:
                     map_fn = partial(_laxmap, partial_map_fn)
@@ -769,7 +783,10 @@ class MCMC(object):
             else:
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')
-            states = map_fn((rng_keys, init_params, args, kwargs))
+            if self._jit_model_args:
+                states = map_fn((rng_keys, init_params, args, kwargs))
+            else:
+                states = map_fn((rng_keys, init_params))
             if chain_method == 'vectorized':
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: np.swapaxes(x, 0, 1), states)
