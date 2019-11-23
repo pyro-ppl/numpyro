@@ -692,7 +692,7 @@ def test_categorical_log_prob_grad():
     fx, grad_fx = jax.value_and_grad(f)(x)
     gx, grad_gx = jax.value_and_grad(g)(x)
     assert_allclose(fx, gx)
-    assert_allclose(grad_fx, grad_gx)
+    assert_allclose(grad_fx, grad_gx, atol=1e-4)
 
 
 ########################################
