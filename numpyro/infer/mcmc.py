@@ -7,6 +7,7 @@ import os
 import warnings
 
 from jax import jit, lax, partial, pmap, random, vmap
+from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
 from jax.lib import xla_bridge
 import jax.numpy as np
@@ -60,7 +61,7 @@ def _get_num_steps(step_size, trajectory_length):
     num_steps = np.clip(trajectory_length / step_size, a_min=1)
     # NB: casting to np.int64 does not take effect (returns np.int32 instead)
     # if jax_enable_x64 is False
-    return num_steps.astype(xla_bridge.canonicalize_dtype(np.int64))
+    return num_steps.astype(canonicalize_dtype(np.int64))
 
 
 def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng_key):
