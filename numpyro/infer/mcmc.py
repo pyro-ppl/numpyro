@@ -218,7 +218,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             randomness.
 
         """
-        step_size = lax.convert_element_type(step_size, xla_bridge.canonicalize_dtype(np.float64))
+        step_size = lax.convert_element_type(step_size, canonicalize_dtype(np.float64))
         nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth, vv_update, wa_steps
         wa_steps = num_warmup
         trajectory_len = trajectory_length
