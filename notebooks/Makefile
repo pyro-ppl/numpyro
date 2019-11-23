@@ -3,7 +3,7 @@
 
 # You can set these variables from the command line.
 SPHINXOPTS    ?= -E -W
-SPHINXBUILD   = python -msphinx
+SPHINXBUILD   = NUMPYRO_SPHINXBUILD=1 python -msphinx
 SPHINXPROJ    = NumPyroTutorials
 SOURCEDIR     = source
 BUILDDIR      = build

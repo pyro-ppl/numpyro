@@ -123,16 +123,16 @@ class GalleryFileNameSortKey(FileNameSortKey):
     def __call__(self, filename):
         if filename in EXAMPLES:
             return "{:02d}".format(EXAMPLES.index(filename))
-        else:  # not in examples list
+        else:  # not in examples list, sort by name
             return "99" + filename
 
 
 sphinx_gallery_conf = {
     'examples_dirs': ['../../examples'],
     'gallery_dirs': 'examples',
+    'filename_pattern': '.py',
     'ignore_pattern': '(neutra|minipyro|covtype|__init__)',
     'within_subsection_order': GalleryFileNameSortKey,
-    'show_memory': True,
 }
 
 
