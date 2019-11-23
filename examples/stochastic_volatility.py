@@ -35,7 +35,6 @@ import matplotlib
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as onp
-import pandas as pd
 
 import jax.numpy as np
 import jax.random as random
@@ -48,7 +47,6 @@ from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
 matplotlib.use('Agg')  # noqa: E402
-pd.plotting.register_matplotlib_converters()
 
 
 def model(returns):

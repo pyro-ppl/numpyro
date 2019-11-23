@@ -113,7 +113,7 @@ def main(args):
     # make plots
     fig, ax = plt.subplots(1, 1)
 
-    ax.scatter(range(1, 13), admit / applications, label="actual rate")
+    ax.plot(range(1, 13), admit / applications, "o", ms=7, label="actual rate")
     ax.errorbar(range(1, 13), np.mean(pred_probs, 0), np.std(pred_probs, 0),
                 fmt="o", c="k", mfc="none", ms=7, elinewidth=1, label=r"mean $\pm$ std")
     ax.plot(range(1, 13), np.percentile(pred_probs, 5, 0), "k+")

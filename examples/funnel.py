@@ -27,7 +27,6 @@ import argparse
 import os
 
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 from jax import random
 import jax.numpy as np
@@ -36,8 +35,6 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import MCMC, NUTS
-
-sns.set(context='talk')
 
 
 def model(dim=10):
@@ -72,13 +69,13 @@ def main(args):
     reparam_samples = run_inference(reparam_model, args, rng_key)
 
     # make plots
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 10))
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(6.4, 6.4))
 
-    sns.scatterplot(samples['x'][:, 0], samples['y'], color='g', alpha=0.3, ax=ax1)
+    ax1.plot(samples['x'][:, 0], samples['y'], "go", alpha=0.3)
     ax1.set(xlim=(-20, 20), ylim=(-9, 9), ylabel='y',
             title='Funnel samples with centered parameterization')
 
-    sns.scatterplot(reparam_samples['x'][:, 0], reparam_samples['y'], color='g', alpha=0.3, ax=ax2)
+    ax2.plot(reparam_samples['x'][:, 0], reparam_samples['y'], "go", alpha=0.3)
     ax2.set(xlim=(-20, 20), ylim=(-9, 9), xlabel='x[0]', ylabel='y',
             title='Funnel samples with non-centered parameterization')
 
