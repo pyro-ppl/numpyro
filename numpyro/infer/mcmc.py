@@ -766,6 +766,10 @@ class MCMC(object):
                                          collect_fields=collect_fields,
                                          collect_warmup=collect_warmup)
             else:
+                # XXX: Why is this needed?
+                if chain_method == 'vectorized':
+                    args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
+                    kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
                 partial_map_fn = partial(self._single_chain_nojit_args,
                                          model_args=args,
                                          model_kwargs=kwargs,

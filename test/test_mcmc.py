@@ -374,6 +374,29 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
 
 
+@pytest.mark.parametrize('chain_method', [
+    'sequential',
+    'parallel',
+    'vectorized',
+])
+@pytest.mark.parametrize('compile_args', [
+    False,
+    True
+])
+@pytest.mark.skipif('CI' in os.environ, reason="Compiling time the whole sampling process is slow.")
+def test_chain_smoke(chain_method, compile_args):
+    def model(data):
+        concentration = np.array([1.0, 1.0, 1.0])
+        p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
+        numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
+        return p_latent
+
+    data = dist.Categorical(np.array([0.1, 0.6, 0.3])).sample(random.PRNGKey(1), (2000,))
+    kernel = NUTS(model, )
+    mcmc = MCMC(kernel, 2, 5, num_chains=2, chain_method=chain_method, jit_model_args=compile_args)
+    mcmc.run(random.PRNGKey(0), data)
+
+
 def test_extra_fields():
     def model():
         numpyro.sample('x', dist.Normal(0, 1), sample_shape=(5,))
