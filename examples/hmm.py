@@ -29,7 +29,7 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as onp
-import seaborn as sns
+from scipy.stats import gaussian_kde
 
 from jax import lax, random
 import jax.numpy as np
@@ -166,11 +166,12 @@ def main(args):
     # make plots
     fig, ax = plt.subplots(1, 1)
 
+    x = onp.linspace(0, 1, 101)
     for i in range(transition_prob.shape[0]):
         for j in range(transition_prob.shape[1]):
-            sns.distplot(samples['transition_prob'][:, i, j], hist=False, kde_kws={"lw": 2},
-                         label="transition_prob[{}, {}], true value = {:.2f}"
-                         .format(i, j, transition_prob[i, j]), ax=ax)
+            ax.plot(x, gaussian_kde(samples['transition_prob'][:, i, j])(x),
+                    label="transition_prob[{}, {}], true value = {:.2f}"
+                    .format(i, j, transition_prob[i, j]))
     ax.set(xlabel="Probability", ylabel="Frequency",
            title="Transition probability posterior")
 
