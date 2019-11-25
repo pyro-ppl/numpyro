@@ -467,9 +467,11 @@ def test_functional_map(algo, map_fn):
     assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)
 
 
-def test_reuse_mcmc_run():
+@pytest.mark.parametrize('jit_args', [False, True])
+@pytest.mark.parametrize('shape', [50, 100])
+def test_reuse_mcmc_run(jit_args, shape):
     y1 = onp.random.normal(3, 0.1, (100,))
-    y2 = onp.random.normal(-3, 0.1, (100,))
+    y2 = onp.random.normal(-3, 0.1, (shape,))
 
     def model(y_obs):
         mu = numpyro.sample('mu', dist.Normal(0., 1.))
@@ -478,7 +480,7 @@ def test_reuse_mcmc_run():
 
     # Run MCMC on zero observations.
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, 300, 500, jit_model_args=True)
+    mcmc = MCMC(kernel, 300, 500, jit_model_args=jit_args)
     mcmc.run(random.PRNGKey(32), y1)
 
     # Re-run on new data - should be much faster.
