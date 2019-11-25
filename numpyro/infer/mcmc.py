@@ -473,6 +473,10 @@ class HMC(MCMCKernel):
                                                  kinetic_fn=self._kinetic_fn,
                                                  algo=self._algo)
 
+    @property
+    def model(self):
+        return self._model
+
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         # non-vectorized
@@ -520,7 +524,7 @@ class HMC(MCMCKernel):
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(hmc_init_fn)(init_params, rng_key)
-            sample_fn = vmap(self._sample_fn)
+            sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
             self._sample_fn = sample_fn
         return init_state
 
@@ -689,10 +693,10 @@ class MCMC(object):
         if self._jit_model_args:
             args, kwargs = (None,), (None,)
         else:
-            args = tree_map(self._args, lambda x: x.tobytes() if isinstance(x, np.ndarray) else x)
-            kwargs = tree_map(tuple(sorted(self._kwargs.items())),
-                              lambda x: x.tobytes() if isinstance(x, np.ndarray) else x)
-        key = (self.sampler,) + args + kwargs
+            args = tree_map(lambda x: x.tobytes() if isinstance(x, np.ndarray) else x, self._args)
+            kwargs = tree_map(lambda x: x.tobytes() if isinstance(x, np.ndarray) else x,
+                              tuple(sorted(self._kwargs.items())))
+        key = args + kwargs
         try:
             fn = self._cache.get(key, None)
         except TypeError:
@@ -701,7 +705,7 @@ class MCMC(object):
             if self._jit_model_args:
                 fn = partial(_sample_fn_jit_args, sampler=self.sampler)
             else:
-                fn = partial(_sample_fn_jit_args, sampler=self.sampler,
+                fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
                              args=self._args, kwargs=self._kwargs)
             if key is not None:
                 self._cache[key] = fn
@@ -780,16 +784,16 @@ class MCMC(object):
         else:
             rng_keys = random.split(rng_key, self.num_chains)
             if self._jit_model_args:
-                args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
-                kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
+                args = tree_map(lambda x: np.broadcast_to(x, (self.num_chains, 1)), args)
+                kwargs = tree_map(lambda x: np.broadcast_to(x, (self.num_chains, 1)), kwargs)
                 partial_map_fn = partial(self._single_chain_jit_args,
                                          collect_fields=collect_fields,
                                          collect_warmup=collect_warmup)
             else:
                 # XXX: This is unfortunately still needed. Is there a better pattern?
-                if chain_method == 'vectorized':
-                    args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
-                    kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
+                # if chain_method == 'vectorized':
+                #     args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
+                #     kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
                 partial_map_fn = partial(self._single_chain_nojit_args,
                                          model_args=args,
                                          model_kwargs=kwargs,
