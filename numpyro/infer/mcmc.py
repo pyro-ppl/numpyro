@@ -620,6 +620,16 @@ def _laxmap(f, xs):
     return tree_multimap(lambda *args: np.stack(args), *ys)
 
 
+def _sample_fn_jit_args(state, sampler):
+    hmc_state, args, kwargs = state
+    return sampler.sample(hmc_state, args, kwargs), args, kwargs
+
+
+def _sample_fn_nojit_args(state, sampler, args, kwargs):
+    # state is a tuple of size 1 - containing HMCState
+    return sampler.sample(state[0], args, kwargs),
+
+
 class MCMC(object):
     """
     Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
@@ -673,14 +683,29 @@ class MCMC(object):
         self._jit_model_args = jit_model_args
         self._states = None
         self._states_flat = None
+        self._cache = {}
 
-    def _sample_fn_jit_args(self, state):
-        hmc_state, args, kwargs = state
-        return self.sampler.sample(hmc_state, args, kwargs), args, kwargs
-
-    def _sample_fn_nojit_args(self, state, args, kwargs):
-        # state is a tuple of size 1 - containing HMCState
-        return self.sampler.sample(state[0], args, kwargs),
+    def _get_cached_fn(self):
+        if self._jit_model_args:
+            args, kwargs = (None,), (None,)
+        else:
+            args = tree_map(self._args, lambda x: x.tobytes() if isinstance(x, np.ndarray) else x)
+            kwargs = tree_map(tuple(sorted(self._kwargs.items())),
+                              lambda x: x.tobytes() if isinstance(x, np.ndarray) else x)
+        key = (self.sampler,) + args + kwargs
+        try:
+            fn = self._cache.get(key, None)
+        except TypeError:
+            fn, key = None, None
+        if fn is None:
+            if self._jit_model_args:
+                fn = partial(_sample_fn_jit_args, sampler=self.sampler)
+            else:
+                fn = partial(_sample_fn_jit_args, sampler=self.sampler,
+                             args=self._args, kwargs=self._kwargs)
+            if key is not None:
+                self._cache[key] = fn
+        return fn
 
     def _single_chain_mcmc(self, rng_key, init_params, args, kwargs, collect_fields=('z',), collect_warmup=False):
         init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
@@ -690,14 +715,9 @@ class MCMC(object):
         collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else self.num_warmup
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
-        if self._jit_model_args:
-            sample_fn = self._sample_fn_jit_args
-        else:
-            # NOTE: we want to recompile every time args/kwargs changes.
-            sample_fn = partial(self._sample_fn_nojit_args, args=args, kwargs=kwargs)
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         states = fori_collect(lower, self.num_warmup + self.num_samples,
-                              sample_fn,
+                              self._get_cached_fn(),
                               init_val,
                               transform=lambda x: collect_fn(x[0]),  # noqa: E731
                               progbar=self.progress_bar,
