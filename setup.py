@@ -24,7 +24,7 @@ except Exception as e:
 setup(
     name='numpyro',
     version=version,
-    description='Pyro PPL on Numpy',
+    description='Pyro PPL on NumPy',
     packages=find_packages(include=['numpyro', 'numpyro.*']),
     url='https://github.com/pyro-ppl/numpyro',
     author='Uber AI Labs',
@@ -36,13 +36,13 @@ setup(
         'tqdm',
     ],
     extras_require={
-        'doc': ['sphinx', 'sphinx_rtd_theme'],
+        'doc': ['sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
         'test': [
             'flake8',
             'pytest>=4.1',
             'pyro-api>=0.1.1'
         ],
-        'dev': ['ipython'],
+        'dev': ['ipython', 'isort'],
         'examples': ['matplotlib'],
     },
     long_description=long_description,
