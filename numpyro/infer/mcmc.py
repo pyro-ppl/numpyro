@@ -711,6 +711,8 @@ class MCMC(object):
         key = args + kwargs
         try:
             fn = self._cache.get(key, None)
+        # If unhashable arguments are provided, proceed normally
+        # without caching
         except TypeError:
             fn, key = None, None
         if fn is None:
