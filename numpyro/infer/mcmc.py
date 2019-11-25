@@ -6,9 +6,11 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import jit, lax, partial, pmap, random, vmap, device_get
+from jax import jit, lax, partial, pmap, random, vmap, device_get, ShapedArray
+from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
+from jax.interpreters.xla import DeviceArray
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
@@ -694,9 +696,18 @@ class MCMC(object):
         if self._jit_model_args:
             args, kwargs = (None,), (None,)
         else:
-            args = tree_map(lambda x: x.tobytes() if isinstance(x, np.ndarray) else x, self._args)
-            kwargs = tree_map(lambda x: x.tobytes() if isinstance(x, np.ndarray) else x,
-                              tuple(sorted(self._kwargs.items())))
+            # XXX: Is there a better hash key that we can use?
+            def _hashable(x):
+                # When the arguments are JITed, ShapedArray is hashable.
+                if isinstance(x, Tracer):
+                    return x
+                elif isinstance(x, DeviceArray):
+                    return x.copy().tobytes()
+                elif isinstance(x, np.ndarray):
+                    return x.tobytes()
+                return x
+            args = tree_map(lambda x: _hashable(x), self._args)
+            kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(self._kwargs.items())))
         key = args + kwargs
         try:
             fn = self._cache.get(key, None)
@@ -785,16 +796,10 @@ class MCMC(object):
         else:
             rng_keys = random.split(rng_key, self.num_chains)
             if self._jit_model_args:
-                args = tree_map(lambda x: np.broadcast_to(x, (self.num_chains, 1)), args)
-                kwargs = tree_map(lambda x: np.broadcast_to(x, (self.num_chains, 1)), kwargs)
                 partial_map_fn = partial(self._single_chain_jit_args,
                                          collect_fields=collect_fields,
                                          collect_warmup=collect_warmup)
             else:
-                # XXX: This is unfortunately still needed. Is there a better pattern?
-                # if chain_method == 'vectorized':
-                #     args = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), args)
-                #     kwargs = tree_map(lambda x: np.tile(x, (self.num_chains, 1)), kwargs)
                 partial_map_fn = partial(self._single_chain_nojit_args,
                                          model_args=args,
                                          model_kwargs=kwargs,
