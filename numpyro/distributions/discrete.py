@@ -23,7 +23,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from jax import lax
-from jax.lib import xla_bridge
+from jax.dtypes import canonicalize_dtype
 from jax.nn import softmax
 import jax.numpy as np
 import jax.random as random
@@ -310,7 +310,7 @@ class Delta(Distribution):
         batch_dim = np.ndim(value) - event_ndim
         batch_shape = np.shape(value)[:batch_dim]
         event_shape = np.shape(value)[batch_dim:]
-        self.value = lax.convert_element_type(value, xla_bridge.canonicalize_dtype(np.float64))
+        self.value = lax.convert_element_type(value, canonicalize_dtype(np.float64))
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
