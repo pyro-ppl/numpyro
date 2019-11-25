@@ -6,7 +6,7 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import jit, lax, partial, pmap, random, vmap, device_get, ShapedArray
+from jax import jit, lax, partial, pmap, random, vmap, device_get
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
