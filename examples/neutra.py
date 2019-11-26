@@ -1,3 +1,14 @@
+"""
+This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
+Gaussian-like one. The transform will be used to get better mixing rate for NUTS sampler.
+
+**References:**
+
+    1. Hoffman, M. et al. (2019), "NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport",
+       (https://arxiv.org/abs/1903.03704)
+"""
+
+
 import argparse
 from functools import partial
 import os
@@ -23,14 +34,6 @@ from numpyro.infer.util import initialize_model, transformed_potential_energy
 # TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
 # The behaviour when training guide under fast math mode is unstable.
 os.environ["XLA_FLAGS"] = "--xla_cpu_enable_fast_math=false"
-
-"""
-This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
-Gaussian-like one. The transform will be used to get better mixing rate for NUTS sampler.
-
-[1] Hoffman, M. et al. (2019), ["NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport"]
-    (https://arxiv.org/abs/1903.03704).
-"""
 
 
 class DualMoonDistribution(dist.Distribution):

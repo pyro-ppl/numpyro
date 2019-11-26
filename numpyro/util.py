@@ -11,7 +11,7 @@ import jax
 from jax import jit, lax, ops, vmap
 from jax.interpreters.batching import BatchTracer
 from jax.interpreters.partial_eval import JaxprTracer
-from jax.lib.xla_bridge import canonicalize_dtype
+from jax.dtypes import canonicalize_dtype
 import jax.numpy as np
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
