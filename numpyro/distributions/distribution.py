@@ -85,13 +85,10 @@ class Distribution(object):
 
     As an example:
 
-    .. testsetup::
-
-       import jax.numpy as np
-       import numpyro.distributions as dist
-
     .. doctest::
 
+       >>> import jax.numpy as np
+       >>> import numpyro.distributions as dist
        >>> d = dist.Dirichlet(np.ones((2, 3, 4)))
        >>> d.batch_shape
        (2, 3)
@@ -240,12 +237,9 @@ class Independent(Distribution):
     :meth:`log_prob`. For example, a univariate Normal distribution can be
     interpreted as a multivariate Normal with diagonal covariance:
 
-    .. testsetup::
-
-       import numpyro.distributions as dist
-
     .. doctest::
 
+        >>> import numpyro.distributions as dist
         >>> normal = dist.Normal(np.zeros(3), np.ones(3))
         >>> [normal.batch_shape, normal.event_shape]
         [(3,), ()]

@@ -128,18 +128,16 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
     **Example**
 
-    .. testsetup::
-
-        import jax
-        from jax import random
-        import jax.numpy as np
-        import numpyro
-        import numpyro.distributions as dist
-        from numpyro.infer.mcmc import hmc
-        from numpyro.infer.util import initialize_model
-        from numpyro.util import fori_collect
-
     .. doctest::
+
+        >>> import jax
+        >>> from jax import random
+        >>> import jax.numpy as np
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer.mcmc import hmc
+        >>> from numpyro.infer.util import initialize_model
+        >>> from numpyro.util import fori_collect
 
         >>> true_coefs = np.array([1., 2., 3.])
         >>> data = random.normal(random.PRNGKey(2), (2000, 3))

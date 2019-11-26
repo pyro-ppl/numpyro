@@ -20,17 +20,16 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 `vmap` so that we do not need to loop over all the data points.
 
 
-.. testsetup::
-
-   import jax.numpy as np
-   from jax import random, vmap
-   from jax.scipy.special import logsumexp
-   import numpyro
-   import numpyro.distributions as dist
-   from numpyro import handlers
-   from numpyro.infer import MCMC, NUTS
 
 .. doctest::
+
+   >>> import jax.numpy as np
+   >>> from jax import random, vmap
+   >>> from jax.scipy.special import logsumexp
+   >>> import numpyro
+   >>> import numpyro.distributions as dist
+   >>> from numpyro import handlers
+   >>> from numpyro.infer import MCMC, NUTS
 
    >>> N, D = 3000, 3
    >>> def logistic_regression(data, labels):
@@ -105,15 +104,13 @@ class trace(Messenger):
 
     **Example**
 
-    .. testsetup::
-
-       from jax import random
-       import numpyro
-       import numpyro.distributions as dist
-       from numpyro.handlers import seed, trace
-       import pprint as pp
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.handlers import seed, trace
+       >>> import pprint as pp
 
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
@@ -161,14 +158,12 @@ class replay(Messenger):
 
     **Example**
 
-    .. testsetup::
-
-       from jax import random
-       import numpyro
-       import numpyro.distributions as dist
-       from numpyro.handlers import replay, seed, trace
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.handlers import replay, seed, trace
 
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
@@ -202,14 +197,12 @@ class block(Messenger):
 
     **Example:**
 
-    .. testsetup::
-
-       from jax import random
-       import numpyro
-       from numpyro.handlers import block, seed, trace
-       import numpyro.distributions as dist
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> from numpyro.handlers import block, seed, trace
+       >>> import numpyro.distributions as dist
 
        >>> def model():
        ...     a = numpyro.sample('a', dist.Normal(0., 1.))
@@ -248,14 +241,12 @@ class condition(Messenger):
 
     **Example:**
 
-     .. testsetup::
-
-       from jax import random
-       import numpyro
-       from numpyro.handlers import condition, seed, substitute, trace
-       import numpyro.distributions as dist
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> from numpyro.handlers import condition, seed, substitute, trace
+       >>> import numpyro.distributions as dist
 
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
@@ -329,14 +320,12 @@ class seed(Messenger):
 
     **Example:**
 
-    .. testsetup::
-
-      from jax import random
-      import numpyro
-      import numpyro.handlers
-      import numpyro.distributions as dist
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> import numpyro.handlers
+       >>> import numpyro.distributions as dist
 
        >>> # as context manager
        >>> with handlers.seed(rng_seed=1):
@@ -390,14 +379,12 @@ class substitute(Messenger):
 
     **Example:**
 
-     .. testsetup::
-
-       from jax import random
-       import numpyro
-       from numpyro.handlers import seed, substitute, trace
-       import numpyro.distributions as dist
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> from numpyro.handlers import seed, substitute, trace
+       >>> import numpyro.distributions as dist
 
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
