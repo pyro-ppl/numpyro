@@ -1,0 +1,211 @@
+import argparse
+import time
+
+import pystan
+import numpy as onp
+
+import numpyro
+import numpyro.distributions as dist
+
+import jax.numpy as np
+from jax import random
+
+
+from numpyro.distributions.transforms import AffineTransform
+from numpyro.infer import NUTS, MCMC
+
+
+def dot(X, Z):
+    return np.dot(X, Z[..., None])[..., 0]
+
+
+# The kernel that corresponds to our quadratic regressor.
+def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
+    eta1sq = np.square(eta1)
+    eta2sq = np.square(eta2)
+    k1 = 0.5 * eta2sq * np.square(1.0 + dot(X, Z))
+    k2 = -0.5 * eta2sq * dot(np.square(X), np.square(Z))
+    k3 = (eta1sq - eta2sq) * dot(X, Z)
+    k4 = np.square(c) - 0.5 * eta2sq
+    if X.shape == Z.shape:
+        k4 += jitter * np.eye(X.shape[0])
+    return k1 + k2 + k3 + k4
+
+
+def model(X, Y, hypers):
+    M, N = X.shape[1], X.shape[0]
+    m0 = hypers['expected_sparsity']
+    alpha, beta = hypers['half_slab_df'], hypers['half_slab_df']
+    slab_scale = hypers['slab_scale']
+    slab_scale2 = slab_scale ** 2
+    sigma = numpyro.sample("sigma", dist.HalfNormal(hypers['sigma_scale']))
+    phi = sigma * (m0 / np.sqrt(N)) / (M - m0)
+    eta1 = numpyro.sample("eta1", dist.TransformedDistribution(dist.HalfCauchy(1.),
+                                                               AffineTransform(loc=0., scale=phi)))
+    msq = numpyro.sample("msq", dist.TransformedDistribution(dist.InverseGamma(alpha, beta),
+                                                             AffineTransform(loc=0, scale=slab_scale2)))
+    psi = numpyro.sample("psi", dist.InverseGamma(alpha, beta))
+
+    eta2 = np.square(eta1) * psi / msq
+
+    lam = numpyro.sample("lambda", dist.HalfCauchy(np.ones(M)))
+    kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
+
+    # compute kernel
+    kX = kappa * X
+    k = kernel(kX, kX, eta1, eta2, hypers['c']) + sigma ** 2 * np.eye(N)
+    assert k.shape == (N, N)
+
+    # sample Y according to the standard gaussian process formula
+    numpyro.sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
+                   obs=Y)
+
+
+def stan_model(hypers):
+    model_code = """
+        data {{
+          int<lower=1> N; // Number of data
+          int<lower=1> P; // Number of covariates
+          matrix[N, P] X;
+          vector[N] Y;
+          // vector[P] X[N];
+        }}
+        // slab_scale = 5, slab_df = 25 -> 8 divergences
+        transformed data {{
+         // Interaction global scale params
+          real m0 = {expected_sparsity}; // Expected number of large slopes                  
+          real<lower=0> c = {c}; // Intercept prior scale
+          real slab_scale = {slab_scale};    // Scale for large slopes
+          real sigma_scale = {sigma_scale};
+          real slab_scale2 = square(slab_scale);
+          real half_slab_df = {half_slab_df};
+          real slab_df = 2 * half_slab_df;      // Effective degrees of freedom for large slopes
+          vector[N] mu = rep_vector(0, N);
+          // vector[P] X2[N] = square(X);
+          matrix[N, P] X2 = square(X);
+        }}
+        parameters {{
+          vector<lower=0>[P] lambda;
+          real<lower=0> m_base;
+          real<lower=0> eta_1_base;
+          real<lower=0> sigma; // Noise scale of response
+          real<lower=0> psi; // Interaction scale (selected ones)
+        }}
+        transformed parameters {{
+          real<lower=0> eta_2;
+          real<lower=0> alpha; // Prior variance on quadratic effect
+          real<lower=0> eta_1;
+          real<lower=0> m_sq; // Truncation level for local scale horseshoe
+          vector[P] kappa;
+          {{
+            real phi = (m0 / (P - m0)) * (sigma / sqrt(1.0 * N));
+            eta_1 = phi * eta_1_base; // eta_1 ~ cauchy(0, phi), global scale for linear effects
+            // m_sq ~ inv_gamma(half_slab_df, half_slab_df * slab_scale2)
+            m_sq = slab_scale2 * m_base; // m^2
+            kappa = m_sq * square(lambda) ./ (m_sq + square(eta_1) * square(lambda));
+          }}
+          eta_2 = square(eta_1) / m_sq * psi; // Global prior variance of interaction terms
+          alpha = 0; // No quadratic effects
+        }}
+        model {{
+          matrix[N, N] L_K;
+          matrix[N, N] K1 = diag_post_multiply(X, kappa) *  X';
+          matrix[N, N] K2 = diag_post_multiply(X2, kappa) *  X2';
+          matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) + (square(alpha) - .5 * square(eta_2)) * K2 + (square(eta_1) - square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
+        
+          // diagonal elements
+          for (n in 1:N)
+            K[n, n] += square(sigma);
+          L_K = cholesky_decompose(K);
+          lambda ~ cauchy(0, 1);
+          eta_1_base ~ cauchy(0, 1);
+          m_base ~ inv_gamma(half_slab_df, half_slab_df);
+          sigma ~ normal(0, sigma_scale);
+          psi ~ inv_gamma(half_slab_df, half_slab_df);
+          Y ~ multi_normal_cholesky(mu, L_K);
+        }}
+    """.format(expected_sparsity=hypers['expected_sparsity'],
+               c=hypers['c'],
+               slab_scale=hypers['slab_scale'],
+               half_slab_df=hypers['half_slab_df'],
+               sigma_scale=hypers['sigma_scale'])
+    print(model_code)
+
+    return pystan.StanModel(model_code=model_code)
+
+
+def get_data(N=20, S=2, P=10, sigma_obs=0.05):
+    assert S < P and P > 1 and S > 0
+    onp.random.seed(0)
+
+    X = onp.random.randn(N, P)
+    # generate S coefficients with non-negligible magnitude
+    W = 0.5 + 2.5 * onp.random.rand(S)
+    # generate data using the S coefficients and a single pairwise interaction
+    Y = onp.sum(X[:, 0:S] * W, axis=-1) + X[:, 0] * X[:, 1] + sigma_obs * onp.random.randn(N)
+    Y -= np.mean(Y)
+    Y_std = np.std(Y)
+
+    assert X.shape == (N, P)
+    assert Y.shape == (N,)
+
+    return {
+        'N': N,
+        'P': P,
+        'X': X,
+        'Y': Y / Y_std,
+        'expected_thetas': W / Y_std,
+        'expected_pairwise': 1.0 / Y_std,
+    }
+
+
+def numpyro_inference(hypers, data, args):
+    rng_key = random.PRNGKey(1)
+    start = time.time()
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc.run(rng_key, data['X'], data['Y'], hypers)
+    mcmc.print_summary()
+    print('\nMCMC (numpyro) elapsed time:', time.time() - start)
+    return mcmc.get_samples()
+
+
+def stan_inference(hypers, data, args):
+    sm = stan_model(hypers)
+    start = time.time()
+    fit = sm.sampling(data=data, iter=args.num_samples, warmup=args.num_warmup)
+    print(fit)
+    print('\nMCMC (stan) elapsed time:', time.time() - start)
+    print(fit.get_sampler_params(inc_warmup=False))
+
+
+def main(args):
+    data = get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
+    hypers = {
+        'expected_sparsity': max(1.0, args.num_dimensions / 10),
+        'half_slab_df': 7.0,
+        'slab_scale': 3.0,
+        'c': 1.,
+        'sigma_scale': 2.,
+    }
+    if args.backend == 'numpyro':
+        numpyro_inference(hypers, data, args)
+    else:
+        stan_inference(hypers, data, args)
+
+
+if __name__ == "__main__":
+    assert numpyro.__version__.startswith('0.2.1')
+    parser = argparse.ArgumentParser(description="Gaussian Process example")
+    parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=500, type=int)
+    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
+    parser.add_argument("--num-data", nargs='?', default=100, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=10, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
+    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--backend", default='stan', type=str)
+    args = parser.parse_args()
+    numpyro.set_platform(args.device)
+    numpyro.set_host_device_count(args.num_chains)
+    main(args)
