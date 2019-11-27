@@ -20,7 +20,7 @@ def dot(X, Z):
 
 
 # The kernel that corresponds to our quadratic regressor.
-def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
+def kernel(X, Z, eta1, eta2, c, jitter=0.):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
     k1 = 0.5 * eta2sq * np.square(1.0 + dot(X, Z))
@@ -116,13 +116,13 @@ def stan_model(hypers):
           // diagonal elements
           for (n in 1:N)
             K[n, n] += square(sigma);
-          L_K = cholesky_decompose(K);
+          // L_K = cholesky_decompose(K);
           lambda ~ cauchy(0, 1);
           eta_1_base ~ cauchy(0, 1);
           m_base ~ inv_gamma(half_slab_df, half_slab_df);
           sigma ~ normal(0, sigma_scale);
           psi ~ inv_gamma(half_slab_df, half_slab_df);
-          Y ~ multi_normal_cholesky(mu, L_K);
+          Y ~ multi_normal(mu, K);
         }}
     """.format(expected_sparsity=hypers['expected_sparsity'],
                c=hypers['c'],
@@ -131,7 +131,8 @@ def stan_model(hypers):
                sigma_scale=hypers['sigma_scale'])
     print(model_code)
 
-    return pystan.StanModel(model_code=model_code)
+    model = pystan.StanModel(model_code=model_code)
+    return model
 
 
 def get_data(N=20, S=2, P=10, sigma_obs=0.05):
@@ -172,21 +173,24 @@ def numpyro_inference(hypers, data, args):
 
 def stan_inference(hypers, data, args):
     sm = stan_model(hypers)
-    start = time.time()
-    fit = sm.sampling(data=data, iter=args.num_samples, warmup=args.num_warmup)
+    tic = time.time()
+    fit = sm.sampling(data=data, iter=args.num_samples, warmup=args.num_warmup, chains=args.num_chains)
+    toc = time.time()
     print(fit)
-    print('\nMCMC (stan) elapsed time:', time.time() - start)
-    print(fit.get_sampler_params(inc_warmup=False))
+    print('\nMCMC (stan) elapsed time:', toc - tic)
+    num_leapfrogs = fit.get_sampler_params(inc_warmup=False)[0]["n_leapfrog__"].sum()
+    print('num leapfrogs', num_leapfrogs)
+    print('time per leapfrog', (toc - tic) / num_leapfrogs)
 
 
 def main(args):
     data = get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
     hypers = {
         'expected_sparsity': max(1.0, args.num_dimensions / 10),
-        'half_slab_df': 7.0,
+        'half_slab_df': 3.0,
         'slab_scale': 3.0,
         'c': 1.,
-        'sigma_scale': 2.,
+        'sigma_scale': 3.,
     }
     if args.backend == 'numpyro':
         numpyro_inference(hypers, data, args)
