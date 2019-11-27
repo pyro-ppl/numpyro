@@ -8,9 +8,9 @@ import numpyro
 import numpyro.distributions as dist
 
 import jax.numpy as np
-from jax import random
+from jax import random, device_get
 
-
+from numpyro.diagnostics import effective_sample_size
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import NUTS, MCMC
 
@@ -176,6 +176,10 @@ def numpyro_inference(hypers, data, args):
     num_leapfrogs = np.sum(mcmc.get_extra_fields()['num_steps'])
     print('num leapfrogs', num_leapfrogs)
     print('time per leapfrog', (toc - tic) / num_leapfrogs)
+    n_effs = [effective_sample_size(device_get(v)) for k, v in mcmc.get_samples(group_by_chain=True).items()]
+    n_effs = onp.concatenate([onp.array([x]) if np.ndim(x) == 0 else x for x in n_effs])
+    n_eff_mean = sum(n_effs) / len(n_effs)
+    print('time per effective sample', (toc - tic) / n_eff_mean)
 
 
 def stan_inference(hypers, data, args):
@@ -188,6 +192,10 @@ def stan_inference(hypers, data, args):
     num_leapfrogs = fit.get_sampler_params(inc_warmup=False)[0]["n_leapfrog__"].sum()
     print('num leapfrogs', num_leapfrogs)
     print('time per leapfrog', (toc - tic) / num_leapfrogs)
+    summary = fit.summary(pars=('lambda', 'm_sq', 'eta_1_base', 'sigma', 'psi_sq', 'var_obs'))['summary']
+    n_effs = [row[8] for row in summary]
+    n_eff_mean = sum(n_effs) / len(n_effs)
+    print('time per effective sample', (toc - tic) / n_eff_mean)
 
 
 def main(args):
