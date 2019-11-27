@@ -19,8 +19,8 @@ def dot(X, Z):
     return np.dot(X, Z[..., None])[..., 0]
 
 
-# The kernel that corresponds to our quadratic regressor.
-def kernel(X, X2, eta1, eta2, c):
+# Computes the NxN kernel matrix that corresponds to our quadratic regressor.
+def kernel_matrix(X, X2, eta1, eta2, c):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
     K1 = dot(X, X)
@@ -35,26 +35,27 @@ def kernel(X, X2, eta1, eta2, c):
 def model(X, Y, hypers):
     M, N = X.shape[1], X.shape[0]
     m0 = hypers['expected_sparsity']
-    alpha, beta = hypers['alpha'], hypers['beta']
-    slab_scale = hypers['slab_scale']
-    slab_scale2 = slab_scale ** 2
+    alpha_1, beta_1 = hypers['alpha_1'], hypers['beta_1']
+    alpha_2, beta_2 = hypers['alpha_2'], hypers['beta_2']
     sigma = numpyro.sample("sigma", dist.HalfNormal(hypers['sigma_scale']))
     phi = sigma * (m0 / np.sqrt(N)) / (M - m0)
     eta1 = numpyro.sample("eta1", dist.TransformedDistribution(dist.HalfCauchy(1.),
                                                                AffineTransform(loc=0., scale=phi)))
-    msq = numpyro.sample("msq", dist.TransformedDistribution(dist.InverseGamma(alpha, beta),
-                                                             AffineTransform(loc=0, scale=slab_scale2)))
-    psi = numpyro.sample("psi", dist.InverseGamma(alpha, beta))
+    msq = numpyro.sample("m_sq", dist.InverseGamma(alpha_1, beta_1))
+    psi_sq = numpyro.sample("psi_sq", dist.InverseGamma(alpha_2, beta_2))
 
-    eta2 = np.square(eta1) * psi / msq
+    eta2 = np.square(eta1) * np.sqrt(psi_sq) / msq
 
     lam = numpyro.sample("lambda", dist.HalfCauchy(np.ones(M)))
     kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
 
+    # sample observation noise
+    var_obs = numpyro.sample("var_obs", dist.InverseGamma(hypers['alpha_obs'], hypers['beta_obs']))
+
     # compute kernel
     kX = kappa * X
     kX2 = kappa * np.square(X)
-    k = kernel(kX, kX2, eta1, eta2, hypers['c']) + sigma ** 2 * np.eye(N)
+    k = kernel_matrix(kX, kX2, eta1, eta2, hypers['c']) + var_obs * np.eye(N)
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
@@ -71,37 +72,37 @@ def stan_model(hypers):
           vector[N] Y;
           // vector[P] X[N];
         }}
-        // slab_scale = 5, slab_df = 25 -> 8 divergences
         transformed data {{
          // Interaction global scale params
           real m0 = {expected_sparsity}; // Expected number of large slopes                  
           real<lower=0> c = {c}; // Intercept prior scale
-          real slab_scale = {slab_scale};    // Scale for large slopes
           real sigma_scale = {sigma_scale};
-          real slab_scale2 = square(slab_scale);
-          real alpha = {alpha};
-          real beta = {beta};
+          real alpha_1 = {alpha_1};
+          real beta_1 = {beta_1};
+          real alpha_2 = {alpha_2};
+          real beta_2 = {beta_2};
+          real alpha_obs = {alpha_obs};
+          real beta_obs = {beta_obs};
           vector[N] mu = rep_vector(0, N);
           // vector[P] X2[N] = square(X);
           matrix[N, P] X2 = square(X);
         }}
         parameters {{
           vector<lower=0>[P] lambda;
-          real<lower=0> m_base;
+          real<lower=0> m_sq; // Truncation level for local scale horseshoe
           real<lower=0> eta_1_base;
           real<lower=0> sigma; // Noise scale of response
-          real<lower=0> psi; // Interaction scale (selected ones)
+          real<lower=0> psi_sq; // Interaction scale (selected ones)
+          real<lower=0> var_obs;
         }}
         transformed parameters {{
-          real<lower=0> eta_2;
           real<lower=0> eta_1;
-          real<lower=0> m_sq; // Truncation level for local scale horseshoe
+          real<lower=0> eta_2;          
+          real psi = sqrt(psi_sq);
           vector[P] kappa;
           {{
             real phi = (m0 / (P - m0)) * (sigma / sqrt(1.0 * N));
             eta_1 = phi * eta_1_base; // eta_1 ~ cauchy(0, phi), global scale for linear effects
-            // m_sq ~ inv_gamma(alpha, beta * slab_scale2)
-            m_sq = slab_scale2 * m_base; // m^2
             kappa = m_sq * square(lambda) ./ (m_sq + square(eta_1) * square(lambda));
           }}
           eta_2 = square(eta_1) / m_sq * psi; // Global prior variance of interaction terms
@@ -111,24 +112,27 @@ def stan_model(hypers):
           matrix[N, N] K1 = diag_post_multiply(X, kappa) *  X';
           matrix[N, N] K2 = diag_post_multiply(X2, kappa) *  X2';
           matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) - .5 * square(eta_2) * K2 + (square(eta_1) - square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
-        
+       
+          var_obs ~ inv_gamma(alpha_obs, beta_obs); 
           // diagonal elements
           for (n in 1:N)
-            K[n, n] += square(sigma);
-          // L_K = cholesky_decompose(K);
+            K[n, n] += var_obs;
           lambda ~ cauchy(0, 1);
           eta_1_base ~ cauchy(0, 1);
-          m_base ~ inv_gamma(alpha, beta);
+          m_sq ~ inv_gamma(alpha_1, beta_1);
           sigma ~ normal(0, sigma_scale);
-          psi ~ inv_gamma(alpha, beta);
+          psi_sq ~ inv_gamma(alpha_2, beta_2);
           Y ~ multi_normal(mu, K);
         }}
     """.format(expected_sparsity=hypers['expected_sparsity'],
                c=hypers['c'],
-               slab_scale=hypers['slab_scale'],
-               alpha=hypers['alpha'],
-               beta=hypers['beta'],
-               sigma_scale=hypers['sigma_scale'])
+               alpha_1=hypers['alpha_1'],
+               beta_1=hypers['beta_1'],
+               alpha_2=hypers['alpha_2'],
+               beta_2=hypers['beta_2'],
+               sigma_scale=hypers['sigma_scale'],
+               alpha_obs=hypers['alpha_obs'],
+               beta_obs=hypers['beta_obs'])
     print(model_code)
 
     model = pystan.StanModel(model_code=model_code)
@@ -190,11 +194,14 @@ def main(args):
     data = get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
     hypers = {
         'expected_sparsity': max(1.0, args.num_dimensions / 10),
-        'alpha': 3.0,
-        'beta': 1.0,
-        'slab_scale': 3.0,
+        'alpha_1': 3.0,
+        'beta_1': 1.0,
+        'alpha_2': 3.0,
+        'beta_2': 1.0,
         'c': 1.,
-        'sigma_scale': 3.,
+        'sigma_scale': 1.,
+        'alpha_obs': 3.,
+        'beta_obs': 1.,
     }
     if args.backend == 'numpyro':
         numpyro_inference(hypers, data, args)
@@ -212,7 +219,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-dimensions", nargs='?', default=10, type=int)
     parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
-    parser.add_argument("--backend", default='stan', type=str)
+    parser.add_argument("--backend", default='numpyro', type=str)
     args = parser.parse_args()
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
