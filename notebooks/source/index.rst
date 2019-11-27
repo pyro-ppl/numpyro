@@ -8,29 +8,20 @@ Welcome to NumPyro Examples and Tutorials!
 
 .. toctree::
    :maxdepth: 2
-   :caption: Examples:
+   :caption: Tutorials:
 
    bayesian_regression
    time_series_forecasting
+   bayesian_imputation
 
 .. toctree::
    :maxdepth: 2
-   :caption: Code Examples:
+   :caption: Examples:
 
-   bnn
-   gp
-   ucbadmit
-   baseball
-   hmm
-   stochastic_volatility
-   vae
-   funnel
-   sparse_regression
+   examples/index
 
 
-Indices and tables
-==================
+Indices
+=======
 
 * :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`

@@ -2,7 +2,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import lax
-from jax.lib.xla_bridge import canonicalize_dtype
+from jax.dtypes import canonicalize_dtype
 import jax.numpy as np
 from jax.test_util import check_eq
 from jax.tree_util import tree_flatten, tree_multimap

@@ -1,18 +1,7 @@
-import argparse
-import time
-
-import numpy as onp
-
-from jax import lax, random
-import jax.numpy as np
-from jax.scipy.special import logsumexp
-
-import numpyro
-import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
-
-
 """
+Hidden Markov Model
+===================
+
 In this example, we will follow [1] to construct a semi-supervised Hidden Markov
 Model for a generative model with observations are words and latent variables
 are categories. Instead of automatically marginalizing all discrete latent
@@ -26,11 +15,29 @@ discussion [4]). On the other hand, this example also illustrates the usage of
 JAX's `lax.scan` primitive. The primitive will greatly improve compiling for the
 model.
 
-[1] https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html
-[2] http://pyro.ai/examples/hmm.html
-[3] https://en.wikipedia.org/wiki/Forward_algorithm
-[4] https://discourse.pymc.io/t/how-to-marginalized-markov-chain-with-categorical/2230
+**References:**
+
+    1. https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html
+    2. http://pyro.ai/examples/hmm.html
+    3. https://en.wikipedia.org/wiki/Forward_algorithm
+    4. https://discourse.pymc.io/t/how-to-marginalized-markov-chain-with-categorical/2230
 """
+
+import argparse
+import os
+import time
+
+import matplotlib.pyplot as plt
+import numpy as onp
+from scipy.stats import gaussian_kde
+
+from jax import lax, random
+import jax.numpy as np
+from jax.scipy.special import logsumexp
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.infer import MCMC, NUTS
 
 
 def simulate_data(rng_key, num_categories, num_words, num_supervised_data, num_unsupervised_data):
@@ -148,12 +155,28 @@ def main(args):
     rng_key = random.PRNGKey(2)
     start = time.time()
     kernel = NUTS(semi_supervised_hmm)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, transition_prior, emission_prior, supervised_categories,
              supervised_words, unsupervised_words)
     samples = mcmc.get_samples()
     print_results(samples, transition_prob, emission_prob)
     print('\nMCMC elapsed time:', time.time() - start)
+
+    # make plots
+    fig, ax = plt.subplots(1, 1)
+
+    x = onp.linspace(0, 1, 101)
+    for i in range(transition_prob.shape[0]):
+        for j in range(transition_prob.shape[1]):
+            ax.plot(x, gaussian_kde(samples['transition_prob'][:, i, j])(x),
+                    label="transition_prob[{}, {}], true value = {:.2f}"
+                    .format(i, j, transition_prob[i, j]))
+    ax.set(xlabel="Probability", ylabel="Frequency",
+           title="Transition probability posterior")
+
+    plt.savefig("hmm_plot.pdf")
+    plt.tight_layout()
 
 
 if __name__ == '__main__':

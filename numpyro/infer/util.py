@@ -15,6 +15,7 @@ from numpyro.util import not_jax_tracer, while_loop
 
 __all__ = [
     'find_valid_initial_params',
+    'get_potential_fn',
     'log_density',
     'log_likelihood',
     'init_to_feasible',
@@ -100,7 +101,7 @@ def constrain_fn(model, transforms, model_args, model_kwargs, params):
 
     :param model: a callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
-    :param dict model_kwargs`: kwargs provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :param dict transforms: dictionary of transforms keyed by names. Names in
         `transforms` and `params` should align.
     :param dict params: dictionary of unconstrained values keyed by site
@@ -268,11 +269,13 @@ def init_to_value(values):
 
 
 def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to_uniform(),
-                              param_as_improper=False, prototype_params=None, **model_kwargs):
+                              param_as_improper=False, **model_kwargs):
     """
-    Given a model with Pyro primitives, returns an initial valid unconstrained
-    parameters. This function also returns an `is_valid` flag to say whether the
-    initial parameters are valid.
+    (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
+    valid unconstrained value for all the parameters. This function also returns an
+    `is_valid` flag to say whether the initial parameters are valid. Parameter values
+    are considered valid if the values and the gradients for the log density have
+    finite values.
 
     :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
@@ -327,27 +330,92 @@ def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to
         is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
         return i + 1, key, params, is_valid
 
-    if prototype_params is not None:
-        init_state = (0, rng_key, prototype_params, False)
-    else:
-        _, _, prototype_params, is_valid = init_state = body_fn((0, rng_key, None, None))
+    def _find_valid_params(rng_key_):
+        _, _, prototype_params, is_valid = init_state = body_fn((0, rng_key_, None, None))
+        # Early return if valid params found.
         if not_jax_tracer(is_valid):
             if device_get(is_valid):
                 return prototype_params, is_valid
 
-    _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
+        _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
+        return init_params, is_valid
+
+    # Handle possible vectorization
+    if rng_key.ndim == 1:
+        init_params, is_valid = _find_valid_params(rng_key)
+    else:
+        init_params, is_valid = lax.map(_find_valid_params, rng_key)
     return init_params, is_valid
+
+
+def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kwargs=None):
+    """
+    (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
+    function which, given unconstrained parameters, evaluates the potential
+    energy (negative log joint density). In addition, this returns a
+    function to transform unconstrained values at sample sites to constrained
+    values within their respective support.
+
+    :param jax.random.PRNGKey rng_key: random number generator seed to
+        sample from the prior. The returned `init_params` will have the
+        batch shape ``rng_key.shape[:-1]``.
+    :param model: Python callable containing Pyro primitives.
+    :param bool dynamic_args: if `True`, the `potential_fn` and
+        `constraints_fn` are themselves dependent on model arguments.
+        When provided a `*model_args, **model_kwargs`, they return
+        `potential_fn` and `constraints_fn` callables, respectively.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
+    :return: tuple of (`potential_fn`, `constrain_fn`). The latter is used
+        to constrain unconstrained samples (e.g. those returned by HMC)
+        to values that lie within the site's support.
+    """
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
+    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    inv_transforms = {}
+    has_transformed_dist = False
+    for k, v in model_trace.items():
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['intermediates']:
+                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = biject_to(v['fn'].support)
+        elif v['type'] == 'param':
+            constraint = v['kwargs'].pop('constraint', real)
+            transform = biject_to(constraint)
+            if isinstance(transform, ComposeTransform):
+                inv_transforms[k] = transform.parts[0]
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = transform
+
+    if dynamic_args:
+        def potential_fn(*args, **kwargs):
+            return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
+        if has_transformed_dist:
+            def constrain_fun(*args, **kwargs):
+                return jax.partial(constrain_fn, model, inv_transforms, args, kwargs)
+        else:
+            def constrain_fun(*args, **kwargs):
+                return jax.partial(transform_fn, inv_transforms)
+    else:
+        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
+        if has_transformed_dist:
+            constrain_fun = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs)
+        else:
+            constrain_fun = jax.partial(transform_fn, inv_transforms)
+
+    return potential_fn, constrain_fun
 
 
 def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(),
                      dynamic_args=False, **model_kwargs):
     """
-    Given a model with Pyro primitives, returns a function which, given
-    unconstrained parameters, evaluates the potential energy (negative
-    joint density). In addition, this also returns initial parameters
-    sampled from the prior to initiate MCMC sampling and functions to
-    transform unconstrained values at sample sites to constrained values
-    within their respective support.
+    (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
+    and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
+    to return a tuple of (`init_params`, `potential_fn`, `constrain_fn`).
 
     :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
@@ -367,68 +435,21 @@ def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
-    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-    constrained_values, inv_transforms = {}, {}
-    has_transformed_dist = False
-    for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed']:
-            if v['intermediates']:
-                constrained_values[k] = v['intermediates'][0][0]
-                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
-                has_transformed_dist = True
-            else:
-                constrained_values[k] = v['value']
-                inv_transforms[k] = biject_to(v['fn'].support)
-        elif v['type'] == 'param':
-            constraint = v['kwargs'].pop('constraint', real)
-            transform = biject_to(constraint)
-            if isinstance(transform, ComposeTransform):
-                base_transform = transform.parts[0]
-                constrained_values[k] = base_transform(transform.inv(v['value']))
-                inv_transforms[k] = base_transform
-                has_transformed_dist = True
-            else:
-                inv_transforms[k] = transform
-                constrained_values[k] = v['value']
+    potential_fun, constrain_fun = get_potential_fn(rng_key if rng_key.ndim == 1 else rng_key[0],
+                                                    model,
+                                                    dynamic_args=dynamic_args,
+                                                    model_args=model_args,
+                                                    model_kwargs=model_kwargs)
 
-    prototype_params = transform_fn(inv_transforms,
-                                    {k: v for k, v in constrained_values.items()},
-                                    invert=True)
-
-    # NB: we use model instead of seeded_model to prevent unexpected behaviours (if any)
-    if dynamic_args:
-        def potential_fn(*args, **kwargs):
-            return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
-        if has_transformed_dist:
-            def constrain_fun(*args, **kwargs):
-                return jax.partial(constrain_fn, model, inv_transforms, args, kwargs)
-        else:
-            def constrain_fun(*args, **kwargs):
-                return jax.partial(transform_fn, inv_transforms)
-    else:
-        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
-        if has_transformed_dist:
-            # FIXME: why using seeded_model here triggers an error for funnel reparam example
-            # if we use MCMC class (mcmc function works fine)
-            constrain_fun = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs)
-        else:
-            constrain_fun = jax.partial(transform_fn, inv_transforms)
-
-    def single_chain_init(key):
-        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
-                                         param_as_improper=True, prototype_params=prototype_params,
-                                         **model_kwargs)
-
-    if rng_key.ndim == 1:
-        init_params, is_valid = single_chain_init(rng_key)
-    else:
-        init_params, is_valid = lax.map(single_chain_init, rng_key)
+    init_params, is_valid = find_valid_initial_params(rng_key, model, *model_args,
+                                                      init_strategy=init_strategy,
+                                                      param_as_improper=True,
+                                                      **model_kwargs)
 
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return init_params, potential_fn, constrain_fun
+    return init_params, potential_fun, constrain_fun
 
 
 def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,

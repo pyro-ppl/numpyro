@@ -6,8 +6,11 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import jit, lax, partial, pmap, random, vmap
+from jax import jit, lax, partial, pmap, random, vmap, device_get
+from jax.core import Tracer
+from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
+from jax.interpreters.xla import DeviceArray
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
@@ -22,8 +25,8 @@ from numpyro.infer.hmc_util import (
     velocity_verlet,
     warmup_adapter
 )
-from numpyro.infer.util import init_to_uniform, initialize_model
-from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity
+from numpyro.infer.util import init_to_uniform, get_potential_fn, find_valid_initial_params
+from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, not_jax_tracer
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
@@ -60,7 +63,7 @@ def _get_num_steps(step_size, trajectory_length):
     num_steps = np.clip(trajectory_length / step_size, a_min=1)
     # NB: casting to np.int64 does not take effect (returns np.int32 instead)
     # if jax_enable_x64 is False
-    return num_steps.astype(xla_bridge.canonicalize_dtype(np.int64))
+    return num_steps.astype(canonicalize_dtype(np.int64))
 
 
 def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng_key):
@@ -125,18 +128,16 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
     **Example**
 
-    .. testsetup::
-
-        import jax
-        from jax import random
-        import jax.numpy as np
-        import numpyro
-        import numpyro.distributions as dist
-        from numpyro.infer.mcmc import hmc
-        from numpyro.infer.util import initialize_model
-        from numpyro.util import fori_collect
-
     .. doctest::
+
+        >>> import jax
+        >>> from jax import random
+        >>> import jax.numpy as np
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer.mcmc import hmc
+        >>> from numpyro.infer.util import initialize_model
+        >>> from numpyro.util import fori_collect
 
         >>> true_coefs = np.array([1., 2., 3.])
         >>> data = random.normal(random.PRNGKey(2), (2000, 3))
@@ -217,7 +218,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             randomness.
 
         """
-        step_size = lax.convert_element_type(step_size, xla_bridge.canonicalize_dtype(np.float64))
+        step_size = lax.convert_element_type(step_size, canonicalize_dtype(np.float64))
         nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth, vv_update, wa_steps
         wa_steps = num_warmup
         trajectory_len = trajectory_length
@@ -348,28 +349,44 @@ class MCMCKernel(ABC):
     """
     Defines the interface for the Markov transition kernel that is
     used for :class:`~numpyro.infer.MCMC` inference.
-
-    :param random.PRNGKey rng_key: Random number generator key to initialize
-        the kernel.
-    :param int num_warmup: Number of warmup steps. This can be useful
-        when doing adaptation during warmup.
-    :param tuple init_params: Initial parameters to begin sampling. The type must be consistent
-            with the input type to `potential_fn`.
-    :param model_args: Arguments provided to the model.
-    :param model_kwargs: Keyword arguments provided to the model.
     """
+    def constrain_fn(self, model_args, model_kwargs):
+        """
+        Function that transforms unconstrained values at sample sites to values
+        constrained to the site's support.
+
+        :param model_args: Arguments to the model.
+        :param model_kwargs: Keyword arguments to the model.
+        """
+        return identity
+
     @abstractmethod
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
+        """
+        Initialize the `MCMCKernel` and return an initial state to begin sampling
+        from.
+
+        :param random.PRNGKey rng_key: Random number generator key to initialize
+            the kernel.
+        :param int num_warmup: Number of warmup steps. This can be useful
+            when doing adaptation during warmup.
+        :param tuple init_params: Initial parameters to begin sampling. The type must
+            be consistent with the input type to `potential_fn`.
+        :param model_args: Arguments provided to the model.
+        :param model_kwargs: Keyword arguments provided to the model.
+        """
         raise NotImplementedError
 
     @abstractmethod
-    def sample(self, state):
+    def sample(self, state, model_args, model_kwargs):
         """
         Given the current `state`, return the next `state` using the given
         transition kernel.
 
         :param state: Arbitrary data structure representing the state for the
             kernel. For HMC, this is given by :data:`~numpyro.infer.mcmc.HMCState`.
+        :param model_args: Arguments provided to the model.
+        :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state`.
         """
         raise NotImplementedError
@@ -424,49 +441,82 @@ class HMC(MCMCKernel):
                  init_strategy=init_to_uniform()):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
-        self.model = model
-        self.potential_fn = potential_fn
-        self.kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
-        self.step_size = step_size
-        self.adapt_step_size = adapt_step_size
-        self.adapt_mass_matrix = adapt_mass_matrix
-        self.dense_mass = dense_mass
-        self.target_accept_prob = target_accept_prob
-        self.trajectory_length = trajectory_length
+        self._model = model
+        self._potential_fn = potential_fn
+        self._kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
+        self._step_size = step_size
+        self._adapt_step_size = adapt_step_size
+        self._adapt_mass_matrix = adapt_mass_matrix
+        self._dense_mass = dense_mass
+        self._target_accept_prob = target_accept_prob
+        self._trajectory_length = trajectory_length
+        self._algo = 'HMC'
+        self._max_tree_depth = 10
+        self._init_strategy = init_strategy
+        # Set on first call to init
+        self._init_fn = None
+        self._constrain_fn = None
         self._sample_fn = None
-        self.algo = 'HMC'
-        self.max_tree_depth = 10
-        self.init_strategy = init_strategy
+
+    def _init_state(self, rng_key, model_args, model_kwargs):
+        if self._model is not None:
+            potential_fn_gen, self._constrain_fn = get_potential_fn(
+                rng_key,
+                self._model,
+                dynamic_args=True,
+                model_args=model_args,
+                model_kwargs=model_kwargs)
+            self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn_gen,
+                                                 kinetic_fn=self._kinetic_fn,
+                                                 algo=self._algo)
+        else:
+            self._init_fn, self._sample_fn = hmc(potential_fn=self._potential_fn,
+                                                 kinetic_fn=self._kinetic_fn,
+                                                 algo=self._algo)
+
+    @property
+    def model(self):
+        return self._model
 
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
-        constrain_fn = None
-        if self.model is not None:
-            if rng_key.ndim == 1:
-                rng_key, rng_key_init_model = random.split(rng_key)
-            else:
-                rng_key, rng_key_init_model = np.swapaxes(vmap(random.split)(rng_key), 0, 1)
-            init_params_, self.potential_fn, constrain_fn = initialize_model(
-                rng_key_init_model, self.model, *model_args, init_strategy=self.init_strategy, **model_kwargs)
-            if init_params is None:
-                init_params = init_params_
+        # non-vectorized
+        if rng_key.ndim == 1:
+            rng_key, rng_key_init_model = random.split(rng_key)
+        # vectorized
         else:
-            # User needs to provide valid `init_params` if using `potential_fn`.
-            if init_params is None:
-                raise ValueError('Valid value of `init_params` must be provided with'
-                                 ' `potential_fn`.')
-        hmc_init, sample_fn = hmc(self.potential_fn, kinetic_fn=self.kinetic_fn, algo=self.algo)
-        hmc_init_fn = lambda init_params, rng_key: hmc_init(  # noqa: E731
+            rng_key, rng_key_init_model = np.swapaxes(vmap(random.split)(rng_key), 0, 1)
+            # we need only a single key for initializing PE / constraints fn
+            rng_key_init_model = rng_key_init_model[0]
+        if not self._init_fn:
+            self._init_state(rng_key_init_model, model_args, model_kwargs)
+        if self._potential_fn and init_params is None:
+            raise ValueError('Valid value of `init_params` must be provided with'
+                             ' `potential_fn`.')
+        # Find valid initial params
+        if self._model and not init_params:
+            init_params, is_valid = find_valid_initial_params(rng_key, self._model, *model_args,
+                                                              init_strategy=self._init_strategy,
+                                                              param_as_improper=True,
+                                                              **model_kwargs)
+            if not_jax_tracer(is_valid):
+                if device_get(~np.all(is_valid)):
+                    raise RuntimeError("Cannot find valid initial parameters. "
+                                       "Please check your model again.")
+
+        hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
-            step_size=self.step_size,
-            adapt_step_size=self.adapt_step_size,
-            adapt_mass_matrix=self.adapt_mass_matrix,
-            dense_mass=self.dense_mass,
-            target_accept_prob=self.target_accept_prob,
-            trajectory_length=self.trajectory_length,
-            max_tree_depth=self.max_tree_depth,
+            step_size=self._step_size,
+            adapt_step_size=self._adapt_step_size,
+            adapt_mass_matrix=self._adapt_mass_matrix,
+            dense_mass=self._dense_mass,
+            target_accept_prob=self._target_accept_prob,
+            trajectory_length=self._trajectory_length,
+            max_tree_depth=self._max_tree_depth,
             rng_key=rng_key,
+            model_args=model_args,
+            model_kwargs=model_kwargs,
         )
         if rng_key.ndim == 1:
             init_state = hmc_init_fn(init_params, rng_key)
@@ -475,20 +525,27 @@ class HMC(MCMCKernel):
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
             init_state = vmap(hmc_init_fn)(init_params, rng_key)
-            sample_fn = vmap(sample_fn)
-        self._sample_fn = sample_fn
-        return init_state, sample_fn, constrain_fn
+            sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
+            self._sample_fn = sample_fn
+        return init_state
 
-    def sample(self, state):
+    @copy_docs_from(MCMCKernel.constrain_fn)
+    def constrain_fn(self, args, kwargs):
+        if self._constrain_fn is None:
+            return identity
+        return self._constrain_fn(*args, **kwargs)
+
+    def sample(self, state, model_args, model_kwargs):
         """
         Run HMC from the given :data:`~numpyro.infer.mcmc.HMCState` and return the resulting
         :data:`~numpyro.infer.mcmc.HMCState`.
 
         :param HMCState state: Represents the current state.
+        :param model_args: Arguments provided to the model.
+        :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state` after running HMC.
         """
-        # TODO: depricate this method
-        return self._sample_fn(state)
+        return self._sample_fn(state, model_args, model_kwargs)
 
 
 class NUTS(HMC):
@@ -550,8 +607,8 @@ class NUTS(HMC):
                                    adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
                                    target_accept_prob=target_accept_prob,
                                    trajectory_length=trajectory_length, init_strategy=init_strategy)
-        self.max_tree_depth = max_tree_depth
-        self.algo = 'NUTS'
+        self._max_tree_depth = max_tree_depth
+        self._algo = 'NUTS'
 
 
 def _laxmap(f, xs):
@@ -566,6 +623,16 @@ def _laxmap(f, xs):
         ys.append(f(x))
 
     return tree_multimap(lambda *args: np.stack(args), *ys)
+
+
+def _sample_fn_jit_args(state, sampler):
+    hmc_state, args, kwargs = state
+    return sampler.sample(hmc_state, args, kwargs), args, kwargs
+
+
+def _sample_fn_nojit_args(state, sampler, args, kwargs):
+    # state is a tuple of size 1 - containing HMCState
+    return sampler.sample(state[0], args, kwargs),
 
 
 class MCMC(object):
@@ -594,6 +661,9 @@ class MCMC(object):
         drawing method, hence allowing us to collect samples in parallel on a single device.
     :param bool progress_bar: Whether to enable progress bar updates. Defaults to
         ``True``.
+    :param bool jit_model_args: If set to `True`, this will compile the potential energy
+        computation as a function of model arguments. As such, calling `MCMC.run` again
+        on a same sized but different dataset will not result in additional compilation cost.
     """
     def __init__(self,
                  sampler,
@@ -602,7 +672,8 @@ class MCMC(object):
                  num_chains=1,
                  constrain_fn=None,
                  chain_method='parallel',
-                 progress_bar=True):
+                 progress_bar=True,
+                 jit_model_args=False):
         self.sampler = sampler
         self.num_warmup = num_warmup
         self.num_samples = num_samples
@@ -614,32 +685,75 @@ class MCMC(object):
         if (chain_method == 'parallel' and num_chains > 1) or (
                 "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
             self.progress_bar = False
-
+        self._jit_model_args = jit_model_args
         self._states = None
         self._states_flat = None
+        self._cache = {}
 
-    def _single_chain_mcmc(self, init, collect_fields=('z',), collect_warmup=False, args=(), kwargs={}):
-        rng_key, init_params = init
-        init_state, sample_fn, constrain_fn = self.sampler.init(rng_key, self.num_warmup, init_params,
-                                                                model_args=args, model_kwargs=kwargs)
-        if self.constrain_fn is None:
-            constrain_fn = identity if constrain_fn is None else constrain_fn
+    def _get_cached_fn(self):
+        if self._jit_model_args:
+            args, kwargs = (None,), (None,)
         else:
-            constrain_fn = self.constrain_fn
+            # XXX: Is there a better hash key that we can use?
+            def _hashable(x):
+                # When the arguments are JITed, ShapedArray is hashable.
+                if isinstance(x, Tracer):
+                    return x
+                elif isinstance(x, DeviceArray):
+                    return x.copy().tobytes()
+                elif isinstance(x, np.ndarray):
+                    return x.tobytes()
+                return x
+            args = tree_map(lambda x: _hashable(x), self._args)
+            kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(self._kwargs.items())))
+        key = args + kwargs
+        try:
+            fn = self._cache.get(key, None)
+        # If unhashable arguments are provided, proceed normally
+        # without caching
+        except TypeError:
+            fn, key = None, None
+        if fn is None:
+            if self._jit_model_args:
+                fn = partial(_sample_fn_jit_args, sampler=self.sampler)
+            else:
+                fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
+                             args=self._args, kwargs=self._kwargs)
+            if key is not None:
+                self._cache[key] = fn
+        return fn
+
+    def _single_chain_mcmc(self, rng_key, init_params, args, kwargs, collect_fields=('z',), collect_warmup=False):
+        init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
+                                       model_args=args, model_kwargs=kwargs)
+        if self.constrain_fn is None:
+            self.constrain_fn = self.sampler.constrain_fn(args, kwargs)
         collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else self.num_warmup
+        diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
+        init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         states = fori_collect(lower, self.num_warmup + self.num_samples,
-                              sample_fn,
-                              init_state,
-                              transform=collect_fn,
+                              self._get_cached_fn(),
+                              init_val,
+                              transform=lambda x: collect_fn(x[0]),  # noqa: E731
                               progbar=self.progress_bar,
                               progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
-                              diagnostics_fn=get_diagnostics_str if rng_key.ndim == 1 else None)
+                              diagnostics_fn=diagnostics)
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
-        states['z'] = vmap(constrain_fn)(states['z']) if len(tree_flatten(states['z'])[0]) > 0 else states['z']
+        # Apply constraints if number of samples is non-zero
+        if len(tree_flatten(states['z'])[0]) > 0:
+            states['z'] = lax.map(self.constrain_fn, states['z'])
         return states
+
+    def _single_chain_jit_args(self, init, collect_fields=('z',), collect_warmup=False):
+        return self._single_chain_mcmc(*init, collect_fields=collect_fields, collect_warmup=collect_warmup)
+
+    def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields=('z',), collect_warmup=False):
+        return self._single_chain_mcmc(*init, model_args, model_kwargs,
+                                       collect_fields=collect_fields,
+                                       collect_warmup=collect_warmup)
 
     def run(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
@@ -677,16 +791,20 @@ class MCMC(object):
         assert isinstance(extra_fields, (tuple, list))
         collect_fields = tuple(set(('z', 'diverging') + tuple(extra_fields)))
         if self.num_chains == 1:
-            states_flat = self._single_chain_mcmc((rng_key, init_params), collect_fields, collect_warmup,
-                                                  args, kwargs)
+            states_flat = self._single_chain_mcmc(rng_key, init_params, args, kwargs, collect_fields, collect_warmup)
             states = tree_map(lambda x: x[np.newaxis, ...], states_flat)
         else:
             rng_keys = random.split(rng_key, self.num_chains)
-            partial_map_fn = partial(self._single_chain_mcmc,
-                                     collect_fields=collect_fields,
-                                     collect_warmup=collect_warmup,
-                                     args=args,
-                                     kwargs=kwargs)
+            if self._jit_model_args:
+                partial_map_fn = partial(self._single_chain_jit_args,
+                                         collect_fields=collect_fields,
+                                         collect_warmup=collect_warmup)
+            else:
+                partial_map_fn = partial(self._single_chain_nojit_args,
+                                         model_args=args,
+                                         model_kwargs=kwargs,
+                                         collect_fields=collect_fields,
+                                         collect_warmup=collect_warmup)
             if chain_method == 'sequential':
                 if self.progress_bar:
                     map_fn = partial(_laxmap, partial_map_fn)
@@ -699,7 +817,10 @@ class MCMC(object):
             else:
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')
-            states = map_fn((rng_keys, init_params))
+            if self._jit_model_args:
+                states = map_fn((rng_keys, init_params, args, kwargs))
+            else:
+                states = map_fn((rng_keys, init_params))
             if chain_method == 'vectorized':
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: np.swapaxes(x, 0, 1), states)

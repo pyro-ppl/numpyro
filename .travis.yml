@@ -40,7 +40,8 @@ jobs:
           script:
               - pytest -vs -k "not test_example" --deselect test/contrib/test_distributions_contrib.py --durations=100
               - JAX_ENABLE_x64=1 pytest -vs test/test_mcmc.py -k x64
-              - XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_mcmc.py -k chain
+              - XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_mcmc.py -k \
+                  "chain or pmap or vmap"
         - name: "examples"
           python: 3.6
           script:

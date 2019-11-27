@@ -3,7 +3,7 @@ import pytest
 
 from jax import jit, random, value_and_grad
 import jax.numpy as np
-from jax.test_util import check_eq
+from jax.test_util import check_close
 
 import numpyro
 from numpyro import optim
@@ -88,7 +88,7 @@ def test_jitted_update_fn():
     expected = svi.get_params(svi.update(svi_state, data)[0])
 
     actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
-    check_eq(actual, expected)
+    check_close(actual, expected, atol=1e-5)
 
 
 def test_param():

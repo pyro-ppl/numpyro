@@ -27,7 +27,7 @@ TransformedDistribution
 
 Unit
 ----
-.. autoclass:: pyro.distributions.distribution.Unit
+.. autoclass:: numpyro.distributions.distribution.Unit
     :members:
     :undoc-members:
     :show-inheritance:

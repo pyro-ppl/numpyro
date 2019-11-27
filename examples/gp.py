@@ -1,4 +1,13 @@
+"""
+Gaussian Process
+================
+
+In this example we show how to use NUTS to sample from the posterior
+over the hyperparameters of a gaussian process.
+"""
+
 import argparse
+import os
 import time
 
 import matplotlib
@@ -15,11 +24,6 @@ import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
-
-"""
-In this example we show how to use NUTS to sample from the posterior
-over the hyperparameters of a gaussian process.
-"""
 
 
 # squared exponential kernel with diagonal noise term
@@ -49,7 +53,8 @@ def model(X, Y):
 def run_inference(model, args, rng_key, X, Y):
     start = time.time()
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y)
     mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
@@ -117,7 +122,7 @@ def main(args):
     ax.set(xlabel="X", ylabel="Y", title="Mean predictions with 90% CI")
 
     plt.savefig("gp_plot.pdf")
-    plt.close()
+    plt.tight_layout()
 
 
 if __name__ == "__main__":
