@@ -149,6 +149,9 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         be any Python collection type containing `np.ndarray` objects.
     :param transform: a callable to post-process the values returned by `body_fn`.
     :param progbar: whether to post progress bar updates.
+    :param bool return_init_state: If `True`, the state at iteration `lower-1`,
+        where the collection begins, is also returned. This has the same type
+        as `init_val`.
     :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
         from `body_fun` returns a string that is used to update the progress
