@@ -20,15 +20,19 @@ def dot(X, Z):
 
 
 # The kernel that corresponds to our quadratic regressor.
-def kernel(X, Z, eta1, eta2, c, jitter=0.):
+def kernel(X, Z, eta1, eta2, c):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
-    k1 = 0.5 * eta2sq * np.square(1.0 + dot(X, Z))
-    k2 = -0.5 * eta2sq * dot(np.square(X), np.square(Z))
-    k3 = (eta1sq - eta2sq) * dot(X, Z)
+    X2 = np.square(X)
+    if Z is None:
+        Z = X
+        Z2 = X2
+    K1 = dot(X, Z)
+    K2 = dot(X2, Z2)
+    k1 = 0.5 * eta2sq * np.square(1.0 + K1)
+    k2 = -0.5 * eta2sq * K2
+    k3 = (eta1sq - eta2sq) * K1
     k4 = np.square(c) - 0.5 * eta2sq
-    if X.shape == Z.shape:
-        k4 += jitter * np.eye(X.shape[0])
     return k1 + k2 + k3 + k4
 
 
@@ -53,7 +57,7 @@ def model(X, Y, hypers):
 
     # compute kernel
     kX = kappa * X
-    k = kernel(kX, kX, eta1, eta2, hypers['c']) + sigma ** 2 * np.eye(N)
+    k = kernel(kX, None, eta1, eta2, hypers['c']) + sigma ** 2 * np.eye(N)
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
@@ -110,7 +114,7 @@ def stan_model(hypers):
         model {{
           matrix[N, N] L_K;
           matrix[N, N] K1 = diag_post_multiply(X, kappa) *  X';
-          matrix[N, N] K2 = diag_post_multiply(X2, kappa) *  X2';
+          matrix[N, N] K2 = diag_post_multiply(X2, square(kappa)) *  X2';
           matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) + (square(alpha) - .5 * square(eta_2)) * K2 + (square(eta_1) - square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
         
           // diagonal elements
@@ -174,7 +178,7 @@ def numpyro_inference(hypers, data, args):
 def stan_inference(hypers, data, args):
     sm = stan_model(hypers)
     tic = time.time()
-    fit = sm.sampling(data=data, iter=args.num_samples, warmup=args.num_warmup, chains=args.num_chains)
+    fit = sm.sampling(data=data, iter=args.num_samples + args.num_warmup, warmup=args.num_warmup, chains=args.num_chains)
     toc = time.time()
     print(fit)
     print('\nMCMC (stan) elapsed time:', toc - tic)
