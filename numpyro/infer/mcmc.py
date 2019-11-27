@@ -744,7 +744,7 @@ class MCMC(object):
         states = dict(zip(collect_fields, states))
         # Apply constraints if number of samples is non-zero
         if len(tree_flatten(states['z'])[0]) > 0:
-            states['z'] = vmap(self.constrain_fn)(states['z'])
+            states['z'] = lax.map(self.constrain_fn, states['z'])
         return states
 
     def _single_chain_jit_args(self, init, collect_fields=('z',), collect_warmup=False):
