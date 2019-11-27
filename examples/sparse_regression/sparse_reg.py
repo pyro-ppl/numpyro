@@ -20,15 +20,11 @@ def dot(X, Z):
 
 
 # The kernel that corresponds to our quadratic regressor.
-def kernel(X, Z, eta1, eta2, c):
+def kernel(X, X2, eta1, eta2, c):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
-    X2 = np.square(X)
-    if Z is None:
-        Z = X
-        Z2 = X2
-    K1 = dot(X, Z)
-    K2 = dot(X2, Z2)
+    K1 = dot(X, X)
+    K2 = dot(X2, X2)
     k1 = 0.5 * eta2sq * np.square(1.0 + K1)
     k2 = -0.5 * eta2sq * K2
     k3 = (eta1sq - eta2sq) * K1
@@ -57,7 +53,8 @@ def model(X, Y, hypers):
 
     # compute kernel
     kX = kappa * X
-    k = kernel(kX, None, eta1, eta2, hypers['c']) + sigma ** 2 * np.eye(N)
+    kX2 = kappa * np.square(X)
+    k = kernel(kX, kX2, eta1, eta2, hypers['c']) + sigma ** 2 * np.eye(N)
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
@@ -114,7 +111,7 @@ def stan_model(hypers):
         model {{
           matrix[N, N] L_K;
           matrix[N, N] K1 = diag_post_multiply(X, kappa) *  X';
-          matrix[N, N] K2 = diag_post_multiply(X2, square(kappa)) *  X2';
+          matrix[N, N] K2 = diag_post_multiply(X2, kappa) *  X2';
           matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) + (square(alpha) - .5 * square(eta_2)) * K2 + (square(eta_1) - square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
         
           // diagonal elements
@@ -166,13 +163,16 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
 
 def numpyro_inference(hypers, data, args):
     rng_key = random.PRNGKey(1)
-    start = time.time()
     kernel = NUTS(model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
-    mcmc.run(rng_key, data['X'], data['Y'], hypers)
+    tic = time.time()
+    mcmc.run(rng_key, data['X'], data['Y'], hypers, extra_fields=('num_steps',))
+    toc = time.time()
     mcmc.print_summary()
-    print('\nMCMC (numpyro) elapsed time:', time.time() - start)
-    return mcmc.get_samples()
+    print('\nMCMC (numpyro) elapsed time:', toc - tic)
+    num_leapfrogs = np.sum(mcmc.get_extra_fields()['num_steps'])
+    print('num leapfrogs', num_leapfrogs)
+    print('time per leapfrog', (toc - tic) / num_leapfrogs)
 
 
 def stan_inference(hypers, data, args):
@@ -191,7 +191,7 @@ def main(args):
     data = get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
     hypers = {
         'expected_sparsity': max(1.0, args.num_dimensions / 10),
-        'half_slab_df': 3.0,
+        'half_slab_df': 8.0,
         'slab_scale': 3.0,
         'c': 1.,
         'sigma_scale': 3.,
