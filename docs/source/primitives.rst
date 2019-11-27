@@ -17,7 +17,7 @@ plate
 
 factor
 ------
-.. autoclass:: numpyro.primitives.factor
+.. autofunction:: numpyro.primitives.factor
 
 module
 ------
