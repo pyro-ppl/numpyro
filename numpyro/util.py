@@ -130,7 +130,8 @@ def identity(x):
     return x
 
 
-def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
+def fori_collect(lower, upper, body_fun, init_val, transform=identity,
+                 progbar=True, return_init_state=False, **progbar_opts):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
@@ -164,23 +165,29 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
         collection = np.zeros((upper - lower,) + init_val_flat.shape)
 
         def _body_fn(i, vals):
-            val, collection = vals
+            val, collection, start_state = vals
             val = body_fun(val)
             i = np.where(i >= lower, i - lower, 0)
+            start_state = lax.cond(i == lower-1,
+                                   start_state, lambda _: val,
+                                   start_state, lambda x: x)
             collection = ops.index_update(collection, i, ravel_fn(val))
-            return val, collection
+            return val, collection, start_state
 
-        _, collection = fori_loop(0, upper, _body_fn, (init_val, collection))
+        _, collection, start_state = fori_loop(0, upper, _body_fn, (init_val, collection, init_val))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
         collection = []
 
         val = init_val
+        start_state = None
         with tqdm.trange(upper) as t:
             for i in t:
                 val = jit(body_fun)(val)
-                if i >= lower:
+                if i == lower - 1:
+                    start_state = val
+                elif i >= lower:
                     collection.append(jit(ravel_fn)(val))
                 t.set_description(progbar_desc(i), refresh=False)
                 if diagnostics_fn:
@@ -188,7 +195,8 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
 
         collection = np.stack(collection)
 
-    return vmap(unravel_fn)(collection)
+    unravel_collection = vmap(unravel_fn)(collection)
+    return unravel_collection, start_state if return_init_state else start_state
 
 
 def copy_docs_from(source_class, full_text=False):

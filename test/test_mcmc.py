@@ -237,8 +237,11 @@ def test_improper_prior():
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
     kernel = NUTS(model=model)
-    mcmc = MCMC(kernel, num_warmup, num_samples)
+    # num_samples must be >= 1; otherwise we'll get an error
+    mcmc = MCMC(kernel, num_warmup, num_samples=1, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
+    mcmc.num_samples = num_samples
+    mcmc.run(random.PRNGKey(2), data, reuse_warmup=True)
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
@@ -392,7 +395,7 @@ def test_chain_smoke(chain_method, compile_args):
         return p_latent
 
     data = dist.Categorical(np.array([0.1, 0.6, 0.3])).sample(random.PRNGKey(1), (2000,))
-    kernel = NUTS(model, )
+    kernel = NUTS(model)
     mcmc = MCMC(kernel, 2, 5, num_chains=2, chain_method=chain_method, jit_model_args=compile_args)
     mcmc.run(random.PRNGKey(0), data)
 
