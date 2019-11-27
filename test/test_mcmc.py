@@ -31,6 +31,7 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(0), init_params=init_params)
+    mcmc.print_summary()
     hmc_states = mcmc.get_samples()
     assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
     assert_allclose(np.std(hmc_states), true_std, rtol=0.05)
