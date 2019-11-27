@@ -35,7 +35,7 @@ def kernel(X, X2, eta1, eta2, c):
 def model(X, Y, hypers):
     M, N = X.shape[1], X.shape[0]
     m0 = hypers['expected_sparsity']
-    alpha, beta = hypers['half_slab_df'], hypers['half_slab_df']
+    alpha, beta = hypers['alpha'], hypers['beta']
     slab_scale = hypers['slab_scale']
     slab_scale2 = slab_scale ** 2
     sigma = numpyro.sample("sigma", dist.HalfNormal(hypers['sigma_scale']))
@@ -79,8 +79,8 @@ def stan_model(hypers):
           real slab_scale = {slab_scale};    // Scale for large slopes
           real sigma_scale = {sigma_scale};
           real slab_scale2 = square(slab_scale);
-          real half_slab_df = {half_slab_df};
-          real slab_df = 2 * half_slab_df;      // Effective degrees of freedom for large slopes
+          real alpha = {alpha};
+          real beta = {beta};
           vector[N] mu = rep_vector(0, N);
           // vector[P] X2[N] = square(X);
           matrix[N, P] X2 = square(X);
@@ -94,25 +94,23 @@ def stan_model(hypers):
         }}
         transformed parameters {{
           real<lower=0> eta_2;
-          real<lower=0> alpha; // Prior variance on quadratic effect
           real<lower=0> eta_1;
           real<lower=0> m_sq; // Truncation level for local scale horseshoe
           vector[P] kappa;
           {{
             real phi = (m0 / (P - m0)) * (sigma / sqrt(1.0 * N));
             eta_1 = phi * eta_1_base; // eta_1 ~ cauchy(0, phi), global scale for linear effects
-            // m_sq ~ inv_gamma(half_slab_df, half_slab_df * slab_scale2)
+            // m_sq ~ inv_gamma(alpha, beta * slab_scale2)
             m_sq = slab_scale2 * m_base; // m^2
             kappa = m_sq * square(lambda) ./ (m_sq + square(eta_1) * square(lambda));
           }}
           eta_2 = square(eta_1) / m_sq * psi; // Global prior variance of interaction terms
-          alpha = 0; // No quadratic effects
         }}
         model {{
           matrix[N, N] L_K;
           matrix[N, N] K1 = diag_post_multiply(X, kappa) *  X';
           matrix[N, N] K2 = diag_post_multiply(X2, kappa) *  X2';
-          matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) + (square(alpha) - .5 * square(eta_2)) * K2 + (square(eta_1) - square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
+          matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) - .5 * square(eta_2) * K2 + (square(eta_1) - square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
         
           // diagonal elements
           for (n in 1:N)
@@ -120,15 +118,16 @@ def stan_model(hypers):
           // L_K = cholesky_decompose(K);
           lambda ~ cauchy(0, 1);
           eta_1_base ~ cauchy(0, 1);
-          m_base ~ inv_gamma(half_slab_df, half_slab_df);
+          m_base ~ inv_gamma(alpha, beta);
           sigma ~ normal(0, sigma_scale);
-          psi ~ inv_gamma(half_slab_df, half_slab_df);
+          psi ~ inv_gamma(alpha, beta);
           Y ~ multi_normal(mu, K);
         }}
     """.format(expected_sparsity=hypers['expected_sparsity'],
                c=hypers['c'],
                slab_scale=hypers['slab_scale'],
-               half_slab_df=hypers['half_slab_df'],
+               alpha=hypers['alpha'],
+               beta=hypers['beta'],
                sigma_scale=hypers['sigma_scale'])
     print(model_code)
 
@@ -191,7 +190,8 @@ def main(args):
     data = get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
     hypers = {
         'expected_sparsity': max(1.0, args.num_dimensions / 10),
-        'half_slab_df': 8.0,
+        'alpha': 3.0,
+        'beta': 1.0,
         'slab_scale': 3.0,
         'c': 1.,
         'sigma_scale': 3.,
