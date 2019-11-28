@@ -11,6 +11,10 @@ validation_enabled
 
 .. automodule:: numpyro.util
 
+enable_x64
+----------
+.. autofunction:: numpyro.util.enable_x64
+
 set_platform
 ------------
 .. autofunction:: numpyro.util.set_platform
