@@ -4,6 +4,7 @@ import subprocess
 import sys
 import time
 
+import jax
 import jax.numpy as np
 import numpy as onp
 import pystan
@@ -173,10 +174,13 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
 
 def numpyro_inference(hypers, data, args):
     rng_key = random.PRNGKey(1)
-    kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    bound_model = jax.partial(model, hypers=hypers)
+    kernel = NUTS(bound_model)
+    mcmc = MCMC(kernel, args.num_warmup, num_chains=args.num_chains)
+    mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
+    mcmc.num_samples = args.num_samples
     tic = time.time()
-    mcmc.run(rng_key, data['X'], data['Y'], hypers, extra_fields=('num_steps',))
+    mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',), reuse_warmup=True)
     toc = time.time()
     mcmc.print_summary()
     print('\nMCMC (numpyro) elapsed time:', toc - tic)
