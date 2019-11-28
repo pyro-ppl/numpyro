@@ -29,6 +29,18 @@ def set_rng_seed(rng_seed):
     onp.random.seed(rng_seed)
 
 
+def enable_x64(use_x64=True):
+    """
+    Changes the default array type to use 64 bit precision as in NumPy.
+
+    :param bool use_x64: when `True`, JAX arrays will use 64 bits by default;
+        else 32 bits.
+    """
+    if not use_x64:
+        use_x64 = os.getenv('JAX_ENABLE_X64', 0)
+    jax.config.update('jax_enable_x64', use_x64)
+
+
 def set_platform(platform=None):
     """
     Changes platform to CPU, GPU, or TPU. This utility only takes
