@@ -668,7 +668,7 @@ class MCMC(object):
     def __init__(self,
                  sampler,
                  num_warmup,
-                 num_samples,
+                 num_samples=0,
                  num_chains=1,
                  constrain_fn=None,
                  chain_method='parallel',
@@ -749,12 +749,14 @@ class MCMC(object):
                                     return_init_state=True,
                                     progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
                                     diagnostics_fn=diagnostics)
-        states, self._init_state = collect_vals
+        states, init_state = collect_vals
+        self._init_state = init_state[0]
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
         # Apply constraints if number of samples is non-zero
-        if len(tree_flatten(states['z'])[0]) > 0:
+        site_values = tree_flatten(states['z'])[0]
+        if len(site_values) > 0 and site_values[0].size > 0:
             states['z'] = lax.map(self.constrain_fn, states['z'])
         return states
 
@@ -808,7 +810,8 @@ class MCMC(object):
         assert isinstance(extra_fields, (tuple, list))
         collect_fields = tuple(set(('z', 'diverging') + tuple(extra_fields)))
         if self.num_chains == 1:
-            states_flat = self._single_chain_mcmc(rng_key, init_params, args, kwargs, collect_fields, collect_warmup)
+            states_flat = self._single_chain_mcmc(rng_key, init_params, args, kwargs, collect_fields,
+                                                  collect_warmup, reuse_warmup)
             states = tree_map(lambda x: x[np.newaxis, ...], states_flat)
         else:
             rng_keys = random.split(rng_key, self.num_chains)

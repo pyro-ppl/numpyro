@@ -238,7 +238,7 @@ def test_improper_prior():
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
     kernel = NUTS(model=model)
     # num_samples must be >= 1; otherwise we'll get an error
-    mcmc = MCMC(kernel, num_warmup, num_samples=1, progress_bar=False)
+    mcmc = MCMC(kernel, num_warmup)
     mcmc.run(random.PRNGKey(2), data)
     mcmc.num_samples = num_samples
     mcmc.run(random.PRNGKey(2), data, reuse_warmup=True)

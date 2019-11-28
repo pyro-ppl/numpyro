@@ -160,7 +160,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     :return: collection with the same type as `init_val` with values
         collected along the leading axis of `np.ndarray` objects.
     """
-    assert lower < upper
+    assert lower <= upper
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
@@ -195,7 +195,8 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
-        collection = np.stack(collection)
+        collection = np.stack(collection) if len(collection) > 0 else \
+            np.zeros((upper - lower,) + init_val_flat.shape)
 
     unravel_collection = vmap(unravel_fn)(collection)
     return (unravel_collection, start_state) if return_init_state else unravel_collection
