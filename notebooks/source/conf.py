@@ -130,14 +130,21 @@ class GalleryFileNameSortKey(FileNameSortKey):
             return "99" + filename
 
 
-# adapted from https://sphinx-gallery.github.io/stable/advanced.html#example-2-detecting-image-files-on-disk
-# custom images can be put in _static/img folder, with the pattern
-# sphx_glr_[name_of_example]_1.png
+# Adapted from https://sphinx-gallery.github.io/stable/advanced.html#example-2-detecting-image-files-on-disk
+#
+# Custom images can be put in _static/img folder, with the pattern
+#   sphx_glr_[name_of_example]_1.png
 # Note that this also displays the image in the example page.
-# To not display the image, we can add the following lines in __call__ method:
+# To not display the image, we can add the following lines
+# at the end of __call__ method:
 #   if "sparse_regression" in images_rst:
 #       images_rst = ""
 #   return images_rst
+#
+# If there are several images for an example, we can select
+# which one to be the thumbnail image by adding a comment
+# in the example script
+#   # sphinx_gallery_thumbnail_number = 2
 class PNGScraper(object):
     def __init__(self):
         self.seen = set()
