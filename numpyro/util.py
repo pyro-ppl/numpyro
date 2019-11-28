@@ -183,8 +183,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
         collection = []
 
-        val = init_val
-        start_state = None
+        val, start_state = init_val, init_val
         with tqdm.trange(upper) as t:
             for i in t:
                 val = jit(body_fun)(val)
@@ -199,7 +198,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         collection = np.stack(collection)
 
     unravel_collection = vmap(unravel_fn)(collection)
-    return unravel_collection, start_state if return_init_state else start_state
+    return (unravel_collection, start_state) if return_init_state else unravel_collection
 
 
 def copy_docs_from(source_class, full_text=False):
