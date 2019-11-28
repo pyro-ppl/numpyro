@@ -130,7 +130,8 @@ def identity(x):
     return x
 
 
-def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
+def fori_collect(lower, upper, body_fun, init_val, transform=identity,
+                 progbar=True, return_init_state=False, **progbar_opts):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
@@ -148,6 +149,9 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
         be any Python collection type containing `np.ndarray` objects.
     :param transform: a callable to post-process the values returned by `body_fn`.
     :param progbar: whether to post progress bar updates.
+    :param bool return_init_state: If `True`, the state at iteration `lower-1`,
+        where the collection begins, is also returned. This has the same type
+        as `init_val`.
     :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
         from `body_fun` returns a string that is used to update the progress
@@ -156,7 +160,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
     :return: collection with the same type as `init_val` with values
         collected along the leading axis of `np.ndarray` objects.
     """
-    assert lower < upper
+    assert lower <= upper
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
@@ -164,31 +168,38 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
         collection = np.zeros((upper - lower,) + init_val_flat.shape)
 
         def _body_fn(i, vals):
-            val, collection = vals
+            val, collection, start_state = vals
             val = body_fun(val)
             i = np.where(i >= lower, i - lower, 0)
+            start_state = lax.cond(i == lower-1,
+                                   start_state, lambda _: val,
+                                   start_state, lambda x: x)
             collection = ops.index_update(collection, i, ravel_fn(val))
-            return val, collection
+            return val, collection, start_state
 
-        _, collection = fori_loop(0, upper, _body_fn, (init_val, collection))
+        _, collection, start_state = fori_loop(0, upper, _body_fn, (init_val, collection, init_val))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
         collection = []
 
-        val = init_val
+        val, start_state = init_val, init_val
         with tqdm.trange(upper) as t:
             for i in t:
                 val = jit(body_fun)(val)
-                if i >= lower:
+                if i == lower - 1:
+                    start_state = val
+                elif i >= lower:
                     collection.append(jit(ravel_fn)(val))
                 t.set_description(progbar_desc(i), refresh=False)
                 if diagnostics_fn:
                     t.set_postfix_str(diagnostics_fn(val), refresh=False)
 
-        collection = np.stack(collection)
+        collection = np.stack(collection) if len(collection) > 0 else \
+            np.zeros((upper - lower,) + init_val_flat.shape)
 
-    return vmap(unravel_fn)(collection)
+    unravel_collection = vmap(unravel_fn)(collection)
+    return (unravel_collection, start_state) if return_init_state else unravel_collection
 
 
 def copy_docs_from(source_class, full_text=False):
