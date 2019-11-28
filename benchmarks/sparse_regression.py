@@ -179,6 +179,7 @@ def numpyro_inference(hypers, data, args):
     mcmc = MCMC(kernel, args.num_warmup, num_chains=args.num_chains)
     mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
     mcmc.num_samples = args.num_samples
+    mcmc._warmup_state.i.copy()  # make sure no jax async affects tic
     tic = time.time()
     mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',), reuse_warmup_state=True)
     toc = time.time()
@@ -253,8 +254,12 @@ if __name__ == "__main__":
     parser.add_argument("--num-dimensions", nargs='?', default=50, type=int)
     parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
-    parser.add_argument("--backend", default='numpyro', type=str)
+    parser.add_argument("--backend", default='numpyro', type=str, help='either "numpyro" or "stan"')
+    parser.add_argument("--x64", action="store_true")
     args = parser.parse_args()
+
+    jax.config.update("jax_enable_x64", args.x64)
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
+
     main(args)
