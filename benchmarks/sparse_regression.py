@@ -82,7 +82,7 @@ def stan_model(hypers):
         }}
         transformed data {{
          // Interaction global scale params
-          real m0 = {expected_sparsity}; // Expected number of large slopes                  
+          real m0 = {expected_sparsity}; // Expected number of large slopes
           real<lower=0> c = {c}; // Intercept prior scale
           real sigma_scale = {sigma_scale};
           real alpha_1 = {alpha_1};
@@ -105,7 +105,7 @@ def stan_model(hypers):
         }}
         transformed parameters {{
           real<lower=0> eta_1;
-          real<lower=0> eta_2;          
+          real<lower=0> eta_2;
           real psi = sqrt(psi_sq);
           vector[P] kappa;
           {{
@@ -121,7 +121,7 @@ def stan_model(hypers):
           matrix[N, N] K2 = diag_post_multiply(X2, kappa) *  X2';
           matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) - .5 * square(eta_2) * K2 + (square(eta_1) - square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
 
-          var_obs ~ inv_gamma(alpha_obs, beta_obs); 
+          var_obs ~ inv_gamma(alpha_obs, beta_obs);
           // diagonal elements
           for (n in 1:N)
             K[n, n] += var_obs;
@@ -173,7 +173,7 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
 
 
 def numpyro_inference(hypers, data, args):
-    rng_key = random.PRNGKey(1)
+    rng_key = random.PRNGKey(args.seed)
     bound_model = jax.partial(model, hypers=hypers)
     kernel = NUTS(bound_model)
     mcmc = MCMC(kernel, args.num_warmup, num_chains=args.num_chains)
@@ -191,6 +191,7 @@ def numpyro_inference(hypers, data, args):
     n_effs = [effective_sample_size(device_get(v)) for k, v in mcmc.get_samples(group_by_chain=True).items()]
     n_effs = onp.concatenate([onp.array([x]) if np.ndim(x) == 0 else x for x in n_effs])
     n_eff_mean = sum(n_effs) / len(n_effs)
+    print('mean n_eff', n_eff_mean)
     print('time per effective sample', (toc - tic) / n_eff_mean)
 
 
@@ -211,7 +212,7 @@ def stan_inference(hypers, data, args):
     sm = stan_model(hypers)
     tic = time.time()
     fit = sm.sampling(data=data, iter=args.num_samples + args.num_warmup, warmup=args.num_warmup,
-                      chains=args.num_chains)
+                      chains=args.num_chains, seed=args.seed)
     toc = time.time()
     print(fit)
     print('\nMCMC (stan) elapsed time:', toc - tic)
@@ -222,6 +223,7 @@ def stan_inference(hypers, data, args):
     summary = fit.summary(pars=('lambda', 'm_sq', 'eta_1_base', 'sigma', 'psi_sq', 'var_obs'))['summary']
     n_effs = [row[8] for row in summary]
     n_eff_mean = sum(n_effs) / len(n_effs)
+    print('mean n_eff', n_eff_mean)
     print('time per effective sample', sampling_time / n_eff_mean)
 
 
@@ -246,13 +248,14 @@ def main(args):
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.1')
-    parser = argparse.ArgumentParser(description="Gaussian Process example")
+    parser = argparse.ArgumentParser(description="Sparse regression example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
     parser.add_argument("--num-dimensions", nargs='?', default=50, type=int)
     parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
+    parser.add_argument("--seed", nargs='?', default=2019, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--backend", default='numpyro', type=str, help='either "numpyro" or "stan"')
     parser.add_argument("--x64", action="store_true")
