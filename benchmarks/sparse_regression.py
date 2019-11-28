@@ -180,7 +180,7 @@ def numpyro_inference(hypers, data, args):
     mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
     mcmc.num_samples = args.num_samples
     tic = time.time()
-    mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',), reuse_warmup=True)
+    mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',), reuse_warmup_state=True)
     toc = time.time()
     mcmc.print_summary()
     print('\nMCMC (numpyro) elapsed time:', toc - tic)
