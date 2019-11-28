@@ -241,7 +241,7 @@ def test_improper_prior():
     mcmc = MCMC(kernel, num_warmup)
     mcmc.run(random.PRNGKey(2), data)
     mcmc.num_samples = num_samples
-    mcmc.run(random.PRNGKey(2), data, reuse_warmup=True)
+    mcmc.run(random.PRNGKey(2), data, reuse_warmup_state=True)
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
@@ -398,6 +398,7 @@ def test_chain_smoke(chain_method, compile_args):
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 2, 5, num_chains=2, chain_method=chain_method, jit_model_args=compile_args)
     mcmc.run(random.PRNGKey(0), data)
+    mcmc.run(random.PRNGKey(1), data, reuse_warmup_state=True)
 
 
 def test_extra_fields():

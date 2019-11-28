@@ -688,7 +688,8 @@ class MCMC(object):
         self._jit_model_args = jit_model_args
         self._states = None
         self._states_flat = None
-        self._init_state = None
+        # HMCState returned by last warmup
+        self._warmup_state = None
         self._cache = {}
 
     def _get_cached_fn(self):
@@ -725,13 +726,13 @@ class MCMC(object):
         return fn
 
     def _single_chain_mcmc(self, rng_key, init_params, args, kwargs,
-                           collect_fields=('z',), collect_warmup=False, reuse_warmup=False):
+                           collect_fields=('z',), collect_warmup=False, reuse_warmup_state=False):
         num_warmup = self.num_warmup
-        if reuse_warmup:
-            if self._init_state is None:
+        if reuse_warmup_state:
+            if self._warmup_state is None:
                 raise ValueError('No `init_state` found; warmup results cannot be reused.')
             num_warmup = 0
-            init_state = self._init_state
+            init_state = self._warmup_state
         else:
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
@@ -747,10 +748,10 @@ class MCMC(object):
                                     transform=lambda x: collect_fn(x[0]),  # noqa: E731
                                     progbar=self.progress_bar,
                                     return_init_state=True,
-                                    progbar_desc=functools.partial(get_progbar_desc_str, self.num_warmup),
+                                    progbar_desc=functools.partial(get_progbar_desc_str, num_warmup),
                                     diagnostics_fn=diagnostics)
-        states, init_state = collect_vals
-        self._init_state = init_state[0]
+        states, warmup_state = collect_vals
+        self._warmup_state = warmup_state[0]._replace(i=0)
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
@@ -760,19 +761,19 @@ class MCMC(object):
             states['z'] = lax.map(self.constrain_fn, states['z'])
         return states
 
-    def _single_chain_jit_args(self, init, collect_fields=('z',), collect_warmup=False, reuse_warmup=False):
+    def _single_chain_jit_args(self, init, collect_fields=('z',), collect_warmup=False, reuse_warmup_state=False):
         return self._single_chain_mcmc(*init, collect_fields=collect_fields,
-                                       collect_warmup=collect_warmup, reuse_warmup=reuse_warmup)
+                                       collect_warmup=collect_warmup, reuse_warmup_state=reuse_warmup_state)
 
     def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields=('z',),
-                                 collect_warmup=False, reuse_warmup=False):
+                                 collect_warmup=False, reuse_warmup_state=False):
         return self._single_chain_mcmc(*init, model_args, model_kwargs,
                                        collect_fields=collect_fields,
                                        collect_warmup=collect_warmup,
-                                       reuse_warmup=reuse_warmup)
+                                       reuse_warmup_state=reuse_warmup_state)
 
     def run(self, rng_key, *args, extra_fields=(), collect_warmup=False,
-            init_params=None, reuse_warmup=False, **kwargs):
+            init_params=None, reuse_warmup_state=False, **kwargs):
         """
         Run the MCMC samplers and collect samples.
 
@@ -786,8 +787,8 @@ class MCMC(object):
             to `False`.
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn`.
-        :param bool reuse_warmup: If `True`, sampling would make use of the initial state and
-            adaptation parameters from the last warmup run.
+        :param bool reuse_warmup_state: If `True`, sampling would make use of the last state and
+            adaptation parameters from the previous warmup run.
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
@@ -811,7 +812,7 @@ class MCMC(object):
         collect_fields = tuple(set(('z', 'diverging') + tuple(extra_fields)))
         if self.num_chains == 1:
             states_flat = self._single_chain_mcmc(rng_key, init_params, args, kwargs, collect_fields,
-                                                  collect_warmup, reuse_warmup)
+                                                  collect_warmup, reuse_warmup_state)
             states = tree_map(lambda x: x[np.newaxis, ...], states_flat)
         else:
             rng_keys = random.split(rng_key, self.num_chains)
@@ -819,14 +820,14 @@ class MCMC(object):
                 partial_map_fn = partial(self._single_chain_jit_args,
                                          collect_fields=collect_fields,
                                          collect_warmup=collect_warmup,
-                                         reuse_warmup=reuse_warmup)
+                                         reuse_warmup_state=reuse_warmup_state)
             else:
                 partial_map_fn = partial(self._single_chain_nojit_args,
                                          model_args=args,
                                          model_kwargs=kwargs,
                                          collect_fields=collect_fields,
                                          collect_warmup=collect_warmup,
-                                         reuse_warmup=reuse_warmup)
+                                         reuse_warmup_state=reuse_warmup_state)
             if chain_method == 'sequential':
                 if self.progress_bar:
                     map_fn = partial(_laxmap, partial_map_fn)
