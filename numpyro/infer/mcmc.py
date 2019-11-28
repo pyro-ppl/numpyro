@@ -751,7 +751,11 @@ class MCMC(object):
                                     progbar_desc=functools.partial(get_progbar_desc_str, num_warmup),
                                     diagnostics_fn=diagnostics)
         states, warmup_state = collect_vals
-        self._warmup_state = warmup_state[0]._replace(i=0)
+        # Get first argument of type `HMCState`
+        warmup_state = warmup_state[0]
+        # Note that setting i = 0 may result in recompilation due to python integers having
+        # weak type
+        self._warmup_state = warmup_state._replace(i=np.zeros_like(warmup_state.i))
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
