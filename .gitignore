@@ -17,6 +17,7 @@ notebooks/source/examples/
 
 # data files
 *.pdf
+benchmarks/.data
 numpyro/examples/.data
 examples/.results
 examples/*.pdf
