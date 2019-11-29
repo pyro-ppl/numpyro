@@ -20,6 +20,22 @@ def test_fori_collect():
     check_eq(actual_tree, expected_tree)
 
 
+@pytest.mark.parametrize('progbar', [False, True])
+def test_fori_collect_return_init(progbar):
+    def f(x):
+        x['i'] = x['i'] + 1
+        return x
+
+    tree, init_state = fori_collect(2, 4, f, {'i': 0},
+                                    transform=lambda a: {'i': a['i']},
+                                    return_init_state=True,
+                                    progbar=progbar)
+    expected_tree = {'i': np.array([3, 4])}
+    expected_init_state = {'i': np.array(2)}
+    check_eq(init_state, expected_init_state)
+    check_eq(tree, expected_tree)
+
+
 @pytest.mark.parametrize('pytree', [
     {'a': np.array(0.), 'b': np.array([[1., 2.], [3., 4.]])},
     {'a': np.array(0), 'b': np.array([[1, 2], [3, 4]])},
