@@ -17,6 +17,11 @@ from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import NUTS, MCMC
 
 
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.data')
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+
 def set_logging(filename):
     tee = subprocess.Popen(['tee', '/tmp/' + filename + '.txt'], stdin=subprocess.PIPE)
     os.dup2(tee.stdin.fileno(), sys.stdout.fileno())
@@ -119,7 +124,7 @@ def stan_model(hypers):
           matrix[N, N] L_K;
           matrix[N, N] K1 = diag_post_multiply(X, kappa) *  X';
           matrix[N, N] K2 = diag_post_multiply(X2, kappa) *  X2';
-          matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) - .5 * square(eta_2) * K2 + (square(eta_1) - 
+          matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) - .5 * square(eta_2) * K2 + (square(eta_1) -
               square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
 
           var_obs ~ inv_gamma(alpha_obs, beta_obs);
@@ -201,7 +206,7 @@ def numpyro_inference(hypers, data, args):
                                                         args.num_data,
                                                         args.num_dimensions,
                                                         args.seed)
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.data/{}'.format(out_filename)), 'w') as f:
+    with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
         f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
         f.write('\n')
         f.write('\t'.join([str(x)
@@ -247,7 +252,7 @@ def stan_inference(hypers, data, args):
                                                         args.num_data,
                                                         args.num_dimensions,
                                                         args.seed)
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.data/{}'.format(out_filename)), 'w') as f:
+    with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
         f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
         f.write('\n')
         f.write('\t'.join([str(x)

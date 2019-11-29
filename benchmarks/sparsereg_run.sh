@@ -10,10 +10,10 @@ for backend in numpyro stan; do
         for P in 10 20 30 40 50 60 70 80; do
             if [[ ${device} = "cpu" ]]; then
                 python ${benchmark_dir}/sparse_regression.py --backend ${backend} --num-data ${N} \
-                    --num-dimensions ${P} --device ${device} --seed ${seed} --x64 --disable-progbar
+                    --num-dimensions ${P} --device ${device} --seed ${seed} --x64 #--disable-progbar
             else
                 python ${benchmark_dir}/sparse_regression.py --backend ${backend} --num-data ${N} \
-                    --num-dimensions ${P} --device ${device} --seed ${seed} --disable-progbar
+                    --num-dimensions ${P} --device ${device} --seed ${seed} #--disable-progbar
             fi
         done
     done
