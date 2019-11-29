@@ -518,7 +518,5 @@ def test_model_with_multiple_exec_paths(jit_args):
     mcmc.run(random.PRNGKey(0), a, b=None, z=z)
     mcmc.num_samples = 10
     mcmc.run(random.PRNGKey(1), a, b=None, z=z, reuse_warmup_state=True)
-
-    # Re-run on new data - should be much faster.
     mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
     mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)
