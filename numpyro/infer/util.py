@@ -348,6 +348,30 @@ def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to
     return init_params, is_valid
 
 
+def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
+    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    inv_transforms = {}
+    has_transformed_dist = False
+    for k, v in model_trace.items():
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['intermediates']:
+                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = biject_to(v['fn'].support)
+        elif v['type'] == 'param':
+            constraint = v['kwargs'].pop('constraint', real)
+            transform = biject_to(constraint)
+            if isinstance(transform, ComposeTransform):
+                inv_transforms[k] = transform.parts[0]
+                has_transformed_dist = True
+            else:
+                inv_transforms[k] = transform
+    return inv_transforms, has_transformed_dist
+
+
 def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kwargs=None):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
@@ -370,37 +394,19 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
         to constrain unconstrained samples (e.g. those returned by HMC)
         to values that lie within the site's support.
     """
-    model_kwargs = {} if model_kwargs is None else model_kwargs
-    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
-    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-    inv_transforms = {}
-    has_transformed_dist = False
-    for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed']:
-            if v['intermediates']:
-                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
-                has_transformed_dist = True
-            else:
-                inv_transforms[k] = biject_to(v['fn'].support)
-        elif v['type'] == 'param':
-            constraint = v['kwargs'].pop('constraint', real)
-            transform = biject_to(constraint)
-            if isinstance(transform, ComposeTransform):
-                inv_transforms[k] = transform.parts[0]
-                has_transformed_dist = True
-            else:
-                inv_transforms[k] = transform
-
     if dynamic_args:
         def potential_fn(*args, **kwargs):
+            inv_transforms, has_transformed_dist = get_model_transforms(rng_key, model, args, kwargs)
             return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
-        if has_transformed_dist:
-            def constrain_fun(*args, **kwargs):
+
+        def constrain_fun(*args, **kwargs):
+            inv_transforms, has_transformed_dist = get_model_transforms(rng_key, model, args, kwargs)
+            if has_transformed_dist:
                 return jax.partial(constrain_fn, model, inv_transforms, args, kwargs)
-        else:
-            def constrain_fun(*args, **kwargs):
+            else:
                 return jax.partial(transform_fn, inv_transforms)
     else:
+        inv_transforms, has_transformed_dist = get_model_transforms(rng_key, model, model_args, model_kwargs)
         potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
         if has_transformed_dist:
             constrain_fun = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs)
