@@ -181,11 +181,11 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
 
         def _body_fn(i, vals):
             val, collection, start_state = vals
-            val = body_fun(val)
-            i = np.where(i >= lower, i - lower, 0)
-            start_state = lax.cond(i == lower-1,
-                                   start_state, lambda _: val,
+            val = jit(body_fun)(val)
+            start_state = lax.cond(i < lower,
+                                   val, lambda x: x,
                                    start_state, lambda x: x)
+            i = np.where(i >= lower, i - lower, 0)
             collection = ops.index_update(collection, i, ravel_fn(val))
             return val, collection, start_state
 
