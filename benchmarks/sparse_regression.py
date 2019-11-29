@@ -119,7 +119,8 @@ def stan_model(hypers):
           matrix[N, N] L_K;
           matrix[N, N] K1 = diag_post_multiply(X, kappa) *  X';
           matrix[N, N] K2 = diag_post_multiply(X2, kappa) *  X2';
-          matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) - .5 * square(eta_2) * K2 + (square(eta_1) - square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
+          matrix[N, N] K = .5 * square(eta_2) * square(K1 + 1.0) - .5 * square(eta_2) * K2 + (square(eta_1) - 
+              square(eta_2)) * K1 + square(c) - .5 * square(eta_2);
 
           var_obs ~ inv_gamma(alpha_obs, beta_obs);
           // diagonal elements
@@ -176,7 +177,7 @@ def numpyro_inference(hypers, data, args):
     rng_key = random.PRNGKey(args.seed)
     bound_model = jax.partial(model, hypers=hypers)
     kernel = NUTS(bound_model)
-    mcmc = MCMC(kernel, args.num_warmup, num_chains=args.num_chains)
+    mcmc = MCMC(kernel, args.num_warmup, num_chains=args.num_chains, progress_bar=not args.disable_progbar)
     mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
     mcmc.num_samples = args.num_samples
     mcmc._warmup_state.i.copy()  # make sure no jax async affects tic
@@ -187,12 +188,25 @@ def numpyro_inference(hypers, data, args):
     print('\nMCMC (numpyro) elapsed time:', toc - tic)
     num_leapfrogs = np.sum(mcmc.get_extra_fields()['num_steps'])
     print('num leapfrogs', num_leapfrogs)
-    print('time per leapfrog', (toc - tic) / num_leapfrogs)
+    time_per_leapfrog = (toc - tic) / num_leapfrogs
+    print('time per leapfrog', time_per_leapfrog)
     n_effs = [effective_sample_size(device_get(v)) for k, v in mcmc.get_samples(group_by_chain=True).items()]
     n_effs = onp.concatenate([onp.array([x]) if np.ndim(x) == 0 else x for x in n_effs])
     n_eff_mean = sum(n_effs) / len(n_effs)
     print('mean n_eff', n_eff_mean)
-    print('time per effective sample', (toc - tic) / n_eff_mean)
+    time_per_eff_sample = (toc - tic) / n_eff_mean
+    print('time per effective sample', time_per_eff_sample)
+    out_filename = '{}_{}_N={}_P={}_seed={}.txt'.format(args.backend,
+                                                        args.device,
+                                                        args.num_data,
+                                                        args.num_dimensions,
+                                                        args.seed)
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.data/{}'.format(out_filename)), 'w') as f:
+        f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
+        f.write('\n')
+        f.write('\t'.join([str(x)
+                           for x in (num_leapfrogs, n_eff_mean, toc-tic, time_per_leapfrog, time_per_eff_sample)]))
+        f.write('\n')
 
 
 def _get_pystan_sampling_time(filename):
@@ -217,14 +231,28 @@ def stan_inference(hypers, data, args):
     print(fit)
     print('\nMCMC (stan) elapsed time:', toc - tic)
     sampling_time = _get_pystan_sampling_time(log_filename)
-    num_leapfrogs = fit.get_sampler_params(inc_warmup=False)[0]["n_leapfrog__"].sum()
+    sampler_params = fit.get_sampler_params(inc_warmup=False)
+    num_leapfrogs = sum([p["n_leapfrog__"].sum() for p in sampler_params])
     print('num leapfrogs', num_leapfrogs)
-    print('time per leapfrog', sampling_time / num_leapfrogs)
+    time_per_leapfrog = sampling_time / num_leapfrogs
+    print('time per leapfrog', time_per_leapfrog)
     summary = fit.summary(pars=('lambda', 'm_sq', 'eta_1_base', 'sigma', 'psi_sq', 'var_obs'))['summary']
     n_effs = [row[8] for row in summary]
     n_eff_mean = sum(n_effs) / len(n_effs)
     print('mean n_eff', n_eff_mean)
-    print('time per effective sample', sampling_time / n_eff_mean)
+    time_per_eff_sample = sampling_time / n_eff_mean
+    print('time per effective sample', time_per_eff_sample)
+    out_filename = '{}_{}_N={}_P={}_seed={}.txt'.format(args.backend,
+                                                        args.device,
+                                                        args.num_data,
+                                                        args.num_dimensions,
+                                                        args.seed)
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.data/{}'.format(out_filename)), 'w') as f:
+        f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
+        f.write('\n')
+        f.write('\t'.join([str(x)
+                           for x in (num_leapfrogs, n_eff_mean, toc-tic, time_per_leapfrog, time_per_eff_sample)]))
+        f.write('\n')
 
 
 def main(args):
@@ -259,9 +287,10 @@ if __name__ == "__main__":
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--backend", default='numpyro', type=str, help='either "numpyro" or "stan"')
     parser.add_argument("--x64", action="store_true")
+    parser.add_argument("--disable-progbar", action="store_true")
     args = parser.parse_args()
 
-    jax.config.update("jax_enable_x64", args.x64)
+    numpyro.enable_x64(args.x64)
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
 
