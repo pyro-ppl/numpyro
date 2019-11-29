@@ -36,7 +36,7 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
     assert_allclose(np.std(hmc_states), true_std, rtol=0.05)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert hmc_states.dtype == np.float64
 
 
@@ -83,7 +83,7 @@ def test_logistic_regression_x64(kernel_cls):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['coefs'].dtype == np.float64
 
 
@@ -140,7 +140,7 @@ def test_beta_bernoulli_x64(kernel_cls):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p_latent'].dtype == np.float64
 
 
@@ -163,7 +163,7 @@ def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p_latent'].dtype == np.float64
 
 
@@ -197,7 +197,7 @@ def test_change_point_x64():
     mode = tau_values[mode_ind]
     assert mode == 44
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['lambda1'].dtype == np.float64
         assert samples['lambda2'].dtype == np.float64
         assert samples['tau'].dtype == np.float64
@@ -223,7 +223,7 @@ def test_binomial_stable_x64(with_logits):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p'], 0), data['x'] / data['n'], rtol=0.05)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p'].dtype == np.float64
 
 
@@ -439,7 +439,7 @@ def test_functional_beta_bernoulli_x64(algo):
                            transform=lambda x: constrain_fn(x.z))
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p_latent'].dtype == np.float64
 
 
