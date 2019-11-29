@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import time
+import warnings
 
 import numpy as onp
 
@@ -119,7 +120,7 @@ def _pyro_forward_log_prob(words, transition_log_prob, emission_log_prob):
     log_prob = emission_log_prob[:, words[0]]
     for t in range(1, len(words)):
         log_prob = _pyro_forward_one_step(log_prob, words[t], transition_log_prob, emission_log_prob)
-    return log_prob.logsumexp()
+    return log_prob.logsumexp(dim=0)
 
 
 def pyro_model(transition_prior, emission_prior, supervised_categories, supervised_words, unsupervised_words):
@@ -137,17 +138,75 @@ def pyro_model(transition_prior, emission_prior, supervised_categories, supervis
     numpyro.factor('forward_log_prob', log_prob)
 
 
+_NUM_LEAPFROGS = 0
+_SAMPLING_PHASE_TIC = None
+
+
+@numpyro.patch.patch_dependency('pyro.ops.integrator._kinetic_grad', root_module=pyro)
+def _kinetic_grad(inverse_mass_matrix, r):
+    global _NUM_LEAPFROGS
+    if _SAMPLING_PHASE_TIC is not None:
+        _NUM_LEAPFROGS += 1
+
+    r_flat = torch.cat([r[site_name].reshape(-1) for site_name in sorted(r)])
+    if inverse_mass_matrix.dim() == 1:
+        grads_flat = inverse_mass_matrix * r_flat
+    else:
+        grads_flat = inverse_mass_matrix.matmul(r_flat)
+
+    grads = {}
+    pos = 0
+    for site_name in sorted(r):
+        next_pos = pos + r[site_name].numel()
+        grads[site_name] = grads_flat[pos:next_pos].reshape(r[site_name].shape)
+        pos = next_pos
+    assert pos == grads_flat.size(0)
+    return grads
+
+
+@numpyro.patch.patch_dependency('pyro.infer.mcmc.api._gen_samples', root_module=pyro)
+def _mcmc_gen_samples(kernel, warmup_steps, num_samples, hook, chain_id, *args, **kwargs):
+    global _SAMPLING_PHASE_TIC
+
+    kernel.setup(warmup_steps, *args, **kwargs)
+    params = kernel.initial_params
+    # yield structure (key, value.shape) of params
+    yield {k: v.shape for k, v in params.items()}
+    for i in range(warmup_steps):
+        params = kernel.sample(params)
+        hook(kernel, params, 'Warmup [{}]'.format(chain_id) if chain_id is not None else 'Warmup', i)
+
+    _SAMPLING_PHASE_TIC = time.time()
+
+    for i in range(num_samples):
+        params = kernel.sample(params)
+        hook(kernel, params, 'Sample [{}]'.format(chain_id) if chain_id is not None else 'Sample', i)
+        yield torch.cat([params[site].reshape(-1) for site in sorted(params)]) if params else torch.tensor([])
+    yield kernel.diagnostics()
+    kernel.cleanup()
+
+
 def pyro_inference(data, args):
     pyro.set_rng_seed(args.seed)
-    kernel = pyro.infer.NUTS(pyro_model, jit_compile=True, ignore_jit_warnings=True)
-    mcmc = pyro.infer.MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup,
+    pyro_data = [torch.Tensor(x) if i <= 1 else torch.Tensor(x).long() for i, x in enumerate(data)]
+    warnings.warn("Pyro is slow, so we fix step_size=0.1 and no adaptation is performed.")
+    kernel = pyro.infer.NUTS(pyro_model, step_size=0.1, adapt_step_size=False,
+                             jit_compile=True, ignore_jit_warnings=True)
+    mcmc = pyro.infer.MCMC(kernel, num_samples=args.num_samples, warmup_steps=0,
                            num_chains=args.num_chains)
     tic = time.time()
-    mcmc.run(*data)
+    mcmc.run(*pyro_data)
     toc = time.time()
-    mcmc.print_summary()
+    mcmc.summary()
     print('\nMCMC (pyro) elapsed time:', toc - tic)
-    # TODO: patch Pyro to record num_steps...
+    print('num leapfrogs', _NUM_LEAPFROGS)
+    print('time per leapfrog', (toc - _SAMPLING_PHASE_TIC) / _NUM_LEAPFROGS)
+    n_effs = [pyro.ops.stats.effective_sample_size(v).detach().cpu().numpy()
+              for k, v in mcmc.get_samples(group_by_chain=True).items()]
+    n_effs = onp.concatenate([onp.reshape(x, -1) for x in n_effs])
+    n_eff_mean = sum(n_effs) / len(n_effs)
+    print('mean n_eff', n_eff_mean)
+    print('time per effective sample', (toc - _SAMPLING_PHASE_TIC) / n_eff_mean)
 
 
 ########################################
