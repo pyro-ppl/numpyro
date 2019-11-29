@@ -491,3 +491,32 @@ def test_reuse_mcmc_run(jit_args, shape):
     # Re-run on new data - should be much faster.
     mcmc.run(random.PRNGKey(32), y2)
     assert_allclose(mcmc.get_samples()['mu'].mean(), -3., atol=0.1)
+
+
+@pytest.mark.parametrize('jit_args', [False, True])
+def test_model_with_multiple_exec_paths(jit_args):
+    def model(a=None, b=None, z=None):
+        int_term = numpyro.sample('a', dist.Normal(0., 0.2))
+        x_term, y_term = 0., 0.
+        if a is not None:
+            x = numpyro.sample('x', dist.HalfNormal(0.5))
+            x_term = a * x
+        if b is not None:
+            y = numpyro.sample('y', dist.HalfNormal(0.5))
+            y_term = b * y
+        sigma = numpyro.sample('sigma', dist.Exponential(1.))
+        mu = int_term + x_term + y_term
+        numpyro.sample('obs', dist.Normal(mu, sigma), obs=z)
+
+    a = np.exp(onp.random.randn(10))
+    b = np.exp(onp.random.randn(10))
+    z = onp.random.randn(10)
+
+    # Run MCMC on zero observations.
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, 20, jit_model_args=jit_args)
+    mcmc.run(random.PRNGKey(0), a, b=None, z=z)
+    mcmc.num_samples = 10
+    mcmc.run(random.PRNGKey(1), a, b=None, z=z, reuse_warmup_state=True)
+    mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
+    mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)
