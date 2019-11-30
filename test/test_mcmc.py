@@ -1,10 +1,8 @@
 import os
-import time
 
-import jax
 import numpy as onp
 from jax.test_util import check_close
-from numpy.testing import assert_allclose, assert_raises
+from numpy.testing import assert_allclose
 import pytest
 
 from jax import jit, pmap, random, vmap

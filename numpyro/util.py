@@ -1,10 +1,8 @@
-import weakref
 from collections import namedtuple
 from contextlib import contextmanager
 import os
 import random
 import re
-from weakref import WeakKeyDictionary
 
 import numpy as onp
 import tqdm
