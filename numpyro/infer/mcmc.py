@@ -6,7 +6,7 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import jit, lax, partial, pmap, random, vmap, device_get
+from jax import jit, lax, partial, pmap, random, vmap, device_get, device_put
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
@@ -254,7 +254,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
                              0, 0., 0., False, wa_state, rng_key_hmc)
-        return hmc_state
+        return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
                   model_args, model_kwargs, rng_key):
