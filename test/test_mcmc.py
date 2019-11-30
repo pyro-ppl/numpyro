@@ -1,7 +1,10 @@
 import os
+import time
 
+import jax
 import numpy as onp
-from numpy.testing import assert_allclose
+from jax.test_util import check_close
+from numpy.testing import assert_allclose, assert_raises
 import pytest
 
 from jax import jit, pmap, random, vmap
@@ -246,6 +249,31 @@ def test_improper_prior():
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
+
+
+def test_mcmc_progbar():
+    true_mean, true_std = 1., 2.
+    num_warmup, num_samples = 10, 10
+
+    def model(data):
+        mean = numpyro.param('mean', 0.)
+        std = numpyro.param('std', 1., constraint=constraints.positive)
+        return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
+
+    data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, num_warmup)
+    mcmc.run(random.PRNGKey(2), data)
+    mcmc.num_samples = num_samples
+    mcmc.run(random.PRNGKey(3), data, reuse_warmup_state=True)
+    mcmc1 = MCMC(kernel, num_warmup, num_samples, progress_bar=False)
+    mcmc1.run(random.PRNGKey(2), data)
+
+    with pytest.raises(AssertionError):
+        check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
+    mcmc1.run(random.PRNGKey(3), data, reuse_warmup_state=True)
+    check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
+    check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-3, rtol=0.01)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
