@@ -780,7 +780,9 @@ class MCMC(object):
         self._fori_collect_infos["collect_size"] = collect_size
 
     def _compile(self, *args, extra_fields=(), init_params=None, **kwargs):
-        self._set_fori_collect_infos(0, 0, self.num_samples)
+        # run 1 step if progress_bar is True
+        upper = 1 if self.progress_bar else 0
+        self._set_fori_collect_infos(upper, upper, self.num_samples)
         self.run(random.PRNGKey(0), *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
 
     def warmup(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
@@ -822,7 +824,7 @@ class MCMC(object):
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn`.
         :param bool reuse_warmup_state: If `True`, sampling would make use of the last state and
-            adaptation parameters from the previous warmup run.
+            adaptation parameters from the previous :meth:`warmup` run.
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
