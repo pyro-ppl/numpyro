@@ -100,9 +100,12 @@ def test_uniform_normal():
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
-    mcmc.run(random.PRNGKey(2), data, collect_warmup=True)
+    mcmc.warmup(random.PRNGKey(2), data, collect_warmup=True)
+    warmup_samples = mcmc.get_samples()
+    mcmc.run(random.PRNGKey(3), data)
     samples = mcmc.get_samples()
-    assert len(samples['loc']) == num_warmup + num_samples
+    assert len(warmup_samples['loc']) == num_warmup
+    assert len(samples['loc']) == num_samples
     assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
@@ -286,8 +289,10 @@ def test_diverging(kernel_cls, adapt_step_size):
     kernel = kernel_cls(model, step_size=10., adapt_step_size=adapt_step_size, adapt_mass_matrix=False)
     num_warmup = num_samples = 1000
     mcmc = MCMC(kernel, num_warmup, num_samples)
-    mcmc.run(random.PRNGKey(1), data, extra_fields=['diverging'], collect_warmup=True)
-    num_divergences = mcmc.get_extra_fields()['diverging'].sum()
+    mcmc.warmup(random.PRNGKey(1), data, extra_fields=['diverging'], collect_warmup=True)
+    warmup_divergences = mcmc.get_extra_fields()['diverging'].sum()
+    mcmc.run(random.PRNGKey(2), data, extra_fields=['diverging'], reuse_warmup_state=True)
+    num_divergences = warmup_divergences + mcmc.get_extra_fields()['diverging'].sum()
     if adapt_step_size:
         assert num_divergences <= num_warmup
     else:
