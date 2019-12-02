@@ -29,6 +29,18 @@ def set_rng_seed(rng_seed):
     onp.random.seed(rng_seed)
 
 
+def enable_x64(use_x64=True):
+    """
+    Changes the default array type to use 64 bit precision as in NumPy.
+
+    :param bool use_x64: when `True`, JAX arrays will use 64 bits by default;
+        else 32 bits.
+    """
+    if not use_x64:
+        use_x64 = os.getenv('JAX_ENABLE_X64', 0)
+    jax.config.update('jax_enable_x64', use_x64)
+
+
 def set_platform(platform=None):
     """
     Changes platform to CPU, GPU, or TPU. This utility only takes
@@ -130,6 +142,19 @@ def identity(x):
     return x
 
 
+def cached_by(outer_fn, *keys):
+    outer_fn._cache = getattr(outer_fn, '_cache', {})
+
+    def _wrapped(fn):
+        fn_cache = outer_fn._cache
+        if keys in fn_cache:
+            return fn_cache[keys]
+        fn_cache[keys] = fn
+        return fn
+
+    return _wrapped
+
+
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
                  progbar=True, return_init_state=False, **progbar_opts):
     """
@@ -167,17 +192,18 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     if not progbar:
         collection = np.zeros((upper - lower,) + init_val_flat.shape)
 
+        @cached_by(fori_collect, body_fun, transform)
         def _body_fn(i, vals):
-            val, collection, start_state = vals
+            val, collection, start_state, lower_idx = vals
             val = body_fun(val)
-            i = np.where(i >= lower, i - lower, 0)
-            start_state = lax.cond(i == lower-1,
-                                   start_state, lambda _: val,
+            start_state = lax.cond(i < lower_idx,
+                                   val, lambda x: x,
                                    start_state, lambda x: x)
-            collection = ops.index_update(collection, i, ravel_fn(val))
-            return val, collection, start_state
+            i = np.where(i >= lower_idx, i - lower_idx, 0)
+            collection = ops.index_update(collection, i, ravel_pytree(transform(val))[0])
+            return val, collection, start_state, lower_idx
 
-        _, collection, start_state = fori_loop(0, upper, _body_fn, (init_val, collection, init_val))
+        _, collection, start_state, _ = fori_loop(0, upper, _body_fn, (init_val, collection, init_val, lower))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')

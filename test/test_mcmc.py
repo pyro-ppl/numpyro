@@ -1,6 +1,7 @@
 import os
 
 import numpy as onp
+from jax.test_util import check_close
 from numpy.testing import assert_allclose
 import pytest
 
@@ -36,7 +37,7 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
     assert_allclose(np.std(hmc_states), true_std, rtol=0.05)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert hmc_states.dtype == np.float64
 
 
@@ -83,7 +84,7 @@ def test_logistic_regression_x64(kernel_cls):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['coefs'].dtype == np.float64
 
 
@@ -140,7 +141,7 @@ def test_beta_bernoulli_x64(kernel_cls):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p_latent'].dtype == np.float64
 
 
@@ -163,7 +164,7 @@ def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p_latent'].dtype == np.float64
 
 
@@ -197,7 +198,7 @@ def test_change_point_x64():
     mode = tau_values[mode_ind]
     assert mode == 44
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['lambda1'].dtype == np.float64
         assert samples['lambda2'].dtype == np.float64
         assert samples['tau'].dtype == np.float64
@@ -223,7 +224,7 @@ def test_binomial_stable_x64(with_logits):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p'], 0), data['x'] / data['n'], rtol=0.05)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p'].dtype == np.float64
 
 
@@ -246,6 +247,31 @@ def test_improper_prior():
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
+
+
+def test_mcmc_progbar():
+    true_mean, true_std = 1., 2.
+    num_warmup, num_samples = 10, 10
+
+    def model(data):
+        mean = numpyro.param('mean', 0.)
+        std = numpyro.param('std', 1., constraint=constraints.positive)
+        return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
+
+    data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, num_warmup)
+    mcmc.run(random.PRNGKey(2), data)
+    mcmc.num_samples = num_samples
+    mcmc.run(random.PRNGKey(3), data, reuse_warmup_state=True)
+    mcmc1 = MCMC(kernel, num_warmup, num_samples, progress_bar=False)
+    mcmc1.run(random.PRNGKey(2), data)
+
+    with pytest.raises(AssertionError):
+        check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
+    mcmc1.run(random.PRNGKey(3), data, reuse_warmup_state=True)
+    check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
+    check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-3, rtol=0.01)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -439,7 +465,7 @@ def test_functional_beta_bernoulli_x64(algo):
                            transform=lambda x: constrain_fn(x.z))
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
-    if 'JAX_ENABLE_x64' in os.environ:
+    if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p_latent'].dtype == np.float64
 
 
@@ -491,3 +517,32 @@ def test_reuse_mcmc_run(jit_args, shape):
     # Re-run on new data - should be much faster.
     mcmc.run(random.PRNGKey(32), y2)
     assert_allclose(mcmc.get_samples()['mu'].mean(), -3., atol=0.1)
+
+
+@pytest.mark.parametrize('jit_args', [False, True])
+def test_model_with_multiple_exec_paths(jit_args):
+    def model(a=None, b=None, z=None):
+        int_term = numpyro.sample('a', dist.Normal(0., 0.2))
+        x_term, y_term = 0., 0.
+        if a is not None:
+            x = numpyro.sample('x', dist.HalfNormal(0.5))
+            x_term = a * x
+        if b is not None:
+            y = numpyro.sample('y', dist.HalfNormal(0.5))
+            y_term = b * y
+        sigma = numpyro.sample('sigma', dist.Exponential(1.))
+        mu = int_term + x_term + y_term
+        numpyro.sample('obs', dist.Normal(mu, sigma), obs=z)
+
+    a = np.exp(onp.random.randn(10))
+    b = np.exp(onp.random.randn(10))
+    z = onp.random.randn(10)
+
+    # Run MCMC on zero observations.
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, 20, jit_model_args=jit_args)
+    mcmc.run(random.PRNGKey(0), a, b=None, z=z)
+    mcmc.num_samples = 10
+    mcmc.run(random.PRNGKey(1), a, b=None, z=z, reuse_warmup_state=True)
+    mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
+    mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)

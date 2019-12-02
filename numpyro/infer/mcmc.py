@@ -6,7 +6,7 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import jit, lax, partial, pmap, random, vmap, device_get
+from jax import jit, lax, partial, pmap, random, vmap, device_get, device_put
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
@@ -26,7 +26,7 @@ from numpyro.infer.hmc_util import (
     warmup_adapter
 )
 from numpyro.infer.util import init_to_uniform, get_potential_fn, find_valid_initial_params
-from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, not_jax_tracer
+from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, not_jax_tracer, cached_by
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
@@ -254,7 +254,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
                              0, 0., 0., False, wa_state, rng_key_hmc)
-        return hmc_state
+        return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
                   model_args, model_kwargs, rng_key):
@@ -635,6 +635,14 @@ def _sample_fn_nojit_args(state, sampler, args, kwargs):
     return sampler.sample(state[0], args, kwargs),
 
 
+def _collect_fn(collect_fields):
+    @cached_by(_collect_fn, collect_fields)
+    def collect(x):
+        return attrgetter(*collect_fields)(x[0])
+
+    return collect
+
+
 class MCMC(object):
     """
     Provides access to Markov Chain Monte Carlo inference algorithms in NumPyro.
@@ -732,30 +740,26 @@ class MCMC(object):
             if self._warmup_state is None:
                 raise ValueError('No `init_state` found; warmup results cannot be reused.')
             num_warmup = 0
-            init_state = self._warmup_state
+            init_state = self._warmup_state._replace(rng_key=rng_key)
         else:
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
             self.constrain_fn = self.sampler.constrain_fn(args, kwargs)
-        collect_fn = attrgetter(*collect_fields)
         lower = 0 if collect_warmup else num_warmup
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         collect_vals = fori_collect(lower, num_warmup + self.num_samples,
                                     self._get_cached_fn(),
                                     init_val,
-                                    transform=lambda x: collect_fn(x[0]),  # noqa: E731
+                                    transform=_collect_fn(collect_fields),  # noqa: E731
                                     progbar=self.progress_bar,
                                     return_init_state=True,
                                     progbar_desc=functools.partial(get_progbar_desc_str, num_warmup),
                                     diagnostics_fn=diagnostics)
         states, warmup_state = collect_vals
         # Get first argument of type `HMCState`
-        warmup_state = warmup_state[0]
-        # Note that setting i = 0 may result in recompilation due to python integers having
-        # weak type
-        self._warmup_state = warmup_state._replace(i=np.zeros_like(warmup_state.i))
+        self._warmup_state = warmup_state[0]
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
