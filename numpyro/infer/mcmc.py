@@ -769,7 +769,7 @@ class MCMC(object):
                                     transform=_collect_fn(collect_fields),
                                     progbar=self.progress_bar,
                                     return_last_val=True,
-                                    collect_size=self._collection_params["collect_size"],
+                                    collection_size=self._collection_params["collection_size"],
                                     progbar_desc=functools.partial(get_progbar_desc_str, num_warmup),
                                     diagnostics_fn=diagnostics)
         states, last_val = collect_vals
@@ -790,10 +790,10 @@ class MCMC(object):
     def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields=('z',)):
         return self._single_chain_mcmc(*init, model_args, model_kwargs, collect_fields=collect_fields)
 
-    def _set_collection_params(self, lower=None, upper=None, collect_size=None):
+    def _set_collection_params(self, lower=None, upper=None, collection_size=None):
         self._collection_params["lower"] = self.num_warmup if lower is None else lower
         self._collection_params["upper"] = self.num_warmup + self.num_samples if upper is None else upper
-        self._collection_params["collect_size"] = collect_size
+        self._collection_params["collection_size"] = collection_size
 
     def _compile(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
         self._set_fori_collect_infos(0, 0, self.num_samples)
