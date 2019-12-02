@@ -156,7 +156,7 @@ def cached_by(outer_fn, *keys):
 
 
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
-                 progbar=True, return_last_val=False, collect_size=None, **progbar_opts):
+                 progbar=True, return_last_val=False, collection_size=None, **progbar_opts):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
@@ -176,7 +176,9 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     :param progbar: whether to post progress bar updates.
     :param bool return_last_val: If `True`, the last value is also returned.
         This has the same type as `init_val`.
-    :param int collect_size: Size of the returned collection.
+    :param int collection_size: Size of the returned collection. If not specified,
+        the size will be ``upper - lower``. If the size is larger than
+        ``upper - lower``, only the top ``upper - lower`` entries will be non-zero.
     :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
         from `body_fun` returns a string that is used to update the progress
@@ -186,8 +188,8 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         collected along the leading axis of `np.ndarray` objects.
     """
     assert lower <= upper
-    collect_size = upper - lower if collect_size is None else collect_size
-    assert collect_size >= upper - lower
+    collection_size = upper - lower if collection_size is None else collection_size
+    assert collection_size >= upper - lower
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
 
     @cached_by(fori_collect, body_fun, transform)
@@ -198,7 +200,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         collection = ops.index_update(collection, i, ravel_pytree(transform(val))[0])
         return val, collection, lower_idx
 
-    collection = np.zeros((collect_size,) + init_val_flat.shape)
+    collection = np.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
         last_val, collection, _ = fori_loop(0, upper, _body_fn, (init_val, collection, lower))
     else:

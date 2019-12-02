@@ -244,7 +244,7 @@ def test_improper_prior():
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup, num_samples)
     mcmc.warmup(random.PRNGKey(2), data)
-    mcmc.run(random.PRNGKey(2), data, reuse_warmup_state=True)
+    mcmc.run(random.PRNGKey(2), data)
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
     assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
@@ -263,14 +263,14 @@ def test_mcmc_progbar():
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup, num_samples)
     mcmc.warmup(random.PRNGKey(2), data)
-    mcmc.run(random.PRNGKey(3), data, reuse_warmup_state=True)
+    mcmc.run(random.PRNGKey(3), data)
     mcmc1 = MCMC(kernel, num_warmup, num_samples, progress_bar=False)
     mcmc1.run(random.PRNGKey(2), data)
 
     with pytest.raises(AssertionError):
         check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
     mcmc1.warmup(random.PRNGKey(2), data)
-    mcmc1.run(random.PRNGKey(3), data, reuse_warmup_state=True)
+    mcmc1.run(random.PRNGKey(3), data)
     check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
     check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-3, rtol=0.01)
 
@@ -289,7 +289,7 @@ def test_diverging(kernel_cls, adapt_step_size):
     mcmc = MCMC(kernel, num_warmup, num_samples)
     mcmc.warmup(random.PRNGKey(1), data, extra_fields=['diverging'], collect_warmup=True)
     warmup_divergences = mcmc.get_extra_fields()['diverging'].sum()
-    mcmc.run(random.PRNGKey(2), data, extra_fields=['diverging'], reuse_warmup_state=True)
+    mcmc.run(random.PRNGKey(2), data, extra_fields=['diverging'])
     num_divergences = warmup_divergences + mcmc.get_extra_fields()['diverging'].sum()
     if adapt_step_size:
         assert num_divergences <= num_warmup
@@ -428,7 +428,7 @@ def test_chain_smoke(chain_method, compile_args):
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 2, 5, num_chains=2, chain_method=chain_method, jit_model_args=compile_args)
     mcmc.warmup(random.PRNGKey(0), data)
-    mcmc.run(random.PRNGKey(1), data, reuse_warmup_state=True)
+    mcmc.run(random.PRNGKey(1), data)
 
 
 def test_extra_fields():
@@ -544,8 +544,7 @@ def test_model_with_multiple_exec_paths(jit_args):
     # Run MCMC on zero observations.
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 20, 10, jit_model_args=jit_args)
-    mcmc.warmup(random.PRNGKey(0), a, b=None, z=z)
-    mcmc.run(random.PRNGKey(1), a, b=None, z=z, reuse_warmup_state=True)
+    mcmc.run(random.PRNGKey(1), a, b=None, z=z)
     mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
     mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)
 
@@ -573,7 +572,7 @@ def test_compile_warmup_run(num_chains, chain_method, progress_bar):
     mcmc._compile(rng_key)
     # no delay after compiling
     mcmc.warmup(rng_key)
-    mcmc.run(mcmc._warmup_state.rng_key, reuse_warmup_state=True)
+    mcmc.run(mcmc._warmup_state.rng_key)
     actual_samples = mcmc.get_samples()["x"]
 
     assert_allclose(actual_samples, expected_samples)

@@ -716,8 +716,8 @@ class MCMC(object):
         # HMCState returned by hmc.init_kernel
         self._init_state_cache = {}
         self._cache = {}
-        self._fori_collect_infos = {}
-        self._set_fori_collect_infos()
+        self._collection_params = {}
+        self._set_collection_params()
 
     def _get_cached_fn(self):
         if self._jit_model_args:
@@ -751,7 +751,7 @@ class MCMC(object):
             return self._init_state_cache.get(key, None)
         # If unhashable arguments are provided, return None
         except TypeError:
-            pass
+            return None
 
     def _single_chain_mcmc(self, rng_key, init_state, init_params, args, kwargs, collect_fields=('z',)):
         num_warmup = self.num_warmup
@@ -762,14 +762,14 @@ class MCMC(object):
             self.constrain_fn = self.sampler.constrain_fn(args, kwargs)
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
-        collect_vals = fori_collect(self._fori_collect_infos["lower"],
-                                    self._fori_collect_infos["upper"],
+        collect_vals = fori_collect(self._collection_params["lower"],
+                                    self._collection_params["upper"],
                                     self._get_cached_fn(),
                                     init_val,
                                     transform=_collect_fn(collect_fields),
                                     progbar=self.progress_bar,
                                     return_last_val=True,
-                                    collect_size=self._fori_collect_infos["collect_size"],
+                                    collect_size=self._collection_params["collect_size"],
                                     progbar_desc=functools.partial(get_progbar_desc_str, num_warmup),
                                     diagnostics_fn=diagnostics)
         states, last_val = collect_vals
@@ -790,10 +790,10 @@ class MCMC(object):
     def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields=('z',)):
         return self._single_chain_mcmc(*init, model_args, model_kwargs, collect_fields=collect_fields)
 
-    def _set_fori_collect_infos(self, lower=None, upper=None, collect_size=None):
-        self._fori_collect_infos["lower"] = self.num_warmup if lower is None else lower
-        self._fori_collect_infos["upper"] = self.num_warmup + self.num_samples if upper is None else upper
-        self._fori_collect_infos["collect_size"] = collect_size
+    def _set_collection_params(self, lower=None, upper=None, collect_size=None):
+        self._collection_params["lower"] = self.num_warmup if lower is None else lower
+        self._collection_params["upper"] = self.num_warmup + self.num_samples if upper is None else upper
+        self._collection_params["collect_size"] = collect_size
 
     def _compile(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
         self._set_fori_collect_infos(0, 0, self.num_samples)
@@ -810,7 +810,9 @@ class MCMC(object):
 
     def warmup(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
-        Run the MCMC warmup adaptation phase.
+        Run the MCMC warmup adaptation phase. After this call, the :meth:`run` method
+        will skip the warmup adaptation phase. To run `warmup` again for the new data,
+        it is required to run :meth:`warmup` again.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
@@ -825,6 +827,7 @@ class MCMC(object):
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
+        self._warmup_state = False
         if collect_warmup:
             self._set_fori_collect_infos(0, self.num_warmup, self.num_warmup)
         else:
@@ -832,13 +835,13 @@ class MCMC(object):
         self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
         self._warmup_state = self._last_state
 
-    def run(self, rng_key, *args, extra_fields=(), init_params=None, reuse_warmup_state=False, **kwargs):
+    def run(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
         """
         Run the MCMC samplers and collect samples.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
             For multi-chains, a batch of `num_chains` keys can be supplied. If `rng_key`
-            does not have batch_size, it will be splitted in to a batch of `num_chains` keys.
+            does not have batch_size, it will be split in to a batch of `num_chains` keys.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
         :param extra_fields: Extra fields (aside from `z`, `diverging`) from :data:`numpyro.infer.mcmc.HMCState`
@@ -846,8 +849,6 @@ class MCMC(object):
         :type extra_fields: tuple or list
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn`.
-        :param bool reuse_warmup_state: If `True`, sampling would make use of the last state and
-            adaptation parameters from the previous :meth:`warmup` run.
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
@@ -857,10 +858,8 @@ class MCMC(object):
         if self.num_chains > 1 and rng_key.ndim == 1:
             rng_key = random.split(rng_key, self.num_chains)
 
-        if reuse_warmup_state:
+        if self._warmup_state is not None:
             self._set_fori_collect_infos(0, self.num_samples, self.num_samples)
-            if self._warmup_state is None:
-                raise ValueError('No `init_state` found; warmup results cannot be reused.')
             init_state = self._warmup_state._replace(rng_key=rng_key)
 
         chain_method = self.chain_method
