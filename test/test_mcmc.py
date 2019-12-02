@@ -429,7 +429,7 @@ def test_chain_smoke(chain_method, compile_args):
     data = dist.Categorical(np.array([0.1, 0.6, 0.3])).sample(random.PRNGKey(1), (2000,))
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 2, 5, num_chains=2, chain_method=chain_method, jit_model_args=compile_args)
-    mcmc.run(random.PRNGKey(0), data)
+    mcmc.warmup(random.PRNGKey(0), data)
     mcmc.run(random.PRNGKey(1), data, reuse_warmup_state=True)
 
 
@@ -545,9 +545,45 @@ def test_model_with_multiple_exec_paths(jit_args):
 
     # Run MCMC on zero observations.
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, 20, jit_model_args=jit_args)
-    mcmc.run(random.PRNGKey(0), a, b=None, z=z)
-    mcmc.num_samples = 10
+    mcmc = MCMC(kernel, 20, 10, jit_model_args=jit_args)
+    mcmc.warmup(random.PRNGKey(0), a, b=None, z=z)
     mcmc.run(random.PRNGKey(1), a, b=None, z=z, reuse_warmup_state=True)
     mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
     mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)
+
+
+@pytest.mark.parametrize('num_chains', [1, 2])
+@pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
+@pytest.mark.parametrize('progress_bar', [True, False])
+def test_compile_warmup_run(num_chains, chain_method, progress_bar):
+    def model():
+        numpyro.sample("x", dist.Normal(0, 1))
+
+    if num_chains == 1 and chain_method in ['sequential', 'vectorized']:
+        pytest.skip('duplicated test')
+    if num_chains > 1 and chain_method == 'parallel':
+        pytest.skip('duplicated test')
+
+    rng_key = random.PRNGKey(0)
+    num_samples = 10
+    mcmc = MCMC(NUTS(model), 100, num_samples, num_chains,
+                chain_method=chain_method, progress_bar=progress_bar)
+
+    mcmc.run(rng_key)
+    expected_samples = mcmc.get_samples()["x"]
+
+    mcmc._compile(rng_key)
+    # no delay after compiling
+    mcmc.warmup(rng_key)
+    mcmc.run(mcmc._warmup_state.rng_key, reuse_warmup_state=True)
+    actual_samples = mcmc.get_samples()["x"]
+
+    assert_allclose(actual_samples, expected_samples)
+
+    # test for reproducible
+    if num_chains > 1:
+        mcmc = MCMC(NUTS(model), 100, num_samples, 1, progress_bar=progress_bar)
+        rng_key = random.split(rng_key)[0]
+        mcmc.run(rng_key)
+        first_chain_samples = mcmc.get_samples()["x"]
+        assert_allclose(actual_samples[:num_samples], first_chain_samples, atol=1e-5)

@@ -205,14 +205,19 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
 
-        with tqdm.trange(upper) as t:
-            vals = (init_val, collection, device_put(lower))
-            for i in t:
-                vals = jit(_body_fn)(i, vals)
-                t.set_description(progbar_desc(i), refresh=False)
-                if diagnostics_fn:
-                    t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
-            last_val, collection, _ = vals
+        vals = (init_val, collection, device_put(lower))
+        if upper == 0:
+            # special case, only compiling
+            jit(_body_fn)(0, vals)
+        else:
+            with tqdm.trange(upper) as t:
+                for i in t:
+                    vals = jit(_body_fn)(i, vals)
+                    t.set_description(progbar_desc(i), refresh=False)
+                    if diagnostics_fn:
+                        t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
+
+        last_val, collection, _ = vals
 
     unravel_collection = vmap(unravel_fn)(collection)
     return (unravel_collection, last_val) if return_last_val else unravel_collection

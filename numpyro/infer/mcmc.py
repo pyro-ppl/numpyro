@@ -611,15 +611,16 @@ class NUTS(HMC):
         self._algo = 'NUTS'
 
 
+def _get_value_from_index(xs, i):
+    return tree_map(lambda x: x[i], xs)
+
+
 def _laxmap(f, xs):
     n = tree_flatten(xs)[0][0].shape[0]
 
-    def get_value_from_index(i):
-        return tree_map(lambda x: x[i], xs)
-
     ys = []
     for i in range(n):
-        x = jit(get_value_from_index)(i)
+        x = jit(_get_value_from_index)(xs, i)
         ys.append(f(x))
 
     return tree_multimap(lambda *args: np.stack(args), *ys)
@@ -641,6 +642,18 @@ def _collect_fn(collect_fields):
         return attrgetter(*collect_fields)(x[0])
 
     return collect
+
+
+# XXX: Is there a better hash key that we can use?
+def _hashable(x):
+    # When the arguments are JITed, ShapedArray is hashable.
+    if isinstance(x, Tracer):
+        return x
+    elif isinstance(x, DeviceArray):
+        return x.copy().tobytes()
+    elif isinstance(x, np.ndarray):
+        return x.tobytes()
+    return x
 
 
 class MCMC(object):
@@ -700,6 +713,8 @@ class MCMC(object):
         self._last_state = None
         # HMCState returned by last warmup
         self._warmup_state = None
+        # HMCState returned by hmc.init_kernel
+        self._init_state_cache = {}
         self._cache = {}
         self._fori_collect_infos = {}
         self._set_fori_collect_infos()
@@ -708,16 +723,6 @@ class MCMC(object):
         if self._jit_model_args:
             args, kwargs = (None,), (None,)
         else:
-            # XXX: Is there a better hash key that we can use?
-            def _hashable(x):
-                # When the arguments are JITed, ShapedArray is hashable.
-                if isinstance(x, Tracer):
-                    return x
-                elif isinstance(x, DeviceArray):
-                    return x.copy().tobytes()
-                elif isinstance(x, np.ndarray):
-                    return x.tobytes()
-                return x
             args = tree_map(lambda x: _hashable(x), self._args)
             kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(self._kwargs.items())))
         key = args + kwargs
@@ -736,6 +741,17 @@ class MCMC(object):
             if key is not None:
                 self._cache[key] = fn
         return fn
+
+    def _get_cached_init_state(self, rng_key, args, kwargs):
+        rng_key = (_hashable(rng_key),)
+        args = tree_map(lambda x: _hashable(x), args)
+        kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
+        key = rng_key + args + kwargs
+        try:
+            return self._init_state_cache.get(key, None)
+        # If unhashable arguments are provided, return None
+        except TypeError:
+            pass
 
     def _single_chain_mcmc(self, rng_key, init_state, init_params, args, kwargs, collect_fields=('z',)):
         num_warmup = self.num_warmup
@@ -779,11 +795,18 @@ class MCMC(object):
         self._fori_collect_infos["upper"] = self.num_warmup + self.num_samples if upper is None else upper
         self._fori_collect_infos["collect_size"] = collect_size
 
-    def _compile(self, *args, extra_fields=(), init_params=None, **kwargs):
-        # run 1 step if progress_bar is True
-        upper = 1 if self.progress_bar else 0
-        self._set_fori_collect_infos(upper, upper, self.num_samples)
-        self.run(random.PRNGKey(0), *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
+    def _compile(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
+        self._set_fori_collect_infos(0, 0, self.num_samples)
+        self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
+        rng_key = (_hashable(rng_key),)
+        args = tree_map(lambda x: _hashable(x), args)
+        kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
+        key = rng_key + args + kwargs
+        try:
+            self._init_state_cache[key] = self._last_state
+        # If unhashable arguments are provided, return None
+        except TypeError:
+            pass
 
     def warmup(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
@@ -830,6 +853,7 @@ class MCMC(object):
         """
         self._args = args
         self._kwargs = kwargs
+        init_state = self._get_cached_init_state(rng_key, args, kwargs)
         if self.num_chains > 1 and rng_key.ndim == 1:
             rng_key = random.split(rng_key, self.num_chains)
 
@@ -838,8 +862,6 @@ class MCMC(object):
             if self._warmup_state is None:
                 raise ValueError('No `init_state` found; warmup results cannot be reused.')
             init_state = self._warmup_state._replace(rng_key=rng_key)
-        else:
-            init_state = None
 
         chain_method = self.chain_method
         if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
