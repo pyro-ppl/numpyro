@@ -242,10 +242,8 @@ def test_improper_prior():
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
     kernel = NUTS(model=model)
-    # num_samples must be >= 1; otherwise we'll get an error
-    mcmc = MCMC(kernel, num_warmup)
-    mcmc.run(random.PRNGKey(2), data)
-    mcmc.num_samples = num_samples
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc.warmup(random.PRNGKey(2), data)
     mcmc.run(random.PRNGKey(2), data, reuse_warmup_state=True)
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
@@ -263,15 +261,15 @@ def test_mcmc_progbar():
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
     kernel = NUTS(model=model)
-    mcmc = MCMC(kernel, num_warmup)
-    mcmc.run(random.PRNGKey(2), data)
-    mcmc.num_samples = num_samples
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc.warmup(random.PRNGKey(2), data)
     mcmc.run(random.PRNGKey(3), data, reuse_warmup_state=True)
     mcmc1 = MCMC(kernel, num_warmup, num_samples, progress_bar=False)
     mcmc1.run(random.PRNGKey(2), data)
 
     with pytest.raises(AssertionError):
         check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
+    mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data, reuse_warmup_state=True)
     check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
     check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-3, rtol=0.01)

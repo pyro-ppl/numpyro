@@ -21,18 +21,18 @@ def test_fori_collect():
 
 
 @pytest.mark.parametrize('progbar', [False, True])
-def test_fori_collect_return_init(progbar):
+def test_fori_collect_return_last(progbar):
     def f(x):
         x['i'] = x['i'] + 1
         return x
 
     tree, init_state = fori_collect(2, 4, f, {'i': 0},
                                     transform=lambda a: {'i': a['i']},
-                                    return_init_state=True,
+                                    return_last_val=True,
                                     progbar=progbar)
     expected_tree = {'i': np.array([3, 4])}
-    expected_init_state = {'i': np.array(2)}
-    check_eq(init_state, expected_init_state)
+    expected_last_state = {'i': np.array(4)}
+    check_eq(init_state, expected_last_state)
     check_eq(tree, expected_tree)
 
 
