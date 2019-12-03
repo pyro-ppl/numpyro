@@ -1,5 +1,8 @@
 import os
+import glob
+import shutil
 
+from sphinx_gallery.scrapers import figure_rst
 from sphinx_gallery.sorting import FileNameSortKey
 import sphinx_rtd_theme
 
@@ -127,12 +130,53 @@ class GalleryFileNameSortKey(FileNameSortKey):
             return "99" + filename
 
 
+# Adapted from https://sphinx-gallery.github.io/stable/advanced.html#example-2-detecting-image-files-on-disk
+#
+# Custom images can be put in _static/img folder, with the pattern
+#   sphx_glr_[name_of_example]_1.png
+# Note that this also displays the image in the example page.
+# To not display the image, we can add the following lines
+# at the end of __call__ method:
+#   if "sparse_regression" in images_rst:
+#       images_rst = ""
+#   return images_rst
+#
+# If there are several images for an example, we can select
+# which one to be the thumbnail image by adding a comment
+# in the example script
+#   # sphinx_gallery_thumbnail_number = 2
+class PNGScraper(object):
+    def __init__(self):
+        self.seen = set()
+
+    def __repr__(self):
+        return 'PNGScraper'
+
+    def __call__(self, block, block_vars, gallery_conf):
+        # Find all PNG files in the directory of this example.
+        pngs = sorted(glob.glob(os.path.join(os.path.dirname(__file__), '_static/img/sphx_glr_*.png')))
+
+        # Iterate through PNGs, copy them to the sphinx-gallery output directory
+        image_names = list()
+        image_path_iterator = block_vars['image_path_iterator']
+        for png in pngs:
+            if png not in self.seen:
+                self.seen |= set(png)
+                this_image_path = image_path_iterator.next()
+                image_names.append(this_image_path)
+                shutil.copy(png, this_image_path)
+        # Use the `figure_rst` helper function to generate rST for image files
+        images_rst = figure_rst(image_names, gallery_conf['src_dir'])
+        return images_rst
+
+
 sphinx_gallery_conf = {
     'examples_dirs': ['../../examples'],
     'gallery_dirs': 'examples',
     'filename_pattern': '.py',
     'ignore_pattern': '(neutra|minipyro|covtype|__init__)',
     'within_subsection_order': GalleryFileNameSortKey,
+    'image_scrapers': ('matplotlib', PNGScraper()),
 }
 
 
