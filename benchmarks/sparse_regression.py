@@ -207,17 +207,7 @@ def numpyro_inference(hypers, data, args):
     print('mean n_eff', n_eff_mean)
     time_per_eff_sample = sampling_time / n_eff_mean
     print('time per effective sample', time_per_eff_sample)
-    out_filename = '{}_{}_N={}_P={}_seed={}.txt'.format(args.backend,
-                                                        args.device,
-                                                        args.num_data,
-                                                        args.num_dimensions,
-                                                        args.seed)
-    with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
-        f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
-        f.write('\n')
-        f.write('\t'.join([str(x)
-                           for x in (num_leapfrogs, n_eff_mean, toc-tic, time_per_leapfrog, time_per_eff_sample)]))
-        f.write('\n')
+    return num_leapfrogs, n_eff_mean, toc - tic, time_per_leapfrog, time_per_eff_sample
 
 
 def _get_pystan_sampling_time(filename):
@@ -255,17 +245,7 @@ def stan_inference(hypers, data, args):
     print('mean n_eff', n_eff_mean)
     time_per_eff_sample = sampling_time / n_eff_mean
     print('time per effective sample', time_per_eff_sample)
-    out_filename = '{}_{}_N={}_P={}_seed={}.txt'.format(args.backend,
-                                                        args.device,
-                                                        args.num_data,
-                                                        args.num_dimensions,
-                                                        args.seed)
-    with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
-        f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
-        f.write('\n')
-        f.write('\t'.join([str(x)
-                           for x in (num_leapfrogs, n_eff_mean, toc-tic, time_per_leapfrog, time_per_eff_sample)]))
-        f.write('\n')
+    return num_leapfrogs, n_eff_mean, toc - tic, time_per_leapfrog, time_per_eff_sample
 
 
 def main(args):
@@ -282,9 +262,20 @@ def main(args):
         'beta_obs': 1.,
     }
     if args.backend == 'numpyro':
-        numpyro_inference(hypers, data, args)
+        result = numpyro_inference(hypers, data, args)
     else:
-        stan_inference(hypers, data, args)
+        result = stan_inference(hypers, data, args)
+
+    out_filename = 'sparsereg_{}_{}_N={}_P={}_seed={}.txt'.format(args.backend,
+                                                                  args.device,
+                                                                  args.num_data,
+                                                                  args.num_dimensions,
+                                                                  args.seed)
+    with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
+        f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
+        f.write('\n')
+        f.write('\t'.join([str(x) for x in result]))
+        f.write('\n')
 
 
 if __name__ == "__main__":

@@ -22,12 +22,17 @@ import pyro.distributions as pdist
 import pystan
 
 
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.data')
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+
+
 ########################################
 # simulate data
 ########################################
 
 def simulate_data(num_categories, num_words, num_supervised_data, num_unsupervised_data):
-    onp.random.seed(2019)
+    onp.random.seed(0)
     transition_prior = onp.ones(num_categories)
     emission_prior = onp.repeat(0.1, num_words)
     transition_prob = onp.random.dirichlet(transition_prior, num_categories)
@@ -86,24 +91,34 @@ def numpyro_model(transition_prior, emission_prior, supervised_categories, super
 def numpyro_inference(data, args):
     rng_key = jax.random.PRNGKey(args.seed)
     kernel = numpyro.infer.NUTS(numpyro_model)
-    mcmc = numpyro.infer.MCMC(kernel, args.num_warmup, num_chains=args.num_chains)
-    mcmc.run(rng_key, *data, extra_fields=('num_steps',))
-    mcmc.num_samples = args.num_samples
-    mcmc._warmup_state.i.copy()  # make sure no jax async affects tic
+    mcmc = numpyro.infer.MCMC(kernel, args.num_warmup, args.num_samples,
+                              num_chains=args.num_chains, progress_bar=not args.disable_progbar)
     tic = time.time()
-    mcmc.run(rng_key, *data, extra_fields=('num_steps',), reuse_warmup_state=True)
-    mcmc.print_summary()
+    mcmc._compile(rng_key, *data, extra_fields=('num_steps',))
+    print('MCMC (numpyro) compiling time:', time.time() - tic, '\n')
+    tic = time.time()
+    mcmc.warmup(rng_key, *data, extra_fields=('num_steps',))
+    mcmc.num_samples = args.num_samples
+    rng_key = mcmc._warmup_state.rng_key.copy()
+    tic_run = time.time()
+    mcmc.run(rng_key, *data, extra_fields=('num_steps',))
+    mcmc._last_state.rng_key.copy()
     toc = time.time()
+    mcmc.print_summary()
     print('\nMCMC (numpyro) elapsed time:', toc - tic)
+    sampling_time = toc - tic_run
     num_leapfrogs = np.sum(mcmc.get_extra_fields()['num_steps'])
     print('num leapfrogs', num_leapfrogs)
-    print('time per leapfrog', (toc - tic) / num_leapfrogs)
+    time_per_leapfrog = sampling_time / num_leapfrogs
+    print('time per leapfrog', time_per_leapfrog)
     n_effs = [numpyro.diagnostics.effective_sample_size(jax.device_get(v))
               for k, v in mcmc.get_samples(group_by_chain=True).items()]
     n_effs = onp.concatenate([onp.reshape(x, -1) for x in n_effs])
     n_eff_mean = sum(n_effs) / len(n_effs)
     print('mean n_eff', n_eff_mean)
-    print('time per effective sample', (toc - tic) / n_eff_mean)
+    time_per_eff_sample = sampling_time / n_eff_mean
+    print('time per effective sample', time_per_eff_sample)
+    return num_leapfrogs, n_eff_mean, toc - tic, time_per_leapfrog, time_per_eff_sample
 
 
 ########################################
@@ -189,10 +204,11 @@ def _mcmc_gen_samples(kernel, warmup_steps, num_samples, hook, chain_id, *args, 
 def pyro_inference(data, args):
     pyro.set_rng_seed(args.seed)
     pyro_data = [torch.Tensor(x) if i <= 1 else torch.Tensor(x).long() for i, x in enumerate(data)]
-    warnings.warn("Pyro is slow, so we fix step_size=0.1 and no adaptation is performed.")
+    warnings.warn("Pyro is slow, so we fix step_size=0.1, num_samples=100,"
+                  " and no warmup adaptation.")
     kernel = pyro.infer.NUTS(pyro_model, step_size=0.1, adapt_step_size=False,
                              jit_compile=True, ignore_jit_warnings=True)
-    mcmc = pyro.infer.MCMC(kernel, num_samples=args.num_samples, warmup_steps=0,
+    mcmc = pyro.infer.MCMC(kernel, num_samples=100, warmup_steps=0,
                            num_chains=args.num_chains)
     tic = time.time()
     mcmc.run(*pyro_data)
@@ -200,13 +216,16 @@ def pyro_inference(data, args):
     mcmc.summary()
     print('\nMCMC (pyro) elapsed time:', toc - tic)
     print('num leapfrogs', _NUM_LEAPFROGS)
-    print('time per leapfrog', (toc - _SAMPLING_PHASE_TIC) / _NUM_LEAPFROGS)
+    time_per_leapfrog = (toc - _SAMPLING_PHASE_TIC) / _NUM_LEAPFROGS
+    print('time per leapfrog', time_per_leapfrog)
     n_effs = [pyro.ops.stats.effective_sample_size(v).detach().cpu().numpy()
               for k, v in mcmc.get_samples(group_by_chain=True).items()]
     n_effs = onp.concatenate([onp.reshape(x, -1) for x in n_effs])
     n_eff_mean = sum(n_effs) / len(n_effs)
     print('mean n_eff', n_eff_mean)
-    print('time per effective sample', (toc - _SAMPLING_PHASE_TIC) / n_eff_mean)
+    time_per_eff_sample = (toc - _SAMPLING_PHASE_TIC) / n_eff_mean
+    print('time per effective sample', time_per_eff_sample)
+    return _NUM_LEAPFROGS, n_eff_mean, toc - tic, time_per_leapfrog, time_per_eff_sample
 
 
 ########################################
@@ -296,12 +315,15 @@ def stan_inference(data, args):
     sampling_time = _get_pystan_sampling_time(log_filename)
     num_leapfrogs = fit.get_sampler_params(inc_warmup=False)[0]["n_leapfrog__"].sum()
     print('num leapfrogs', num_leapfrogs)
-    print('time per leapfrog', sampling_time / num_leapfrogs)
+    time_per_leapfrog = sampling_time / num_leapfrogs
+    print('time per leapfrog', time_per_leapfrog)
     summary = fit.summary(pars=('theta', 'phi'))['summary']
     n_effs = [row[8] for row in summary]
     n_eff_mean = sum(n_effs) / len(n_effs)
     print('mean n_eff', n_eff_mean)
-    print('time per effective sample', sampling_time / n_eff_mean)
+    time_per_eff_sample = sampling_time / n_eff_mean
+    print('time per effective sample', time_per_eff_sample)
+    return num_leapfrogs, n_eff_mean, toc - tic, time_per_leapfrog, time_per_eff_sample
 
 
 ########################################
@@ -311,11 +333,20 @@ def stan_inference(data, args):
 def main(args):
     data = simulate_data(args.num_categories, args.num_words, args.num_supervised, args.num_unsupervised)
     if args.backend == 'numpyro':
-        numpyro_inference(data, args)
+        result = numpyro_inference(data, args)
     elif args.backend == 'pyro':
-        pyro_inference(data, args)
+        result = pyro_inference(data, args)
     elif args.backend == 'stan':
-        stan_inference(data, args)
+        result = stan_inference(data, args)
+
+    out_filename = 'hmm_{}_{}_seed={}.txt'.format(args.backend,
+                                                  args.device,
+                                                  args.seed)
+    with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
+        f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
+        f.write('\n')
+        f.write('\t'.join([str(x) for x in result]))
+        f.write('\n')
 
 
 if __name__ == "__main__":
@@ -332,9 +363,10 @@ if __name__ == "__main__":
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--backend", default='numpyro', type=str, help='either "numpyro", "pyro", or "stan"')
     parser.add_argument("--x64", action="store_true")
+    parser.add_argument("--disable-progbar", action="store_true")
     args = parser.parse_args()
 
-    jax.config.update("jax_enable_x64", args.x64)
+    numpyro.enable_x64(args.x64)
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
     tt = torch.cuda if args.device == "gpu" else torch

@@ -2,7 +2,7 @@
 set -xe
 
 device=cpu
-backend=numpyro  #stan
+backend=numpyro  #numpyro/stan
 N=200
 benchmark_dir=$( cd $(dirname "$0") ; pwd -P )
 
