@@ -302,7 +302,10 @@ def stan_inference(data, args):
                  "T": supervised_words.shape[0], "T_unsup": unsupervised_words.shape[0],
                  "alpha": transition_prior, "beta": emission_prior,
                  "w": supervised_words + 1, "z": supervised_categories + 1, "u": unsupervised_words + 1}
+
+    tic = time.time()
     sm = stan_model()
+    print('MCMC (stan) compiling time:', time.time() - tic, '\n')
 
     log_filename = 'hmm.txt'
     _set_logging(log_filename)
