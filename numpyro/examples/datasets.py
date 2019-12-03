@@ -28,7 +28,7 @@ BASEBALL = dset('baseball', [
 
 
 COVTYPE = dset('covtype', [
-    'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.data.gz',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip',
 ])
 
 
@@ -83,11 +83,11 @@ def _load_baseball():
 def _load_covtype():
     _download(COVTYPE)
 
-    file_path = os.path.join(DATA_DIR, 'covtype.data.gz')
-    data = np.genfromtxt(gzip.GzipFile(file_path), delimiter=',')
+    file_path = os.path.join(DATA_DIR, 'covtype.zip')
+    data = np.load(file_path)
 
     return {
-        'train': (data[:, :-1], data[:, -1].astype(np.int32))
+        'train': (data['data'], data['target'])
     }
 
 
