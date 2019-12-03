@@ -95,7 +95,7 @@ def kernel(target_log_prob_fn,
         if any(grad is None for grad in current_grads_target_log_prob):
           raise ValueError("Gradient is None for a state.")
 
-      seed_stream = tfp.util.SeedStream(seed, "nuts_kernel")
+      seed_stream = tfp.distributions.SeedStream(seed, "nuts_kernel")
       current_momentum = []
       for state_tensor in current_state:
         momentum_tensor = tf.random.normal(shape=tf.shape(state_tensor),
@@ -326,7 +326,7 @@ def _build_tree(target_log_prob_fn,
     ]
 
   # Build a tree at the current state.
-  seed_stream = tfp.util.SeedStream(seed, "build_tree")
+  seed_stream = tfp.distributions.SeedStream(seed, "build_tree")
   [
       reverse_state,
       reverse_target_log_prob,

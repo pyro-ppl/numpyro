@@ -21,6 +21,13 @@ import pyro.distributions as pdist
 # stan
 import pystan
 
+# edward
+import edward2 as ed
+import edward2_nuts
+from edward2_nuts import _NUM_LEAPFROGS as _ED_NUM_LEAPFROGS
+import tensorflow.compat.v2 as tf
+import tensorflow_probability as tfp
+
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.data')
 if not os.path.exists(DATA_DIR):
@@ -150,7 +157,6 @@ def _mcmc_gen_samples(kernel, warmup_steps, num_samples, hook, chain_id, *args, 
 
 def pyro_inference(data, args):
     pyro.set_rng_seed(args.seed)
-    print(data[0].shape, data[1].shape)
     pyro_data = [torch.Tensor(x) for i, x in enumerate(data)]
     kernel = pyro.infer.NUTS(pyro_model, step_size=0.0015, adapt_step_size=False,
                              jit_compile=True, ignore_jit_warnings=True)
@@ -244,6 +250,93 @@ def stan_inference(data, args):
 
 
 ########################################
+# Edward2
+########################################
+
+# Adapted from https://github.com/google/edward2/blob/master/examples/no_u_turn_sampler/
+# with the following copyright notice.
+#
+# coding=utf-8
+# Copyright 2019 The Edward2 Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+def edward_model(features):
+    """Bayesian logistic regression, which returns labels given features."""
+    coeffs = ed.MultivariateNormalDiag(
+        loc=tf.zeros(features.shape[1]), name="coeffs")
+    labels = ed.Bernoulli(
+        logits=tf.tensordot(features, coeffs, [[1], [0]]), name="labels")
+    return labels
+
+
+def edward_inference(data, args):
+    features = tf.cast(data[0], dtype=tf.float32)
+    labels = tf.cast(data[1], dtype=tf.int32)
+
+    tf.enable_v2_behavior()
+    print("GPU(s) available", tf.test.is_gpu_available())
+
+    log_joint = ed.make_log_joint_fn(edward_model)
+    @tf.function  # use graph mode
+    def target_log_prob_fn(coeffs):
+        return log_joint(features=features, coeffs=coeffs, labels=labels)
+
+    step_size = 0.0015
+    kernel = edward2_nuts.kernel
+    coeffs_samples = []
+    target_log_prob = None
+    grads_target_log_prob = None
+    seed_stream = tfp.distributions.SeedStream(args.seed, "main")
+    coeffs = tf.random.uniform(shape=features.shape[1:],
+                               minval=-2,
+                               maxval=2,
+                               dtype=features.dtype,
+                               seed=seed_stream())
+
+    tic = time.time()
+    for step in range(args.num_samples):
+        print("Step", step)
+        [coeffs], target_log_prob, grads_target_log_prob = kernel(
+            target_log_prob_fn=target_log_prob_fn,
+            current_state=[coeffs],
+            step_size=[step_size],
+            seed=seed_stream(),
+            current_target_log_prob=target_log_prob,
+            current_grads_target_log_prob=grads_target_log_prob)
+    coeffs_samples.append(coeffs)
+    toc = time.time()
+    print("num_leapfrogs:", _ED_NUM_LEAPFROGS)
+    print("time:", toc - tic)
+    print("time/leapfrog:", (toc - tic) / _ED_NUM_LEAPFROGS)
+
+    for i in range(len(coeffs_samples)):
+        coeffs_samples[i] = coeffs_samples[i].numpy()
+    coeffs_samples = onp.stack(coeffs_samples)[None, ...]
+
+    print('\nMCMC (edward) elapsed time:', toc - tic)
+    print('num leapfrogs', _ED_NUM_LEAPFROGS)
+    time_per_leapfrog = (toc - tic) / _ED_NUM_LEAPFROGS
+    print('time per leapfrog', time_per_leapfrog)
+    n_effs = numpyro.diagnostics.effective_sample_size(coeffs_samples)
+    n_eff_mean = sum(n_effs) / len(n_effs)
+    print('mean n_eff', n_eff_mean)
+    time_per_eff_sample = (toc - tic) / n_eff_mean
+    print('time per effective sample', time_per_eff_sample)
+    return _ED_NUM_LEAPFROGS, n_eff_mean, toc - tic, time_per_leapfrog, time_per_eff_sample
+
+
+########################################
 # Main
 ########################################
 
@@ -256,7 +349,7 @@ def main(args):
     elif args.backend == 'stan':
         result = stan_inference(data, args)
     elif args.backend == 'edward':
-        pass
+        result = edward_inference(data, args)
 
     out_filename = 'covtype_{}_{}_seed={}.txt'.format(args.backend,
                                                       args.device,
