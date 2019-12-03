@@ -182,12 +182,12 @@ def numpyro_inference(hypers, data, args):
     rng_key = random.PRNGKey(args.seed)
     bound_model = jax.partial(model, hypers=hypers)
     kernel = NUTS(bound_model)
-    mcmc = MCMC(kernel, args.num_warmup, num_chains=args.num_chains, progress_bar=not args.disable_progbar)
-    mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
-    mcmc.num_samples = args.num_samples
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples,
+                num_chains=args.num_chains, progress_bar=not args.disable_progbar)
+    mcmc.warmup(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
     mcmc._warmup_state.i.copy()  # make sure no jax async affects tic
     tic = time.time()
-    mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',), reuse_warmup_state=True)
+    mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
     toc = time.time()
     mcmc.print_summary()
     print('\nMCMC (numpyro) elapsed time:', toc - tic)
