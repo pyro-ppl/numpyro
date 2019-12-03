@@ -13,7 +13,6 @@ from jax import random, device_get
 import numpyro
 import numpyro.distributions as dist
 from numpyro.diagnostics import effective_sample_size
-from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import NUTS, MCMC
 
 
@@ -51,9 +50,9 @@ def model(X, Y, hypers):
     alpha_1, beta_1 = hypers['alpha_1'], hypers['beta_1']
     alpha_2, beta_2 = hypers['alpha_2'], hypers['beta_2']
     sigma = numpyro.sample("sigma", dist.HalfNormal(hypers['sigma_scale']))
-    phi = sigma * (m0 / np.sqrt(N)) / (M - m0)
-    eta1 = numpyro.sample("eta1", dist.TransformedDistribution(dist.HalfCauchy(1.),
-                                                               AffineTransform(loc=0., scale=phi)))
+    phi = (m0 / (M - m0)) * (sigma / np.sqrt(N))
+    eta1_base = numpyro.sample("eta1_base", dist.HalfCauchy(1.))
+    eta1 = phi * eta1_base
     msq = numpyro.sample("m_sq", dist.InverseGamma(alpha_1, beta_1))
     psi_sq = numpyro.sample("psi_sq", dist.InverseGamma(alpha_2, beta_2))
 
@@ -131,12 +130,13 @@ def stan_model(hypers):
           // diagonal elements
           for (n in 1:N)
             K[n, n] += var_obs;
+          L_K = cholesky_decompose(K);
           lambda ~ cauchy(0, 1);
           eta_1_base ~ cauchy(0, 1);
           m_sq ~ inv_gamma(alpha_1, beta_1);
           sigma ~ normal(0, sigma_scale);
           psi_sq ~ inv_gamma(alpha_2, beta_2);
-          Y ~ multi_normal(mu, K);
+          Y ~ multi_normal_cholesky(mu, L_K);
         }}
     """.format(expected_sparsity=hypers['expected_sparsity'],
                c=hypers['c'],
@@ -162,8 +162,8 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
     W = 0.5 + 2.5 * onp.random.rand(S)
     # generate data using the S coefficients and a single pairwise interaction
     Y = onp.sum(X[:, 0:S] * W, axis=-1) + X[:, 0] * X[:, 1] + sigma_obs * onp.random.randn(N)
-    Y -= np.mean(Y)
-    Y_std = np.std(Y)
+    Y -= onp.mean(Y)
+    Y_std = onp.std(Y)
 
     assert X.shape == (N, P)
     assert Y.shape == (N,)
@@ -184,22 +184,28 @@ def numpyro_inference(hypers, data, args):
     kernel = NUTS(bound_model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples,
                 num_chains=args.num_chains, progress_bar=not args.disable_progbar)
-    mcmc.warmup(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
-    mcmc._warmup_state.i.copy()  # make sure no jax async affects tic
     tic = time.time()
+    mcmc._compile(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
+    print('MCMC (numpyro) compiling time:', time.time() - tic, '\n')
+    tic = time.time()
+    mcmc.warmup(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
+    rng_key = mcmc._warmup_state.rng_key.copy()
+    tic_run = time.time()
     mcmc.run(rng_key, data['X'], data['Y'], extra_fields=('num_steps',))
+    mcmc._last_state.rng_key.copy()
     toc = time.time()
     mcmc.print_summary()
     print('\nMCMC (numpyro) elapsed time:', toc - tic)
+    sampling_time = toc - tic_run
     num_leapfrogs = np.sum(mcmc.get_extra_fields()['num_steps'])
     print('num leapfrogs', num_leapfrogs)
-    time_per_leapfrog = (toc - tic) / num_leapfrogs
+    time_per_leapfrog = sampling_time / num_leapfrogs
     print('time per leapfrog', time_per_leapfrog)
     n_effs = [effective_sample_size(device_get(v)) for k, v in mcmc.get_samples(group_by_chain=True).items()]
     n_effs = onp.concatenate([onp.array([x]) if np.ndim(x) == 0 else x for x in n_effs])
     n_eff_mean = sum(n_effs) / len(n_effs)
     print('mean n_eff', n_eff_mean)
-    time_per_eff_sample = (toc - tic) / n_eff_mean
+    time_per_eff_sample = sampling_time / n_eff_mean
     print('time per effective sample', time_per_eff_sample)
     out_filename = '{}_{}_N={}_P={}_seed={}.txt'.format(args.backend,
                                                         args.device,
@@ -228,7 +234,9 @@ def _get_pystan_sampling_time(filename):
 def stan_inference(hypers, data, args):
     log_filename = 'P={}.txt'.format(args.num_dimensions)
     set_logging(log_filename)
+    tic = time.time()
     sm = stan_model(hypers)
+    print('MCMC (stan) compiling time:', time.time() - tic, '\n')
     tic = time.time()
     fit = sm.sampling(data=data, iter=args.num_samples + args.num_warmup, warmup=args.num_warmup,
                       chains=args.num_chains, seed=args.seed)
@@ -265,9 +273,9 @@ def main(args):
     hypers = {
         'expected_sparsity': max(1.0, args.num_dimensions / 10),
         'alpha_1': 3.0,
-        'beta_1': 1.0,
+        'beta_1': 12.0,
         'alpha_2': 3.0,
-        'beta_2': 1.0,
+        'beta_2': 3.0,
         'c': 1.,
         'sigma_scale': 1.,
         'alpha_obs': 3.,
