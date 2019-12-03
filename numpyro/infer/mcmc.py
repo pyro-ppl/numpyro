@@ -796,7 +796,7 @@ class MCMC(object):
         self._collection_params["collection_size"] = collection_size
 
     def _compile(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
-        self._set_fori_collect_infos(0, 0, self.num_samples)
+        self._set_collection_params(0, 0, self.num_samples)
         self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
         rng_key = (_hashable(rng_key),)
         args = tree_map(lambda x: _hashable(x), args)
@@ -827,11 +827,11 @@ class MCMC(object):
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
-        self._warmup_state = False
+        self._warmup_state = None
         if collect_warmup:
-            self._set_fori_collect_infos(0, self.num_warmup, self.num_warmup)
+            self._set_collection_params(0, self.num_warmup, self.num_warmup)
         else:
-            self._set_fori_collect_infos(self.num_warmup, self.num_warmup, self.num_samples)
+            self._set_collection_params(self.num_warmup, self.num_warmup, self.num_samples)
         self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
         self._warmup_state = self._last_state
 
@@ -859,7 +859,7 @@ class MCMC(object):
             rng_key = random.split(rng_key, self.num_chains)
 
         if self._warmup_state is not None:
-            self._set_fori_collect_infos(0, self.num_samples, self.num_samples)
+            self._set_collection_params(0, self.num_samples, self.num_samples)
             init_state = self._warmup_state._replace(rng_key=rng_key)
 
         chain_method = self.chain_method
@@ -914,7 +914,7 @@ class MCMC(object):
         self._last_state = last_state
         self._states = states
         self._states_flat = states_flat
-        self._set_fori_collect_infos()
+        self._set_collection_params()
 
     def get_samples(self, group_by_chain=False):
         """
