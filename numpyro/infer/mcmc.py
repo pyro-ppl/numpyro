@@ -611,15 +611,16 @@ class NUTS(HMC):
         self._algo = 'NUTS'
 
 
+def _get_value_from_index(xs, i):
+    return tree_map(lambda x: x[i], xs)
+
+
 def _laxmap(f, xs):
     n = tree_flatten(xs)[0][0].shape[0]
 
-    def get_value_from_index(i):
-        return tree_map(lambda x: x[i], xs)
-
     ys = []
     for i in range(n):
-        x = jit(get_value_from_index)(i)
+        x = jit(_get_value_from_index)(xs, i)
         ys.append(f(x))
 
     return tree_multimap(lambda *args: np.stack(args), *ys)
@@ -641,6 +642,18 @@ def _collect_fn(collect_fields):
         return attrgetter(*collect_fields)(x[0])
 
     return collect
+
+
+# XXX: Is there a better hash key that we can use?
+def _hashable(x):
+    # When the arguments are JITed, ShapedArray is hashable.
+    if isinstance(x, Tracer):
+        return x
+    elif isinstance(x, DeviceArray):
+        return x.copy().tobytes()
+    elif isinstance(x, np.ndarray):
+        return x.tobytes()
+    return x
 
 
 class MCMC(object):
@@ -676,7 +689,7 @@ class MCMC(object):
     def __init__(self,
                  sampler,
                  num_warmup,
-                 num_samples=0,
+                 num_samples,
                  num_chains=1,
                  constrain_fn=None,
                  chain_method='parallel',
@@ -696,24 +709,20 @@ class MCMC(object):
         self._jit_model_args = jit_model_args
         self._states = None
         self._states_flat = None
+        # HMCState returned by last run
+        self._last_state = None
         # HMCState returned by last warmup
         self._warmup_state = None
+        # HMCState returned by hmc.init_kernel
+        self._init_state_cache = {}
         self._cache = {}
+        self._collection_params = {}
+        self._set_collection_params()
 
     def _get_cached_fn(self):
         if self._jit_model_args:
             args, kwargs = (None,), (None,)
         else:
-            # XXX: Is there a better hash key that we can use?
-            def _hashable(x):
-                # When the arguments are JITed, ShapedArray is hashable.
-                if isinstance(x, Tracer):
-                    return x
-                elif isinstance(x, DeviceArray):
-                    return x.copy().tobytes()
-                elif isinstance(x, np.ndarray):
-                    return x.tobytes()
-                return x
             args = tree_map(lambda x: _hashable(x), self._args)
             kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(self._kwargs.items())))
         key = args + kwargs
@@ -733,33 +742,39 @@ class MCMC(object):
                 self._cache[key] = fn
         return fn
 
-    def _single_chain_mcmc(self, rng_key, init_params, args, kwargs,
-                           collect_fields=('z',), collect_warmup=False, reuse_warmup_state=False):
+    def _get_cached_init_state(self, rng_key, args, kwargs):
+        rng_key = (_hashable(rng_key),)
+        args = tree_map(lambda x: _hashable(x), args)
+        kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
+        key = rng_key + args + kwargs
+        try:
+            return self._init_state_cache.get(key, None)
+        # If unhashable arguments are provided, return None
+        except TypeError:
+            return None
+
+    def _single_chain_mcmc(self, rng_key, init_state, init_params, args, kwargs, collect_fields=('z',)):
         num_warmup = self.num_warmup
-        if reuse_warmup_state:
-            if self._warmup_state is None:
-                raise ValueError('No `init_state` found; warmup results cannot be reused.')
-            num_warmup = 0
-            init_state = self._warmup_state._replace(rng_key=rng_key)
-        else:
+        if init_state is None:
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
         if self.constrain_fn is None:
             self.constrain_fn = self.sampler.constrain_fn(args, kwargs)
-        lower = 0 if collect_warmup else num_warmup
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
-        collect_vals = fori_collect(lower, num_warmup + self.num_samples,
+        collect_vals = fori_collect(self._collection_params["lower"],
+                                    self._collection_params["upper"],
                                     self._get_cached_fn(),
                                     init_val,
-                                    transform=_collect_fn(collect_fields),  # noqa: E731
+                                    transform=_collect_fn(collect_fields),
                                     progbar=self.progress_bar,
-                                    return_init_state=True,
+                                    return_last_val=True,
+                                    collection_size=self._collection_params["collection_size"],
                                     progbar_desc=functools.partial(get_progbar_desc_str, num_warmup),
                                     diagnostics_fn=diagnostics)
-        states, warmup_state = collect_vals
+        states, last_val = collect_vals
         # Get first argument of type `HMCState`
-        self._warmup_state = warmup_state[0]
+        last_state = last_val[0]
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
@@ -767,23 +782,37 @@ class MCMC(object):
         site_values = tree_flatten(states['z'])[0]
         if len(site_values) > 0 and site_values[0].size > 0:
             states['z'] = lax.map(self.constrain_fn, states['z'])
-        return states
+        return states, last_state
 
-    def _single_chain_jit_args(self, init, collect_fields=('z',), collect_warmup=False, reuse_warmup_state=False):
-        return self._single_chain_mcmc(*init, collect_fields=collect_fields,
-                                       collect_warmup=collect_warmup, reuse_warmup_state=reuse_warmup_state)
+    def _single_chain_jit_args(self, init, collect_fields=('z',)):
+        return self._single_chain_mcmc(*init, collect_fields=collect_fields)
 
-    def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields=('z',),
-                                 collect_warmup=False, reuse_warmup_state=False):
-        return self._single_chain_mcmc(*init, model_args, model_kwargs,
-                                       collect_fields=collect_fields,
-                                       collect_warmup=collect_warmup,
-                                       reuse_warmup_state=reuse_warmup_state)
+    def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields=('z',)):
+        return self._single_chain_mcmc(*init, model_args, model_kwargs, collect_fields=collect_fields)
 
-    def run(self, rng_key, *args, extra_fields=(), collect_warmup=False,
-            init_params=None, reuse_warmup_state=False, **kwargs):
+    def _set_collection_params(self, lower=None, upper=None, collection_size=None):
+        self._collection_params["lower"] = self.num_warmup if lower is None else lower
+        self._collection_params["upper"] = self.num_warmup + self.num_samples if upper is None else upper
+        self._collection_params["collection_size"] = collection_size
+
+    def _compile(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
+        self._set_collection_params(0, 0, self.num_samples)
+        self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
+        rng_key = (_hashable(rng_key),)
+        args = tree_map(lambda x: _hashable(x), args)
+        kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(kwargs.items())))
+        key = rng_key + args + kwargs
+        try:
+            self._init_state_cache[key] = self._last_state
+        # If unhashable arguments are provided, return None
+        except TypeError:
+            pass
+
+    def warmup(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
-        Run the MCMC samplers and collect samples.
+        Run the MCMC warmup adaptation phase. After this call, the :meth:`run` method
+        will skip the warmup adaptation phase. To run `warmup` again for the new data,
+        it is required to run :meth:`warmup` again.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
@@ -795,13 +824,44 @@ class MCMC(object):
             to `False`.
         :param init_params: Initial parameters to begin sampling. The type must be consistent
             with the input type to `potential_fn`.
-        :param bool reuse_warmup_state: If `True`, sampling would make use of the last state and
-            adaptation parameters from the previous warmup run.
+        :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
+            method. These are typically the keyword arguments needed by the `model`.
+        """
+        self._warmup_state = None
+        if collect_warmup:
+            self._set_collection_params(0, self.num_warmup, self.num_warmup)
+        else:
+            self._set_collection_params(self.num_warmup, self.num_warmup, self.num_samples)
+        self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
+        self._warmup_state = self._last_state
+
+    def run(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
+        """
+        Run the MCMC samplers and collect samples.
+
+        :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
+            For multi-chains, a batch of `num_chains` keys can be supplied. If `rng_key`
+            does not have batch_size, it will be split in to a batch of `num_chains` keys.
+        :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
+            These are typically the arguments needed by the `model`.
+        :param extra_fields: Extra fields (aside from `z`, `diverging`) from :data:`numpyro.infer.mcmc.HMCState`
+            to collect during the MCMC run.
+        :type extra_fields: tuple or list
+        :param init_params: Initial parameters to begin sampling. The type must be consistent
+            with the input type to `potential_fn`.
         :param kwargs: Keyword arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init`
             method. These are typically the keyword arguments needed by the `model`.
         """
         self._args = args
         self._kwargs = kwargs
+        init_state = self._get_cached_init_state(rng_key, args, kwargs)
+        if self.num_chains > 1 and rng_key.ndim == 1:
+            rng_key = random.split(rng_key, self.num_chains)
+
+        if self._warmup_state is not None:
+            self._set_collection_params(0, self.num_samples, self.num_samples)
+            init_state = self._warmup_state._replace(rng_key=rng_key)
+
         chain_method = self.chain_method
         if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
             chain_method = 'sequential'
@@ -819,23 +879,18 @@ class MCMC(object):
         assert isinstance(extra_fields, (tuple, list))
         collect_fields = tuple(set(('z', 'diverging') + tuple(extra_fields)))
         if self.num_chains == 1:
-            states_flat = self._single_chain_mcmc(rng_key, init_params, args, kwargs, collect_fields,
-                                                  collect_warmup, reuse_warmup_state)
+            states_flat, last_state = self._single_chain_mcmc(rng_key, init_state, init_params,
+                                                              args, kwargs, collect_fields)
             states = tree_map(lambda x: x[np.newaxis, ...], states_flat)
         else:
-            rng_keys = random.split(rng_key, self.num_chains)
             if self._jit_model_args:
                 partial_map_fn = partial(self._single_chain_jit_args,
-                                         collect_fields=collect_fields,
-                                         collect_warmup=collect_warmup,
-                                         reuse_warmup_state=reuse_warmup_state)
+                                         collect_fields=collect_fields)
             else:
                 partial_map_fn = partial(self._single_chain_nojit_args,
                                          model_args=args,
                                          model_kwargs=kwargs,
-                                         collect_fields=collect_fields,
-                                         collect_warmup=collect_warmup,
-                                         reuse_warmup_state=reuse_warmup_state)
+                                         collect_fields=collect_fields)
             if chain_method == 'sequential':
                 if self.progress_bar:
                     map_fn = partial(_laxmap, partial_map_fn)
@@ -849,15 +904,17 @@ class MCMC(object):
                 raise ValueError('Only supporting the following methods to draw chains:'
                                  ' "sequential", "parallel", or "vectorized"')
             if self._jit_model_args:
-                states = map_fn((rng_keys, init_params, args, kwargs))
+                states, last_state = map_fn((rng_key, init_state, init_params, args, kwargs))
             else:
-                states = map_fn((rng_keys, init_params))
+                states, last_state = map_fn((rng_key, init_state, init_params))
             if chain_method == 'vectorized':
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: np.swapaxes(x, 0, 1), states)
             states_flat = tree_map(lambda x: np.reshape(x, (-1,) + x.shape[2:]), states)
+        self._last_state = last_state
         self._states = states
         self._states_flat = states_flat
+        self._set_collection_params()
 
     def get_samples(self, group_by_chain=False):
         """

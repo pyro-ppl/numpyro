@@ -8,7 +8,7 @@ import numpy as onp
 import tqdm
 
 import jax
-from jax import jit, lax, ops, vmap
+from jax import device_put, jit, lax, ops, vmap
 from jax.interpreters.batching import BatchTracer
 from jax.interpreters.partial_eval import JaxprTracer
 from jax.dtypes import canonicalize_dtype
@@ -156,7 +156,7 @@ def cached_by(outer_fn, *keys):
 
 
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
-                 progbar=True, return_init_state=False, **progbar_opts):
+                 progbar=True, return_last_val=False, collection_size=None, **progbar_opts):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
@@ -174,9 +174,11 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         be any Python collection type containing `np.ndarray` objects.
     :param transform: a callable to post-process the values returned by `body_fn`.
     :param progbar: whether to post progress bar updates.
-    :param bool return_init_state: If `True`, the state at iteration `lower-1`,
-        where the collection begins, is also returned. This has the same type
-        as `init_val`.
+    :param bool return_last_val: If `True`, the last value is also returned.
+        This has the same type as `init_val`.
+    :param int collection_size: Size of the returned collection. If not specified,
+        the size will be ``upper - lower``. If the size is larger than
+        ``upper - lower``, only the top ``upper - lower`` entries will be non-zero.
     :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
         from `body_fun` returns a string that is used to update the progress
@@ -186,46 +188,41 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         collected along the leading axis of `np.ndarray` objects.
     """
     assert lower <= upper
+    collection_size = upper - lower if collection_size is None else collection_size
+    assert collection_size >= upper - lower
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
-    ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
+    @cached_by(fori_collect, body_fun, transform)
+    def _body_fn(i, vals):
+        val, collection, lower_idx = vals
+        val = body_fun(val)
+        i = np.where(i >= lower_idx, i - lower_idx, 0)
+        collection = ops.index_update(collection, i, ravel_pytree(transform(val))[0])
+        return val, collection, lower_idx
+
+    collection = np.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
-        collection = np.zeros((upper - lower,) + init_val_flat.shape)
-
-        @cached_by(fori_collect, body_fun, transform)
-        def _body_fn(i, vals):
-            val, collection, start_state, lower_idx = vals
-            val = body_fun(val)
-            start_state = lax.cond(i < lower_idx,
-                                   val, lambda x: x,
-                                   start_state, lambda x: x)
-            i = np.where(i >= lower_idx, i - lower_idx, 0)
-            collection = ops.index_update(collection, i, ravel_pytree(transform(val))[0])
-            return val, collection, start_state, lower_idx
-
-        _, collection, start_state, _ = fori_loop(0, upper, _body_fn, (init_val, collection, init_val, lower))
+        last_val, collection, _ = fori_loop(0, upper, _body_fn, (init_val, collection, lower))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
-        collection = []
 
-        val, start_state = init_val, init_val
-        with tqdm.trange(upper) as t:
-            for i in t:
-                val = jit(body_fun)(val)
-                if i == lower - 1:
-                    start_state = val
-                elif i >= lower:
-                    collection.append(jit(ravel_fn)(val))
-                t.set_description(progbar_desc(i), refresh=False)
-                if diagnostics_fn:
-                    t.set_postfix_str(diagnostics_fn(val), refresh=False)
+        vals = (init_val, collection, device_put(lower))
+        if upper == 0:
+            # special case, only compiling
+            jit(_body_fn)(0, vals)
+        else:
+            with tqdm.trange(upper) as t:
+                for i in t:
+                    vals = jit(_body_fn)(i, vals)
+                    t.set_description(progbar_desc(i), refresh=False)
+                    if diagnostics_fn:
+                        t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
-        collection = np.stack(collection) if len(collection) > 0 else \
-            np.zeros((upper - lower,) + init_val_flat.shape)
+        last_val, collection, _ = vals
 
     unravel_collection = vmap(unravel_fn)(collection)
-    return (unravel_collection, start_state) if return_init_state else unravel_collection
+    return (unravel_collection, last_val) if return_last_val else unravel_collection
 
 
 def copy_docs_from(source_class, full_text=False):
