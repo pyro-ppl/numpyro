@@ -495,10 +495,11 @@ class HMC(MCMCKernel):
                              ' `potential_fn`.')
         # Find valid initial params
         if self._model and not init_params:
-            init_params, is_valid = find_valid_initial_params(rng_key, self._model, *model_args,
+            init_params, is_valid = find_valid_initial_params(rng_key, self._model,
                                                               init_strategy=self._init_strategy,
                                                               param_as_improper=True,
-                                                              **model_kwargs)
+                                                              model_args=model_args,
+                                                              model_kwargs=model_kwargs)
             if not_jax_tracer(is_valid):
                 if device_get(~np.all(is_valid)):
                     raise RuntimeError("Cannot find valid initial parameters. "
