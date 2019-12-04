@@ -458,10 +458,11 @@ def initialize_model(rng_key, model,
                                                     model_args=model_args,
                                                     model_kwargs=model_kwargs)
 
-    init_params, is_valid = find_valid_initial_params(rng_key, model, *model_args,
+    init_params, is_valid = find_valid_initial_params(rng_key, model,
                                                       init_strategy=init_strategy,
                                                       param_as_improper=True,
-                                                      **model_kwargs)
+                                                      model_args=model_args,
+                                                      model_kwargs=model_kwargs)
 
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
