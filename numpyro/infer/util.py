@@ -32,11 +32,12 @@ __all__ = [
 
 def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
     """
-    Computes log of joint density for the model given latent values ``params``.
+    (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
+    latent values ``params``.
 
     :param model: Python callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
-    :param dict model_kwargs`: kwargs provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of current parameter values keyed by site
         name.
     :param bool skip_dist_transforms: whether to compute log probability of a site
@@ -76,8 +77,9 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
 
 def transform_fn(transforms, params, invert=False):
     """
-    Callable that applies a transformation from the `transforms` dict to values in the
-    `params` dict and returns the transformed values keyed on the same names.
+    (EXPERIMENTAL INTERFACE) Callable that applies a transformation from the `transforms`
+    dict to values in the `params` dict and returns the transformed values keyed on
+    the same names.
 
     :param transforms: Dictionary of transforms keyed by names. Names in
         `transforms` and `params` should align.
@@ -93,17 +95,18 @@ def transform_fn(transforms, params, invert=False):
 
 def constrain_fn(model, transforms, model_args, model_kwargs, params):
     """
-    Gets value at each latent site in `model` given unconstrained parameters `params`.
-    The `transforms` is used to transform these unconstrained parameters to base values
-    of the corresponding priors in `model`. If a prior is a transformed distribution,
-    the corresponding base value lies in the support of base distribution. Otherwise,
-    the base value lies in the support of the distribution.
+    (EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given
+    unconstrained parameters `params`. The `transforms` is used to transform these
+    unconstrained parameters to base values of the corresponding priors in `model`.
+    If a prior is a transformed distribution, the corresponding base value lies in
+    the support of base distribution. Otherwise, the base value lies in the support
+    of the distribution.
 
     :param model: a callable containing NumPyro primitives.
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs: kwargs provided to the model.
     :param dict transforms: dictionary of transforms keyed by names. Names in
         `transforms` and `params` should align.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of unconstrained values keyed by site
         names.
     :return: `dict` of transformed params.
@@ -116,16 +119,16 @@ def constrain_fn(model, transforms, model_args, model_kwargs, params):
 
 def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
     """
-    Computes potential energy of a model given unconstrained params.
+    (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
     The `inv_transforms` is used to transform these unconstrained parameters to base values
     of the corresponding priors in `model`. If a prior is a transformed distribution,
     the corresponding base value lies in the support of base distribution. Otherwise,
     the base value lies in the support of the distribution.
 
     :param model: a callable containing NumPyro primitives.
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs`: kwargs provided to the model.
     :param dict inv_transforms: dictionary of transforms keyed by names.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :param dict params: unconstrained parameters of `model`.
     :return: potential energy given unconstrained parameters.
     """
@@ -416,8 +419,11 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
     return potential_fn, constrain_fun
 
 
-def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(),
-                     dynamic_args=False, **model_kwargs):
+def initialize_model(rng_key, model,
+                     init_strategy=init_to_uniform(),
+                     dynamic_args=False,
+                     model_args=(),
+                     model_kwargs=None):
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
     and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
@@ -427,20 +433,22 @@ def initialize_model(rng_key, model, *model_args, init_strategy=init_to_uniform(
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     :param bool dynamic_args: if `True`, the `potential_fn` and
         `constraints_fn` are themselves dependent on model arguments.
         When provided a `*model_args, **model_kwargs`, they return
         `potential_fn` and `constraints_fn` callables, respectively.
-    :param `**model_kwargs`: kwargs provided to the model.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
         `init_params` are values from the prior used to initiate MCMC,
         `constrain_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
+    if model_kwargs is None:
+        model_kwargs = {}
     potential_fun, constrain_fun = get_potential_fn(rng_key if rng_key.ndim == 1 else rng_key[0],
                                                     model,
                                                     dynamic_args=dynamic_args,
@@ -559,11 +567,8 @@ class Predictive(object):
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):
     """
-    Returns log likelihood at observation nodes of model, given samples of all latent variables.
-
-    .. warning::
-        The interface for the `log_likelihood` function is experimental, and
-        might change in the future.
+    (EXPERIMENTAL INTERFACE) Returns log likelihood at observation nodes of model,
+    given samples of all latent variables.
 
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.

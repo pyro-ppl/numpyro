@@ -151,7 +151,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
         >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0),
-        ...                                                            model, data, labels)
+        ...                                                            model, model_args=(data, labels,))
         >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(init_params,
         ...                         trajectory_length=10,
