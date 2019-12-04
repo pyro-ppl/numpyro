@@ -774,7 +774,7 @@ class MCMC(object):
                                     return_last_val=True,
                                     collection_size=self._collection_params["collection_size"],
                                     progbar_desc=functools.partial(get_progbar_desc_str,
-                                                                   num_warmup=lower_idx),
+                                                                   lower_idx),
                                     diagnostics_fn=diagnostics)
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
