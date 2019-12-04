@@ -271,8 +271,11 @@ def init_to_value(values):
     return partial(_init_to_value, values=values)
 
 
-def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to_uniform(),
-                              param_as_improper=False, **model_kwargs):
+def find_valid_initial_params(rng_key, model,
+                              init_strategy=init_to_uniform(),
+                              param_as_improper=False,
+                              model_args=(),
+                              model_kwargs=None):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
     valid unconstrained value for all the parameters. This function also returns an
@@ -284,11 +287,11 @@ def find_valid_initial_params(rng_key, model, *model_args, init_strategy=init_to
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
     :param bool param_as_improper: a flag to decide whether to consider sites with
         `param` statement as sites with improper priors.
-    :param `**model_kwargs`: kwargs provided to the model.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :return: tuple of (`init_params`, `is_valid`).
     """
     init_strategy = jax.partial(init_strategy, skip_param=not param_as_improper)
