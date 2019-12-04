@@ -136,9 +136,10 @@ class AutoContinuous(AutoGuide):
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
         rng_key = numpyro.sample("_{}_rng_key_init".format(self.prefix), dist.PRNGIdentity())
-        init_params, _ = handlers.block(find_valid_initial_params)(rng_key, self.model, *args,
+        init_params, _ = handlers.block(find_valid_initial_params)(rng_key, self.model,
                                                                    init_strategy=self.init_strategy,
-                                                                   **kwargs)
+                                                                   model_args=args,
+                                                                   model_kwargs=kwargs)
         self._inv_transforms = {}
         self._has_transformed_dist = False
         unconstrained_sites = {}

@@ -151,7 +151,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
         >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0),
-        ...                                                            model, data, labels)
+        ...                                                            model, model_args=(data, labels,))
         >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(init_params,
         ...                         trajectory_length=10,
@@ -495,10 +495,11 @@ class HMC(MCMCKernel):
                              ' `potential_fn`.')
         # Find valid initial params
         if self._model and not init_params:
-            init_params, is_valid = find_valid_initial_params(rng_key, self._model, *model_args,
+            init_params, is_valid = find_valid_initial_params(rng_key, self._model,
                                                               init_strategy=self._init_strategy,
                                                               param_as_improper=True,
-                                                              **model_kwargs)
+                                                              model_args=model_args,
+                                                              model_kwargs=model_kwargs)
             if not_jax_tracer(is_valid):
                 if device_get(~np.all(is_valid)):
                     raise RuntimeError("Cannot find valid initial parameters. "
