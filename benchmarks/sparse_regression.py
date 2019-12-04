@@ -266,11 +266,12 @@ def main(args):
     else:
         result = stan_inference(hypers, data, args)
 
-    out_filename = 'sparsereg_{}_{}_N={}_P={}_seed={}.txt'.format(args.backend,
-                                                                  args.device,
-                                                                  args.num_data,
-                                                                  args.num_dimensions,
-                                                                  args.seed)
+    out_filename = 'sparsereg_{}{}_{}_N={}_P={}_seed={}.txt'.format(args.backend,
+                                                                    "(x64)" if args.x64 else "",
+                                                                    args.device,
+                                                                    args.num_data,
+                                                                    args.num_dimensions,
+                                                                    args.seed)
     with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
         f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
         f.write('\n')
@@ -281,8 +282,8 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.1')
     parser = argparse.ArgumentParser(description="Sparse regression example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=500, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--num-data", nargs='?', default=100, type=int)
     parser.add_argument("--num-dimensions", nargs='?', default=50, type=int)

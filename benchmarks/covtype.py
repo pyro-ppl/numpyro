@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import time
+import warnings; warnings.simplefilter("ignore", FutureWarning)  # noqa: E702
 
 import numpy as onp
 
@@ -27,7 +28,6 @@ import edward2_nuts
 from edward2_nuts import _NUM_LEAPFROGS as _ED_NUM_LEAPFROGS
 import tensorflow.compat.v2 as tf
 import tensorflow_probability as tfp
-
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.data')
 if not os.path.exists(DATA_DIR):
@@ -101,8 +101,8 @@ def numpyro_inference(data, args):
 ########################################
 
 def pyro_model(features, labels):
-    with pyro.plate("dim", features.shape[1]):
-        coefs = pyro.sample('coefs', pdist.Normal(0, 1))
+    D = features.shape[1]
+    coefs = pyro.sample('coefs', pdist.Normal(torch.zeros(D), torch.ones(D)))
     logits = torch.matmul(features, coefs.unsqueeze(-1)).squeeze(-1)
     return pyro.sample('obs', pdist.Bernoulli(logits=logits), obs=labels)
 
@@ -158,8 +158,9 @@ def _mcmc_gen_samples(kernel, warmup_steps, num_samples, hook, chain_id, *args, 
 def pyro_inference(data, args):
     pyro.set_rng_seed(args.seed)
     pyro_data = [torch.Tensor(x) for i, x in enumerate(data)]
+    # FIXME: can't use jit_compile here
     kernel = pyro.infer.NUTS(pyro_model, step_size=0.0015, adapt_step_size=False,
-                             jit_compile=True, ignore_jit_warnings=True)
+                             jit_compile=False, ignore_jit_warnings=True)
     mcmc = pyro.infer.MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup,
                            num_chains=args.num_chains)
     tic = time.time()
@@ -281,14 +282,15 @@ def edward_model(features):
 
 
 def edward_inference(data, args):
+    tf.enable_v2_behavior()
     features = tf.cast(data[0], dtype=tf.float32)
     labels = tf.cast(data[1], dtype=tf.int32)
 
-    tf.enable_v2_behavior()
     print("GPU(s) available", tf.test.is_gpu_available())
 
     log_joint = ed.make_log_joint_fn(edward_model)
-    @tf.function  # use graph mode
+
+    # @tf.function  # use graph mode
     def target_log_prob_fn(coeffs):
         return log_joint(features=features, coeffs=coeffs, labels=labels)
 
@@ -314,26 +316,23 @@ def edward_inference(data, args):
             seed=seed_stream(),
             current_target_log_prob=target_log_prob,
             current_grads_target_log_prob=grads_target_log_prob)
-    coeffs_samples.append(coeffs)
+        coeffs_samples.append(coeffs)
     toc = time.time()
-    print("num_leapfrogs:", _ED_NUM_LEAPFROGS)
-    print("time:", toc - tic)
-    print("time/leapfrog:", (toc - tic) / _ED_NUM_LEAPFROGS)
 
     for i in range(len(coeffs_samples)):
         coeffs_samples[i] = coeffs_samples[i].numpy()
     coeffs_samples = onp.stack(coeffs_samples)[None, ...]
 
     print('\nMCMC (edward) elapsed time:', toc - tic)
-    print('num leapfrogs', _ED_NUM_LEAPFROGS)
-    time_per_leapfrog = (toc - tic) / _ED_NUM_LEAPFROGS
+    print('num leapfrogs', _ED_NUM_LEAPFROGS["value"])
+    time_per_leapfrog = (toc - tic) / _ED_NUM_LEAPFROGS["value"]
     print('time per leapfrog', time_per_leapfrog)
     n_effs = numpyro.diagnostics.effective_sample_size(coeffs_samples)
     n_eff_mean = sum(n_effs) / len(n_effs)
     print('mean n_eff', n_eff_mean)
     time_per_eff_sample = (toc - tic) / n_eff_mean
     print('time per effective sample', time_per_eff_sample)
-    return _ED_NUM_LEAPFROGS, n_eff_mean, toc - tic, time_per_leapfrog, time_per_eff_sample
+    return _ED_NUM_LEAPFROGS["value"], n_eff_mean, toc - tic, time_per_leapfrog, time_per_eff_sample
 
 
 ########################################
@@ -351,9 +350,10 @@ def main(args):
     elif args.backend == 'edward':
         result = edward_inference(data, args)
 
-    out_filename = 'covtype_{}_{}_seed={}.txt'.format(args.backend,
-                                                      args.device,
-                                                      args.seed)
+    out_filename = 'covtype_{}{}_{}_seed={}.txt'.format(args.backend,
+                                                        "(x64)" if args.x64 else "",
+                                                        args.device,
+                                                        args.seed)
     with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
         f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
         f.write('\n')
@@ -364,7 +364,7 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.1')
     parser = argparse.ArgumentParser(description="HMM example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=30, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=40, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--seed", nargs='?', default=2019, type=int)
@@ -374,9 +374,13 @@ if __name__ == "__main__":
     parser.add_argument("--disable-progbar", action="store_true")
     args = parser.parse_args()
 
-    numpyro.enable_x64(args.x64)
-    numpyro.set_platform(args.device)
-    numpyro.set_host_device_count(args.num_chains)
+    if args.device == "cpu":
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
+    if args.backend == "numpyro":
+        numpyro.enable_x64(args.x64)
+        numpyro.set_platform(args.device)
+        numpyro.set_host_device_count(args.num_chains)
     tt = torch.cuda if args.device == "gpu" else torch
     torch.set_default_tensor_type(tt.DoubleTensor if args.x64 else tt.FloatTensor)
 

@@ -204,7 +204,7 @@ def _mcmc_gen_samples(kernel, warmup_steps, num_samples, hook, chain_id, *args, 
 def pyro_inference(data, args):
     pyro.set_rng_seed(args.seed)
     pyro_data = [torch.Tensor(x) if i <= 1 else torch.Tensor(x).long() for i, x in enumerate(data)]
-    warnings.warn("Pyro is slow, so we fix step_size=0.1, num_samples=100,"
+    warnings.warn("Pyro is slow, so we fix step_size=0.1, num_samples=40,"
                   " and no warmup adaptation.")
     kernel = pyro.infer.NUTS(pyro_model, step_size=0.1, adapt_step_size=False,
                              jit_compile=True, ignore_jit_warnings=True)
@@ -342,9 +342,10 @@ def main(args):
     elif args.backend == 'stan':
         result = stan_inference(data, args)
 
-    out_filename = 'hmm_{}_{}_seed={}.txt'.format(args.backend,
-                                                  args.device,
-                                                  args.seed)
+    out_filename = 'hmm_{}{}_{}_seed={}.txt'.format(args.backend,
+                                                    "(x64)" if args.x64 else "",
+                                                    args.device,
+                                                    args.seed)
     with open(os.path.join(DATA_DIR, out_filename), 'w') as f:
         f.write('\t'.join(['num_leapfrog', 'n_eff', 'total_time', 'time_per_leapfrog', 'time_per_eff_sample']))
         f.write('\n')

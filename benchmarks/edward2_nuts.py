@@ -452,7 +452,7 @@ def _has_no_u_turn(state_one, state_two, momentum):
   return dot_product > 0
 
 
-_NUM_LEAPFROGS = 0
+_NUM_LEAPFROGS = {"value": 0}
 
 def _leapfrog(target_log_prob_fn,
               current_state,
@@ -461,7 +461,7 @@ def _leapfrog(target_log_prob_fn,
               step_size):
   """Runs one step of leapfrog integration."""
   global _NUM_LEAPFROGS
-  _NUM_LEAPFROGS += 1
+  _NUM_LEAPFROGS["value"] += 1
   mid_momentum = [
       m + 0.5 * step * g for m, step, g in
       zip(current_momentum, step_size, current_grads_target_log_prob)]
