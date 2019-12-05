@@ -1,4 +1,4 @@
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 from contextlib import contextmanager
 import os
 import random
@@ -143,13 +143,21 @@ def identity(x):
 
 
 def cached_by(outer_fn, *keys):
-    outer_fn._cache = getattr(outer_fn, '_cache', {})
+    # Restrict cache size to prevent ref cycles.
+    max_size = 8
+    outer_fn._cache = getattr(outer_fn, '_cache', OrderedDict())
 
     def _wrapped(fn):
         fn_cache = outer_fn._cache
         if keys in fn_cache:
-            return fn_cache[keys]
-        fn_cache[keys] = fn
+            fn = fn_cache[keys]
+            # update position
+            del fn_cache[keys]
+            fn_cache[keys] = fn
+        else:
+            fn_cache[keys] = fn
+        if len(fn_cache) > max_size:
+            fn_cache.popitem(last=False)
         return fn
 
     return _wrapped
