@@ -290,6 +290,8 @@ def edward_inference(data, args):
 
     log_joint = ed.make_log_joint_fn(edward_model)
 
+    # FIXME: use tf.function might improve the speed but throw error
+    # when the script is finished; we can enable and skip the error
     # @tf.function  # use graph mode
     def target_log_prob_fn(coeffs):
         return log_joint(features=features, coeffs=coeffs, labels=labels)
@@ -362,7 +364,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.2.1')
+    assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description="HMM example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=40, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
