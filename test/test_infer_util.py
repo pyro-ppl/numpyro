@@ -192,11 +192,13 @@ def test_initialize_model_change_point(init_strategy):
     ])
 
     rng_keys = random.split(random.PRNGKey(1), 2)
-    init_params, _, _ = initialize_model(rng_keys, model, count_data,
-                                         init_strategy=init_strategy)
+    init_params, _, _ = initialize_model(rng_keys, model,
+                                         init_strategy=init_strategy,
+                                         model_args=(count_data,))
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rng_keys[i], model, count_data,
-                                               init_strategy=init_strategy)
+        init_params_i, _, _ = initialize_model(rng_keys[i], model,
+                                               init_strategy=init_strategy,
+                                               model_args=(count_data,))
         for name, p in init_params.items():
             # XXX: the result is equal if we disable fast-math-mode
             assert_allclose(p[i], init_params_i[name], atol=1e-6)
@@ -219,11 +221,13 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
 
     rng_keys = random.split(random.PRNGKey(1), 2)
-    init_params, _, _ = initialize_model(rng_keys, model, data,
-                                         init_strategy=init_strategy)
+    init_params, _, _ = initialize_model(rng_keys, model,
+                                         init_strategy=init_strategy,
+                                         model_args=(data,))
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rng_keys[i], model, data,
-                                               init_strategy=init_strategy)
+        init_params_i, _, _ = initialize_model(rng_keys[i], model,
+                                               init_strategy=init_strategy,
+                                               model_args=(data,))
         for name, p in init_params.items():
             # XXX: the result is equal if we disable fast-math-mode
             assert_allclose(p[i], init_params_i[name], atol=1e-6)

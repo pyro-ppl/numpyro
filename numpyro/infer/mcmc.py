@@ -151,7 +151,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
         >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0),
-        ...                                                            model, data, labels)
+        ...                                                            model, model_args=(data, labels,))
         >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(init_params,
         ...                         trajectory_length=10,
@@ -495,10 +495,11 @@ class HMC(MCMCKernel):
                              ' `potential_fn`.')
         # Find valid initial params
         if self._model and not init_params:
-            init_params, is_valid = find_valid_initial_params(rng_key, self._model, *model_args,
+            init_params, is_valid = find_valid_initial_params(rng_key, self._model,
                                                               init_strategy=self._init_strategy,
                                                               param_as_improper=True,
-                                                              **model_kwargs)
+                                                              model_args=model_args,
+                                                              model_kwargs=model_kwargs)
             if not_jax_tracer(is_valid):
                 if device_get(~np.all(is_valid)):
                     raise RuntimeError("Cannot find valid initial parameters. "
@@ -754,7 +755,6 @@ class MCMC(object):
             return None
 
     def _single_chain_mcmc(self, rng_key, init_state, init_params, args, kwargs, collect_fields=('z',)):
-        num_warmup = self.num_warmup
         if init_state is None:
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
@@ -762,15 +762,19 @@ class MCMC(object):
             self.constrain_fn = self.sampler.constrain_fn(args, kwargs)
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
-        collect_vals = fori_collect(self._collection_params["lower"],
-                                    self._collection_params["upper"],
+        lower_idx = self._collection_params["lower"]
+        upper_idx = self._collection_params["upper"]
+
+        collect_vals = fori_collect(lower_idx,
+                                    upper_idx,
                                     self._get_cached_fn(),
                                     init_val,
                                     transform=_collect_fn(collect_fields),
                                     progbar=self.progress_bar,
                                     return_last_val=True,
                                     collection_size=self._collection_params["collection_size"],
-                                    progbar_desc=functools.partial(get_progbar_desc_str, num_warmup),
+                                    progbar_desc=functools.partial(get_progbar_desc_str,
+                                                                   lower_idx),
                                     diagnostics_fn=diagnostics)
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
