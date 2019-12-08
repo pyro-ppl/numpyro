@@ -2,7 +2,7 @@
 set -xe
 
 device=cpu
-x64=false  #true
+x64=false  #true/false
 backend=numpyro  #numpyro/stan/pyro
 benchmark_dir=$( cd $(dirname "$0") ; pwd -P )
 

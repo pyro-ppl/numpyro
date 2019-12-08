@@ -103,7 +103,7 @@ def numpyro_inference(data, args):
 def pyro_model(features, labels):
     D = features.shape[1]
     coefs = pyro.sample('coefs', pdist.Normal(torch.zeros(D), torch.ones(D)))
-    logits = torch.matmul(features, coefs.unsqueeze(-1)).squeeze(-1)
+    logits = torch.matmul(features, coefs.unsqueeze(-1)).contiguous().squeeze(-1)
     return pyro.sample('obs', pdist.Bernoulli(logits=logits), obs=labels)
 
 
@@ -156,11 +156,13 @@ def _mcmc_gen_samples(kernel, warmup_steps, num_samples, hook, chain_id, *args, 
 
 
 def pyro_inference(data, args):
+    global _NUM_LEAPFROGS, _SAMPLING_PHASE_TIC
+    _NUM_LEAPFROGS = 0
+    _SAMPLING_PHASE_TIC = None
     pyro.set_rng_seed(args.seed)
     pyro_data = [torch.Tensor(x) for i, x in enumerate(data)]
-    # FIXME: can't use jit_compile here
     kernel = pyro.infer.NUTS(pyro_model, step_size=0.0015, adapt_step_size=False,
-                             jit_compile=False, ignore_jit_warnings=True)
+                             jit_compile=True, ignore_jit_warnings=True)
     mcmc = pyro.infer.MCMC(kernel, num_samples=args.num_samples, warmup_steps=args.num_warmup,
                            num_chains=args.num_chains)
     tic = time.time()
@@ -290,12 +292,11 @@ def edward_inference(data, args):
 
     log_joint = ed.make_log_joint_fn(edward_model)
 
-    # FIXME: use tf.function might improve the speed but throw error
+    # XXX: use tf.function might improve the speed but throw error
     # when the script is finished; we can enable and skip the error
-    # @tf.function  # use graph mode
+    @tf.function  # use graph mode
     def target_log_prob_fn(coeffs):
         return log_joint(features=features, coeffs=coeffs, labels=labels)
-
     step_size = 0.0015
     kernel = edward2_nuts.kernel
     coeffs_samples = []
@@ -308,6 +309,7 @@ def edward_inference(data, args):
                                dtype=features.dtype,
                                seed=seed_stream())
 
+    _ED_NUM_LEAPFROGS["value"] = 0
     tic = time.time()
     for step in range(args.num_samples):
         print("Step", step)
@@ -343,14 +345,22 @@ def edward_inference(data, args):
 
 def main(args):
     data = get_data()
-    if args.backend == 'numpyro':
-        result = numpyro_inference(data, args)
-    elif args.backend == 'pyro':
-        result = pyro_inference(data, args)
-    elif args.backend == 'stan':
-        result = stan_inference(data, args)
-    elif args.backend == 'edward':
-        result = edward_inference(data, args)
+    num_leapfrogs = 0
+    while True:
+        if args.backend == 'numpyro':
+            result = numpyro_inference(data, args)
+        elif args.backend == 'pyro':
+            result = pyro_inference(data, args)
+        elif args.backend == 'stan':
+            result = stan_inference(data, args)
+        elif args.backend == 'edward':
+            result = edward_inference(data, args)
+        num_leapfrogs, *_ = result
+        if num_leapfrogs < 5000:
+            args.seed = args.seed + 5
+            print("Unreliable benchmark, try new seed {}".format(args.seed))
+        else:
+            break
 
     out_filename = 'covtype_{}{}_{}_seed={}.txt'.format(args.backend,
                                                         "(x64)" if args.x64 else "",

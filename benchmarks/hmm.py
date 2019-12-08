@@ -208,7 +208,7 @@ def pyro_inference(data, args):
                   " and no warmup adaptation.")
     kernel = pyro.infer.NUTS(pyro_model, step_size=0.1, adapt_step_size=False,
                              jit_compile=True, ignore_jit_warnings=True)
-    mcmc = pyro.infer.MCMC(kernel, num_samples=100, warmup_steps=0,
+    mcmc = pyro.infer.MCMC(kernel, num_samples=40, warmup_steps=0,
                            num_chains=args.num_chains)
     tic = time.time()
     mcmc.run(*pyro_data)
