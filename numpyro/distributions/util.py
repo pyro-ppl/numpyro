@@ -46,6 +46,8 @@ def categorical(key, p, shape=()):
     return _categorical(key, p, shape)
 
 
+# Ref https://github.com/numpy/numpy/blob/8a0858f3903e488495a56b4a6d19bbefabc97dca/
+# numpy/random/src/distributions/distributions.c#L574
 def _poisson_large(val):
     rng_key, lam = val
     slam = np.sqrt(lam)
