@@ -44,7 +44,7 @@ def test_beta_bernoulli(auto_class):
 
     adam = optim.Adam(0.01)
     guide = auto_class(model, init_strategy=init_strategy)
-    svi = SVI(model, guide, AutoContinuousELBO(), adam)
+    svi = SVI(model, guide, adam, AutoContinuousELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
     def body_fn(i, val):
@@ -78,10 +78,10 @@ def test_logistic_regression(auto_class):
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
-    rng_init = random.PRNGKey(1)
+    rng_key_init = random.PRNGKey(1)
     guide = auto_class(model, init_strategy=init_strategy)
-    svi = SVI(model, guide, AutoContinuousELBO(), adam)
-    svi_state = svi.init(rng_init, data, labels)
+    svi = SVI(model, guide, adam, AutoContinuousELBO())
+    svi_state = svi.init(rng_key_init, data, labels)
 
     def body_fn(i, val):
         svi_state, loss = svi.update(val, data, labels)
@@ -115,15 +115,15 @@ def test_iaf():
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
-    rng_init = random.PRNGKey(1)
+    rng_key_init = random.PRNGKey(1)
     guide = AutoIAFNormal(model)
-    svi = SVI(model, guide, AutoContinuousELBO(), adam)
-    svi_state = svi.init(rng_init, data, labels)
+    svi = SVI(model, guide, adam, AutoContinuousELBO())
+    svi_state = svi.init(rng_key_init, data, labels)
     params = svi.get_params(svi_state)
 
     x = random.normal(random.PRNGKey(0), (dim + 1,))
-    rng = random.PRNGKey(1)
-    actual_sample = guide.sample_posterior(rng, params)
+    rng_key = random.PRNGKey(1)
+    actual_sample = guide.sample_posterior(rng_key, params)
     actual_output = guide.get_transform(params)(x)
 
     flows = []
@@ -139,8 +139,8 @@ def test_iaf():
     flows.append(transforms.UnpackTransform(guide._unpack_latent))
 
     transform = transforms.ComposeTransform(flows)
-    rng_seed, rng_sample = random.split(rng)
-    expected_sample = transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng_sample))
+    _, rng_key_sample = random.split(rng_key)
+    expected_sample = transform(dist.Normal(np.zeros(dim + 1), 1).sample(rng_key_sample))
     expected_output = transform(x)
     assert_allclose(actual_sample['coefs'], expected_sample['coefs'])
     assert_allclose(actual_sample['offset'],
@@ -158,10 +158,10 @@ def test_uniform_normal():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_init = random.PRNGKey(1)
+    rng_key_init = random.PRNGKey(1)
     guide = AutoDiagonalNormal(model)
-    svi = SVI(model, guide, AutoContinuousELBO(), adam)
-    svi_state = svi.init(rng_init, data)
+    svi = SVI(model, guide, adam, AutoContinuousELBO())
+    svi_state = svi.init(rng_key_init, data)
 
     def body_fn(i, val):
         svi_state, loss = svi.update(val, data)
@@ -179,11 +179,11 @@ def test_uniform_normal():
 def test_param():
     # this test the validity of model having
     # param sites contain composed transformed constraints
-    rngs = random.split(random.PRNGKey(0), 3)
+    rng_keys = random.split(random.PRNGKey(0), 3)
     a_minval = 1
-    a_init = np.exp(random.normal(rngs[0])) + a_minval
-    b_init = np.exp(random.normal(rngs[1]))
-    x_init = random.normal(rngs[2])
+    a_init = np.exp(random.normal(rng_keys[0])) + a_minval
+    b_init = np.exp(random.normal(rng_keys[1]))
+    x_init = random.normal(rng_keys[2])
 
     def model():
         a = numpyro.param('a', a_init, constraint=constraints.greater_than(a_minval))
@@ -197,10 +197,10 @@ def test_param():
                               {'_auto_latent': x_init})(*args, **kwargs)
 
     adam = optim.Adam(0.01)
-    rng_init = random.PRNGKey(1)
+    rng_key_init = random.PRNGKey(1)
     guide = _AutoGuide(model)
-    svi = SVI(model, guide, AutoContinuousELBO(), adam)
-    svi_state = svi.init(rng_init)
+    svi = SVI(model, guide, adam, AutoContinuousELBO())
+    svi_state = svi.init(rng_key_init)
 
     params = svi.get_params(svi_state)
     assert_allclose(params['a'], a_init)
@@ -229,19 +229,19 @@ def test_dynamic_supports():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
-    rng_init = random.PRNGKey(1)
+    rng_key_init = random.PRNGKey(1)
 
     guide = AutoDiagonalNormal(actual_model)
-    svi = SVI(actual_model, guide, AutoContinuousELBO(), adam)
-    svi_state = svi.init(rng_init, data)
+    svi = SVI(actual_model, guide, adam, AutoContinuousELBO())
+    svi_state = svi.init(rng_key_init, data)
     actual_opt_params = adam.get_params(svi_state.optim_state)
     actual_params = svi.get_params(svi_state)
     actual_values = guide.median(actual_params)
     actual_loss = svi.evaluate(svi_state, data)
 
     guide = AutoDiagonalNormal(expected_model)
-    svi = SVI(expected_model, guide, AutoContinuousELBO(), adam)
-    svi_state = svi.init(rng_init, data)
+    svi = SVI(expected_model, guide, adam, AutoContinuousELBO())
+    svi_state = svi.init(rng_key_init, data)
     expected_opt_params = adam.get_params(svi_state.optim_state)
     expected_params = svi.get_params(svi_state)
     expected_values = guide.median(expected_params)
@@ -270,7 +270,7 @@ def test_elbo_dynamic_support():
 
     adam = optim.Adam(0.01)
     guide = _AutoGuide(model)
-    svi = SVI(model, guide, AutoContinuousELBO(), adam)
+    svi = SVI(model, guide, adam, AutoContinuousELBO())
     svi_state = svi.init(random.PRNGKey(0))
     actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
@@ -282,3 +282,21 @@ def test_elbo_dynamic_support():
     model_log_prob = x_prior.log_prob(x) + logdet
     expected_loss = guide_log_prob - model_log_prob
     assert_allclose(actual_loss, expected_loss)
+
+
+def test_laplace_approximation_warning():
+    def model(x, y):
+        a = numpyro.sample("a", dist.Normal(0, 10))
+        b = numpyro.sample("b", dist.Normal(0, 10), sample_shape=(3,))
+        mu = a + b[0] * x + b[1] * x ** 2 + b[2] * x ** 3
+        numpyro.sample("y", dist.Normal(mu, 0.001), obs=y)
+
+    x = random.normal(random.PRNGKey(0), (3,))
+    y = 1 + 2 * x + 3 * x ** 2 + 4 * x ** 3
+    guide = AutoLaplaceApproximation(model)
+    svi = SVI(model, guide, optim.Adam(0.1), AutoContinuousELBO(), x=x, y=y)
+    init_state = svi.init(random.PRNGKey(0))
+    svi_state = fori_loop(0, 10000, lambda i, val: svi.update(val)[0], init_state)
+    params = svi.get_params(svi_state)
+    with pytest.warns(UserWarning, match="Hessian of log posterior"):
+        guide.sample_posterior(random.PRNGKey(1), params)

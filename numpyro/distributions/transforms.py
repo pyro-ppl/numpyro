@@ -2,7 +2,7 @@ import math
 
 from jax import ops
 from jax.flatten_util import ravel_pytree
-from jax.lib.xla_bridge import canonicalize_dtype
+from jax.dtypes import canonicalize_dtype
 from jax.nn import softplus
 import jax.numpy as np
 from jax.scipy.linalg import solve_triangular
@@ -366,6 +366,31 @@ class MultivariateAffineTransform(Transform):
                                np.shape(x)[:-1])
 
 
+class OrderedTransform(Transform):
+    """
+    Transform a real vector to an ordered vector.
+
+    **References:**
+
+    1. *Stan Reference Manual v2.20, section 10.6*,
+       Stan Development Team
+    """
+    domain = constraints.real_vector
+    codomain = constraints.ordered_vector
+    event_dim = 1
+
+    def __call__(self, x):
+        z = np.concatenate([x[..., :1], np.exp(x[..., 1:])], axis=-1)
+        return cumsum(z)
+
+    def inv(self, y):
+        x = np.log(y[..., 1:] - y[..., :-1])
+        return np.concatenate([y[..., :1], x], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return np.sum(x[..., 1:], -1)
+
+
 class PermuteTransform(Transform):
     domain = constraints.real_vector
     codomain = constraints.real_vector
@@ -538,6 +563,11 @@ def _transform_to_interval(constraint):
 @biject_to.register(constraints.lower_cholesky)
 def _transform_to_lower_cholesky(constraint):
     return LowerCholeskyTransform()
+
+
+@biject_to.register(constraints.ordered_vector)
+def _transform_to_ordered_vector(constraint):
+    return OrderedTransform()
 
 
 @biject_to.register(constraints.positive_definite)

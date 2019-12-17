@@ -1,8 +1,11 @@
 import math
 
+from jax import jit
+
 import numpyro
+from numpyro.compat.pyro import get_param_store
 import numpyro.distributions as dist
-from numpyro.infer import mcmc
+from numpyro.infer import elbo, mcmc, svi
 
 
 class HMC(mcmc.HMC):
@@ -83,10 +86,10 @@ class MCMC(object):
                                num_chains=num_chains,
                                progress_bar=(not disable_progbar))
 
-    def run(self, *args, rng=None, **kwargs):
-        if rng is None:
-            rng = numpyro.sample('mcmc.run', dist.PRNGIdentity())
-        self._mcmc.run(rng, *args, init_params=self._initial_params, **kwargs)
+    def run(self, *args, rng_key=None, **kwargs):
+        if rng_key is None:
+            rng_key = numpyro.sample('mcmc.run', dist.PRNGIdentity())
+        self._mcmc.run(rng_key, *args, init_params=self._initial_params, **kwargs)
 
     def get_samples(self, num_samples=None, group_by_chain=False):
         if num_samples is not None:
@@ -95,3 +98,61 @@ class MCMC(object):
 
     def summary(self, prob=0.9):
         self._mcmc.print_summary()
+
+
+class SVI(svi.SVI):
+    def __init__(self,
+                 model,
+                 guide,
+                 optim,
+                 loss,
+                 loss_and_grads=None,
+                 num_samples=10,
+                 num_steps=0,
+                 **kwargs):
+        super(SVI, self).__init__(model=model,
+                                  guide=guide,
+                                  optim=optim,
+                                  loss=loss)
+        self.svi_state = None
+
+    def evaluate_loss(self, *args, **kwargs):
+        return self.evaluate(self.svi_state, *args, **kwargs)
+
+    def step(self, *args, rng_key=None, **kwargs):
+        if self.svi_state is None:
+            if rng_key is None:
+                rng_key = numpyro.sample('svi.init', dist.PRNGIdentity())
+            self.svi_state = self.init(rng_key, *args, **kwargs)
+        try:
+            self.svi_state, loss = jit(self.update)(self.svi_state, *args, **kwargs)
+        except TypeError as e:
+            if 'not a valid JAX type' in str(e):
+                raise TypeError('NumPyro backend requires args, kwargs to be arrays or tuples, '
+                                'dicts of arrays.')
+            else:
+                raise e
+        params = jit(super(SVI, self).get_params)(self.svi_state)
+        get_param_store().update(params)
+        return loss
+
+    def get_params(self):
+        return super(SVI, self).get_params(self.svi_state)
+
+
+class Trace_ELBO(elbo.ELBO):
+    def __init__(self,
+                 num_particles=1,
+                 max_plate_nesting=float('inf'),
+                 max_iarange_nesting=None,  # DEPRECATED
+                 vectorize_particles=False,
+                 strict_enumeration_warning=True,
+                 ignore_jit_warnings=False,
+                 jit_options=None,
+                 retain_graph=None,
+                 tail_adaptive_beta=-1.0):
+        super(Trace_ELBO, self).__init__(num_particles=num_particles)
+
+
+# JIT is enabled by default
+JitTrace_ELBO = Trace_ELBO

@@ -14,23 +14,22 @@ and :class:`~numpyro.handlers.substitute` handlers to define the `log_likelihood
 We first create a logistic regression model and sample from the posterior distribution over
 the regression parameters using :func:`~numpyro.infer.MCMC`. The `log_likelihood` function
 uses effect handlers to run the model by substituting sample sites with values from the posterior
-distribution and computes the log density for a single data point. The `expected_log_likelihood`
+distribution and computes the log density for a single data point. The `log_predictive_density`
 function computes the log likelihood for each draw from the joint posterior and aggregates the
-results, but does so by using JAX's auto-vectorize transform called `vmap` so that we do not
-need to loop over all the data points.
+results for all the data points, but does so by using JAX's auto-vectorize transform called
+`vmap` so that we do not need to loop over all the data points.
 
 
-.. testsetup::
-
-   import jax.numpy as np
-   from jax import random, vmap
-   from jax.scipy.special import logsumexp
-   import numpyro
-   import numpyro.distributions as dist
-   from numpyro import handlers
-   from numpyro.infer import MCMC, NUTS
 
 .. doctest::
+
+   >>> import jax.numpy as np
+   >>> from jax import random, vmap
+   >>> from jax.scipy.special import logsumexp
+   >>> import numpyro
+   >>> import numpyro.distributions as dist
+   >>> from numpyro import handlers
+   >>> from numpyro.infer import MCMC, NUTS
 
    >>> N, D = 3000, 3
    >>> def logistic_regression(data, labels):
@@ -57,25 +56,27 @@ need to loop over all the data points.
        coefs[2]       3.18       0.13       2.96       3.37     320.27       1.00
       intercept      -0.03       0.02      -0.06       0.00     402.53       1.00
 
-   >>> def log_likelihood(rng, params, model, *args, **kwargs):
-   ...     model = handlers.substitute(handlers.seed(model, rng), params)
+   >>> def log_likelihood(rng_key, params, model, *args, **kwargs):
+   ...     model = handlers.substitute(handlers.seed(model, rng_key), params)
    ...     model_trace = handlers.trace(model).get_trace(*args, **kwargs)
    ...     obs_node = model_trace['obs']
-   ...     return np.sum(obs_node['fn'].log_prob(obs_node['value']))
+   ...     return obs_node['fn'].log_prob(obs_node['value'])
 
-   >>> def expected_log_likelihood(rng, params, model, *args, **kwargs):
+   >>> def log_predictive_density(rng_key, params, model, *args, **kwargs):
    ...     n = list(params.values())[0].shape[0]
-   ...     log_lk_fn = vmap(lambda rng, params: log_likelihood(rng, params, model, *args, **kwargs))
-   ...     log_lk_vals = log_lk_fn(random.split(rng, n), params)
-   ...     return logsumexp(log_lk_vals) - np.log(n)
+   ...     log_lk_fn = vmap(lambda rng_key, params: log_likelihood(rng_key, params, model, *args, **kwargs))
+   ...     log_lk_vals = log_lk_fn(random.split(rng_key, n), params)
+   ...     return np.sum(logsumexp(log_lk_vals, 0) - np.log(n))
 
-   >>> print(expected_log_likelihood(random.PRNGKey(2), samples, logistic_regression, data, labels))  # doctest: +SKIP
-   -876.172
+   >>> print(log_predictive_density(random.PRNGKey(2), mcmc.get_samples(),
+   ...       logistic_regression, data, labels))  # doctest: +SKIP
+   -874.89813
 """
 
 from __future__ import absolute_import, division, print_function
 
 from collections import OrderedDict
+import warnings
 
 from jax import random
 import jax.numpy as np
@@ -83,6 +84,7 @@ import jax.numpy as np
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.primitives import Messenger
+from numpyro.util import not_jax_tracer
 
 __all__ = [
     'block',
@@ -102,15 +104,13 @@ class trace(Messenger):
 
     **Example**
 
-    .. testsetup::
-
-       from jax import random
-       import numpyro
-       import numpyro.distributions as dist
-       from numpyro.handlers import seed, trace
-       import pprint as pp
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.handlers import seed, trace
+       >>> import pprint as pp
 
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
@@ -121,7 +121,7 @@ class trace(Messenger):
                      {'args': (),
                       'fn': <numpyro.distributions.continuous.Normal object at 0x7f9e689b1eb8>,
                       'is_observed': False,
-                      'kwargs': {'random_state': DeviceArray([0, 0], dtype=uint32)},
+                      'kwargs': {'rng_key': DeviceArray([0, 0], dtype=uint32)},
                       'name': 'a',
                       'type': 'sample',
                       'value': DeviceArray(-0.20584235, dtype=float32)})])
@@ -158,14 +158,12 @@ class replay(Messenger):
 
     **Example**
 
-    .. testsetup::
-
-       from jax import random
-       import numpyro
-       import numpyro.distributions as dist
-       from numpyro.handlers import replay, seed, trace
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.handlers import replay, seed, trace
 
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
@@ -199,14 +197,12 @@ class block(Messenger):
 
     **Example:**
 
-    .. testsetup::
-
-       from jax import random
-       import numpyro
-       from numpyro.handlers import block, seed, trace
-       import numpyro.distributions as dist
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> from numpyro.handlers import block, seed, trace
+       >>> import numpyro.distributions as dist
 
        >>> def model():
        ...     a = numpyro.sample('a', dist.Normal(0., 1.))
@@ -245,14 +241,12 @@ class condition(Messenger):
 
     **Example:**
 
-     .. testsetup::
-
-       from jax import random
-       import numpyro
-       from numpyro.handlers import condition, seed, substitute, trace
-       import numpyro.distributions as dist
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> from numpyro.handlers import condition, seed, substitute, trace
+       >>> import numpyro.distributions as dist
 
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))
@@ -293,8 +287,9 @@ class scale(Messenger):
     :param float scale_factor: a positive scaling factor
     """
     def __init__(self, fn=None, scale_factor=1.):
-        if scale_factor <= 0:
-            raise ValueError("scale factor should be a positive number.")
+        if not_jax_tracer(scale_factor):
+            if scale_factor <= 0:
+                raise ValueError("scale factor should be a positive number.")
         self.scale = scale_factor
         super(scale, self).__init__(fn)
 
@@ -312,6 +307,10 @@ class seed(Messenger):
     so that we use a fresh seed for each subsequent call without having to
     explicitly pass in a `PRNGKey` to each `sample` call.
 
+    :param fn: Python callable with NumPyro primitives.
+    :param rng_seed: a random number generator seed.
+    :type rng_seed: int, np.ndarray scalar, or jax.random.PRNGKey
+
     .. note::
 
         Unlike in Pyro, `numpyro.sample` primitive cannot be used without wrapping
@@ -321,36 +320,40 @@ class seed(Messenger):
 
     **Example:**
 
-    .. testsetup::
-
-      from jax import random
-      import numpyro
-      import numpyro.handlers
-      import numpyro.distributions as dist
-
     .. doctest::
 
+       >>> from jax import random
+       >>> import numpyro
+       >>> import numpyro.handlers
+       >>> import numpyro.distributions as dist
+
        >>> # as context manager
-       >>> with handlers.seed(rng=1):
+       >>> with handlers.seed(rng_seed=1):
        ...     x = numpyro.sample('x', dist.Normal(0., 1.))
 
        >>> def model():
        ...     return numpyro.sample('y', dist.Normal(0., 1.))
 
        >>> # as function decorator (/modifier)
-       >>> y = seed(model, rng=1)()
+       >>> y = handlers.seed(model, rng_seed=1)()
        >>> assert x == y
     """
-    def __init__(self, fn=None, rng=None):
-        if isinstance(rng, int) or np.size(rng) == 1:
-            rng = random.PRNGKey(rng)
-        self.rng = rng
+    def __init__(self, fn=None, rng_seed=None, rng=None):
+        if rng is not None:
+            warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', DeprecationWarning)
+            rng_seed = rng
+        if isinstance(rng_seed, int) or (isinstance(rng_seed, np.ndarray) and not np.shape(rng_seed)):
+            rng_seed = random.PRNGKey(rng_seed)
+        if not (isinstance(rng_seed, np.ndarray) and rng_seed.dtype == np.uint32 and rng_seed.shape == (2,)):
+            raise TypeError('Incorrect type for rng_seed: {}'.format(type(rng_seed)))
+        self.rng_key = rng_seed
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample' and not msg['is_observed']:
-            self.rng, rng_sample = random.split(self.rng)
-            msg['kwargs']['random_state'] = rng_sample
+        if msg['type'] == 'sample' and not msg['is_observed'] and \
+                msg['kwargs']['rng_key'] is None:
+            self.rng_key, rng_key_sample = random.split(self.rng_key)
+            msg['kwargs']['rng_key'] = rng_key_sample
 
 
 class substitute(Messenger):
@@ -376,14 +379,12 @@ class substitute(Messenger):
 
     **Example:**
 
-     .. testsetup::
-
-       from jax import random
-       import numpyro
-       from numpyro.handlers import seed, substitute, trace
-       import numpyro.distributions as dist
-
     .. doctest::
+
+       >>> from jax import random
+       >>> import numpyro
+       >>> from numpyro.handlers import seed, substitute, trace
+       >>> import numpyro.distributions as dist
 
        >>> def model():
        ...     numpyro.sample('a', dist.Normal(0., 1.))

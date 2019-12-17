@@ -26,8 +26,9 @@ from contextlib import contextmanager
 import warnings
 
 import jax.numpy as np
+from jax import lax
 
-from numpyro.distributions.constraints import is_dependent
+from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
@@ -84,13 +85,10 @@ class Distribution(object):
 
     As an example:
 
-    .. testsetup::
-
-       import jax.numpy as np
-       import numpyro.distributions as dist
-
     .. doctest::
 
+       >>> import jax.numpy as np
+       >>> import numpyro.distributions as dist
        >>> d = dist.Dirichlet(np.ones((2, 3, 4)))
        >>> d.batch_shape
        (2, 3)
@@ -153,7 +151,7 @@ class Distribution(object):
         leading dimensions (of size `sample_shape`) of the returned sample will
         be filled with iid draws from the distribution instance.
 
-        :param jax.random.PRNGKey key: the rng key to be used for the distribution.
+        :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: an array of shape `sample_shape + batch_shape + event_shape`
         :rtype: numpy.ndarray
@@ -165,7 +163,7 @@ class Distribution(object):
         Same as ``sample`` except that any intermediate computations are
         returned (useful for `TransformedDistribution`).
 
-        :param jax.random.PRNGKey key: the rng key to be used for the distribution.
+        :param jax.random.PRNGKey key: the rng_key key to be used for the distribution.
         :param tuple sample_shape: the sample shape for the distribution.
         :return: an array of shape `sample_shape + batch_shape + event_shape`
         :rtype: numpy.ndarray
@@ -209,13 +207,22 @@ class Distribution(object):
         return mask
 
     def __call__(self, *args, **kwargs):
-        key = kwargs.pop('random_state')
+        key = kwargs.pop('rng_key')
         sample_intermediates = kwargs.pop('sample_intermediates', False)
         if sample_intermediates:
             return self.sample_with_intermediates(key, *args, **kwargs)
         return self.sample(key, *args, **kwargs)
 
     def to_event(self, reinterpreted_batch_ndims=None):
+        """
+        Interpret the rightmost `reinterpreted_batch_ndims` batch dimensions as
+        dependent event dimensions.
+
+        :param reinterpreted_batch_ndims: Number of rightmost batch dims to
+            interpret as event dims.
+        :return: An instance of `Independent` distribution.
+        :rtype: Independent
+        """
         if reinterpreted_batch_ndims is None:
             reinterpreted_batch_ndims = len(self.batch_shape)
         return Independent(self, reinterpreted_batch_ndims)
@@ -228,14 +235,11 @@ class Independent(Distribution):
 
     From a practical standpoint, this is useful when changing the result of
     :meth:`log_prob`. For example, a univariate Normal distribution can be
-    interpreted as a multivariate Normal with diagonal covariance::
-
-    .. testsetup::
-
-       import numpyro.distributions as dist
+    interpreted as a multivariate Normal with diagonal covariance:
 
     .. doctest::
 
+        >>> import numpyro.distributions as dist
         >>> normal = dist.Normal(np.zeros(3), np.ones(3))
         >>> [normal.batch_shape, normal.event_shape]
         [(3,), ()]
@@ -377,3 +381,28 @@ class TransformedDistribution(Distribution):
     @property
     def variance(self):
         raise NotImplementedError
+
+
+class Unit(Distribution):
+    """
+    Trivial nonnormalized distribution representing the unit type.
+
+    The unit type has a single value with no data, i.e. ``value.size == 0``.
+
+    This is used for :func:`numpyro.factor` statements.
+    """
+    arg_constraints = {'log_factor': real}
+    support = real
+
+    def __init__(self, log_factor, validate_args=None):
+        batch_shape = np.shape(log_factor)
+        event_shape = (0,)  # This satisfies .size == 0.
+        self.log_factor = log_factor
+        super(Unit, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        return np.empty(sample_shape + self.batch_shape + self.event_shape)
+
+    def log_prob(self, value):
+        shape = lax.broadcast_shapes(self.batch_shape, np.shape(value)[:-1])
+        return np.broadcast_to(self.log_factor, shape)

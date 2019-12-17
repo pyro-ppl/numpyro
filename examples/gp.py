@@ -1,4 +1,13 @@
+"""
+Gaussian Process
+================
+
+In this example we show how to use NUTS to sample from the posterior
+over the hyperparameters of a gaussian process.
+"""
+
 import argparse
+import os
 import time
 
 import matplotlib
@@ -15,11 +24,6 @@ import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
-
-"""
-In this example we show how to use NUTS to sample from the posterior
-over the hyperparameters of a gaussian process.
-"""
 
 
 # squared exponential kernel with diagonal noise term
@@ -46,25 +50,27 @@ def model(X, Y):
 
 
 # helper function for doing hmc inference
-def run_inference(model, args, rng, X, Y):
+def run_inference(model, args, rng_key, X, Y):
     start = time.time()
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
-    mcmc.run(rng, X, Y)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc.run(rng_key, X, Y)
+    mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
     return mcmc.get_samples()
 
 
 # do GP prediction for a given set of hyperparameters. this makes use of the well-known
 # formula for gaussian process predictions
-def predict(rng, X, Y, X_test, var, length, noise):
+def predict(rng_key, X, Y, X_test, var, length, noise):
     # compute kernels between train and test data, etc.
     k_pp = kernel(X_test, X_test, var, length, noise, include_noise=True)
     k_pX = kernel(X_test, X, var, length, noise, include_noise=False)
     k_XX = kernel(X, X, var, length, noise, include_noise=True)
     K_xx_inv = np.linalg.inv(k_XX)
     K = k_pp - np.matmul(k_pX, np.matmul(K_xx_inv, np.transpose(k_pX)))
-    sigma_noise = np.sqrt(np.clip(np.diag(K), a_min=0.)) * jax.random.normal(rng, X_test.shape[:1])
+    sigma_noise = np.sqrt(np.clip(np.diag(K), a_min=0.)) * jax.random.normal(rng_key, X_test.shape[:1])
     mean = np.matmul(k_pX, np.matmul(K_xx_inv, Y))
     # we return both the mean function and a sample from the posterior predictive for the
     # given set of hyperparameters
@@ -92,14 +98,14 @@ def main(args):
     X, Y, X_test = get_data(N=args.num_data)
 
     # do inference
-    rng, rng_predict = random.split(random.PRNGKey(0))
-    samples = run_inference(model, args, rng, X, Y)
+    rng_key, rng_key_predict = random.split(random.PRNGKey(0))
+    samples = run_inference(model, args, rng_key, X, Y)
 
     # do prediction
-    vmap_args = (random.split(rng_predict, args.num_samples * args.num_chains), samples['kernel_var'],
+    vmap_args = (random.split(rng_key_predict, args.num_samples * args.num_chains), samples['kernel_var'],
                  samples['kernel_length'], samples['kernel_noise'])
-    means, predictions = vmap(lambda rng, var, length, noise:
-                              predict(rng, X, Y, X_test, var, length, noise))(*vmap_args)
+    means, predictions = vmap(lambda rng_key, var, length, noise:
+                              predict(rng_key, X, Y, X_test, var, length, noise))(*vmap_args)
 
     mean_prediction = onp.mean(means, axis=0)
     percentiles = onp.percentile(predictions, [5.0, 95.0], axis=0)
@@ -116,11 +122,11 @@ def main(args):
     ax.set(xlabel="X", ylabel="Y", title="Mean predictions with 90% CI")
 
     plt.savefig("gp_plot.pdf")
-    plt.close()
+    plt.tight_layout()
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.2.0')
+    assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)

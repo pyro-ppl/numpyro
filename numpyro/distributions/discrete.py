@@ -23,11 +23,11 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from jax import lax
-from jax.lib import xla_bridge
+from jax.dtypes import canonicalize_dtype
 from jax.nn import softmax
 import jax.numpy as np
 import jax.random as random
-from jax.scipy.special import gammaln, logsumexp
+from jax.scipy.special import expit, gammaln, logsumexp
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -265,10 +265,11 @@ class CategoricalLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value):
+        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
         value = np.expand_dims(value, -1)
+        value = np.broadcast_to(value, batch_shape + (1,))
         log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
-        value, log_pmf = promote_shapes(value, log_pmf)
-        value = value[..., :1]
+        log_pmf = np.broadcast_to(log_pmf, batch_shape + np.shape(log_pmf)[-1:])
         return np.take_along_axis(log_pmf, value, -1)[..., 0]
 
     @lazy_property
@@ -309,7 +310,7 @@ class Delta(Distribution):
         batch_dim = np.ndim(value) - event_ndim
         batch_shape = np.shape(value)[:batch_dim]
         event_shape = np.shape(value)[batch_dim:]
-        self.value = lax.convert_element_type(value, xla_bridge.canonicalize_dtype(np.float64))
+        self.value = lax.convert_element_type(value, canonicalize_dtype(np.float64))
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
@@ -331,6 +332,33 @@ class Delta(Distribution):
     @property
     def variance(self):
         return np.zeros(self.batch_shape + self.event_shape)
+
+
+class OrderedLogistic(CategoricalProbs):
+    """
+    A categorical distribution with ordered outcomes.
+
+    **References:**
+
+    1. *Stan Functions Reference, v2.20 section 12.6*,
+       Stan Development Team
+
+    :param numpy.ndarray predictor: prediction in real domain; typically this is output
+        of a linear model.
+    :param numpy.ndarray cutpoints: positions in real domain to separate categories.
+    """
+    arg_constraints = {'predictor': constraints.real,
+                       'cutpoints': constraints.ordered_vector}
+
+    def __init__(self, predictor, cutpoints, validate_args=None):
+        predictor, self.cutpoints = promote_shapes(np.expand_dims(predictor, -1), cutpoints)
+        self.predictor = predictor[..., 0]
+        cumulative_probs = expit(cutpoints - predictor)
+        # add two boundary points 0 and 1
+        pad_width = [(0, 0)] * (np.ndim(cumulative_probs) - 1) + [(1, 1)]
+        cumulative_probs = np.pad(cumulative_probs, pad_width, constant_values=(0, 1))
+        probs = cumulative_probs[..., 1:] - cumulative_probs[..., :-1]
+        super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
 
 class PRNGIdentity(Distribution):
@@ -462,3 +490,39 @@ class Poisson(Distribution):
     @property
     def variance(self):
         return self.rate
+
+
+class ZeroInflatedPoisson(Distribution):
+    """
+    A Zero Inflated Poisson distribution.
+
+    :param numpy.ndarray gate: probability of extra zeros.
+    :param numpy.ndarray rate: rate of Poisson distribution.
+    """
+    arg_constraints = {'gate': constraints.unit_interval, 'rate': constraints.positive}
+    support = constraints.nonnegative_integer
+
+    def __init__(self, gate, rate=1., validate_args=None):
+        batch_shape = lax.broadcast_shapes(np.shape(gate), np.shape(rate))
+        self.gate, self.rate = promote_shapes(gate, rate)
+        super(ZeroInflatedPoisson, self).__init__(batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        key_bern, key_poisson = random.split(key)
+        shape = sample_shape + self.batch_shape
+        mask = random.bernoulli(key_bern, self.gate, shape)
+        samples = poisson(key_poisson, self.rate, shape)
+        return np.where(mask, 0, samples)
+
+    @validate_sample
+    def log_prob(self, value):
+        log_prob = np.log(self.rate) * value - gammaln(value + 1) + (np.log1p(-self.gate) - self.rate)
+        return np.where(value == 0, np.logaddexp(np.log(self.gate), log_prob), log_prob)
+
+    @lazy_property
+    def mean(self):
+        return (1 - self.gate) * self.rate
+
+    @lazy_property
+    def variance(self):
+        return (1 - self.gate) * self.rate * (1 + self.rate * self.gate)

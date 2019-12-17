@@ -1,5 +1,26 @@
+"""
+Sparse Regression
+=================
+
+We demonstrate how to do (fully Bayesian) sparse linear regression using the
+approach described in [1]. This approach is particularly suitable for situations
+with many feature dimensions (large P) but not too many datapoints (small N).
+In particular we consider a quadratic regressor of the form:
+
+.. math::
+
+    f(X) = \\text{constant} + \\sum_i \\theta_i X_i + \\sum_{i<j} \\theta_{ij} X_i X_j + \\text{observation noise}
+
+**References:**
+
+    1. Raj Agrawal, Jonathan H. Huggins, Brian Trippe, Tamara Broderick (2019),
+       "The Kernel Interaction Trick: Fast Bayesian Discovery of Pairwise Interactions in High Dimensions",
+       (https://arxiv.org/abs/1905.06501)
+"""
+
 import argparse
 import itertools
+import os
 import time
 
 import numpy as onp
@@ -12,22 +33,6 @@ import jax.random as random
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
-
-
-"""
-We demonstrate how to do (fully Bayesian) sparse linear regression using the
-approach described in [1]. This approach is particularly suitable for situations
-with many feature dimensions (large P) but not too many datapoints (small N).
-In particular we consider a quadratic regressor of the form:
-
-f(X) = constant + sum_i theta_i X_i + sum_{i<j} theta_ij X_i X_j + observation noise
-
-References
-[1] The Kernel Interaction Trick: Fast Bayesian Discovery of Pairwise
-    Interactions in High Dimensions.
-    Raj Agrawal, Jonathan H. Huggins, Brian Trippe, Tamara Broderick
-    https://arxiv.org/abs/1905.06501
-"""
 
 
 def dot(X, Z):
@@ -196,11 +201,13 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, var_obs):
 
 
 # Helper function for doing HMC inference
-def run_inference(model, args, rng, X, Y, hypers):
+def run_inference(model, args, rng_key, X, Y, hypers):
     start = time.time()
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
-    mcmc.run(rng, X, Y, hypers)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc.run(rng_key, X, Y, hypers)
+    mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
     return mcmc.get_samples()
 
@@ -267,8 +274,8 @@ def main(args):
               'alpha_obs': 3.0, 'beta_obs': 1.0}
 
     # do inference
-    rng = random.PRNGKey(0)
-    samples = run_inference(model, args, rng, X, Y, hypers)
+    rng_key = random.PRNGKey(0)
+    samples = run_inference(model, args, rng_key, X, Y, hypers)
 
     # compute the mean and square root variance of each coefficient theta_i
     means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))
@@ -312,7 +319,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.2.0')
+    assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=500, type=int)

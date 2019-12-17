@@ -25,6 +25,7 @@ def _make_iaf_args(input_dim, hidden_dims):
 
 def _make_bnaf_args(input_dim, hidden_factors):
     arn_init, arn = BlockNeuralAutoregressiveNN(input_dim, hidden_factors)
+    _, rng_key_perm = random.split(random.PRNGKey(0))
     _, init_params = arn_init(random.PRNGKey(0), (input_dim,))
     return partial(arn, init_params),
 
@@ -61,8 +62,8 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
         # make sure jacobian is triangular, first permute jacobian as necessary
         if isinstance(transform, InverseAutoregressiveTransform):
             permuted_jac = onp.zeros(jac.shape)
-            _, rng_perm = random.split(random.PRNGKey(0))
-            perm = random.shuffle(rng_perm, onp.arange(input_dim))
+            _, rng_key_perm = random.split(random.PRNGKey(0))
+            perm = random.shuffle(rng_key_perm, onp.arange(input_dim))
 
             for j in range(input_dim):
                 for k in range(input_dim):

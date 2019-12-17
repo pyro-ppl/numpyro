@@ -1,4 +1,4 @@
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 from contextlib import contextmanager
 import os
 import random
@@ -8,10 +8,10 @@ import numpy as onp
 import tqdm
 
 import jax
-from jax import jit, lax, ops, vmap
+from jax import device_put, jit, lax, ops, vmap
 from jax.interpreters.batching import BatchTracer
 from jax.interpreters.partial_eval import JaxprTracer
-from jax.lib.xla_bridge import canonicalize_dtype
+from jax.dtypes import canonicalize_dtype
 import jax.numpy as np
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
@@ -27,6 +27,18 @@ def set_rng_seed(rng_seed):
     """
     random.seed(rng_seed)
     onp.random.seed(rng_seed)
+
+
+def enable_x64(use_x64=True):
+    """
+    Changes the default array type to use 64 bit precision as in NumPy.
+
+    :param bool use_x64: when `True`, JAX arrays will use 64 bits by default;
+        else 32 bits.
+    """
+    if not use_x64:
+        use_x64 = os.getenv('JAX_ENABLE_X64', 0)
+    jax.config.update('jax_enable_x64', use_x64)
 
 
 def set_platform(platform=None):
@@ -52,15 +64,11 @@ def set_host_device_count(n):
         `XLA_FLAGS=--xla_force_host_platform_device_count=[num_devices]`, where
         `[num_device]` is the desired number of CPU devices `n`.
 
-    .. warning:: We do not understand much the side effects when using
-        `xla_force_host_platform_device_count` flag. If you observe some strange
-        phenomenon when using this utility, please let us know through our issue
-        or forum page. Here we quote from XLA source code the meaning of this flag:
-        "Force the host platform to pretend that there are these many host
-        'devices'. All of these host devices are backed by the same threadpool.
-        Setting this to anything other than 1 can increase overhead from context
-        switching but we let the user override this behavior to help run tests
-        on the host that run models in parallel across multiple devices."
+    .. warning:: Our understanding of the side effects of using the
+        `xla_force_host_platform_device_count` flag in XLA is incomplete. If you
+        observe some strange phenomenon when using this utility, please let us
+        know through our issue or forum page. More information is available in this
+        `JAX issue <https://github.com/google/jax/issues/1408>`_.
 
     :param int n: number of CPU devices to use.
     """
@@ -134,7 +142,29 @@ def identity(x):
     return x
 
 
-def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=True, **progbar_opts):
+def cached_by(outer_fn, *keys):
+    # Restrict cache size to prevent ref cycles.
+    max_size = 8
+    outer_fn._cache = getattr(outer_fn, '_cache', OrderedDict())
+
+    def _wrapped(fn):
+        fn_cache = outer_fn._cache
+        if keys in fn_cache:
+            fn = fn_cache[keys]
+            # update position
+            del fn_cache[keys]
+            fn_cache[keys] = fn
+        else:
+            fn_cache[keys] = fn
+        if len(fn_cache) > max_size:
+            fn_cache.popitem(last=False)
+        return fn
+
+    return _wrapped
+
+
+def fori_collect(lower, upper, body_fun, init_val, transform=identity,
+                 progbar=True, return_last_val=False, collection_size=None, **progbar_opts):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
@@ -152,6 +182,11 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
         be any Python collection type containing `np.ndarray` objects.
     :param transform: a callable to post-process the values returned by `body_fn`.
     :param progbar: whether to post progress bar updates.
+    :param bool return_last_val: If `True`, the last value is also returned.
+        This has the same type as `init_val`.
+    :param int collection_size: Size of the returned collection. If not specified,
+        the size will be ``upper - lower``. If the size is larger than
+        ``upper - lower``, only the top ``upper - lower`` entries will be non-zero.
     :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
         from `body_fun` returns a string that is used to update the progress
@@ -160,39 +195,42 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
     :return: collection with the same type as `init_val` with values
         collected along the leading axis of `np.ndarray` objects.
     """
-    assert lower < upper
+    assert lower <= upper
+    collection_size = upper - lower if collection_size is None else collection_size
+    assert collection_size >= upper - lower
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
-    ravel_fn = lambda x: ravel_pytree(transform(x))[0]  # noqa: E731
 
+    @cached_by(fori_collect, body_fun, transform)
+    def _body_fn(i, vals):
+        val, collection, lower_idx = vals
+        val = body_fun(val)
+        i = np.where(i >= lower_idx, i - lower_idx, 0)
+        collection = ops.index_update(collection, i, ravel_pytree(transform(val))[0])
+        return val, collection, lower_idx
+
+    collection = np.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
-        collection = np.zeros((upper - lower,) + init_val_flat.shape)
-
-        def _body_fn(i, vals):
-            val, collection = vals
-            val = body_fun(val)
-            i = np.where(i >= lower, i - lower, 0)
-            collection = ops.index_update(collection, i, ravel_fn(val))
-            return val, collection
-
-        _, collection = fori_loop(0, upper, _body_fn, (init_val, collection))
+        last_val, collection, _ = fori_loop(0, upper, _body_fn, (init_val, collection, lower))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
-        collection = []
 
-        val = init_val
-        with tqdm.trange(upper) as t:
-            for i in t:
-                val = jit(body_fun)(val)
-                if i >= lower:
-                    collection.append(jit(ravel_fn)(val))
-                t.set_description(progbar_desc(i), refresh=False)
-                if diagnostics_fn:
-                    t.set_postfix_str(diagnostics_fn(val), refresh=False)
+        vals = (init_val, collection, device_put(lower))
+        if upper == 0:
+            # special case, only compiling
+            jit(_body_fn)(0, vals)
+        else:
+            with tqdm.trange(upper) as t:
+                for i in t:
+                    vals = jit(_body_fn)(i, vals)
+                    t.set_description(progbar_desc(i), refresh=False)
+                    if diagnostics_fn:
+                        t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
-        collection = np.stack(collection)
+        last_val, collection, _ = vals
 
-    return vmap(unravel_fn)(collection)
+    unravel_collection = vmap(unravel_fn)(collection)
+    return (unravel_collection, last_val) if return_last_val else unravel_collection
 
 
 def copy_docs_from(source_class, full_text=False):

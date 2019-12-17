@@ -65,7 +65,7 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
 
     Similar to the purely functional layer implemented in jax.experimental.stax,
     the `AutoregressiveNN` class has `init_fun` and `apply_fun` methods,
-    where `init_fun` takes an rng key and an input shape and returns an
+    where `init_fun` takes an rng_key key and an input shape and returns an
     (output_shape, params) pair, and `apply_fun` takes params and inputs
     and applies the layer.
 
@@ -131,13 +131,13 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
     else:
         net_init, net = stax.serial(*main_layers)
 
-    def init_fun(rng, input_shape):
+    def init_fun(rng_key, input_shape):
         """
-        :param rng: rng used to initialize parameters
+        :param rng_key: rng_key used to initialize parameters
         :param input_shape: input shape
         """
         assert input_dim == input_shape[-1]
-        return net_init(rng, input_shape)
+        return net_init(rng_key, input_shape)
 
     def apply_fun(params, inputs, **kwargs):
         """

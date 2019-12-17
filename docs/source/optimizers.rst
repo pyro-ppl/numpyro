@@ -1,5 +1,5 @@
-NumPyro Optimizers
-==================
+Optimizers
+==========
 
 .. automodule:: numpyro.optim
 
@@ -13,6 +13,13 @@ Adam
 Adagrad
 -------
 .. autoclass:: numpyro.optim.Adagrad
+   :members:
+   :undoc-members:
+   :inherited-members:
+
+ClippedAdam
+-----------
+.. autoclass:: numpyro.optim.ClippedAdam
    :members:
    :undoc-members:
    :inherited-members:

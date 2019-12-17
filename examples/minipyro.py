@@ -32,7 +32,7 @@ def main(args):
     # model/guide pair.
     adam = optim.Adam(args.learning_rate)
 
-    svi = SVI(model, guide, ELBO(num_particles=100), adam)
+    svi = SVI(model, guide, adam, ELBO(num_particles=100))
     svi_state = svi.init(PRNGKey(0), data)
 
     # Training loop
@@ -55,7 +55,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.2.0')
+    assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description="Mini Pyro demo")
     parser.add_argument("-f", "--full-pyro", action="store_true", default=False)
     parser.add_argument("-n", "--num-steps", default=1001, type=int)

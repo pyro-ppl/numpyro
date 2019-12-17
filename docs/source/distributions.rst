@@ -25,6 +25,14 @@ TransformedDistribution
     :show-inheritance:
     :member-order: bysource
 
+Unit
+----
+.. autoclass:: numpyro.distributions.distribution.Unit
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 
 Continuous Distributions
 ========================
@@ -141,6 +149,14 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
+LowRankMultivariateNormal
+-------------------------
+.. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Normal
 ------
 .. autoclass:: numpyro.distributions.continuous.Normal
@@ -213,6 +229,14 @@ BernoulliProbs
     :show-inheritance:
     :member-order: bysource
 
+BetaBinomial
+------------
+.. autoclass:: numpyro.distributions.conjugate.BetaBinomial
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Binomial
 ---------
 .. autofunction:: numpyro.distributions.discrete.Binomial
@@ -261,6 +285,14 @@ Delta
     :show-inheritance:
     :member-order: bysource
 
+GammaPoisson
+------------
+.. autoclass:: numpyro.distributions.conjugate.GammaPoisson
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Multinomial
 -----------
 .. autofunction:: numpyro.distributions.discrete.Multinomial
@@ -281,6 +313,14 @@ MultinomialProbs
     :show-inheritance:
     :member-order: bysource
 
+OrderedLogistic
+---------------
+.. autoclass:: numpyro.distributions.discrete.OrderedLogistic
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Poisson
 -------
 .. autoclass:: numpyro.distributions.discrete.Poisson
@@ -292,6 +332,14 @@ Poisson
 PRNGIdentity
 ------------
 .. autoclass:: numpyro.distributions.discrete.PRNGIdentity
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+ZeroInflatedPoisson
+-------------------
+.. autoclass:: numpyro.distributions.discrete.ZeroInflatedPoisson
     :members:
     :undoc-members:
     :show-inheritance:
@@ -343,6 +391,10 @@ multinomial
 nonnegative_integer
 -------------------
 .. autodata:: numpyro.distributions.constraints.nonnegative_integer
+
+ordered_vector
+--------------
+.. autodata:: numpyro.distributions.constraints.ordered_vector
 
 positive
 --------
@@ -455,6 +507,14 @@ LowerCholeskyTransform
 MultivariateAffineTransform
 ---------------------------
 .. autoclass:: numpyro.distributions.transforms.MultivariateAffineTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+OrderedTransform
+----------------
+.. autoclass:: numpyro.distributions.transforms.OrderedTransform
     :members:
     :undoc-members:
     :show-inheritance:

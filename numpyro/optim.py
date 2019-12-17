@@ -7,10 +7,13 @@ suited for working with NumPyro inference algorithms.
 from typing import Callable, Tuple, TypeVar
 
 from jax.experimental import optimizers
+import jax.numpy as np
+from jax.tree_util import tree_map
 
 __all__ = [
     'Adam',
     'Adagrad',
+    'ClippedAdam',
     'Momentum',
     'RMSProp',
     'RMSPropMomentum',
@@ -73,6 +76,30 @@ def _add_doc(fn):
 class Adam(_NumpyroOptim):
     def __init__(self, *args, **kwargs):
         super(Adam, self).__init__(optimizers.adam, *args, **kwargs)
+
+
+class ClippedAdam(_NumpyroOptim):
+    """
+    :class:`~numpyro.optim.Adam` optimizer with gradient clipping.
+
+    :param float clip_norm: All gradient values will be clipped between
+        `[-clip_norm, clip_norm]`.
+
+    **Reference:**
+
+    `A Method for Stochastic Optimization`, Diederik P. Kingma, Jimmy Ba
+    https://arxiv.org/abs/1412.6980
+    """
+    def __init__(self, *args, clip_norm=10., **kwargs):
+        self.clip_norm = clip_norm
+        super(ClippedAdam, self).__init__(optimizers.adam, *args, **kwargs)
+
+    def update(self, g, state):
+        i, opt_state = state
+        # clip norm
+        g = tree_map(lambda g_: np.clip(g_, a_min=-self.clip_norm, a_max=self.clip_norm), g)
+        opt_state = self.update_fn(i, g, opt_state)
+        return i + 1, opt_state
 
 
 @_add_doc(optimizers.adagrad)

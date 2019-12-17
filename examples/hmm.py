@@ -1,18 +1,7 @@
-import argparse
-import time
-
-import numpy as onp
-
-from jax import lax, random
-import jax.numpy as np
-from jax.scipy.special import logsumexp
-
-import numpyro
-import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
-
-
 """
+Hidden Markov Model
+===================
+
 In this example, we will follow [1] to construct a semi-supervised Hidden Markov
 Model for a generative model with observations are words and latent variables
 are categories. Instead of automatically marginalizing all discrete latent
@@ -26,33 +15,51 @@ discussion [4]). On the other hand, this example also illustrates the usage of
 JAX's `lax.scan` primitive. The primitive will greatly improve compiling for the
 model.
 
-[1] https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html
-[2] http://pyro.ai/examples/hmm.html
-[3] https://en.wikipedia.org/wiki/Forward_algorithm
-[4] https://discourse.pymc.io/t/how-to-marginalized-markov-chain-with-categorical/2230
+**References:**
+
+    1. https://mc-stan.org/docs/2_19/stan-users-guide/hmms-section.html
+    2. http://pyro.ai/examples/hmm.html
+    3. https://en.wikipedia.org/wiki/Forward_algorithm
+    4. https://discourse.pymc.io/t/how-to-marginalized-markov-chain-with-categorical/2230
 """
 
+import argparse
+import os
+import time
 
-def simulate_data(rng, num_categories, num_words, num_supervised_data, num_unsupervised_data):
-    rng, rng_transition, rng_emission = random.split(rng, 3)
+import matplotlib.pyplot as plt
+import numpy as onp
+from scipy.stats import gaussian_kde
+
+from jax import lax, random
+import jax.numpy as np
+from jax.scipy.special import logsumexp
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.infer import MCMC, NUTS
+
+
+def simulate_data(rng_key, num_categories, num_words, num_supervised_data, num_unsupervised_data):
+    rng_key, rng_key_transition, rng_key_emission = random.split(rng_key, 3)
 
     transition_prior = np.ones(num_categories)
     emission_prior = np.repeat(0.1, num_words)
 
-    transition_prob = dist.Dirichlet(transition_prior).sample(key=rng_transition,
+    transition_prob = dist.Dirichlet(transition_prior).sample(key=rng_key_transition,
                                                               sample_shape=(num_categories,))
-    emission_prob = dist.Dirichlet(emission_prior).sample(key=rng_emission,
+    emission_prob = dist.Dirichlet(emission_prior).sample(key=rng_key_emission,
                                                           sample_shape=(num_categories,))
 
     start_prob = np.repeat(1. / num_categories, num_categories)
     categories, words = [], []
     for t in range(num_supervised_data + num_unsupervised_data):
-        rng, rng_transition, rng_emission = random.split(rng, 3)
+        rng_key, rng_key_transition, rng_key_emission = random.split(rng_key, 3)
         if t == 0 or t == num_supervised_data:
-            category = dist.Categorical(start_prob).sample(key=rng_transition)
+            category = dist.Categorical(start_prob).sample(key=rng_key_transition)
         else:
-            category = dist.Categorical(transition_prob[category]).sample(key=rng_transition)
-        word = dist.Categorical(emission_prob[category]).sample(key=rng_emission)
+            category = dist.Categorical(transition_prob[category]).sample(key=rng_key_transition)
+        word = dist.Categorical(emission_prob[category]).sample(key=rng_key_emission)
         categories.append(category)
         words.append(word)
 
@@ -110,8 +117,7 @@ def semi_supervised_hmm(transition_prior, emission_prior,
                                 transition_log_prob, emission_log_prob)
     log_prob = logsumexp(log_prob, axis=0, keepdims=True)
     # inject log_prob to potential function
-    # NB: This is a trick to add an additional term to potential energy.
-    numpyro.sample('forward_log_prob', dist.Delta(log_density=log_prob), obs=0.)
+    numpyro.factor('forward_log_prob', log_prob)
 
 
 def print_results(posterior, transition_prob, emission_prob):
@@ -146,19 +152,35 @@ def main(args):
         num_unsupervised_data=args.num_unsupervised,
     )
     print('Starting inference...')
-    rng = random.PRNGKey(2)
+    rng_key = random.PRNGKey(2)
     start = time.time()
     kernel = NUTS(semi_supervised_hmm)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
-    mcmc.run(rng, transition_prior, emission_prior, supervised_categories,
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc.run(rng_key, transition_prior, emission_prior, supervised_categories,
              supervised_words, unsupervised_words)
     samples = mcmc.get_samples()
-    print('\nMCMC elapsed time:', time.time() - start)
     print_results(samples, transition_prob, emission_prob)
+    print('\nMCMC elapsed time:', time.time() - start)
+
+    # make plots
+    fig, ax = plt.subplots(1, 1)
+
+    x = onp.linspace(0, 1, 101)
+    for i in range(transition_prob.shape[0]):
+        for j in range(transition_prob.shape[1]):
+            ax.plot(x, gaussian_kde(samples['transition_prob'][:, i, j])(x),
+                    label="transition_prob[{}, {}], true value = {:.2f}"
+                    .format(i, j, transition_prob[i, j]))
+    ax.set(xlabel="Probability", ylabel="Frequency",
+           title="Transition probability posterior")
+
+    plt.savefig("hmm_plot.pdf")
+    plt.tight_layout()
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.2.0')
+    assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description='Semi-supervised Hidden Markov Model')
     parser.add_argument('--num-categories', default=3, type=int)
     parser.add_argument('--num-words', default=10, type=int)

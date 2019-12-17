@@ -42,11 +42,12 @@ def model(data, labels):
 def benchmark_hmc(args, features, labels):
     step_size = np.sqrt(0.5 / features.shape[0])
     trajectory_length = step_size * args.num_steps
-    rng = random.PRNGKey(1)
+    rng_key = random.PRNGKey(1)
     start = time.time()
     kernel = NUTS(model, trajectory_length=trajectory_length)
     mcmc = MCMC(kernel, 0, args.num_samples)
-    mcmc.run(rng, features, labels)
+    mcmc.run(rng_key, features, labels)
+    mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
 
 
@@ -56,7 +57,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.2.0')
+    assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('-n', '--num-samples', default=100, type=int, help='number of samples')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
