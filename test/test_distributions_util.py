@@ -16,6 +16,7 @@ from numpyro.distributions.util import (
     cumprod,
     cumsum,
     multinomial,
+    poisson,
     vec_to_tril_matrix,
     xlog1py,
     xlogy
@@ -209,6 +210,15 @@ def test_multinomial_stats(p, n):
     n = float(n) if isinstance(n, Number) else np.expand_dims(n.astype(p.dtype), -1)
     p = np.broadcast_to(p, z.shape)
     assert_allclose(z / n, p, atol=0.01)
+
+
+def test_poisson():
+    mu = rate = 1000
+    N = 2 ** 18
+
+    key = random.PRNGKey(64)
+    B = poisson(key, rate=rate, shape=(N,))
+    assert_allclose(B.mean(), mu, rtol=0.001)
 
 
 @pytest.mark.parametrize("shape", [
