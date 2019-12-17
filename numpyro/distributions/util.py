@@ -89,7 +89,8 @@ def _poisson_small(val):
         prod = prod * U
         return rng_key, prod, k + 1
 
-    *_, k = lax.while_loop(lambda val: val[1] > enlam, body_fn, (rng_key, 1., 0.))
+    init = np.where(lam == 0., 0., -1.)
+    *_, k = lax.while_loop(lambda val: val[1] > enlam, body_fn, (rng_key, 1., init))
     return k
 
 
