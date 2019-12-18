@@ -25,7 +25,7 @@ EXAMPLES = [
 @pytest.mark.parametrize('example', EXAMPLES)
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
 def test_cpu(example):
-    if 'hmm' in example and 'XLA_FLAGS' in os.environ:
+    if 'hmm' in example and 'XLA_FLAGS' not in os.environ:
         pytest.skip("Issue https://github.com/pyro-ppl/numpyro/issues/498")
     print('Running:\npython examples/{}'.format(example))
     example = example.split()
