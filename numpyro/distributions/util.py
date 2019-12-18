@@ -1,12 +1,9 @@
 from functools import update_wrapper
 import math
 
-import scipy.special as osp_special
-
 from jax import custom_transforms, defjvp, jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
 import jax.numpy as np
-from jax.numpy.lax_numpy import _promote_args_inexact
 from jax.scipy.linalg import solve_triangular
 from jax.util import partial
 
@@ -105,56 +102,6 @@ def _multinomial(key, p, n, n_max, shape=()):
 def multinomial(key, p, n, shape=()):
     n_max = int(np.max(n))
     return _multinomial(key, p, n, n_max, shape)
-
-
-def _xlogy_jvp_lhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
-    g = np.broadcast_to(g, shape)
-    y = np.broadcast_to(y, shape)
-    g, y = _promote_args_inexact(osp_special.xlogy, g, y)
-    return lax._safe_mul(g, np.log(y))
-
-
-def _xlogy_jvp_rhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
-    g = np.broadcast_to(g, shape)
-    x = np.broadcast_to(x, shape)
-    x, y = _promote_args_inexact(osp_special.xlogy, x, y)
-    return g * lax._safe_mul(x, np.reciprocal(y))
-
-
-@custom_transforms
-def xlogy(x, y):
-    x, y = _promote_args_inexact(osp_special.xlogy, x, y)
-    return lax._safe_mul(x, np.log(y))
-
-
-defjvp(xlogy, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
-
-
-def _xlog1py_jvp_lhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
-    g = np.broadcast_to(g, shape)
-    y = np.broadcast_to(y, shape)
-    g, y = _promote_args_inexact(osp_special.xlog1py, g, y)
-    return lax._safe_mul(g, np.log1p(y))
-
-
-def _xlog1py_jvp_rhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
-    g = np.broadcast_to(g, shape)
-    x = np.broadcast_to(x, shape)
-    x, y = _promote_args_inexact(osp_special.xlog1py, x, y)
-    return g * lax._safe_mul(x, np.reciprocal(1 + y))
-
-
-@custom_transforms
-def xlog1py(x, y):
-    x, y = _promote_args_inexact(osp_special.xlog1py, x, y)
-    return lax._safe_mul(x, np.log1p(y))
-
-
-defjvp(xlog1py, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
 
 
 def cholesky_inverse(matrix):
