@@ -545,7 +545,7 @@ class Predictive(object):
         self.return_sites = return_sites
         self.parallel = parallel
 
-    def get_samples(self, rng_key, *args, **kwargs):
+    def __call__(self, rng_key, *args, **kwargs):
         """
         Returns dict of samples from the predictive distribution. By default, only sample sites not
         contained in `posterior_samples` are returned. This can be modified by changing the
@@ -567,6 +567,11 @@ class Predictive(object):
         return _predictive(rng_key, model, posterior_samples, self.num_samples,
                            return_sites=self.return_sites, parallel=self.parallel,
                            model_args=args, model_kwargs=kwargs)
+
+    def get_samples(self, rng_key, *args, **kwargs):
+        warnings.warn("The method `.get_samples` has been deprecated in favor of `.__call__`.",
+                      DeprecationWarning)
+        return self.__call__(rng_key, *args, **kwargs)
 
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):
