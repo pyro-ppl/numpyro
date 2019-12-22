@@ -25,8 +25,6 @@ EXAMPLES = [
 @pytest.mark.parametrize('example', EXAMPLES)
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
 def test_cpu(example):
-    if 'hmm' in example:
-        pytest.skip("Issue https://github.com/pyro-ppl/numpyro/issues/498")
     print('Running:\npython examples/{}'.format(example))
     example = example.split()
     filename, args = example[0], example[1:]
