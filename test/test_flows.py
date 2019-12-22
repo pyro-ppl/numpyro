@@ -46,7 +46,7 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
     try:
         inv = transform.inv(y)
         assert_allclose(x, inv, atol=1e-5)
-    except RuntimeError:
+    except NotImplementedError:
         pass
 
     # test jacobian shape

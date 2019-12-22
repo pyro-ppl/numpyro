@@ -106,8 +106,8 @@ class BlockNeuralAutoregressiveTransform(Transform):
         return y, logdet
 
     def inv(self, y):
-        raise RuntimeError("Block neural autoregressive transform does not have an analytic"
-                           " inverse implemented.")
+        raise NotImplementedError("Block neural autoregressive transform does not have an analytic"
+                                  " inverse implemented.")
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         """
