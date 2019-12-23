@@ -106,7 +106,7 @@ def main(args):
     dept, male, applications, admit = fetch_train()
     rng_key, rng_key_predict = random.split(random.PRNGKey(1))
     zs = run_inference(dept, male, applications, admit, rng_key, args)
-    pred_probs = Predictive(glmm, zs).get_samples(rng_key_predict, dept, male, applications)['probs']
+    pred_probs = Predictive(glmm, zs)(rng_key_predict, dept, male, applications)['probs']
     header = '=' * 30 + 'glmm - TRAIN' + '=' * 30
     print_results(header, pred_probs, dept, male, admit / applications)
 

@@ -48,11 +48,11 @@ def test_predictive(parallel):
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
     predictive = Predictive(model, samples, parallel=parallel)
-    predictive_samples = predictive.get_samples(random.PRNGKey(1))
+    predictive_samples = predictive(random.PRNGKey(1))
     assert predictive_samples.keys() == {"obs"}
 
     predictive.return_sites = ["beta", "obs"]
-    predictive_samples = predictive.get_samples(random.PRNGKey(1))
+    predictive_samples = predictive(random.PRNGKey(1))
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape
     assert predictive_samples["obs"].shape == (100,) + data.shape
@@ -85,7 +85,7 @@ def test_predictive_with_guide():
     svi_state = lax.fori_loop(0, 1000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
-    obs_pred = predictive.get_samples(random.PRNGKey(2), data=None)["obs"]
+    obs_pred = predictive(random.PRNGKey(2), data=None)["obs"]
     assert_allclose(np.mean(obs_pred), 0.8, atol=0.05)
 
 
@@ -102,13 +102,13 @@ def test_predictive_with_improper():
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
-    obs_pred = Predictive(model, samples).get_samples(random.PRNGKey(1), data=None)["obs"]
+    obs_pred = Predictive(model, samples)(random.PRNGKey(1), data=None)["obs"]
     assert_allclose(np.mean(obs_pred), true_coef, atol=0.05)
 
 
 def test_prior_predictive():
     model, data, true_probs = beta_bernoulli()
-    predictive_samples = Predictive(model, num_samples=100).get_samples(random.PRNGKey(1))
+    predictive_samples = Predictive(model, num_samples=100)(random.PRNGKey(1))
     assert predictive_samples.keys() == {"beta", "obs"}
 
     # check shapes
@@ -118,7 +118,7 @@ def test_prior_predictive():
 
 def test_log_likelihood():
     model, data, _ = beta_bernoulli()
-    samples = Predictive(model, return_sites=["beta"], num_samples=100).get_samples(random.PRNGKey(1))
+    samples = Predictive(model, return_sites=["beta"], num_samples=100)(random.PRNGKey(1))
     loglik = log_likelihood(model, samples, data)
     assert loglik.keys() == {"obs"}
     # check shapes
