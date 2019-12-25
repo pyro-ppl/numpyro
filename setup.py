@@ -33,6 +33,8 @@ setup(
         # TODO: pin to a specific version for the release (unless JAX's API becomes stable)
         'jax==0.1.53',
         'jaxlib==0.1.36',
+        # TODO: remove when https://github.com/google/jax/issues/1912 is fixed.
+        'numpy<1.18',
         'tqdm',
     ],
     extras_require={
