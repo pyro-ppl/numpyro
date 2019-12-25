@@ -1,3 +1,5 @@
 jax>=0.1.53
+# TODO: remove when https://github.com/google/jax/issues/1912 is fixed.
 jaxlib>=0.1.36
+numpy<1.18
 tqdm
