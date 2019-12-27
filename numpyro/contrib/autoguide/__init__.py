@@ -347,6 +347,63 @@ class AutoMultivariateNormal(AutoContinuous):
         return self._unpack_and_constrain(latent, params)
 
 
+class AutoLowRankMultivariateNormal(AutoContinuous):
+    """
+    This implementation of :class:`AutoContinuous` uses a LowRankMultivariateNormal
+    distribution to construct a guide over the entire latent space.
+    The guide does not depend on the model's ``*args, **kwargs``.
+
+    Usage::
+
+        guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
+        svi = SVI(model, guide, ...)
+    """
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), rank=None):
+        self.rank = rank
+        super(AutoLowRankMultivariateNormal, self).__init__(
+            model, prefix=prefix, init_strategy=init_strategy)
+
+    def _sample_latent(self, base_dist, *args, **kwargs):
+        sample_shape = kwargs.pop('sample_shape', ())
+        rank = int(round(self.latent_size ** 0.5)) if self.rank is None else self.rank
+        loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
+        cov_factor = numpyro.param('{}_cov_factor'.format(self.prefix), np.zeros((self.latent_size, rank)))
+        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size))
+        cov_diag = scale * scale
+        cov_factor = cov_factor * scale[..., None]
+        posterior = dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag)
+        return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
+
+    def _get_transform(self, params):
+        loc = params['{}_loc'.format(self.prefix)]
+        cov_factor = params['{}_cov_factor'.format(self.prefix)]
+        scale = params['{}_scale'.format(self.prefix)]
+        cov_diag = scale * scale
+        cov_factor = cov_factor * scale[..., None]
+        scale_tril = dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag).scale_tril
+        return MultivariateAffineTransform(loc, scale_tril)
+
+    def sample_posterior(self, rng_key, params, sample_shape=()):
+        transform = self._get_transform(params)
+        loc, scale_tril = transform.loc, transform.scale_tril
+        latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng_key, sample_shape)
+        return self._unpack_and_constrain(latent_sample, params)
+
+    def get_transform(self, params):
+        return ComposeTransform([self._get_transform(params),
+                                 UnpackTransform(self._unpack_latent)])
+
+    def median(self, params):
+        loc = params['{}_loc'.format(self.prefix)]
+        return self._unpack_and_constrain(loc, params)
+
+    def quantiles(self, params, quantiles):
+        transform = self._get_transform(params)
+        quantiles = np.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
+        return self._unpack_and_constrain(latent, params)
+
+
 class AutoLaplaceApproximation(AutoContinuous):
     r"""
     Laplace approximation (quadratic approximation) approximates the posterior

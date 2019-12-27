@@ -14,6 +14,7 @@ from numpyro.contrib.autoguide import (
     AutoDiagonalNormal,
     AutoIAFNormal,
     AutoLaplaceApproximation,
+    AutoLowRankMultivariateNormal,
     AutoMultivariateNormal
 )
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
@@ -33,6 +34,7 @@ init_strategy = init_to_median(num_samples=2)
     AutoIAFNormal,
     AutoMultivariateNormal,
     AutoLaplaceApproximation,
+    AutoLowRankMultivariateNormal,
 ])
 def test_beta_bernoulli(auto_class):
     data = np.array([[1.0] * 8 + [0.0] * 2,
@@ -64,6 +66,7 @@ def test_beta_bernoulli(auto_class):
     AutoIAFNormal,
     AutoMultivariateNormal,
     AutoLaplaceApproximation,
+    AutoLowRankMultivariateNormal,
 ])
 def test_logistic_regression(auto_class):
     N, dim = 3000, 3
