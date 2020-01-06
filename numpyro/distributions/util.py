@@ -206,6 +206,9 @@ def xlog1py(x, y):
 defjvp(xlog1py, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
 
 
+# TODO: rename this function, in PyTorch cholesky_inverse computes the inverse using a cholesky
+# input; here we want to take cholesky of the inverse... (the name here is better but
+# we need to change to avoid confusion)
 def cholesky_inverse(matrix):
     # This formulation only takes the inverse of a triangular matrix
     # which is more numerically stable.
@@ -280,6 +283,42 @@ def vec_to_tril_matrix(t, diagonal=0):
                                                     inserted_window_dims=(t.ndim - 1,),
                                                     scatter_dims_to_operand_dims=(t.ndim - 1,)))
     return np.reshape(x, x.shape[:-1] + (n, n))
+
+
+def cholesky_update(L, x, coef=1):
+    """
+    Finds cholesky of L @ L.T + coef * x @ x.T.
+
+    **References;**
+
+        1. A more efficient rank-one covariance matrix update for evolution strategies,
+           Oswin Krause and Christian Igel
+    """
+    batch_shape = lax.broadcast_shapes(L.shape[:-2], x.shape[:-1])
+    L = np.broadcast_to(L, batch_shape + L.shape[-2:])
+    x = np.broadcast_to(x, batch_shape + x.shape[-1:])
+    diag = np.diagonal(L, axis1=-2, axis2=-1)
+    # convert to unit diagonal triangular matrix: L @ D @ T.t
+    L = L / diag[..., None, :]
+    D = np.square(diag)
+
+    def scan_fn(carry, val):
+        b, w = carry
+        j, Dj, L_j = val
+        wj = w[..., j]
+        gamma = b * Dj + coef * np.square(wj)
+        Dj_new = gamma / b
+        b = gamma / Dj_new
+
+        # update vectors w and L_j
+        w = w - wj[..., None] * L_j
+        L_j = L_j + (coef * wj / gamma)[..., None] * w
+        return (b, w), (Dj_new, L_j)
+
+    D, L = np.moveaxis(D, -1, 0), np.moveaxis(L, -1, 0)  # move scan dim to front
+    _, (D, L) = lax.scan(scan_fn, (np.ones(batch_shape), x), (np.arange(D.shape[0]), D, L))
+    D, L = np.moveaxis(D, 0, -1), np.moveaxis(L, 0, -1)  # move scan dim back
+    return L * np.sqrt(D)[..., None, :]
 
 
 def signed_stick_breaking_tril(t):
