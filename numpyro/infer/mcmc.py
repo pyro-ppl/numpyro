@@ -551,8 +551,8 @@ class HMC(MCMCKernel):
 
 class NUTS(HMC):
     """
-     Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS)
-     with adaptive path length and mass matrix adaptation.
+    Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS)
+    with adaptive path length and mass matrix adaptation.
 
     **References:**
 
@@ -610,6 +610,46 @@ class NUTS(HMC):
                                    trajectory_length=trajectory_length, init_strategy=init_strategy)
         self._max_tree_depth = max_tree_depth
         self._algo = 'NUTS'
+
+
+class SA(MCMCKernel):
+    """
+    Sample Adaptive MCMC, a gradient-free sampler.
+
+    **References:**
+
+    1. *Sample Adaptive MCMC* (https://papers.nips.cc/paper/9107-sample-adaptive-mcmc),
+       Michael Zhu
+    """
+    def __init__(self, model=None, potential_fn=None,):
+        if not (model is None) ^ (potential_fn is None):
+            raise ValueError('Only one of `model` or `potential_fn` must be specified.')
+        self._model = model
+        self._potential_fn = potential_fn
+
+    @property
+    def model(self):
+        return self._model
+
+    @copy_docs_from(MCMCKernel.init)
+    def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
+        pass
+
+    @copy_docs_from(MCMCKernel.constrain_fn)
+    def constrain_fn(self, args, kwargs):
+        pass
+
+    def sample(self, state, model_args, model_kwargs):
+        """
+        Run SA from the given :data:`~numpyro.infer.mcmc.SAState` and return the resulting
+        :data:`~numpyro.infer.mcmc.SAState`.
+
+        :param SAState state: Represents the current state.
+        :param model_args: Arguments provided to the model.
+        :param model_kwargs: Keyword arguments provided to the model.
+        :return: Next `state` after running SA.
+        """
+        pass
 
 
 def _get_value_from_index(xs, i):
