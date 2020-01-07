@@ -13,6 +13,7 @@ from jax.util import partial
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     categorical,
+    cholesky_update,
     cumprod,
     cumsum,
     multinomial,
@@ -239,3 +240,17 @@ def test_vec_to_tril_matrix(shape, diagonal):
     tril_idxs = onp.tril_indices(expected.shape[-1], diagonal)
     expected[..., tril_idxs[0], tril_idxs[1]] = x
     assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize("chol_batch_shape", [(), (3,)])
+@pytest.mark.parametrize("vec_batch_shape", [(), (3,)])
+@pytest.mark.parametrize("dim", [1, 4])
+@pytest.mark.parametrize("coef", [1, -1])
+def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
+    A = random.normal(random.PRNGKey(0), chol_batch_shape + (dim, dim))
+    A = A @ np.swapaxes(A, -2, -1) + np.eye(dim)
+    x = random.normal(random.PRNGKey(0), vec_batch_shape + (dim,)) * 0.1
+    xxt = x[..., None] @ x[..., None, :]
+    expected = np.linalg.cholesky(A + coef * xxt)
+    actual = cholesky_update(np.linalg.cholesky(A), x, coef)
+    assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
