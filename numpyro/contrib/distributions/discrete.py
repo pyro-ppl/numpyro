@@ -11,11 +11,11 @@ import numpy as onp
 from jax import device_put, random
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_dtypes
-from jax.scipy.special import entr, expit, gammaln
+from jax.scipy.special import entr, expit, gammaln, xlog1py, xlogy
 
 from numpyro.contrib.distributions.distribution import jax_discrete
 from numpyro.distributions import constraints
-from numpyro.distributions.util import binary_cross_entropy_with_logits, xlog1py, xlogy
+from numpyro.distributions.util import binary_cross_entropy_with_logits
 
 
 class bernoulli_gen(jax_discrete):

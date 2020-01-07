@@ -27,7 +27,7 @@ from jax.dtypes import canonicalize_dtype
 from jax.nn import softmax
 import jax.numpy as np
 import jax.random as random
-from jax.scipy.special import expit, gammaln, logsumexp
+from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -43,8 +43,6 @@ from numpyro.distributions.util import (
     promote_shapes,
     sum_rightmost,
     validate_sample,
-    xlog1py,
-    xlogy
 )
 from numpyro.util import copy_docs_from
 
