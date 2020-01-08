@@ -233,20 +233,11 @@ The motivating ideas behind NumPyro and a description of Iterative NUTS can be f
 If you use NumPyro, please consider citing:
 
 ```
-@ARTICLE{2019arXiv191211554P,
-       author = {{Phan}, Du and {Pradhan}, Neeraj and {Jankowiak}, Martin},
-        title = "{Composable Effects for Flexible and Accelerated Probabilistic Programming in NumPyro}",
-      journal = {arXiv e-prints},
-     keywords = {Statistics - Machine Learning, Computer Science - Artificial Intelligence, Computer Science - Machine Learning, Computer Science - Programming Languages, I.2.5, G.3, I.2.5, G.3},
-         year = "2019",
-        month = "Dec",
-          eid = {arXiv:1912.11554},
-        pages = {arXiv:1912.11554},
-archivePrefix = {arXiv},
-       eprint = {1912.11554},
- primaryClass = {stat.ML},
-       adsurl = {https://ui.adsabs.harvard.edu/abs/2019arXiv191211554P},
-      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+@article{phan2019composable,
+  title={Composable Effects for Flexible and Accelerated Probabilistic Programming in NumPyro},
+  author={Phan, Du and Pradhan, Neeraj and Jankowiak, Martin},
+  journal={arXiv preprint arXiv:1912.11554},
+  year={2019}
 }
 ```
 .
