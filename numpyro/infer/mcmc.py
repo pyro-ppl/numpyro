@@ -14,10 +14,12 @@ from jax.interpreters.xla import DeviceArray
 from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.random import PRNGKey
+from jax.scipy.special import logsumexp
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import print_summary
-from numpyro.distributions.util import cholesky_update
+import numpyro.distributions as dist
+from numpyro.distributions.util import categorical_logits, cholesky_update
 from numpyro.infer.hmc_util import (
     IntegratorState,
     build_tree,
@@ -634,37 +636,112 @@ def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
     return proposal_loc, proposal_scale
 
 
-SAAdaptState = namedtuple('SAAdaptState', ['zs', 'potential_energies', 'loc', 'inverse_mass_matrix_sqrt'])
+def _sample_proposal(inv_mass_matrix_sqrt, rng_key, batch_shape=()):
+    eps = random.normal(rng_key, batch_shape + np.shape(inv_mass_matrix_sqrt)[:1])
+    if inv_mass_matrix_sqrt.ndim == 1:
+        r = np.multiply(inv_mass_matrix_sqrt, eps)
+    elif inv_mass_matrix_sqrt.ndim == 2:
+        r = np.matmul(inv_mass_matrix_sqrt, eps[..., None])[..., 0]
+    else:
+        raise ValueError("Mass matrix has incorrect number of dims.")
+    return r
+
+
+SAAdaptState = namedtuple('SAAdaptState', ['zs', 'pes', 'loc', 'inv_mass_matrix_sqrt'])
 SAState = namedtuple('SAState', ['i', 'z', 'potential_energy', 'accept_prob',
                                  'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
 
 
 def sa(potential_fn=None, potential_fn_gen=None):
+    wa_steps = None
+    max_delta_energy = 1000.
+
     def init_kernel(init_params,
                     num_warmup,
+                    adapt_state_size,
                     inverse_mass_matrix=None,
                     dense_mass=False,
                     model_args=(),
                     model_kwargs=None,
                     rng_key=PRNGKey(0)):
-        if inverse_mass_matrix is None:
-            assert mass_matrix_size is not None
-            if dense_mass:
-                inverse_mass_matrix = np.identity(mass_matrix_size)
+        nonlocal wa_steps
+        wa_steps = num_warmup
+        pe_fn = potential_fn
+        if potential_fn_gen:
+            if pe_fn is not None:
+                raise ValueError('Only one of `potential_fn` or `potential_fn_gen` must be provided.')
             else:
-                inverse_mass_matrix = np.ones(mass_matrix_size)
-            mass_matrix_sqrt = inverse_mass_matrix
-        adapt_state = ...
+                kwargs = {} if model_kwargs is None else model_kwargs
+                pe_fn = potential_fn_gen(*model_args, **kwargs)
+        rng_key_sa, rng_key_zs = random.split(rng_key)
+        z = init_params
+        z_flat, unravel_fn = ravel_pytree(z)
         if inverse_mass_matrix is None:
-            inverse_mass_matrix = np.ones()
-        rng_key_sa, rng_key = random.split(rng_key)
-        hmc_state = SAState(0, z, potential_energy, 0., 0., False, adapt_state, rng_key_sa)
-        return device_put(hmc_state)
+            mass_matrix_size = z_flat.shape[-1]
+            inverse_mass_matrix = np.identity(mass_matrix_size) if dense_mass else np.ones(mass_matrix_size)
+        inv_mass_matrix_sqrt = np.linalg.cholesky(inverse_mass_matrix) if dense_mass \
+            else np.sqrt(inverse_mass_matrix)
+        # mean is init_params
+        zs = z_flat + _sample_proposal(inv_mass_matrix_sqrt, rng_key_zs, (adapt_state_size,))
+        zs_ = np.concatenate([z_flat[None, :], zs])
+        # compute potential energies
+        pes_ = lax.map(lambda z: pe_fn(unravel_fn(z)), zs_)
+        pe, pes = pes_[0], pes_[1:]
+        if dense_mass:
+            cov = np.cov(zs, rowvar=False, bias=True)
+            if cov.shape == ():
+                cov = cov.reshape((1, 1))
+            inv_mass_matrix_sqrt = np.linalg.cholesky(cov)
+        else:
+            inv_mass_matrix_sqrt = np.std(zs, 0)
+        adapt_state = SAAdaptState(zs, pes, np.mean(zs, 0), inv_mass_matrix_sqrt)
+        sa_state = SAState(0, z, pe, 0., 0., False, adapt_state, rng_key_sa)
+        return device_put(sa_state)
 
-    def sample_kernel(hmc_state, model_args=(), model_kwargs=None):
-        pass
+    def sample_kernel(sa_state, model_args=(), model_kwargs=None):
+        pe_fn = potential_fn
+        if potential_fn_gen:
+            pe_fn = potential_fn_gen(*model_args, **model_kwargs)
+        zs, pes, loc, inv_mass_matrix_sqrt = sa_state.adapt_state
+        rng_key, rng_key_z, rng_key_cat = random.split(sa_state.rng_key, 3)
+        z_old, unravel_fn = ravel_pytree(sa_state.z)
+
+        z = loc + _sample_proposal(inv_mass_matrix_sqrt, rng_key_z)
+        pe = pe_fn(unravel_fn(z))
+        pe = np.where(np.isnan(pe), np.inf, pe)
+        diverging = (pe - sa_state.potential_energy) > max_delta_energy
+
+        locs, scales = _get_proposal_loc_and_scale(zs, loc, inv_mass_matrix_sqrt, z)
+        zs_ = np.concatenate([z[None, :], zs])
+        pes_ = np.concatenate([pe[None], pes])
+        if inv_mass_matrix_sqrt.ndim == 2:  # dense_mass
+            log_weights = dist.MultivariateNormal(locs, scale_tril=scales).log_prob(zs_) + pes_
+        else:
+            log_weights = dist.Normal(locs, scales).log_probs(zs_).sum(-1) + pes_
+        j = categorical_logits(rng_key_cat, log_weights)
+        zs = np.delete(zs_, j, axis=0)
+        pes = np.delete(pes_, j, axis=0)
+        loc = locs[j]
+        inv_mass_matrix_sqrt = scales[j]
+        adapt_state = SAAdaptState(zs, pes, loc, inv_mass_matrix_sqrt)
+
+        # XXX: we make a modification of SA sampler in [1]
+        # in [1], if the proposal is rejected, then the current MCMC step is ignored
+        # here, we return the sample from the previous step (like HMC)
+        z = unravel_fn(np.where(j == 0, z_old, z))
+        potential_energy = np.where(j == 0, sa_state.potential_energy, pe)
+
+        accept_prob = 1 - np.exp(log_weights[0] - logsumexp(log_weights))
+        itr = sa_state.i + 1
+        n = np.where(sa_state.i < wa_steps, itr, itr - wa_steps)
+        mean_accept_prob = sa_state.mean_accept_prob + (accept_prob - sa_state.mean_accept_prob) / n
+        return SAState(itr, z, potential_energy, accept_prob, mean_accept_prob,
+                       diverging, adapt_state, rng_key)
+
+    return init_kernel, sample_kernel
 
 
+# TODO: this shares almost the same code as HMC, so we can abstract out much of the implementation
 class SA(MCMCKernel):
     """
     Sample Adaptive MCMC, a gradient-free sampler.
@@ -674,14 +751,20 @@ class SA(MCMCKernel):
     1. *Sample Adaptive MCMC* (https://papers.nips.cc/paper/9107-sample-adaptive-mcmc),
        Michael Zhu
     """
-    def __init__(self, model=None, potential_fn=None, dense_mass=True, init_strategy=init_to_uniform()):
+    def __init__(self, model=None, potential_fn=None, adapt_state_size=None, dense_mass=True,
+                 init_strategy=init_to_uniform()):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
+        if adapt_state_size is None:
+            raise ValueError('adapt_state_size should be specified.')
         self._model = model
         self._potential_fn = potential_fn
+        self._adapt_state_size = adapt_state_size
         self._dense_mass = dense_mass
         self._init_strategy = init_strategy
+        self._init_fn = None
         self._constrain_fn = None
+        self._sample_fn = None
 
     def _init_state(self, rng_key, model_args, model_kwargs):
         if self._model is not None:
@@ -727,6 +810,7 @@ class SA(MCMCKernel):
         sa_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
+            adapt_state_size=self._adapt_state_size,
             dense_mass=self._dense_mass,
             rng_key=rng_key,
             model_args=model_args,

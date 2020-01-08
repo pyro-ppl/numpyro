@@ -13,13 +13,13 @@ from jax.scipy.special import logit
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.infer import HMC, MCMC, NUTS
+from numpyro.infer import HMC, MCMC, NUTS, SA
 from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale
 from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
 @pytest.mark.parametrize('dense_mass', [False, True])
 def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     true_mean, true_std = 1., 0.5
@@ -29,7 +29,10 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
     init_params = np.array(0.)
-    kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
+    if kernel_cls is SA:
+        kernel = SA(potential_fn=potential_fn, adapt_state_size=8, dense_mass=dense_mass)
+    else:
+        kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     mcmc.print_summary()

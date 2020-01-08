@@ -43,6 +43,14 @@ def categorical(key, p, shape=()):
     return _categorical(key, p, shape)
 
 
+# TODO: use this sampler in CategoricalLogits
+# TODO: drop this for the next JAX release, see https://github.com/google/jax/pull/1855
+def categorical_logits(key, logits, shape=()):
+    shape = shape or logits.shape[:-1]
+    return np.argmax(random.gumbel(key, shape + logits.shape[-1:], logits.dtype)
+                     + logits, axis=-1)
+
+
 # Ref https://github.com/numpy/numpy/blob/8a0858f3903e488495a56b4a6d19bbefabc97dca/
 # numpy/random/src/distributions/distributions.c#L574
 def _poisson_large(val):
