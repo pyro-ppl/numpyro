@@ -12,8 +12,8 @@ from numpyro.distributions.util import cholesky_inverse, get_dtype
 from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
-AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
-                                       'ss_state', 'mm_state', 'window_idx', 'rng_key'])
+HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                             'ss_state', 'mm_state', 'window_idx', 'rng_key'])
 IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
 
 TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',

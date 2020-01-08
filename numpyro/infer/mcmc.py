@@ -17,6 +17,7 @@ from jax.random import PRNGKey
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import print_summary
+from numpyro.distributions.util import cholesky_update
 from numpyro.infer.hmc_util import (
     IntegratorState,
     build_tree,
@@ -45,7 +46,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **mean_accept_prob** - Mean acceptance probability until current iteration
    during warmup adaptation or sampling (for diagnostics).
  - **diverging** - A boolean value to indicate whether the current trajectory is diverging.
- - **adapt_state** - A ``AdaptState`` namedtuple which contains adaptation information
+ - **adapt_state** - A ``HMCAdaptState`` namedtuple which contains adaptation information
    during warmup:
 
    + **step_size** - Step size to be used by the integrator in the next iteration.
@@ -78,10 +79,13 @@ def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng_key):
         raise ValueError("Mass matrix has incorrect number of dims.")
 
 
-def get_diagnostics_str(hmc_state):
-    return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(hmc_state.num_steps,
-                                                              hmc_state.adapt_state.step_size,
-                                                              hmc_state.mean_accept_prob)
+def get_diagnostics_str(mcmc_state):
+    if isinstance(mcmc_state, HMCState):
+        return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(mcmc_state.num_steps,
+                                                                  mcmc_state.adapt_state.step_size,
+                                                                  mcmc_state.mean_accept_prob)
+    else:
+        return 'acc. prob={:.2f}'.format(mcmc_state.mean_accept_prob)
 
 
 def get_progbar_desc_str(num_warmup, i):
@@ -244,11 +248,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                                             target_accept_prob=target_accept_prob,
                                             find_reasonable_step_size=find_reasonable_ss)
 
-        rng_key_hmc, rng_key_wa = random.split(rng_key)
+        rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
         wa_state = wa_init(z, rng_key_wa, step_size,
                            inverse_mass_matrix=inverse_mass_matrix,
                            mass_matrix_size=np.size(z_flat))
-        r = momentum_generator(wa_state.mass_matrix_sqrt, rng_key)
+        r = momentum_generator(wa_state.mass_matrix_sqrt, rng_key_momentum)
         vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn)
         vv_state = vv_init(z, r)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
@@ -612,6 +616,55 @@ class NUTS(HMC):
         self._algo = 'NUTS'
 
 
+def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
+    weight = 1 / samples.shape[0]
+    if scale.ndim > loc.ndim:
+        new_scale = cholesky_update(scale, new_sample - loc, weight)
+        proposal_scale = cholesky_update(new_scale, samples - loc, -weight)
+        proposal_scale = cholesky_update(proposal_scale, new_sample - samples, - (weight ** 2))
+    else:
+        var = np.square(scale) + weight * np.square(new_sample - loc)
+        proposal_var = var - weight * np.square(samples - loc)
+        proposal_var = proposal_var - weight ** 2 * np.square(new_sample - samples)
+        proposal_scale = np.sqrt(proposal_var)
+
+    proposal_scale = np.concatenate([scale[None, ...], proposal_scale])
+    proposal_loc = loc + weight * (new_sample - samples)
+    proposal_loc = np.concatenate([loc[None, :], proposal_loc])
+    return proposal_loc, proposal_scale
+
+
+SAAdaptState = namedtuple('SAAdaptState', ['zs', 'potential_energies', 'loc', 'inverse_mass_matrix_sqrt'])
+SAState = namedtuple('SAState', ['i', 'z', 'potential_energy', 'accept_prob',
+                                 'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
+
+
+def sa(potential_fn=None, potential_fn_gen=None):
+    def init_kernel(init_params,
+                    num_warmup,
+                    inverse_mass_matrix=None,
+                    dense_mass=False,
+                    model_args=(),
+                    model_kwargs=None,
+                    rng_key=PRNGKey(0)):
+        if inverse_mass_matrix is None:
+            assert mass_matrix_size is not None
+            if dense_mass:
+                inverse_mass_matrix = np.identity(mass_matrix_size)
+            else:
+                inverse_mass_matrix = np.ones(mass_matrix_size)
+            mass_matrix_sqrt = inverse_mass_matrix
+        adapt_state = ...
+        if inverse_mass_matrix is None:
+            inverse_mass_matrix = np.ones()
+        rng_key_sa, rng_key = random.split(rng_key)
+        hmc_state = SAState(0, z, potential_energy, 0., 0., False, adapt_state, rng_key_sa)
+        return device_put(hmc_state)
+
+    def sample_kernel(hmc_state, model_args=(), model_kwargs=None):
+        pass
+
+
 class SA(MCMCKernel):
     """
     Sample Adaptive MCMC, a gradient-free sampler.
@@ -621,23 +674,77 @@ class SA(MCMCKernel):
     1. *Sample Adaptive MCMC* (https://papers.nips.cc/paper/9107-sample-adaptive-mcmc),
        Michael Zhu
     """
-    def __init__(self, model=None, potential_fn=None,):
+    def __init__(self, model=None, potential_fn=None, dense_mass=True, init_strategy=init_to_uniform()):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
         self._potential_fn = potential_fn
+        self._dense_mass = dense_mass
+        self._init_strategy = init_strategy
+        self._constrain_fn = None
 
-    @property
-    def model(self):
-        return self._model
+    def _init_state(self, rng_key, model_args, model_kwargs):
+        if self._model is not None:
+            potential_fn_gen, self._constrain_fn = get_potential_fn(
+                rng_key,
+                self._model,
+                dynamic_args=True,
+                model_args=model_args,
+                model_kwargs=model_kwargs)
+            # NB: init args is different from HMC
+            self._init_fn, self._sample_fn = sa(potential_fn_gen=potential_fn_gen)
+        else:
+            self._init_fn, self._sample_fn = sa(potential_fn=self._potential_fn)
 
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
-        pass
+        # non-vectorized
+        if rng_key.ndim == 1:
+            rng_key, rng_key_init_model = random.split(rng_key)
+        # vectorized
+        else:
+            rng_key, rng_key_init_model = np.swapaxes(vmap(random.split)(rng_key), 0, 1)
+            # we need only a single key for initializing PE / constraints fn
+            rng_key_init_model = rng_key_init_model[0]
+        if not self._init_fn:
+            self._init_state(rng_key_init_model, model_args, model_kwargs)
+        if self._potential_fn and init_params is None:
+            raise ValueError('Valid value of `init_params` must be provided with'
+                             ' `potential_fn`.')
+        # Find valid initial params
+        if self._model and not init_params:
+            init_params, is_valid = find_valid_initial_params(rng_key, self._model,
+                                                              init_strategy=self._init_strategy,
+                                                              param_as_improper=True,
+                                                              model_args=model_args,
+                                                              model_kwargs=model_kwargs)
+            if not_jax_tracer(is_valid):
+                if device_get(~np.all(is_valid)):
+                    raise RuntimeError("Cannot find valid initial parameters. "
+                                       "Please check your model again.")
+
+        # NB: init args is different from HMC
+        sa_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
+            init_params,
+            num_warmup=num_warmup,
+            dense_mass=self._dense_mass,
+            rng_key=rng_key,
+            model_args=model_args,
+            model_kwargs=model_kwargs,
+        )
+        if rng_key.ndim == 1:
+            init_state = sa_init_fn(init_params, rng_key)
+        else:
+            init_state = vmap(sa_init_fn)(init_params, rng_key)
+            sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
+            self._sample_fn = sample_fn
+        return init_state
 
     @copy_docs_from(MCMCKernel.constrain_fn)
     def constrain_fn(self, args, kwargs):
-        pass
+        if self._constrain_fn is None:
+            return identity
+        return self._constrain_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
         """
@@ -649,7 +756,7 @@ class SA(MCMCKernel):
         :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state` after running SA.
         """
-        pass
+        return self._sample_fn(state, model_args, model_kwargs)
 
 
 def _get_value_from_index(xs, i):
