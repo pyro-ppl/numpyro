@@ -3,8 +3,10 @@ import math
 
 from jax import custom_transforms, defjvp, jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
+from jax.lib import xla_bridge
 import jax.numpy as np
 from jax.scipy.linalg import solve_triangular
+from jax.scipy.special import gammaln
 from jax.util import partial
 
 
@@ -41,27 +43,74 @@ def categorical(key, p, shape=()):
     return _categorical(key, p, shape)
 
 
+# Ref https://github.com/numpy/numpy/blob/8a0858f3903e488495a56b4a6d19bbefabc97dca/
+# numpy/random/src/distributions/distributions.c#L574
+def _poisson_large(val):
+    rng_key, lam = val
+    slam = np.sqrt(lam)
+    loglam = np.log(lam)
+    b = 0.931 + 2.53 * slam
+    a = -0.059 + 0.02483 * b
+    invalpha = 1.1239 + 1.1328 / (b - 3.4)
+    vr = 0.9277 - 3.6224 / (b - 2)
+
+    def cond_fn(val):
+        _, V, us, k = val
+        cond1 = (us >= 0.07) & (V <= vr)
+        cond2 = (k < 0) | ((us < 0.013) & (V > us))
+        cond3 = ((np.log(V) + np.log(invalpha) - np.log(a / (us * us) + b))
+                 <= (-lam + k * loglam - gammaln(k + 1)))
+        return (~cond1) & (cond2 | (~cond3))
+
+    def body_fn(val):
+        rng_key, *_ = val
+        rng_key, key_U, key_V = random.split(rng_key, 3)
+        U = random.uniform(key_U) - 0.5
+        V = random.uniform(key_V)
+        us = 0.5 - np.abs(U)
+        k = np.floor((2 * a / us + b) * U + lam + 0.43)
+        return rng_key, V, us, k
+
+    *_, k = lax.while_loop(cond_fn, body_fn, (rng_key, 0., 0., -1.))
+    return k
+
+
+def _poisson_small(val):
+    rng_key, lam = val
+    enlam = np.exp(-lam)
+
+    def body_fn(val):
+        rng_key, prod, k = val
+        rng_key, key_U = random.split(rng_key)
+        U = random.uniform(key_U)
+        prod = prod * U
+        return rng_key, prod, k + 1
+
+    init = np.where(lam == 0., 0., -1.)
+    *_, k = lax.while_loop(lambda val: val[1] > enlam, body_fn, (rng_key, 1., init))
+    return k
+
+
+def _poisson_one(val):
+    return lax.cond(val[1] >= 10, val, _poisson_large, val, _poisson_small)
+
+
 @partial(jit, static_argnums=(2, 3))
 def _poisson(key, rate, shape, dtype):
     # Ref: https://en.wikipedia.org/wiki/Poisson_distribution#Generating_Poisson-distributed_random_variables
     shape = shape or np.shape(rate)
-    L = np.exp(-rate)
-    k = np.zeros(shape, dtype=dtype)
-    p = np.ones(shape)
-
-    def body_fn(val):
-        k, p, rng_key = val
-        k = np.where(p > L, k + 1, k)
-        rng_key, rng_key_u = random.split(rng_key)
-        u = random.uniform(rng_key_u, shape)
-        p = p * u
-        return k, p, rng_key
-
-    k, _, _ = lax.while_loop(lambda val: np.any(val[1] > L), body_fn, (k, p, key))
-    return k - 1
+    rate = lax.convert_element_type(rate, canonicalize_dtype(np.float64))
+    rate = np.broadcast_to(rate, shape)
+    rng_keys = random.split(key, np.size(rate))
+    if xla_bridge.get_backend().platform == 'cpu':
+        k = lax.map(_poisson_one, (rng_keys, np.reshape(rate, -1)))
+    else:
+        k = vmap(_poisson_one)((rng_keys, np.reshape(rate, -1)))
+    k = lax.convert_element_type(k, dtype)
+    return np.reshape(k, shape)
 
 
-def poisson(key, rate, shape, dtype=np.int64):
+def poisson(key, rate, shape=(), dtype=np.int64):
     dtype = canonicalize_dtype(dtype)
     return _poisson(key, rate, shape, dtype)
 
@@ -104,6 +153,9 @@ def multinomial(key, p, n, shape=()):
     return _multinomial(key, p, n, n_max, shape)
 
 
+# TODO: rename this function, in PyTorch cholesky_inverse computes the inverse using a cholesky
+# input; here we want to take cholesky of the inverse... (the name here is better but
+# we need to change to avoid confusion)
 def cholesky_inverse(matrix):
     # This formulation only takes the inverse of a triangular matrix
     # which is more numerically stable.
@@ -178,6 +230,42 @@ def vec_to_tril_matrix(t, diagonal=0):
                                                     inserted_window_dims=(t.ndim - 1,),
                                                     scatter_dims_to_operand_dims=(t.ndim - 1,)))
     return np.reshape(x, x.shape[:-1] + (n, n))
+
+
+def cholesky_update(L, x, coef=1):
+    """
+    Finds cholesky of L @ L.T + coef * x @ x.T.
+
+    **References;**
+
+        1. A more efficient rank-one covariance matrix update for evolution strategies,
+           Oswin Krause and Christian Igel
+    """
+    batch_shape = lax.broadcast_shapes(L.shape[:-2], x.shape[:-1])
+    L = np.broadcast_to(L, batch_shape + L.shape[-2:])
+    x = np.broadcast_to(x, batch_shape + x.shape[-1:])
+    diag = np.diagonal(L, axis1=-2, axis2=-1)
+    # convert to unit diagonal triangular matrix: L @ D @ T.t
+    L = L / diag[..., None, :]
+    D = np.square(diag)
+
+    def scan_fn(carry, val):
+        b, w = carry
+        j, Dj, L_j = val
+        wj = w[..., j]
+        gamma = b * Dj + coef * np.square(wj)
+        Dj_new = gamma / b
+        b = gamma / Dj_new
+
+        # update vectors w and L_j
+        w = w - wj[..., None] * L_j
+        L_j = L_j + (coef * wj / gamma)[..., None] * w
+        return (b, w), (Dj_new, L_j)
+
+    D, L = np.moveaxis(D, -1, 0), np.moveaxis(L, -1, 0)  # move scan dim to front
+    _, (D, L) = lax.scan(scan_fn, (np.ones(batch_shape), x), (np.arange(D.shape[0]), D, L))
+    D, L = np.moveaxis(D, 0, -1), np.moveaxis(L, 0, -1)  # move scan dim back
+    return L * np.sqrt(D)[..., None, :]
 
 
 def signed_stick_breaking_tril(t):
