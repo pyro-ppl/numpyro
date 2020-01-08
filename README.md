@@ -225,3 +225,28 @@ In the near term, we plan to work on the following. Please open new issues for f
  - More inference algorithms, particularly those that require second order derivaties or use HMC.
  - Integration with [Funsor](https://github.com/pyro-ppl/funsor) to support inference algorithms with delayed sampling.
  - Other areas motivated by Pyro's research goals and application focus, and interest from the community.
+ 
+ ## Citing NumPyro
+ 
+The motivating ideas behind NumPyro and a description of Iterative NUTS can be found in this [paper](https://arxiv.org/abs/1912.11554) that appeared in NeurIPS 2019 Program Transformations for Machine Learning Workshop. 
+
+If you use NumPyro, please consider citing:
+
+```
+@ARTICLE{2019arXiv191211554P,
+       author = {{Phan}, Du and {Pradhan}, Neeraj and {Jankowiak}, Martin},
+        title = "{Composable Effects for Flexible and Accelerated Probabilistic Programming in NumPyro}",
+      journal = {arXiv e-prints},
+     keywords = {Statistics - Machine Learning, Computer Science - Artificial Intelligence, Computer Science - Machine Learning, Computer Science - Programming Languages, I.2.5, G.3, I.2.5, G.3},
+         year = "2019",
+        month = "Dec",
+          eid = {arXiv:1912.11554},
+        pages = {arXiv:1912.11554},
+archivePrefix = {arXiv},
+       eprint = {1912.11554},
+ primaryClass = {stat.ML},
+       adsurl = {https://ui.adsabs.harvard.edu/abs/2019arXiv191211554P},
+      adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+}
+```
+.
