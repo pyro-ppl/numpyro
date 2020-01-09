@@ -658,7 +658,7 @@ def sa(potential_fn=None, potential_fn_gen=None):
 
     def init_kernel(init_params,
                     num_warmup,
-                    adapt_state_size,
+                    adapt_state_size=None,
                     inverse_mass_matrix=None,
                     dense_mass=False,
                     model_args=(),
@@ -677,11 +677,15 @@ def sa(potential_fn=None, potential_fn_gen=None):
         z = init_params
         z_flat, unravel_fn = ravel_pytree(z)
         if inverse_mass_matrix is None:
-            mass_matrix_size = z_flat.shape[-1]
-            inverse_mass_matrix = np.identity(mass_matrix_size) if dense_mass else np.ones(mass_matrix_size)
+            inverse_mass_matrix = np.identity(z_flat.shape[-1]) if dense_mass else np.ones(z_flat.shape[-1])
         inv_mass_matrix_sqrt = np.linalg.cholesky(inverse_mass_matrix) if dense_mass \
             else np.sqrt(inverse_mass_matrix)
-        # mean is init_params
+        if adapt_state_size is None:
+            # XXX: heuristic choice
+            adapt_state_size = 2 * z_flat.shape[-1]
+        else:
+            assert adapt_state_size > 1, 'adapt_state_size should be greater than 1.'
+        # NB: mean is init_params
         zs = z_flat + _sample_proposal(inv_mass_matrix_sqrt, rng_key_zs, (adapt_state_size,))
         zs_ = np.concatenate([z_flat[None, :], zs])
         # compute potential energies
@@ -689,7 +693,7 @@ def sa(potential_fn=None, potential_fn_gen=None):
         pe, pes = pes_[0], pes_[1:]
         if dense_mass:
             cov = np.cov(zs, rowvar=False, bias=True)
-            if cov.shape == ():
+            if cov.shape == ():  # JAX returns scalar for 1D input
                 cov = cov.reshape((1, 1))
             inv_mass_matrix_sqrt = np.linalg.cholesky(cov)
         else:
@@ -717,10 +721,12 @@ def sa(potential_fn=None, potential_fn_gen=None):
         if inv_mass_matrix_sqrt.ndim == 2:  # dense_mass
             log_weights = dist.MultivariateNormal(locs, scale_tril=scales).log_prob(zs_) + pes_
         else:
-            log_weights = dist.Normal(locs, scales).log_probs(zs_).sum(-1) + pes_
+            log_weights = dist.Normal(locs, scales).log_prob(zs_).sum(-1) + pes_
+        log_weights = np.where(np.isnan(log_weights), -np.inf, log_weights)
         j = categorical_logits(rng_key_cat, log_weights)
-        zs = np.delete(zs_, j, axis=0)
-        pes = np.delete(pes_, j, axis=0)
+        # XXX: numpy.delete is not available in JAX
+        zs = np.where(np.arange(zs.shape[0])[:, None] < j, zs_[:-1], zs_[1:])
+        pes = np.where(np.arange(pes.shape[0]) < j, pes_[:-1], pes_[1:])
         loc = locs[j]
         inv_mass_matrix_sqrt = scales[j]
         adapt_state = SAAdaptState(zs, pes, loc, inv_mass_matrix_sqrt)
@@ -755,8 +761,6 @@ class SA(MCMCKernel):
                  init_strategy=init_to_uniform()):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
-        if adapt_state_size is None:
-            raise ValueError('adapt_state_size should be specified.')
         self._model = model
         self._potential_fn = potential_fn
         self._adapt_state_size = adapt_state_size

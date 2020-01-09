@@ -23,17 +23,17 @@ from numpyro.util import fori_collect
 @pytest.mark.parametrize('dense_mass', [False, True])
 def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     true_mean, true_std = 1., 0.5
-    warmup_steps, num_samples = 1000, 8000
+    warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
 
     def potential_fn(z):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
     init_params = np.array(0.)
     if kernel_cls is SA:
-        kernel = SA(potential_fn=potential_fn, adapt_state_size=8, dense_mass=dense_mass)
+        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
     else:
         kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
-    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     mcmc.print_summary()
     hmc_states = mcmc.get_samples()
@@ -67,10 +67,10 @@ def test_correlated_mvn():
     assert onp.sum(onp.abs(onp.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
 def test_logistic_regression_x64(kernel_cls):
     N, dim = 3000, 3
-    warmup_steps, num_samples = 1000, 8000
+    warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
     logits = np.sum(true_coefs * data, axis=-1)
@@ -81,9 +81,13 @@ def test_logistic_regression_x64(kernel_cls):
         logits = np.sum(coefs * data, axis=-1)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-    kernel = kernel_cls(model=model, trajectory_length=8)
-    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    if kernel_cls is SA:
+        kernel = SA(model=model)
+    else:
+        kernel = kernel_cls(model=model, trajectory_length=8)
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), labels)
+    mcmc.print_summary()
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
@@ -128,9 +132,9 @@ def test_improper_normal():
     assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
 def test_beta_bernoulli_x64(kernel_cls):
-    warmup_steps, num_samples = 500, 20000
+    warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (500, 20000)
 
     def model(data):
         alpha = np.array([1.1, 1.1])
@@ -141,9 +145,13 @@ def test_beta_bernoulli_x64(kernel_cls):
 
     true_probs = np.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
-    kernel = kernel_cls(model=model, trajectory_length=1.)
+    if kernel_cls is SA:
+        kernel = SA(model=model)
+    else:
+        kernel = kernel_cls(model=model, trajectory_length=1.)
     mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
+    mcmc.print_summary()
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
