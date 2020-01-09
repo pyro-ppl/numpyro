@@ -161,6 +161,9 @@ def multinomial(key, p, n, shape=()):
     return _multinomial(key, p, n, n_max, shape)
 
 
+# TODO: rename this function, in PyTorch cholesky_inverse computes the inverse using a cholesky
+# input; here we want to take cholesky of the inverse... (the name here is better but
+# we need to change to avoid confusion)
 def cholesky_inverse(matrix):
     # This formulation only takes the inverse of a triangular matrix
     # which is more numerically stable.
