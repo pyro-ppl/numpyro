@@ -757,7 +757,9 @@ class SA(MCMCKernel):
     """
     Sample Adaptive MCMC, a gradient-free sampler.
 
-    This is a very fast sampler but requires many warmup (burn-in) steps 
+    This is a very fast (in term of n_eff / s) sampler but requires
+    many warmup (burn-in) steps. In each MCMC step, we only need to
+    evaluate potential function at one point.
 
     **References:**
 
