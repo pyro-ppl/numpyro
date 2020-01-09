@@ -33,7 +33,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import AffineTransform, ExpTransform, InvCholeskyTransform, PowerTransform
 from numpyro.distributions.util import (
-    cholesky_inverse,
+    cholesky_of_inverse,
     cumsum,
     lazy_property,
     matrix_to_tril_vec,
@@ -608,7 +608,7 @@ class MultivariateNormal(Distribution):
             self.scale_tril = np.linalg.cholesky(self.covariance_matrix)
         elif precision_matrix is not None:
             loc, self.precision_matrix = promote_shapes(loc, precision_matrix)
-            self.scale_tril = cholesky_inverse(self.precision_matrix)
+            self.scale_tril = cholesky_of_inverse(self.precision_matrix)
         elif scale_tril is not None:
             loc, self.scale_tril = promote_shapes(loc, scale_tril)
         else:
@@ -638,6 +638,7 @@ class MultivariateNormal(Distribution):
 
     @lazy_property
     def precision_matrix(self):
+        # TODO: use solve_triangular for faster
         scale_tril_inv = np.linalg.inv(self.scale_tril)
         return np.dot(scale_tril_inv.T, scale_tril_inv)
 

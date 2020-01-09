@@ -27,7 +27,7 @@ from numpyro.distributions.transforms import (
     UnpackTransform,
     biject_to
 )
-from numpyro.distributions.util import cholesky_inverse, sum_rightmost
+from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
 from numpyro.handlers import seed, substitute
 from numpyro.infer.elbo import ELBO
 from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, log_density, transform_fn
@@ -435,7 +435,7 @@ class AutoLaplaceApproximation(AutoContinuous):
 
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(loss_fn)(loc)
-        scale_tril = cholesky_inverse(precision)
+        scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
             if np.any(np.isnan(scale_tril)):
                 warnings.warn("Hessian of log posterior at the MAP point is singular. Posterior"

@@ -1,13 +1,10 @@
 from functools import update_wrapper
 import math
 
-import scipy.special as osp_special
-
 from jax import custom_transforms, defjvp, jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
 import jax.numpy as np
-from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln
 from jax.util import partial
@@ -156,60 +153,7 @@ def multinomial(key, p, n, shape=()):
     return _multinomial(key, p, n, n_max, shape)
 
 
-def _xlogy_jvp_lhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
-    g = np.broadcast_to(g, shape)
-    y = np.broadcast_to(y, shape)
-    g, y = _promote_args_like(osp_special.xlogy, g, y)
-    return lax._safe_mul(g, np.log(y))
-
-
-def _xlogy_jvp_rhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
-    g = np.broadcast_to(g, shape)
-    x = np.broadcast_to(x, shape)
-    x, y = _promote_args_like(osp_special.xlogy, x, y)
-    return g * lax._safe_mul(x, np.reciprocal(y))
-
-
-@custom_transforms
-def xlogy(x, y):
-    x, y = _promote_args_like(osp_special.xlogy, x, y)
-    return lax._safe_mul(x, np.log(y))
-
-
-defjvp(xlogy, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
-
-
-def _xlog1py_jvp_lhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
-    g = np.broadcast_to(g, shape)
-    y = np.broadcast_to(y, shape)
-    g, y = _promote_args_like(osp_special.xlog1py, g, y)
-    return lax._safe_mul(g, np.log1p(y))
-
-
-def _xlog1py_jvp_rhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
-    g = np.broadcast_to(g, shape)
-    x = np.broadcast_to(x, shape)
-    x, y = _promote_args_like(osp_special.xlog1py, x, y)
-    return g * lax._safe_mul(x, np.reciprocal(1 + y))
-
-
-@custom_transforms
-def xlog1py(x, y):
-    x, y = _promote_args_like(osp_special.xlog1py, x, y)
-    return lax._safe_mul(x, np.log1p(y))
-
-
-defjvp(xlog1py, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
-
-
-# TODO: rename this function, in PyTorch cholesky_inverse computes the inverse using a cholesky
-# input; here we want to take cholesky of the inverse... (the name here is better but
-# we need to change to avoid confusion)
-def cholesky_inverse(matrix):
+def cholesky_of_inverse(matrix):
     # This formulation only takes the inverse of a triangular matrix
     # which is more numerically stable.
     # Refer to:
