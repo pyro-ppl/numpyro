@@ -31,10 +31,8 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the release (unless JAX's API becomes stable)
-        # TODO: remove when https://github.com/google/jax/issues/1912 is fixed.
-        'numpy<1.18',
-        'jax>=0.1.55',
-        'jaxlib>=0.1.36',
+        'jax>=0.1.57',
+        'jaxlib>=0.1.37',
         'tqdm',
     ],
     extras_require={
