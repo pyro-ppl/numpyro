@@ -8,7 +8,7 @@ from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
-from numpyro.distributions.util import cholesky_inverse, get_dtype
+from numpyro.distributions.util import cholesky_of_inverse, get_dtype
 from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
@@ -158,7 +158,7 @@ def welford_covariance(diagonal=True):
             else:
                 cov = scaled_cov + shrinkage * np.identity(mean.shape[0])
         if np.ndim(cov) == 2:
-            cov_inv_sqrt = cholesky_inverse(cov)
+            cov_inv_sqrt = cholesky_of_inverse(cov)
         else:
             cov_inv_sqrt = np.sqrt(np.reciprocal(cov))
         return cov, cov_inv_sqrt
@@ -372,7 +372,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             mass_matrix_sqrt = inverse_mass_matrix
         else:
             if dense_mass:
-                mass_matrix_sqrt = cholesky_inverse(inverse_mass_matrix)
+                mass_matrix_sqrt = cholesky_of_inverse(inverse_mass_matrix)
             else:
                 mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 
