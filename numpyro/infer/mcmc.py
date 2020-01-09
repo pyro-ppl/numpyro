@@ -673,7 +673,7 @@ def sa(potential_fn=None, potential_fn_gen=None):
             else:
                 kwargs = {} if model_kwargs is None else model_kwargs
                 pe_fn = potential_fn_gen(*model_args, **kwargs)
-        rng_key_sa, rng_key_zs = random.split(rng_key)
+        rng_key_sa, rng_key_zs, rng_key_z = random.split(rng_key, 3)
         z = init_params
         z_flat, unravel_fn = ravel_pytree(z)
         if inverse_mass_matrix is None:
@@ -687,10 +687,8 @@ def sa(potential_fn=None, potential_fn_gen=None):
             assert adapt_state_size > 1, 'adapt_state_size should be greater than 1.'
         # NB: mean is init_params
         zs = z_flat + _sample_proposal(inv_mass_matrix_sqrt, rng_key_zs, (adapt_state_size,))
-        zs_ = np.concatenate([z_flat[None, :], zs])
         # compute potential energies
-        pes_ = lax.map(lambda z: pe_fn(unravel_fn(z)), zs_)
-        pe, pes = pes_[0], pes_[1:]
+        pes = lax.map(lambda z: pe_fn(unravel_fn(z)), zs)
         if dense_mass:
             cov = np.cov(zs, rowvar=False, bias=True)
             if cov.shape == ():  # JAX returns scalar for 1D input
@@ -699,6 +697,9 @@ def sa(potential_fn=None, potential_fn_gen=None):
         else:
             inv_mass_matrix_sqrt = np.std(zs, 0)
         adapt_state = SAAdaptState(zs, pes, np.mean(zs, 0), inv_mass_matrix_sqrt)
+        k = categorical_logits(rng_key_z, np.zeros(zs.shape[0]))
+        z = unravel_fn(zs[k])
+        pe = pes[k]
         sa_state = SAState(0, z, pe, 0., 0., False, adapt_state, rng_key_sa)
         return device_put(sa_state)
 
@@ -707,7 +708,7 @@ def sa(potential_fn=None, potential_fn_gen=None):
         if potential_fn_gen:
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
         zs, pes, loc, inv_mass_matrix_sqrt = sa_state.adapt_state
-        rng_key, rng_key_z, rng_key_cat = random.split(sa_state.rng_key, 3)
+        rng_key, rng_key_z, rng_key_reject, rng_key_accept = random.split(sa_state.rng_key, 4)
         z_old, unravel_fn = ravel_pytree(sa_state.z)
 
         z = loc + _sample_proposal(inv_mass_matrix_sqrt, rng_key_z)
@@ -723,7 +724,7 @@ def sa(potential_fn=None, potential_fn_gen=None):
         else:
             log_weights = dist.Normal(locs, scales).log_prob(zs_).sum(-1) + pes_
         log_weights = np.where(np.isnan(log_weights), -np.inf, log_weights)
-        j = categorical_logits(rng_key_cat, log_weights)
+        j = categorical_logits(rng_key_reject, log_weights)
         # XXX: numpy.delete is not available in JAX
         zs = np.where(np.arange(zs.shape[0])[:, None] < j, zs_[:-1], zs_[1:])
         pes = np.where(np.arange(pes.shape[0]) < j, pes_[:-1], pes_[1:])
@@ -732,10 +733,11 @@ def sa(potential_fn=None, potential_fn_gen=None):
         adapt_state = SAAdaptState(zs, pes, loc, inv_mass_matrix_sqrt)
 
         # XXX: we make a modification of SA sampler in [1]
-        # in [1], if the proposal is rejected, then the current MCMC step is ignored
-        # here, we return the sample from the previous step (like HMC)
-        z = unravel_fn(np.where(j == 0, z_old, z))
-        potential_energy = np.where(j == 0, sa_state.potential_energy, pe)
+        # in [1], each MCMC state contains N points
+        # here we do resampling to pick randomly a point from N points
+        k = categorical_logits(rng_key_accept, np.zeros(zs.shape[0]))
+        z = unravel_fn(zs[k])
+        potential_energy = pes[k]
 
         accept_prob = 1 - np.exp(log_weights[0] - logsumexp(log_weights))
         itr = sa_state.i + 1
@@ -752,13 +754,28 @@ class SA(MCMCKernel):
     """
     Sample Adaptive MCMC, a gradient-free sampler.
 
+    This is a very fast sampler but requires many warmup (burn-in) steps 
+
     **References:**
 
     1. *Sample Adaptive MCMC* (https://papers.nips.cc/paper/9107-sample-adaptive-mcmc),
        Michael Zhu
+
+    :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
+        If model is provided, `potential_fn` will be inferred using the model.
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that `init_params` argument to
+        `init_kernel` has the same type.
+    :param int adapt_state_size: The number of points to generate proposal
+        distribution. Defaults to 2 times latent size.
+    :param bool dense_mass:  A flag to decide if mass matrix is dense or
+        diagonal (default to ``dense_mass=True``)
+    :param callable init_strategy: a per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
     """
-    def __init__(self, model=None, potential_fn=None, adapt_state_size=None, dense_mass=True,
-                 init_strategy=init_to_uniform()):
+    def __init__(self, model=None, potential_fn=None, adapt_state_size=None,
+                 dense_mass=True, init_strategy=init_to_uniform()):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
