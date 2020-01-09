@@ -621,6 +621,8 @@ class NUTS(HMC):
 def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
     weight = 1 / samples.shape[0]
     if scale.ndim > loc.ndim:
+        # XXX probably we need to recompute `scale` from `samples`
+        # because we might lose precision after many mcmc iterations
         new_scale = cholesky_update(scale, new_sample - loc, weight)
         proposal_scale = cholesky_update(new_scale, samples - loc, -weight)
         proposal_scale = cholesky_update(proposal_scale, new_sample - samples, - (weight ** 2))
@@ -652,7 +654,8 @@ SAState = namedtuple('SAState', ['i', 'z', 'potential_energy', 'accept_prob',
                                  'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
 
 
-def sa(potential_fn=None, potential_fn_gen=None):
+# TODO: consider to expose this functional style
+def _sa(potential_fn=None, potential_fn_gen=None):
     wa_steps = None
     max_delta_energy = 1000.
 
@@ -796,9 +799,9 @@ class SA(MCMCKernel):
                 model_args=model_args,
                 model_kwargs=model_kwargs)
             # NB: init args is different from HMC
-            self._init_fn, self._sample_fn = sa(potential_fn_gen=potential_fn_gen)
+            self._init_fn, self._sample_fn = _sa(potential_fn_gen=potential_fn_gen)
         else:
-            self._init_fn, self._sample_fn = sa(potential_fn=self._potential_fn)
+            self._init_fn, self._sample_fn = _sa(potential_fn=self._potential_fn)
 
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
