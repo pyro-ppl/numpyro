@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 This provides a small set of utilities in NumPyro that are used to diagnose posterior samples.
 """
