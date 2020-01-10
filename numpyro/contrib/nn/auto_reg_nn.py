@@ -1,4 +1,4 @@
-# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/nn/auto_reg_nn.py

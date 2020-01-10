@@ -1,18 +1,18 @@
-# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
 import os
 import glob
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-blacklist = ["/build/", "/dist/", "/numpyro.egg"]
+blacklist = ["/build/", "/dist/", "/pyro_api.egg"]
 file_types = [
     ("*.py", "# {}"),
     ("*.cpp", "// {}"),
 ]
 
 for basename, comment in file_types:
-    copyright_line = comment.format("Copyright (c) 2017-2020 Contributors to the Pyro project.\n")
+    copyright_line = comment.format("Copyright Contributors to the Pyro project.\n")
     # See https://spdx.org/ids-how
     spdx_line = comment.format("SPDX-License-Identifier: Apache-2.0\n")
 
@@ -35,6 +35,8 @@ for basename, comment in file_types:
         lineno = 0
         if not lines[lineno].startswith(comment.format("Copyright")):
             lines.insert(lineno, copyright_line)
+        else:
+            lines[lineno] = copyright_line
         lineno += 1
         while lines[lineno].startswith(comment.format("Copyright")):
             lineno += 1
@@ -42,6 +44,8 @@ for basename, comment in file_types:
         # Ensure next line is an SPDX short identifier.
         if not lines[lineno].startswith(comment.format("SPDX-License-Identifier")):
             lines.insert(lineno, spdx_line)
+        else:
+            lines[lineno] = spdx_line
         lineno += 1
 
         # Ensure next line is blank.
