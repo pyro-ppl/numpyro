@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 class UnsupportedAPIWarning(Warning):
     """
     Warn users on Pyro operations that do not have a meaningful interpretation

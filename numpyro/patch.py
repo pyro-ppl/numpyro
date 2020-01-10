@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+
 def patch_dependency(target, root_module):
     parts = target.split('.')
     assert parts[0] == root_module.__name__
