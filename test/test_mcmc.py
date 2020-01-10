@@ -82,7 +82,7 @@ def test_logistic_regression_x64(kernel_cls):
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     if kernel_cls is SA:
-        kernel = SA(model=model)
+        kernel = SA(model=model, adapt_state_size=9)
     else:
         kernel = kernel_cls(model=model, trajectory_length=8)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
@@ -279,11 +279,11 @@ def test_mcmc_progbar():
     mcmc1.run(random.PRNGKey(2), data)
 
     with pytest.raises(AssertionError):
-        check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
+        check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
     mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data)
-    check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
-    check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-3, rtol=0.01)
+    check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
+    check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-4, rtol=1e-4)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -574,7 +574,7 @@ def test_compile_warmup_run(num_chains, chain_method, progress_bar):
 
     rng_key = random.PRNGKey(0)
     num_samples = 10
-    mcmc = MCMC(NUTS(model), 100, num_samples, num_chains,
+    mcmc = MCMC(NUTS(model), 10, num_samples, num_chains,
                 chain_method=chain_method, progress_bar=progress_bar)
 
     mcmc.run(rng_key)
@@ -590,7 +590,7 @@ def test_compile_warmup_run(num_chains, chain_method, progress_bar):
 
     # test for reproducible
     if num_chains > 1:
-        mcmc = MCMC(NUTS(model), 100, num_samples, 1, progress_bar=progress_bar)
+        mcmc = MCMC(NUTS(model), 10, num_samples, 1, progress_bar=progress_bar)
         rng_key = random.split(rng_key)[0]
         mcmc.run(rng_key)
         first_chain_samples = mcmc.get_samples()["x"]
