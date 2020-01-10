@@ -63,6 +63,9 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
             intermediates = site['intermediates']
             mask = site['mask']
             scale = site['scale']
+            # Early exit when all elements are masked
+            if not_jax_tracer(mask) and mask is not None and not np.any(mask):
+                return jax.device_put(0.), model_trace
             if intermediates:
                 if skip_dist_transforms:
                     log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
@@ -72,7 +75,8 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
                 log_prob = site['fn'].log_prob(value)
 
             # Minor optimizations
-            # XXX: note that this will not work for dynamic masks.
+            # XXX: note that this may not work correctly for dynamic masks, provide
+            # explicit jax.DeviceArray for masking.
             if mask is not None:
                 if scale is not None:
                     log_prob = np.where(mask, scale * log_prob, 0.)
