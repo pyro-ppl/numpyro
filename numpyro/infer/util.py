@@ -2,7 +2,7 @@ from functools import partial
 import warnings
 
 import jax
-from jax import device_get, device_put, lax, random, value_and_grad, vmap
+from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
