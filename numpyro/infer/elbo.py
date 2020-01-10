@@ -1,3 +1,6 @@
+# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from jax import random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as np

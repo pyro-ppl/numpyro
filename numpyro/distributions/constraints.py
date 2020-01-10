@@ -1,3 +1,6 @@
+# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 # The implementation follows the design in PyTorch: torch.distributions.constraints.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)

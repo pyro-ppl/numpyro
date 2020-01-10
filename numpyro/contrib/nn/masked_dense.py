@@ -1,3 +1,6 @@
+# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from jax import random
 from jax.nn.initializers import glorot_normal, normal
 import jax.numpy as np

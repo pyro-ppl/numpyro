@@ -1,3 +1,6 @@
+# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.contrib.nn.masked_dense import MaskedDense
 

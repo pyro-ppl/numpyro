@@ -1,3 +1,6 @@
+# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numpyro.infer.elbo import ELBO, RenyiELBO
 from numpyro.infer.mcmc import HMC, MCMC, NUTS
 from numpyro.infer.svi import SVI

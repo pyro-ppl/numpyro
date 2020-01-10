@@ -1,3 +1,6 @@
+# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numpyro import compat, diagnostics, distributions, handlers, infer, optim
 from numpyro.distributions.distribution import enable_validation, validation_enabled
 import numpyro.patch  # noqa: F401

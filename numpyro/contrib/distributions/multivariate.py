@@ -1,3 +1,6 @@
+# Copyright (c) 2017-2020 Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 # Source code modified from scipy.stats._multivariate.py
 #
 # Copyright (c) 2001, 2002 Enthought, Inc.
