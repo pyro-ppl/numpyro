@@ -508,8 +508,8 @@ def test_functional_map(algo, map_fn):
                                                              transform=lambda x: x.z, progbar=False))
     chain_samples = fori_collect_map(init_states)
 
-    assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.05)
-    assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)
+    assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.06)
+    assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.06)
 
 
 @pytest.mark.parametrize('jit_args', [False, True])
