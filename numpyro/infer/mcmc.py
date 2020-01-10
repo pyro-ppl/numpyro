@@ -621,7 +621,7 @@ class NUTS(HMC):
 def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
     weight = 1 / samples.shape[0]
     if scale.ndim > loc.ndim:
-        # XXX probably we need to recompute `scale` from `samples`
+        # XXX probably we need to recompute `loc`, `scale` from `samples`
         # because we might lose precision after many mcmc iterations
         new_scale = cholesky_update(scale, new_sample - loc, weight)
         proposal_scale = cholesky_update(new_scale, samples - loc, -weight)
