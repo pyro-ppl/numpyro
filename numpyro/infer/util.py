@@ -63,9 +63,6 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
             intermediates = site['intermediates']
             mask = site['mask']
             scale = site['scale']
-            # exit early if mask all
-            if not np.any(mask):
-                return device_put(0.), model_trace
             if intermediates:
                 if skip_dist_transforms:
                     log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
@@ -73,7 +70,17 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
                     log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)
-            log_prob = np.where(mask, scale * log_prob, 0.)
+
+            # Minor optimizations
+            # XXX: note that this will not work for dynamic masks.
+            if mask is not None:
+                if scale is not None:
+                    log_prob = np.where(mask, scale * log_prob, 0.)
+                else:
+                    log_prob = np.where(mask, log_prob, 0.)
+            else:
+                if scale is not None:
+                    log_prob = scale * log_prob
             log_prob = np.sum(log_prob)
             log_joint = log_joint + log_prob
     return log_joint, model_trace
@@ -141,7 +148,7 @@ def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
                                          skip_dist_transforms=True)
     for name, t in inv_transforms.items():
         t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
-        if 'scale' in model_trace[name]:
+        if model_trace[name]['scale'] is not None:
             t_log_det = model_trace[name]['scale'] * t_log_det
         log_joint = log_joint + t_log_det
     return - log_joint
