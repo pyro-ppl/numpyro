@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import numpy as onp
 from numpy.testing import assert_allclose, assert_raises
 import pytest
