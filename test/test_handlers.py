@@ -1,3 +1,4 @@
+import numpy as onp
 from numpy.testing import assert_allclose, assert_raises
 import pytest
 
@@ -10,6 +11,30 @@ from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.infer.util import log_density
 from numpyro.util import optional
+
+
+@pytest.mark.parametrize('mask_last', [1, 5, 10])
+def test_mask(mask_last):
+    N = 10
+    mask = onp.ones(N, dtype=onp.bool)
+    mask[-mask_last] = 0
+
+    def model(data, mask):
+        with numpyro.plate('N', N):
+            x = numpyro.sample('x', dist.Normal(0, 1))
+            with handlers.mask(mask_array=mask):
+                numpyro.sample('y', dist.Delta(x, log_density=1.))
+                with handlers.scale(scale_factor=2):
+                    numpyro.sample('obs', dist.Normal(x, 1), obs=data)
+
+    data = random.normal(random.PRNGKey(0), (N,))
+    x = random.normal(random.PRNGKey(1), (N,))
+    log_joint = log_density(model, (data, mask), {}, {'x': x, 'y': x})[0]
+    log_prob_x = dist.Normal(0, 1).log_prob(x)
+    log_prob_y = mask
+    log_prob_z = dist.Normal(x, 1).log_prob(data)
+    expected = (log_prob_x + np.where(mask,  log_prob_y + 2 * log_prob_z, 0.)).sum()
+    assert_allclose(log_joint, expected, atol=1e-4)
 
 
 @pytest.mark.parametrize('use_context_manager', [True, False])

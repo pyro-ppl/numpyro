@@ -2,7 +2,7 @@ from functools import partial
 import warnings
 
 import jax
-from jax import device_get, lax, random, value_and_grad, vmap
+from jax import device_get, device_put, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
@@ -61,6 +61,11 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
         if site['type'] == 'sample':
             value = site['value']
             intermediates = site['intermediates']
+            mask = site['mask']
+            scale = site['scale']
+            # exit early if mask all
+            if not np.any(mask):
+                return device_put(0.), model_trace
             if intermediates:
                 if skip_dist_transforms:
                     log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
@@ -68,9 +73,8 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
                     log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)
+            log_prob = np.where(mask, scale * log_prob, 0.)
             log_prob = np.sum(log_prob)
-            if 'scale' in site:
-                log_prob = site['scale'] * log_prob
             log_joint = log_joint + log_prob
     return log_joint, model_trace
 

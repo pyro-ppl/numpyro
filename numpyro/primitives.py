@@ -91,6 +91,7 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         'args': (),
         'kwargs': {'rng_key': rng_key, 'sample_shape': sample_shape},
         'value': obs,
+        'mask': True,
         'scale': 1.0,
         'is_observed': obs is not None,
         'intermediates': [],
@@ -133,6 +134,7 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
+        'mask': True,
         'scale': 1.0,
         'cond_indep_stack': [],
     }

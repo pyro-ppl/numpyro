@@ -277,6 +277,24 @@ class condition(Messenger):
                 msg['is_observed'] = True
 
 
+class mask(Messenger):
+    """
+    This messenger masks out some of the sample statements elementwise.
+
+    :param mask_array: a DeviceArray with `bool` dtype for masking elementwise masking
+        of sample sites.
+    """
+    def __init__(self, fn=None, mask_array=np.array(True)):
+        if not_jax_tracer(mask):
+            if mask_array.dtype != 'bool':
+                raise ValueError("`mask` should be a bool array.")
+        self.mask = mask_array
+        super(mask, self).__init__(fn)
+
+    def process_message(self, msg):
+        msg['mask'] = self.mask if msg['mask'] is None else self.mask & msg['mask']
+
+
 class scale(Messenger):
     """
     This messenger rescales the log probability score.
