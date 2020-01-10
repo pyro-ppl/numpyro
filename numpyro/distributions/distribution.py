@@ -1,4 +1,4 @@
-# Copyright (c) 2017-2019 Uber Technologies, Inc.
+# Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
 # The implementation follows the design in PyTorch: torch.distributions.distribution.py
