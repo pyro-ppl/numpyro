@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import jax.numpy as np
 
 from numpyro.examples.datasets import BASEBALL, COVTYPE, MNIST, SP500, load_dataset

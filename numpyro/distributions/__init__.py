@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
 import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.continuous import (
