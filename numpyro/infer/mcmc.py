@@ -622,6 +622,8 @@ class NUTS(HMC):
 
 
 def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
+    # get loc/scale of q_{-n} (Algorithm 1, line 5 of ref [1]) for n from 1 -> N + 1
+    # these loc/scale will be stacked to the first dim; so loc.shape[0] = scale.shape[0] = N + 1
     weight = 1 / samples.shape[0]
     if scale.ndim > loc.ndim:
         # XXX probably we need to recompute `loc`, `scale` from `samples`
@@ -635,6 +637,7 @@ def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
         proposal_var = proposal_var - weight ** 2 * np.square(new_sample - samples)
         proposal_scale = np.sqrt(proposal_var)
 
+    # Here, loc[0], scale[0] will be loc[N + 1], and scale[N + 1] in the paper
     proposal_scale = np.concatenate([scale[None, ...], proposal_scale])
     proposal_loc = loc + weight * (new_sample - samples)
     proposal_loc = np.concatenate([loc[None, :], proposal_loc])
