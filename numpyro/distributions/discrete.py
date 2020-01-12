@@ -38,6 +38,7 @@ from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     binomial,
     categorical,
+    categorical_logits,
     clamp_probs,
     get_dtype,
     lazy_property,
@@ -262,7 +263,7 @@ class CategoricalLogits(Distribution):
                                                 validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
+        return categorical_logits(key, self.logits, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):

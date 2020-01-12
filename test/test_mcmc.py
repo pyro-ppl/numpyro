@@ -17,7 +17,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import HMC, MCMC, NUTS, SA
-from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale
+from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
 from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
@@ -611,7 +611,7 @@ def test_get_proposal_loc_and_scale(dense_mass):
     else:
         scale = np.std(samples[:-1], 0)
     actual_loc, actual_scale = _get_proposal_loc_and_scale(samples[:-1], loc, scale, samples[-1])
-    expected_loc, expected_scale = [loc], [scale]
+    expected_loc, expected_scale = [], []
     for i in range(N - 1):
         samples_i = onp.delete(samples, i, axis=0)
         expected_loc.append(np.mean(samples_i, 0))
@@ -622,4 +622,13 @@ def test_get_proposal_loc_and_scale(dense_mass):
     expected_loc = np.stack(expected_loc)
     expected_scale = np.stack(expected_scale)
     assert_allclose(actual_loc, expected_loc, rtol=1e-4)
-    assert_allclose(actual_scale, expected_scale, rtol=0.05)
+    assert_allclose(actual_scale, expected_scale, atol=1e-6, rtol=0.05)
+
+
+@pytest.mark.parametrize('shape', [(4,), (3, 2)])
+@pytest.mark.parametrize('idx', [0, 1, 2])
+def test_numpy_delete(shape, idx):
+    x = random.normal(random.PRNGKey(0), shape)
+    expected = onp.delete(x, idx, axis=0)
+    actual = _numpy_delete(x, idx)
+    assert_allclose(actual, expected)

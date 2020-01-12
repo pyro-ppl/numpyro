@@ -36,6 +36,8 @@ Hamiltonian Monte Carlo
 
 .. autodata:: numpyro.infer.mcmc.HMCState
 
+.. autodata:: numpyro.infer.mcmc.SAState
+
 
 MCMC Utilities
 --------------

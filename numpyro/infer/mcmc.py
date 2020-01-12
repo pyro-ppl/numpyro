@@ -622,12 +622,12 @@ class NUTS(HMC):
 
 
 def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
-    # get loc/scale of q_{-n} (Algorithm 1, line 5 of ref [1]) for n from 1 -> N + 1
-    # these loc/scale will be stacked to the first dim; so loc.shape[0] = scale.shape[0] = N + 1
+    # get loc/scale of q_{-n} (Algorithm 1, line 5 of ref [1]) for n from 1 -> N
+    # these loc/scale will be stacked to the first dim; so
+    #   proposal_loc.shape[0] = proposal_loc.shape[0] = N
+    # Here, we use the numerical stability procedure in Appendix 6 of [1].
     weight = 1 / samples.shape[0]
     if scale.ndim > loc.ndim:
-        # XXX probably we need to recompute `loc`, `scale` from `samples`
-        # because we might lose precision after many mcmc iterations
         new_scale = cholesky_update(scale, new_sample - loc, weight)
         proposal_scale = cholesky_update(new_scale, samples - loc, -weight)
         proposal_scale = cholesky_update(proposal_scale, new_sample - samples, - (weight ** 2))
@@ -637,10 +637,7 @@ def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
         proposal_var = proposal_var - weight ** 2 * np.square(new_sample - samples)
         proposal_scale = np.sqrt(proposal_var)
 
-    # Here, loc[0], scale[0] will be loc[N + 1], and scale[N + 1] in the paper
-    proposal_scale = np.concatenate([scale[None, ...], proposal_scale])
     proposal_loc = loc + weight * (new_sample - samples)
-    proposal_loc = np.concatenate([loc[None, :], proposal_loc])
     return proposal_loc, proposal_scale
 
 
@@ -655,9 +652,45 @@ def _sample_proposal(inv_mass_matrix_sqrt, rng_key, batch_shape=()):
     return r
 
 
+# XXX probably we need to recompute `loc`, `inv_mass_matrix_sqrt` from `zs`
+# because we might lose precision after many iterations of using _get_proposal_loc_and_scale;
+# If we recompute, we don't need to store `loc` and `inv_mass_matrix_sqrt` here.
 SAAdaptState = namedtuple('SAAdaptState', ['zs', 'pes', 'loc', 'inv_mass_matrix_sqrt'])
 SAState = namedtuple('SAState', ['i', 'z', 'potential_energy', 'accept_prob',
                                  'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
+"""
+A :func:`~collections.namedtuple` used in Sample Adaptive MCMC.
+This consists of the following fields:
+
+ - **i** - iteration. This is reset to 0 after warmup.
+ - **z** - Python collection representing values (unconstrained samples from
+   the posterior) at latent sites.
+ - **potential_energy** - Potential energy computed at the given value of ``z``.
+ - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
+   does not correspond to the proposal if it is rejected.
+ - **mean_accept_prob** - Mean acceptance probability until current iteration
+   during warmup or sampling (for diagnostics).
+ - **diverging** - A boolean value to indicate whether the new sample potential energy
+   is diverging from the current one.
+ - **adapt_state** - A ``SAAdaptState`` namedtuple which contains adaptation information:
+
+   + **zs** - Step size to be used by the integrator in the next iteration.
+   + **pes** - Potential energies of `zs`.
+   + **loc** - Mean of those `zs`.
+   + **inv_mass_matrix_sqrt** - If using dense mass matrix, this is Cholesky of the
+     covariance of `zs`. Otherwise, this is standard derivation of those `zs`.
+
+ - **rng_key** - random number generator seed used for the iteration.
+"""
+
+
+def _numpy_delete(x, idx):
+    """
+    Gets the subarray from `x` where data from index `idx` on the first axis is removed.
+    """
+    # NB: numpy.delete is not yet available in JAX
+    mask = np.arange(x.shape[0] - 1) < idx
+    return np.where(mask.reshape((-1,) + (1,) * (x.ndim - 1)), x[:-1], x[1:])
 
 
 # TODO: consider to expose this functional style
@@ -716,44 +749,48 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         pe_fn = potential_fn
         if potential_fn_gen:
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-        zs, pes, loc, inv_mass_matrix_sqrt = sa_state.adapt_state
+        zs, pes, loc, scale = sa_state.adapt_state
         rng_key, rng_key_z, rng_key_reject, rng_key_accept = random.split(sa_state.rng_key, 4)
-        z_old, unravel_fn = ravel_pytree(sa_state.z)
+        _, unravel_fn = ravel_pytree(sa_state.z)
 
-        z = loc + _sample_proposal(inv_mass_matrix_sqrt, rng_key_z)
+        z = loc + _sample_proposal(scale, rng_key_z)
         pe = pe_fn(unravel_fn(z))
         pe = np.where(np.isnan(pe), np.inf, pe)
         diverging = (pe - sa_state.potential_energy) > max_delta_energy
 
-        locs, scales = _get_proposal_loc_and_scale(zs, loc, inv_mass_matrix_sqrt, z)
-        zs_ = np.concatenate([z[None, :], zs])
-        pes_ = np.concatenate([pe[None], pes])
-        if inv_mass_matrix_sqrt.ndim == 2:  # dense_mass
-            log_weights = dist.MultivariateNormal(locs, scale_tril=scales).log_prob(zs_) + pes_
+        # NB: all terms having the pattern *s will have shape N x ...
+        # and all terms having the pattern *s_ will have shape (N + 1) x ...
+        locs, scales = _get_proposal_loc_and_scale(zs, loc, scale, z)
+        zs_ = np.concatenate([zs, z[None, :]])
+        pes_ = np.concatenate([pes, pe[None]])
+        locs_ = np.concatenate([locs, loc[None, :]])
+        scales_ = np.concatenate([scales, scale[None, ...]])
+        if scale.ndim == 2:  # dense_mass
+            log_weights_ = dist.MultivariateNormal(locs_, scale_tril=scales_).log_prob(zs_) + pes_
         else:
-            log_weights = dist.Normal(locs, scales).log_prob(zs_).sum(-1) + pes_
-        log_weights = np.where(np.isnan(log_weights), -np.inf, log_weights)
-        j = categorical_logits(rng_key_reject, log_weights)
-        # XXX: numpy.delete is not available in JAX
-        zs = np.where(np.arange(zs.shape[0])[:, None] < j, zs_[:-1], zs_[1:])
-        pes = np.where(np.arange(pes.shape[0]) < j, pes_[:-1], pes_[1:])
-        loc = locs[j]
-        inv_mass_matrix_sqrt = scales[j]
-        adapt_state = SAAdaptState(zs, pes, loc, inv_mass_matrix_sqrt)
+            log_weights_ = dist.Normal(locs_, scales_).log_prob(zs_).sum(-1) + pes_
+        log_weights_ = np.where(np.isnan(log_weights_), -np.inf, log_weights_)
+        # get rejecting index
+        j = categorical_logits(rng_key_reject, log_weights_)
+        zs = _numpy_delete(zs_, j)
+        pes = _numpy_delete(pes_, j)
+        loc = locs_[j]
+        scale = scales_[j]
+        adapt_state = SAAdaptState(zs, pes, loc, scale)
 
-        # XXX: we make a modification of SA sampler in [1]
-        # in [1], each MCMC state contains N points
-        # here we do resampling to pick randomly a point from N points
-        k = categorical_logits(rng_key_accept, np.zeros(zs.shape[0]))
-        z = unravel_fn(zs[k])
-        potential_energy = pes[k]
-
-        accept_prob = 1 - np.exp(log_weights[0] - logsumexp(log_weights))
+        # NB: weights[-1] / sum(weights) is the probability of rejecting the new sample `z`.
+        accept_prob = 1 - np.exp(log_weights_[-1] - logsumexp(log_weights_))
         itr = sa_state.i + 1
         n = np.where(sa_state.i < wa_steps, itr, itr - wa_steps)
         mean_accept_prob = sa_state.mean_accept_prob + (accept_prob - sa_state.mean_accept_prob) / n
-        return SAState(itr, z, potential_energy, accept_prob, mean_accept_prob,
-                       diverging, adapt_state, rng_key)
+
+        # XXX: we make a modification of SA sampler in [1]
+        # in [1], each MCMC state contains N points `zs`
+        # here we do resampling to pick randomly a point from those N points
+        k = categorical_logits(rng_key_accept, np.zeros(zs.shape[0]))
+        z = unravel_fn(zs[k])
+        pe = pes[k]
+        return SAState(itr, z, pe, accept_prob, mean_accept_prob, diverging, adapt_state, rng_key)
 
     return init_kernel, sample_kernel
 
