@@ -81,7 +81,7 @@ from __future__ import absolute_import, division, print_function
 from collections import OrderedDict
 import warnings
 
-from jax import random
+from jax import lax, random
 import jax.numpy as np
 
 from numpyro.distributions.constraints import real
@@ -287,10 +287,9 @@ class mask(Messenger):
     :param mask_array: a DeviceArray with `bool` dtype for masking elementwise masking
         of sample sites.
     """
-    def __init__(self, fn=None, mask_array=np.array(True)):
-        if not_jax_tracer(mask):
-            if mask_array.dtype != 'bool':
-                raise ValueError("`mask` should be a bool array.")
+    def __init__(self, fn=None, mask_array=True):
+        if lax.dtype(mask_array) != 'bool':
+            raise ValueError("`mask` should be a bool array.")
         self.mask = mask_array
         super(mask, self).__init__(fn)
 
