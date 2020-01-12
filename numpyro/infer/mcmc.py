@@ -652,9 +652,10 @@ def _sample_proposal(inv_mass_matrix_sqrt, rng_key, batch_shape=()):
     return r
 
 
-# XXX probably we need to recompute `loc`, `inv_mass_matrix_sqrt` from `zs`
+# XXX: probably we need to recompute `loc`, `inv_mass_matrix_sqrt` from `zs`
 # because we might lose precision after many iterations of using _get_proposal_loc_and_scale;
 # If we recompute, we don't need to store `loc` and `inv_mass_matrix_sqrt` here.
+# We may also update those values every 10D iterations...
 SAAdaptState = namedtuple('SAAdaptState', ['zs', 'pes', 'loc', 'inv_mass_matrix_sqrt'])
 SAState = namedtuple('SAState', ['i', 'z', 'potential_energy', 'accept_prob',
                                  'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
@@ -678,7 +679,7 @@ This consists of the following fields:
    + **pes** - Potential energies of `zs`.
    + **loc** - Mean of those `zs`.
    + **inv_mass_matrix_sqrt** - If using dense mass matrix, this is Cholesky of the
-     covariance of `zs`. Otherwise, this is standard derivation of those `zs`.
+     covariance of `zs`. Otherwise, this is standard deviation of those `zs`.
 
  - **rng_key** - random number generator seed used for the iteration.
 """
@@ -803,6 +804,10 @@ class SA(MCMCKernel):
     This is a very fast (in term of n_eff / s) sampler but requires
     many warmup (burn-in) steps. In each MCMC step, we only need to
     evaluate potential function at one point.
+
+    Note that unlike in reference [1], we return a randomly selected (i.e. thinned)
+    subset of approximate posterior samples of size num_chains x num_samples
+    instead of num_chains x num_samples x adapt_state_size.
 
     **References:**
 
