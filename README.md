@@ -240,4 +240,16 @@ If you use NumPyro, please consider citing:
   year={2019}
 }
 ```
-.
+
+as well as
+
+```
+@article{bingham2018pyro,
+  author = {Bingham, Eli and Chen, Jonathan P. and Jankowiak, Martin and Obermeyer, Fritz and
+            Pradhan, Neeraj and Karaletsos, Theofanis and Singh, Rohit and Szerlip, Paul and
+            Horsfall, Paul and Goodman, Noah D.},
+  title = {{Pyro: Deep Universal Probabilistic Programming}},
+  journal = {arXiv preprint arXiv:1810.09538},
+  year = {2018}
+}
+```
