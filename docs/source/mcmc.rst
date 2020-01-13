@@ -22,6 +22,12 @@ Hamiltonian Monte Carlo
     :show-inheritance:
     :member-order: bysource
 
+.. autoclass:: numpyro.infer.mcmc.SA
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 .. autofunction:: numpyro.infer.mcmc.hmc
 
 .. autofunction:: numpyro.infer.mcmc.hmc.init_kernel
@@ -29,6 +35,8 @@ Hamiltonian Monte Carlo
 .. autofunction:: numpyro.infer.mcmc.hmc.sample_kernel
 
 .. autodata:: numpyro.infer.mcmc.HMCState
+
+.. autodata:: numpyro.infer.mcmc.SAState
 
 
 MCMC Utilities

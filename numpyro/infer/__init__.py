@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro.infer.elbo import ELBO, RenyiELBO
-from numpyro.infer.mcmc import HMC, MCMC, NUTS
+from numpyro.infer.mcmc import HMC, MCMC, NUTS, SA
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import (
     Predictive,
@@ -27,5 +27,6 @@ __all__ = [
     'MCMC',
     'NUTS',
     'Predictive',
+    'SA',
     'SVI',
 ]

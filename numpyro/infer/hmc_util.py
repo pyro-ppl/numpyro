@@ -15,8 +15,8 @@ from numpyro.distributions.util import cholesky_of_inverse, get_dtype
 from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
-AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
-                                       'ss_state', 'mm_state', 'window_idx', 'rng_key'])
+HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                             'ss_state', 'mm_state', 'window_idx', 'rng_key'])
 IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
 
 TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
@@ -386,8 +386,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         window_idx = 0
-        return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                          ss_state, mm_state, window_idx, rng_key)
+        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                             ss_state, mm_state, window_idx, rng_key)
 
     def _update_at_window_end(z, rng_key_ss, state):
         step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
@@ -400,8 +400,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
             ss_state = ss_init(np.log(10 * step_size))
 
-        return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                          ss_state, mm_state, window_idx, rng_key)
+        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                             ss_state, mm_state, window_idx, rng_key)
 
     def update_fn(t, accept_prob, z, state):
         """
@@ -436,8 +436,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
-        state = AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                           ss_state, mm_state, window_idx, rng_key)
+        state = HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                              ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
                      (z, rng_key_ss, state), lambda args: _update_at_window_end(*args),
                      state, lambda x: x)
