@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numpy.testing import assert_allclose
 import pytest
 
@@ -37,8 +40,7 @@ def test_renyi_elbo(alpha):
 
 @pytest.mark.parametrize('elbo', [
     ELBO(),
-    pytest.param(RenyiELBO(num_particles=10),
-                 marks=pytest.mark.xfail(reason="https://github.com/pyro-ppl/numpyro/issues/414"))
+    RenyiELBO(num_particles=10),
 ])
 def test_beta_bernoulli(elbo):
     data = np.array([1.0] * 8 + [0.0] * 2)
@@ -63,7 +65,7 @@ def test_beta_bernoulli(elbo):
         svi_state, _ = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 300, body_fn, svi_state)
+    svi_state = fori_loop(0, 1000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 

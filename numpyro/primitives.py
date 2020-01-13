@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 import functools
 
@@ -91,7 +94,8 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         'args': (),
         'kwargs': {'rng_key': rng_key, 'sample_shape': sample_shape},
         'value': obs,
-        'scale': 1.0,
+        'mask': None,
+        'scale': None,
         'is_observed': obs is not None,
         'intermediates': [],
         'cond_indep_stack': [],
@@ -133,7 +137,8 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
-        'scale': 1.0,
+        'mask': None,
+        'scale': None,
         'cond_indep_stack': [],
     }
 
@@ -248,7 +253,9 @@ class plate(Messenger):
         if 'sample_shape' in msg['kwargs']:
             batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
         msg['kwargs']['sample_shape'] = batch_shape
-        msg['scale'] = msg['scale'] * self.size / self.subsample_size
+        if self.size != self.subsample_size:
+            scale = 1. if msg['scale'] is None else msg['scale']
+            msg['scale'] = scale * self.size / self.subsample_size
 
 
 def factor(name, log_factor):

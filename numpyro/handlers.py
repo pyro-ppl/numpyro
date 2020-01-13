@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 This provides a small set of effect handlers in NumPyro that are modeled
 after Pyro's `poutine <http://docs.pyro.ai/en/stable/poutine.html>`_ module.
@@ -78,7 +81,7 @@ from __future__ import absolute_import, division, print_function
 from collections import OrderedDict
 import warnings
 
-from jax import random
+from jax import lax, random
 import jax.numpy as np
 
 from numpyro.distributions.constraints import real
@@ -277,6 +280,23 @@ class condition(Messenger):
                 msg['is_observed'] = True
 
 
+class mask(Messenger):
+    """
+    This messenger masks out some of the sample statements elementwise.
+
+    :param mask_array: a DeviceArray with `bool` dtype for masking elementwise masking
+        of sample sites.
+    """
+    def __init__(self, fn=None, mask_array=True):
+        if lax.dtype(mask_array) != 'bool':
+            raise ValueError("`mask` should be a bool array.")
+        self.mask = mask_array
+        super(mask, self).__init__(fn)
+
+    def process_message(self, msg):
+        msg['mask'] = self.mask if msg['mask'] is None else self.mask & msg['mask']
+
+
 class scale(Messenger):
     """
     This messenger rescales the log probability score.
@@ -294,7 +314,7 @@ class scale(Messenger):
         super(scale, self).__init__(fn)
 
     def process_message(self, msg):
-        msg["scale"] = self.scale * msg.get('scale', 1)
+        msg["scale"] = self.scale if msg['scale'] is None else self.scale * msg['scale']
 
 
 class seed(Messenger):

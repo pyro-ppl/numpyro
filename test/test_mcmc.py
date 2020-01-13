@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import os
 
 import numpy as onp
@@ -13,24 +16,27 @@ from jax.scipy.special import logit
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.infer import HMC, MCMC, NUTS
-from numpyro.infer.mcmc import hmc
+from numpyro.infer import HMC, MCMC, NUTS, SA
+from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
 from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
 @pytest.mark.parametrize('dense_mass', [False, True])
 def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     true_mean, true_std = 1., 0.5
-    warmup_steps, num_samples = 1000, 8000
+    warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
 
     def potential_fn(z):
         return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
 
     init_params = np.array(0.)
-    kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
-    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    if kernel_cls is SA:
+        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
+    else:
+        kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     mcmc.print_summary()
     hmc_states = mcmc.get_samples()
@@ -64,10 +70,10 @@ def test_correlated_mvn():
     assert onp.sum(onp.abs(onp.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
 def test_logistic_regression_x64(kernel_cls):
     N, dim = 3000, 3
-    warmup_steps, num_samples = 1000, 8000
+    warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
     logits = np.sum(true_coefs * data, axis=-1)
@@ -78,9 +84,13 @@ def test_logistic_regression_x64(kernel_cls):
         logits = np.sum(coefs * data, axis=-1)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
-    kernel = kernel_cls(model=model, trajectory_length=8)
-    mcmc = MCMC(kernel, warmup_steps, num_samples)
+    if kernel_cls is SA:
+        kernel = SA(model=model, adapt_state_size=9)
+    else:
+        kernel = kernel_cls(model=model, trajectory_length=8)
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), labels)
+    mcmc.print_summary()
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
@@ -125,9 +135,9 @@ def test_improper_normal():
     assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
 def test_beta_bernoulli_x64(kernel_cls):
-    warmup_steps, num_samples = 500, 20000
+    warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (500, 20000)
 
     def model(data):
         alpha = np.array([1.1, 1.1])
@@ -138,9 +148,13 @@ def test_beta_bernoulli_x64(kernel_cls):
 
     true_probs = np.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
-    kernel = kernel_cls(model=model, trajectory_length=1.)
+    if kernel_cls is SA:
+        kernel = SA(model=model)
+    else:
+        kernel = kernel_cls(model=model, trajectory_length=1.)
     mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
+    mcmc.print_summary()
     samples = mcmc.get_samples()
     assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
@@ -268,11 +282,11 @@ def test_mcmc_progbar():
     mcmc1.run(random.PRNGKey(2), data)
 
     with pytest.raises(AssertionError):
-        check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
+        check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
     mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data)
-    check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-3, rtol=0.01)
-    check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-3, rtol=0.01)
+    check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
+    check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-4, rtol=1e-4)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -497,8 +511,8 @@ def test_functional_map(algo, map_fn):
                                                              transform=lambda x: x.z, progbar=False))
     chain_samples = fori_collect_map(init_states)
 
-    assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.05)
-    assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.05)
+    assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.06)
+    assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.06)
 
 
 @pytest.mark.parametrize('jit_args', [False, True])
@@ -563,7 +577,7 @@ def test_compile_warmup_run(num_chains, chain_method, progress_bar):
 
     rng_key = random.PRNGKey(0)
     num_samples = 10
-    mcmc = MCMC(NUTS(model), 100, num_samples, num_chains,
+    mcmc = MCMC(NUTS(model), 10, num_samples, num_chains,
                 chain_method=chain_method, progress_bar=progress_bar)
 
     mcmc.run(rng_key)
@@ -579,8 +593,42 @@ def test_compile_warmup_run(num_chains, chain_method, progress_bar):
 
     # test for reproducible
     if num_chains > 1:
-        mcmc = MCMC(NUTS(model), 100, num_samples, 1, progress_bar=progress_bar)
+        mcmc = MCMC(NUTS(model), 10, num_samples, 1, progress_bar=progress_bar)
         rng_key = random.split(rng_key)[0]
         mcmc.run(rng_key)
         first_chain_samples = mcmc.get_samples()["x"]
         assert_allclose(actual_samples[:num_samples], first_chain_samples, atol=1e-5)
+
+
+@pytest.mark.parametrize('dense_mass', [True, False])
+def test_get_proposal_loc_and_scale(dense_mass):
+    N = 10
+    dim = 3
+    samples = random.normal(random.PRNGKey(0), (N, dim))
+    loc = np.mean(samples[:-1], 0)
+    if dense_mass:
+        scale = np.linalg.cholesky(np.cov(samples[:-1], rowvar=False, bias=True))
+    else:
+        scale = np.std(samples[:-1], 0)
+    actual_loc, actual_scale = _get_proposal_loc_and_scale(samples[:-1], loc, scale, samples[-1])
+    expected_loc, expected_scale = [], []
+    for i in range(N - 1):
+        samples_i = onp.delete(samples, i, axis=0)
+        expected_loc.append(np.mean(samples_i, 0))
+        if dense_mass:
+            expected_scale.append(np.linalg.cholesky(np.cov(samples_i, rowvar=False, bias=True)))
+        else:
+            expected_scale.append(np.std(samples_i, 0))
+    expected_loc = np.stack(expected_loc)
+    expected_scale = np.stack(expected_scale)
+    assert_allclose(actual_loc, expected_loc, rtol=1e-4)
+    assert_allclose(actual_scale, expected_scale, atol=1e-6, rtol=0.05)
+
+
+@pytest.mark.parametrize('shape', [(4,), (3, 2)])
+@pytest.mark.parametrize('idx', [0, 1, 2])
+def test_numpy_delete(shape, idx):
+    x = random.normal(random.PRNGKey(0), shape)
+    expected = onp.delete(x, idx, axis=0)
+    actual = _numpy_delete(x, idx)
+    assert_allclose(actual, expected)

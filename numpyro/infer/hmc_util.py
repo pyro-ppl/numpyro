@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 
 from jax import grad, random, value_and_grad, vmap
@@ -8,12 +11,12 @@ from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
-from numpyro.distributions.util import cholesky_inverse, get_dtype
+from numpyro.distributions.util import cholesky_of_inverse, get_dtype
 from numpyro.util import cond, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
-AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
-                                       'ss_state', 'mm_state', 'window_idx', 'rng_key'])
+HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                             'ss_state', 'mm_state', 'window_idx', 'rng_key'])
 IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
 
 TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
@@ -158,7 +161,7 @@ def welford_covariance(diagonal=True):
             else:
                 cov = scaled_cov + shrinkage * np.identity(mean.shape[0])
         if np.ndim(cov) == 2:
-            cov_inv_sqrt = cholesky_inverse(cov)
+            cov_inv_sqrt = cholesky_of_inverse(cov)
         else:
             cov_inv_sqrt = np.sqrt(np.reciprocal(cov))
         return cov, cov_inv_sqrt
@@ -372,7 +375,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             mass_matrix_sqrt = inverse_mass_matrix
         else:
             if dense_mass:
-                mass_matrix_sqrt = cholesky_inverse(inverse_mass_matrix)
+                mass_matrix_sqrt = cholesky_of_inverse(inverse_mass_matrix)
             else:
                 mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 
@@ -383,8 +386,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         window_idx = 0
-        return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                          ss_state, mm_state, window_idx, rng_key)
+        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                             ss_state, mm_state, window_idx, rng_key)
 
     def _update_at_window_end(z, rng_key_ss, state):
         step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
@@ -397,8 +400,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
             ss_state = ss_init(np.log(10 * step_size))
 
-        return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                          ss_state, mm_state, window_idx, rng_key)
+        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                             ss_state, mm_state, window_idx, rng_key)
 
     def update_fn(t, accept_prob, z, state):
         """
@@ -433,8 +436,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
-        state = AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                           ss_state, mm_state, window_idx, rng_key)
+        state = HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                              ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
                      (z, rng_key_ss, state), lambda args: _update_at_window_end(*args),
                      state, lambda x: x)

@@ -1,13 +1,13 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from functools import update_wrapper
 import math
-
-import scipy.special as osp_special
 
 from jax import custom_transforms, defjvp, jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
 import jax.numpy as np
-from jax.numpy.lax_numpy import _promote_args_like
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln
 from jax.util import partial
@@ -44,6 +44,14 @@ def _categorical(key, p, shape):
 
 def categorical(key, p, shape=()):
     return _categorical(key, p, shape)
+
+
+# TODO: use this sampler in CategoricalLogits
+# TODO: drop this for the next JAX release, see https://github.com/google/jax/pull/1855
+def categorical_logits(key, logits, shape=()):
+    shape = shape or logits.shape[:-1]
+    return np.argmax(random.gumbel(key, shape + logits.shape[-1:], logits.dtype)
+                     + logits, axis=-1)
 
 
 # Ref https://github.com/numpy/numpy/blob/8a0858f3903e488495a56b4a6d19bbefabc97dca/
@@ -156,57 +164,7 @@ def multinomial(key, p, n, shape=()):
     return _multinomial(key, p, n, n_max, shape)
 
 
-def _xlogy_jvp_lhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
-    g = np.broadcast_to(g, shape)
-    y = np.broadcast_to(y, shape)
-    g, y = _promote_args_like(osp_special.xlogy, g, y)
-    return lax._safe_mul(g, np.log(y))
-
-
-def _xlogy_jvp_rhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
-    g = np.broadcast_to(g, shape)
-    x = np.broadcast_to(x, shape)
-    x, y = _promote_args_like(osp_special.xlogy, x, y)
-    return g * lax._safe_mul(x, np.reciprocal(y))
-
-
-@custom_transforms
-def xlogy(x, y):
-    x, y = _promote_args_like(osp_special.xlogy, x, y)
-    return lax._safe_mul(x, np.log(y))
-
-
-defjvp(xlogy, _xlogy_jvp_lhs, _xlogy_jvp_rhs)
-
-
-def _xlog1py_jvp_lhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(y))
-    g = np.broadcast_to(g, shape)
-    y = np.broadcast_to(y, shape)
-    g, y = _promote_args_like(osp_special.xlog1py, g, y)
-    return lax._safe_mul(g, np.log1p(y))
-
-
-def _xlog1py_jvp_rhs(g, ans, x, y):
-    shape = lax.broadcast_shapes(np.shape(g), np.shape(x))
-    g = np.broadcast_to(g, shape)
-    x = np.broadcast_to(x, shape)
-    x, y = _promote_args_like(osp_special.xlog1py, x, y)
-    return g * lax._safe_mul(x, np.reciprocal(1 + y))
-
-
-@custom_transforms
-def xlog1py(x, y):
-    x, y = _promote_args_like(osp_special.xlog1py, x, y)
-    return lax._safe_mul(x, np.log1p(y))
-
-
-defjvp(xlog1py, _xlog1py_jvp_lhs, _xlog1py_jvp_rhs)
-
-
-def cholesky_inverse(matrix):
+def cholesky_of_inverse(matrix):
     # This formulation only takes the inverse of a triangular matrix
     # which is more numerically stable.
     # Refer to:
@@ -280,6 +238,42 @@ def vec_to_tril_matrix(t, diagonal=0):
                                                     inserted_window_dims=(t.ndim - 1,),
                                                     scatter_dims_to_operand_dims=(t.ndim - 1,)))
     return np.reshape(x, x.shape[:-1] + (n, n))
+
+
+def cholesky_update(L, x, coef=1):
+    """
+    Finds cholesky of L @ L.T + coef * x @ x.T.
+
+    **References;**
+
+        1. A more efficient rank-one covariance matrix update for evolution strategies,
+           Oswin Krause and Christian Igel
+    """
+    batch_shape = lax.broadcast_shapes(L.shape[:-2], x.shape[:-1])
+    L = np.broadcast_to(L, batch_shape + L.shape[-2:])
+    x = np.broadcast_to(x, batch_shape + x.shape[-1:])
+    diag = np.diagonal(L, axis1=-2, axis2=-1)
+    # convert to unit diagonal triangular matrix: L @ D @ T.t
+    L = L / diag[..., None, :]
+    D = np.square(diag)
+
+    def scan_fn(carry, val):
+        b, w = carry
+        j, Dj, L_j = val
+        wj = w[..., j]
+        gamma = b * Dj + coef * np.square(wj)
+        Dj_new = gamma / b
+        b = gamma / Dj_new
+
+        # update vectors w and L_j
+        w = w - wj[..., None] * L_j
+        L_j = L_j + (coef * wj / gamma)[..., None] * w
+        return (b, w), (Dj_new, L_j)
+
+    D, L = np.moveaxis(D, -1, 0), np.moveaxis(L, -1, 0)  # move scan dim to front
+    _, (D, L) = lax.scan(scan_fn, (np.ones(batch_shape), x), (np.arange(D.shape[0]), D, L))
+    D, L = np.moveaxis(D, 0, -1), np.moveaxis(L, 0, -1)  # move scan dim back
+    return L * np.sqrt(D)[..., None, :]
 
 
 def signed_stick_breaking_tril(t):

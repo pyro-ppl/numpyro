@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import absolute_import, division, print_function
 
 import os
@@ -31,10 +34,8 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the release (unless JAX's API becomes stable)
-        'jax==0.1.53',
-        'jaxlib==0.1.36',
-        # TODO: remove when https://github.com/google/jax/issues/1912 is fixed.
-        'numpy<1.18',
+        'jax>=0.1.57',
+        'jaxlib>=0.1.37',
         'tqdm',
     ],
     extras_require={
@@ -50,11 +51,12 @@ setup(
     long_description=long_description,
     long_description_content_type='text/markdown',
     keywords='probabilistic machine learning bayesian statistics',
+    license='Apache License 2.0',
     classifiers=[
         'Intended Audience :: Developers',
         'Intended Audience :: Education',
         'Intended Audience :: Science/Research',
-        'License :: OSI Approved :: MIT License',
+        'License :: OSI Approved :: Apache Software License',
         'Operating System :: POSIX :: Linux',
         'Operating System :: MacOS :: MacOS X',
         'Programming Language :: Python :: 3.6',

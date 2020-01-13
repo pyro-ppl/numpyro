@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 # The implementation largely follows the design in PyTorch's `torch.distributions`
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
@@ -22,12 +25,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from jax import lax
+from jax import device_put, lax
 from jax.dtypes import canonicalize_dtype
 from jax.nn import softmax
 import jax.numpy as np
 import jax.random as random
-from jax.scipy.special import expit, gammaln, logsumexp
+from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -35,6 +38,7 @@ from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     binomial,
     categorical,
+    categorical_logits,
     clamp_probs,
     get_dtype,
     lazy_property,
@@ -43,8 +47,6 @@ from numpyro.distributions.util import (
     promote_shapes,
     sum_rightmost,
     validate_sample,
-    xlog1py,
-    xlogy
 )
 from numpyro.util import copy_docs_from
 
@@ -261,7 +263,7 @@ class CategoricalLogits(Distribution):
                                                 validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
+        return categorical_logits(key, self.logits, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):
@@ -317,7 +319,7 @@ class Delta(Distribution):
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
-        return np.broadcast_to(self.value, shape)
+        return np.broadcast_to(device_put(self.value), shape)
 
     @validate_sample
     def log_prob(self, value):

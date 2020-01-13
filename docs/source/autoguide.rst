@@ -43,6 +43,14 @@ AutoLaplaceApproximation
     :show-inheritance:
     :member-order: bysource
 
+AutoLowRankMultivariateNormal
+-----------------------------
+.. autoclass:: numpyro.contrib.autoguide.AutoLowRankMultivariateNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 AutoContinuousELBO
 ------------------
 .. autoclass:: numpyro.contrib.autoguide.AutoContinuousELBO

@@ -1,86 +1,26 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numbers import Number
 
 import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
-import scipy.special as osp_special
 
-from jax import grad, jacobian, jit, lax, random, vmap
+from jax import jacobian, lax, random, vmap
 import jax.numpy as np
-from jax.scipy.special import expit
-from jax.util import partial
+from jax.scipy.special import expit, xlog1py, xlogy
 
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     categorical,
+    cholesky_update,
     cumprod,
     cumsum,
     multinomial,
     poisson,
     vec_to_tril_matrix,
-    xlog1py,
-    xlogy
 )
-
-_zeros = partial(lax.full_like, fill_value=0)
-
-
-@pytest.mark.parametrize('x, y', [
-    (np.array([1]), np.array([1, 2, 3])),
-    (np.array([0]), np.array([0, 0])),
-    (np.array([[0.], [0.]]), np.array([1., 2.])),
-])
-@pytest.mark.parametrize('jit_fn', [False, True])
-def test_xlogy(x, y, jit_fn):
-    fn = xlogy if not jit_fn else jit(xlogy)
-    assert_allclose(fn(x, y), osp_special.xlogy(x, y))
-
-
-@pytest.mark.parametrize('x, y, grad1, grad2', [
-    (np.array([1., 1., 1.]), np.array([1., 2., 3.]),
-     np.log(np.array([1, 2, 3])), np.array([1., 0.5, 1./3])),
-    (np.array([1.]), np.array([1., 2., 3.]),
-     np.sum(np.log(np.array([1, 2, 3]))), np.array([1., 0.5, 1./3])),
-    (np.array([1., 2., 3.]), np.array([2.]),
-     np.log(np.array([2., 2., 2.])), np.array([3.])),
-    (np.array([0.]), np.array([0., 0.]),
-     np.array([-float('inf')]), np.array([0., 0.])),
-    (np.array([[0.], [0.]]), np.array([1., 2.]),
-     np.array([[np.log(2.)], [np.log(2.)]]), np.array([0, 0])),
-])
-def test_xlogy_jac(x, y, grad1, grad2):
-    assert_allclose(grad(lambda x, y: np.sum(xlogy(x, y)))(x, y), grad1)
-    assert_allclose(grad(lambda x, y: np.sum(xlogy(x, y)), 1)(x, y), grad2)
-
-
-@pytest.mark.parametrize('x, y', [
-    (np.array([1]), np.array([0, 1, 2])),
-    (np.array([0]), np.array([-1, -1])),
-    (np.array([[0.], [0.]]), np.array([1., 2.])),
-])
-@pytest.mark.parametrize('jit_fn', [False, True])
-def test_xlog1py(x, y, jit_fn):
-    fn = xlog1py if not jit_fn else jit(xlog1py)
-    assert_allclose(fn(x, y), osp_special.xlog1py(x, y))
-
-
-@pytest.mark.parametrize('x, y, grad1, grad2', [
-    (np.array([1., 1., 1.]), np.array([0., 1., 2.]),
-     np.log(np.array([1, 2, 3])), np.array([1., 0.5, 1./3])),
-    (np.array([1., 1., 1.]), np.array([-1., 0., 1.]),
-     np.log(np.array([0, 1, 2])), np.array([float('inf'), 1., 0.5])),
-    (np.array([1.]), np.array([0., 1., 2.]),
-     np.sum(np.log(np.array([1, 2, 3]))), np.array([1., 0.5, 1./3])),
-    (np.array([1., 2., 3.]), np.array([1.]),
-     np.log(np.array([2., 2., 2.])), np.array([3.])),
-    (np.array([0.]), np.array([-1., -1.]),
-     np.array([-float('inf')]), np.array([0., 0.])),
-    (np.array([[0.], [0.]]), np.array([1., 2.]),
-     np.array([[np.log(6.)], [np.log(6.)]]), np.array([0, 0])),
-])
-def test_xlog1py_jac(x, y, grad1, grad2):
-    assert_allclose(grad(lambda x, y: np.sum(xlog1py(x, y)))(x, y), grad1)
-    assert_allclose(grad(lambda x, y: np.sum(xlog1py(x, y)), 1)(x, y), grad2)
 
 
 @pytest.mark.parametrize('x, y', [
@@ -239,3 +179,17 @@ def test_vec_to_tril_matrix(shape, diagonal):
     tril_idxs = onp.tril_indices(expected.shape[-1], diagonal)
     expected[..., tril_idxs[0], tril_idxs[1]] = x
     assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize("chol_batch_shape", [(), (3,)])
+@pytest.mark.parametrize("vec_batch_shape", [(), (3,)])
+@pytest.mark.parametrize("dim", [1, 4])
+@pytest.mark.parametrize("coef", [1, -1])
+def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
+    A = random.normal(random.PRNGKey(0), chol_batch_shape + (dim, dim))
+    A = A @ np.swapaxes(A, -2, -1) + np.eye(dim)
+    x = random.normal(random.PRNGKey(0), vec_batch_shape + (dim,)) * 0.1
+    xxt = x[..., None] @ x[..., None, :]
+    expected = np.linalg.cholesky(A + coef * xxt)
+    actual = cholesky_update(np.linalg.cholesky(A), x, coef)
+    assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
