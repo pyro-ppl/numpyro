@@ -212,12 +212,13 @@ def test_param():
     assert_allclose(params['a'], a_init)
     assert_allclose(params['b'], b_init)
     assert_allclose(params['auto_loc'], guide._init_latent)
-    assert_allclose(params['auto_scale'], np.ones(1))
+    assert_allclose(params['auto_scale'], np.ones(1) * guide._init_scale)
 
     actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
-    expected_loss = dist.Normal(guide._init_latent, 1).log_prob(x_init) - dist.Normal(a_init, b_init).log_prob(x_init)
-    assert_allclose(actual_loss, expected_loss)
+    expected_loss = dist.Normal(guide._init_latent, guide._init_scale).log_prob(x_init) \
+        - dist.Normal(a_init, b_init).log_prob(x_init)
+    assert_allclose(actual_loss, expected_loss, rtol=1e-6)
 
 
 def test_dynamic_supports():
@@ -281,13 +282,13 @@ def test_elbo_dynamic_support():
     actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
 
-    guide_log_prob = dist.Normal(guide._init_latent).log_prob(x_unconstrained).sum()
+    guide_log_prob = dist.Normal(guide._init_latent, guide._init_scale).log_prob(x_unconstrained).sum()
     transfrom = transforms.biject_to(constraints.interval(0, 5))
     x = transfrom(x_unconstrained)
     logdet = transfrom.log_abs_det_jacobian(x_unconstrained, x)
     model_log_prob = x_prior.log_prob(x) + logdet
     expected_loss = guide_log_prob - model_log_prob
-    assert_allclose(actual_loss, expected_loss)
+    assert_allclose(actual_loss, expected_loss, rtol=1e-6)
 
 
 def test_laplace_approximation_warning():
