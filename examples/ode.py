@@ -20,7 +20,6 @@ import os
 
 import matplotlib
 import matplotlib.pyplot as plt
-import pandas as pd
 
 from jax.experimental.ode import build_odeint
 import jax.numpy as np
@@ -28,6 +27,7 @@ from jax.random import PRNGKey
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.examples.datasets import LYNXHARE, load_dataset
 from numpyro.infer import MCMC, NUTS, Predictive
 
 matplotlib.use('Agg')  # noqa: E402
@@ -71,23 +71,23 @@ def model(N, y=None):
 
 
 def main(args):
-    URL = "http://people.whitman.edu/~hundledr/courses/M250F03/LynxHare.txt"
-    data = pd.read_csv(URL, sep=" (?!$)", names=["year", "hare", "lynx"], index_col=0, engine="python")
+    _, fetch = load_dataset(LYNXHARE, shuffle=False)
+    year, data = fetch()  # data is in hare -> lynx order
 
     # use dense_mass for better mixing rate
     mcmc = MCMC(NUTS(model, dense_mass=True),
                 args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
-    mcmc.run(PRNGKey(1), N=data.shape[0], y=np.log(data.values))
+    mcmc.run(PRNGKey(1), N=data.shape[0], y=np.log(data))
     mcmc.print_summary()
 
     # predict populations
     y_pred = Predictive(model, mcmc.get_samples())(PRNGKey(2), data.shape[0])["y"]
     pop_pred = np.exp(y_pred)
-    plt.fill_between(data.index, data.values[:, 0], color="y", alpha=0.2, label="true hare")
-    plt.plot(data.index, data.values[:, 1], "kx", label="true lynx")
-    plt.plot(data.index, np.mean(pop_pred[..., 0], 0), "b-", label="pred hare")
-    plt.plot(data.index, np.mean(pop_pred[..., 1], 0), "g--", label="pred lynx")
+    plt.fill_between(year, data[:, 0], color="y", alpha=0.2, label="true hare")
+    plt.plot(year, data[:, 1], "kx", label="true lynx")
+    plt.plot(year, np.mean(pop_pred[..., 0], 0), "b-", label="pred hare")
+    plt.plot(year, np.mean(pop_pred[..., 1], 0), "g--", label="pred lynx")
     plt.gca().set(ylim=(0, 160), xlabel="year", ylabel="population (in thousands)")
     handles, labels = plt.gca().get_legend_handles_labels()
     order = [3, 0, 1, 2]
