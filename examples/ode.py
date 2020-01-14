@@ -45,7 +45,7 @@ def dz_dt(z, t, alpha, beta, gamma, delta):
     return np.stack([du_dt, dv_dt])
 
 
-ode_integrate = build_odeint(dz_dt, rtol=1e-5, atol=1e-3, mxstep=500)
+predator_prey_int = build_odeint(dz_dt, rtol=1e-5, atol=1e-3, mxstep=500)
 
 
 def model(N, y=None):
@@ -60,12 +60,12 @@ def model(N, y=None):
     # parameters alpha, beta, gamma, delta of dz_dt
     theta = numpyro.sample(
         "theta",
-        dist.TruncatedNormal(low=0., loc=np.array([1, 0.05, 1, 0.05]),
+        dist.TruncatedNormal(low=0., loc=np.array([0.5, 0.05, 1.5, 0.05]),
                              scale=np.array([0.5, 0.05, 0.5, 0.05])))
     # integrate dz/dt, the result will have shape N x 2
-    z = ode_integrate(z_init, ts, *theta)
-    # measurement errors
-    sigma = numpyro.sample("sigma", dist.LogNormal(-1, 1), sample_shape=(2,))
+    z = predator_prey_int(z_init, ts, *theta)
+    # measurement errors, we expect that measured hare has larger error than measured lynx
+    sigma = numpyro.sample("sigma", dist.Exponential(np.array([1, 2])))
     # measured populations (in log scale)
     numpyro.sample("y", dist.Normal(np.log(z), sigma), obs=y)
 
@@ -74,6 +74,7 @@ def main(args):
     URL = "http://people.whitman.edu/~hundledr/courses/M250F03/LynxHare.txt"
     data = pd.read_csv(URL, sep=" (?!$)", names=["year", "hare", "lynx"], index_col=0, engine="python")
 
+    # use dense_mass for better mixing rate
     mcmc = MCMC(NUTS(model, dense_mass=True),
                 args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
