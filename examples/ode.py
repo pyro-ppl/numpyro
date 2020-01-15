@@ -84,14 +84,16 @@ def main(args):
     # predict populations
     y_pred = Predictive(model, mcmc.get_samples())(PRNGKey(2), data.shape[0])["y"]
     pop_pred = np.exp(y_pred)
-    plt.fill_between(year, data[:, 0], color="y", alpha=0.2, label="true hare")
-    plt.plot(year, data[:, 1], "kx", label="true lynx")
-    plt.plot(year, np.mean(pop_pred[..., 0], 0), "b-", label="pred hare")
-    plt.plot(year, np.mean(pop_pred[..., 1], 0), "g--", label="pred lynx")
+    mu, pi = np.mean(pop_pred, 0), np.percentile(pop_pred, (10, 90), 0)
+    plt.plot(year, data[:, 0], "ko", mfc="none", ms=4, label="true hare", alpha=0.67)
+    plt.plot(year, data[:, 1], "bx", label="true lynx")
+    plt.plot(year, mu[:, 0], "k-.", label="pred hare", lw=1, alpha=0.67)
+    plt.plot(year, mu[:, 1], "b--", label="pred lynx")
+    plt.fill_between(year, pi[0, :, 0], pi[1, :, 0], color="k", alpha=0.2)
+    plt.fill_between(year, pi[0, :, 1], pi[1, :, 1], color="b", alpha=0.3)
     plt.gca().set(ylim=(0, 160), xlabel="year", ylabel="population (in thousands)")
-    handles, labels = plt.gca().get_legend_handles_labels()
-    order = [3, 0, 1, 2]
-    plt.legend([handles[idx] for idx in order], [labels[idx] for idx in order])
+    plt.title("Posterior Predictive with 80% CI.")
+    plt.legend()
 
     plt.savefig("ode_plot.pdf")
     plt.tight_layout()
