@@ -132,7 +132,9 @@ def constrain_fn(model, transforms, model_args, model_kwargs, params):
     params_constrained = transform_fn(transforms, params)
     substituted_model = substitute(model, base_param_map=params_constrained)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
-    return {k: model_trace[k]['value'] for k, v in params.items() if k in model_trace}
+    # This returns values at deterministic sites in addition to params (constrained)
+    return {k: model_trace[k]['value'] for k, v in model_trace.items() if (k in params) or
+            (v['type'] == 'deterministic')}
 
 
 def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
@@ -377,12 +379,14 @@ def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
     seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
     inv_transforms = {}
-    has_transformed_dist = False
+    # model code may need to be replayed in the presence of dynamic constraints
+    # or deterministic sites
+    replay_model = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
             if v['intermediates']:
                 inv_transforms[k] = biject_to(v['fn'].base_dist.support)
-                has_transformed_dist = True
+                replay_model = True
             else:
                 inv_transforms[k] = biject_to(v['fn'].support)
         elif v['type'] == 'param':
@@ -390,10 +394,12 @@ def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
             transform = biject_to(constraint)
             if isinstance(transform, ComposeTransform):
                 inv_transforms[k] = transform.parts[0]
-                has_transformed_dist = True
+                replay_model = True
             else:
                 inv_transforms[k] = transform
-    return inv_transforms, has_transformed_dist
+        elif v['type'] == 'deterministic':
+            replay_model = True
+    return inv_transforms, replay_model
 
 
 def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kwargs=None):
@@ -420,19 +426,19 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
     """
     if dynamic_args:
         def potential_fn(*args, **kwargs):
-            inv_transforms, has_transformed_dist = get_model_transforms(rng_key, model, args, kwargs)
+            inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
             return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
 
         def constrain_fun(*args, **kwargs):
-            inv_transforms, has_transformed_dist = get_model_transforms(rng_key, model, args, kwargs)
-            if has_transformed_dist:
+            inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
+            if replay_model:
                 return jax.partial(constrain_fn, model, inv_transforms, args, kwargs)
             else:
                 return jax.partial(transform_fn, inv_transforms)
     else:
-        inv_transforms, has_transformed_dist = get_model_transforms(rng_key, model, model_args, model_kwargs)
+        inv_transforms, replay_model = get_model_transforms(rng_key, model, model_args, model_kwargs)
         potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
-        if has_transformed_dist:
+        if replay_model:
             constrain_fun = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs)
         else:
             constrain_fun = jax.partial(transform_fn, inv_transforms)
@@ -503,7 +509,7 @@ def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=Non
                 sites = return_sites
         else:
             sites = {k for k, site in model_trace.items()
-                     if site['type'] != 'plate' and k not in samples}
+                     if (site['type'] == 'sample' and k not in samples) or (site['type'] == 'deterministic')}
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
     if parallel:
