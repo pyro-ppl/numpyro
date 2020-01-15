@@ -75,8 +75,8 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         state to `fn`. In those situations, `rng_key` keyword will take no
         effect.
 
-    :param str name: name of the sample site
-    :param fn: Python callable
+    :param str name: name of the sample site.
+    :param fn: a stochastic function that returns a sample.
     :param numpy.ndarray obs: observed value
     :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
@@ -140,6 +140,31 @@ def param(name, init_value=None, **kwargs):
         'mask': None,
         'scale': None,
         'cond_indep_stack': [],
+    }
+
+    # ...and use apply_stack to send it to the Messengers
+    msg = apply_stack(initial_msg)
+    return msg['value']
+
+
+def deterministic(name, value):
+    """
+    Used to designate deterministic sites in the model. Note that most effect
+    handlers will not operate on deterministic sites (except
+    :function:`~numpyro.handlers.trace`), so deterministic sites should be
+    side-effect free. The use case for deterministic nodes is to record any
+    values in the model execution trace.
+
+    :param str name: name of the deterministic site.
+    :param numpy.ndarray value: deterministic value to record in the trace.
+    """
+    if not _PYRO_STACK:
+        return value
+
+    initial_msg = {
+        'type': 'deterministic',
+        'name': name,
+        'value': value,
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -233,6 +258,8 @@ class plate(Messenger):
         return tuple(batch_shape)
 
     def process_message(self, msg):
+        if msg['type'] not in ('sample', 'plate'):
+            return
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)

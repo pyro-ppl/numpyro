@@ -184,7 +184,7 @@ class replay(Messenger):
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['name'] in self.guide_trace:
+        if msg['name'] in self.guide_trace and msg['type'] in ('sample', 'plate'):
             msg['value'] = self.guide_trace[msg['name']]['value']
 
 
@@ -423,6 +423,8 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
+        if msg['type'] not in ('sample', 'param'):
+            return
         if self.param_map is not None:
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]

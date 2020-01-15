@@ -134,6 +134,8 @@ def model_nested_plates_0():
         with numpyro.plate('inner', 5):
             y = numpyro.sample('x', dist.Normal(0., 1.))
             assert y.shape == (5, 10)
+            z = numpyro.deterministic('z', x ** 2)
+            assert z.shape == (10,)
 
 
 def model_nested_plates_1():
@@ -143,6 +145,8 @@ def model_nested_plates_1():
         with numpyro.plate('inner', 5):
             y = numpyro.sample('x', dist.Normal(0., 1.))
             assert y.shape == (10, 5)
+            z = numpyro.deterministic('z', x ** 2)
+            assert z.shape == (10, 1)
 
 
 def model_nested_plates_2():
@@ -154,6 +158,8 @@ def model_nested_plates_2():
     with inner:
         y = numpyro.sample('y', dist.Normal(0., 1.))
         assert y.shape == (5, 1, 1)
+        z = numpyro.deterministic('z', x ** 2)
+        assert z.shape == (10,)
 
     with outer, inner:
         xy = numpyro.sample('xy', dist.Normal(0., 1.), sample_shape=(10,))
@@ -169,6 +175,8 @@ def model_dist_batch_shape():
     with inner:
         y = numpyro.sample('y', dist.Normal(0., np.ones(10)))
         assert y.shape == (5, 1, 10)
+        z = numpyro.deterministic('z', x ** 2)
+        assert z.shape == (10,)
 
     with outer, inner:
         xy = numpyro.sample('xy', dist.Normal(0., np.ones(10)), sample_shape=(10,))
@@ -184,6 +192,8 @@ def model_subsample_1():
     with inner:
         y = numpyro.sample('y', dist.Normal(0., 1.))
         assert y.shape == (5, 1, 1)
+        z = numpyro.deterministic('z', x ** 2)
+        assert z.shape == (10,)
 
     with outer, inner:
         xy = numpyro.sample('xy', dist.Normal(0., 1.))
@@ -200,6 +210,7 @@ def model_subsample_1():
 def test_plate(model):
     trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
     jit_trace = handlers.trace(jit(handlers.seed(model, random.PRNGKey(1)))).get_trace()
+    assert 'z' in trace
     for name, site in trace.items():
         if site['type'] == 'sample':
             assert_allclose(jit_trace[name]['value'], site['value'])
