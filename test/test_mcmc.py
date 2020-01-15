@@ -18,7 +18,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import HMC, MCMC, NUTS, SA
 from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
-from numpyro.infer.util import initialize_model, Predictive
+from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
 
