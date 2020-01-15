@@ -345,8 +345,6 @@ def find_valid_initial_params(rng_key, model,
                 else:
                     inv_transforms[k] = transform
                     constrained_values[k] = v['value']
-            elif v['type'] == 'deterministic':
-                constrained_values[k] = v['value']
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)

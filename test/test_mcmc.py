@@ -18,7 +18,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import HMC, MCMC, NUTS, SA
 from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
-from numpyro.infer.util import initialize_model
+from numpyro.infer.util import initialize_model, Predictive
 from numpyro.util import fori_collect
 
 
@@ -72,7 +72,7 @@ def test_correlated_mvn():
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
 def test_logistic_regression_x64(kernel_cls):
-    N, dim = 1000, 3
+    N, dim = 3000, 3
     warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = np.arange(1., dim + 1.)
@@ -90,7 +90,8 @@ def test_logistic_regression_x64(kernel_cls):
         kernel = kernel_cls(model=model, trajectory_length=8)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), labels)
-    samples = mcmc.get_samples()
+    mcmc.print_summary()
+    samples = Predictive(model, mcmc.get_samples(), return_sites=['coefs', 'logits'])(random.PRNGKey(1), labels)
     assert samples['logits'].shape == (num_samples, N)
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
