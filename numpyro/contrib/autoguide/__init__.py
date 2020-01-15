@@ -305,9 +305,16 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1):
+        if init_scale <= 0:
+            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
+        self._init_scale = init_scale
+        super().__init__(model, prefix, init_strategy)
+
     def _get_transform(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size),
+        scale = numpyro.param('{}_scale'.format(self.prefix),
+                              np.full(self.latent_size, self._init_scale),
                               constraint=constraints.positive)
         return AffineTransform(loc, scale, domain=constraints.real_vector)
 
@@ -333,9 +340,16 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1):
+        if init_scale <= 0:
+            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
+        self._init_scale = init_scale
+        super().__init__(model, prefix, init_strategy)
+
     def _get_transform(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix), np.identity(self.latent_size),
+        scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix),
+                                   np.identity(self.latent_size) * self._init_scale,
                                    constraint=constraints.lower_cholesky)
         return MultivariateAffineTransform(loc, scale_tril)
 
@@ -361,7 +375,10 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), rank=None):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1, rank=None):
+        if init_scale <= 0:
+            raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
+        self._init_scale = init_scale
         self.rank = rank
         super(AutoLowRankMultivariateNormal, self).__init__(
             model, prefix=prefix, init_strategy=init_strategy)
@@ -371,7 +388,9 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         rank = int(round(self.latent_size ** 0.5)) if self.rank is None else self.rank
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
         cov_factor = numpyro.param('{}_cov_factor'.format(self.prefix), np.zeros((self.latent_size, rank)))
-        scale = numpyro.param('{}_scale'.format(self.prefix), np.ones(self.latent_size))
+        scale = numpyro.param('{}_scale'.format(self.prefix),
+                              np.full(self.latent_size, self._init_scale),
+                              constraint=constraints.positive)
         cov_diag = scale * scale
         cov_factor = cov_factor * scale[..., None]
         posterior = dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag)
