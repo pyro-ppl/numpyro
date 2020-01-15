@@ -117,7 +117,7 @@ def test_predictive_with_improper():
 def test_prior_predictive():
     model, data, true_probs = beta_bernoulli()
     predictive_samples = Predictive(model, num_samples=100)(random.PRNGKey(1))
-    assert predictive_samples.keys() == {"beta", "obs"}
+    assert predictive_samples.keys() == {"beta", "beta_sq", "obs"}
 
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape
