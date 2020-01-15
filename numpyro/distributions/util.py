@@ -298,6 +298,16 @@ def signed_stick_breaking_tril(t):
     return y
 
 
+def logmatmulexp(x, y):
+    """
+    Numerically stable version of ``(x.log() @ y.log()).exp()``.
+    """
+    x_shift = np.amax(x, -1, keepdims=True)
+    y_shift = np.amax(y, -2, keepdims=True)
+    xy = np.log(np.matmul(np.exp(x - x_shift), np.exp(y - y_shift)))
+    return xy + x_shift + y_shift
+
+
 def clamp_probs(probs):
     finfo = np.finfo(get_dtype(probs))
     return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)

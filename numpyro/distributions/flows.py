@@ -82,3 +82,46 @@ class InverseAutoregressiveTransform(Transform):
         else:
             log_scale = intermediates
             return log_scale.sum(-1)
+
+
+class BlockNeuralAutoregressiveTransform(Transform):
+    """
+    An implementation of Block Neural Autoregressive flow.
+
+    **References**
+
+    1. *Block Neural Autoregressive Flow*,
+       Nicola De Cao, Ivan Titov, Wilker Aziz
+    """
+    event_dim = 1
+
+    def __init__(self, bn_arn):
+        self.bn_arn = bn_arn
+
+    def __call__(self, x):
+        """
+        :param numpy.ndarray x: the input into the transform
+        """
+        return self.call_with_intermediates(x)[0]
+
+    def call_with_intermediates(self, x):
+        y, logdet = self.bn_arn(x)
+        return y, logdet
+
+    def inv(self, y):
+        raise NotImplementedError("Block neural autoregressive transform does not have an analytic"
+                                  " inverse implemented.")
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        """
+        Calculates the elementwise determinant of the log jacobian.
+
+        :param numpy.ndarray x: the input to the transform
+        :param numpy.ndarray y: the output of the transform
+        """
+        if intermediates is None:
+            logdet = self.bn_arn(x)[1]
+            return logdet.sum(-1)
+        else:
+            logdet = intermediates
+            return logdet.sum(-1)
