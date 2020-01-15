@@ -19,6 +19,7 @@ EXAMPLES = [
     'sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
     'minipyro.py',
+    'ode.py --num-samples 100 --num-warmup 100 --num-chains 1',
     'stochastic_volatility.py --num-samples 100 --num-warmup 100',
     'ucbadmit.py --num-chains 2',
     'vae.py -n 1',

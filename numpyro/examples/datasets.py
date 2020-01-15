@@ -53,6 +53,11 @@ UCBADMIT = dset('ucbadmit', [
 ])
 
 
+LYNXHARE = dset('lynxhare', [
+    'http://people.whitman.edu/~hundledr/courses/M250F03/LynxHare.txt',
+])
+
+
 def _download(dset):
     for url in dset.urls:
         file = os.path.basename(urlparse(url).path)
@@ -150,6 +155,17 @@ def _load_ucbadmit():
     return {'train': (np.stack(dept), np.stack(male), np.stack(applications), np.stack(admit))}
 
 
+def _load_lynxhare():
+    _download(LYNXHARE)
+
+    file_path = os.path.join(DATA_DIR, 'LynxHare.txt')
+    data = np.loadtxt(file_path)
+
+    return {
+        'train': (data[:, 0].astype(int), data[:, 1:])
+    }
+
+
 def _load(dset):
     if dset == BASEBALL:
         return _load_baseball()
@@ -161,6 +177,8 @@ def _load(dset):
         return _load_sp500()
     elif dset == UCBADMIT:
         return _load_ucbadmit()
+    elif dset == LYNXHARE:
+        return _load_lynxhare()
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
