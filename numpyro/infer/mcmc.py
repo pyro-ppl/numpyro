@@ -1255,7 +1255,7 @@ class MCMC(object):
     def print_summary(self, prob=0.9, exclude_deterministic=True):
         # Exclude deterministic sites by default
         sites = self._states['z']
-        if exclude_deterministic:
+        if isinstance(sites, dict) and exclude_deterministic:
             sites = {k: v for k, v in self._states['z'].items() if k in self._last_state.z}
         print_summary(sites, prob=prob)
         extra_fields = self.get_extra_fields()
