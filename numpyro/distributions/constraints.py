@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 # The implementation follows the design in PyTorch: torch.distributions.constraints.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
@@ -140,6 +143,11 @@ class _Multinomial(Constraint):
         return np.all(x >= 0, axis=-1) & (np.sum(x, -1) == self.upper_bound)
 
 
+class _OrderedVector(Constraint):
+    def __call__(self, x):
+        return np.all(x[..., 1:] > x[..., :-1], axis=-1)
+
+
 class _PositiveDefinite(Constraint):
     def __call__(self, x):
         # check for symmetric
@@ -178,6 +186,7 @@ interval = _Interval
 lower_cholesky = _LowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
+ordered_vector = _OrderedVector()
 positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
 positive_integer = _IntegerGreaterThan(1)

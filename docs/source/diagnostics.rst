@@ -30,3 +30,4 @@ HPDI
 Summary
 -------
 .. autofunction:: numpyro.diagnostics.summary
+.. autofunction:: numpyro.diagnostics.print_summary

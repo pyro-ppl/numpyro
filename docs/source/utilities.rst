@@ -1,5 +1,5 @@
-Utilities
-=========
+Runtime Utilities
+=================
 
 enable_validation
 -----------------
@@ -10,6 +10,10 @@ validation_enabled
 .. autofunction:: numpyro.distributions.distribution.validation_enabled
 
 .. automodule:: numpyro.util
+
+enable_x64
+----------
+.. autofunction:: numpyro.util.enable_x64
 
 set_platform
 ------------
@@ -24,9 +28,13 @@ Inference Utilities
 
 .. automodule:: numpyro.infer.util
 
-predictive
+Predictive
 ----------
-.. autofunction:: numpyro.infer.util.predictive
+.. autoclass:: numpyro.infer.util.Predictive
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 log_density
 -----------
@@ -52,22 +60,27 @@ find_valid_initial_params
 -------------------------
 .. autofunction:: numpyro.infer.util.find_valid_initial_params
 
+.. _init_strategy:
+
+Initialization Strategies
+-------------------------
+
 init_to_median
---------------
+^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.util.init_to_median
 
 init_to_prior
--------------
+^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.util.init_to_prior
 
 init_to_uniform
----------------
+^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.util.init_to_uniform
 
 init_to_feasible
-----------------
+^^^^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.util.init_to_feasible
 
 init_to_value
--------------
+^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.util.init_to_value

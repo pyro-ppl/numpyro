@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import pytest
 
 from jax import grad, jit, partial
@@ -19,6 +22,7 @@ def step(opt_state, optim):
 
 @pytest.mark.parametrize('optim_class, args', [
     (optim.Adam, (1e-2,)),
+    (optim.ClippedAdam, (1e-2,)),
     (optim.Adagrad, (1e-1,)),
     (optim.Momentum, (1e-2, 0.5,)),
     (optim.RMSProp, (1e-2, 0.95)),

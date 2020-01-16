@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 # Source code modified from scipy.stats._distn_infrastructure.py
 #
 # Copyright (c) 2001, 2002 Enthought, Inc.
@@ -92,11 +95,11 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
         return AffineTransform(loc, scale, domain=self._support_mask).codomain
 
     def rvs(self, *args, **kwargs):
-        rng = kwargs.pop('random_state')
-        if rng is None:
-            rng = self.random_state
-        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
-        assert _is_prng_key(rng)
+        rng_key = kwargs.pop('random_state')
+        if rng_key is None:
+            rng_key = self.random_state
+        # assert that rng_key is PRNGKey and not mtrand.RandomState object from numpy.
+        assert _is_prng_key(rng_key)
 
         args = list(args)
         # If 'size' is not in kwargs, then it is either the last element of args
@@ -112,7 +115,7 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
         elif isinstance(size, int):
             size = (size,)
 
-        self._random_state = rng
+        self._random_state = rng_key
         self._size = size
         vals = self._rvs(*args)
         return vals * scale + loc
@@ -156,11 +159,11 @@ class jax_discrete(jax_generic, osp_stats.rv_discrete):
             raise NotImplementedError
 
     def rvs(self, *args, **kwargs):
-        rng = kwargs.pop('random_state')
-        if rng is None:
-            rng = self.random_state
-        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
-        assert _is_prng_key(rng)
+        rng_key = kwargs.pop('random_state')
+        if rng_key is None:
+            rng_key = self.random_state
+        # assert that rng_key is PRNGKey and not mtrand.RandomState object from numpy.
+        assert _is_prng_key(rng_key)
 
         args = list(args)
         size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 1) else None)
@@ -171,7 +174,7 @@ class jax_discrete(jax_generic, osp_stats.rv_discrete):
         elif isinstance(size, int):
             size = (size,)
 
-        self._random_state = rng
+        self._random_state = rng_key
         self._size = size
         vals = self._rvs(*args)
         return vals + loc
@@ -212,11 +215,11 @@ class jax_multivariate(jax_generic):
         return self._support_mask
 
     def rvs(self, *args, **kwargs):
-        rng = kwargs.pop('random_state')
-        if rng is None:
-            rng = self.random_state
-        # assert that rng is PRNGKey and not mtrand.RandomState object from numpy.
-        assert _is_prng_key(rng)
+        rng_key = kwargs.pop('random_state')
+        if rng_key is None:
+            rng_key = self.random_state
+        # assert that rng_key is PRNGKey and not mtrand.RandomState object from numpy.
+        assert _is_prng_key(rng_key)
 
         args = list(args)
         size = kwargs.pop('size', args.pop() if len(args) > self.numargs else None)
@@ -226,7 +229,7 @@ class jax_multivariate(jax_generic):
         elif isinstance(size, int):
             size = (size,)
 
-        self._random_state = rng
+        self._random_state = rng_key
         self._size = size
         return self._rvs(*args)
 

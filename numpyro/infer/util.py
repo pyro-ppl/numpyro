@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from functools import partial
 import warnings
 
@@ -5,17 +8,17 @@ import jax
 from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
-from jax.tree_util import tree_flatten
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import ComposeTransform, biject_to
-from numpyro.handlers import block, condition, seed, substitute, trace
+from numpyro.handlers import block, seed, substitute, trace
 from numpyro.util import not_jax_tracer, while_loop
 
 __all__ = [
     'find_valid_initial_params',
+    'get_potential_fn',
     'log_density',
     'log_likelihood',
     'init_to_feasible',
@@ -25,18 +28,19 @@ __all__ = [
     'init_to_value',
     'potential_energy',
     'initialize_model',
-    'predictive',
+    'Predictive',
     'transformed_potential_energy',
 ]
 
 
 def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
     """
-    Computes log of joint density for the model given latent values ``params``.
+    (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
+    latent values ``params``.
 
     :param model: Python callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
-    :param dict model_kwargs`: kwargs provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of current parameter values keyed by site
         name.
     :param bool skip_dist_transforms: whether to compute log probability of a site
@@ -60,6 +64,11 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
         if site['type'] == 'sample':
             value = site['value']
             intermediates = site['intermediates']
+            mask = site['mask']
+            scale = site['scale']
+            # Early exit when all elements are masked
+            if not_jax_tracer(mask) and mask is not None and not np.any(mask):
+                return jax.device_put(0.), model_trace
             if intermediates:
                 if skip_dist_transforms:
                     log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
@@ -67,17 +76,28 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
                     log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)
+
+            # Minor optimizations
+            # XXX: note that this may not work correctly for dynamic masks, provide
+            # explicit jax.DeviceArray for masking.
+            if mask is not None:
+                if scale is not None:
+                    log_prob = np.where(mask, scale * log_prob, 0.)
+                else:
+                    log_prob = np.where(mask, log_prob, 0.)
+            else:
+                if scale is not None:
+                    log_prob = scale * log_prob
             log_prob = np.sum(log_prob)
-            if 'scale' in site:
-                log_prob = site['scale'] * log_prob
             log_joint = log_joint + log_prob
     return log_joint, model_trace
 
 
 def transform_fn(transforms, params, invert=False):
     """
-    Callable that applies a transformation from the `transforms` dict to values in the
-    `params` dict and returns the transformed values keyed on the same names.
+    (EXPERIMENTAL INTERFACE) Callable that applies a transformation from the `transforms`
+    dict to values in the `params` dict and returns the transformed values keyed on
+    the same names.
 
     :param transforms: Dictionary of transforms keyed by names. Names in
         `transforms` and `params` should align.
@@ -91,19 +111,20 @@ def transform_fn(transforms, params, invert=False):
             for k, v in params.items()}
 
 
-def constrain_fn(model, model_args, model_kwargs, transforms, params):
+def constrain_fn(model, transforms, model_args, model_kwargs, params):
     """
-    Gets value at each latent site in `model` given unconstrained parameters `params`.
-    The `transforms` is used to transform these unconstrained parameters to base values
-    of the corresponding priors in `model`. If a prior is a transformed distribution,
-    the corresponding base value lies in the support of base distribution. Otherwise,
-    the base value lies in the support of the distribution.
+    (EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given
+    unconstrained parameters `params`. The `transforms` is used to transform these
+    unconstrained parameters to base values of the corresponding priors in `model`.
+    If a prior is a transformed distribution, the corresponding base value lies in
+    the support of base distribution. Otherwise, the base value lies in the support
+    of the distribution.
 
     :param model: a callable containing NumPyro primitives.
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs`: kwargs provided to the model.
     :param dict transforms: dictionary of transforms keyed by names. Names in
         `transforms` and `params` should align.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of unconstrained values keyed by site
         names.
     :return: `dict` of transformed params.
@@ -111,21 +132,23 @@ def constrain_fn(model, model_args, model_kwargs, transforms, params):
     params_constrained = transform_fn(transforms, params)
     substituted_model = substitute(model, base_param_map=params_constrained)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
-    return {k: model_trace[k]['value'] for k, v in params.items() if k in model_trace}
+    # This returns values at deterministic sites in addition to params (constrained)
+    return {k: model_trace[k]['value'] for k, v in model_trace.items() if (k in params) or
+            (v['type'] == 'deterministic')}
 
 
-def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
+def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
     """
-    Computes potential energy of a model given unconstrained params.
+    (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
     The `inv_transforms` is used to transform these unconstrained parameters to base values
     of the corresponding priors in `model`. If a prior is a transformed distribution,
     the corresponding base value lies in the support of base distribution. Otherwise,
     the base value lies in the support of the distribution.
 
     :param model: a callable containing NumPyro primitives.
-    :param tuple model_args: args provided to the model.
-    :param dict model_kwargs`: kwargs provided to the model.
     :param dict inv_transforms: dictionary of transforms keyed by names.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :param dict params: unconstrained parameters of `model`.
     :return: potential energy given unconstrained parameters.
     """
@@ -134,7 +157,7 @@ def potential_energy(model, model_args, model_kwargs, inv_transforms, params):
                                          skip_dist_transforms=True)
     for name, t in inv_transforms.items():
         t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
-        if 'scale' in model_trace[name]:
+        if model_trace[name]['scale'] is not None:
             t_log_det = model_trace[name]['scale'] * t_log_det
         log_joint = log_joint + t_log_det
     return - log_joint
@@ -268,22 +291,27 @@ def init_to_value(values):
     return partial(_init_to_value, values=values)
 
 
-def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uniform(),
-                              param_as_improper=False, prototype_params=None, **model_kwargs):
+def find_valid_initial_params(rng_key, model,
+                              init_strategy=init_to_uniform(),
+                              param_as_improper=False,
+                              model_args=(),
+                              model_kwargs=None):
     """
-    Given a model with Pyro primitives, returns an initial valid unconstrained
-    parameters. This function also returns an `is_valid` flag to say whether the
-    initial parameters are valid.
+    (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
+    valid unconstrained value for all the parameters. This function also returns an
+    `is_valid` flag to say whether the initial parameters are valid. Parameter values
+    are considered valid if the values and the gradients for the log density have
+    finite values.
 
-    :param jax.random.PRNGKey rng: random number generator seed to
+    :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
-        batch shape ``rng.shape[:-1]``.
+        batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param `*model_args`: args provided to the model.
     :param callable init_strategy: a per-site initialization function.
     :param bool param_as_improper: a flag to decide whether to consider sites with
         `param` statement as sites with improper priors.
-    :param `**model_kwargs`: kwargs provided to the model.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :return: tuple of (`init_params`, `is_valid`).
     """
     init_strategy = jax.partial(init_strategy, skip_param=not param_as_improper)
@@ -322,152 +350,258 @@ def find_valid_initial_params(rng, model, *model_args, init_strategy=init_to_uni
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)
-        potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
+        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
         pe, param_grads = value_and_grad(potential_fn)(params)
         z_grad = ravel_pytree(param_grads)[0]
         is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
         return i + 1, key, params, is_valid
 
-    if prototype_params is not None:
-        init_state = (0, rng, prototype_params, False)
-    else:
-        _, _, prototype_params, is_valid = init_state = body_fn((0, rng, None, None))
+    def _find_valid_params(rng_key_):
+        _, _, prototype_params, is_valid = init_state = body_fn((0, rng_key_, None, None))
+        # Early return if valid params found.
         if not_jax_tracer(is_valid):
             if device_get(is_valid):
                 return prototype_params, is_valid
 
-    _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
+        _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
+        return init_params, is_valid
+
+    # Handle possible vectorization
+    if rng_key.ndim == 1:
+        init_params, is_valid = _find_valid_params(rng_key)
+    else:
+        init_params, is_valid = lax.map(_find_valid_params, rng_key)
     return init_params, is_valid
 
 
-def initialize_model(rng, model, *model_args, init_strategy=init_to_uniform(), **model_kwargs):
-    """
-    Given a model with Pyro primitives, returns a function which, given
-    unconstrained parameters, evaluates the potential energy (negative
-    joint density). In addition, this also returns initial parameters
-    sampled from the prior to initiate MCMC sampling and functions to
-    transform unconstrained values at sample sites to constrained values
-    within their respective support.
+def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
+    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    inv_transforms = {}
+    # model code may need to be replayed in the presence of dynamic constraints
+    # or deterministic sites
+    replay_model = False
+    for k, v in model_trace.items():
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['intermediates']:
+                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
+                replay_model = True
+            else:
+                inv_transforms[k] = biject_to(v['fn'].support)
+        elif v['type'] == 'param':
+            constraint = v['kwargs'].pop('constraint', real)
+            transform = biject_to(constraint)
+            if isinstance(transform, ComposeTransform):
+                inv_transforms[k] = transform.parts[0]
+                replay_model = True
+            else:
+                inv_transforms[k] = transform
+        elif v['type'] == 'deterministic':
+            replay_model = True
+    return inv_transforms, replay_model
 
-    :param jax.random.PRNGKey rng: random number generator seed to
+
+def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kwargs=None):
+    """
+    (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
+    function which, given unconstrained parameters, evaluates the potential
+    energy (negative log joint density). In addition, this returns a
+    function to transform unconstrained values at sample sites to constrained
+    values within their respective support.
+
+    :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
-        batch shape ``rng.shape[:-1]``.
+        batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
-    :param `*model_args`: args provided to the model.
+    :param bool dynamic_args: if `True`, the `potential_fn` and
+        `constraints_fn` are themselves dependent on model arguments.
+        When provided a `*model_args, **model_kwargs`, they return
+        `potential_fn` and `constraints_fn` callables, respectively.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
+    :return: tuple of (`potential_fn`, `constrain_fn`). The latter is used
+        to constrain unconstrained samples (e.g. those returned by HMC)
+        to values that lie within the site's support.
+    """
+    if dynamic_args:
+        def potential_fn(*args, **kwargs):
+            inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
+            return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
+
+        def constrain_fun(*args, **kwargs):
+            inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
+            if replay_model:
+                return jax.partial(constrain_fn, model, inv_transforms, args, kwargs)
+            else:
+                return jax.partial(transform_fn, inv_transforms)
+    else:
+        inv_transforms, replay_model = get_model_transforms(rng_key, model, model_args, model_kwargs)
+        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
+        if replay_model:
+            constrain_fun = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs)
+        else:
+            constrain_fun = jax.partial(transform_fn, inv_transforms)
+
+    return potential_fn, constrain_fun
+
+
+def initialize_model(rng_key, model,
+                     init_strategy=init_to_uniform(),
+                     dynamic_args=False,
+                     model_args=(),
+                     model_kwargs=None):
+    """
+    (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
+    and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
+    to return a tuple of (`init_params`, `potential_fn`, `constrain_fn`).
+
+    :param jax.random.PRNGKey rng_key: random number generator seed to
+        sample from the prior. The returned `init_params` will have the
+        batch shape ``rng_key.shape[:-1]``.
+    :param model: Python callable containing Pyro primitives.
     :param callable init_strategy: a per-site initialization function.
-    :param `**model_kwargs`: kwargs provided to the model.
+        See :ref:`init_strategy` section for available functions.
+    :param bool dynamic_args: if `True`, the `potential_fn` and
+        `constraints_fn` are themselves dependent on model arguments.
+        When provided a `*model_args, **model_kwargs`, they return
+        `potential_fn` and `constraints_fn` callables, respectively.
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
     :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
         `init_params` are values from the prior used to initiate MCMC,
         `constrain_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support.
     """
-    seeded_model = seed(model, rng if rng.ndim == 1 else rng[0])
-    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-    constrained_values, inv_transforms = {}, {}
-    has_transformed_dist = False
-    for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed']:
-            if v['intermediates']:
-                constrained_values[k] = v['intermediates'][0][0]
-                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
-                has_transformed_dist = True
-            else:
-                constrained_values[k] = v['value']
-                inv_transforms[k] = biject_to(v['fn'].support)
-        elif v['type'] == 'param':
-            constraint = v['kwargs'].pop('constraint', real)
-            transform = biject_to(constraint)
-            if isinstance(transform, ComposeTransform):
-                base_transform = transform.parts[0]
-                constrained_values[k] = base_transform(transform.inv(v['value']))
-                inv_transforms[k] = base_transform
-                has_transformed_dist = True
-            else:
-                inv_transforms[k] = transform
-                constrained_values[k] = v['value']
+    if model_kwargs is None:
+        model_kwargs = {}
+    potential_fun, constrain_fun = get_potential_fn(rng_key if rng_key.ndim == 1 else rng_key[0],
+                                                    model,
+                                                    dynamic_args=dynamic_args,
+                                                    model_args=model_args,
+                                                    model_kwargs=model_kwargs)
 
-    prototype_params = transform_fn(inv_transforms,
-                                    {k: v for k, v in constrained_values.items()},
-                                    invert=True)
-
-    # NB: we use model instead of seeded_model to prevent unexpected behaviours (if any)
-    potential_fn = jax.partial(potential_energy, model, model_args, model_kwargs, inv_transforms)
-    if has_transformed_dist:
-        # FIXME: why using seeded_model here triggers an error for funnel reparam example
-        # if we use MCMC class (mcmc function works fine)
-        constrain_fun = jax.partial(constrain_fn, model, model_args, model_kwargs, inv_transforms)
-    else:
-        constrain_fun = jax.partial(transform_fn, inv_transforms)
-
-    def single_chain_init(key):
-        return find_valid_initial_params(key, model, *model_args, init_strategy=init_strategy,
-                                         param_as_improper=True, prototype_params=prototype_params,
-                                         **model_kwargs)
-
-    if rng.ndim == 1:
-        init_params, is_valid = single_chain_init(rng)
-    else:
-        init_params, is_valid = lax.map(single_chain_init, rng)
+    init_params, is_valid = find_valid_initial_params(rng_key, model,
+                                                      init_strategy=init_strategy,
+                                                      param_as_improper=True,
+                                                      model_args=model_args,
+                                                      model_kwargs=model_kwargs)
 
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return init_params, potential_fn, constrain_fun
+    return init_params, potential_fun, constrain_fun
 
 
-def predictive(rng, model, posterior_samples, *args, num_samples=None, return_sites=None, **kwargs):
-    """
-    Run model by sampling latent parameters from `posterior_samples`, and return
-    values at sample sites from the forward run. By default, only sample sites not contained in
-    `posterior_samples` are returned. This can be modified by changing the `return_sites`
-    keyword argument.
+def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,
+                parallel=True, model_args=(), model_kwargs={}):
+    rng_keys = random.split(rng_key, num_samples)
 
-    .. warning::
-        The interface for the `predictive` function is experimental, and
-        might change in the future.
-
-    :param jax.random.PRNGKey rng: seed to draw samples
-    :param model: Python callable containing Pyro primitives.
-    :param dict posterior_samples: dictionary of samples from the posterior.
-    :param args: model arguments.
-    :param list return_sites: sites to return; by default only sample sites not present
-        in `posterior_samples` are returned.
-    :param int num_samples: number of samples
-    :param kwargs: model kwargs.
-    :return: dict of samples from the predictive distribution.
-    """
-    def single_prediction(rng, samples):
-        model_trace = trace(seed(condition(model, samples), rng)).get_trace(*args, **kwargs)
+    def single_prediction(val):
+        rng_key, samples = val
+        model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(
+            *model_args, **model_kwargs)
         if return_sites is not None:
-            sites = return_sites
+            if return_sites == '':
+                sites = {k for k, site in model_trace.items() if site['type'] != 'plate'}
+            else:
+                sites = return_sites
         else:
             sites = {k for k, site in model_trace.items()
-                     if site['type'] != 'plate' and k not in samples}
+                     if (site['type'] == 'sample' and k not in samples) or (site['type'] == 'deterministic')}
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
-    if posterior_samples:
-        batch_size = tree_flatten(posterior_samples)[0][0].shape[0]
-        if num_samples is not None and num_samples != batch_size:
-            warnings.warn("Sample's leading dimension size {} is different from the "
-                          "provided {} num_samples argument. Defaulting to {}."
-                          .format(batch_size, num_samples, batch_size), UserWarning)
-        num_samples = batch_size
+    if parallel:
+        return vmap(single_prediction)((rng_keys, posterior_samples))
+    else:
+        return lax.map(single_prediction, (rng_keys, posterior_samples))
 
-    if num_samples is None:
-        raise ValueError("No sample sites in model to infer `num_samples`.")
 
-    rngs = random.split(rng, num_samples)
-    return vmap(single_prediction)(rngs, posterior_samples)
+class Predictive(object):
+    """
+    This class is used to construct predictive distribution. The predictive distribution is obtained
+    by running model conditioned on latent samples from `posterior_samples`.
+
+    .. warning::
+        The interface for the `Predictive` class is experimental, and
+        might change in the future.
+
+    :param model: Python callable containing Pyro primitives.
+    :param dict posterior_samples: dictionary of samples from the posterior.
+    :param callable guide: optional guide to get posterior samples of sites not present
+        in `posterior_samples`.
+    :param dict params: dictionary of values for param sites of model/guide.
+    :param int num_samples: number of samples
+    :param list return_sites: sites to return; by default only sample sites not present
+        in `posterior_samples` are returned.
+    :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
+        Defaults to False.
+
+    :return: dict of samples from the predictive distribution.
+    """
+    def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
+                 return_sites=None, parallel=False):
+        if posterior_samples is None and num_samples is None:
+            raise ValueError("Either posterior_samples or num_samples must be specified.")
+
+        posterior_samples = {} if posterior_samples is None else posterior_samples
+
+        for name, sample in posterior_samples.items():
+            batch_size = sample.shape[0]
+            if (num_samples is not None) and (num_samples != batch_size):
+                warnings.warn("Sample's leading dimension size {} is different from the "
+                              "provided {} num_samples argument. Defaulting to {}."
+                              .format(batch_size, num_samples, batch_size), UserWarning)
+            num_samples = batch_size
+
+        if num_samples is None:
+            raise ValueError("No sample sites in posterior samples to infer `num_samples`.")
+
+        if return_sites is not None:
+            assert isinstance(return_sites, (list, tuple, set))
+
+        self.model = model
+        self.posterior_samples = {} if posterior_samples is None else posterior_samples
+        self.num_samples = num_samples
+        self.guide = guide
+        self.params = {} if params is None else params
+        self.return_sites = return_sites
+        self.parallel = parallel
+
+    def __call__(self, rng_key, *args, **kwargs):
+        """
+        Returns dict of samples from the predictive distribution. By default, only sample sites not
+        contained in `posterior_samples` are returned. This can be modified by changing the
+        `return_sites` keyword argument of this :class:`Predictive` instance.
+
+        :param jax.random.PRNGKey rng_key: random key to draw samples.
+        :param args: model arguments.
+        :param kwargs: model kwargs.
+        """
+        posterior_samples = self.posterior_samples
+        if self.guide is not None:
+            rng_key, guide_rng_key = random.split(rng_key)
+            # use return_sites='' as a special signal to return all sites
+            guide = substitute(self.guide, self.params)
+            posterior_samples = _predictive(guide_rng_key, guide, posterior_samples,
+                                            self.num_samples, return_sites='', parallel=self.parallel,
+                                            model_args=args, model_kwargs=kwargs)
+        model = substitute(self.model, self.params)
+        return _predictive(rng_key, model, posterior_samples, self.num_samples,
+                           return_sites=self.return_sites, parallel=self.parallel,
+                           model_args=args, model_kwargs=kwargs)
+
+    def get_samples(self, rng_key, *args, **kwargs):
+        warnings.warn("The method `.get_samples` has been deprecated in favor of `.__call__`.",
+                      DeprecationWarning)
+        return self.__call__(rng_key, *args, **kwargs)
 
 
 def log_likelihood(model, posterior_samples, *args, **kwargs):
     """
-    Returns log likelihood at observation nodes of model, given samples of all latent variables.
-
-    .. warning::
-        The interface for the `log_likelihood` function is experimental, and
-        might change in the future.
+    (EXPERIMENTAL INTERFACE) Returns log likelihood at observation nodes of model,
+    given samples of all latent variables.
 
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.

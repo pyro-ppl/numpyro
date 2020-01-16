@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import os
 from subprocess import check_call
 import sys
@@ -16,6 +19,7 @@ EXAMPLES = [
     'sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
     'minipyro.py',
+    'ode.py --num-samples 100 --num-warmup 100 --num-chains 1',
     'stochastic_volatility.py --num-samples 100 --num-warmup 100',
     'ucbadmit.py --num-chains 2',
     'vae.py -n 1',
@@ -23,7 +27,6 @@ EXAMPLES = [
 
 
 @pytest.mark.parametrize('example', EXAMPLES)
-@pytest.mark.test_examples
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
 def test_cpu(example):
     print('Running:\npython examples/{}'.format(example))

@@ -1,7 +1,4 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numpyro.handlers import *  # noqa: F401, F403
-from numpyro.handlers import seed as numpyro_seed
-
-
-# Compatibility wrapper for matching arg names
-def seed(fn=None, rng_seed=None):
-    return numpyro_seed(fn=fn, rng=rng_seed)

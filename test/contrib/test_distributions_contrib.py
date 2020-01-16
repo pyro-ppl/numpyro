@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from functools import reduce
 from operator import mul
 
@@ -51,19 +54,19 @@ def idfn(param):
     (2, 3),
 ])
 def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     args = [i + 1 for i in range(jax_dist.numargs)]
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
-    samples = jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng)
+    samples = jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng_key)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
     assert np.shape(samples) == expected_shape
-    assert np.shape(jax_dist(*args, loc=loc, scale=scale).rvs(random_state=rng)) == expected_shape
+    assert np.shape(jax_dist(*args, loc=loc, scale=scale).rvs(random_state=rng_key)) == expected_shape
     if prepend_shape is not None:
         expected_shape = prepend_shape + lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
         assert np.shape(jax_dist.rvs(*args, loc=loc, scale=scale,
-                                     size=expected_shape, random_state=rng)) == expected_shape
+                                     size=expected_shape, random_state=rng_key)) == expected_shape
         assert np.shape(jax_dist(*args, loc=loc, scale=scale)
-                        .rvs(random_state=rng, size=expected_shape)) == expected_shape
+                        .rvs(random_state=rng_key, size=expected_shape)) == expected_shape
 
 
 @pytest.mark.parametrize('jax_dist, dist_args, sample', [
@@ -124,18 +127,18 @@ def test_continuous_validate_args(jax_dist, dist_args, sample):
     (2, 3),
 ])
 def test_multivariate_shape(jax_dist, dist_args, prepend_shape):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     expected_shape = jax_dist._batch_shape(*dist_args) + jax_dist._event_shape(*dist_args)
-    samples = jax_dist.rvs(*dist_args, random_state=rng)
+    samples = jax_dist.rvs(*dist_args, random_state=rng_key)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
     assert np.shape(samples) == expected_shape
-    assert np.shape(jax_dist(*dist_args).rvs(random_state=rng)) == expected_shape
+    assert np.shape(jax_dist(*dist_args).rvs(random_state=rng_key)) == expected_shape
     if prepend_shape is not None:
         size = prepend_shape + jax_dist._batch_shape(*dist_args)
         expected_shape = size + jax_dist._event_shape(*dist_args)
-        samples = jax_dist.rvs(*dist_args, size=size, random_state=rng)
+        samples = jax_dist.rvs(*dist_args, size=size, random_state=rng_key)
         assert np.shape(samples) == expected_shape
-        samples = jax_dist(*dist_args).rvs(random_state=rng, size=size)
+        samples = jax_dist(*dist_args).rvs(random_state=rng_key, size=size)
         assert np.shape(samples) == expected_shape
 
 
@@ -169,16 +172,16 @@ def test_multivariate_validate_args(jax_dist, valid_args, invalid_args, invalid_
     (2, 3),
 ])
 def test_discrete_shape(jax_dist, dist_args, prepend_shape):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     sp_dist = getattr(osp_stats, jax_dist.name)
     expected_shape = np.shape(sp_dist.rvs(*dist_args))
-    samples = jax_dist.rvs(*dist_args, random_state=rng)
+    samples = jax_dist.rvs(*dist_args, random_state=rng_key)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
     assert np.shape(samples) == expected_shape
     if prepend_shape is not None:
         shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
         expected_shape = np.shape(sp_dist.rvs(*dist_args, size=shape))
-        assert np.shape(jax_dist.rvs(*dist_args, size=shape, random_state=rng)) == expected_shape
+        assert np.shape(jax_dist.rvs(*dist_args, size=shape, random_state=rng_key)) == expected_shape
 
 
 @pytest.mark.parametrize('jax_dist, valid_args, invalid_args, invalid_sample', [
@@ -217,19 +220,19 @@ def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_samp
     (1., np.array([1., 2.])),
 ])
 def test_sample_gradient(jax_dist, loc, scale):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     args = [i + 1. for i in range(jax_dist.numargs)]
     expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
 
     def fn(args, loc, scale):
-        return jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng).sum()
+        return jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng_key).sum()
 
     # FIXME: find a proper test for gradients of arg parameters
     assert len(grad(fn)(args, loc, scale)) == jax_dist.numargs
     assert_allclose(grad(fn, 1)(args, loc, scale),
                     loc * reduce(mul, expected_shape[:len(expected_shape) - np.ndim(loc)], 1.))
     assert_allclose(grad(fn, 2)(args, loc, scale),
-                    jax_dist.rvs(*args, size=expected_shape, random_state=rng))
+                    jax_dist.rvs(*args, size=expected_shape, random_state=rng_key))
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
@@ -237,10 +240,10 @@ def test_sample_gradient(jax_dist, loc, scale):
     (dist.dirichlet, (np.ones((2, 3)),)),
 ], ids=idfn)
 def test_mvsample_gradient(jax_dist, dist_args):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
 
     def fn(args):
-        return jax_dist.rvs(*args, random_state=rng).sum()
+        return jax_dist.rvs(*args, random_state=rng_key).sum()
 
     # FIXME: find a proper test for gradients of arg parameters
     assert len(grad(fn)(dist_args)) == jax_dist.numargs
@@ -268,9 +271,9 @@ def test_mvsample_gradient(jax_dist, dist_args):
     (1., np.array([1., 2.])),
 ])
 def test_continuous_logpdf(jax_dist, loc_scale):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     args = [i + 1 for i in range(jax_dist.numargs)] + list(loc_scale)
-    samples = jax_dist.rvs(*args, random_state=rng)
+    samples = jax_dist.rvs(*args, random_state=rng_key)
     if jax_dist is dist.trunccauchy:
         sp_dist = osp_stats.cauchy
         assert_allclose(jax_dist.logpdf(samples, args[0], args[1]),
@@ -291,8 +294,8 @@ def test_continuous_logpdf(jax_dist, loc_scale):
     (2, 3),
 ])
 def test_multivariate_continuous_logpdf(jax_dist, dist_args, shape):
-    rng = random.PRNGKey(0)
-    samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
+    rng_key = random.PRNGKey(0)
+    samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng_key)
     # XXX scipy.stats.dirichlet does not work with batch
     if samples.ndim == 1:
         sp_dist = getattr(osp_stats, jax_dist.name)
@@ -315,8 +318,8 @@ def test_multivariate_continuous_logpdf(jax_dist, dist_args, shape):
     (2, 3),
 ])
 def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
-    rng = random.PRNGKey(0)
-    samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
+    rng_key = random.PRNGKey(0)
+    samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng_key)
     # XXX scipy.stats.multinomial does not work with batch
     if samples.ndim == 1:
         if jax_dist is dist.categorical:
@@ -349,15 +352,15 @@ def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
     (2, 3),
 ])
 def test_discrete_logpmf(jax_dist, dist_args, shape):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     sp_dist = getattr(osp_stats, jax_dist.name)
-    samples = jax_dist.rvs(*dist_args, random_state=rng)
+    samples = jax_dist.rvs(*dist_args, random_state=rng_key)
     assert_allclose(jax_dist.logpmf(samples, *dist_args),
                     sp_dist.logpmf(onp.asarray(samples), *dist_args),
                     rtol=1e-5)
     if shape is not None:
         shape = shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
-        samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng)
+        samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng_key)
         assert_allclose(jax_dist.logpmf(samples, *dist_args),
                         sp_dist.logpmf(onp.asarray(samples), *dist_args),
                         rtol=1e-5)
@@ -384,12 +387,12 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
     (dist.multinomial, (10, np.array([[0.1, 0.9], [0.2, 0.8]]),)),
 ], ids=idfn)
 def test_discrete_with_logits(jax_dist, dist_args):
-    rng = random.PRNGKey(0)
+    rng_key = random.PRNGKey(0)
     logit_to_prob = np.log if isinstance(jax_dist, jax_multivariate) else logit
     logit_args = dist_args[:-1] + (logit_to_prob(dist_args[-1]),)
 
-    actual_sample = jax_dist.rvs(*dist_args, random_state=rng)
-    expected_sample = jax_dist(*logit_args, is_logits=True).rvs(random_state=rng)
+    actual_sample = jax_dist.rvs(*dist_args, random_state=rng_key)
+    expected_sample = jax_dist(*logit_args, is_logits=True).rvs(random_state=rng_key)
     assert_allclose(actual_sample, expected_sample)
 
     actual_pmf = jax_dist.logpmf(actual_sample, *dist_args)

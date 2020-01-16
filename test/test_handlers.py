@@ -1,4 +1,8 @@
-from numpy.testing import assert_allclose
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+import numpy as onp
+from numpy.testing import assert_allclose, assert_raises
 import pytest
 
 from jax import jit
@@ -10,6 +14,34 @@ from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.infer.util import log_density
 from numpyro.util import optional
+
+
+@pytest.mark.parametrize('mask_last', [1, 5, 10])
+@pytest.mark.parametrize('use_jit', [False, True])
+def test_mask(mask_last, use_jit):
+    N = 10
+    mask = onp.ones(N, dtype=onp.bool)
+    mask[-mask_last] = 0
+
+    def model(data, mask):
+        with numpyro.plate('N', N):
+            x = numpyro.sample('x', dist.Normal(0, 1))
+            with handlers.mask(mask_array=mask):
+                numpyro.sample('y', dist.Delta(x, log_density=1.))
+                with handlers.scale(scale_factor=2):
+                    numpyro.sample('obs', dist.Normal(x, 1), obs=data)
+
+    data = random.normal(random.PRNGKey(0), (N,))
+    x = random.normal(random.PRNGKey(1), (N,))
+    if use_jit:
+        log_joint = jit(log_density, static_argnums=(0,))(model, (data, mask), {}, {'x': x, 'y': x})[0]
+    else:
+        log_joint = log_density(model, (data, mask), {}, {'x': x, 'y': x})[0]
+    log_prob_x = dist.Normal(0, 1).log_prob(x)
+    log_prob_y = mask
+    log_prob_z = dist.Normal(x, 1).log_prob(data)
+    expected = (log_prob_x + np.where(mask,  log_prob_y + 2 * log_prob_z, 0.)).sum()
+    assert_allclose(log_joint, expected, atol=1e-4)
 
 
 @pytest.mark.parametrize('use_context_manager', [True, False])
@@ -45,12 +77,29 @@ def test_seed():
 
     xs = []
     for i in range(100):
-        with handlers.seed(rng=i):
+        with handlers.seed(rng_seed=i):
             xs.append(_sample())
     xs = np.stack(xs)
 
-    ys = vmap(lambda rng: handlers.seed(lambda: _sample(), rng)())(np.arange(100))
+    ys = vmap(lambda rng_key: handlers.seed(lambda: _sample(), rng_key)())(np.arange(100))
     assert_allclose(xs, ys, atol=1e-6)
+
+
+def test_nested_seeding():
+    def fn(rng_key_1, rng_key_2, rng_key_3):
+        xs = []
+        with handlers.seed(rng_seed=rng_key_1):
+            with handlers.seed(rng_seed=rng_key_2):
+                xs.append(numpyro.sample('x', dist.Normal(0., 1.)))
+                with handlers.seed(rng_seed=rng_key_3):
+                    xs.append(numpyro.sample('y', dist.Normal(0., 1.)))
+        return np.stack(xs)
+
+    s1, s2 = fn(0, 1, 2), fn(3, 1, 2)
+    assert_allclose(s1, s2)
+    s1, s2 = fn(0, 1, 2), fn(3, 1, 4)
+    assert_allclose(s1[0], s2[0])
+    assert_raises(AssertionError, assert_allclose, s1[1], s2[1])
 
 
 def test_condition():
@@ -85,6 +134,8 @@ def model_nested_plates_0():
         with numpyro.plate('inner', 5):
             y = numpyro.sample('x', dist.Normal(0., 1.))
             assert y.shape == (5, 10)
+            z = numpyro.deterministic('z', x ** 2)
+            assert z.shape == (10,)
 
 
 def model_nested_plates_1():
@@ -94,6 +145,8 @@ def model_nested_plates_1():
         with numpyro.plate('inner', 5):
             y = numpyro.sample('x', dist.Normal(0., 1.))
             assert y.shape == (10, 5)
+            z = numpyro.deterministic('z', x ** 2)
+            assert z.shape == (10, 1)
 
 
 def model_nested_plates_2():
@@ -105,6 +158,8 @@ def model_nested_plates_2():
     with inner:
         y = numpyro.sample('y', dist.Normal(0., 1.))
         assert y.shape == (5, 1, 1)
+        z = numpyro.deterministic('z', x ** 2)
+        assert z.shape == (10,)
 
     with outer, inner:
         xy = numpyro.sample('xy', dist.Normal(0., 1.), sample_shape=(10,))
@@ -120,6 +175,8 @@ def model_dist_batch_shape():
     with inner:
         y = numpyro.sample('y', dist.Normal(0., np.ones(10)))
         assert y.shape == (5, 1, 10)
+        z = numpyro.deterministic('z', x ** 2)
+        assert z.shape == (10,)
 
     with outer, inner:
         xy = numpyro.sample('xy', dist.Normal(0., np.ones(10)), sample_shape=(10,))
@@ -135,6 +192,8 @@ def model_subsample_1():
     with inner:
         y = numpyro.sample('y', dist.Normal(0., 1.))
         assert y.shape == (5, 1, 1)
+        z = numpyro.deterministic('z', x ** 2)
+        assert z.shape == (10,)
 
     with outer, inner:
         xy = numpyro.sample('xy', dist.Normal(0., 1.))
@@ -151,6 +210,7 @@ def model_subsample_1():
 def test_plate(model):
     trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
     jit_trace = handlers.trace(jit(handlers.seed(model, random.PRNGKey(1)))).get_trace()
+    assert 'z' in trace
     for name, site in trace.items():
         if site['type'] == 'sample':
             assert_allclose(jit_trace[name]['value'], site['value'])

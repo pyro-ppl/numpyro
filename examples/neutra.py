@@ -1,5 +1,20 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
+Gaussian-like one. The transform will be used to get better mixing rate for NUTS sampler.
+
+**References:**
+
+    1. Hoffman, M. et al. (2019), "NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport",
+       (https://arxiv.org/abs/1903.03704)
+"""
+
+
 import argparse
 from functools import partial
+import os
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
@@ -13,19 +28,16 @@ from jax.tree_util import tree_map
 import numpyro
 from numpyro import optim
 from numpyro.contrib.autoguide import AutoContinuousELBO, AutoBNAFNormal
-from numpyro.diagnostics import summary
+from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import MCMC, NUTS, SVI
 from numpyro.infer.util import initialize_model, transformed_potential_energy
 
-"""
-This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
-Gaussian-like one. The transform will be used to get better mixing rate for NUTS sampler.
 
-[1] Hoffman, M. et al. (2019), ["NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport"]
-    (https://arxiv.org/abs/1903.03704).
-"""
+# TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
+# The behaviour when training guide under fast math mode is unstable.
+os.environ["XLA_FLAGS"] = "--xla_cpu_enable_fast_math=false"
 
 
 class DualMoonDistribution(dist.Distribution):
@@ -57,11 +69,8 @@ def main(args):
     mcmc.print_summary()
     vanilla_samples = mcmc.get_samples()['x'].copy()
 
-    adam = optim.Adam(0.01)
-    # TODO: it is hard to find good hyperparameters such that IAF guide can learn this model.
-    # We will use BNAF instead!
     guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
-    svi = SVI(dual_moon_model, guide, AutoContinuousELBO(), adam)
+    svi = SVI(dual_moon_model, guide, optim.Adam(0.01), AutoContinuousELBO())
     svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
@@ -85,7 +94,7 @@ def main(args):
     zs = mcmc.get_samples()
     print("Transform samples into unwarped space...")
     samples = vmap(transformed_constrain_fn)(zs)
-    summary(tree_map(lambda x: x[None, ...], samples))
+    print_summary(tree_map(lambda x: x[None, ...], samples))
     samples = samples['x'].copy()
 
     # make plots
@@ -143,7 +152,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.2.0')
+    assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description="NeuTra HMC")
     parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=1000, type=int)

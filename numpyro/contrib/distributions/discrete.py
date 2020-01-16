@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 # Source code modified from scipy.stats._discrete_distns.py
 #
 # Copyright (c) 2001, 2002 Enthought, Inc.
@@ -11,11 +14,11 @@ import numpy as onp
 from jax import device_put, random
 import jax.numpy as np
 from jax.numpy.lax_numpy import _promote_dtypes
-from jax.scipy.special import entr, expit, gammaln
+from jax.scipy.special import entr, expit, gammaln, xlog1py, xlogy
 
 from numpyro.contrib.distributions.distribution import jax_discrete
 from numpyro.distributions import constraints
-from numpyro.distributions.util import binary_cross_entropy_with_logits, xlog1py, xlogy
+from numpyro.distributions.util import binary_cross_entropy_with_logits
 
 
 class bernoulli_gen(jax_discrete):

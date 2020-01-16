@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 import functools
 
@@ -60,7 +63,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, random_state=None, sample_shape=()):
+def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -69,19 +72,19 @@ def sample(name, fn, obs=None, random_state=None, sample_shape=()):
     .. note::
         By design, `sample` primitive is meant to be used inside a NumPyro model.
         Then :class:`~numpyro.handlers.seed` handler is used to inject a random
-        state to `fn`. In those situations, `random_state` keyword will take no
+        state to `fn`. In those situations, `rng_key` keyword will take no
         effect.
 
-    :param str name: name of the sample site
-    :param fn: Python callable
+    :param str name: name of the sample site.
+    :param fn: a stochastic function that returns a sample.
     :param numpy.ndarray obs: observed value
-    :param jax.random.PRNGKey random_state: an optional random key for `fn`.
+    :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
-        return fn(random_state=random_state, sample_shape=sample_shape)
+        return fn(rng_key=rng_key, sample_shape=sample_shape)
 
     # Otherwise, we initialize a message...
     initial_msg = {
@@ -89,9 +92,10 @@ def sample(name, fn, obs=None, random_state=None, sample_shape=()):
         'name': name,
         'fn': fn,
         'args': (),
-        'kwargs': {'random_state': random_state, 'sample_shape': sample_shape},
+        'kwargs': {'rng_key': rng_key, 'sample_shape': sample_shape},
         'value': obs,
-        'scale': 1.0,
+        'mask': None,
+        'scale': None,
         'is_observed': obs is not None,
         'intermediates': [],
         'cond_indep_stack': [],
@@ -133,8 +137,34 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
-        'scale': 1.0,
+        'mask': None,
+        'scale': None,
         'cond_indep_stack': [],
+    }
+
+    # ...and use apply_stack to send it to the Messengers
+    msg = apply_stack(initial_msg)
+    return msg['value']
+
+
+def deterministic(name, value):
+    """
+    Used to designate deterministic sites in the model. Note that most effect
+    handlers will not operate on deterministic sites (except
+    :function:`~numpyro.handlers.trace`), so deterministic sites should be
+    side-effect free. The use case for deterministic nodes is to record any
+    values in the model execution trace.
+
+    :param str name: name of the deterministic site.
+    :param numpy.ndarray value: deterministic value to record in the trace.
+    """
+    if not _PYRO_STACK:
+        return value
+
+    initial_msg = {
+        'type': 'deterministic',
+        'name': name,
+        'value': value,
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -163,8 +193,8 @@ def module(name, nn, input_shape=None):
     if nn_params is None:
         if input_shape is None:
             raise ValueError('Valid value for `input_size` needed to initialize.')
-        rng = numpyro.sample(name + '$rng', PRNGIdentity())
-        _, nn_params = nn_init(rng, input_shape)
+        rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
+        _, nn_params = nn_init(rng_key, input_shape)
         param(module_key, nn_params)
     return jax.partial(nn_apply, nn_params)
 
@@ -228,6 +258,8 @@ class plate(Messenger):
         return tuple(batch_shape)
 
     def process_message(self, msg):
+        if msg['type'] not in ('sample', 'plate'):
+            return
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
@@ -248,4 +280,19 @@ class plate(Messenger):
         if 'sample_shape' in msg['kwargs']:
             batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
         msg['kwargs']['sample_shape'] = batch_shape
-        msg['scale'] = msg['scale'] * self.size / self.subsample_size
+        if self.size != self.subsample_size:
+            scale = 1. if msg['scale'] is None else msg['scale']
+            msg['scale'] = scale * self.size / self.subsample_size
+
+
+def factor(name, log_factor):
+    """
+    Factor statement to add arbitrary log probability factor to a
+    probabilistic model.
+
+    :param str name: Name of the trivial sample.
+    :param numpy.ndarray log_factor: A possibly batched log probability factor.
+    """
+    unit_dist = numpyro.distributions.distribution.Unit(log_factor)
+    unit_value = unit_dist.sample(None)
+    sample(name, unit_dist, obs=unit_value)

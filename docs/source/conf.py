@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import os
 import sys
 
@@ -27,9 +30,7 @@ os.environ['SPHINX_BUILD'] = '1'
 
 # HACK: This is to ensure that local functions are documented by sphinx.
 from numpyro.infer.mcmc import hmc  # noqa: E402
-from numpyro.infer.svi import svi  # noqa: E402
 hmc(None, None)
-svi(None, None, None, None)
 
 # -- Project information -----------------------------------------------------
 
@@ -37,10 +38,15 @@ project = u'NumPyro'
 copyright = u'2019, Uber Technologies, Inc'
 author = u'Uber AI Labs'
 
-# The short X.Y version
-version = u'0.0'
-# The full version, including alpha/beta/rc tags
-release = u'0.0'
+version = ''
+
+if 'READTHEDOCS' not in os.environ:
+    # if developing locally, use pyro.__version__ as version
+    from numpyro import __version__  # noqaE402
+    version = __version__
+
+# release version
+release = version
 
 
 # -- General configuration ---------------------------------------------------

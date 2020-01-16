@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 import csv
 import gzip
@@ -28,7 +31,7 @@ BASEBALL = dset('baseball', [
 
 
 COVTYPE = dset('covtype', [
-    'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.data.gz',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip',
 ])
 
 
@@ -47,6 +50,11 @@ SP500 = dset('SP500', [
 
 UCBADMIT = dset('ucbadmit', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv',
+])
+
+
+LYNXHARE = dset('lynxhare', [
+    'http://people.whitman.edu/~hundledr/courses/M250F03/LynxHare.txt',
 ])
 
 
@@ -83,11 +91,11 @@ def _load_baseball():
 def _load_covtype():
     _download(COVTYPE)
 
-    file_path = os.path.join(DATA_DIR, 'covtype.data.gz')
-    data = np.genfromtxt(gzip.GzipFile(file_path), delimiter=',')
+    file_path = os.path.join(DATA_DIR, 'covtype.zip')
+    data = np.load(file_path)
 
     return {
-        'train': (data[:, :-1], data[:, -1].astype(np.int32))
+        'train': (data['data'], data['target'])
     }
 
 
@@ -147,6 +155,17 @@ def _load_ucbadmit():
     return {'train': (np.stack(dept), np.stack(male), np.stack(applications), np.stack(admit))}
 
 
+def _load_lynxhare():
+    _download(LYNXHARE)
+
+    file_path = os.path.join(DATA_DIR, 'LynxHare.txt')
+    data = np.loadtxt(file_path)
+
+    return {
+        'train': (data[:, 0].astype(int), data[:, 1:])
+    }
+
+
 def _load(dset):
     if dset == BASEBALL:
         return _load_baseball()
@@ -158,6 +177,8 @@ def _load(dset):
         return _load_sp500()
     elif dset == UCBADMIT:
         return _load_ucbadmit()
+    elif dset == LYNXHARE:
+        return _load_lynxhare()
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 

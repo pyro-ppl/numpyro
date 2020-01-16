@@ -1,3 +1,7 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
 import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.continuous import (
     LKJ,
@@ -13,6 +17,7 @@ from numpyro.distributions.continuous import (
     InverseGamma,
     LKJCholesky,
     LogNormal,
+    LowRankMultivariateNormal,
     MultivariateNormal,
     Normal,
     Pareto,
@@ -35,10 +40,12 @@ from numpyro.distributions.discrete import (
     Multinomial,
     MultinomialLogits,
     MultinomialProbs,
+    OrderedLogistic,
     Poisson,
-    PRNGIdentity
+    PRNGIdentity,
+    ZeroInflatedPoisson
 )
-from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
+from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution, Unit
 import numpyro.distributions.transforms  # noqa: F401
 from numpyro.distributions.transforms import biject_to
 
@@ -50,6 +57,7 @@ __all__ = [
     'BernoulliLogits',
     'BernoulliProbs',
     'Beta',
+    'BetaBinomial',
     'Binomial',
     'BinomialLogits',
     'BinomialProbs',
@@ -63,6 +71,7 @@ __all__ = [
     'Distribution',
     'Exponential',
     'Gamma',
+    'GammaPoisson',
     'GaussianRandomWalk',
     'HalfCauchy',
     'HalfNormal',
@@ -75,7 +84,9 @@ __all__ = [
     'MultinomialLogits',
     'MultinomialProbs',
     'MultivariateNormal',
+    'LowRankMultivariateNormal',
     'Normal',
+    'OrderedLogistic',
     'Pareto',
     'Poisson',
     'PRNGIdentity',
@@ -84,4 +95,6 @@ __all__ = [
     'TruncatedCauchy',
     'TruncatedNormal',
     'Uniform',
+    'Unit',
+    'ZeroInflatedPoisson',
 ]
