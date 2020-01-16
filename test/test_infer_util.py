@@ -37,8 +37,10 @@ def beta_bernoulli():
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(0), (N,))
 
     def model(data=None):
-        beta = numpyro.sample("beta", dist.Beta(np.ones(2), np.ones(2)))
+        with numpyro.plate("dim", 2):
+            beta = numpyro.sample("beta", dist.Beta(1., 1.))
         with numpyro.plate("plate", N, dim=-2):
+            numpyro.deterministic("beta_sq", beta ** 2)
             numpyro.sample("obs", dist.Bernoulli(beta), obs=data)
 
     return model, data, true_probs
@@ -52,12 +54,13 @@ def test_predictive(parallel):
     samples = mcmc.get_samples()
     predictive = Predictive(model, samples, parallel=parallel)
     predictive_samples = predictive(random.PRNGKey(1))
-    assert predictive_samples.keys() == {"obs"}
+    assert predictive_samples.keys() == {"beta_sq", "obs"}
 
-    predictive.return_sites = ["beta", "obs"]
+    predictive.return_sites = ["beta", "beta_sq", "obs"]
     predictive_samples = predictive(random.PRNGKey(1))
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape
+    assert predictive_samples["beta_sq"].shape == (100,) + true_probs.shape
     assert predictive_samples["obs"].shape == (100,) + data.shape
     # check sample mean
     assert_allclose(predictive_samples["obs"].reshape((-1,) + true_probs.shape).mean(0), true_probs, rtol=0.1)
@@ -69,6 +72,7 @@ def test_predictive_with_guide():
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1., 1.))
         with numpyro.plate("plate", 10):
+            numpyro.deterministic("beta_sq", f ** 2)
             numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
@@ -87,8 +91,9 @@ def test_predictive_with_guide():
 
     svi_state = lax.fori_loop(0, 1000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
-    obs_pred = predictive(random.PRNGKey(2), data=None)["obs"]
+    predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(random.PRNGKey(2), data=None)
+    assert predictive["beta_sq"].shape == (1000,)
+    obs_pred = predictive["obs"]
     assert_allclose(np.mean(obs_pred), 0.8, atol=0.05)
 
 
@@ -112,7 +117,7 @@ def test_predictive_with_improper():
 def test_prior_predictive():
     model, data, true_probs = beta_bernoulli()
     predictive_samples = Predictive(model, num_samples=100)(random.PRNGKey(1))
-    assert predictive_samples.keys() == {"beta", "obs"}
+    assert predictive_samples.keys() == {"beta", "beta_sq", "obs"}
 
     # check shapes
     assert predictive_samples["beta"].shape == (100,) + true_probs.shape

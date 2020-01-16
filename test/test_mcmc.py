@@ -81,7 +81,7 @@ def test_logistic_regression_x64(kernel_cls):
 
     def model(labels):
         coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
-        logits = np.sum(coefs * data, axis=-1)
+        logits = numpyro.deterministic('logits', np.sum(coefs * data, axis=-1))
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     if kernel_cls is SA:
@@ -90,8 +90,10 @@ def test_logistic_regression_x64(kernel_cls):
         kernel = kernel_cls(model=model, trajectory_length=8)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), labels)
-    mcmc.print_summary()
+    # Commenting since this is slow with deterministic sites present
+    # mcmc.print_summary()
     samples = mcmc.get_samples()
+    assert samples['logits'].shape == (num_samples, N)
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
     if 'JAX_ENABLE_X64' in os.environ:
