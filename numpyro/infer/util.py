@@ -111,7 +111,7 @@ def transform_fn(transforms, params, invert=False):
             for k, v in params.items()}
 
 
-def constrain_fn(model, transforms, model_args, model_kwargs, params):
+def constrain_fn(model, transforms, model_args, model_kwargs, params, return_deterministic=False):
     """
     (EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given
     unconstrained parameters `params`. The `transforms` is used to transform these
@@ -127,14 +127,15 @@ def constrain_fn(model, transforms, model_args, model_kwargs, params):
     :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of unconstrained values keyed by site
         names.
+    :param bool return_deterministic: whether to return the value of `deterministic`
+        sites from the model. Defaults to `False`.
     :return: `dict` of transformed params.
     """
     params_constrained = transform_fn(transforms, params)
     substituted_model = substitute(model, base_param_map=params_constrained)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
-    # This returns values at deterministic sites in addition to params (constrained)
-    return {k: model_trace[k]['value'] for k, v in model_trace.items() if (k in params) or
-            (v['type'] == 'deterministic')}
+    return {k: v['value'] for k, v in model_trace.items() if (k in params) or
+            (return_deterministic and v['type'] == 'deterministic')}
 
 
 def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
@@ -420,30 +421,33 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
         `potential_fn` and `constraints_fn` callables, respectively.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
-    :return: tuple of (`potential_fn`, `constrain_fn`). The latter is used
+    :return: tuple of (`potential_fn`, `postprocess_fn`). The latter is used
         to constrain unconstrained samples (e.g. those returned by HMC)
-        to values that lie within the site's support.
+        to values that lie within the site's support, and return values at
+        `deterministic` sites in the model.
     """
     if dynamic_args:
         def potential_fn(*args, **kwargs):
             inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
             return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
 
-        def constrain_fun(*args, **kwargs):
+        def postprocess_fn(*args, **kwargs):
             inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
             if replay_model:
-                return jax.partial(constrain_fn, model, inv_transforms, args, kwargs)
+                return jax.partial(constrain_fn, model, inv_transforms, args, kwargs,
+                                   return_deterministic=True)
             else:
                 return jax.partial(transform_fn, inv_transforms)
     else:
         inv_transforms, replay_model = get_model_transforms(rng_key, model, model_args, model_kwargs)
         potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
         if replay_model:
-            constrain_fun = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs)
+            postprocess_fn = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs,
+                                         return_deterministic=True)
         else:
-            constrain_fun = jax.partial(transform_fn, inv_transforms)
+            postprocess_fn = jax.partial(transform_fn, inv_transforms)
 
-    return potential_fn, constrain_fun
+    return potential_fn, postprocess_fn
 
 
 def initialize_model(rng_key, model,
@@ -468,15 +472,16 @@ def initialize_model(rng_key, model,
         `potential_fn` and `constraints_fn` callables, respectively.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
-    :return: tuple of (`init_params`, `potential_fn`, `constrain_fn`),
+    :return: tuple of (`init_params`, `potential_fn`, `postprocess_fn`),
         `init_params` are values from the prior used to initiate MCMC,
-        `constrain_fn` is a callable that uses inverse transforms
+        `postprocess_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
-        lie within the site's support.
+        lie within the site's support, in addition to returning values
+        at `deterministic` sites in the model.
     """
     if model_kwargs is None:
         model_kwargs = {}
-    potential_fun, constrain_fun = get_potential_fn(rng_key if rng_key.ndim == 1 else rng_key[0],
+    potential_fn, postprocess_fn = get_potential_fn(rng_key if rng_key.ndim == 1 else rng_key[0],
                                                     model,
                                                     dynamic_args=dynamic_args,
                                                     model_args=model_args,
@@ -491,7 +496,7 @@ def initialize_model(rng_key, model,
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return init_params, potential_fun, constrain_fun
+    return init_params, potential_fn, postprocess_fn
 
 
 def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,

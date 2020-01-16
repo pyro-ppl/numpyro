@@ -359,10 +359,11 @@ class MCMCKernel(ABC):
     Defines the interface for the Markov transition kernel that is
     used for :class:`~numpyro.infer.MCMC` inference.
     """
-    def constrain_fn(self, model_args, model_kwargs):
+    def postprocess_fn(self, model_args, model_kwargs):
         """
         Function that transforms unconstrained values at sample sites to values
-        constrained to the site's support.
+        constrained to the site's support, in addition to returning deterministic
+        sites in the model.
 
         :param model_args: Arguments to the model.
         :param model_kwargs: Keyword arguments to the model.
@@ -464,12 +465,12 @@ class HMC(MCMCKernel):
         self._init_strategy = init_strategy
         # Set on first call to init
         self._init_fn = None
-        self._constrain_fn = None
+        self._postprocess_fn = None
         self._sample_fn = None
 
     def _init_state(self, rng_key, model_args, model_kwargs):
         if self._model is not None:
-            potential_fn_gen, self._constrain_fn = get_potential_fn(
+            potential_fn_gen, self._postprocess_fn = get_potential_fn(
                 rng_key,
                 self._model,
                 dynamic_args=True,
@@ -539,11 +540,11 @@ class HMC(MCMCKernel):
             self._sample_fn = sample_fn
         return init_state
 
-    @copy_docs_from(MCMCKernel.constrain_fn)
-    def constrain_fn(self, args, kwargs):
-        if self._constrain_fn is None:
+    @copy_docs_from(MCMCKernel.postprocess_fn)
+    def postprocess_fn(self, args, kwargs):
+        if self._postprocess_fn is None:
             return identity
-        return self._constrain_fn(*args, **kwargs)
+        return self._postprocess_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
         """
@@ -837,12 +838,12 @@ class SA(MCMCKernel):
         self._dense_mass = dense_mass
         self._init_strategy = init_strategy
         self._init_fn = None
-        self._constrain_fn = None
+        self._postprocess_fn = None
         self._sample_fn = None
 
     def _init_state(self, rng_key, model_args, model_kwargs):
         if self._model is not None:
-            potential_fn_gen, self._constrain_fn = get_potential_fn(
+            potential_fn_gen, self._postprocess_fn = get_potential_fn(
                 rng_key,
                 self._model,
                 dynamic_args=True,
@@ -898,11 +899,11 @@ class SA(MCMCKernel):
             self._sample_fn = sample_fn
         return init_state
 
-    @copy_docs_from(MCMCKernel.constrain_fn)
-    def constrain_fn(self, args, kwargs):
-        if self._constrain_fn is None:
+    @copy_docs_from(MCMCKernel.postprocess_fn)
+    def postprocess_fn(self, args, kwargs):
+        if self._postprocess_fn is None:
             return identity
-        return self._constrain_fn(*args, **kwargs)
+        return self._postprocess_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
         """
@@ -978,9 +979,10 @@ class MCMC(object):
     :param int num_chains: Number of Number of MCMC chains to run. By default,
         chains will be run in parallel using :func:`jax.pmap`, failing which,
         chains will be run in sequence.
-    :param constrain_fn: Callable that converts a collection of unconstrained
-        sample values returned from the sampler to constrained values that
-        lie within the support of the sample sites.
+    :param postprocess_fn: Post-processing callable - used to convert a collection of unconstrained
+        sample values returned from the sampler to constrained values that lie within the support
+        of the sample sites. Additionally, this is used to return values at deterministic sites in
+        the model.
     :param str chain_method: One of 'parallel' (default), 'sequential', 'vectorized'. The method
         'parallel' is used to execute the drawing process in parallel on XLA devices (CPUs/GPUs/TPUs),
         If there are not enough devices for 'parallel', we fall back to 'sequential' method to draw
@@ -997,7 +999,7 @@ class MCMC(object):
                  num_warmup,
                  num_samples,
                  num_chains=1,
-                 constrain_fn=None,
+                 postprocess_fn=None,
                  chain_method='parallel',
                  progress_bar=True,
                  jit_model_args=False):
@@ -1005,7 +1007,7 @@ class MCMC(object):
         self.num_warmup = num_warmup
         self.num_samples = num_samples
         self.num_chains = num_chains
-        self.constrain_fn = constrain_fn
+        self.postprocess_fn = postprocess_fn
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
@@ -1063,8 +1065,8 @@ class MCMC(object):
         if init_state is None:
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
-        if self.constrain_fn is None:
-            self.constrain_fn = self.sampler.constrain_fn(args, kwargs)
+        if self.postprocess_fn is None:
+            self.postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
@@ -1090,7 +1092,7 @@ class MCMC(object):
         # Apply constraints if number of samples is non-zero
         site_values = tree_flatten(states['z'])[0]
         if len(site_values) > 0 and site_values[0].size > 0:
-            states['z'] = lax.map(self.constrain_fn, states['z'])
+            states['z'] = lax.map(self.postprocess_fn, states['z'])
         return states, last_state
 
     def _single_chain_jit_args(self, init, collect_fields=('z',)):
@@ -1250,8 +1252,12 @@ class MCMC(object):
         states = self._states if group_by_chain else self._states_flat
         return {k: v for k, v in states.items() if k != 'z'}
 
-    def print_summary(self, prob=0.9):
-        print_summary(self._states['z'], prob=prob)
+    def print_summary(self, prob=0.9, exclude_deterministic=True):
+        # Exclude deterministic sites by default
+        sites = self._states['z']
+        if exclude_deterministic:
+            sites = {k: v for k, v in self._states['z'].items() if k in self._last_state.z}
+        print_summary(sites, prob=prob)
         extra_fields = self.get_extra_fields()
         if 'diverging' in extra_fields:
             print("Number of divergences: {}".format(np.sum(extra_fields['diverging'])))
