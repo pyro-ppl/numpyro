@@ -54,7 +54,7 @@ UCBADMIT = dset('ucbadmit', [
 
 
 LYNXHARE = dset('lynxhare', [
-    'http://people.whitman.edu/~hundledr/courses/M250F03/LynxHare.txt',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt',
 ])
 
 
