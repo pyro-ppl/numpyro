@@ -173,10 +173,11 @@ def main(args):
     for i in range(transition_prob.shape[0]):
         for j in range(transition_prob.shape[1]):
             ax.plot(x, gaussian_kde(samples['transition_prob'][:, i, j])(x),
-                    label="transition_prob[{}, {}], true value = {:.2f}"
+                    label="trans_prob[{}, {}], true value = {:.2f}"
                     .format(i, j, transition_prob[i, j]))
     ax.set(xlabel="Probability", ylabel="Frequency",
            title="Transition probability posterior")
+    ax.legend()
 
     plt.savefig("hmm_plot.pdf")
     plt.tight_layout()

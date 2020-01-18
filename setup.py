@@ -46,7 +46,7 @@ setup(
             'pyro-api>=0.1.1'
         ],
         'dev': ['ipython', 'isort'],
-        'examples': ['matplotlib'],
+        'examples': ['matplotlib', 'seaborn'],
     },
     long_description=long_description,
     long_description_content_type='text/markdown',
