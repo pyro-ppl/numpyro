@@ -72,7 +72,7 @@ def main(args):
     reparam_samples = run_inference(reparam_model, args, rng_key)
 
     # make plots
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(6.4, 6.4))
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 8))
 
     ax1.plot(samples['x'][:, 0], samples['y'], "go", alpha=0.3)
     ax1.set(xlim=(-20, 20), ylim=(-9, 9), ylabel='y',

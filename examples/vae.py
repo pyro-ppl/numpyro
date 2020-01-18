@@ -133,7 +133,7 @@ def main(args):
 if __name__ == '__main__':
     assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('-n', '--num-epochs', default=20, type=int, help='number of training epochs')
+    parser.add_argument('-n', '--num-epochs', default=15, type=int, help='number of training epochs')
     parser.add_argument('-lr', '--learning-rate', default=1.0e-3, type=float, help='learning rate')
     parser.add_argument('-batch-size', default=128, type=int, help='batch size')
     parser.add_argument('-z-dim', default=50, type=int, help='size of latent')
