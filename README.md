@@ -163,7 +163,7 @@ pip install numpyro
 
 To use NumPyro on the GPU, you will need to first [install](https://github.com/google/jax#installation) `jax` and `jaxlib` with CUDA support.
 
-To run NumPyro on Cloud TPUs, you can use `pip` to install NumPyro as above and setup TPU backend as instructed in [this JAX folder](https://github.com/google/jax/tree/master/cloud_tpu_colabs).
+To run NumPyro on Cloud TPUs, you can use pip to install NumPyro as above and setup the TPU backend as detailed [here](https://github.com/google/jax/tree/master/cloud_tpu_colabs).
 
 You can also install NumPyro from source:
 
