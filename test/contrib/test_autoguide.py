@@ -16,6 +16,7 @@ from numpyro.contrib.autoguide import (
     AutoContinuousELBO,
     AutoDiagonalNormal,
     AutoIAFNormal,
+    AutoBNAFNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
     AutoMultivariateNormal
@@ -35,6 +36,7 @@ init_strategy = init_to_median(num_samples=2)
 @pytest.mark.parametrize('auto_class', [
     AutoDiagonalNormal,
     AutoIAFNormal,
+    AutoBNAFNormal,
     AutoMultivariateNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
@@ -56,7 +58,7 @@ def test_beta_bernoulli(auto_class):
         svi_state, loss = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 2000, body_fn, svi_state)
+    svi_state = fori_loop(0, 3000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     true_coefs = (np.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
@@ -67,6 +69,7 @@ def test_beta_bernoulli(auto_class):
 @pytest.mark.parametrize('auto_class', [
     AutoDiagonalNormal,
     AutoIAFNormal,
+    AutoBNAFNormal,
     AutoMultivariateNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
@@ -95,7 +98,7 @@ def test_logistic_regression(auto_class):
 
     svi_state = fori_loop(0, 2000, body_fn, svi_state)
     params = svi.get_params(svi_state)
-    if auto_class is not AutoIAFNormal:
+    if auto_class not in (AutoIAFNormal, AutoBNAFNormal):
         median = guide.median(params)
         assert_allclose(median['coefs'], true_coefs, rtol=0.1)
         # test .quantile method

@@ -113,15 +113,17 @@ nbsphinx_timeout = 120
 
 # examples with order
 EXAMPLES = [
+   'baseball.py',
    'bnn.py',
+   'funnel.py',
    'gp.py',
    'ucbadmit.py',
-   'baseball.py',
    'hmm.py',
+   'neutra.py',
+   'ode.py',
+   'sparse_regression.py',
    'stochastic_volatility.py',
    'vae.py',
-   'funnel.py',
-   'sparse_regression.py',
 ]
 
 
@@ -177,9 +179,10 @@ sphinx_gallery_conf = {
     'examples_dirs': ['../../examples'],
     'gallery_dirs': 'examples',
     'filename_pattern': '.py',
-    'ignore_pattern': '(neutra|minipyro|covtype|__init__)',
+    'ignore_pattern': '(minipyro|covtype|__init__)',
     'within_subsection_order': GalleryFileNameSortKey,
     'image_scrapers': ('matplotlib', PNGScraper()),
+    'default_thumb_file': 'source/_static/img/pyro_logo_wide.png',
 }
 
 

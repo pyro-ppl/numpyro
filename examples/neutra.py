@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
+Neural Transport
+================
+
+This example illustrates how to use a trained AutoBNAFNormal autoguide to transform a posterior to a
 Gaussian-like one. The transform will be used to get better mixing rate for NUTS sampler.
 
 **References:**
@@ -11,10 +14,8 @@ Gaussian-like one. The transform will be used to get better mixing rate for NUTS
        (https://arxiv.org/abs/1903.03704)
 """
 
-
 import argparse
 from functools import partial
-import os
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
@@ -22,21 +23,21 @@ import seaborn as sns
 
 from jax import lax, random, vmap
 import jax.numpy as np
-from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoContinuousELBO, AutoIAFNormal
+from numpyro.contrib.autoguide import AutoContinuousELBO, AutoBNAFNormal
 from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import MCMC, NUTS, SVI
 from numpyro.infer.util import initialize_model, transformed_potential_energy
 
-# TODO: remove when the issue https://github.com/google/jax/issues/939 is fixed upstream
-# The behaviour when training guide under fast math mode is unstable.
-os.environ["XLA_FLAGS"] = "--xla_cpu_enable_fast_math=false"
+
+# XXX: upstream logsumexp throws NaN under fast-math mode + MCMC's progress_bar=True
+def logsumexp(x, axis=0):
+    return np.log(np.sum(np.exp(x), axis=axis))
 
 
 class DualMoonDistribution(dist.Distribution):
@@ -68,11 +69,8 @@ def main(args):
     mcmc.print_summary()
     vanilla_samples = mcmc.get_samples()['x'].copy()
 
-    adam = optim.Adam(0.01)
-    # TODO: it is hard to find good hyperparameters such that IAF guide can learn this model.
-    # We will use BNAF instead!
-    guide = AutoIAFNormal(dual_moon_model, num_flows=2, hidden_dims=[args.num_hidden, args.num_hidden])
-    svi = SVI(dual_moon_model, guide, adam, AutoContinuousELBO())
+    guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
+    svi = SVI(dual_moon_model, guide, optim.Adam(0.003), AutoContinuousELBO())
     svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
@@ -119,18 +117,18 @@ def main(args):
     ax5 = fig.add_subplot(gs[2, 0])
     ax6 = fig.add_subplot(gs[2, 1])
 
-    ax1.plot(np.log(losses[1000:]))
-    ax1.set_title('Autoguide training log loss (after 1000 steps)')
+    ax1.plot(losses[1000:])
+    ax1.set_title('Autoguide training loss (after 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')
     sns.kdeplot(guide_samples[:, 0], guide_samples[:, 1], n_levels=30, ax=ax2)
     ax2.set(xlim=[-3, 3], ylim=[-3, 3],
-            xlabel='x0', ylabel='x1', title='Posterior using AutoIAFNormal guide')
+            xlabel='x0', ylabel='x1', title='Posterior using AutoBNAFNormal guide')
 
     sns.scatterplot(guide_base_samples[:, 0], guide_base_samples[:, 1], ax=ax3,
                     hue=guide_trans_samples[:, 0] < 0.)
     ax3.set(xlim=[-3, 3], ylim=[-3, 3],
-            xlabel='x0', ylabel='x1', title='AutoIAFNormal base samples (True=left moon; False=right moon)')
+            xlabel='x0', ylabel='x1', title='AutoBNAFNormal base samples (True=left moon; False=right moon)')
 
     ax4.contourf(X1, X2, P, cmap='OrRd')
     sns.kdeplot(vanilla_samples[:, 0], vanilla_samples[:, 1], n_levels=30, ax=ax4)
@@ -150,16 +148,15 @@ def main(args):
             xlabel='x0', ylabel='x1', title='Posterior using NeuTra HMC sampler')
 
     plt.savefig("neutra.pdf")
-    plt.close()
 
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.3')
     parser = argparse.ArgumentParser(description="NeuTra HMC")
-    parser.add_argument('-n', '--num-samples', nargs='?', default=10000, type=int)
+    parser.add_argument('-n', '--num-samples', nargs='?', default=4000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=1000, type=int)
-    parser.add_argument('--num-hidden', nargs='?', default=10, type=int)
-    parser.add_argument('--num-iters', nargs='?', default=20000, type=int)
+    parser.add_argument('--hidden-factor', nargs='?', default=8, type=int)
+    parser.add_argument('--num-iters', nargs='?', default=10000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
