@@ -20,6 +20,7 @@ Gaussian-like one. The transform will be used to get better mixing rate for NUTS
 
 import argparse
 from functools import partial
+import os
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
