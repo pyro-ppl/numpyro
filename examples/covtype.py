@@ -60,7 +60,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.2.3')
+    assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('-n', '--num-samples', default=100, type=int, help='number of samples')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')

@@ -184,7 +184,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.2.3')
+    assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description='Semi-supervised Hidden Markov Model')
     parser.add_argument('--num-categories', default=3, type=int)
     parser.add_argument('--num-words', default=10, type=int)
