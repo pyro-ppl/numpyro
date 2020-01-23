@@ -78,7 +78,7 @@ def main(args):
     mcmc = MCMC(NUTS(model, dense_mass=True),
                 args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
-    mcmc.run(PRNGKey(1), N=data.shape[0], y=np.log(data))
+    mcmc.run(PRNGKey(0), N=data.shape[0], y=np.log(data))
     mcmc.print_summary()
 
     # predict populations
