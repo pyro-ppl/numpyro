@@ -151,7 +151,7 @@ def deterministic(name, value):
     """
     Used to designate deterministic sites in the model. Note that most effect
     handlers will not operate on deterministic sites (except
-    :function:`~numpyro.handlers.trace`), so deterministic sites should be
+    :func:`~numpyro.handlers.trace`), so deterministic sites should be
     side-effect free. The use case for deterministic nodes is to record any
     values in the model execution trace.
 

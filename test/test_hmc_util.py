@@ -394,9 +394,6 @@ def test_build_tree(step_size):
         assert tree.num_proposals > 10
 
 
-# TODO: raise this warning issue upstream, the issue is at this line
-# https://github.com/google/jax/blob/master/jax/numpy/lax_numpy.py#L2732
-@pytest.mark.filterwarnings('ignore:Explicitly requested dtype float64')
 @pytest.mark.parametrize('method', [consensus, parametric_draws])
 @pytest.mark.parametrize('diagonal', [True, False])
 def test_gaussian_subposterior(method, diagonal):

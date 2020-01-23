@@ -563,3 +563,11 @@ InverseAutoregressiveTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+BlockNeuralAutoregressiveTransform
+----------------------------------
+.. autoclass:: numpyro.distributions.flows.BlockNeuralAutoregressiveTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

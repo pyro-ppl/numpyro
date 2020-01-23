@@ -810,6 +810,9 @@ class SA(MCMCKernel):
     subset of approximate posterior samples of size num_chains x num_samples
     instead of num_chains x num_samples x adapt_state_size.
 
+    .. note:: We recommend to use this kernel with `progress_bar=False` in :class:`MCMC`
+        to reduce JAX's dispatch overhead.
+
     **References:**
 
     1. *Sample Adaptive MCMC* (https://papers.nips.cc/paper/9107-sample-adaptive-mcmc),

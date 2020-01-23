@@ -11,6 +11,14 @@ AutoContinuous
     :show-inheritance:
     :member-order: bysource
 
+AutoBNAFNormal
+--------------
+.. autoclass:: numpyro.contrib.autoguide.AutoBNAFNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 AutoDiagonalNormal
 ------------------
 .. autoclass:: numpyro.contrib.autoguide.AutoDiagonalNormal
