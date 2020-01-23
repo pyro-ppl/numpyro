@@ -5,11 +5,7 @@
 Neural Transport
 ================
 
-<<<<<<< HEAD
-This example illustrates how to use a trained AutoIAFNormal autoguide to transform a posterior to a
-=======
 This example illustrates how to use a trained AutoBNAFNormal autoguide to transform a posterior to a
->>>>>>> master
 Gaussian-like one. The transform will be used to get better mixing rate for NUTS sampler.
 
 **References:**
