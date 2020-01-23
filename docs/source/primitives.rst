@@ -15,6 +15,10 @@ plate
 -----
 .. autoclass:: numpyro.primitives.plate
 
+deterministic
+-------------
+.. autofunction:: numpyro.primitives.deterministic
+
 factor
 ------
 .. autofunction:: numpyro.primitives.factor

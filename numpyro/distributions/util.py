@@ -46,7 +46,6 @@ def categorical(key, p, shape=()):
     return _categorical(key, p, shape)
 
 
-# TODO: use this sampler in CategoricalLogits
 # TODO: drop this for the next JAX release, see https://github.com/google/jax/pull/1855
 def categorical_logits(key, logits, shape=()):
     shape = shape or logits.shape[:-1]
