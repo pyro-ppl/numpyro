@@ -3,7 +3,7 @@
 [![Latest Version](https://badge.fury.io/py/numpyro.svg)](https://pypi.python.org/pypi/numpyro)
 # NumPyro
 
-Probabilistic programming with NumPy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/CPU.
+Probabilistic programming with NumPy powered by [JAX](https://github.com/google/jax) for autograd and JIT compilation to GPU/TPU/CPU.
 
 [Docs](https://num.pyro.ai) | [Examples](https://pyro.ai/numpyro/) | [Forum](https://forum.pyro.ai/)
 
@@ -162,6 +162,8 @@ pip install numpyro
 ```
 
 To use NumPyro on the GPU, you will need to first [install](https://github.com/google/jax#installation) `jax` and `jaxlib` with CUDA support.
+
+To run NumPyro on Cloud TPUs, you can use pip to install NumPyro as above and setup the TPU backend as detailed [here](https://github.com/google/jax/tree/master/cloud_tpu_colabs).
 
 You can also install NumPyro from source:
 

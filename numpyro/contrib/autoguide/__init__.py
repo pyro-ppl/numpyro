@@ -492,7 +492,7 @@ class AutoIAFNormal(AutoContinuous):
     """
     This implementation of :class:`AutoContinuous` uses a Diagonal Normal
     distribution transformed via a
-    :class:`~numpyro.distributions.iaf.InverseAutoregressiveTransform`
+    :class:`~numpyro.distributions.flows.InverseAutoregressiveTransform`
     to construct a guide over the entire latent space. The guide does not
     depend on the model's ``*args, **kwargs``.
 
@@ -548,7 +548,7 @@ class AutoBNAFNormal(AutoContinuous):
     """
     This implementation of :class:`AutoContinuous` uses a Diagonal Normal
     distribution transformed via a
-    :class:`~numpyro.distributions.iaf.InverseAutoregressiveTransform`
+    :class:`~numpyro.distributions.flows.BlockNeuralAutoregressiveTransform`
     to construct a guide over the entire latent space. The guide does not
     depend on the model's ``*args, **kwargs``.
 

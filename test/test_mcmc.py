@@ -90,8 +90,7 @@ def test_logistic_regression_x64(kernel_cls):
         kernel = kernel_cls(model=model, trajectory_length=8)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), labels)
-    # Commenting since this is slow with deterministic sites present
-    # mcmc.print_summary()
+    mcmc.print_summary()
     samples = mcmc.get_samples()
     assert samples['logits'].shape == (num_samples, N)
     assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
