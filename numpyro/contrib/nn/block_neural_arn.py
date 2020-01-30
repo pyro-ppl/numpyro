@@ -61,7 +61,7 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
         w = np.exp(W) * mask_d + W * mask_o
 
         # Compute norm of each column (i.e. each output features)
-        w_norm = np.linalg.norm(w ** 2, axis=-2, keepdims=True)
+        w_norm = np.linalg.norm(w, axis=-2, keepdims=True)
 
         # Normalize weight and rescale
         w = np.exp(ws) * w / w_norm
