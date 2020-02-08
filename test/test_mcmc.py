@@ -78,6 +78,7 @@ def test_logistic_regression_x64(kernel_cls):
     true_coefs = np.arange(1., dim + 1.)
     logits = np.sum(true_coefs * data, axis=-1)
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
+    inverse_mass_matrix = np.eye(dim) if kernel_cls is SA else np.ones(dim) * 0.1
 
     def model(labels):
         coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
@@ -85,9 +86,9 @@ def test_logistic_regression_x64(kernel_cls):
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     if kernel_cls is SA:
-        kernel = SA(model=model, adapt_state_size=9)
+        kernel = SA(model=model, adapt_state_size=9, inverse_mass_matrix=inverse_mass_matrix)
     else:
-        kernel = kernel_cls(model=model, trajectory_length=8)
+        kernel = kernel_cls(model=model, trajectory_length=8, inverse_mass_matrix=inverse_mass_matrix)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), labels)
     mcmc.print_summary()

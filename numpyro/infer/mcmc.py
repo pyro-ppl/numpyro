@@ -424,6 +424,9 @@ class HMC(MCMCKernel):
     :param float step_size: Determines the size of a single step taken by the
         verlet integrator while computing the trajectory using Hamiltonian
         dynamics. If not specified, it will be set to 1.
+    :param numpy.ndarray inverse_mass_matrix: Initial value for inverse mass matrix.
+        This may be adapted during warmup if adapt_mass_matrix = True.
+        If no value is specified, then it is initialized to the identity matrix.
     :param bool adapt_step_size: A flag to decide if we want to adapt step_size
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
@@ -443,6 +446,7 @@ class HMC(MCMCKernel):
                  potential_fn=None,
                  kinetic_fn=None,
                  step_size=1.0,
+                 inverse_mass_matrix=None,
                  adapt_step_size=True,
                  adapt_mass_matrix=True,
                  dense_mass=False,
@@ -455,6 +459,7 @@ class HMC(MCMCKernel):
         self._potential_fn = potential_fn
         self._kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
         self._step_size = step_size
+        self._inverse_mass_matrix = inverse_mass_matrix
         self._adapt_step_size = adapt_step_size
         self._adapt_mass_matrix = adapt_mass_matrix
         self._dense_mass = dense_mass
@@ -519,6 +524,7 @@ class HMC(MCMCKernel):
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
+            inverse_mass_matrix=self._inverse_mass_matrix,
             adapt_step_size=self._adapt_step_size,
             adapt_mass_matrix=self._adapt_mass_matrix,
             dense_mass=self._dense_mass,
@@ -585,6 +591,9 @@ class NUTS(HMC):
     :param float step_size: Determines the size of a single step taken by the
         verlet integrator while computing the trajectory using Hamiltonian
         dynamics. If not specified, it will be set to 1.
+    :param numpy.ndarray inverse_mass_matrix: Initial value for inverse mass matrix.
+        This may be adapted during warmup if adapt_mass_matrix = True.
+        If no value is specified, then it is initialized to the identity matrix.
     :param bool adapt_step_size: A flag to decide if we want to adapt step_size
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
@@ -606,6 +615,7 @@ class NUTS(HMC):
                  potential_fn=None,
                  kinetic_fn=None,
                  step_size=1.0,
+                 inverse_mass_matrix=None,
                  adapt_step_size=True,
                  adapt_mass_matrix=True,
                  dense_mass=False,
@@ -614,9 +624,9 @@ class NUTS(HMC):
                  max_tree_depth=10,
                  init_strategy=init_to_uniform()):
         super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
-                                   step_size=step_size, adapt_step_size=adapt_step_size,
-                                   adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
-                                   target_accept_prob=target_accept_prob,
+                                   step_size=step_size, inverse_mass_matrix=inverse_mass_matrix,
+                                   adapt_step_size=adapt_step_size, adapt_mass_matrix=adapt_mass_matrix,
+                                   dense_mass=dense_mass, target_accept_prob=target_accept_prob,
                                    trajectory_length=trajectory_length, init_strategy=init_strategy)
         self._max_tree_depth = max_tree_depth
         self._algo = 'NUTS'
@@ -826,18 +836,22 @@ class SA(MCMCKernel):
         `init_kernel` has the same type.
     :param int adapt_state_size: The number of points to generate proposal
         distribution. Defaults to 2 times latent size.
+    :param numpy.ndarray inverse_mass_matrix: Initial value for inverse mass matrix.
+        This may be adapted during warmup if adapt_mass_matrix = True.
+        If no value is specified, then it is initialized to the identity matrix.
     :param bool dense_mass:  A flag to decide if mass matrix is dense or
         diagonal (default to ``dense_mass=True``)
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
     def __init__(self, model=None, potential_fn=None, adapt_state_size=None,
-                 dense_mass=True, init_strategy=init_to_uniform()):
+                 inverse_mass_matrix=None, dense_mass=True, init_strategy=init_to_uniform()):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
         self._potential_fn = potential_fn
         self._adapt_state_size = adapt_state_size
+        self._inverse_mass_matrix = inverse_mass_matrix
         self._dense_mass = dense_mass
         self._init_strategy = init_strategy
         self._init_fn = None
@@ -889,6 +903,7 @@ class SA(MCMCKernel):
             init_params,
             num_warmup=num_warmup,
             adapt_state_size=self._adapt_state_size,
+            inverse_mass_matrix=self._inverse_mass_matrix,
             dense_mass=self._dense_mass,
             rng_key=rng_key,
             model_args=model_args,
