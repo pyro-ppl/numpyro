@@ -1,10 +1,10 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
+from collections import namedtuple
 from functools import update_wrapper
 import math
 
-from jax import custom_transforms, defjvp, jit, lax, random, vmap
+from jax import custom_transforms, defjvp, jit, lax, random, vmap, tree_map
 from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
 import jax.numpy as np
@@ -13,21 +13,136 @@ from jax.scipy.special import gammaln
 from jax.util import partial
 
 
-@partial(jit, static_argnums=(3, 4))
-def _binomial(key, p, n, n_max, shape):
+_tr_params = namedtuple('tr_params', ['c', 'b', 'a', 'alpha', 'u_r', 'v_r'])
+
+
+def _get_tr_params(n, p):
+    spq = np.sqrt(n * p * (1 - p))
+    c = n * p + 0.5
+    b = 1.15 + 2.53 * spq
+    a = -0.0873 + 0.0248 * b + 0.01 * p
+    alpha = (2.83 + 5.1 / b) * spq
+    u_r = 0.07
+    v_r = 0.92 - 4.2 / b
+    return _tr_params(c, b, a, alpha, u_r, v_r)
+
+
+def stirling_approx_tail(k):
+    precomputed = [
+        0.0810614667953272,
+        0.0413406959554092,
+        0.0276779256849983,
+        0.02079067210376509,
+        0.0166446911898211,
+        0.0138761288230707,
+        0.0118967099458917,
+        0.0104112652619720,
+        0.00925546218271273,
+        0.00833056343336287,
+    ]
+    return np.where(k < 10,
+                    np.take(precomputed, k),
+                    1. / (12 * (k + 1)) - 1./(360 * (k + 1) ** 3) + 1./(1260 * (k + 1) ** 5))
+
+
+def _btrs_body_fn(val):
+    _, key, p, n, tr_params, _, _, cont = val
+    key, key_u, key_v = random.split(key, 3)
+    u = random.uniform(key_u)
+    v = random.uniform(key_v)
+    u = u - 0.5
+    k = np.floor((2 * tr_params.a / (0.5 - np.abs(u)) + tr_params.b) * u + tr_params.c).astype(n.dtype)
+    return k, key, p, n, tr_params, u, v, cont
+
+
+def _btrs_cond_fn(val):
+    def accept_fn(k, p, n, tr_params, u, v):
+        m = np.floor((n + 1) * p).astype(n.dtype)
+        q = 1 - p
+        log_f = (m + 0.5) * np.log((m + 1.) / (n - m + 1.) * (q / p)) + \
+                (n + 1.) * np.log((n - m + 1.) / (n - k + 1.)) + \
+                (k + 0.5) * np.log((n - k + 1.) / (k + 1.) * p / q) + \
+                (stirling_approx_tail(m) + stirling_approx_tail(n - m)) - \
+                (stirling_approx_tail(k) - stirling_approx_tail(n - k))
+        log_g = (tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b
+        return np.log(v) <= log_f + log_g - np.log(tr_params.alpha)
+
+    k, key, p, n, tr_params, u, v, cont = val
+    early_accept = (np.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
+    return lax.cond(~cont | (cont & early_accept),
+                    (),
+                    lambda _: False,
+                    (k, p, n, tr_params, u, v),
+                    lambda v: lax.cond((k < 0) | (k > n),
+                                       (),
+                                       lambda _: True,
+                                       v,
+                                       lambda v: ~accept_fn(*v))
+                    )
+
+
+def _binomial_btrs(key, p, n, shape, cont):
+    # reshape to map over axis 0
+    tr_params = tree_map(lambda x: np.reshape(np.broadcast_to(x, shape), -1), _get_tr_params(n, p))
+    p = np.reshape(np.broadcast_to(p, shape), -1)
+    n = np.reshape(np.broadcast_to(n, shape), -1)
+    cont = np.reshape(np.broadcast_to(cont, shape), -1)
+    key = random.split(key, np.size(p))
+    # init values for (k, u, v) satisfies _btrs_cond_fn
+    ret = lax.map(lambda init_val: lax.while_loop(_btrs_cond_fn, _btrs_body_fn, init_val),
+                  (n + np.ones_like(n), key, p, n, tr_params, np.ones_like(p), np.ones_like(p), cont))
+    return np.reshape(ret[0], shape)
+
+
+def _binom_inv_body_fn(val):
+    i, key, p, n, geom_acc, cont = val
+    key, key_u = random.split(key)
+    u = random.uniform(key_u)
+    geom = np.clip(np.ceil(np.log(1 - u) / np.log(1 - p)), a_min=1., a_max=n + 1.)
+    geom_acc += geom
+    return i + 1, key, p, n, geom_acc, cont
+
+
+def _binom_inv_cond_fn(val):
+    i, _, _, n, geom_acc, cont = val
+    return cont & (geom_acc <= n)
+
+
+def _binomial_inversion(key, p, n, shape, cont):
+    # reshape to map over axis 0
+    p = np.reshape(np.broadcast_to(p, shape), -1)
+    n = np.reshape(np.broadcast_to(n, shape), -1)
+    cont = np.reshape(np.broadcast_to(cont, shape), -1)
+    key = random.split(key, np.size(p))
+    ret = lax.map(lambda init_val: lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, init_val),
+                  (np.zeros_like(n), key, p, n, np.zeros_like(p), cont))
+    return np.reshape(ret[0] - 1, shape)
+
+
+@partial(jit, static_argnums=(3,))
+def _binomial(key, p, n, shape):
     p, n = promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
-    uniforms = random.uniform(key, shape + (n_max,))
-    n = np.expand_dims(n, axis=-1)
-    p = np.expand_dims(p, axis=-1)
-    mask = (np.arange(n_max) < n).astype(uniforms.dtype)
-    p, uniforms = promote_shapes(p, uniforms)
-    return np.sum(mask * lax.lt(uniforms, p), axis=-1, keepdims=False)
+    eps = 1e-6
+    q = 1 - p
+    idx_zeros = (p <= 0)
+    idx_ones = (p >= 1)
+    idx_le_mid = p <= 0.5
+    pq = np.where(idx_le_mid, p, q)
+    mu = n * pq
+    ret = np.zeros(shape, dtype=get_dtype(n))
+    ret = np.where(idx_zeros, 0, ret)
+    ret = np.where(idx_ones, n, ret)
+    p = np.clip(p, a_min=eps, a_max=1 - eps)
+    cont = np.logical_not(idx_zeros) & np.logical_not(idx_ones)
+    ret = np.where(cont & (mu <= 10), _binomial_inversion(key, p, n, shape, cont & (mu <= 10)), ret)
+    ret = np.where(cont & (mu > 10), _binomial_btrs(key, pq, n, shape, cont & (mu > 10)), ret)
+    ret = np.where(cont & (mu > 10) & np.logical_not(idx_le_mid), n - ret, ret)
+    return ret
 
 
 def binomial(key, p, n=1, shape=()):
-    n_max = int(np.max(n))
-    return _binomial(key, p, n, n_max, shape)
+    return _binomial(key, p, n, shape)
 
 
 @partial(jit, static_argnums=(2,))
