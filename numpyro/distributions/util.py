@@ -45,7 +45,7 @@ def stirling_approx_tail(k):
                     1. / (12 * (k + 1)) - 1./(360 * (k + 1) ** 3) + 1./(1260 * (k + 1) ** 5))
 
 
-def _binomial_btrs(key, p, n, tr_params):
+def _binomial_btrs(key, p, n):
     """
     Based on the transformed rejection sampling algorithm (BTRS) from the
     following reference:
@@ -84,9 +84,9 @@ def _binomial_btrs(key, p, n, tr_params):
                                            (),
                                            lambda _: True,
                                            v,
-                                           lambda v: ~accept_fn(*v))
-                        )
+                                           lambda v: ~accept_fn(*v)))
 
+    tr_params = _get_tr_params(n, p)
     ret = lax.while_loop(_btrs_cond_fn, _btrs_body_fn,
                          (n + np.ones_like(n), key, p, n, tr_params, np.ones_like(p), np.ones_like(p)))
     return ret[0]
@@ -110,31 +110,30 @@ def _binomial_inversion(key, p, n):
     return ret[0] - 1
 
 
-def _binomial_dispatch(key, p, n, tr_params):
-    def select(key, p, n, tr_params):
+def _binomial_dispatch(key, p, n):
+    def dispatch(key, p, n):
         eps = 1e-6
         p = np.clip(p, a_min=eps, a_max=1 - eps)
         is_le_mid = p <= 0.5
         pq = np.where(is_le_mid, p, 1 - p)
         mu = n * pq
-        bin = lax.cond(mu <= 10,
-                       (key, pq, n),
-                       lambda x: _binomial_inversion(*x),
-                       (key, pq, n, tr_params),
-                       lambda x: _binomial_btrs(*x)
-                       )
-        return np.where(is_le_mid, bin, n - bin)
+        k = lax.cond(mu < 10,
+                     (key, pq, n),
+                     lambda x: _binomial_inversion(*x),
+                     (key, pq, n),
+                     lambda x: _binomial_btrs(*x))
+        return np.where(is_le_mid, k, n - k)
 
     # Return 0 for nan `p` or negative `n`, since nan values are not allowed for integer types
     return lax.cond((p <= 0.) | (np.isnan(p) | (n <= 0)),
                     (),
                     lambda _: 0,
-                    (key, p, n, tr_params),
+                    (key, p, n),
                     lambda v: lax.cond(p >= 1.,
                                        (),
                                        lambda _: n,
                                        v,
-                                       lambda x: select(*x)))
+                                       lambda x: dispatch(*x)))
 
 
 @partial(jit, static_argnums=(3,))
@@ -142,12 +141,11 @@ def _binomial(key, p, n, shape):
     p, n = promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
     # reshape to map over axis 0
-    tr_params = tree_map(lambda x: np.reshape(np.broadcast_to(x, shape), -1), _get_tr_params(n, p))
     p = np.reshape(np.broadcast_to(p, shape), -1)
     n = np.reshape(np.broadcast_to(n, shape), -1)
     key = random.split(key, np.size(p))
     ret = lax.map(lambda x: _binomial_dispatch(*x),
-                  (key, p, n, tr_params))
+                  (key, p, n))
     return np.reshape(ret, shape)
 
 
