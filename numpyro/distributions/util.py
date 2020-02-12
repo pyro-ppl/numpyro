@@ -4,7 +4,7 @@ from collections import namedtuple
 from functools import update_wrapper
 import math
 
-from jax import custom_transforms, defjvp, jit, lax, random, vmap, tree_map
+from jax import custom_transforms, defjvp, jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
 import jax.numpy as np
