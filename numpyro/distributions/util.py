@@ -82,6 +82,13 @@ def _btrs_cond_fn(val):
 
 
 def _binomial_btrs(key, p, n, shape, cont):
+    """
+    Based on the transformed rejection sampling algorithm (BTRS) from the
+    following reference:
+
+    Hormann, "The Generation of Binonmial Random Variates"
+    (https://core.ac.uk/download/pdf/11007254.pdf)
+    """
     # reshape to map over axis 0
     tr_params = tree_map(lambda x: np.reshape(np.broadcast_to(x, shape), -1), _get_tr_params(n, p))
     p = np.reshape(np.broadcast_to(p, shape), -1)
@@ -125,16 +132,19 @@ def _binomial(key, p, n, shape):
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
     eps = 1e-6
     q = 1 - p
-    idx_zeros = (p <= 0)
+    idx_zeros = (p <= 0) | (n == 0)
     idx_ones = (p >= 1)
+    idx_nans = np.isnan(p)
     idx_le_mid = p <= 0.5
     pq = np.where(idx_le_mid, p, q)
     mu = n * pq
     ret = np.zeros(shape, dtype=get_dtype(n))
+    # pre-fill for p = (0, 1, nan) as these values are problematic
     ret = np.where(idx_zeros, 0, ret)
     ret = np.where(idx_ones, n, ret)
+    ret = np.where(idx_nans, float('NaN'), ret)
     p = np.clip(p, a_min=eps, a_max=1 - eps)
-    cont = np.logical_not(idx_zeros) & np.logical_not(idx_ones)
+    cont = np.logical_not(idx_zeros | idx_ones | idx_nans)
     ret = np.where(cont & (mu <= 10), _binomial_inversion(key, p, n, shape, cont & (mu <= 10)), ret)
     ret = np.where(cont & (mu > 10), _binomial_btrs(key, pq, n, shape, cont & (mu > 10)), ret)
     ret = np.where(cont & (mu > 10) & np.logical_not(idx_le_mid), n - ret, ret)

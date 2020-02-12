@@ -567,7 +567,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
             # grad w.r.t. `value` of Delta distribution will be 0
             # but numerical value will give nan (= inf - inf)
             expected_grad = 0.
-        assert_allclose(np.sum(actual_grad), expected_grad, rtol=0.01, atol=1e-3)
+        assert_allclose(np.sum(actual_grad), expected_grad, rtol=0.01, atol=0.01)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
