@@ -45,42 +45,6 @@ def stirling_approx_tail(k):
                     1. / (12 * (k + 1)) - 1./(360 * (k + 1) ** 3) + 1./(1260 * (k + 1) ** 5))
 
 
-def _btrs_body_fn(val):
-    _, key, p, n, tr_params, _, _ = val
-    key, key_u, key_v = random.split(key, 3)
-    u = random.uniform(key_u)
-    v = random.uniform(key_v)
-    u = u - 0.5
-    k = np.floor((2 * tr_params.a / (0.5 - np.abs(u)) + tr_params.b) * u + tr_params.c).astype(n.dtype)
-    return k, key, p, n, tr_params, u, v
-
-
-def _btrs_cond_fn(val):
-    def accept_fn(k, p, n, tr_params, u, v):
-        m = np.floor((n + 1) * p).astype(n.dtype)
-        q = 1 - p
-        log_f = (m + 0.5) * np.log((m + 1.) / (n - m + 1.) * (q / p)) + \
-                (n + 1.) * np.log((n - m + 1.) / (n - k + 1.)) + \
-                (k + 0.5) * np.log((n - k + 1.) / (k + 1.) * p / q) + \
-                (stirling_approx_tail(m) + stirling_approx_tail(n - m)) - \
-                (stirling_approx_tail(k) - stirling_approx_tail(n - k))
-        log_g = (tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b
-        return np.log(v) <= log_f + log_g - np.log(tr_params.alpha)
-
-    k, key, p, n, tr_params, u, v = val
-    early_accept = (np.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
-    return lax.cond(early_accept,
-                    (),
-                    lambda _: False,
-                    (k, p, n, tr_params, u, v),
-                    lambda v: lax.cond((k < 0) | (k > n),
-                                       (),
-                                       lambda _: True,
-                                       v,
-                                       lambda v: ~accept_fn(*v))
-                    )
-
-
 def _binomial_btrs(key, p, n, tr_params):
     """
     Based on the transformed rejection sampling algorithm (BTRS) from the
@@ -89,26 +53,58 @@ def _binomial_btrs(key, p, n, tr_params):
     Hormann, "The Generation of Binonmial Random Variates"
     (https://core.ac.uk/download/pdf/11007254.pdf)
     """
+    def _btrs_body_fn(val):
+        _, key, p, n, tr_params, _, _ = val
+        key, key_u, key_v = random.split(key, 3)
+        u = random.uniform(key_u)
+        v = random.uniform(key_v)
+        u = u - 0.5
+        k = np.floor((2 * tr_params.a / (0.5 - np.abs(u)) + tr_params.b) * u + tr_params.c).astype(n.dtype)
+        return k, key, p, n, tr_params, u, v
+
+    def _btrs_cond_fn(val):
+        def accept_fn(k, p, n, tr_params, u, v):
+            m = np.floor((n + 1) * p).astype(n.dtype)
+            q = 1 - p
+            log_f = (m + 0.5) * np.log((m + 1.) / (n - m + 1.) * (q / p)) + \
+                    (n + 1.) * np.log((n - m + 1.) / (n - k + 1.)) + \
+                    (k + 0.5) * np.log((n - k + 1.) / (k + 1.) * p / q) + \
+                    (stirling_approx_tail(m) + stirling_approx_tail(n - m)) - \
+                    (stirling_approx_tail(k) - stirling_approx_tail(n - k))
+            log_g = (tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b
+            return np.log(v) <= log_f + log_g - np.log(tr_params.alpha)
+
+        k, key, p, n, tr_params, u, v = val
+        early_accept = (np.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
+        return lax.cond(early_accept,
+                        (),
+                        lambda _: False,
+                        (k, p, n, tr_params, u, v),
+                        lambda v: lax.cond((k < 0) | (k > n),
+                                           (),
+                                           lambda _: True,
+                                           v,
+                                           lambda v: ~accept_fn(*v))
+                        )
+
     ret = lax.while_loop(_btrs_cond_fn, _btrs_body_fn,
                          (n + np.ones_like(n), key, p, n, tr_params, np.ones_like(p), np.ones_like(p)))
     return ret[0]
 
 
-def _binom_inv_body_fn(val):
-    i, key, p, n, geom_acc = val
-    key, key_u = random.split(key)
-    u = random.uniform(key_u)
-    geom = np.clip(np.ceil(np.log(1 - u) / np.log(1 - p)), a_min=1., a_max=n + 1.)
-    geom_acc += geom
-    return i + 1, key, p, n, geom_acc
-
-
-def _binom_inv_cond_fn(val):
-    i, _, _, n, geom_acc = val
-    return geom_acc <= n
-
-
 def _binomial_inversion(key, p, n):
+    def _binom_inv_body_fn(val):
+        i, key, p, n, geom_acc = val
+        key, key_u = random.split(key)
+        u = random.uniform(key_u)
+        geom = np.clip(np.ceil(np.log(1 - u) / np.log(1 - p)), a_min=1., a_max=n + 1.)
+        geom_acc += geom
+        return i + 1, key, p, n, geom_acc
+
+    def _binom_inv_cond_fn(val):
+        i, _, _, n, geom_acc = val
+        return geom_acc <= n
+
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn,
                          (np.zeros_like(n), key, p, n, np.zeros_like(p)))
     return ret[0] - 1
@@ -116,19 +112,21 @@ def _binomial_inversion(key, p, n):
 
 def _binomial_dispatch(key, p, n, tr_params):
     def select(key, p, n, tr_params):
+        eps = 1e-6
+        p = np.clip(p, a_min=eps, a_max=1 - eps)
         is_le_mid = p <= 0.5
         pq = np.where(is_le_mid, p, 1 - p)
         mu = n * pq
         bin = lax.cond(mu <= 10,
-                       (key, p, n),
+                       (key, pq, n),
                        lambda x: _binomial_inversion(*x),
-                       (key, p, n, tr_params),
+                       (key, pq, n, tr_params),
                        lambda x: _binomial_btrs(*x)
                        )
         return np.where(is_le_mid, bin, n - bin)
 
-    # Return 0 for nan `p` since nan values are not allowed for integer types
-    return lax.cond((p <= 0.) | (np.isnan(p)),
+    # Return 0 for nan `p` or negative `n`, since nan values are not allowed for integer types
+    return lax.cond((p <= 0.) | (np.isnan(p) | (n <= 0)),
                     (),
                     lambda _: 0,
                     (key, p, n, tr_params),
@@ -491,6 +489,3 @@ def validate_sample(log_prob_fn):
         return log_prob
 
     return wrapper
-
-
-print(binomial(random.PRNGKey(0), 0.5, 10))
