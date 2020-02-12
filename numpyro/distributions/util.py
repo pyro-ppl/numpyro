@@ -22,7 +22,7 @@ def _get_tr_params(n, p):
     b = 1.15 + 2.53 * spq
     a = -0.0873 + 0.0248 * b + 0.01 * p
     alpha = (2.83 + 5.1 / b) * spq
-    u_r = 0.07
+    u_r = 0.43
     v_r = 0.92 - 4.2 / b
     return _tr_params(c, b, a, alpha, u_r, v_r)
 
@@ -46,13 +46,13 @@ def stirling_approx_tail(k):
 
 
 def _btrs_body_fn(val):
-    _, key, p, n, tr_params, _, _, cont = val
+    _, key, p, n, tr_params, _, _ = val
     key, key_u, key_v = random.split(key, 3)
     u = random.uniform(key_u)
     v = random.uniform(key_v)
     u = u - 0.5
     k = np.floor((2 * tr_params.a / (0.5 - np.abs(u)) + tr_params.b) * u + tr_params.c).astype(n.dtype)
-    return k, key, p, n, tr_params, u, v, cont
+    return k, key, p, n, tr_params, u, v
 
 
 def _btrs_cond_fn(val):
@@ -67,9 +67,9 @@ def _btrs_cond_fn(val):
         log_g = (tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b
         return np.log(v) <= log_f + log_g - np.log(tr_params.alpha)
 
-    k, key, p, n, tr_params, u, v, cont = val
+    k, key, p, n, tr_params, u, v = val
     early_accept = (np.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
-    return lax.cond(~cont | (cont & early_accept),
+    return lax.cond(early_accept,
                     (),
                     lambda _: False,
                     (k, p, n, tr_params, u, v),
@@ -81,7 +81,7 @@ def _btrs_cond_fn(val):
                     )
 
 
-def _binomial_btrs(key, p, n, shape, cont):
+def _binomial_btrs(key, p, n, tr_params):
     """
     Based on the transformed rejection sampling algorithm (BTRS) from the
     following reference:
@@ -89,66 +89,68 @@ def _binomial_btrs(key, p, n, shape, cont):
     Hormann, "The Generation of Binonmial Random Variates"
     (https://core.ac.uk/download/pdf/11007254.pdf)
     """
-    # reshape to map over axis 0
-    tr_params = tree_map(lambda x: np.reshape(np.broadcast_to(x, shape), -1), _get_tr_params(n, p))
-    p = np.reshape(np.broadcast_to(p, shape), -1)
-    n = np.reshape(np.broadcast_to(n, shape), -1)
-    cont = np.reshape(np.broadcast_to(cont, shape), -1)
-    key = random.split(key, np.size(p))
-    # init values for (k, u, v) satisfies _btrs_cond_fn
-    ret = lax.map(lambda init_val: lax.while_loop(_btrs_cond_fn, _btrs_body_fn, init_val),
-                  (n + np.ones_like(n), key, p, n, tr_params, np.ones_like(p), np.ones_like(p), cont))
-    return np.reshape(ret[0], shape)
+    ret = lax.while_loop(_btrs_cond_fn, _btrs_body_fn,
+                         (n + np.ones_like(n), key, p, n, tr_params, np.ones_like(p), np.ones_like(p)))
+    return ret[0]
 
 
 def _binom_inv_body_fn(val):
-    i, key, p, n, geom_acc, cont = val
+    i, key, p, n, geom_acc = val
     key, key_u = random.split(key)
     u = random.uniform(key_u)
     geom = np.clip(np.ceil(np.log(1 - u) / np.log(1 - p)), a_min=1., a_max=n + 1.)
     geom_acc += geom
-    return i + 1, key, p, n, geom_acc, cont
+    return i + 1, key, p, n, geom_acc
 
 
 def _binom_inv_cond_fn(val):
-    i, _, _, n, geom_acc, cont = val
-    return cont & (geom_acc <= n)
+    i, _, _, n, geom_acc = val
+    return geom_acc <= n
 
 
-def _binomial_inversion(key, p, n, shape, cont):
-    # reshape to map over axis 0
-    p = np.reshape(np.broadcast_to(p, shape), -1)
-    n = np.reshape(np.broadcast_to(n, shape), -1)
-    cont = np.reshape(np.broadcast_to(cont, shape), -1)
-    key = random.split(key, np.size(p))
-    ret = lax.map(lambda init_val: lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn, init_val),
-                  (np.zeros_like(n), key, p, n, np.zeros_like(p), cont))
-    return np.reshape(ret[0] - 1, shape)
+def _binomial_inversion(key, p, n):
+    ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn,
+                         (np.zeros_like(n), key, p, n, np.zeros_like(p)))
+    return ret[0] - 1
+
+
+def _binomial_dispatch(key, p, n, tr_params):
+    def select(key, p, n, tr_params):
+        is_le_mid = p <= 0.5
+        pq = np.where(is_le_mid, p, 1 - p)
+        mu = n * pq
+        bin = lax.cond(mu <= 10,
+                       (key, p, n),
+                       lambda x: _binomial_inversion(*x),
+                       (key, p, n, tr_params),
+                       lambda x: _binomial_btrs(*x)
+                       )
+        return np.where(is_le_mid, bin, n - bin)
+
+    # Return 0 for nan `p` since nan values are not allowed for integer types
+    return lax.cond((p <= 0.) | (np.isnan(p)),
+                    (),
+                    lambda _: 0,
+                    (key, p, n, tr_params),
+                    lambda v: lax.cond(p >= 1.,
+                                       (),
+                                       lambda _: n,
+                                       v,
+                                       lambda x: select(*x)))
 
 
 @partial(jit, static_argnums=(3,))
 def _binomial(key, p, n, shape):
     p, n = promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
-    eps = 1e-6
-    q = 1 - p
-    idx_zeros = (p <= 0) | (n == 0)
-    idx_ones = (p >= 1)
-    idx_nans = np.isnan(p)
-    idx_le_mid = p <= 0.5
-    pq = np.where(idx_le_mid, p, q)
-    mu = n * pq
-    ret = np.zeros(shape, dtype=get_dtype(n))
-    # pre-fill for p = (0, 1, nan) as these values are problematic
-    ret = np.where(idx_zeros, 0, ret)
-    ret = np.where(idx_ones, n, ret)
-    ret = np.where(idx_nans, float('NaN'), ret)
-    p = np.clip(p, a_min=eps, a_max=1 - eps)
-    cont = np.logical_not(idx_zeros | idx_ones | idx_nans)
-    ret = np.where(cont & (mu <= 10), _binomial_inversion(key, p, n, shape, cont & (mu <= 10)), ret)
-    ret = np.where(cont & (mu > 10), _binomial_btrs(key, pq, n, shape, cont & (mu > 10)), ret)
-    ret = np.where(cont & (mu > 10) & np.logical_not(idx_le_mid), n - ret, ret)
-    return ret
+    # reshape to map over axis 0
+    tr_params = tree_map(lambda x: np.reshape(np.broadcast_to(x, shape), -1), _get_tr_params(n, p))
+    p = np.reshape(np.broadcast_to(p, shape), -1)
+    n = np.reshape(np.broadcast_to(n, shape), -1)
+    key = random.split(key, np.size(p))
+    ret = lax.map(lambda x: _binomial_dispatch(*x),
+                  (key, p, n, tr_params))
+    return np.reshape(ret, shape)
 
 
 def binomial(key, p, n=1, shape=()):
@@ -489,3 +491,6 @@ def validate_sample(log_prob_fn):
         return log_prob
 
     return wrapper
+
+
+print(binomial(random.PRNGKey(0), 0.5, 10))
