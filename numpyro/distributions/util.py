@@ -124,8 +124,6 @@ def _binomial_inversion(key, p, n):
 
 def _binomial_dispatch(key, p, n):
     def dispatch(key, p, n):
-        eps = 1e-6
-        p = np.clip(p, a_min=eps, a_max=1 - eps)
         is_le_mid = p <= 0.5
         pq = np.where(is_le_mid, p, 1 - p)
         mu = n * pq
