@@ -553,6 +553,11 @@ class LogNormal(TransformedDistribution):
 
 
 def _batch_mahalanobis(bL, bx):
+    if bL.shape[:-1] == bx.shape:
+        # no need to use the below optimization procedure
+        solve_bL_bx = solve_triangular(bL, bx[..., None], lower=True).squeeze(-1)
+        return np.sum(np.square(solve_bL_bx), -1)
+
     # NB: The following procedure handles the case: bL.shape = (i, 1, n, n), bx.shape = (i, j, n)
     # because we don't want to broadcast bL to the shape (i, j, n, n).
 

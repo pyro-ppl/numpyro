@@ -12,8 +12,7 @@ import tqdm
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
-from jax.interpreters.batching import BatchTracer
-from jax.interpreters.partial_eval import JaxprTracer
+from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 import jax.numpy as np
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
@@ -138,7 +137,7 @@ def not_jax_tracer(x):
     """
     Checks if `x` is not an array generated inside `jit`, `pmap`, `vmap`, or `lax_control_flow`.
     """
-    return not isinstance(x, (JaxprTracer, BatchTracer))
+    return not isinstance(x, Tracer)
 
 
 def identity(x):
