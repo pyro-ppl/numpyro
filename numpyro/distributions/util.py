@@ -13,7 +13,7 @@ from jax.scipy.special import gammaln
 from jax.util import partial
 
 
-_tr_params = namedtuple('tr_params', ['c', 'b', 'a', 'alpha', 'u_r', 'v_r'])
+_tr_params = namedtuple('tr_params', ['c', 'b', 'a', 'alpha', 'u_r', 'v_r', 'm', 'log_p', 'log1_p', 'log_h'])
 
 
 def _get_tr_params(n, p):
@@ -24,25 +24,32 @@ def _get_tr_params(n, p):
     alpha = (2.83 + 5.1 / b) * spq
     u_r = 0.43
     v_r = 0.92 - 4.2 / b
-    return _tr_params(c, b, a, alpha, u_r, v_r)
+    m = np.floor((n + 1) * p).astype(n.dtype)
+    log_p = np.log(p)
+    log1_p = np.log1p(p)
+    log_h = (m + 0.5) * np.log((m + 1.) / (n - m + 1.)) + log1_p - log_p + \
+            (stirling_approx_tail(m) + stirling_approx_tail(n - m))
+    return _tr_params(c, b, a, alpha, u_r, v_r, m, log_p, log1_p, log_h)
 
 
 def stirling_approx_tail(k):
     precomputed = [
-        0.0810614667953272,
-        0.0413406959554092,
-        0.0276779256849983,
+        0.08106146679532726,
+        0.04134069595540929,
+        0.02767792568499834,
         0.02079067210376509,
-        0.0166446911898211,
-        0.0138761288230707,
-        0.0118967099458917,
-        0.0104112652619720,
-        0.00925546218271273,
-        0.00833056343336287,
+        0.01664469118982119,
+        0.01387612882307075,
+        0.01189670994589177,
+        0.01041126526197209,
+        0.009255462182712733,
+        0.008330563433362871,
     ]
+    kp1 = k + 1
+    kp1sq = (k + 1) ** 2
     return np.where(k < 10,
                     np.take(precomputed, k),
-                    1. / (12 * (k + 1)) - 1./(360 * (k + 1) ** 3) + 1./(1260 * (k + 1) ** 5))
+                    (1. / 12 - (1. / 360 - (1. / 1260) / kp1sq) / kp1sq) / kp1)
 
 
 def _binomial_btrs(key, p, n):
@@ -54,60 +61,57 @@ def _binomial_btrs(key, p, n):
     (https://core.ac.uk/download/pdf/11007254.pdf)
     """
     def _btrs_body_fn(val):
-        _, key, p, n, tr_params, _, _ = val
+        _, key, _, _ = val
         key, key_u, key_v = random.split(key, 3)
         u = random.uniform(key_u)
         v = random.uniform(key_v)
         u = u - 0.5
         k = np.floor((2 * tr_params.a / (0.5 - np.abs(u)) + tr_params.b) * u + tr_params.c).astype(n.dtype)
-        return k, key, p, n, tr_params, u, v
+        return k, key, u, v
 
     def _btrs_cond_fn(val):
-        def accept_fn(k, p, n, tr_params, u, v):
-            m = np.floor((n + 1) * p).astype(n.dtype)
-            q = 1 - p
-            log_f = (m + 0.5) * np.log((m + 1.) / (n - m + 1.) * (q / p)) + \
-                    (n + 1.) * np.log((n - m + 1.) / (n - k + 1.)) + \
-                    (k + 0.5) * np.log((n - k + 1.) / (k + 1.) * p / q) + \
-                    (stirling_approx_tail(m) + stirling_approx_tail(n - m)) - \
-                    (stirling_approx_tail(k) - stirling_approx_tail(n - k))
+        def accept_fn(k, u, v):
+            m = tr_params.m
+            log_p = tr_params.log_p
+            log1_p = tr_params.log1_p
+            log_f = (n + 1.) * np.log((n - m + 1.) / (n - k + 1.)) + \
+                    (k + 0.5) * np.log((n - k + 1.) / (k + 1.)) + log_p - log1_p + \
+                    (stirling_approx_tail(k) - stirling_approx_tail(n - k)) + tr_params.log_h
             log_g = (tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b
             return np.log(v) <= log_f + log_g - np.log(tr_params.alpha)
 
-        k, key, p, n, tr_params, u, v = val
+        k, key, u, v = val
         early_accept = (np.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
-        return lax.cond(early_accept,
+        early_reject = (k < 0) | (k > n)
+        return lax.cond(early_accept | early_reject,
                         (),
-                        lambda _: False,
-                        (k, p, n, tr_params, u, v),
-                        lambda v: lax.cond((k < 0) | (k > n),
-                                           (),
-                                           lambda _: True,
-                                           v,
-                                           lambda v: ~accept_fn(*v)))
+                        lambda _: ~early_accept,
+                        (k, u, v),
+                        lambda x: ~accept_fn(*x))
 
     tr_params = _get_tr_params(n, p)
     ret = lax.while_loop(_btrs_cond_fn, _btrs_body_fn,
-                         (n + np.ones_like(n), key, p, n, tr_params, np.ones_like(p), np.ones_like(p)))
+                         (-1, key, 1., 1.))  # use k=-1 so that cond_fn returns False
     return ret[0]
 
 
 def _binomial_inversion(key, p, n):
     def _binom_inv_body_fn(val):
-        i, key, p, n, geom_acc = val
+        i, key, geom_acc = val
         key, key_u = random.split(key)
         u = random.uniform(key_u)
-        geom = np.clip(np.ceil(np.log(1 - u) / np.log(1 - p)), a_min=1., a_max=n + 1.)
+        geom = np.floor(np.log1p(u) / log1_p) + 1
         geom_acc += geom
-        return i + 1, key, p, n, geom_acc
+        return i + 1, key, geom_acc
 
     def _binom_inv_cond_fn(val):
-        i, _, _, n, geom_acc = val
+        i, _, geom_acc = val
         return geom_acc <= n
 
+    log1_p = np.log1p(p)
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn,
-                         (np.zeros_like(n), key, p, n, np.zeros_like(p)))
-    return ret[0] - 1
+                         (-1, key, 0.))
+    return ret[0]
 
 
 def _binomial_dispatch(key, p, n):
@@ -125,15 +129,12 @@ def _binomial_dispatch(key, p, n):
         return np.where(is_le_mid, k, n - k)
 
     # Return 0 for nan `p` or negative `n`, since nan values are not allowed for integer types
-    return lax.cond((p <= 0.) | (np.isnan(p) | (n <= 0)),
-                    (),
-                    lambda _: 0,
+    cond0 = np.isfinite(p) & (n > 0) & (p > 0)
+    return lax.cond(cond0 & (p < 1),
                     (key, p, n),
-                    lambda v: lax.cond(p >= 1.,
-                                       (),
-                                       lambda _: n,
-                                       v,
-                                       lambda x: dispatch(*x)))
+                    lambda x: dispatch(*x),
+                    (),
+                    lambda _: np.where(cond0, n, 0))
 
 
 @partial(jit, static_argnums=(3,))
