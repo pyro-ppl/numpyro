@@ -17,8 +17,9 @@ _tr_params = namedtuple('tr_params', ['c', 'b', 'a', 'alpha', 'u_r', 'v_r', 'm',
 
 
 def _get_tr_params(n, p):
-    spq = np.sqrt(n * p * (1 - p))
-    c = n * p + 0.5
+    mu = n * p
+    spq = np.sqrt(mu * (1 - p))
+    c = mu + 0.5
     b = 1.15 + 2.53 * spq
     a = -0.0873 + 0.0248 * b + 0.01 * p
     alpha = (2.83 + 5.1 / b) * spq
@@ -26,7 +27,7 @@ def _get_tr_params(n, p):
     v_r = 0.92 - 4.2 / b
     m = np.floor((n + 1) * p).astype(n.dtype)
     log_p = np.log(p)
-    log1_p = np.log1p(p)
+    log1_p = np.log1p(-p)
     log_h = (m + 0.5) * np.log((m + 1.) / (n - m + 1.)) + log1_p - log_p + \
             (stirling_approx_tail(m) + stirling_approx_tail(n - m))
     return _tr_params(c, b, a, alpha, u_r, v_r, m, log_p, log1_p, log_h)
@@ -100,15 +101,15 @@ def _binomial_inversion(key, p, n):
         i, key, geom_acc = val
         key, key_u = random.split(key)
         u = random.uniform(key_u)
-        geom = np.floor(np.log1p(u) / log1_p) + 1
-        geom_acc += geom
+        geom = np.floor(np.log1p(-u) / log1_p) + 1
+        geom_acc = geom_acc + geom
         return i + 1, key, geom_acc
 
     def _binom_inv_cond_fn(val):
         i, _, geom_acc = val
-        return geom_acc <= n
+        return geom_acc < n
 
-    log1_p = np.log1p(p)
+    log1_p = np.log1p(-p)
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn,
                          (-1, key, 0.))
     return ret[0]
@@ -145,8 +146,11 @@ def _binomial(key, p, n, shape):
     p = np.reshape(np.broadcast_to(p, shape), -1)
     n = np.reshape(np.broadcast_to(n, shape), -1)
     key = random.split(key, np.size(p))
-    ret = lax.map(lambda x: _binomial_dispatch(*x),
-                  (key, p, n))
+    if xla_bridge.get_backend().platform == 'cpu':
+        ret = lax.map(lambda x: _binomial_dispatch(*x),
+                      (key, p, n))
+    else:
+        ret = vmap(lambda x: _binomial_dispatch(*x))(key, p, n)
     return np.reshape(ret, shape)
 
 
