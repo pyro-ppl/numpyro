@@ -13,10 +13,13 @@ from jax.scipy.special import gammaln
 from jax.util import partial
 
 
+# Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple('tr_params', ['c', 'b', 'a', 'alpha', 'u_r', 'v_r', 'm', 'log_p', 'log1_p', 'log_h'])
 
 
 def _get_tr_params(n, p):
+    # See Table 1. Additionally, we pre-compute log(p), log1(-p) and the
+    # constant terms, that depend only on (n, p, m) in log(f(k)) (bottom of page 5).
     mu = n * p
     spq = np.sqrt(mu * (1 - p))
     c = mu + 0.5
@@ -28,13 +31,13 @@ def _get_tr_params(n, p):
     m = np.floor((n + 1) * p).astype(n.dtype)
     log_p = np.log(p)
     log1_p = np.log1p(-p)
-    log_h = (m + 0.5) * np.log((m + 1.) / (n - m + 1.)) + log1_p - log_p + \
+    log_h = (m + 0.5) * (np.log((m + 1.) / (n - m + 1.)) + log1_p - log_p) + \
             (stirling_approx_tail(m) + stirling_approx_tail(n - m))
     return _tr_params(c, b, a, alpha, u_r, v_r, m, log_p, log1_p, log_h)
 
 
 def stirling_approx_tail(k):
-    precomputed = [
+    precomputed = np.array([
         0.08106146679532726,
         0.04134069595540929,
         0.02767792568499834,
@@ -45,11 +48,11 @@ def stirling_approx_tail(k):
         0.01041126526197209,
         0.009255462182712733,
         0.008330563433362871,
-    ]
+    ])
     kp1 = k + 1
     kp1sq = (k + 1) ** 2
     return np.where(k < 10,
-                    np.take(precomputed, k),
+                    precomputed[k],
                     (1. / 12 - (1. / 360 - (1. / 1260) / kp1sq) / kp1sq) / kp1)
 
 
@@ -72,13 +75,17 @@ def _binomial_btrs(key, p, n):
 
     def _btrs_cond_fn(val):
         def accept_fn(k, u, v):
+            # See acceptance condition in Step 3. (Page 3) of TRS algorithm
+            # log(v) <= log(f(k)) + log(g_grad(u)) - log(alpha)
+
             m = tr_params.m
             log_p = tr_params.log_p
             log1_p = tr_params.log1_p
+            # See: formula for log(f(k)) at bottom of Page 5.
             log_f = (n + 1.) * np.log((n - m + 1.) / (n - k + 1.)) + \
-                    (k + 0.5) * np.log((n - k + 1.) / (k + 1.)) + log_p - log1_p + \
+                    (k + 0.5) * (np.log((n - k + 1.) / (k + 1.)) + log_p - log1_p) + \
                     (stirling_approx_tail(k) - stirling_approx_tail(n - k)) + tr_params.log_h
-            log_g = (tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b
+            log_g = np.log((tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b)
             return np.log(v) <= log_f + log_g - np.log(tr_params.alpha)
 
         k, key, u, v = val
@@ -140,7 +147,6 @@ def _binomial_dispatch(key, p, n):
 
 @partial(jit, static_argnums=(3,))
 def _binomial(key, p, n, shape):
-    p, n = promote_shapes(p, n)
     shape = shape or lax.broadcast_shapes(np.shape(p), np.shape(n))
     # reshape to map over axis 0
     p = np.reshape(np.broadcast_to(p, shape), -1)
@@ -150,7 +156,7 @@ def _binomial(key, p, n, shape):
         ret = lax.map(lambda x: _binomial_dispatch(*x),
                       (key, p, n))
     else:
-        ret = vmap(lambda x: _binomial_dispatch(*x))(key, p, n)
+        ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)
     return np.reshape(ret, shape)
 
 
