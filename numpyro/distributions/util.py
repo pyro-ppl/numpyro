@@ -107,7 +107,7 @@ def _binomial_inversion(key, p, n):
 
     def _binom_inv_cond_fn(val):
         i, _, geom_acc = val
-        return geom_acc < n
+        return geom_acc <= n
 
     log1_p = np.log1p(-p)
     ret = lax.while_loop(_binom_inv_cond_fn, _binom_inv_body_fn,
