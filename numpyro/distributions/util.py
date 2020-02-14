@@ -92,7 +92,7 @@ def _binomial_btrs(key, p, n):
 
     tr_params = _get_tr_params(n, p)
     ret = lax.while_loop(_btrs_cond_fn, _btrs_body_fn,
-                         (-1, key, 1., 1.))  # use k=-1 so that cond_fn returns False
+                         (-1, key, 1., 1.))  # use k=-1 initially so that cond_fn returns True
     return ret[0]
 
 
