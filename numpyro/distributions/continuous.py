@@ -29,7 +29,7 @@
 from jax import lax, ops
 import jax.numpy as np
 import jax.random as random
-from jax.scipy.linalg import solve_triangular
+from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
@@ -637,13 +637,12 @@ class MultivariateNormal(Distribution):
 
     @lazy_property
     def covariance_matrix(self):
-        return np.dot(self.scale_tril, self.scale_tril.T)
+        return np.matmul(self.scale_tril, np.swapaxes(self.scale_tril, -1, -2))
 
     @lazy_property
     def precision_matrix(self):
-        # TODO: use solve_triangular for faster
-        scale_tril_inv = np.linalg.inv(self.scale_tril)
-        return np.dot(scale_tril_inv.T, scale_tril_inv)
+        identity = np.broadcast_to(np.eye(self.scale_tril.shape[-1]), self.scale_tril.shape)
+        return cho_solve((self.scale_tril, True), identity)
 
     @property
     def mean(self):
