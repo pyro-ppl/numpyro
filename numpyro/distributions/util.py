@@ -76,7 +76,7 @@ def _binomial_btrs(key, p, n):
     def _btrs_cond_fn(val):
         def accept_fn(k, u, v):
             # See acceptance condition in Step 3. (Page 3) of TRS algorithm
-            # log(v) <= log(f(k)) + log(g_grad(u)) - log(alpha)
+            # v <= f(k) * g_grad(u) / alpha
 
             m = tr_params.m
             log_p = tr_params.log_p
@@ -85,8 +85,8 @@ def _binomial_btrs(key, p, n):
             log_f = (n + 1.) * np.log((n - m + 1.) / (n - k + 1.)) + \
                     (k + 0.5) * (np.log((n - k + 1.) / (k + 1.)) + log_p - log1_p) + \
                     (stirling_approx_tail(k) - stirling_approx_tail(n - k)) + tr_params.log_h
-            log_g = np.log((tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b)
-            return np.log(v) <= log_f + log_g - np.log(tr_params.alpha)
+            g = (tr_params.a / (0.5 - np.abs(u)) ** 2) + tr_params.b
+            return np.log((v * tr_params.alpha) / g) <= log_f
 
         k, key, u, v = val
         early_accept = (np.abs(u) <= tr_params.u_r) & (v <= tr_params.v_r)
