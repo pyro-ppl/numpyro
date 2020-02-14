@@ -20,7 +20,7 @@ from numpyro.distributions.util import (
     multinomial,
     poisson,
     vec_to_tril_matrix,
-)
+    binomial)
 
 
 @pytest.mark.parametrize('x, y', [
@@ -193,3 +193,11 @@ def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
     expected = np.linalg.cholesky(A + coef * xxt)
     actual = cholesky_update(np.linalg.cholesky(A), x, coef)
     assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.parametrize("n", [10, 100, 1000])
+@pytest.mark.parametrize("p", [0., 0.01, 0.05, 0.3, 0.5, 0.7, 0.95, 1.])
+def test_binomial_mean(n, p):
+    samples = binomial(random.PRNGKey(1), p, n, shape=(100, 100))
+    expected_mean = n * p
+    assert_allclose(np.mean(samples), expected_mean, rtol=0.05)
