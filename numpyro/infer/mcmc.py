@@ -250,8 +250,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
                                             dense_mass=dense_mass,
-                                            target_accept_prob=target_accept_prob,
-                                            find_reasonable_step_size=find_reasonable_ss)
+                                            target_accept_prob=target_accept_prob)
+                                            # find_reasonable_step_size=find_reasonable_ss)
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
         wa_state = wa_init(z, rng_key_wa, step_size,

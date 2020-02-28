@@ -1,13 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from jax import lax
+from jax import lax, nn
 import jax.numpy as np
 
 import numpyro
 import numpyro.distributions as dist
-
-from .forecaster import ForecastingModel
 
 
 # src: https://github.com/cbergmeir/Rlgt/blob/master/Rlgt/R/rlgtcontrol.R
@@ -30,113 +28,156 @@ DEFAULT_HYPERPARAMETERS = {
 class GT:
     def __init__(self,
                  seasonality=1, seasonality2=1,
-                 seasonality_type="multiplicative",  # generalized
-                 error_size_method="std",  # innov
+                 generalized_seasonality=False,
+                 use_smoothed_error=False,
                  level_method="HW",  # seasAvg, HW_sAvg
                  hyperparameters={}):
         assert seasonality >= seasonality2
         self.seasonality = seasonality
         self.seasonality2 = seasonality2
-        assert seasonality_type in ["multiplicative", "generalized"]
-        self.seasonality_type = seasonality_type
-        assert error_size_method in ["std", "innov"]
-        self.error_size_method = error_size_method
+        self.generalized_seasonality = generalized_seasonality
+        self.use_smoothed_error = use_smoothed_error
         assert level_method in ["HW", "seasAvg", "HW_sAvg"]
         self.level_method = level_method
         self.hyperparameters = {**DEFAULT_HYPERPARAMETERS, **hyperparameters}
 
     def __call__(self, data, covariates):
-        if self.seasonality == 1 and self.seasonality2 == 1:
-            return lgt(data, covariates)
-        elif self.seasonality2 == 1:
-            return sgt(data, covariates)
+        hypers = self.hyperparameters
+        N = data.shape[0]
+        duration = covariates.shape[0]
+        assert covariates.shape[0] >= N
+        assert N >= self.seasonality
+        cauchy_sd = np.max(data) / hypers["cauchy_sd_div"]
+
+        offset_sigma = numpyro.sample("offsetSigma", dist.HalfCauchy(cauchy_sd)) \
+            + hypers["min_sigma"]
+        coef_trend = numpyro.sample("coefTrend", dist.Cauchy(0, cauchy_sd))
+        pow_trend_beta = numpyro.sample("powTrendBeta",
+                                        dist.Beta(hypers["pow_trend_alpha"],
+                                                  hypers["pow_trend_beta"]))
+        pow_trend = (hypers["max_pow_trend"] - hypers["min_pow_trend "]) * pow_trend_beta \
+            + hypers["min_pow_trend"]
+        lev_sm = numpyro.sample("levSm", dist.Beta(1, 2))
+
+        if covariates.shape[-1] > 0:
+            reg_cauchy_sd = np.mean(data) / np.mean(covariates, 0) / hypers["cauchy_sd_div"]
+            reg_coef = numpyro.sample("regCoef", dist.Cauchy(0, reg_cauchy_sd))
+            reg0_cauchy_sd = np.mean(reg_cauchy_sd) * 10
+            reg_offset = numpyro.sample("regOffset", dist.Cauchy(0, reg0_cauchy_sd))
+            r = np.dot(covariates, reg_coef) + reg_offset
         else:
-            return s2gt(data, covariates)
+            r = np.zeros(covariates.shape[0])
+        y = data - r[:N]
 
+        innov_sm = innov_size_init = None
+        if self.use_smoothed_error:
+            innov_sm = numpyro.param("innov_sm", 0.5, dist.constraints.unit_interval)
+            innov_size_init = numpyro.sample("innovSizeInit",
+                                             dist.TruncatedCauchy(0, data[0] / 100, cauchy_sd))
 
-def scan_exp_val(y, init_s, level_sm, s_sm, coef_trend, pow_trend, pow_season):
-    seasonality = init_s.shape[0]
+        # TODO: fractional seasonality
+        if self.seasonality > 1:
+            s_sm = numpyro.param("sSm", 0.5, dist.constraints.unit_interval)
+            if self.generalized_seasonality:
+                init_s = numpyro.sample("initS", dist.Cauchy(0, data[:self.seasonality] * 0.3))
+                pow_season = numpyro.sample("powSeason",
+                                            dist.Beta(hypers["pow_season_alpha"],
+                                                      hypers["pow_season_beta"]))
+            else:
+                init_s = numpyro.sample("initS", dist.Cauchy(0, 4))
+                pow_season = None
 
-    def scan_fn(carry, t):
-        level, s, moving_sum = carry
-        season = s[0] * level ** pow_season
-        exp_val = level + coef_trend * level ** pow_trend + season
-        exp_val = np.clip(exp_val, a_min=0)
+            llev_sm = self.level_method
+            if llev_sm == "HW_sAvg":
+                llev_sm = numpyro.param("llevSm", 0.5, dist.constraints.unit_interval)
 
-        moving_sum = moving_sum + y[t] - np.where(t >= seasonality, y[t - seasonality], 0.)
-        level_p = np.where(t >= seasonality, moving_sum / seasonality, y[t] - season)
-        level = level_sm * level_p + (1 - level_sm) * level
-        level = np.clip(level, a_min=0)
-        new_s = (s_sm * (y[t] - level) / season + (1 - s_sm)) * s[0]
-        s = np.concatenate([s[1:], new_s[None]], axis=0)
-        return (level, s, moving_sum), exp_val
+            if self.seasonality2 > 1:
+                pass  # TODO: add S2GT parameters
+            else:
+                exp_val, smoothed_innov_size = sgt_scan(y, duration, coef_trend, pow_trend,
+                                                        lev_sm, s_sm, init_s, pow_season, llev_sm,
+                                                        innov_sm, innov_size_init)
+        else:
+            pass  # TODO: add LGT parameters
 
-    level_init = y[0]
-    s_init = np.concatenate([init_s[1:], init_s[:1]], axis=0)
-    moving_sum = level_init
-    (last_level, last_s, moving_sum), exp_vals = lax.scan(
-        scan_fn, (level_init, s_init, moving_sum), np.arange(1, y.shape[0]))
-    return exp_vals, last_level, last_s
+        exp_val = exp_val + r
+        if duration > N:  # forecasting
+            exp_val = np.clip(exp_val[N:], hypers["min_val"], hypers["max_val"])
+            if smoothed_innov_size is not None:
+                smoothed_innov_size = smoothed_innov_size[N:]
+
+        nu = numpyro.param("nu",
+                           (hypers["min_nu"] + hypers["max_nu"]) / 2,
+                           dist.constraints.interval(hypers["min_nu"], hypers["max_nu"]))
+        sigma = numpyro.sample("sigma", dist.HalfCauchy(cauchy_sd))
+        if self.use_smoothed_error:
+            omega = sigma * smoothed_innov_size + offset_sigma
+        else:
+            powx = numpyro.param("powx", 0.5, dist.constraints.unit_interval)
+            omega = sigma * exp_val ** powx + offset_sigma
+
+        if covariates.shape[0] == N:  # training
+            numpyro.sample("y", dist.StudentT(nu, exp_val, omega), obs=data[1:])
+        else:  # forecasting
+            numpyro.sample("y", dist.StudentT(nu, exp_val, omega))
 
 
 # src: https://github.com/cbergmeir/Rlgt/blob/master/Rlgt/src/stan_files/SGT.stan
-# TODO: fractional seasonality
-def sgt(y, xreg, seasonality, seasonality_type, error_size_method, level_method, hyperparameters):
+def sgt_scan(y, duration, coef_trend, pow_trend, lev_sm, s_sm, init_s,
+             pow_season, llev_sm, innov_sm, innov_size_init):
+
+    def scan_fn(carry, t):
+        level, s, l0, moving_sum, smoothed_innov_size, y_season = carry
+        if duration > N:
+            level = np.clip(level, 0.)  # prevent NaN when forecasting
+
+        if pow_season is None:
+            exp_val = (level + coef_trend * level ** pow_trend) * s[0]
+        else:
+            season = s[0] * level ** pow_season
+            exp_val = level + coef_trend * level ** pow_trend + season
+
+        if duration == N:
+            y_t = y[t]
+            y_t_prev_season = y[t - seasonality]
+        else:  # forecasting
+            y_t = np.where(t < N, y[t], exp_val)
+            y_t_prev_season = y_season[0]
+            y_season = np.concatenate(y_season[1:], y_t[None])
+
+        if pow_season is None:
+            new_level_p = y_t / s[0]
+        else:
+            new_level_p = y_t - season
+        l0 = lev_sm * new_level_p + (1 - lev_sm) * l0
+        if isinstance(llev_sm, str) and llev_sm == "HW":
+            level = l0
+        else:
+            moving_sum = moving_sum + y_t - np.where(t >= seasonality, y_t_prev_season, 0.)
+            if isinstance(llev_sm, str):  # seasAvg
+                level = lev_sm * moving_sum / seasonality + (1 - lev_sm) * level
+            else:
+                level = llev_sm * l0 + (1 - llev_sm) * moving_sum / seasonality
+            level = np.where(t >= seasonality, level, l0)
+
+        if pow_season is None:
+            seasonality_p = s_sm * y_t / level + (1 - s_sm) * s[0]
+        else:
+            seasonality_p = (s_sm * (y_t - level) / season + (1 - s_sm)) * s[0]
+        s = np.concatenate([s[1:], seasonality_p[None]])
+
+        if innov_sm is not None:
+            innov = innov_sm * np.abs(y_t - exp_val) + (1 - innov_sm) * smoothed_innov_size
+        return (level, s, l0, moving_sum, innov, exp_val, y_season), (exp_val, smoothed_innov_size)
+
     N = y.shape[0]
-    xreg_train, xreg_test = xreg[:N], xreg[N:]
-    nu = numpyro.param("nu",
-                       (hyperparameters["min_nu"] + hyperparameters["max_nu"]) / 2,
-                       dist.constraints.interval(hyperparameters["min_nu"],
-                                                 hyperparameters["max_nu"]))
-    powx = numpyro.param("powx", 0.5, dist.constraints.unit_interval)
-    s_sm = numpyro.param("sSm", 0.5, dist.constraints.unit_interval)
-
-    cauchy_sd = np.max(y) / hyperparameters["cauchy_sd_div"]
-    sigma = numpyro.sample("sigma", dist.HalfCauchy(cauchy_sd))
-    offset_sigma = numpyro.sample("offsetSigma",
-                                  dist.TruncatedCauchy(hyperparameters["min_sigma"],
-                                                       hyperparameters["min_sigma"],
-                                                       cauchy_sd))
-    coef_trend = numpyro.sample("coefTrend", dist.Cauchy(0, cauchy_sd))
-    pow_trend_beta = numpyro.sample("powTrendBeta",
-                                    dist.Beta(hyperparameters["pow_trend_alpha"],
-                                              hyperparameters["pow_trend_beta"]))
-    pow_trend = (hyperparameters["max_pow_trend"] - hyperparameters["min_pow_trend "]) \
-        * pow_trend_beta + hyperparameters["min_pow_trend"]
-    lev_sm = numpyro.sample("levSm", dist.Beta(1, 2))
-
-    if xreg.size > 0:
-        reg_cauchy_sd = np.mean(y) / np.mean(xreg, 0) / hyperparameters["cauchy_sd_div"]
-        reg_coef = numpyro.sample("regCoef", dist.Cauchy(0, reg_cauchy_sd))
-        reg0_cauchy_sd = np.mean(reg_cauchy_sd) * 10
-        reg_offset = numpyro.sample("regOffset", dist.Cauchy(0, reg0_cauchy_sd))
-        r = np.dot(xreg_train, reg_coef) + reg_offset
-    else:
-        r = np.zeros(N)
-
-    if seasonality_type == "multiplicative":
-        init_s = numpyro.sample("init_s", dist.Cauchy(0, 4))
-    else:
-        pow_season = numpyro.sample("pow_season",
-                                    dist.Beta(hyperparameters["pow_season_alpha"],
-                                              hyperparameters["pow_season_beta"]))
-        init_s = numpyro.sample("init_s", dist.Cauchy(0, y[:seasonality] * 0.3))
-
-    if level_method == "HW_sAvg":
-        llevSm = numpyro.param("sSm", 0.5, dist.constraints.unit_interval)
-    else:
-        llevSm = None
-
-    exp_val, last_level, last_s = scan_exp_val(
-        y, init_s, level_sm, s_sm, coef_trend, pow_trend, pow_season)
-
-    if error_size_method == "innov":
-        innov_size_init = numpyro.sample("innovSizeInit",
-                                         dist.TruncatedCauchy(0, y[0] / 100, cauchy_sd))
-        omega = sigma * smoothed_innov_size + offset_sigma
-    else:
-        omega = sigma * exp_val ** powx + offset_sigma
-
-    numpyro.sample("y", dist.StudentT(nu, exp_val, omega), obs=y[1:])
-
-    # TODO: forecast on xreg_test
+    seasonality = init_s.shape[0]
+    l0 = y[0]
+    s = np.concatenate([init_s[1:], init_s[:1]])
+    if pow_season is None:
+        s = nn.softmax(s) * seasonality
+        l0 = l0 / s[-1]  # y[0] / softmax(init_s)[0] / seasonality
+    y_season = None if duration == N else np.concatenate(np.zeros(seasonality - 1), y[:1])
+    _, (exp_val, smoothed_innov_size) = lax.scan(
+        scan_fn, (l0, s, l0, y[0], innov_size_init, y_season), np.arange(1, duration))
+    return exp_val, smoothed_innov_size
