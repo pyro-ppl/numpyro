@@ -71,13 +71,13 @@ class GT:
 
         innov_sm = innov_size_init = None
         if self.use_smoothed_error:
-            innov_sm = numpyro.param("innov_sm", 0.5, dist.constraints.unit_interval)
+            innov_sm = numpyro.sample("innovSm", dist.Uniform())
             innov_size_init = numpyro.sample("innovSizeInit",
                                              dist.TruncatedCauchy(0, data[0] / 100, cauchy_sd))
 
         # TODO: fractional seasonality
         if self.seasonality > 1:
-            s_sm = numpyro.param("sSm", 0.5, dist.constraints.unit_interval)
+            s_sm = numpyro.sample("sSm", dist.Uniform())
             if self.generalized_seasonality:
                 init_s = numpyro.sample("initS", dist.Cauchy(0, data[:self.seasonality] * 0.3))
                 pow_season = numpyro.sample("powSeason",
@@ -89,16 +89,21 @@ class GT:
 
             llev_sm = self.level_method
             if llev_sm == "HW_sAvg":
-                llev_sm = numpyro.param("llevSm", 0.5, dist.constraints.unit_interval)
+                llev_sm = numpyro.sample("llevSm", dist.Uniform())
 
             if self.seasonality2 > 1:
                 pass  # TODO: add S2GT parameters
             else:
                 exp_val, smoothed_innov_size = sgt_scan(y, duration, coef_trend, pow_trend,
-                                                        lev_sm, s_sm, init_s, pow_season, llev_sm,
-                                                        innov_sm, innov_size_init)
+                                                        lev_sm, innov_sm, innov_size_init,
+                                                        s_sm, init_s, pow_season, llev_sm)
         else:
-            pass  # TODO: add LGT parameters
+            loc_trend_fract = numpyro.sample("locTrendFract", dist.Uniform())
+            b_sm = numpyro.sample("bSm", dist.Uniform())
+            b_init = numpyro.sample("bInit", dist.Cauchy(0, cauchy_sd))
+            exp_val, smoothed_innov_size = lgt_scan(y, duration, coef_trend, pow_trend,
+                                                    lev_sm, innov_sm, innov_size_init,
+                                                    loc_trend_fract, b_sm, b_init)
 
         exp_val = exp_val + r
         if duration > N:  # forecasting
@@ -106,9 +111,7 @@ class GT:
             if smoothed_innov_size is not None:
                 smoothed_innov_size = smoothed_innov_size[N:]
 
-        nu = numpyro.param("nu",
-                           (hypers["min_nu"] + hypers["max_nu"]) / 2,
-                           dist.constraints.interval(hypers["min_nu"], hypers["max_nu"]))
+        nu = numpyro.sample("nu", dist.Uniform(hypers["min_nu"], hypers["max_nu"]))
         sigma = numpyro.sample("sigma", dist.HalfCauchy(cauchy_sd))
         if self.use_smoothed_error:
             omega = sigma * smoothed_innov_size + offset_sigma
@@ -122,9 +125,34 @@ class GT:
             numpyro.sample("y", dist.StudentT(nu, exp_val, omega))
 
 
+# src: https://github.com/cbergmeir/Rlgt/blob/master/Rlgt/src/stan_files/LGT.stan
+def lgt_scan(y, duration, coef_trend, pow_trend, lev_sm, innov_sm, innov_size_init,
+             loc_trend_fract, b_sm, b_init):
+
+    def scan_fn(carry, t):
+        level, b, smoothed_innov_size = carry
+        if duration > N:
+            level = np.clip(level, 0.)  # prevent NaN when forecasting
+
+        exp_val = level + coef_trend * level ** pow_trend + loc_trend_fract * b
+        y_t = np.where(t >= N, exp_val, y[t])
+        new_level = lev_sm * y_t + (1 - lev_sm) * level
+        b = b_sm * (new_level - level) + (1 - b_sm) * b
+
+        if innov_sm is not None:
+            innov_size = innov_sm * np.abs(y_t - exp_val) + (1 - innov_sm) * smoothed_innov_size
+            innov_size = np.where(t >= N, smoothed_innov_size, innov_size)
+        return (new_level, b, innov_size), (exp_val, smoothed_innov_size)
+
+    N = y.shape[0]
+    _, (exp_val, smoothed_innov_size) = lax.scan(
+        scan_fn, (y[0], b_init, innov_size_init), np.arange(1, duration))
+    return exp_val, smoothed_innov_size
+
+
 # src: https://github.com/cbergmeir/Rlgt/blob/master/Rlgt/src/stan_files/SGT.stan
-def sgt_scan(y, duration, coef_trend, pow_trend, lev_sm, s_sm, init_s,
-             pow_season, llev_sm, innov_sm, innov_size_init):
+def sgt_scan(y, duration, coef_trend, pow_trend, lev_sm, innov_sm, innov_size_init,
+             s_sm, init_s, pow_season, llev_sm):
 
     def scan_fn(carry, t):
         level, s, l0, moving_sum, smoothed_innov_size, y_season = carry
@@ -133,26 +161,19 @@ def sgt_scan(y, duration, coef_trend, pow_trend, lev_sm, s_sm, init_s,
 
         if pow_season is None:
             exp_val = (level + coef_trend * level ** pow_trend) * s[0]
+            y_t = np.where(t >= N, exp_val, y[t])
+            new_level_p = y_t / s[0]
         else:
             season = s[0] * level ** pow_season
             exp_val = level + coef_trend * level ** pow_trend + season
-
-        if duration == N:
-            y_t = y[t]
-            y_t_prev_season = y[t - seasonality]
-        else:  # forecasting
-            y_t = np.where(t < N, y[t], exp_val)
-            y_t_prev_season = y_season[0]
-            y_season = np.concatenate(y_season[1:], y_t[None])
-
-        if pow_season is None:
-            new_level_p = y_t / s[0]
-        else:
+            y_t = np.where(t >= N, exp_val, y[t])
             new_level_p = y_t - season
+
         l0 = lev_sm * new_level_p + (1 - lev_sm) * l0
         if isinstance(llev_sm, str) and llev_sm == "HW":
             level = l0
         else:
+            y_t_prev_season = y_season[0] if y_season is not None else y[t - seasonality]
             moving_sum = moving_sum + y_t - np.where(t >= seasonality, y_t_prev_season, 0.)
             if isinstance(llev_sm, str):  # seasAvg
                 level = lev_sm * moving_sum / seasonality + (1 - lev_sm) * level
@@ -164,16 +185,20 @@ def sgt_scan(y, duration, coef_trend, pow_trend, lev_sm, s_sm, init_s,
             seasonality_p = s_sm * y_t / level + (1 - s_sm) * s[0]
         else:
             seasonality_p = (s_sm * (y_t - level) / season + (1 - s_sm)) * s[0]
-        s = np.concatenate([s[1:], seasonality_p[None]])
+        s = np.concatenate([s[1:], np.where(t >= N, s[0], seasonality_p)[None]])
 
         if innov_sm is not None:
-            innov = innov_sm * np.abs(y_t - exp_val) + (1 - innov_sm) * smoothed_innov_size
-        return (level, s, l0, moving_sum, innov, exp_val, y_season), (exp_val, smoothed_innov_size)
+            innov_size = innov_sm * np.abs(y_t - exp_val) + (1 - innov_sm) * smoothed_innov_size
+            innov_size = np.where(t >= N, smoothed_innov_size, innov_size)
+
+        if y_season is not None:
+            y_season = np.concatenate(y_season[1:], y_t[None])
+        return (level, s, l0, moving_sum, innov_size, y_season), (exp_val, smoothed_innov_size)
 
     N = y.shape[0]
     seasonality = init_s.shape[0]
-    l0 = y[0]
     s = np.concatenate([init_s[1:], init_s[:1]])
+    l0 = y[0]
     if pow_season is None:
         s = nn.softmax(s) * seasonality
         l0 = l0 / s[-1]  # y[0] / softmax(init_s)[0] / seasonality
