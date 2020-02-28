@@ -32,6 +32,7 @@ NumPyro documentation
    optimizers
    diagnostics
    utilities
+   forecast
 
 
 Indices and tables

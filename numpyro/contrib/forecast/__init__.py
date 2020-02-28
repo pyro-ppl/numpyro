@@ -3,7 +3,7 @@
 
 from .evaluate import eval_crps, eval_mae, eval_rmse
 from .forecaster import Forecaster
-from .gt import GlobalTrendModel
+from .global_trend import GlobalTrendModel
 
 __all__ = [
     "Forecaster",

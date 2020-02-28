@@ -26,7 +26,40 @@ DEFAULT_HYPERPARAMETERS = {
 
 
 class GlobalTrendModel:
-    def __init__(self,
+    """
+    Fork of R package `Rlgt` which implements Bayesian exponential smoothing models:
+    Holt linear model, Holt-Winters seasonal model, and Taylor dual seasonality model.
+
+    Details of the models and options can be found at reference [2].
+
+    **References:**
+
+    1. *Rlgt: Bayesian Exponential Smoothing Models with Trend Modifications*,
+       Slawek Smyl, Christoph Bergmeir, Erwin Wibowo, To Wang Ng, Trustees of Columbia University
+       (https://cran.r-project.org/web/packages/Rlgt/)
+    2. *Global Trend Models - LGT, SGT, and S2GT*
+       (https://cran.r-project.org/web/packages/Rlgt/vignettes/GT_models.html)
+
+    :param int seasonality: seasonality of the model. The default value `1` corresponses to
+        no seasonality used in the model (i.e. Holt linear model). If this is greater than 1,
+        then either Holt-Winters model or Taylor model will be used (depends on the value
+        of `seasonality2`).
+    :param int seasonality2: the second seasonality of the model (should be greater than
+        `seasonality`). The default value `1` corresponse to Holt-Winters model.
+        Otherwise, Taylor model will be used.
+    :param bool use_smoothed_error: whether to use "smoothed innovation" error size in
+        reference [2]. Quoted from [2], this option is useful "when the error size appears to
+        have its own dynamics that isn't just a reflection of the current expected value of
+        the series".
+    :param bool generalized_seasonality: If False, we will use multiplicative seasonality models.
+        If True, models which spans both additive and multiplicative seasonality will be used.
+    :param str level_method: Either "HW", "seasAvg", or "HW_sAvg". "HW" corresponses to the
+        originial Holt-Winters model. "seasAvg" uses a smoothed moving average of the last season
+        to estimate the current level. "HW_sAvg" is a weighted version of "HW" and "seasAvg".
+    :param dict hyperparameters: optional hyperprior values. The default values are specified
+        at :data:`numpyro.contrib.forecast.global_trend.DEFAULT_HYPERPARAMETERS`.
+    """
+    def __init__(self, *,
                  seasonality=1, seasonality2=1,
                  use_smoothed_error=False,
                  generalized_seasonality=False,
@@ -75,7 +108,7 @@ class GlobalTrendModel:
 
         # TODO: fractional seasonality
         if self.seasonality > 1:
-            s_sm = numpyro.sample("sSm", dist.Uniform())
+            s_sm = numpyro.sample("s_sm", dist.Uniform())
             if self.generalized_seasonality:
                 init_s = numpyro.sample("init_s", dist.Cauchy(0, data[:self.seasonality] * 0.3))
                 pow_season = numpyro.sample("pow_season",
@@ -132,7 +165,7 @@ class GlobalTrendModel:
             powx = numpyro.sample("powx", dist.Uniform())
             omega = sigma * exp_val ** powx + offset_sigma
 
-        if covariates.shape[0] == N:  # training
+        if duration == N:  # training
             numpyro.sample("y", dist.StudentT(nu, exp_val, omega), obs=data[1:])
         else:  # forecasting
             numpyro.sample("y", dist.StudentT(nu, exp_val, omega))
