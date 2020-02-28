@@ -1,7 +1,14 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from numpyro.contrib.forecast.forecaster import Forecaster
-from numpyro.contrib.forecast.gt import GlobalTrendModel
+from .evaluate import eval_crps, eval_mae, eval_rmse
+from .forecaster import Forecaster
+from .gt import GlobalTrendModel
 
-__all__ = ["Forecaster", "GlobalTrendModel"]
+__all__ = [
+    "Forecaster",
+    "GlobalTrendModel",
+    "eval_crps",
+    "eval_mae",
+    "eval_rmse",
+]
