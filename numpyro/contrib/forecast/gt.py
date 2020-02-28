@@ -28,15 +28,15 @@ DEFAULT_HYPERPARAMETERS = {
 class GlobalTrendModel:
     def __init__(self,
                  seasonality=1, seasonality2=1,
-                 generalized_seasonality=False,
                  use_smoothed_error=False,
+                 generalized_seasonality=False,
                  level_method="HW",  # seasAvg, HW_sAvg
                  hyperparameters={}):
         assert seasonality2 == 1 or seasonality2 > seasonality
         self.seasonality = seasonality
         self.seasonality2 = seasonality2
-        self.generalized_seasonality = generalized_seasonality
         self.use_smoothed_error = use_smoothed_error
+        self.generalized_seasonality = generalized_seasonality
         assert level_method in ["HW", "seasAvg", "HW_sAvg"]
         self.level_method = level_method
         self.hyperparameters = {**DEFAULT_HYPERPARAMETERS, **hyperparameters}
@@ -63,7 +63,7 @@ class GlobalTrendModel:
         pow_trend_beta = numpyro.sample("pow_trend_beta",
                                         dist.Beta(hypers["pow_trend_alpha"],
                                                   hypers["pow_trend_beta"]))
-        pow_trend = (hypers["max_pow_trend"] - hypers["min_pow_trend "]) * pow_trend_beta \
+        pow_trend = (hypers["max_pow_trend"] - hypers["min_pow_trend"]) * pow_trend_beta \
             + hypers["min_pow_trend"]
         lev_sm = numpyro.sample("lev_sm", dist.Beta(1, 2))
 
@@ -116,7 +116,7 @@ class GlobalTrendModel:
                                                     lev_sm, innov_sm, innov_size_init,
                                                     loc_trend_fract, b_sm, b_init)
 
-        exp_val = exp_val + r
+        exp_val = exp_val + r[1:]
         if duration > N:  # forecasting
             exp_val = np.clip(exp_val[N - 1:], hypers["min_val"], hypers["max_val"])
             if smoothed_innov_size is not None:
@@ -129,7 +129,7 @@ class GlobalTrendModel:
         if self.use_smoothed_error:
             omega = sigma * smoothed_innov_size + offset_sigma
         else:
-            powx = numpyro.param("powx", 0.5, dist.constraints.unit_interval)
+            powx = numpyro.sample("powx", dist.Uniform())
             omega = sigma * exp_val ** powx + offset_sigma
 
         if covariates.shape[0] == N:  # training
@@ -152,6 +152,7 @@ def lgt_scan(y, duration, coef_trend, pow_trend, lev_sm, innov_sm, innov_size_in
         new_level = lev_sm * y_t + (1 - lev_sm) * level
         b = b_sm * (new_level - level) + (1 - b_sm) * b
 
+        innov_size = smoothed_innov_size
         if innov_sm is not None:
             innov_size = innov_sm * np.abs(y_t - exp_val) + (1 - innov_sm) * smoothed_innov_size
             innov_size = np.where(t >= N, smoothed_innov_size, innov_size)
@@ -198,8 +199,9 @@ def sgt_scan(y, duration, coef_trend, pow_trend, lev_sm, innov_sm, innov_size_in
         else:
             seasonality_p = (s_sm * (y_t - level) / season + (1 - s_sm)) * s[0]
         s = np.concatenate([s[1:], np.where(t >= N, s[0], seasonality_p)[None]])
-        y_season = np.concatenate(y_season[1:], y_t[None]) if y_season is not None else None
+        y_season = None if duration == N else np.concatenate([y_season[1:], y_t[None]])
 
+        innov_size = smoothed_innov_size
         if innov_sm is not None:
             innov_size = innov_sm * np.abs(y_t - exp_val) + (1 - innov_sm) * smoothed_innov_size
             innov_size = np.where(t >= N, smoothed_innov_size, innov_size)
@@ -212,7 +214,7 @@ def sgt_scan(y, duration, coef_trend, pow_trend, lev_sm, innov_sm, innov_size_in
     if pow_season is None:
         s = nn.softmax(s) * seasonality
         l0 = l0 / s[-1]  # y[0] / softmax(init_s)[0] / seasonality
-    y_season = None if duration == N else np.concatenate(np.zeros(seasonality - 1), y[:1])
+    y_season = None if duration == N else np.concatenate([np.zeros(seasonality - 1), y[:1]])
     _, (exp_val, smoothed_innov_size) = lax.scan(
         scan_fn, (l0, s, l0, y[0], y_season, innov_size_init), np.arange(1, duration))
     return exp_val, smoothed_innov_size
@@ -259,8 +261,9 @@ def s2gt_scan(y, duration, coef_trend, pow_trend, lev_sm, innov_sm, innov_size_i
             seasonality_p2 = (s2_sm * (y_t - level - season) / season2 + (1 - s2_sm)) * s2[0]
         s = np.concatenate([s[1:], np.where(t >= N, s[0], seasonality_p)[None]])
         s2 = np.concatenate([s2[1:], np.where(t >= N, s2[0], seasonality_p2)[None]])
-        y_season = np.concatenate(y_season[1:], y_t[None]) if y_season is not None else None
+        y_season = None if duration == N else np.concatenate([y_season[1:], y_t[None]])
 
+        innov_size = smoothed_innov_size
         if innov_sm is not None:
             innov_size = innov_sm * np.abs(y_t - exp_val) + (1 - innov_sm) * smoothed_innov_size
             innov_size = np.where(t >= N, smoothed_innov_size, innov_size)
