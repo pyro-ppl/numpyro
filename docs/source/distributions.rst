@@ -85,6 +85,14 @@ Gamma
     :show-inheritance:
     :member-order: bysource
 
+Gumbel
+-----
+.. autoclass:: numpyro.distributions.continuous.Gumbel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 GaussianRandomWalk
 ------------------
 .. autoclass:: numpyro.distributions.continuous.GaussianRandomWalk
