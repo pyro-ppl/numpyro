@@ -349,7 +349,7 @@ class Gumbel(Distribution):
     @validate_sample
     def log_prob(self, value):
         z = (value - self.loc) / self.scale
-        return (np.exp(-z) - z) - np.log(self.scale)
+        return -(z + np.exp(-z)) - np.log(self.scale)
 
     @property
     def mean(self):
