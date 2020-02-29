@@ -48,6 +48,9 @@ from numpyro.distributions.util import (
 from numpyro.util import copy_docs_from
 
 
+EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
+
+
 @copy_docs_from(Distribution)
 class Beta(Distribution):
     arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive}
@@ -324,6 +327,39 @@ class InverseGamma(TransformedDistribution):
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return np.where(self.concentration <= 2, np.inf, a)
+
+
+@copy_docs_from(Distribution)
+class Gumbel(Distribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['loc', 'scale']
+
+    def __init__(self, loc=0., scale=1., validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
+
+        super(Gumbel, self).__init__(batch_shape=batch_shape,
+                                     validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        standard_gumbel_sample = random.gumbel(key, shape=sample_shape + self.batch_shape + self.event_shape)
+        return self.loc + self.scale * standard_gumbel_sample
+
+    @validate_sample
+    def log_prob(self, value):
+        z = (value - self.loc) / self.scale
+        return (np.exp(z) - z) - np.log(self.scale)
+
+    @property
+    def mean(self):
+        return np.broadcast_to(self.loc + self.scale * EULER_MASCHERONI,
+                               self.batch_shape)
+
+    @property
+    def variance(self):
+        return np.broadcast_to(np.pi**2 / 6. * self.scale**2,
+                               self.batch_shape)
 
 
 @copy_docs_from(Distribution)
