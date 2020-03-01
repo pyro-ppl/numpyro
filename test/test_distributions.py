@@ -68,6 +68,7 @@ _DIST_MAP = {
     dist.Dirichlet: lambda conc: osp.dirichlet(conc),
     dist.Exponential: lambda rate: osp.expon(scale=np.reciprocal(rate)),
     dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1./rate),
+    dist.Gumbel: lambda loc, scale: osp.gumbel_r(loc=loc, scale=scale),
     dist.HalfCauchy: lambda scale: osp.halfcauchy(scale=scale),
     dist.HalfNormal: lambda scale: osp.halfnorm(scale=scale),
     dist.InverseGamma: lambda conc, rate: osp.invgamma(conc, scale=rate),
@@ -103,6 +104,9 @@ CONTINUOUS = [
     T(dist.Gamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
     T(dist.GaussianRandomWalk, 0.1, 10),
     T(dist.GaussianRandomWalk, np.array([0.1, 0.3, 0.25]), 10),
+    T(dist.Gumbel, 0., 1.),
+    T(dist.Gumbel, 0.5, 2.),
+    T(dist.Gumbel, np.array([0., 0.5]), np.array([1., 2.])),
     T(dist.HalfCauchy, 1.),
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
@@ -937,3 +941,24 @@ def test_unpack_transform():
     z = transform.inv(y)
     assert_allclose(y['key'], x)
     assert_allclose(z, x)
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
+def test_generated_sample_distribution(jax_dist, sp_dist, params,
+                                       N_sample=100_000,
+                                       key=random.PRNGKey(11)):
+    """ On samplers that we do not get directly from JAX, (e.g. we only get
+    Gumbel(0,1) but also provide samplers for Gumbel(loc, scale)), also test
+    agreement in the empirical distribution of generated samples between our
+    samplers and those from SciPy.
+    """
+
+    if jax_dist not in [dist.Gumbel]:
+        pytest.skip("{} sampling method taken from upstream, no need to"
+                    "test generated samples.".format(jax_dist.__name__))
+
+    jax_dist = jax_dist(*params)
+    if sp_dist and not jax_dist.event_shape and not jax_dist.batch_shape:
+        our_samples = jax_dist.sample(key, (N_sample,))
+        ks_result = osp.kstest(our_samples, sp_dist(*params).cdf)
+        assert ks_result.pvalue > 0.05
