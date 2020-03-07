@@ -27,7 +27,6 @@ from numpyro.infer.hmc_util import (
     IntegratorState,
     build_tree,
     euclidean_kinetic_energy,
-    find_reasonable_step_size,
     velocity_verlet,
     warmup_adapter
 )
@@ -243,15 +242,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                 kwargs = {} if model_kwargs is None else model_kwargs
                 pe_fn = potential_fn_gen(*model_args, **kwargs)
 
-        find_reasonable_ss = partial(find_reasonable_step_size,
-                                     pe_fn, kinetic_fn, momentum_generator)
-
         wa_init, wa_update = warmup_adapter(num_warmup,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
                                             dense_mass=dense_mass,
-                                            target_accept_prob=target_accept_prob,
-                                            find_reasonable_step_size=find_reasonable_ss)
+                                            target_accept_prob=target_accept_prob)
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
         wa_state = wa_init(z, rng_key_wa, step_size,
