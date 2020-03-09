@@ -169,7 +169,7 @@ def model_nested_plates_2():
 def model_nested_plates_3():
     outer = numpyro.plate('outer', 10, dim=-1)
     inner = numpyro.plate('inner', 5, dim=-2)
-    z = numpyro.deterministic('z', 1.)
+    numpyro.deterministic('z', 1.)
 
     with inner, outer:
         xy = numpyro.sample('xy', dist.Normal(np.zeros((5, 10)), 1.))
