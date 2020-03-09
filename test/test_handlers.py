@@ -166,6 +166,16 @@ def model_nested_plates_2():
         assert xy.shape == (5, 1, 10)
 
 
+def model_nested_plates_3():
+    outer = numpyro.plate('outer', 10, dim=-1)
+    inner = numpyro.plate('inner', 5, dim=-2)
+    z = numpyro.deterministic('z', 1.)
+
+    with inner, outer:
+        xy = numpyro.sample('xy', dist.Normal(np.zeros((5, 10)), 1.))
+        assert xy.shape == (5, 10)
+
+
 def model_dist_batch_shape():
     outer = numpyro.plate('outer', 10)
     inner = numpyro.plate('inner', 5, dim=-3)
@@ -204,6 +214,7 @@ def model_subsample_1():
     model_nested_plates_0,
     model_nested_plates_1,
     model_nested_plates_2,
+    model_nested_plates_3,
     model_dist_batch_shape,
     model_subsample_1,
 ])

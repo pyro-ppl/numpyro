@@ -265,10 +265,7 @@ class plate(Messenger):
         cond_indep_stack.append(frame)
         expected_shape = self._get_batch_shape(cond_indep_stack)
         dist_batch_shape = msg['fn'].batch_shape if msg['type'] == 'sample' else ()
-        overlap_idx = len(expected_shape) - len(dist_batch_shape)
-        if overlap_idx < 0:
-            raise ValueError('Expected dimensions within plate = {}, which is less than the '
-                             'distribution\'s batch shape = {}.'.format(len(expected_shape), len(dist_batch_shape)))
+        overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
         trailing_shape = expected_shape[overlap_idx:]
         # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
         broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
