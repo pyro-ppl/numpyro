@@ -7,6 +7,7 @@ import math
 from jax import custom_transforms, defjvp, jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
+from jax.nn import softmax
 import jax.numpy as np
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import gammaln
@@ -185,6 +186,24 @@ def categorical_logits(key, logits, shape=()):
                      + logits, axis=-1)
 
 
+def gumbel_softmax_logits(key, logits, shape=(), temperature=1., hard=False):
+    shape = shape or logits.shape[:-1]
+    y_soft = softmax((random.gumbel(key, shape + logits.shape[-1:], logits.dtype)
+                      + logits)/temperature, axis=-1)
+
+        
+    if hard:
+        y_hard = np.where(y_soft == np.amax(y_soft, axis=-1, keepdims=True), 1., 0.)
+        ret = y_hard - jax.lax.stop_gradient(y_soft) + y_soft
+    else:
+        ret = y_soft
+    return ret
+
+
+def gumbel_softmax_probs(key, probs, shape=(), temperature=1., hard=False):
+    return gumbel_softmax_logits(key, np.log(probs), shape, temperature=temperature, hard=hard)  
+
+
 # Ref https://github.com/numpy/numpy/blob/8a0858f3903e488495a56b4a6d19bbefabc97dca/
 # numpy/random/src/distributions/distributions.c#L574
 def _poisson_large(val):
@@ -293,6 +312,10 @@ def _multinomial(key, p, n, n_max, shape=()):
 def multinomial(key, p, n, shape=()):
     n_max = int(np.max(n))
     return _multinomial(key, p, n, n_max, shape)
+
+
+def _to_probs_multinom(logits):
+    return softmax(logits, axis=-1)
 
 
 def cholesky_of_inverse(matrix):

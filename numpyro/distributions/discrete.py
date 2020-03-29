@@ -27,7 +27,6 @@
 
 from jax import device_put, lax
 from jax.dtypes import canonicalize_dtype
-from jax.nn import softmax
 import jax.numpy as np
 import jax.random as random
 from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
@@ -41,11 +40,14 @@ from numpyro.distributions.util import (
     categorical_logits,
     clamp_probs,
     get_dtype,
+    gumbel_softmax_logits,
+    gumbel_softmax_probs,
     lazy_property,
     multinomial,
     poisson,
     promote_shapes,
     sum_rightmost,
+    _to_probs_multinom,
     validate_sample,
 )
 from numpyro.util import copy_docs_from
@@ -58,10 +60,6 @@ def _to_probs_bernoulli(logits):
 def _to_logits_bernoulli(probs):
     ps_clamped = clamp_probs(probs)
     return np.log(ps_clamped) - np.log1p(-ps_clamped)
-
-
-def _to_probs_multinom(logits):
-    return softmax(logits, axis=-1)
 
 
 def _to_logits_multinom(probs):
@@ -334,6 +332,51 @@ class Delta(Distribution):
     @property
     def variance(self):
         return np.zeros(self.batch_shape + self.event_shape)
+
+
+@copy_docs_from(Distribution)
+class GumbelSoftmaxProbs(Distribution):
+
+    arg_constraints = {'probs': constraints.simplex}
+
+    def __init__(self, probs, temperature=1., validate_args=None):
+        if np.ndim(probs) < 1:
+            raise ValueError("`probs` parameter must be at least one-dimensional.")
+        self.probs = probs
+        self.standard_gumbel = Gumbel()
+        self.temperature = temperature
+        super(GumbelSoftmaxProbs, self).__init__(batch_shape=np.shape(self.probs)[:-1],
+                                               validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        gs = self.standard_gumbel.sample(key=key, sample_shape=sample_shape)
+        return _to_probs_multinom((np.log(self.probs) + gs)/self.temperature)
+        # gumbel_softmax_probs(key, probs, 
+        # shape=sample_shape + self.batch_shape + self.event_shape,
+        # temperature=self.temperature, hard=True)
+    """
+    @validate_sample
+    def log_prob(self, value):
+        # FIXME: implement
+        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
+        value = np.expand_dims(value, axis=-1)
+        value = np.broadcast_to(value, batch_shape + (1,))
+        logits = _to_logits_multinom(self.probs)
+        log_pmf = np.broadcast_to(logits, batch_shape + np.shape(logits)[-1:])
+        return np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
+    """
+
+    @property
+    def mean(self):
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
+
+    @property
+    def variance(self):
+        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
+
+    @property
+    def support(self):
+        return constraints.integer_interval(0, np.shape(self.probs)[-1])
 
 
 class OrderedLogistic(CategoricalProbs):
