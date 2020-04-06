@@ -369,7 +369,7 @@ class Gumbel(Distribution):
 @copy_docs_from(Distribution)
 class GumbelSoftmaxProbs(Distribution):
 
-    arg_constraints = {'probs': constraints.simplex}
+    arg_constraints = {'probs': constraints.simplex, 'temperature':constraints.real}
 
     def __init__(self, probs, temperature=1., validate_args=None):
         if np.ndim(probs) < 1:
@@ -379,50 +379,39 @@ class GumbelSoftmaxProbs(Distribution):
         self.standard_gumbel = Gumbel()
         self.temperature = temperature
         super(GumbelSoftmaxProbs, self).__init__(batch_shape=np.shape(self.probs)[:-1],
-                                               validate_args=validate_args)
+                                                 event_shape=np.shape(self.probs)[-1:],
+                                                 validate_args=validate_args)
 
-    def sample(self, rng_key, sample_shape=()):
-        #gs = self.standard_gumbel.sample(key=key, sample_shape=sample_shape + self.probs.shape)
-        #s = (np.log(self.probs) + gs)/self.temperature
-        return gumbel_softmax_probs(rng_key, self.probs, shape=sample_shape, 
-                                    temperature=self.temperature, hard=False)
 
-        # gumbel_softmax_probs(key, probs, 
-        # shape=sample_shape + self.batch_shape + self.event_shape,
-    
+    def sample(self, key, sample_shape=(), one_hot=True):
+        return gumbel_softmax_probs(key, self.probs, shape=sample_shape + self.batch_shape,#sample_shape, 
+                                    temperature=self.temperature, hard=False, one_hot=one_hot)
+
     @validate_sample
-    def log_prob(self, ys):
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
         probs = self.probs
         k = self.k
         temperature = self.temperature
 
-        #ys = np.array([0., 0., 1.]) # TODO: ENSURE ONE HOT
+        # TODO: ENSURE ONE HOT, OTHERWISE CONVERT
         eps = np.finfo(probs.dtype).eps
         probs = np.clip(probs, a_min=eps, a_max=1-eps)
         # We clip the ys to be positive to have a positive denominator
-        ys = np.clip(ys, a_min=eps)
+        ys = np.clip(value, a_min=eps)
 
         res = gammaln(k) + (k-1)*np.log(temperature) -k*np.log( (probs / (ys**temperature)).sum(axis=-1)) + np.sum( np.log(probs / (ys**temperature)), axis=-1)
-        #res += np.sum(np.log(probs), axis=-1) - (temperature + 1) * np.sum(np.log(ys), axis=-1)
         return res
-    """
-    @validate_sample
-    def log_prob(self, value):
-        # FIXME: implement
-        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
-        value = np.expand_dims(value, axis=-1)
-        value = np.broadcast_to(value, batch_shape + (1,))
-        logits = _to_logits_multinom(self.probs)
-        log_pmf = np.broadcast_to(logits, batch_shape + np.shape(logits)[-1:])
-        return np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
-    """
 
     @property
     def mean(self):
+        #FIXME: correct
         return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
 
     @property
     def variance(self):
+        #FIXME: correct
         return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
 
     @property

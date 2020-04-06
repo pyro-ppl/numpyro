@@ -203,8 +203,9 @@ def gumbel_softmax_logits(key, logits, shape=(), temperature=1., hard=False, one
         return _categorical(key, ret, shape)
 
 
-def gumbel_softmax_probs(key, probs, shape=(), temperature=1., hard=False):
-    return gumbel_softmax_logits(key, np.log(probs), shape, temperature=temperature, hard=hard)  
+def gumbel_softmax_probs(key, probs, shape=(), temperature=1., hard=False, one_hot=False):
+    return gumbel_softmax_logits(key, np.log(probs), shape,
+     temperature=temperature, hard=hard, one_hot=one_hot)  
 
 
 # Ref https://github.com/numpy/numpy/blob/8a0858f3903e488495a56b4a6d19bbefabc97dca/

@@ -107,8 +107,8 @@ CONTINUOUS = [
     T(dist.Gumbel, 0., 1.),
     T(dist.Gumbel, 0.5, 2.),
     T(dist.Gumbel, np.array([0., 0.5]), np.array([1., 2.])),
-    T(dist.GumbelSoftmaxProbs(np.array([0.1, 0.2, 0.3, 0.4]), temperature=0.0001)),
-    T(dist.GumbelSoftmaxProbs(np.array([0.1, 0.2, 0.3, 0.4]), temperature=100)),
+    T(dist.GumbelSoftmaxProbs, np.array([0.1, 0.2, 0.3, 0.4]), 0.0001),
+    T(dist.GumbelSoftmaxProbs, np.array([0.1, 0.2, 0.3, 0.4]), 100),
     T(dist.HalfCauchy, 1.),
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
@@ -666,7 +666,6 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         valid_params[i] = gen_values_within_bounds(constraint, np.shape(params[i]), key_gen)
 
     assert jax_dist(*oob_params)
-
     # Invalid parameter values throw ValueError
     if not dependent_constraint:
         with pytest.raises(ValueError):
@@ -976,7 +975,7 @@ def test_relaxations_low(temperature, N_sample, key=jax.random.PRNGKey(52)):
 
     probs = np.array([0.1, 0.1, 0.8])
     GS1 = dist.GumbelSoftmaxProbs(probs, temperature=temperature)
-    gs_samples = GS1.sample(key, (N_sample,))
+    gs_samples = GS1.sample(key, (N_sample,), one_hot=False)
     categorical_samples = dist.CategoricalProbs(probs).sample(key, (N_sample, ))
     ks_result = osp.ks_2samp(gs_samples, categorical_samples)
     assert ks_result.pvalue > 0.05
@@ -991,7 +990,7 @@ def test_relaxations_high(temperature, N_sample, key=jax.random.PRNGKey(52)):
     probs = np.array([0.1, 0.1, 0.8])
 
     GS1 = dist.GumbelSoftmaxProbs(probs, temperature=temperature)
-    gs_samples = GS1.sample(key, (N_sample,))
+    gs_samples = GS1.sample(key, (N_sample,), one_hot=False)
     uniform_samples = dist.Categorical(np.array([1./3, 1./3, 1./3])).sample(key, (N_sample, ))
 
     ks_result = osp.ks_2samp(gs_samples, uniform_samples)
