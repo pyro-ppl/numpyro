@@ -397,11 +397,12 @@ class GumbelSoftmaxProbs(Distribution):
 
         # TODO: ENSURE ONE HOT, OTHERWISE CONVERT
         eps = np.finfo(probs.dtype).eps
-        probs = np.clip(probs, a_min=eps, a_max=1-eps)
         # We clip the ys to be positive to have a positive denominator
         ys = np.clip(value, a_min=eps)
 
-        res = gammaln(k) + (k-1)*np.log(temperature) -k*np.log( (probs / (ys**temperature)).sum(axis=-1)) + np.sum( np.log(probs / (ys**temperature)), axis=-1)
+        res = gammaln(k) + (k-1) * np.log(temperature)
+        res += -k * np.log( (probs / (ys**temperature)).sum(axis=-1)) #+ np.sum( np.log(probs / (ys**temperature)), axis=-1)
+        res += np.sum(np.log(probs), axis=-1) - (temperature + 1) * np.sum(np.log(ys), axis=-1)
         return res
 
     @property
