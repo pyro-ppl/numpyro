@@ -38,6 +38,7 @@ from numpyro.distributions.transforms import AffineTransform, ExpTransform, InvC
 from numpyro.distributions.util import (
     cholesky_of_inverse,
     cumsum,
+    get_dtype,
     gumbel_softmax_logits,
     gumbel_softmax_probs,
     lazy_property,
@@ -380,10 +381,10 @@ class GumbelSoftmaxProbs(Distribution):
         super(GumbelSoftmaxProbs, self).__init__(batch_shape=np.shape(self.probs)[:-1],
                                                validate_args=validate_args)
 
-    def sample(self, key, sample_shape=()):
+    def sample(self, rng_key, sample_shape=()):
         #gs = self.standard_gumbel.sample(key=key, sample_shape=sample_shape + self.probs.shape)
         #s = (np.log(self.probs) + gs)/self.temperature
-        return gumbel_softmax_probs(key, self.probs, shape=sample_shape, 
+        return gumbel_softmax_probs(rng_key, self.probs, shape=sample_shape, 
                                     temperature=self.temperature, hard=False)
 
         # gumbel_softmax_probs(key, probs, 
@@ -396,10 +397,14 @@ class GumbelSoftmaxProbs(Distribution):
         temperature = self.temperature
 
         #ys = np.array([0., 0., 1.]) # TODO: ENSURE ONE HOT
-        eps = np.finfo(ys.dtype).eps
-        ys = np.clip(ys, a_min=eps, a_max=1-eps)
-        return gammaln(k) + (k-1)*np.log(temperature) -k*np.log( (probs / (ys**temperature)).sum(axis=-1)) + np.sum( np.log(probs / (ys**temperature)), axis=-1)
+        eps = np.finfo(probs.dtype).eps
+        probs = np.clip(probs, a_min=eps, a_max=1-eps)
+        # We clip the ys to be positive to have a positive denominator
+        ys = np.clip(ys, a_min=eps)
 
+        res = gammaln(k) + (k-1)*np.log(temperature) -k*np.log( (probs / (ys**temperature)).sum(axis=-1)) + np.sum( np.log(probs / (ys**temperature)), axis=-1)
+        #res += np.sum(np.log(probs), axis=-1) - (temperature + 1) * np.sum(np.log(ys), axis=-1)
+        return res
     """
     @validate_sample
     def log_prob(self, value):
