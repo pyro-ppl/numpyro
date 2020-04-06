@@ -380,11 +380,13 @@ class GumbelSoftmaxProbs(Distribution):
                                                validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        gs = self.standard_gumbel.sample(key=key, sample_shape=sample_shape)
-        return _to_probs_multinom((np.log(self.probs) + gs)/self.temperature)
+        #gs = self.standard_gumbel.sample(key=key, sample_shape=sample_shape + self.probs.shape)
+        #s = (np.log(self.probs) + gs)/self.temperature
+        return gumbel_softmax_probs(key, self.probs, shape=sample_shape, 
+                                    temperature=self.temperature, hard=False)
+
         # gumbel_softmax_probs(key, probs, 
         # shape=sample_shape + self.batch_shape + self.event_shape,
-        # temperature=self.temperature, hard=True)
     """
     @validate_sample
     def log_prob(self, value):
