@@ -374,6 +374,7 @@ class GumbelSoftmaxProbs(Distribution):
         if np.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         self.probs = probs
+        self.k = probs.shape[-1]
         self.standard_gumbel = Gumbel()
         self.temperature = temperature
         super(GumbelSoftmaxProbs, self).__init__(batch_shape=np.shape(self.probs)[:-1],
@@ -387,6 +388,18 @@ class GumbelSoftmaxProbs(Distribution):
 
         # gumbel_softmax_probs(key, probs, 
         # shape=sample_shape + self.batch_shape + self.event_shape,
+    
+    @validate_sample
+    def log_prob(self, ys):
+        probs = self.probs
+        k = self.k
+        temperature = self.temperature
+
+        #ys = np.array([0., 0., 1.]) # TODO: ENSURE ONE HOT
+        eps = np.finfo(ys.dtype).eps
+        ys = np.clip(ys, a_min=eps, a_max=1-eps)
+        return gammaln(k) + (k-1)*np.log(temperature) -k*np.log( (probs / (ys**temperature)).sum(axis=-1)) + np.sum( np.log(probs / (ys**temperature)), axis=-1)
+
     """
     @validate_sample
     def log_prob(self, value):
