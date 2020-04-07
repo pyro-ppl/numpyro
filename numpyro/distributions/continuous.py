@@ -39,13 +39,11 @@ from numpyro.distributions.util import (
     cholesky_of_inverse,
     cumsum,
     get_dtype,
-    gumbel_softmax_logits,
     gumbel_softmax_probs,
     lazy_property,
     matrix_to_tril_vec,
     promote_shapes,
     signed_stick_breaking_tril,
-    _to_probs_multinom,
     validate_sample,
     vec_to_tril_matrix
 )
@@ -369,7 +367,8 @@ class Gumbel(Distribution):
 @copy_docs_from(Distribution)
 class GumbelSoftmaxProbs(Distribution):
 
-    arg_constraints = {'probs': constraints.simplex, 'temperature':constraints.real}
+    arg_constraints = {'probs': constraints.simplex,
+                       'temperature': constraints.real}
 
     def __init__(self, probs, temperature=1., validate_args=None):
         if np.ndim(probs) < 1:
@@ -382,9 +381,8 @@ class GumbelSoftmaxProbs(Distribution):
                                                  event_shape=np.shape(self.probs)[-1:],
                                                  validate_args=validate_args)
 
-
     def sample(self, key, sample_shape=(), one_hot=True):
-        return gumbel_softmax_probs(key, self.probs, shape=sample_shape + self.batch_shape,#sample_shape, 
+        return gumbel_softmax_probs(key, self.probs, shape=sample_shape + self.batch_shape,
                                     temperature=self.temperature, hard=False, one_hot=one_hot)
 
     @validate_sample
@@ -401,18 +399,18 @@ class GumbelSoftmaxProbs(Distribution):
         ys = np.clip(value, a_min=eps)
 
         res = gammaln(k) + (k-1) * np.log(temperature)
-        res += -k * np.log( (probs / (ys**temperature)).sum(axis=-1)) #+ np.sum( np.log(probs / (ys**temperature)), axis=-1)
+        res += -k * np.log((probs / (ys**temperature)).sum(axis=-1))
         res += np.sum(np.log(probs), axis=-1) - (temperature + 1) * np.sum(np.log(ys), axis=-1)
         return res
 
     @property
     def mean(self):
-        #FIXME: correct
+        # FIXME: correct
         return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
 
     @property
     def variance(self):
-        #FIXME: correct
+        # FIXME: correct
         return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
 
     @property

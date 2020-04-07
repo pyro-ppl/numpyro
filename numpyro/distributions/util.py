@@ -190,13 +190,13 @@ def gumbel_softmax_logits(key, logits, shape=(), temperature=1., hard=False, one
     shape = shape or logits.shape[:-1]
     y_soft = softmax((random.gumbel(key, shape + logits.shape[-1:], logits.dtype)
                       + logits) / temperature, axis=-1)
-        
+
     if hard:
         y_hard = np.where(y_soft == np.amax(y_soft, axis=-1, keepdims=True), 1., 0.)
         ret = y_hard - lax.stop_gradient(y_soft) + y_soft
     else:
         ret = y_soft
-    
+
     if one_hot:
         return ret
     else:
@@ -205,7 +205,8 @@ def gumbel_softmax_logits(key, logits, shape=(), temperature=1., hard=False, one
 
 def gumbel_softmax_probs(key, probs, shape=(), temperature=1., hard=False, one_hot=False):
     return gumbel_softmax_logits(key, np.log(probs), shape,
-     temperature=temperature, hard=hard, one_hot=one_hot)  
+                                 temperature=temperature, hard=hard,
+                                 one_hot=one_hot)
 
 
 # Ref https://github.com/numpy/numpy/blob/8a0858f3903e488495a56b4a6d19bbefabc97dca/

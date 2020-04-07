@@ -969,7 +969,7 @@ def test_generated_sample_distribution(jax_dist, sp_dist, params,
 @pytest.mark.parametrize('N_sample', [10_000, 100_000])
 def test_relaxations_low(temperature, N_sample, key=jax.random.PRNGKey(52)):
     """ Test that samples from low temperatures are close to samples from a
-    Categorical distribution (and consequently that the GumbelSoftmax 
+    Categorical distribution (and consequently that the GumbelSoftmax
     distribution samples correctly).
     """
 
@@ -994,4 +994,6 @@ def test_relaxations_high(temperature, N_sample, key=jax.random.PRNGKey(52)):
     uniform_samples = dist.Categorical(np.array([1./3, 1./3, 1./3])).sample(key, (N_sample, ))
 
     ks_result = osp.ks_2samp(gs_samples, uniform_samples)
-    assert ks_result.pvalue > 0.05, "failed KS betwen Gumbel Softmax and categorical with equal probabilities for temperature {}".format(temperature)
+    error_message = """failed KS betwen Gumbel Softmax and categorical with
+    equal probabilities for temperature {}""".format(temperature)
+    assert ks_result.pvalue > 0.05, error_message
