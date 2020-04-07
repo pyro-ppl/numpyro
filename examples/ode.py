@@ -21,7 +21,7 @@ import os
 import matplotlib
 import matplotlib.pyplot as plt
 
-from jax.experimental.ode import build_odeint
+from jax.experimental.ode import odeint
 import jax.numpy as np
 from jax.random import PRNGKey
 
@@ -33,19 +33,17 @@ from numpyro.infer import MCMC, NUTS, Predictive
 matplotlib.use('Agg')  # noqa: E402
 
 
-def dz_dt(z, t, alpha, beta, gamma, delta):
+def dz_dt(z, t, theta):
     """
     Lotka–Volterra equations. Real positive parameters `alpha`, `beta`, `gamma`, `delta`
     describes the interaction of two species.
     """
     u = z[0]
     v = z[1]
+    alpha, beta, gamma, delta = theta[..., 0], theta[..., 1], theta[..., 2], theta[..., 3]
     du_dt = (alpha - beta * v) * u
     dv_dt = (-gamma + delta * u) * v
     return np.stack([du_dt, dv_dt])
-
-
-predator_prey_int = build_odeint(dz_dt, rtol=1e-5, atol=1e-3, mxstep=500)
 
 
 def model(N, y=None):
@@ -63,7 +61,7 @@ def model(N, y=None):
         dist.TruncatedNormal(low=0., loc=np.array([0.5, 0.05, 1.5, 0.05]),
                              scale=np.array([0.5, 0.05, 0.5, 0.05])))
     # integrate dz/dt, the result will have shape N x 2
-    z = predator_prey_int(z_init, ts, *theta)
+    z = odeint(dz_dt, z_init, ts, theta, rtol=1e-5, atol=1e-3, mxstep=500)
     # measurement errors, we expect that measured hare has larger error than measured lynx
     sigma = numpyro.sample("sigma", dist.Exponential(np.array([1, 2])))
     # measured populations (in log scale)

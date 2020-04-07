@@ -13,8 +13,6 @@ from jax.scipy.special import expit, logit
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
-    cumprod,
-    cumsum,
     get_dtype,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
@@ -207,7 +205,7 @@ class CorrCholeskyTransform(Transform):
 
     def inv(self, y):
         # inverse stick-breaking
-        z1m_cumprod = 1 - cumsum(y * y)
+        z1m_cumprod = 1 - np.cumsum(y * y, axis=-1)
         pad_width = [(0, 0)] * y.ndim
         pad_width[-1] = (1, 0)
         z1m_cumprod_shifted = np.pad(z1m_cumprod[..., :-1], pad_width,
@@ -224,7 +222,7 @@ class CorrCholeskyTransform(Transform):
         # flatten lower triangular part of `y`.
 
         # stick_breaking_logdet = log(y / r) = log(z_cumprod)  (modulo right shifted)
-        z1m_cumprod = 1 - cumsum(y * y)
+        z1m_cumprod = 1 - np.cumsum(y * y, axis=-1)
         # by taking diagonal=-2, we don't need to shift z_cumprod to the right
         # NB: diagonal=-2 works fine for (2 x 2) matrix, where we get an empty array
         z1m_cumprod_tril = matrix_to_tril_vec(z1m_cumprod, diagonal=-2)
@@ -384,7 +382,7 @@ class OrderedTransform(Transform):
 
     def __call__(self, x):
         z = np.concatenate([x[..., :1], np.exp(x[..., 1:])], axis=-1)
-        return cumsum(z)
+        return np.cumsum(z, axis=-1)
 
     def inv(self, y):
         x = np.log(y[..., 1:] - y[..., :-1])
@@ -457,7 +455,7 @@ class StickBreakingTransform(Transform):
         x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
         # convert to probabilities (relative to the remaining) of each fraction of the stick
         z = _clipped_expit(x)
-        z1m_cumprod = cumprod(1 - z)
+        z1m_cumprod = np.cumprod(1 - z, axis=-1)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (0, 1)
         z_padded = np.pad(z, pad_width, mode="constant", constant_values=1.)
@@ -468,7 +466,7 @@ class StickBreakingTransform(Transform):
 
     def inv(self, y):
         y_crop = y[..., :-1]
-        z1m_cumprod = np.clip(1 - cumsum(y_crop), a_min=np.finfo(y.dtype).tiny)
+        z1m_cumprod = np.clip(1 - np.cumsum(y_crop, axis=-1), a_min=np.finfo(y.dtype).tiny)
         # hence x = logit(z) = log(z / (1 - z)) = y[::-1] / z1m_cumprod
         x = np.log(y_crop / z1m_cumprod)
         return x + np.log(x.shape[-1] - np.arange(x.shape[-1]))
