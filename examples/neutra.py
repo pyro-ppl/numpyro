@@ -36,9 +36,10 @@ from numpyro.infer import MCMC, NUTS, SVI
 from numpyro.infer.util import initialize_model, transformed_potential_energy
 
 
-# XXX: upstream logsumexp throws NaN under fast-math mode + MCMC's progress_bar=True
 def logsumexp(x, axis=0):
-    return np.log(np.sum(np.exp(x), axis=axis))
+    # TODO: remove when https://github.com/google/jax/pull/2260 merged upstream
+    x_max = lax.stop_gradient(np.max(x, axis=axis, keepdims=True))
+    return np.log(np.sum(np.exp(x - x_max), axis=axis)) + x_max.squeeze(axis=axis)
 
 
 class DualMoonDistribution(dist.Distribution):
