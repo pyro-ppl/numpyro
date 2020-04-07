@@ -188,7 +188,7 @@ def categorical_logits(key, logits, shape=()):
 
 def gumbel_softmax_logits(key, logits, shape=(), temperature=1., hard=False, one_hot=False):
     shape = shape or logits.shape[:-1]
-    y_soft = softmax((random.gumbel(key, shape + logits.shape[-1:], logits.dtype)
+    y_soft = softmax((random.gumbel(key, shape, logits.dtype)
                       + logits) / temperature, axis=-1)
 
     if hard:
@@ -204,7 +204,7 @@ def gumbel_softmax_logits(key, logits, shape=(), temperature=1., hard=False, one
 
 
 def gumbel_softmax_probs(key, probs, shape=(), temperature=1., hard=False, one_hot=False):
-    return gumbel_softmax_logits(key, np.log(probs), shape,
+    return gumbel_softmax_logits(key, np.log(probs), shape=shape,
                                  temperature=temperature, hard=hard,
                                  one_hot=one_hot)
 
