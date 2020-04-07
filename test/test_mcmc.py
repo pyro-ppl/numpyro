@@ -87,7 +87,7 @@ def test_logistic_regression_x64(kernel_cls):
     if kernel_cls is SA:
         kernel = SA(model=model, adapt_state_size=9)
     else:
-        kernel = kernel_cls(model=model, trajectory_length=8)
+        kernel = kernel_cls(model=model, trajectory_length=8, find_heuristic_step_size=True)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), labels)
     mcmc.print_summary()

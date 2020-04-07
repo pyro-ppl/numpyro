@@ -27,6 +27,7 @@ from numpyro.infer.hmc_util import (
     IntegratorState,
     build_tree,
     euclidean_kinetic_energy,
+    find_reasonable_step_size,
     velocity_verlet,
     warmup_adapter
 )
@@ -191,6 +192,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                     target_accept_prob=0.8,
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
+                    find_heuristic_step_size=False,
                     model_args=(),
                     model_kwargs=None,
                     rng_key=PRNGKey(0)):
@@ -220,6 +222,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10.
+        :param bool find_heuristic_step_size: whether to use an extra heuristic
+            mechanism to adapt step size. Defaults to False.
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
         :param jax.random.PRNGKey rng_key: random key to be used as the source of
@@ -242,11 +246,19 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                 kwargs = {} if model_kwargs is None else model_kwargs
                 pe_fn = potential_fn_gen(*model_args, **kwargs)
 
+        find_reasonable_ss = None
+        if find_heuristic_step_size:
+            find_reasonable_ss = partial(find_reasonable_step_size,
+                                         pe_fn,
+                                         kinetic_fn,
+                                         momentum_generator)
+
         wa_init, wa_update = warmup_adapter(num_warmup,
                                             adapt_step_size=adapt_step_size,
                                             adapt_mass_matrix=adapt_mass_matrix,
                                             dense_mass=dense_mass,
-                                            target_accept_prob=target_accept_prob)
+                                            target_accept_prob=target_accept_prob,
+                                            find_reasonable_step_size=find_reasonable_ss)
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
         wa_state = wa_init(z, rng_key_wa, step_size,
@@ -432,6 +444,8 @@ class HMC(MCMCKernel):
         value is :math:`2\\pi`.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
+    :param bool find_heuristic_step_size: whether to use an extra heuristic
+        mechanism to adapt step size. Defaults to False.
     """
     def __init__(self,
                  model=None,
@@ -443,7 +457,8 @@ class HMC(MCMCKernel):
                  dense_mass=False,
                  target_accept_prob=0.8,
                  trajectory_length=2 * math.pi,
-                 init_strategy=init_to_uniform()):
+                 init_strategy=init_to_uniform(),
+                 find_heuristic_step_size=False):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
@@ -458,6 +473,7 @@ class HMC(MCMCKernel):
         self._algo = 'HMC'
         self._max_tree_depth = 10
         self._init_strategy = init_strategy
+        self._find_heuristic_step_size = find_heuristic_step_size
         # Set on first call to init
         self._init_fn = None
         self._postprocess_fn = None
@@ -520,9 +536,10 @@ class HMC(MCMCKernel):
             target_accept_prob=self._target_accept_prob,
             trajectory_length=self._trajectory_length,
             max_tree_depth=self._max_tree_depth,
-            rng_key=rng_key,
+            find_heuristic_step_size=self._find_heuristic_step_size,
             model_args=model_args,
             model_kwargs=model_kwargs,
+            rng_key=rng_key,
         )
         if rng_key.ndim == 1:
             init_state = hmc_init_fn(init_params, rng_key)
@@ -595,6 +612,8 @@ class NUTS(HMC):
         scheme of NUTS sampler. Defaults to 10.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
+    :param bool find_heuristic_step_size: whether to use an extra heuristic
+        mechanism to adapt step size. Defaults to False.
     """
     def __init__(self,
                  model=None,
@@ -607,12 +626,15 @@ class NUTS(HMC):
                  target_accept_prob=0.8,
                  trajectory_length=None,
                  max_tree_depth=10,
-                 init_strategy=init_to_uniform()):
+                 init_strategy=init_to_uniform(),
+                 find_heuristic_step_size=False):
         super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
                                    step_size=step_size, adapt_step_size=adapt_step_size,
                                    adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
                                    target_accept_prob=target_accept_prob,
-                                   trajectory_length=trajectory_length, init_strategy=init_strategy)
+                                   trajectory_length=trajectory_length,
+                                   init_strategy=init_strategy,
+                                   find_heuristic_step_size=find_heuristic_step_size)
         self._max_tree_depth = max_tree_depth
         self._algo = 'NUTS'
 
