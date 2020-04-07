@@ -3,17 +3,13 @@
 
 from jax import lax, random
 import jax.numpy as np
-from jax.scipy.special import gammaln
+from jax.scipy.special import betaln, gammaln
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import Beta, Gamma
 from numpyro.distributions.discrete import Binomial, Poisson
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import promote_shapes, validate_sample
-
-
-def _log_beta(x, y):
-    return gammaln(x) + gammaln(y) - gammaln(x + y)
 
 
 class BetaBinomial(Distribution):
@@ -52,8 +48,8 @@ class BetaBinomial(Distribution):
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
         return (log_factorial_n - log_factorial_k - log_factorial_nmk +
-                _log_beta(value + self.concentration1, self.total_count - value + self.concentration0) -
-                _log_beta(self.concentration0, self.concentration1))
+                betaln(value + self.concentration1, self.total_count - value + self.concentration0) -
+                betaln(self.concentration0, self.concentration1))
 
     @property
     def mean(self):
@@ -95,7 +91,7 @@ class GammaPoisson(Distribution):
     @validate_sample
     def log_prob(self, value):
         post_value = self.concentration + value
-        return -_log_beta(self.concentration, value + 1) - np.log(post_value) + \
+        return -betaln(self.concentration, value + 1) - np.log(post_value) + \
             self.concentration * np.log(self.rate) - post_value * np.log1p(self.rate)
 
     @property
