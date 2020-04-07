@@ -200,7 +200,7 @@ def gumbel_softmax_logits(key, logits, shape=(), temperature=1., hard=False, one
     if one_hot:
         return ret
     else:
-        return _categorical(key, ret, shape)
+        return _categorical(key, ret, None)
 
 
 def gumbel_softmax_probs(key, probs, shape=(), temperature=1., hard=False, one_hot=False):
