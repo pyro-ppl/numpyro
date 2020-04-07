@@ -37,7 +37,6 @@ from numpyro.distributions.distribution import Distribution, TransformedDistribu
 from numpyro.distributions.transforms import AffineTransform, ExpTransform, InvCholeskyTransform, PowerTransform
 from numpyro.distributions.util import (
     cholesky_of_inverse,
-    cumsum,
     lazy_property,
     matrix_to_tril_vec,
     promote_shapes,
@@ -227,7 +226,7 @@ class GaussianRandomWalk(Distribution):
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
-        return cumsum(walks) * np.expand_dims(self.scale, axis=-1)
+        return np.cumsum(walks, axis=-1) * np.expand_dims(self.scale, axis=-1)
 
     @validate_sample
     def log_prob(self, value):
