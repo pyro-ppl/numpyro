@@ -222,8 +222,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
             scheme of NUTS sampler. Defaults to 10.
-        :param bool find_heuristic_step_size: whether to use an extra heuristic
-            mechanism to adapt step size. Defaults to False.
+        :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
+            step size at the beginning of each adaptation window. Defaults to False.
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
         :param jax.random.PRNGKey rng_key: random key to be used as the source of
@@ -444,8 +444,8 @@ class HMC(MCMCKernel):
         value is :math:`2\\pi`.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param bool find_heuristic_step_size: whether to use an extra heuristic
-        mechanism to adapt step size. Defaults to False.
+    :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
+        step size at the beginning of each adaptation window. Defaults to False.
     """
     def __init__(self,
                  model=None,
@@ -612,8 +612,8 @@ class NUTS(HMC):
         scheme of NUTS sampler. Defaults to 10.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param bool find_heuristic_step_size: whether to use an extra heuristic
-        mechanism to adapt step size. Defaults to False.
+    :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
+        step size at the beginning of each adaptation window. Defaults to False.
     """
     def __init__(self,
                  model=None,
