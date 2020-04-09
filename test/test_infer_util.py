@@ -179,7 +179,7 @@ def test_model_with_mask_false():
     def model():
         x = numpyro.sample("x", dist.Normal())
         with numpyro.handlers.mask(mask_array=False):
-            numpyro.sample("y", dist.Normal(), obs=1)
+            numpyro.sample("y", dist.Normal(x), obs=1)
 
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=500, num_chains=1)
