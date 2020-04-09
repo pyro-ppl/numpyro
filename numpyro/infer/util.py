@@ -59,7 +59,7 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
     else:
         model = substitute(model, param_map=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = 0.
+    log_joint = jax.device_put(0.)
     for site in model_trace.values():
         if site['type'] == 'sample':
             value = site['value']
@@ -68,7 +68,7 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
             scale = site['scale']
             # Early exit when all elements are masked
             if not_jax_tracer(mask) and mask is not None and not np.any(mask):
-                return jax.device_put(0.), model_trace
+                continue
             if intermediates:
                 if skip_dist_transforms:
                     log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])

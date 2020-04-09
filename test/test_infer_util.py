@@ -175,6 +175,18 @@ def test_model_with_transformed_distribution():
     assert_allclose(actual_potential_energy, expected_potential_energy)
 
 
+def test_model_with_mask_false():
+    def model():
+        x = numpyro.sample("x", dist.Normal())
+        with numpyro.handlers.mask(mask_array=False):
+            numpyro.sample("y", dist.Normal(), obs=1)
+
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, num_warmup=500, num_samples=500, num_chains=1)
+    mcmc.run(random.PRNGKey(1))
+    assert_allclose(mcmc.get_samples()['x'].mean(), 0., atol=0.1)
+
+
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible(),
     init_to_median(num_samples=2),
