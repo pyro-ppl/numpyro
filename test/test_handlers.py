@@ -225,3 +225,9 @@ def test_plate(model):
     for name, site in trace.items():
         if site['type'] == 'sample':
             assert_allclose(jit_trace[name]['value'], site['value'])
+
+
+def test_messenger_fn_invalid():
+    with pytest.raises(ValueError, match="to be callable"):
+        with numpyro.handlers.mask(False):
+            pass
