@@ -42,6 +42,9 @@ def apply_stack(msg):
 
 class Messenger(object):
     def __init__(self, fn=None):
+        if fn is not None and not callable(fn):
+            raise ValueError("Expected `fn` to be a Python callable object; "
+                             "instead found type(fn) = {}.".format(type(fn)))
         self.fn = fn
         functools.update_wrapper(self, fn, updated=[])
 
