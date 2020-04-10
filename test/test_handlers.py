@@ -228,6 +228,6 @@ def test_plate(model):
 
 
 def test_messenger_fn_invalid():
-    with pytest.raises(ValueError, match="to be callable"):
+    with pytest.raises(ValueError, match="to be a Python callable object"):
         with numpyro.handlers.mask(False):
             pass
