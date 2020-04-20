@@ -516,14 +516,9 @@ class trace(OrigTraceMessenger):
 
 
 def markov(fn=None, history=1, keep=False):
-    if fn is None:
-        # Used as a decorator with bound args
-        return LocalNamedMessenger(history=history, keep=keep)
-    if not callable(fn):
-        # Used as a generator
-        return LocalNamedMessenger(history=history, keep=keep).generator(iterable=fn)
-    # Used as a decorator with bound args
-    return LocalNamedMessenger(history=history, keep=keep)(fn)
+    if fn is not None and not callable(fn):  # Used as a generator
+        return LocalNamedMessenger(fn=None, history=history, keep=keep).generator(iterable=fn)
+    return LocalNamedMessenger(fn, history=history, keep=keep)
 
 
 class infer_config(Messenger):
