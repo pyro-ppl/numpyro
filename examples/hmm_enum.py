@@ -34,102 +34,29 @@ def ignore_jit_warnings():
     raise NotImplementedError("TODO")
 
 
-# Let's start with a simple Hidden Markov Model.
-#
-#     x[t-1] --> x[t] --> x[t+1]
-#        |        |         |
-#        V        V         V
-#     y[t-1]     y[t]     y[t+1]
-#
-# This model includes a plate for the data_dim = 88 keys on the piano. This
-# model has two "style" parameters probs_x and probs_y that we'll draw from a
-# prior. The latent state is x, and the observed state is y. We'll drive
-# probs_* with the guide, enumerate over x, and condition on y.
-#
-# Importantly, the dependency structure of the enumerated variables has
-# narrow treewidth, therefore admitting efficient inference by message passing.
-# Pyro's TraceEnum_ELBO will find an efficient message passing scheme if one
-# exists.
 def model_0(sequences, lengths, args, batch_size=None, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with numpyro_mask(mask=include_prior):
-        # Our prior on transition probabilities will be:
-        # stay in the same state with 90% probability; uniformly jump to another
-        # state with 10% probability.
         probs_x = pyro_sample("probs_x",
                               dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
                                   .to_event(1))
-        # We put a weak prior on the conditional probability of a tone sounding.
-        # We know that on average about 4 of 88 tones are active, so we'll set a
-        # rough weak prior of 10% of the notes being active at any one time.
         probs_y = pyro_sample("probs_y",
                               dist.Beta(0.1, 0.9)
                                   .expand([args.hidden_dim, data_dim])
                                   .to_event(2))
-    # In this first model we'll sequentially iterate over sequences in a
-    # minibatch; this will make it easy to reason about tensor shapes.
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     for i in pyro_plate("sequences", len(sequences), batch_size):
         length = lengths[i]
         sequence = sequences[i, :length]
         x = 0
         for t in pyro_markov(range(length)):
-            # On the next line, we'll overwrite the value of x with an updated
-            # value. If we wanted to record all x values, we could instead
-            # write x[t] = pyro_sample(...x[t-1]...).
             x = pyro_sample("x_{}_{}".format(i, t), dist.Categorical(probs_x[x]),
                             infer={"enumerate": "parallel"})
             with tones_plate:
                 pyro_sample("y_{}_{}".format(i, t), dist.Bernoulli(probs_y[x.squeeze(-1)]),
                             obs=sequence[t])
-# To see how enumeration changes the shapes of these sample sites, we can use
-# the Trace.format_shapes() to print shapes at each site:
-# $ python examples/hmm.py -m 0 -n 1 -b 1 -t 5 --print-shapes
-# ...
-#  Sample Sites:
-#   probs_x dist          | 16 16
-#          value          | 16 16
-#   probs_y dist          | 16 88
-#          value          | 16 88
-#     tones dist          |
-#          value       88 |
-# sequences dist          |
-#          value        1 |
-#   x_178_0 dist          |
-#          value    16  1 |
-#   y_178_0 dist    16 88 |
-#          value       88 |
-#   x_178_1 dist    16  1 |
-#          value 16  1  1 |
-#   y_178_1 dist 16  1 88 |
-#          value       88 |
-#   x_178_2 dist 16  1  1 |
-#          value    16  1 |
-#   y_178_2 dist    16 88 |
-#          value       88 |
-#   x_178_3 dist    16  1 |
-#          value 16  1  1 |
-#   y_178_3 dist 16  1 88 |
-#          value       88 |
-#   x_178_4 dist 16  1  1 |
-#          value    16  1 |
-#   y_178_4 dist    16 88 |
-#          value       88 |
-#
-# Notice that enumeration (over 16 states) alternates between two dimensions:
-# -2 and -3.  If we had not used pyro_markov above, each enumerated variable
-# would need its own enumeration dimension.
 
 
-# Next let's make our simple model faster in two ways: first we'll support
-# vectorized minibatches of data, and second we'll support the PyTorch jit
-# compiler.  To add batch support, we'll introduce a second plate "sequences"
-# and randomly subsample data to size batch_size.  To add jit support we
-# silence some warnings and try to avoid dynamic program structure.
-
-# Note that this is the "HMM" model in reference [1] (with the difference that
-# in [1] the probabilities probs_x and probs_y are not MAP-regularized with
-# Dirichlet and Beta distributions for any of the models)
 def model_1(sequences, lengths, args, batch_size=None, include_prior=True):
     # Sometimes it is safe to ignore jit warnings. Here we use the
     # pyro.util.ignore_jit_warnings context manager to silence warnings about
@@ -154,12 +81,6 @@ def model_1(sequences, lengths, args, batch_size=None, include_prior=True):
     with pyro_plate("sequences", num_sequences, batch_size, dim=-2) as batch:
         lengths = lengths[batch]
         x = 0
-        # If we are not using the jit, then we can vary the program structure
-        # each call by running for a dynamically determined number of time
-        # steps, lengths.max(). However if we are using the jit, then we try to
-        # keep a single program structure for all minibatches; the fixed
-        # structure ends up being faster since each program structure would
-        # need to trigger a new jit compile stage.
         for t in pyro_markov(range(max_length if args.jit else lengths.max())):
             with numpyro_mask(mask=(t < lengths).unsqueeze(-1)):
                 x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
@@ -167,41 +88,6 @@ def model_1(sequences, lengths, args, batch_size=None, include_prior=True):
                 with tones_plate:
                     pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[x.squeeze(-1)]),
                                 obs=sequences[batch, t])
-# Let's see how batching changes the shapes of sample sites:
-# $ python examples/hmm.py -m 1 -n 1 -t 5 --batch-size=10 --print-shapes
-# ...
-#  Sample Sites:
-#   probs_x dist             | 16 16
-#          value             | 16 16
-#   probs_y dist             | 16 88
-#          value             | 16 88
-#     tones dist             |
-#          value          88 |
-# sequences dist             |
-#          value          10 |
-#       x_0 dist       10  1 |
-#          value    16  1  1 |
-#       y_0 dist    16 10 88 |
-#          value       10 88 |
-#       x_1 dist    16 10  1 |
-#          value 16  1  1  1 |
-#       y_1 dist 16  1 10 88 |
-#          value       10 88 |
-#       x_2 dist 16  1 10  1 |
-#          value    16  1  1 |
-#       y_2 dist    16 10 88 |
-#          value       10 88 |
-#       x_3 dist    16 10  1 |
-#          value 16  1  1  1 |
-#       y_3 dist 16  1 10 88 |
-#          value       10 88 |
-#       x_4 dist 16  1 10  1 |
-#          value    16  1  1 |
-#       y_4 dist    16 10 88 |
-#          value       10 88 |
-#
-# Notice that we're now using dim=-2 as a batch dimension (of size 10),
-# and that the enumeration dimensions are now dims -3 and -4.
 
 
 # Next let's add a dependency of y[t] on y[t-1].
@@ -210,8 +96,6 @@ def model_1(sequences, lengths, args, batch_size=None, include_prior=True):
 #        |        |         |
 #        V        V         V
 #     y[t-1] --> y[t] --> y[t+1]
-#
-# Note that this is the "arHMM" model in reference [1].
 def model_2(sequences, lengths, args, batch_size=None, include_prior=True):
     with ignore_jit_warnings():
         num_sequences, max_length, data_dim = map(int, sequences.shape)
@@ -254,8 +138,6 @@ def model_2(sequences, lengths, args, batch_size=None, include_prior=True):
 # entire joint space of these variables w[t],x[t] needs to be enumerated.
 # For that reason, we set the dimension of each to the square root of the
 # target hidden dimension.
-#
-# Note that this is the "FHMM" model in reference [1].
 def model_3(sequences, lengths, args, batch_size=None, include_prior=True):
     with ignore_jit_warnings():
         num_sequences, max_length, data_dim = map(int, sequences.shape)
@@ -300,8 +182,6 @@ def model_3(sequences, lengths, args, batch_size=None, include_prior=True):
 #
 # Note that message passing here has roughly the same cost as with the
 # Factorial HMM, but this model has more parameters.
-#
-# Note that this is the "PFHMM" model in reference [1].
 def model_4(sequences, lengths, args, batch_size=None, include_prior=True):
     with ignore_jit_warnings():
         num_sequences, max_length, data_dim = map(int, sequences.shape)
