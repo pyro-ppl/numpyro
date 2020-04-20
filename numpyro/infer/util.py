@@ -16,6 +16,10 @@ from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.handlers import block, seed, substitute, trace
 from numpyro.util import not_jax_tracer, while_loop
 
+from .enum_messenger import enum
+from .enum_messenger import trace as packed_trace
+
+
 __all__ = [
     'find_valid_initial_params',
     'get_potential_fn',
@@ -162,6 +166,48 @@ def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
             t_log_det = model_trace[name]['scale'] * t_log_det
         log_joint = log_joint + t_log_det
     return - log_joint
+
+
+def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, params):
+    import funsor
+    funsor.set_backend("jax")
+
+    params_constrained = transform_fn(inv_transforms, params)
+    model = substitute(model, base_param_map=params)
+    model_trace = packed_trace(enum(model)).get_trace(*model_args, **model_kwargs)
+    log_factors = []
+    sum_vars, prod_vars = frozenset(), frozenset()
+    for site in model_trace.values():
+        if site['type'] == 'sample':
+            value = site['value']
+            intermediates = site['intermediates']
+            mask = site['mask']
+            scale = site['scale']
+            # Early exit when all elements are masked
+            if not_jax_tracer(mask) and mask is not None and not np.any(mask):
+                continue
+            if intermediates:
+                if skip_dist_transforms:
+                    log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
+                else:
+                    log_prob = site['fn'].log_prob(value, intermediates)
+            else:
+                log_prob = site['fn'].log_prob(value)
+
+            # TODO handle masking and scaling
+            log_prob = funsor.to_funsor(log_prob, output=funsor.reals(), dim_to_name=site['infer']['dim_to_name'])
+            log_factors.append(log_prob)
+            sum_vars |= frozenset({site['name']})
+            prod_vars |= frozenset(f.name for f in site['cond_indep_stack'] if f.dim is not None)
+
+    for name, t in inv_transforms.items():
+        t_log_det = t.log_abs_det_jacobian(params[name], params_constrained[name])
+        if model_trace[name]['scale'] is not None:
+            t_log_det = model_trace[name]['scale'] * t_log_det
+        log_factors.append(funsor.to_funsor(t_log_det, output=funsor.reals(), dim_to_name=model_trace[name]['infer']['dim_to_name']))
+
+    return -funsor.sum_product.sum_product(
+        funsor.ops.logaddexp, funsor.ops.add, log_factors, sum_vars, prod_vars).data
 
 
 def transformed_potential_energy(potential_energy, inv_transform, z):
