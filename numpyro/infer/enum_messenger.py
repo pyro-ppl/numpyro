@@ -17,11 +17,12 @@ funsor.set_backend("jax")
 
 
 __all__ = [
-    "to_funsor",
-    "to_data",
-    "markov",
     "enum",
+    "infer_config",
+    "markov",
     "plate",
+    "to_data",
+    "to_funsor",
     "trace",
 ]
 
@@ -523,6 +524,25 @@ def markov(fn=None, history=1, keep=False):
         return LocalNamedMessenger(history=history, keep=keep).generator(iterable=fn)
     # Used as a decorator with bound args
     return LocalNamedMessenger(history=history, keep=keep)(fn)
+
+
+class infer_config(Messenger):
+    """
+    Given a callable `fn` that contains Pyro primitive calls
+    and a callable `config_fn` taking a trace site and returning a dictionary,
+    updates the value of the infer kwarg at a sample site to config_fn(site).
+
+    :param fn: a stochastic function (callable containing Pyro primitive calls)
+    :param config_fn: a callable taking a site and returning an infer dict
+    :returns: stochastic function decorated with :class:`~pyro.poutine.infer_config_messenger.InferConfigMessenger`
+    """
+    def __init__(self, fn, config_fn):
+        super().__init__(fn)
+        self.config_fn = config_fn
+
+    def process_message(self, msg):
+        if msg["type"] in ("sample", "param"):
+            msg["infer"].update(self.config_fn(msg))
 
 
 ####################
