@@ -5,6 +5,8 @@ from collections import OrderedDict, namedtuple
 from contextlib import ExitStack  # python 3
 from enum import Enum
 
+from jax import lax
+
 import funsor
 
 from numpyro.handlers import apply_stack
@@ -416,19 +418,19 @@ class plate(GlobalNamedMessenger):
     """
     Sketch of vectorized plate implementation using to_data instead of _DIM_ALLOCATOR.
     """
-    def __init__(self, name=None, size=None, dim=None):
-        assert size > 1
-        assert dim is None or dim < 0
-        super().__init__()
+    def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         self.size = size
+        self.subsample_size = size if subsample_size is None else subsample_size
+        if dim is not None and dim >= 0:
+            raise ValueError('dim arg must be negative.')
         self.dim = dim
-
         self._indices = funsor.Tensor(
             funsor.ops.new_arange(funsor.tensor.get_default_prototype(), self.size),
             OrderedDict([(self.name, funsor.bint(self.size))]),
             self.size
         )
+        super(plate, self).__init__()
 
     def __enter__(self):
         super().__enter__()  # do this first to take care of globals recycling
@@ -438,10 +440,37 @@ class plate(GlobalNamedMessenger):
         self.dim, self.indices = -indices.dim(), indices.squeeze()
         return self
 
-    def process_message(self, msg):
-        if msg["type"] == "sample":
-            frame = CondIndepStackFrame(self.name, self.dim, self.size, 0)
-            msg["cond_indep_stack"] = (frame,) + msg["cond_indep_stack"]
+    @staticmethod
+    def _get_batch_shape(cond_indep_stack):
+        n_dims = max(-f.dim for f in cond_indep_stack)
+        batch_shape = [1] * n_dims
+        for f in cond_indep_stack:
+            batch_shape[f.dim] = f.size
+        return tuple(batch_shape)
+
+    def process_message(self, msg):  # copied almost verbatim from plate
+        if msg['type'] not in ('sample',):
+            return
+        cond_indep_stack = msg['cond_indep_stack']
+        frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
+        cond_indep_stack.append(frame)
+        expected_shape = self._get_batch_shape(cond_indep_stack)
+        dist_batch_shape = msg['fn'].batch_shape if msg['type'] == 'sample' else ()
+        overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
+        trailing_shape = expected_shape[overlap_idx:]
+        # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
+        broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+        if broadcast_shape != dist_batch_shape:
+            raise ValueError('Distribution batch shape = {} cannot be broadcast up to {}. '
+                             'Consider using unbatched distributions.'
+                             .format(dist_batch_shape, broadcast_shape))
+        batch_shape = expected_shape[:overlap_idx]
+        if 'sample_shape' in msg['kwargs']:
+            batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
+        msg['kwargs']['sample_shape'] = batch_shape
+        if self.size != self.subsample_size:
+            scale = 1. if msg['scale'] is None else msg['scale']
+            msg['scale'] = scale * self.size / self.subsample_size
 
 
 class enum(BaseEnumMessenger):
