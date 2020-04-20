@@ -19,10 +19,9 @@ __all__ = [
     "to_funsor",
     "to_data",
     "markov",
-    "EnumMessenger",
-    "PlateMessenger",
-    "PackTraceMessenger",
-    "MarkovMessenger",
+    "enum",
+    "plate",
+    "trace",
 ]
 
 
@@ -413,7 +412,7 @@ class BaseEnumMessenger(NamedMessenger):
 # User-facing handler implementations
 ##########################################
 
-class PlateMessenger(GlobalNamedMessenger):
+class plate(GlobalNamedMessenger):
     """
     Sketch of vectorized plate implementation using to_data instead of _DIM_ALLOCATOR.
     """
@@ -445,7 +444,7 @@ class PlateMessenger(GlobalNamedMessenger):
             msg["cond_indep_stack"] = (frame,) + msg["cond_indep_stack"]
 
 
-class EnumMessenger(BaseEnumMessenger):
+class enum(BaseEnumMessenger):
     """
     This version of EnumMessenger uses to_data to allocate a fresh enumeration dim
     for each discrete sample site.
@@ -475,7 +474,7 @@ class EnumMessenger(BaseEnumMessenger):
         msg["done"] = True
 
 
-class PackTraceMessenger(OrigTraceMessenger):
+class trace(OrigTraceMessenger):
     """
     This version of TraceMessenger records information necessary to do packing after execution.
     Each sample site is annotated with a "dim_to_name" dictionary,
@@ -490,16 +489,16 @@ class PackTraceMessenger(OrigTraceMessenger):
 def markov(fn=None, history=1, keep=False):
     if fn is None:
         # Used as a decorator with bound args
-        return MarkovMessenger(history=history, keep=keep)
+        return LocalNamedMessenger(history=history, keep=keep)
     if not callable(fn):
         # Used as a generator
-        return MarkovMessenger(history=history, keep=keep).generator(iterable=fn)
+        return LocalNamedMessenger(history=history, keep=keep).generator(iterable=fn)
     # Used as a decorator with bound args
-    return MarkovMessenger(history=history, keep=keep)(fn)
+    return LocalNamedMessenger(history=history, keep=keep)(fn)
 
 
 ####################
-# Primitives
+# New primitives
 ####################
 
 def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
@@ -508,7 +507,7 @@ def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
         'type': 'to_funsor',
         'fn': funsor.to_funsor,
         'args': (x,),
-        'kwargs': kwargs,
+        'kwargs': {"output": output, "dim_to_name": dim_to_name, "dim_type": dim_type},
         'value': None,
     }
 
@@ -522,7 +521,7 @@ def to_data(x, name_to_dim=None, dim_type=DimType.LOCAL):
         'type': 'to_data',
         'fn': funsor.to_data,
         'args': (x,),
-        'kwargs': kwargs,
+        'kwargs': {"name_to_dim": name_to_dim, "dim_type": dim_type},
         'value': None,
     }
 
