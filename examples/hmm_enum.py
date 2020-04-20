@@ -30,6 +30,10 @@ debug_handler.addFilter(filter=lambda record: record.levelno <= logging.DEBUG)
 log.addHandler(debug_handler)
 
 
+def ignore_jit_warnings():
+    raise NotImplementedError("TODO")
+
+
 # Let's start with a simple Hidden Markov Model.
 #
 #     x[t-1] --> x[t] --> x[t+1]
@@ -335,6 +339,11 @@ def model_4(sequences, lengths, args, batch_size=None, include_prior=True):
                 with tones_plate as tones:
                     pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[w, x, tones]),
                                 obs=sequences[batch, t])
+
+
+models = {name[len('model_'):]: model
+          for name, model in globals().items()
+          if name.startswith('model_')}
 
 
 def main(args):
