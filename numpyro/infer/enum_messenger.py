@@ -7,6 +7,7 @@ from enum import Enum
 
 import funsor
 
+from numpyro.handlers import apply_stack
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import CondIndepStackFrame, Messenger
 from numpyro.primitives import plate as OrigPlateMessenger
@@ -23,42 +24,6 @@ __all__ = [
     "PackTraceMessenger",
     "MarkovMessenger",
 ]
-
-
-####################
-# Primitives
-####################
-
-def to_funsor(...):
-
-    # Otherwise, we initialize a message...
-    initial_msg = {
-        'type': 'to_funsor',
-        'fn': funsor.to_funsor,
-        'args': (init_value,),
-        'kwargs': kwargs,
-        'value': None,
-    }
-
-    # ...and use apply_stack to send it to the Messengers
-    msg = apply_stack(initial_msg)
-    return msg['value']
-
-
-def to_data(...):
-
-    # Otherwise, we initialize a message...
-    initial_msg = {
-        'type': 'to_data',
-        'fn': funsor.to_data,
-        'args': (init_value,),
-        'kwargs': kwargs,
-        'value': None,
-    }
-
-    # ...and use apply_stack to send it to the Messengers
-    msg = apply_stack(initial_msg)
-    return msg['value']
 
 
 ##################################
@@ -531,3 +496,35 @@ def markov(fn=None, history=1, keep=False):
         return MarkovMessenger(history=history, keep=keep).generator(iterable=fn)
     # Used as a decorator with bound args
     return MarkovMessenger(history=history, keep=keep)(fn)
+
+
+####################
+# Primitives
+####################
+
+def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
+
+    initial_msg = {
+        'type': 'to_funsor',
+        'fn': funsor.to_funsor,
+        'args': (x,),
+        'kwargs': kwargs,
+        'value': None,
+    }
+
+    msg = apply_stack(initial_msg)
+    return msg['value']
+
+
+def to_data(x, name_to_dim=None, dim_type=DimType.LOCAL):
+
+    initial_msg = {
+        'type': 'to_data',
+        'fn': funsor.to_data,
+        'args': (x,),
+        'kwargs': kwargs,
+        'value': None,
+    }
+
+    msg = apply_stack(initial_msg)
+    return msg['value']
