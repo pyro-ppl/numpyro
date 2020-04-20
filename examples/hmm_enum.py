@@ -34,7 +34,7 @@ def ignore_jit_warnings():
     raise NotImplementedError("TODO")
 
 
-def model_0(sequences, lengths, args, batch_size=None, include_prior=True):
+def model_0(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with numpyro_mask(mask=include_prior):
         probs_x = pyro_sample("probs_x",
@@ -45,7 +45,7 @@ def model_0(sequences, lengths, args, batch_size=None, include_prior=True):
                                   .expand([args.hidden_dim, data_dim])
                                   .to_event(2))
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
-    for i in pyro_plate("sequences", len(sequences), batch_size):
+    for i in pyro_plate("sequences", len(sequences)):
         length = lengths[i]
         sequence = sequences[i, :length]
         x = 0
@@ -57,7 +57,7 @@ def model_0(sequences, lengths, args, batch_size=None, include_prior=True):
                             obs=sequence[t])
 
 
-def model_1(sequences, lengths, args, batch_size=None, include_prior=True):
+def model_1(sequences, lengths, args, include_prior=True):
     # Sometimes it is safe to ignore jit warnings. Here we use the
     # pyro.util.ignore_jit_warnings context manager to silence warnings about
     # conversion to integer, since we know all three numbers will be the same
@@ -75,10 +75,7 @@ def model_1(sequences, lengths, args, batch_size=None, include_prior=True):
                                   .expand([args.hidden_dim, data_dim])
                                   .to_event(2))
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
-    # We subsample batch_size items out of num_sequences items. Note that since
-    # we're using dim=-1 for the notes plate, we need to batch over a different
-    # dimension, here dim=-2.
-    with pyro_plate("sequences", num_sequences, batch_size, dim=-2) as batch:
+    with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         x = 0
         for t in pyro_markov(range(max_length if args.jit else lengths.max())):
@@ -96,7 +93,7 @@ def model_1(sequences, lengths, args, batch_size=None, include_prior=True):
 #        |        |         |
 #        V        V         V
 #     y[t-1] --> y[t] --> y[t+1]
-def model_2(sequences, lengths, args, batch_size=None, include_prior=True):
+def model_2(sequences, lengths, args, include_prior=True):
     with ignore_jit_warnings():
         num_sequences, max_length, data_dim = map(int, sequences.shape)
         assert lengths.shape == (num_sequences,)
@@ -110,7 +107,7 @@ def model_2(sequences, lengths, args, batch_size=None, include_prior=True):
                                   .expand([args.hidden_dim, 2, data_dim])
                                   .to_event(3))
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
-    with pyro_plate("sequences", num_sequences, batch_size, dim=-2) as batch:
+    with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         x, y = 0, 0
         for t in pyro_markov(range(max_length if args.jit else lengths.max())):
@@ -138,7 +135,7 @@ def model_2(sequences, lengths, args, batch_size=None, include_prior=True):
 # entire joint space of these variables w[t],x[t] needs to be enumerated.
 # For that reason, we set the dimension of each to the square root of the
 # target hidden dimension.
-def model_3(sequences, lengths, args, batch_size=None, include_prior=True):
+def model_3(sequences, lengths, args, include_prior=True):
     with ignore_jit_warnings():
         num_sequences, max_length, data_dim = map(int, sequences.shape)
         assert lengths.shape == (num_sequences,)
@@ -156,7 +153,7 @@ def model_3(sequences, lengths, args, batch_size=None, include_prior=True):
                                   .expand([hidden_dim, hidden_dim, data_dim])
                                   .to_event(3))
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
-    with pyro_plate("sequences", num_sequences, batch_size, dim=-2) as batch:
+    with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         w, x = 0, 0
         for t in pyro_markov(range(max_length if args.jit else lengths.max())):
@@ -182,7 +179,7 @@ def model_3(sequences, lengths, args, batch_size=None, include_prior=True):
 #
 # Note that message passing here has roughly the same cost as with the
 # Factorial HMM, but this model has more parameters.
-def model_4(sequences, lengths, args, batch_size=None, include_prior=True):
+def model_4(sequences, lengths, args, include_prior=True):
     with ignore_jit_warnings():
         num_sequences, max_length, data_dim = map(int, sequences.shape)
         assert lengths.shape == (num_sequences,)
@@ -201,7 +198,7 @@ def model_4(sequences, lengths, args, batch_size=None, include_prior=True):
                                   .expand([hidden_dim, hidden_dim, data_dim])
                                   .to_event(3))
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
-    with pyro_plate("sequences", num_sequences, batch_size, dim=-2) as batch:
+    with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         # Note the broadcasting tricks here: we declare a hidden arange and
         # ensure that w and x are always tensors so we can unsqueeze them below,
@@ -251,25 +248,19 @@ def main(args):
         sequences = sequences[:, :args.truncate]
     num_observations = float(lengths.sum())
 
+    # All of our models have two plates: "data" and "tones".
+    max_plate_nesting = 1 if model is model_0 else 2
+
     # To help debug our tensor shapes, let's print the shape of each site's
     # distribution, value, and log_prob tensor. Note this information is
     # automatically printed on most errors inside SVI.
     if args.print_shapes:
-        first_available_dim = -2 if model is model_0 else -3
-        model_trace = packed_trace(enum(model, first_available_dim)).get_trace(
-            sequences, lengths, args=args, batch_size=args.batch_size)
+        model_trace = packed_trace(enum(model, -max_plate_nesting - 1)).get_trace(
+            sequences, lengths, args=args)
         # TODO implement format_shapes?
         # logging.info(model_trace.format_shapes())
 
-    # All of our models have two plates: "data" and "tones".
-    max_plate_nesting = 1 if model is model_0 else 2
-
     # TODO use HMC for inference
-    # # We'll train on small minibatches.
-    # logging.info('Step\tLoss')
-    # for step in range(args.num_steps):
-    #     loss = svi.step(sequences, lengths, args=args, batch_size=args.batch_size)
-    #     logging.info('{: >5d}\t{}'.format(step, loss / num_observations))
 
 
 if __name__ == '__main__':
