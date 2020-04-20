@@ -167,12 +167,12 @@ _DIM_STACK = DimStack()  # only one global instance
 #################################################
 
 class ReentrantMessenger(Messenger):
-    def __init__(self):
+    def __init__(self, fn):
         self._ref_count = 0
-        super().__init__()
+        super().__init__(fn)
 
-    def __call__(self, fn):
-        return functools.wraps(fn)(super().__call__(fn))
+    # def __call__(self, fn):
+    #     return functools.wraps(fn)(super().__call__(fn))
 
     def __enter__(self):
         self._ref_count += 1
@@ -188,9 +188,9 @@ class ReentrantMessenger(Messenger):
 
 class DimStackCleanupMessenger(ReentrantMessenger):
 
-    def __init__(self):
+    def __init__(self, fn):
         self._saved_dims = ()
-        return super().__init__()
+        return super().__init__(fn)
 
     def __enter__(self):
         if self._ref_count == 0 and _DIM_STACK.outermost is None:
@@ -354,9 +354,9 @@ class LocalNamedMessenger(NamedMessenger):
 
 class GlobalNamedMessenger(NamedMessenger):
 
-    def __init__(self):
+    def __init__(self, fn):
         self._saved_globals = ()
-        super().__init__()
+        super().__init__(fn)
 
     def __enter__(self):
         if self._ref_count == 0:
@@ -392,10 +392,10 @@ class BaseEnumMessenger(NamedMessenger):
     """
     handles first_available_dim management, enum effects should inherit from this
     """
-    def __init__(self, first_available_dim=None):
+    def __init__(self, fn, first_available_dim=None):
         assert first_available_dim is None or first_available_dim < 0, first_available_dim
         self.first_available_dim = first_available_dim
-        super().__init__()
+        super().__init__(fn)
 
     def __enter__(self):
         if self._ref_count == 0 and self.first_available_dim is not None:
