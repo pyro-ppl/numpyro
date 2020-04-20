@@ -12,7 +12,6 @@ import funsor
 from numpyro.handlers import apply_stack
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import CondIndepStackFrame, Messenger
-from numpyro.primitives import plate as OrigPlateMessenger
 
 funsor.set_backend("jax")
 
