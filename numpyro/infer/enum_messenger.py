@@ -246,6 +246,12 @@ class DimStackCleanupMessenger(ReentrantMessenger):
 
 class NamedMessenger(DimStackCleanupMessenger):
 
+    def process_message(self, msg):
+        if msg["type"] == "to_funsor":
+            self._pyro_to_funsor(msg)
+        elif msg["type"] == "to_data":
+            self._pyro_to_data(msg)
+
     @staticmethod
     def _get_name_to_dim(batch_names, name_to_dim=None, dim_type=DimType.LOCAL):
         name_to_dim = OrderedDict() if name_to_dim is None else name_to_dim.copy()
@@ -401,6 +407,12 @@ class GlobalNamedMessenger(NamedMessenger):
                 _DIM_STACK.global_frame.free(name, dim)
         return super().__exit__(*args, **kwargs)
 
+    def postprocess_message(self, msg):
+        if msg["type"] == "to_funsor":
+            self._pyro_post_to_funsor(msg)
+        elif msg["type"] == "to_data":
+            self._pyro_post_to_data(msg)
+
     def _pyro_post_to_funsor(self, msg):
         if msg["kwargs"]["dim_type"] in (DimType.GLOBAL, DimType.VISIBLE):
             for name in msg["value"].inputs:
@@ -462,13 +474,10 @@ class PlateMessenger(GlobalNamedMessenger):
         self.dim, self.indices = -indices.dim(), indices.squeeze()
         return self
 
-    def _pyro_sample(self, msg):
-        frame = CondIndepStackFrame(self.name, self.dim, self.size, 0)
-        msg["cond_indep_stack"] = (frame,) + msg["cond_indep_stack"]
-
-    def _pyro_param(self, msg):
-        frame = CondIndepStackFrame(self.name, self.dim, self.size, 0)
-        msg["cond_indep_stack"] = (frame,) + msg["cond_indep_stack"]
+    def process_message(self, msg):
+        if msg["type"] == "sample":
+            frame = CondIndepStackFrame(self.name, self.dim, self.size, 0)
+            msg["cond_indep_stack"] = (frame,) + msg["cond_indep_stack"]
 
 
 class EnumMessenger(BaseEnumMessenger):
@@ -476,9 +485,10 @@ class EnumMessenger(BaseEnumMessenger):
     This version of EnumMessenger uses to_data to allocate a fresh enumeration dim
     for each discrete sample site.
     """
-    def _pyro_sample(self, msg):
+    def process_message(self, msg):
 
-        if msg["done"] or msg["is_observed"] or msg["infer"].get("expand", False) or \
+        if msg["type"] != "sample" or \
+                msg["done"] or msg["is_observed"] or msg["infer"].get("expand", False) or \
                 msg["infer"].get("enumerate") != "parallel":
             return
 
@@ -506,9 +516,10 @@ class PackTraceMessenger(OrigTraceMessenger):
     Each sample site is annotated with a "dim_to_name" dictionary,
     which can be passed directly to funsor.to_funsor.
     """
-    def _pyro_post_sample(self, msg):
-        msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(msg["fn"].batch_shape)
-        super()._pyro_post_sample(msg)
+    def postprocess_message(self, msg):
+        if msg["type"] == "sample":
+            msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(msg["fn"].batch_shape)
+        super().postprocess_message(msg)
 
 
 def markov(fn=None, history=1, keep=False):
