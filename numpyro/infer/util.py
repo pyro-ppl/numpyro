@@ -182,19 +182,19 @@ def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, param
             value = site['value']
             intermediates = site['intermediates']
             mask = site['mask']
-            scale = site['scale']
+            # scale = site['scale']  # TODO handle scaling
             # Early exit when all elements are masked
             if not_jax_tracer(mask) and mask is not None and not np.any(mask):
                 continue
             if intermediates:
-                if skip_dist_transforms:
-                    log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
-                else:
-                    log_prob = site['fn'].log_prob(value, intermediates)
+                log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
             else:
                 log_prob = site['fn'].log_prob(value)
 
-            # TODO handle masking and scaling
+            # TODO handle masking and scaling together
+            if mask is not None:
+                log_prob = np.where(mask, log_prob, 0.)
+
             log_prob = funsor.to_funsor(log_prob, output=funsor.reals(), dim_to_name=site['infer']['dim_to_name'])
             log_factors.append(log_prob)
             sum_vars |= frozenset({site['name']})
@@ -204,7 +204,9 @@ def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, param
         t_log_det = t.log_abs_det_jacobian(params[name], params_constrained[name])
         if model_trace[name]['scale'] is not None:
             t_log_det = model_trace[name]['scale'] * t_log_det
-        log_factors.append(funsor.to_funsor(t_log_det, output=funsor.reals(), dim_to_name=model_trace[name]['infer']['dim_to_name']))
+        log_factors.append(funsor.to_funsor(
+            t_log_det, output=funsor.reals(),
+            dim_to_name=model_trace[name]['infer']['dim_to_name']))
 
     return -funsor.sum_product.sum_product(
         funsor.ops.logaddexp, funsor.ops.add, log_factors, sum_vars, prod_vars).data
