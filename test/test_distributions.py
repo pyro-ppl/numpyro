@@ -962,3 +962,16 @@ def test_generated_sample_distribution(jax_dist, sp_dist, params,
         our_samples = jax_dist.sample(key, (N_sample,))
         ks_result = osp.kstest(our_samples, sp_dist(*params).cdf)
         assert ks_result.pvalue > 0.05
+
+
+@pytest.mark.parametrize('jax_dist, params, support', [
+    (dist.BernoulliLogits, (5.,), np.arange(2)),
+    (dist.BernoulliProbs, (0.5,), np.arange(2)),
+    (dist.BinomialLogits, (4.5, 10), np.arange(11)),
+    (dist.BinomialProbs, (0.5, 11), np.arange(12)),
+    (dist.BetaBinomial, (2., 0.5, 12), np.arange(13)),
+    (dist.CategoricalLogits, (np.array([3., 4., 5.]),), np.arange(3)),
+    (dist.CategoricalProbs, (np.array([[0.1, 0.5, 0.4]]),), np.arange(3)),
+])
+def test_enumerate_support_smoke(jax_dist, params, support):
+    assert_allclose(jax_dist(*params).enumerate_support(), support)

@@ -48,7 +48,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     validate_sample,
 )
-from numpyro.util import copy_docs_from
+from numpyro.util import copy_docs_from, not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):
@@ -93,6 +93,9 @@ class BernoulliProbs(Distribution):
     def variance(self):
         return self.probs * (1 - self.probs)
 
+    def enumerate_support(self):
+        return np.arange(2)
+
 
 @copy_docs_from(Distribution)
 class BernoulliLogits(Distribution):
@@ -121,6 +124,9 @@ class BernoulliLogits(Distribution):
     @property
     def variance(self):
         return self.probs * (1 - self.probs)
+
+    def enumerate_support(self):
+        return np.arange(2)
 
 
 def Bernoulli(probs=None, logits=None, validate_args=None):
@@ -165,6 +171,15 @@ class BinomialProbs(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
+    def enumerate_support(self):
+        total_count = np.amax(self.total_count)
+        if not_jax_tracer(total_count):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            if np.amin(self.total_count) != total_count:
+                raise NotImplementedError("Inhomogeneous total count not supported"
+                                          " by `enumerate_support`.")
+        return np.arange(total_count + 1)
+
 
 @copy_docs_from(Distribution)
 class BinomialLogits(Distribution):
@@ -205,6 +220,14 @@ class BinomialLogits(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
+    def enumerate_support(self):
+        total_count = np.amax(self.total_count)
+        if not_jax_tracer(total_count):
+            if np.amin(self.total_count) != total_count:
+                raise NotImplementedError("Inhomogeneous total count not supported"
+                                          " by `enumerate_support`.")
+        return np.arange(total_count + 1)
+
 
 def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
     if probs is not None:
@@ -218,6 +241,7 @@ def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
 @copy_docs_from(Distribution)
 class CategoricalProbs(Distribution):
     arg_constraints = {'probs': constraints.simplex}
+    has_enumerate_support = True
 
     def __init__(self, probs, validate_args=None):
         if np.ndim(probs) < 1:
@@ -249,6 +273,9 @@ class CategoricalProbs(Distribution):
     @property
     def support(self):
         return constraints.integer_interval(0, np.shape(self.probs)[-1])
+
+    def enumerate_support(self):
+        return np.arange(self.probs.shape[-1])
 
 
 @copy_docs_from(Distribution)
@@ -289,6 +316,9 @@ class CategoricalLogits(Distribution):
     @property
     def support(self):
         return constraints.integer_interval(0, np.shape(self.logits)[-1])
+
+    def enumerate_support(self):
+        return np.arange(self.logits.shape[-1])
 
 
 def Categorical(probs=None, logits=None, validate_args=None):

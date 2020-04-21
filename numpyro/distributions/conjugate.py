@@ -10,6 +10,7 @@ from numpyro.distributions.continuous import Beta, Gamma
 from numpyro.distributions.discrete import Binomial, Poisson
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import promote_shapes, validate_sample
+from numpyro.util import not_jax_tracer
 
 
 class BetaBinomial(Distribution):
@@ -62,6 +63,15 @@ class BetaBinomial(Distribution):
     @property
     def support(self):
         return constraints.integer_interval(0, self.total_count)
+
+    def enumerate_support(self):
+        total_count = np.amax(self.total_count)
+        if not_jax_tracer(total_count):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            if np.amin(self.total_count) != total_count:
+                raise NotImplementedError("Inhomogeneous total count not supported"
+                                          " by `enumerate_support`.")
+        return np.arange(total_count + 1)
 
 
 class GammaPoisson(Distribution):
