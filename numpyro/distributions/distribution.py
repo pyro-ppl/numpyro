@@ -100,6 +100,7 @@ class Distribution(object):
     """
     arg_constraints = {}
     support = None
+    has_enumerate_support = False
     reparametrized_params = []
     _validate_args = False
 
@@ -229,6 +230,13 @@ class Distribution(object):
         if reinterpreted_batch_ndims is None:
             reinterpreted_batch_ndims = len(self.batch_shape)
         return Independent(self, reinterpreted_batch_ndims)
+
+    def enumerate_support(self, expand=False):
+        """
+        Returns an array with shape `len(support) x batch_shape`
+        containing all values in the support.
+        """
+        raise NotImplementedError
 
 
 class Independent(Distribution):
