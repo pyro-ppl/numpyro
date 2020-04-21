@@ -73,6 +73,8 @@ def _to_logits_multinom(probs):
 class BernoulliProbs(Distribution):
     arg_constraints = {'probs': constraints.unit_interval}
     support = constraints.boolean
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
@@ -101,6 +103,8 @@ class BernoulliProbs(Distribution):
 class BernoulliLogits(Distribution):
     arg_constraints = {'logits': constraints.real}
     support = constraints.boolean
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, logits=None, validate_args=None):
         self.logits = logits
@@ -142,6 +146,8 @@ def Bernoulli(probs=None, logits=None, validate_args=None):
 class BinomialProbs(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'probs': constraints.unit_interval}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
@@ -185,6 +191,8 @@ class BinomialProbs(Distribution):
 class BinomialLogits(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'logits': constraints.real}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
         self.logits, self.total_count = promote_shapes(logits, total_count)
@@ -242,6 +250,7 @@ def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
 class CategoricalProbs(Distribution):
     arg_constraints = {'probs': constraints.simplex}
     has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         if np.ndim(probs) < 1:
@@ -281,6 +290,8 @@ class CategoricalProbs(Distribution):
 @copy_docs_from(Distribution)
 class CategoricalLogits(Distribution):
     arg_constraints = {'logits': constraints.real}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, logits, validate_args=None):
         if np.ndim(logits) < 1:
@@ -334,6 +345,7 @@ def Categorical(probs=None, logits=None, validate_args=None):
 class Delta(Distribution):
     arg_constraints = {'value': constraints.real, 'log_density': constraints.real}
     support = constraints.real
+    is_discrete = True
 
     def __init__(self, value=0., log_density=0., event_ndim=0, validate_args=None):
         if event_ndim > np.ndim(value):
@@ -399,6 +411,8 @@ class PRNGIdentity(Distribution):
     draw a batch of :func:`~jax.random.PRNGKey` using the :class:`~numpyro.handlers.seed`
     handler. Only `sample` method is supported.
     """
+    is_discrete = True
+
     def __init__(self):
         super(PRNGIdentity, self).__init__(event_shape=(2,))
 
@@ -411,6 +425,7 @@ class PRNGIdentity(Distribution):
 class MultinomialProbs(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'probs': constraints.simplex}
+    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         if np.ndim(probs) < 1:
@@ -449,6 +464,7 @@ class MultinomialProbs(Distribution):
 class MultinomialLogits(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'logits': constraints.real}
+    is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
         if np.ndim(logits) < 1:
@@ -501,6 +517,7 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
 class Poisson(Distribution):
     arg_constraints = {'rate': constraints.positive}
     support = constraints.nonnegative_integer
+    is_discrete = True
 
     def __init__(self, rate, validate_args=None):
         self.rate = rate
@@ -533,6 +550,7 @@ class ZeroInflatedPoisson(Distribution):
     """
     arg_constraints = {'gate': constraints.unit_interval, 'rate': constraints.positive}
     support = constraints.nonnegative_integer
+    is_discrete = True
 
     def __init__(self, gate, rate=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(gate), np.shape(rate))

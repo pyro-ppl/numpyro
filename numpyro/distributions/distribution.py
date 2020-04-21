@@ -233,7 +233,7 @@ class Distribution(object):
 
     def enumerate_support(self):
         """
-        Returns an array containing all values in the support.
+        Returns a 1D array containing all values in the support.
         """
         raise NotImplementedError
 

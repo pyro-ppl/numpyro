@@ -28,6 +28,8 @@ class BetaBinomial(Distribution):
     """
     arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive,
                        'total_count': constraints.nonnegative_integer}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, concentration1, concentration0, total_count=1, validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(concentration1), np.shape(concentration0),
@@ -86,6 +88,7 @@ class GammaPoisson(Distribution):
     """
     arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
     support = constraints.nonnegative_integer
+    is_discrete = True
 
     def __init__(self, concentration, rate=1., validate_args=None):
         self._gamma = Gamma(concentration, rate)
