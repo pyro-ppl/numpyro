@@ -8,6 +8,7 @@ import pickle
 import sys
 
 import jax.numpy as np
+import funsor
 
 from numpyro.distributions import constraints
 
@@ -18,7 +19,7 @@ from numpyro.primitives import sample as pyro_sample
 from numpyro.primitives import param as pyro_param
 
 import numpyro.infer.enum_messenger
-from numpyro.infer.enum_messenger import enum, infer_config
+from numpyro.infer.enum_messenger import enum, infer_config, to_funsor
 from numpyro.infer.enum_messenger import plate as pyro_plate
 from numpyro.infer.enum_messenger import markov as pyro_markov
 from numpyro.infer.enum_messenger import trace as packed_trace
@@ -248,7 +249,7 @@ def main(args):
     sequences = sequences[..., present_notes]
 
     if args.truncate:
-        lengths = lengths.clamp(max=args.truncate)
+        lengths = lengths.clip(0, args.truncate)
         sequences = sequences[:, :args.truncate]
     num_observations = float(lengths.sum())
 
@@ -260,6 +261,10 @@ def main(args):
     # automatically printed on most errors inside SVI.
     model_trace = packed_trace(enum(seed(model, 42), -max_plate_nesting - 1)).get_trace(
         sequences, lengths, args=args)
+    for name in model_trace:
+        if model_trace[name]['is_observed'] or model_trace[name]['infer'].get('enumerate', None) == 'parallel':
+            logging.info(to_funsor(model_trace[name]['fn'].log_prob(model_trace[name]['value']),
+                                   output=funsor.reals(), dim_to_name=model_trace[name]['infer']['dim_to_name']).inputs)
     # TODO implement format_shapes?
     # logging.info(model_trace.format_shapes())
 

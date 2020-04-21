@@ -517,8 +517,13 @@ class trace(OrigTraceMessenger):
     which can be passed directly to funsor.to_funsor.
     """
     def postprocess_message(self, msg):
-        if msg["type"] == "sample":
-            msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(msg["fn"].batch_shape)
+        if msg["type"] == "sample" and \
+                (msg["infer"].get("enumerate", None) == "parallel" or msg["is_observed"]):
+            total_batch_shape = lax.broadcast_shapes(
+                msg["fn"].batch_shape,
+                msg["value"].shape[:len(msg["value"].shape)-len(msg["fn"].event_shape)]
+            )
+            msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(total_batch_shape)
         if msg["type"] in ("sample", "param"):
             super().postprocess_message(msg)
 
