@@ -102,7 +102,7 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=(), **kwargs):
         'is_observed': obs is not None,
         'intermediates': [],
         'cond_indep_stack': [],
-        'infer': kwargs.get("infer", {}),
+        'infer': kwargs.pop("infer", {}),
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -144,7 +144,7 @@ def param(name, init_value=None, **kwargs):
         'mask': None,
         'scale': None,
         'cond_indep_stack': [],
-        'infer': kwargs.get('infer', {}),
+        'infer': kwargs.pop('infer', {}),
     }
 
     # ...and use apply_stack to send it to the Messengers
