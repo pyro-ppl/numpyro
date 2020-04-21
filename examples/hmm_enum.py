@@ -6,17 +6,20 @@ import contextlib
 import logging
 import pickle
 import sys
+import time
 
+from jax import random
 import jax.numpy as np
 import funsor
 
-from numpyro.distributions import constraints
-
+import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions import constraints
 from numpyro.handlers import seed
 from numpyro.handlers import mask as numpyro_mask
 from numpyro.primitives import sample as pyro_sample
 from numpyro.primitives import param as pyro_param
+from numpyro.infer import MCMC, NUTS
 
 import numpyro.infer.enum_messenger
 from numpyro.infer.enum_messenger import enum, infer_config, to_funsor
@@ -47,8 +50,13 @@ def model_0(sequences, lengths, args, include_prior=True):
                               dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
                                   .to_event(1))
         probs_y = pyro_sample("probs_y",
-                              dist.Beta(0.1, 0.9),
-                              sample_shape=(args.hidden_dim, data_dim))
+                              # the parameter expansion here is unfortunate, and
+                              # necessitated by the fact that NumPyro allows some
+                              # batch dimensions that are not plate or enum dims
+                              dist.Beta(0.1 * np.ones((args.hidden_dim, data_dim)),
+                                        0.9 * np.ones((args.hidden_dim, data_dim))
+                                ).to_event(2))  #,
+
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     for i in pyro_plate("sequences", len(sequences)):
         length = lengths[i]
@@ -64,10 +72,6 @@ def model_0(sequences, lengths, args, include_prior=True):
 
 
 def model_1(sequences, lengths, args, include_prior=True):
-    # Sometimes it is safe to ignore jit warnings. Here we use the
-    # pyro.util.ignore_jit_warnings context manager to silence warnings about
-    # conversion to integer, since we know all three numbers will be the same
-    # across all invocations to the model.
     with ignore_jit_warnings():
         num_sequences, max_length, data_dim = map(int, sequences.shape)
         assert lengths.shape == (num_sequences,)
@@ -77,8 +81,13 @@ def model_1(sequences, lengths, args, include_prior=True):
                               dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
                                   .to_event(1))
         probs_y = pyro_sample("probs_y",
-                              dist.Beta(0.1, 0.9),
-                              sample_shape=(args.hidden_dim, data_dim))
+                              # the parameter expansion here is unfortunate, and
+                              # necessitated by the fact that NumPyro allows some
+                              # batch dimensions that are not plate or enum dims
+                              dist.Beta(0.1 * np.ones((args.hidden_dim, data_dim)),
+                                        0.9 * np.ones((args.hidden_dim, data_dim))
+                                ).to_event(2))  #,
+                              #sample_shape=(args.hidden_dim, data_dim))
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
@@ -259,29 +268,42 @@ def main(args):
     # To help debug our tensor shapes, let's print the shape of each site's
     # distribution, value, and log_prob tensor. Note this information is
     # automatically printed on most errors inside SVI.
-    model_trace = packed_trace(enum(seed(model, 42), -max_plate_nesting - 1)).get_trace(
-        sequences, lengths, args=args)
-    for name in model_trace:
-        if model_trace[name]['is_observed'] or model_trace[name]['infer'].get('enumerate', None) == 'parallel':
-            logging.info(to_funsor(model_trace[name]['fn'].log_prob(model_trace[name]['value']),
-                                   output=funsor.reals(), dim_to_name=model_trace[name]['infer']['dim_to_name']).inputs)
-    # TODO implement format_shapes?
-    # logging.info(model_trace.format_shapes())
+    if args.print_shapes:
+        model_trace = packed_trace(enum(seed(model, 42), -max_plate_nesting - 1)).get_trace(
+            sequences, lengths, args=args)
+        for name in model_trace:
+            if model_trace[name]['is_observed'] or model_trace[name]['infer'].get('enumerate', None) == 'parallel':
+                logging.info(to_funsor(model_trace[name]['fn'].log_prob(model_trace[name]['value']),
+                                       output=funsor.reals(), dim_to_name=model_trace[name]['infer']['dim_to_name']).inputs)
 
-    # TODO use HMC for inference
+    logging.info('Starting inference...')
+    rng_key = random.PRNGKey(2)
+    start = time.time()
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
+    mcmc.run(rng_key, sequences, lengths, args=args)
+    samples = mcmc.get_samples()
+    logging.info('\nMCMC elapsed time:', time.time() - start)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="HMC for HMMs")
     parser.add_argument("-m", "--model", default="1", type=str,
                         help="one of: {}".format(", ".join(sorted(models.keys()))))
-    parser.add_argument("-n", "--num-steps", default=50, type=int)
+    parser.add_argument('-n', '--num-samples', nargs='?', default=1000, type=int)
+
     parser.add_argument("-d", "--hidden-dim", default=16, type=int)
-    parser.add_argument("-t", "--truncate", type=int)
-    parser.add_argument("-p", "--print-shapes", action="store_true")
-    parser.add_argument("--seed", default=0, type=int)
-    parser.add_argument('--cuda', action='store_true')
+    parser.add_argument("--truncate", type=int)
+    parser.add_argument("--print-shapes", action="store_true")
+    parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
+    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
+    parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument('--jit', action='store_true')
     parser.add_argument('--time-compilation', action='store_true')
+
     args = parser.parse_args()
+
+    numpyro.set_platform(args.device)
+    numpyro.set_host_device_count(args.num_chains)
+
     main(args)
