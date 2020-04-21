@@ -231,9 +231,10 @@ class Distribution(object):
             reinterpreted_batch_ndims = len(self.batch_shape)
         return Independent(self, reinterpreted_batch_ndims)
 
-    def enumerate_support(self):
+    def enumerate_support(self, expand=False):
         """
-        Returns a 1D array containing all values in the support.
+        Returns an array with shape `len(support) x batch_shape`
+        containing all values in the support.
         """
         raise NotImplementedError
 

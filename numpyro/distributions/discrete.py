@@ -95,8 +95,11 @@ class BernoulliProbs(Distribution):
     def variance(self):
         return self.probs * (1 - self.probs)
 
-    def enumerate_support(self):
-        return np.arange(2)
+    def enumerate_support(self, expand=False):
+        values = np.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
 
 
 @copy_docs_from(Distribution)
@@ -129,8 +132,11 @@ class BernoulliLogits(Distribution):
     def variance(self):
         return self.probs * (1 - self.probs)
 
-    def enumerate_support(self):
-        return np.arange(2)
+    def enumerate_support(self, expand=False):
+        values = np.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
 
 
 def Bernoulli(probs=None, logits=None, validate_args=None):
@@ -177,14 +183,17 @@ class BinomialProbs(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
-    def enumerate_support(self):
+    def enumerate_support(self, expand=False):
         total_count = np.amax(self.total_count)
         if not_jax_tracer(total_count):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
             if np.amin(self.total_count) != total_count:
                 raise NotImplementedError("Inhomogeneous total count not supported"
                                           " by `enumerate_support`.")
-        return np.arange(total_count + 1)
+        values = np.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
 
 
 @copy_docs_from(Distribution)
@@ -228,13 +237,17 @@ class BinomialLogits(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
-    def enumerate_support(self):
+    def enumerate_support(self, expand=False):
         total_count = np.amax(self.total_count)
         if not_jax_tracer(total_count):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
             if np.amin(self.total_count) != total_count:
                 raise NotImplementedError("Inhomogeneous total count not supported"
                                           " by `enumerate_support`.")
-        return np.arange(total_count + 1)
+        values = np.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
 
 
 def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
@@ -283,8 +296,11 @@ class CategoricalProbs(Distribution):
     def support(self):
         return constraints.integer_interval(0, np.shape(self.probs)[-1])
 
-    def enumerate_support(self):
-        return np.arange(self.probs.shape[-1])
+    def enumerate_support(self, expand=False):
+        values = np.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
 
 
 @copy_docs_from(Distribution)
@@ -328,8 +344,11 @@ class CategoricalLogits(Distribution):
     def support(self):
         return constraints.integer_interval(0, np.shape(self.logits)[-1])
 
-    def enumerate_support(self):
-        return np.arange(self.logits.shape[-1])
+    def enumerate_support(self, expand=False):
+        values = np.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
 
 
 def Categorical(probs=None, logits=None, validate_args=None):
