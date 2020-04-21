@@ -6,12 +6,12 @@ from contextlib import ExitStack  # python 3
 from enum import Enum
 
 from jax import lax
+import jax.numpy as np
 
 import funsor
 
-from numpyro.handlers import apply_stack
 from numpyro.handlers import trace as OrigTraceMessenger
-from numpyro.primitives import CondIndepStackFrame, Messenger
+from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
 
 funsor.set_backend("jax")
 
@@ -295,13 +295,13 @@ class LocalNamedMessenger(NamedMessenger):
         level can depend on each other; if ``keep=False``, neighboring branches
         are independent (conditioned on their shared ancestors).
     """
-    def __init__(self, history=1, keep=False):
+    def __init__(self, fn=None, history=1, keep=False):
         self.history = history
         self.keep = keep
         self._iterable = None
         self._saved_frames = []
         self._iter_parents = ()
-        super().__init__()
+        super().__init__(fn)
 
     def generator(self, iterable):
         self._iterable = iterable
@@ -430,15 +430,19 @@ class plate(GlobalNamedMessenger):
             OrderedDict([(self.name, funsor.bint(self.size))]),
             self.size
         )
-        super(plate, self).__init__()
+        super(plate, self).__init__(None)
 
     def __enter__(self):
         super().__enter__()  # do this first to take care of globals recycling
         name_to_dim = OrderedDict([(self.name, self.dim)]) if self.dim is not None else OrderedDict()
         indices = to_data(self._indices, name_to_dim=name_to_dim, dim_type=DimType.VISIBLE)
         # extract the dimension allocated by to_data to match plate's current behavior
-        self.dim, self.indices = -indices.dim(), indices.squeeze()
-        return self
+        self.dim, self.indices = -len(indices.shape), indices.squeeze()
+        return self.indices
+
+    def __iter__(self):
+        for i in markov(range(self.size), history=0, keep=False):
+            yield i
 
     @staticmethod
     def _get_batch_shape(cond_indep_stack):
@@ -450,7 +454,7 @@ class plate(GlobalNamedMessenger):
 
     def process_message(self, msg):  # copied almost verbatim from plate
         if msg['type'] not in ('sample',):
-            return
+            return super().process_message(msg)
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
@@ -481,7 +485,7 @@ class enum(BaseEnumMessenger):
     def process_message(self, msg):
 
         if msg["type"] != "sample" or \
-                msg["done"] or msg["is_observed"] or msg["infer"].get("expand", False) or \
+                msg.get("done", False) or msg["is_observed"] or msg["infer"].get("expand", False) or \
                 msg["infer"].get("enumerate") != "parallel":
             return
 
@@ -491,8 +495,11 @@ class enum(BaseEnumMessenger):
         if msg["infer"].get("expand", False):
             raise NotImplementedError("expand=True not implemented")
 
-        raw_value = msg["fn"].enumerate_support(expand=False).squeeze()
-        size = raw_value.numel()
+        if not type(msg["fn"]).__name__.startswith("Categorical"):
+            raise NotImplementedError("TODO support other discrete distributions")
+
+        size = msg["fn"].probs.shape[-1]
+        raw_value = np.arange(0, size)
         funsor_value = funsor.Tensor(
             raw_value,
             OrderedDict([(msg["name"], funsor.bint(size))]),
@@ -512,7 +519,8 @@ class trace(OrigTraceMessenger):
     def postprocess_message(self, msg):
         if msg["type"] == "sample":
             msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(msg["fn"].batch_shape)
-        super().postprocess_message(msg)
+        if msg["type"] in ("sample", "param"):
+            super().postprocess_message(msg)
 
 
 def markov(fn=None, history=1, keep=False):
@@ -545,13 +553,15 @@ class infer_config(Messenger):
 ####################
 
 def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
+    dim_to_name = OrderedDict() if dim_to_name is None else dim_to_name
 
     initial_msg = {
         'type': 'to_funsor',
-        'fn': funsor.to_funsor,
+        'fn': lambda x, output, dim_to_name, dim_type: funsor.to_funsor(x, output=output, dim_to_name=dim_to_name),
         'args': (x,),
         'kwargs': {"output": output, "dim_to_name": dim_to_name, "dim_type": dim_type},
         'value': None,
+        'mask': None,
     }
 
     msg = apply_stack(initial_msg)
@@ -559,13 +569,15 @@ def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
 
 
 def to_data(x, name_to_dim=None, dim_type=DimType.LOCAL):
+    name_to_dim = OrderedDict() if name_to_dim is None else name_to_dim
 
     initial_msg = {
         'type': 'to_data',
-        'fn': funsor.to_data,
+        'fn': lambda x, name_to_dim, dim_type: funsor.to_data(x, name_to_dim=name_to_dim),
         'args': (x,),
         'kwargs': {"name_to_dim": name_to_dim, "dim_type": dim_type},
         'value': None,
+        'mask': None,
     }
 
     msg = apply_stack(initial_msg)

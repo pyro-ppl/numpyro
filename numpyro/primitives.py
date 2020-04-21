@@ -66,7 +66,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
+def sample(name, fn, obs=None, rng_key=None, sample_shape=(), **kwargs):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -102,6 +102,7 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         'is_observed': obs is not None,
         'intermediates': [],
         'cond_indep_stack': [],
+        'infer': kwargs.get("infer", {}),
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -143,6 +144,7 @@ def param(name, init_value=None, **kwargs):
         'mask': None,
         'scale': None,
         'cond_indep_stack': [],
+        'infer': kwargs.get('infer', {}),
     }
 
     # ...and use apply_stack to send it to the Messengers
