@@ -183,7 +183,7 @@ class BinomialProbs(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
-    def enumerate_support(self, expand=False):
+    def enumerate_support(self, expand=True):
         total_count = np.amax(self.total_count)
         if not_jax_tracer(total_count):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
