@@ -261,7 +261,7 @@ class ExpandedDistribution(Distribution):
         # adjust batch shape
         self.expand(batch_shape)
 
-    def expand(self, batch_shape, _instance=None):
+    def expand(self, batch_shape):
         # Do basic validation. e.g. we should not "unexpand" distributions even if that is possible.
         new_shape, _, _ = self._broadcast_shape(self.batch_shape, batch_shape)
         # Record interstitial and expanded dims/sizes w.r.t. the base distribution
