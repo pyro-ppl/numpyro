@@ -252,6 +252,19 @@ class Distribution(object):
         """
         return ExpandedDistribution(self, batch_shape)
 
+    def mask(self, mask):
+        """
+        Masks a distribution by a boolean or boolean-valued array that is
+        broadcastable to the distributions
+        :attr:`Distribution.batch_shape` .
+
+        :param mask: A boolean or boolean valued array.
+        :type mask: bool or np.ndarray
+        :return: A masked copy of this distribution.
+        :rtype: :class:`MaskedDistribution`
+        """
+        return MaskedDistribution(self, mask)
+
 
 class ExpandedDistribution(Distribution):
     arg_constraints = {}
@@ -425,7 +438,7 @@ class MaskedDistribution(Distribution):
         if isinstance(mask, bool):
             self._mask = mask
         else:
-            batch_shape = lax.broadcast_shape(np.shape(mask), base_dist.batch_shape)
+            batch_shape = lax.broadcast_shapes(np.shape(mask), base_dist.batch_shape)
             if mask.shape != batch_shape:
                 mask = np.broadcast_to(mask, batch_shape)
             if base_dist.batch_shape != batch_shape:
@@ -437,6 +450,10 @@ class MaskedDistribution(Distribution):
     @property
     def has_enumerate_support(self):
         return self.base_dist.has_enumerate_support
+
+    @property
+    def is_discrete(self):
+        return self.base_dist.is_discrete
 
     @property
     def support(self):

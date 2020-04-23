@@ -1008,3 +1008,25 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
     if prepend_shape:
         with pytest.raises(ValueError, match="Cannot broadcast distribution of shape"):
             assert expanded_dist.expand((3,) + jax_dist.batch_shape)
+
+
+@pytest.mark.parametrize('batch_shape, mask_shape', [
+    ((), ()),
+    ((2,), ()),
+    ((), (2,)),
+    ((2,), (2,)),
+    ((4, 2), (1, 2)),
+    ((2,), (4, 2)),
+])
+@pytest.mark.parametrize('event_shape', [
+    (),
+    (3,)
+])
+def test_mask(batch_shape, event_shape, mask_shape):
+    jax_dist = dist.Normal().expand(batch_shape + event_shape).to_event(len(event_shape))
+    mask = dist.Bernoulli(0.5).sample(random.PRNGKey(0), mask_shape)
+    if mask_shape == ():
+        mask = bool(mask)
+    samples = jax_dist.sample(random.PRNGKey(1))
+    actual = jax_dist.mask(mask).log_prob(samples)
+    assert_allclose(actual != 0, np.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
