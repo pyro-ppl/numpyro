@@ -982,3 +982,29 @@ def test_enumerate_support_smoke(jax_dist, params, support, batch_shape, expand)
     if expand:
         expected = np.broadcast_to(expected, support.shape + batch_shape)
     assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('prepend_shape', [
+    (),
+    (2, 3),
+])
+@pytest.mark.parametrize('sample_shape', [
+    (),
+    (4,),
+])
+def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
+    jax_dist = jax_dist(*params)
+    new_batch_shape = prepend_shape + jax_dist.batch_shape
+    expanded_dist = jax_dist.expand(new_batch_shape)
+    rng_key = random.PRNGKey(0)
+    samples = expanded_dist.sample(rng_key, sample_shape)
+    assert expanded_dist.batch_shape == new_batch_shape
+    assert samples.shape == sample_shape + new_batch_shape + jax_dist.event_shape
+    assert expanded_dist.log_prob(samples).shape == sample_shape + new_batch_shape
+    # test expand of expand
+    assert expanded_dist.expand((3,) + new_batch_shape).batch_shape == (3,) + new_batch_shape
+    # test expand error
+    if prepend_shape:
+        with pytest.raises(ValueError, match="Cannot broadcast distribution of shape"):
+            assert expanded_dist.expand((3,) + jax_dist.batch_shape)

@@ -25,6 +25,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+from collections import OrderedDict
 from contextlib import contextmanager
 import warnings
 
@@ -101,6 +102,7 @@ class Distribution(object):
     arg_constraints = {}
     support = None
     has_enumerate_support = False
+    is_discrete = False
     reparametrized_params = []
     _validate_args = False
 
@@ -231,12 +233,110 @@ class Distribution(object):
             reinterpreted_batch_ndims = len(self.batch_shape)
         return Independent(self, reinterpreted_batch_ndims)
 
-    def enumerate_support(self, expand=False):
+    def enumerate_support(self, expand=True):
         """
         Returns an array with shape `len(support) x batch_shape`
         containing all values in the support.
         """
         raise NotImplementedError
+
+    def expand(self, batch_shape):
+        """
+        Returns a new :class:`ExpandedDistribution` instance with batch
+        dimensions expanded to `batch_shape`.
+
+        :param tuple batch_shape: batch shape to expand to.
+        :return: an instance of `ExpandedDistribution`.
+        :rtype: :class:`ExpandedDistribution`
+        """
+        return ExpandedDistribution(self, batch_shape)
+
+
+class ExpandedDistribution(Distribution):
+    arg_constraints = {}
+
+    def __init__(self, base_dist, batch_shape=()):
+        self.base_dist = base_dist
+        super().__init__(base_dist.batch_shape, base_dist.event_shape)
+        # adjust batch shape
+        self.expand(batch_shape)
+
+    def expand(self, batch_shape):
+        # Do basic validation. e.g. we should not "unexpand" distributions even if that is possible.
+        new_shape, _, _ = self._broadcast_shape(self.batch_shape, batch_shape)
+        # Record interstitial and expanded dims/sizes w.r.t. the base distribution
+        new_shape, expanded_sizes, interstitial_sizes = self._broadcast_shape(self.base_dist.batch_shape,
+                                                                              new_shape)
+        self._batch_shape = new_shape
+        self._expanded_sizes = expanded_sizes
+        self._interstitial_sizes = interstitial_sizes
+        return self
+
+    @staticmethod
+    def _broadcast_shape(existing_shape, new_shape):
+        if len(new_shape) < len(existing_shape):
+            raise ValueError("Cannot broadcast distribution of shape {} to shape {}"
+                             .format(existing_shape, new_shape))
+        reversed_shape = list(reversed(existing_shape))
+        expanded_sizes, interstitial_sizes = [], []
+        for i, size in enumerate(reversed(new_shape)):
+            if i >= len(reversed_shape):
+                reversed_shape.append(size)
+                expanded_sizes.append((-i - 1, size))
+            elif reversed_shape[i] == 1:
+                if size != 1:
+                    reversed_shape[i] = size
+                    interstitial_sizes.append((-i - 1, size))
+            elif reversed_shape[i] != size:
+                raise ValueError("Cannot broadcast distribution of shape {} to shape {}"
+                                 .format(existing_shape, new_shape))
+        return tuple(reversed(reversed_shape)), OrderedDict(expanded_sizes), OrderedDict(interstitial_sizes)
+
+    @property
+    def has_enumerate_support(self):
+        return self.base_dist.has_enumerate_support
+
+    @property
+    def is_discrete(self):
+        return self.base_dist.is_discrete
+
+    @property
+    def support(self):
+        return self.base_dist.support
+
+    def sample(self, key, sample_shape=()):
+        interstitial_dims = tuple(self._interstitial_sizes.keys())
+        interstitial_dims = tuple(i - self.event_dim for i in interstitial_dims)
+        interstitial_sizes = tuple(self._interstitial_sizes.values())
+        expanded_sizes = tuple(self._expanded_sizes.values())
+        batch_shape = expanded_sizes + interstitial_sizes
+        samples = self.base_dist.sample(key, sample_shape + batch_shape)
+        interstitial_idx = len(sample_shape) + len(expanded_sizes)
+        interstitial_sample_dims = tuple(range(interstitial_idx, interstitial_idx + len(interstitial_sizes)))
+        for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
+            samples = np.swapaxes(samples, dim1, dim2)
+        return samples.reshape(sample_shape + self.batch_shape + self.event_shape)
+
+    def log_prob(self, value):
+        shape = lax.broadcast_shapes(self.batch_shape, np.shape(value)[:max(np.ndim(value) - len(self.event_shape), 0)])
+        log_prob = self.base_dist.log_prob(value)
+        return np.broadcast_to(log_prob, shape)
+
+    def enumerate_support(self, expand=True):
+        samples = self.base_dist.enumerate_support(expand=False)
+        enum_shape = samples.shape[:1]
+        samples = samples.reshape(enum_shape + (1,) * len(self.batch_shape))
+        if expand:
+            samples = samples.expand(enum_shape + self.batch_shape)
+        return samples
+
+    @property
+    def mean(self):
+        return np.broadcast_to(self.base_dist.mean, self.batch_shape + self.event_shape)
+
+    @property
+    def variance(self):
+        return np.broadcast_to(self.base_dist.variance, self.batch_shape + self.event_shape)
 
 
 class Independent(Distribution):
@@ -279,6 +379,14 @@ class Independent(Distribution):
     @property
     def support(self):
         return self.base_dist.support
+
+    @property
+    def has_enumerate_support(self):
+        return self.base_dist.has_enumerate_support
+
+    @property
+    def is_discrete(self):
+        return self.base_dist.is_discrete
 
     @property
     def reparameterized_params(self):
