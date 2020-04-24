@@ -10,6 +10,7 @@ from numpyro.distributions.continuous import Beta, Gamma
 from numpyro.distributions.discrete import Binomial, Poisson
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import promote_shapes, validate_sample
+from numpyro.util import not_jax_tracer
 
 
 class BetaBinomial(Distribution):
@@ -27,6 +28,8 @@ class BetaBinomial(Distribution):
     """
     arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive,
                        'total_count': constraints.nonnegative_integer}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, concentration1, concentration0, total_count=1, validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(concentration1), np.shape(concentration0),
@@ -63,6 +66,18 @@ class BetaBinomial(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
+    def enumerate_support(self, expand=True):
+        total_count = np.amax(self.total_count)
+        if not_jax_tracer(total_count):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            if np.amin(self.total_count) != total_count:
+                raise NotImplementedError("Inhomogeneous total count not supported"
+                                          " by `enumerate_support`.")
+        values = np.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
 
 class GammaPoisson(Distribution):
     r"""
@@ -76,6 +91,7 @@ class GammaPoisson(Distribution):
     """
     arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
     support = constraints.nonnegative_integer
+    is_discrete = True
 
     def __init__(self, concentration, rate=1., validate_args=None):
         self._gamma = Gamma(concentration, rate)
