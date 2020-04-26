@@ -268,6 +268,8 @@ def init_to_prior():
 
 def _init_to_uniform(site, radius=2, skip_param=False):
     if site['type'] == 'sample' and not site['is_observed']:
+        if site['fn'].has_enumerate_support:
+            return site['value']
         if isinstance(site['fn'], dist.TransformedDistribution):
             fn = site['fn'].base_dist
         else:
@@ -380,7 +382,9 @@ def find_valid_initial_params(rng_key, model,
         constrained_values, inv_transforms = {}, {}
         for k, v in model_trace.items():
             if v['type'] == 'sample' and not v['is_observed']:
-                if v['intermediates']:
+                if v['fn'].has_enumerate_support:
+                    continue
+                elif v['intermediates']:
                     constrained_values[k] = v['intermediates'][0][0]
                     inv_transforms[k] = biject_to(v['fn'].base_dist.support)
                 else:
@@ -433,7 +437,9 @@ def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
     replay_model = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
-            if v['intermediates']:
+            if v['fn'].has_enumerate_support:
+                continue
+            elif v['intermediates']:
                 inv_transforms[k] = biject_to(v['fn'].base_dist.support)
                 replay_model = True
             else:

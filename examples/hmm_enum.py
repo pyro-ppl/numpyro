@@ -19,7 +19,7 @@ from numpyro.handlers import seed
 from numpyro.handlers import mask as numpyro_mask
 from numpyro.primitives import sample as pyro_sample
 from numpyro.primitives import param as pyro_param
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import HMC, MCMC, NUTS
 
 import numpyro.infer.enum_messenger
 from numpyro.infer.enum_messenger import enum, infer_config, to_funsor
@@ -249,8 +249,8 @@ def main(args):
     logging.info('-' * 40)
     logging.info('Training {} on {} sequences'.format(
         model.__name__, len(data['sequences'])))
-    sequences = data['sequences']
-    lengths = data['sequence_lengths']
+    sequences = np.array(data['sequences'])[0:16]
+    lengths = np.array(data['sequence_lengths'])[0:16]
 
     # find all the notes that are present at least once in the training set
     present_notes = ((sequences == 1).sum(0).sum(0) > 0)
@@ -279,7 +279,7 @@ def main(args):
     logging.info('Starting inference...')
     rng_key = random.PRNGKey(2)
     start = time.time()
-    kernel = NUTS(model)
+    kernel = {'nuts': NUTS, 'hmc': HMC}[args.kernel](enum(model, -max_plate_nesting - 1))
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
     mcmc.run(rng_key, sequences, lengths, args=args)
     samples = mcmc.get_samples()
@@ -295,6 +295,7 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--hidden-dim", default=16, type=int)
     parser.add_argument("--truncate", type=int)
     parser.add_argument("--print-shapes", action="store_true")
+    parser.add_argument("--kernel", default='nuts', type=str)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
