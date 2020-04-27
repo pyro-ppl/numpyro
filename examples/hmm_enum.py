@@ -16,15 +16,13 @@ import funsor
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions import constraints
 from numpyro.handlers import seed
 from numpyro.handlers import mask as numpyro_mask
 from numpyro.primitives import sample as pyro_sample
-from numpyro.primitives import param as pyro_param
 from numpyro.infer import HMC, MCMC, NUTS
 
 import numpyro.infer.enum_messenger
-from numpyro.infer.enum_messenger import enum, infer_config, to_funsor
+from numpyro.infer.enum_messenger import enum, to_funsor
 from numpyro.infer.enum_messenger import plate as pyro_plate
 from numpyro.infer.enum_messenger import markov as pyro_markov
 from numpyro.infer.enum_messenger import trace as packed_trace
@@ -45,6 +43,10 @@ def ignore_jit_warnings():
     yield None
 
 
+def Vindex(x):
+    return x  # TODO work around lack of Vindex in numpyro
+
+
 def model_0(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with numpyro_mask(mask_array=include_prior):
@@ -57,7 +59,7 @@ def model_0(sequences, lengths, args, include_prior=True):
                               # batch dimensions that are not plate or enum dims
                               dist.Beta(0.1 * np.ones((args.hidden_dim, data_dim)),
                                         0.9 * np.ones((args.hidden_dim, data_dim))
-                                ).to_event(2))  #,
+                                        ).to_event(2))
 
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     for i in pyro_plate("sequences", len(sequences)):
@@ -88,8 +90,8 @@ def model_1(sequences, lengths, args, include_prior=True):
                               # batch dimensions that are not plate or enum dims
                               dist.Beta(0.1 * np.ones((args.hidden_dim, data_dim)),
                                         0.9 * np.ones((args.hidden_dim, data_dim))
-                                ).to_event(2))  #,
-                              #sample_shape=(args.hidden_dim, data_dim))
+                                        ).to_event(2))
+
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
@@ -226,8 +228,6 @@ def model_4(sequences, lengths, args, include_prior=True):
             with numpyro_mask(mask_array=(t < lengths).unsqueeze(-1)):
                 w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
                                 infer={"enumerate": "parallel"})
-                # TODO work around lack of Vindex in numpyro
-                Vindex = lambda x: x
                 x = pyro_sample("x_{}".format(t),
                                 dist.Categorical(Vindex(probs_x)[w, x]),
                                 infer={"enumerate": "parallel"})
@@ -264,7 +264,6 @@ def main(args):
     if args.truncate:
         lengths = lengths.clip(0, args.truncate)
         sequences = sequences[:, :args.truncate]
-    num_observations = float(lengths.sum())
 
     # All of our models have two plates: "data" and "tones".
     max_plate_nesting = 1 if model is model_0 else 2
@@ -277,8 +276,9 @@ def main(args):
             sequences, lengths, args=args)
         for name in model_trace:
             if model_trace[name]['is_observed'] or model_trace[name]['infer'].get('enumerate', None) == 'parallel':
+                dim_to_name = model_trace[name]['infer']['dim_to_name']
                 logging.info(to_funsor(model_trace[name]['fn'].log_prob(model_trace[name]['value']),
-                                       output=funsor.reals(), dim_to_name=model_trace[name]['infer']['dim_to_name']).inputs)
+                                       output=funsor.reals(), dim_to_name=dim_to_name).inputs)
 
     logging.info('Starting inference...')
     rng_key = random.PRNGKey(2)
@@ -286,7 +286,7 @@ def main(args):
     kernel = {'nuts': NUTS, 'hmc': HMC}[args.kernel](enum(model, -max_plate_nesting - 1))
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
     mcmc.run(rng_key, sequences, lengths, args=args)
-    samples = mcmc.get_samples()
+    # samples = mcmc.get_samples()  # TODO do something with this
     logging.info('\nMCMC elapsed time:', time.time() - start)
 
 

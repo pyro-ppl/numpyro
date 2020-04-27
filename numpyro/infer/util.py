@@ -16,7 +16,6 @@ from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.handlers import block, seed, substitute, trace
 from numpyro.util import not_jax_tracer, while_loop
 
-from .enum_messenger import enum
 from .enum_messenger import trace as packed_trace
 
 
@@ -490,11 +489,11 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
         to values that lie within the site's support, and return values at
         `deterministic` sites in the model.
     """
-    potential_energy = enum_potential_energy if enum else potential_energy
+    _potential_energy = enum_potential_energy if enum else potential_energy
     if dynamic_args:
         def potential_fn(*args, **kwargs):
             inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
-            return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
+            return jax.partial(_potential_energy, model, inv_transforms, args, kwargs)
 
         def postprocess_fn(*args, **kwargs):
             inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
@@ -505,7 +504,7 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
                 return jax.partial(transform_fn, inv_transforms)
     else:
         inv_transforms, replay_model = get_model_transforms(rng_key, model, model_args, model_kwargs)
-        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
+        potential_fn = jax.partial(_potential_energy, model, inv_transforms, model_args, model_kwargs)
         if replay_model:
             postprocess_fn = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs,
                                          return_deterministic=True)
