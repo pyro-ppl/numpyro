@@ -8,8 +8,10 @@ import pickle
 import sys
 import time
 
+import jax
 from jax import random
 import jax.numpy as np
+
 import funsor
 
 import numpyro
@@ -245,12 +247,14 @@ def main(args):
 
     with open('./hmm_enum_data.pkl', 'rb') as f:
         data = pickle.load(f)
+    data['sequences'] = data['sequences'][0:args.num_sequences]
+    data['lengths'] = data['lengths'][0:args.num_sequences]
 
     logging.info('-' * 40)
     logging.info('Training {} on {} sequences'.format(
         model.__name__, len(data['sequences'])))
-    sequences = np.array(data['sequences'])[0:16]
-    lengths = np.array(data['sequence_lengths'])[0:16]
+    sequences = np.array(data['sequences'])
+    lengths = np.array(data['sequence_lengths'])
 
     # find all the notes that are present at least once in the training set
     present_notes = ((sequences == 1).sum(0).sum(0) > 0)
@@ -294,17 +298,22 @@ if __name__ == '__main__':
 
     parser.add_argument("-d", "--hidden-dim", default=16, type=int)
     parser.add_argument("--truncate", type=int)
+    parser.add_argument("--num-sequences", default=17, type=int)
     parser.add_argument("--print-shapes", action="store_true")
     parser.add_argument("--kernel", default='nuts', type=str)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
-    parser.add_argument('--jit', action='store_true')
     parser.add_argument('--time-compilation', action='store_true')
+    parser.add_argument('--debug', action='store_true')
 
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
 
-    main(args)
+    if args.debug:
+        with jax.disable_jit():
+            main(args)
+    else:
+        main(args)

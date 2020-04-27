@@ -173,8 +173,8 @@ def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, param
     funsor.set_backend("jax")
 
     params_constrained = transform_fn(inv_transforms, params)
-    model = substitute(model, base_param_map=params)
-    model_trace = packed_trace(enum(model)).get_trace(*model_args, **model_kwargs)
+    model = substitute(model, base_param_map=params_constrained)
+    model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
     log_factors = []
     sum_vars, prod_vars = frozenset(), frozenset()
     for site in model_trace.values():
@@ -204,12 +204,22 @@ def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, param
         t_log_det = t.log_abs_det_jacobian(params[name], params_constrained[name])
         if model_trace[name]['scale'] is not None:
             t_log_det = model_trace[name]['scale'] * t_log_det
+        keepdims = False
+        for d in range(-len(t_log_det.shape), 0, 1):
+            if d not in model_trace[name]['infer']['dim_to_name']:
+                t_log_det = t_log_det.sum(d, keepdims=keepdims)
+            else:
+                keepdims = True
         log_factors.append(funsor.to_funsor(
             t_log_det, output=funsor.reals(),
             dim_to_name=model_trace[name]['infer']['dim_to_name']))
 
-    return -funsor.sum_product.sum_product(
-        funsor.ops.logaddexp, funsor.ops.add, log_factors, sum_vars, prod_vars).data
+    with funsor.interpreter.interpretation(funsor.terms.lazy):
+        lazy_result = funsor.sum_product.sum_product(
+            funsor.ops.logaddexp, funsor.ops.add, log_factors,
+            eliminate=sum_vars | prod_vars, plates=prod_vars)
+    result = funsor.optimizer.apply_optimizer(lazy_result)
+    return -result.data
 
 
 def transformed_potential_energy(potential_energy, inv_transform, z):
@@ -457,7 +467,7 @@ def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
     return inv_transforms, replay_model
 
 
-def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kwargs=None):
+def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kwargs=None, enum=True):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
     function which, given unconstrained parameters, evaluates the potential
@@ -480,6 +490,7 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
         to values that lie within the site's support, and return values at
         `deterministic` sites in the model.
     """
+    potential_energy = enum_potential_energy if enum else potential_energy
     if dynamic_args:
         def potential_fn(*args, **kwargs):
             inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
