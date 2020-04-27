@@ -94,7 +94,7 @@ def model_1(sequences, lengths, args, include_prior=True):
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         x = 0
-        for t in pyro_markov(range(max_length if args.jit else lengths.max())):
+        for t in pyro_markov(range(max_length)):
             with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
                 probs_xx = probs_x[x]
                 probs_xx = np.broadcast_to(probs_xx, probs_xx.shape[:-3] + (num_sequences, 1) + probs_xx.shape[-1:])
@@ -131,7 +131,7 @@ def model_2(sequences, lengths, args, include_prior=True):
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         x, y = 0, 0
-        for t in pyro_markov(range(max_length if args.jit else lengths.max())):
+        for t in pyro_markov(range(max_length)):
             with numpyro_mask(mask_array=(t < lengths).unsqueeze(-1)):
                 x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
                                 infer={"enumerate": "parallel"})
@@ -176,7 +176,7 @@ def model_3(sequences, lengths, args, include_prior=True):
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         w, x = 0, 0
-        for t in pyro_markov(range(max_length if args.jit else lengths.max())):
+        for t in pyro_markov(range(max_length)):
             with numpyro_mask(mask_array=(t < lengths).unsqueeze(-1)):
                 w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
                                 infer={"enumerate": "parallel"})
@@ -222,7 +222,7 @@ def model_4(sequences, lengths, args, include_prior=True):
         # ensure that w and x are always tensors so we can unsqueeze them below,
         # thus ensuring that the x sample sites have correct distribution shape.
         w = x = np.array(0)
-        for t in pyro_markov(range(max_length if args.jit else lengths.max())):
+        for t in pyro_markov(range(max_length)):
             with numpyro_mask(mask_array=(t < lengths).unsqueeze(-1)):
                 w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
                                 infer={"enumerate": "parallel"})
@@ -248,7 +248,7 @@ def main(args):
     with open('./hmm_enum_data.pkl', 'rb') as f:
         data = pickle.load(f)
     data['sequences'] = data['sequences'][0:args.num_sequences]
-    data['lengths'] = data['lengths'][0:args.num_sequences]
+    data['sequence_lengths'] = data['sequence_lengths'][0:args.num_sequences]
 
     logging.info('-' * 40)
     logging.info('Training {} on {} sequences'.format(
