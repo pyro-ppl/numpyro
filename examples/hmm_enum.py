@@ -126,23 +126,33 @@ def model_2(sequences, lengths, args, include_prior=True):
         probs_x = pyro_sample("probs_x",
                               dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
                                   .to_event(1))
+
+        probs_y_shape = (args.hidden_dim, 2, data_dim)
         probs_y = pyro_sample("probs_y",
-                              dist.Beta(0.1, 0.9),
-                              sample_shape=(args.hidden_dim, 2, data_dim))
+                              dist.Beta(np.full(probs_y_shape, 0.1),
+                                        np.full(probs_y_shape, 0.9))
+                                  .to_event(len(probs_y_shape)))
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         x, y = 0, 0
         for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths).unsqueeze(-1)):
-                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
+            with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
+                probs_xx = probs_x[x]
+                probs_xx = np.broadcast_to(probs_xx, probs_xx.shape[:-3] + (num_sequences, 1) + probs_xx.shape[-1:])
+                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_xx),
                                 infer={"enumerate": "parallel"})
+                logging.info(f"x[{t}]: {x.shape}")
                 # Note the broadcasting tricks here: to index probs_y on tensors x and y,
                 # we also need a final tensor for the tones dimension. This is conveniently
                 # provided by the plate associated with that dimension.
                 with tones_plate as tones:
-                    y = pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[x, y, tones]),
-                                    obs=sequences[batch, t]).long()
+                    probs_yx = probs_y[x, y, tones]
+                    probs_yx = np.broadcast_to(probs_yx, probs_yx.shape[:-2] + (num_sequences,) + probs_yx.shape[-1:])
+                    y = pyro_sample("y_{}".format(t),
+                                    dist.Bernoulli(probs_yx),
+                                    obs=sequences[batch, t]).astype(np.int32)
+                    # dist.Bernoulli(probs_y[x, y, tones]),
 
 
 # Next consider a Factorial HMM with two hidden states.
@@ -171,20 +181,32 @@ def model_3(sequences, lengths, args, include_prior=True):
         probs_x = pyro_sample("probs_x",
                               dist.Dirichlet(0.9 * np.eye(hidden_dim) + 0.1)
                                   .to_event(1))
+        probs_y_shape = (hidden_dim, hidden_dim, data_dim)
         probs_y = pyro_sample("probs_y",
-                              dist.Beta(0.1, 0.9),
-                              sample_shape=(hidden_dim, hidden_dim, data_dim))
+                              dist.Beta(np.full(probs_y_shape, 0.1),
+                                        np.full(probs_y_shape, 0.9))
+                                  .to_event(len(probs_y_shape)))
+
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         w, x = 0, 0
         for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths).unsqueeze(-1)):
-                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
+            with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
+                probs_ww = probs_w[w]
+                probs_ww = np.broadcast_to(probs_ww, probs_ww.shape[:-3] + (num_sequences, 1) + probs_ww.shape[-1:])
+                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_ww),
                                 infer={"enumerate": "parallel"})
-                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
+                logging.info(f"w[{t}]: {w.shape}")
+
+                probs_xx = probs_x[x]
+                probs_xx = np.broadcast_to(probs_xx, probs_xx.shape[:-3] + (num_sequences, 1) + probs_xx.shape[-1:])
+                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_xx),
                                 infer={"enumerate": "parallel"})
+                logging.info(f"x[{t}]: {x.shape}")
+
                 with tones_plate as tones:
+                    # TODO get this index right
                     pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[w, x, tones]),
                                 obs=sequences[batch, t])
 
