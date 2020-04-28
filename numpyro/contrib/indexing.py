@@ -5,7 +5,7 @@ import jax.numpy as np
 
 
 def _is_batched(arg):
-    return isinstance(arg, np.ndarray) and len(arg.shape) > 0
+    return np.ndim(arg) > 0
 
 
 def vindex(tensor, args):
@@ -82,23 +82,24 @@ def vindex(tensor, args):
     if not args:
         return tensor
 
+    assert np.ndim(tensor) > 0
     # Compute event dim before and after indexing.
     if args[0] is Ellipsis:
         args = args[1:]
         if not args:
             return tensor
         old_event_dim = len(args)
-        args = (slice(None),) * (len(tensor.shape) - len(args)) + args
+        args = (slice(None),) * (np.ndim(tensor) - len(args)) + args
     else:
-        args = args + (slice(None),) * (len(tensor.shape) - len(args))
+        args = args + (slice(None),) * (np.ndim(tensor) - len(args))
         old_event_dim = len(args)
-    assert len(args) == len(tensor.shape)
+    assert len(args) == np.ndim(tensor)
     if any(a is Ellipsis for a in args):
         raise NotImplementedError("Non-leading Ellipsis is not supported")
 
     # In simple cases, standard advanced indexing broadcasts correctly.
     is_standard = True
-    if len(tensor.shape) > old_event_dim and _is_batched(args[0]):
+    if np.ndim(tensor) > old_event_dim and _is_batched(args[0]):
         is_standard = False
     elif any(_is_batched(a) for a in args[1:]):
         is_standard = False
