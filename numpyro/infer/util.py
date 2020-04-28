@@ -9,6 +9,9 @@ from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
+import funsor
+funsor.set_backend("jax")
+
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.constraints import real
@@ -168,9 +171,6 @@ def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
 
 
 def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, params):
-    import funsor
-    funsor.set_backend("jax")
-
     params_constrained = transform_fn(inv_transforms, params)
     model = substitute(model, base_param_map=params_constrained)
     model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
