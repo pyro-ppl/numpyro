@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
-import contextlib
 import logging
 import pickle
 import sys
@@ -20,6 +19,7 @@ from numpyro.handlers import seed
 from numpyro.handlers import mask as numpyro_mask
 from numpyro.primitives import sample as pyro_sample
 from numpyro.infer import HMC, MCMC, NUTS
+from numpyro.contrib.indexing import Vindex
 
 import numpyro.infer.enum_messenger
 from numpyro.infer.enum_messenger import enum, to_funsor
@@ -36,15 +36,6 @@ debug_handler = logging.StreamHandler(sys.stdout)
 debug_handler.setLevel(logging.DEBUG)
 debug_handler.addFilter(filter=lambda record: record.levelno <= logging.DEBUG)
 log.addHandler(debug_handler)
-
-
-@contextlib.contextmanager
-def ignore_jit_warnings():
-    yield None
-
-
-def Vindex(x):
-    return x  # TODO work around lack of Vindex in numpyro
 
 
 def model_0(sequences, lengths, args, include_prior=True):
@@ -76,10 +67,7 @@ def model_0(sequences, lengths, args, include_prior=True):
 
 
 def model_1(sequences, lengths, args, include_prior=True):
-    with ignore_jit_warnings():
-        num_sequences, max_length, data_dim = map(int, sequences.shape)
-        assert lengths.shape == (num_sequences,)
-        assert lengths.max() <= max_length
+    num_sequences, max_length, data_dim = sequences.shape
     with numpyro_mask(mask_array=include_prior):
         probs_x = pyro_sample("probs_x",
                               dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
@@ -118,10 +106,7 @@ def model_1(sequences, lengths, args, include_prior=True):
 #        V        V         V
 #     y[t-1] --> y[t] --> y[t+1]
 def model_2(sequences, lengths, args, include_prior=True):
-    with ignore_jit_warnings():
-        num_sequences, max_length, data_dim = map(int, sequences.shape)
-        assert lengths.shape == (num_sequences,)
-        assert lengths.max() <= max_length
+    num_sequences, max_length, data_dim = sequences.shape
     with numpyro_mask(mask_array=include_prior):
         probs_x = pyro_sample("probs_x",
                               dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
@@ -169,10 +154,7 @@ def model_2(sequences, lengths, args, include_prior=True):
 # For that reason, we set the dimension of each to the square root of the
 # target hidden dimension.
 def model_3(sequences, lengths, args, include_prior=True):
-    with ignore_jit_warnings():
-        num_sequences, max_length, data_dim = map(int, sequences.shape)
-        assert lengths.shape == (num_sequences,)
-        assert lengths.max() <= max_length
+    num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
     with numpyro_mask(mask_array=include_prior):
         probs_w = pyro_sample("probs_w",
@@ -206,8 +188,10 @@ def model_3(sequences, lengths, args, include_prior=True):
                 logging.info(f"x[{t}]: {x.shape}")
 
                 with tones_plate as tones:
-                    # TODO get this index right
-                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[w, x, tones]),
+                    probs_ywx = probs_y[w, x, tones]
+                    probs_ywx = np.broadcast_to(
+                        probs_ywx, probs_ywx.shape[:-2] + (num_sequences,) + probs_ywx.shape[-1:])
+                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_ywx),
                                 obs=sequences[batch, t])
 
 
@@ -224,21 +208,24 @@ def model_3(sequences, lengths, args, include_prior=True):
 # Note that message passing here has roughly the same cost as with the
 # Factorial HMM, but this model has more parameters.
 def model_4(sequences, lengths, args, include_prior=True):
-    with ignore_jit_warnings():
-        num_sequences, max_length, data_dim = map(int, sequences.shape)
-        assert lengths.shape == (num_sequences,)
-        assert lengths.max() <= max_length
+    num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
     with numpyro_mask(mask_array=include_prior):
         probs_w = pyro_sample("probs_w",
                               dist.Dirichlet(0.9 * np.eye(hidden_dim) + 0.1)
                                   .to_event(1))
         probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(0.9 * np.eye(hidden_dim) + 0.1).to_event(1),
-                              sample_shape=(hidden_dim,))
+                              dist.Dirichlet(
+                                  np.broadcast_to(0.9 * np.eye(hidden_dim) + 0.1,
+                                                  (hidden_dim, hidden_dim, hidden_dim)))
+                                  .to_event(2))
+
+        probs_y_shape = (hidden_dim, hidden_dim, data_dim)
         probs_y = pyro_sample("probs_y",
-                              dist.Beta(0.1, 0.9),
-                              sample_shape=(hidden_dim, hidden_dim, data_dim))
+                              dist.Beta(np.full(probs_y_shape, 0.1),
+                                        np.full(probs_y_shape, 0.9))
+                                  .to_event(len(probs_y_shape)))
+
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
@@ -247,14 +234,23 @@ def model_4(sequences, lengths, args, include_prior=True):
         # thus ensuring that the x sample sites have correct distribution shape.
         w = x = np.array(0)
         for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths).unsqueeze(-1)):
-                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
+            with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
+                probs_ww = probs_w[w]
+                probs_ww = np.broadcast_to(probs_ww, probs_ww.shape[:-3] + (num_sequences, 1) + probs_ww.shape[-1:])
+                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_ww),
                                 infer={"enumerate": "parallel"})
+
+                probs_xwx = Vindex(probs_x)[w, x]
+                probs_xwx = np.broadcast_to(probs_xwx, probs_xwx.shape[:-3] + (num_sequences, 1) + probs_xwx.shape[-1:])
                 x = pyro_sample("x_{}".format(t),
-                                dist.Categorical(Vindex(probs_x)[w, x]),
+                                dist.Categorical(probs_xwx),
                                 infer={"enumerate": "parallel"})
+
                 with tones_plate as tones:
-                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[w, x, tones]),
+                    probs_ywx = probs_y[w, x, tones]
+                    probs_ywx = np.broadcast_to(
+                        probs_ywx, probs_ywx.shape[:-2] + (num_sequences,) + probs_ywx.shape[-1:])
+                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_ywx),
                                 obs=sequences[batch, t])
 
 
