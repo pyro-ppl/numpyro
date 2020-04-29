@@ -32,7 +32,7 @@ def raw_einsum(operands, equation=None, plates=None, backend='funsor.einsum.nump
 
 PLATED_EINSUM_EXAMPLES = [
     make_plated_hmm_einsum(num_steps, num_obs_plates=b, num_hidden_plates=a)
-    for num_steps in range(3, 50, 6)
+    for num_steps in range(2, 102, 10)
     for (a, b) in [(0, 1), (0, 2), (0, 0), (1, 1), (1, 2)]
 ]
 
@@ -68,7 +68,7 @@ def raw_hmm_with_indexing(operands, equation=None, backend='funsor.einsum.numpy_
 
 
 @pytest.mark.parametrize('equation', [
-    make_hmm_einsum(t) for t in range(2, 50, 10)
+    make_hmm_einsum(t) for t in range(2, 102, 10)
 ])
 @pytest.mark.parametrize('backend', [
     'funsor.einsum.numpy_log',
