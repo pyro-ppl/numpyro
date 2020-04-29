@@ -78,9 +78,9 @@ def print_results(coef: np.ndarray, interval_size: float = 0.95) -> None:
     baseline_response = expit(coef[:, 0])
     response_with_calls = expit(coef[:, 0] + coef[:, 1])
 
-    impact_on_probability = hpdi(response_with_calls - baseline_response, prob=0.95)
+    impact_on_probability = hpdi(response_with_calls - baseline_response, prob=interval_size)
 
-    effect_of_gender = hpdi(coef[:, 2], prob=0.95)
+    effect_of_gender = hpdi(coef[:, 2], prob=interval_size)
 
     print(f"There is a {interval_size * 100}% probability that calling customers "
           "increases the chance they'll make a purchase by "
