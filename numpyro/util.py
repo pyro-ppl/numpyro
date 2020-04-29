@@ -273,10 +273,10 @@ def copy_docs_from(source_class, full_text=False):
     return decorator
 
 
-pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype'])
+pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'event_size', 'dtype'])
 
 
-def _ravel_list(*leaves):
+def _ravel_list(*leaves, batch_dims):
     leaves_metadata = tree_map(lambda l: pytree_metadata(
         jnp.ravel(l), jnp.shape(l), jnp.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
     leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.size for d in leaves_metadata)))
@@ -290,11 +290,26 @@ def _ravel_list(*leaves):
     return flat, unravel_list
 
 
-def ravel_pytree(pytree):
+def ravel_pytree(pytree, *, batch_dims=0):
     leaves, treedef = tree_flatten(pytree)
-    flat, unravel_list = _ravel_list(*leaves)
+    flat, unravel_list, unravel_list_batched = _ravel_list(*leaves, batch_dims=batch_dims)
 
     def unravel_pytree(arr):
         return tree_unflatten(treedef, unravel_list(arr))
 
-    return flat, unravel_pytree
+    def unravel_pytree_batched(arr):
+        return tree_unflatten(treedef, unravel_list_batched(arr))
+
+    if batch_dims > 0:
+        return flat, unravel_pytree, unravel_pytree_batched
+    else:
+        return flat, unravel_pytree
+
+def sqrth(m):
+    mlambda, mvec = np.linalg.eigh(m)
+    if np.ndim(mlambda) >= 2:
+        mlambdasqrt = jax.vmap(lambda ml: np.diag(np.maximum(ml, 1e-5) ** 0.5), in_axes=tuple(range(np.ndim(mlambda) - 1)))(mlambda)
+    else:
+        mlambdasqrt = np.diag(np.maximum(mlambda, 1e-5) ** 0.5)
+    msqrt = mvec @ mlambdasqrt @ np.swapaxes(mvec, -2, -1)
+    return msqrt
