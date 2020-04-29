@@ -1010,6 +1010,35 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
             assert expanded_dist.expand((3,) + jax_dist.batch_shape)
 
 
+@pytest.mark.parametrize("extra_event_dims,expand_shape", [
+    (0, (4, 3, 2, 1)),
+    (0, (4, 3, 2, 2)),
+    (1, (5, 4, 3, 2)),
+    (2, (5, 4, 3)),
+])
+def test_expand_reshaped_distribution(extra_event_dims, expand_shape):
+    loc = np.zeros((1, 6))
+    scale_tril = np.eye(6)
+    d = dist.MultivariateNormal(loc, scale_tril=scale_tril)
+    full_shape = (4, 1, 1, 1, 6)
+    reshaped_dist = d.expand([4, 1, 1, 1]).to_event(extra_event_dims)
+    cut = 4 - extra_event_dims
+    batch_shape, event_shape = full_shape[:cut], full_shape[cut:]
+    assert reshaped_dist.batch_shape == batch_shape
+    assert reshaped_dist.event_shape == event_shape
+    large = reshaped_dist.expand(expand_shape)
+    assert large.batch_shape == expand_shape
+    assert large.event_shape == event_shape
+
+    # Throws error when batch shape cannot be broadcasted
+    with pytest.raises((RuntimeError, ValueError)):
+        reshaped_dist.expand(expand_shape + (3,))
+
+    # Throws error when trying to shrink existing batch shape
+    with pytest.raises((RuntimeError, ValueError)):
+        large.expand(expand_shape[1:])
+
+
 @pytest.mark.parametrize('batch_shape, mask_shape', [
     ((), ()),
     ((2,), ()),

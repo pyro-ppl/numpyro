@@ -31,7 +31,6 @@ import warnings
 
 import jax.numpy as np
 from jax import lax
-from jax.dtypes import canonicalize_dtype
 
 from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform
@@ -444,7 +443,7 @@ class MaskedDistribution(Distribution):
                 mask = np.broadcast_to(mask, batch_shape)
             if base_dist.batch_shape != batch_shape:
                 base_dist = base_dist.expand(batch_shape)
-            self._mask = mask.astype(canonicalize_dtype(np.int64))
+            self._mask = mask.astype('bool')
         self.base_dist = base_dist
         super().__init__(base_dist.batch_shape, base_dist.event_shape)
 
