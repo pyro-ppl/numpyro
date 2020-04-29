@@ -87,7 +87,7 @@ def print_results(coef: np.ndarray, interval_size: float = 0.95) -> None:
           f"{(100 * impact_on_probability[0]):.2} to {(100 * impact_on_probability[1]):.2} percentage points."
           )
 
-    print("There is a 95% probability the effect of gender on the log odds of conversion "
+    print(f"There is a {interval_size * 100}% probability the effect of gender on the log odds of conversion "
           f"lies in the interval ({effect_of_gender[0]:.2}, {effect_of_gender[1]:.2f})."
           " Since this interval contains 0, we can conclude gender does not impact the conversion rate.")
 
