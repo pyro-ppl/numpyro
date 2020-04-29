@@ -38,16 +38,15 @@ PLATED_EINSUM_EXAMPLES = [
 
 
 @pytest.mark.parametrize('equation,plates', PLATED_EINSUM_EXAMPLES)
-@pytest.mark.parametrize('backend', [
-    'funsor.einsum.numpy_log',
-])
-def test_optimized_plated_einsum_smoke(equation, plates, backend):
+@pytest.mark.parametrize('backend', ['funsor.einsum.numpy_log',])
+@pytest.mark.parametrize('sizes', [(2, 3), (16, 17)])
+def test_optimized_plated_einsum_smoke(equation, plates, backend, sizes):
 
     jit_raw_einsum = jax.jit(jax.value_and_grad(functools.partial(
         raw_einsum, equation=equation, plates=plates, backend=backend)))
 
     for i in range(2):
-        operands = make_einsum_example(equation)[3]
+        operands = make_einsum_example(equation, sizes=sizes)[3]
         actual, grads = jit_raw_einsum(operands)
         assert np.ndim(actual) == 0
 
@@ -67,18 +66,15 @@ def raw_hmm_with_indexing(operands, equation=None, backend='funsor.einsum.numpy_
     return raw_einsum(tuple(indexed_operands), equation=equation, plates=None, backend=backend)
 
 
-@pytest.mark.parametrize('equation', [
-    make_hmm_einsum(t) for t in range(2, 102, 10)
-])
-@pytest.mark.parametrize('backend', [
-    'funsor.einsum.numpy_log',
-])
-def test_hmm_einsum_smoke(equation, backend):
+@pytest.mark.parametrize('equation', [make_hmm_einsum(t) for t in range(2, 102, 10)])
+@pytest.mark.parametrize('backend', ['funsor.einsum.numpy_log',])
+@pytest.mark.parametrize('sizes', [(2, 3), (16, 17)])
+def test_hmm_einsum_smoke(equation, backend, sizes):
 
     jit_raw_einsum = jax.jit(jax.value_and_grad(functools.partial(
         raw_hmm_with_indexing, equation=equation, backend=backend)))
 
     for i in range(2):
-        operands = make_einsum_example(equation)[3]
+        operands = make_einsum_example(equation, sizes=sizes)[3]
         actual, grads = jit_raw_einsum(operands)
         assert np.ndim(actual) == 0
