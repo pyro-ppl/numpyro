@@ -320,7 +320,8 @@ class ExpandedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         interstitial_dims = tuple(self._interstitial_sizes.keys())
-        interstitial_dims = tuple(i - self.event_dim for i in interstitial_dims)
+        event_dim = len(self.event_shape)
+        interstitial_dims = tuple(i - event_dim for i in interstitial_dims)
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
