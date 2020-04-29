@@ -46,7 +46,7 @@ def test_optimized_plated_einsum_smoke(equation, plates, backend):
     jit_raw_einsum = jax.jit(jax.value_and_grad(functools.partial(
         raw_einsum, equation=equation, plates=plates, backend=backend)))
 
-    for i in range(3):
+    for i in range(2):
         operands = make_einsum_example(equation)[3]
         actual, grads = jit_raw_einsum(operands)
         assert np.ndim(actual) == 0
@@ -56,7 +56,7 @@ def raw_hmm_with_indexing(operands, equation=None, backend='funsor.einsum.numpy_
     indexed_operands = []
     for i, operand in enumerate(operands):
         if np.ndim(operand) == 1:
-            y = np.arange(operand.shape[1]).reshape((operand.shape[0], 1))
+            y = np.arange(operand.shape[0]).reshape((operand.shape[0], 1))
             indexed_operands.append(Vindex(operand)[y].squeeze())
         elif np.ndim(operand) == 2:
             x = np.arange(operand.shape[0]).reshape((operand.shape[0], 1, 1))
@@ -78,7 +78,7 @@ def test_hmm_einsum_smoke(equation, backend):
     jit_raw_einsum = jax.jit(jax.value_and_grad(functools.partial(
         raw_hmm_with_indexing, equation=equation, backend=backend)))
 
-    for i in range(3):
+    for i in range(2):
         operands = make_einsum_example(equation)[3]
         actual, grads = jit_raw_einsum(operands)
         assert np.ndim(actual) == 0
