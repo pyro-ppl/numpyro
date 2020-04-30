@@ -154,9 +154,10 @@ class SVGD:
         if self.sp_mode == 'local':
             _, ksd = self._svgd_loss_and_grads(rng_key, {**sp_mcmc_subset_uparams, **classic_uparams}, *args, **kwargs)
         else:
-            stein_uparams = {p: ops.index_update(v, subset_idxs, sp_mcmc_subset_uparams[:, mcmc_idx]) for p, v in stein_uparams.items() }
+            stein_uparams = {p: ops.index_update(v, subset_idxs, sp_mcmc_subset_uparams) for p, v in stein_uparams.items() }
             _, ksd = self._svgd_loss_and_grads(rng_key, {**stein_uparams, **classic_uparams}, *args, **kwargs)
-        return ksd
+        ksd_res = np.sum(np.concatenate([np.ravel(v) for v in ksd.values()]))
+        return ksd_res
 
 
     def _sp_mcmc(self, rng_key, unconstr_params, *args, **kwargs):
@@ -164,18 +165,18 @@ class SVGD:
         classic_uparams = {p: v for p, v in unconstr_params.items() if p not in self.guide_param_names or self.classic_guide_params_fn(p)}
         stein_uparams = {p: v for p, v in unconstr_params.items() if p not in classic_uparams}
 
-        # Fix classical parameters for MCMC run
-        self.mcmc.sampler._model = handlers.substitute(self.mcmc.sampler._model, self.constrain_fn(classic_uparams))
-
         # 1. Run warmup on a subset of particles to tune the MCMC state
         warmup_key, mcmc_key = jax.random.split(rng_key)
+        self.mcmc.sampler._potential_fn = lambda params: self.loss.loss(warmup_key, {**params, **self.constrain_fn(classic_uparams)}, 
+                                                                        self.model, self.guide, *args, **kwargs)
         if self.mcmc._warmup_state is None:
-            stein_subset_uparams = {p: v[0:self.num_mcmc_particles] for p, v in stein_uparams.items()}
-            self.mcmc.warmup(warmup_key, *args, init_params=self.constrain_fn(stein_subset_uparams), **kwargs)
+            stein_params = self.constrain_fn(stein_uparams)
+            stein_subset_params = {p: v[0:self.num_mcmc_particles] for p, v in stein_params.items()}
+            self.mcmc.warmup(warmup_key, *args, init_params=stein_subset_params, **kwargs)
 
         # 2. Choose MCMC particles
         mcmc_key, choice_key = jax.random.split(mcmc_key)
-        if self.num_stein_particles == self.num_stein_particles:
+        if self.num_mcmc_particles == self.num_stein_particles:
             idxs = np.arange(self.num_stein_particles)
         else:
             if self.sp_mcmc_crit == 'rand':
@@ -189,16 +190,17 @@ class SVGD:
                 assert False, "Unsupported SP MCMC criterion: {}".format(self.sp_mcmc_crit)
         
         # 3. Run MCMC on chosen particles
-        stein_subset_uparams = {p: v[idxs] for p, v in stein_uparams.items()}
-        self.mcmc.run(mcmc_key, *args, init_params=self.constrain_fn(stein_subset_uparams), **kwargs)
+        stein_params = self.constrain_fn(stein_uparams)
+        stein_subset_params = {p: v[idxs] for p, v in stein_params.items()}
+        self.mcmc.run(mcmc_key, *args, init_params=stein_subset_params, **kwargs)
         samples_subset_stein_params = self.mcmc.get_samples(group_by_chain=True)
         sss_uparams = self.uconstrain_fn(samples_subset_stein_params)
 
         # 4. Select best MCMC iteration to update particles
-        scores = jax.vmap(lambda sss_uparam_i: self._score_sp_mcmc(mcmc_key, idxs, stein_uparams, sss_uparam_i, 
-                                                                   classic_uparams, *args, **kwargs), in_axes=1)(sss_uparams)
+        scores = jax.vmap(lambda i: self._score_sp_mcmc(mcmc_key, idxs, stein_uparams, {p: v[:, i] for p, v in sss_uparams.items()}, 
+                                                        classic_uparams, *args, **kwargs))(np.arange(self.num_mcmc_particles))
         mcmc_idx = np.argmax(scores)
-        stein_uparams = {p: ops.index_update(v, idxs, sss_uparams[:, mcmc_idx]) for p, v in stein_uparams.items() }
+        stein_uparams = {p: ops.index_update(v, idxs, sss_uparams[p][:, mcmc_idx]) for p, v in stein_uparams.items() }
         return {**stein_uparams, **classic_uparams}
     
     def init(self, rng_key, *args, **kwargs):
@@ -215,7 +217,7 @@ class SVGD:
         guide_init = handlers.seed(self.guide, guide_seed)
         guide_trace = handlers.trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
         model_trace = handlers.trace(model_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        rng_key, particle_seed = jax.random.split(rng_key)
+        rng_key, particle_seed, mcmc_key = jax.random.split(rng_key, num=3)
         particle_seeds = jax.random.split(particle_seed, num=self.num_stein_particles)
         self.guide.find_params(particle_seeds, *args, **kwargs, **self.static_kwargs) # Get parameter values for each particle
         guide_init_params = self.guide.init_params()
@@ -242,7 +244,7 @@ class SVGD:
         self.uconstrain_fn = jax.partial(transform_fn, transforms)
         classic_uparam_names = {p for p in params.keys() if p not in self.guide_param_names or self.classic_guide_params_fn(p)}
         # Ensure not to sample parameters that should be classically updated
-        sampler = self.sampler_fn(handlers.block(self.model, lambda site: site['name'] in classic_uparam_names), **self.sampler_kwargs)
+        sampler = self.sampler_fn(potential_fn=lambda z: 0., **self.sampler_kwargs)
         self.mcmc = MCMC(sampler, self.num_mcmc_warmup, self.num_mcmc_updates, num_chains=self.num_mcmc_particles, progress_bar=False, 
                          **self.mcmc_kwargs)
         return SVGDState(self.optim.init(params), rng_key)
@@ -270,10 +272,15 @@ class SVGD:
         params = self.optim.get_params(state.optim_state)
         # Run Stein Point MCMC
         if self.num_mcmc_particles > 0:
-            params = self._sp_mcmc(rng_key_mcmc, params, *args, **kwargs, **self.static_kwargs)
+            new_params = self._sp_mcmc(rng_key_mcmc, params, *args, **kwargs, **self.static_kwargs)
+            grads = {p: new_params[p] - params[p] for p in params}
+            optim_state = self.optim.update(grads, state.optim_state)
+            params = self.optim.get_params(state.optim_state)
+        else:
+            optim_state = state.optim_state
         loss_val, grads = self._svgd_loss_and_grads(rng_key_step, params, 
                                                     *args, **kwargs, **self.static_kwargs)
-        optim_state = self.optim.update(grads, state.optim_state)
+        optim_state = self.optim.update(grads, optim_state)
         return SVGDState(optim_state, rng_key), loss_val
 
     def run(self, rng_key, num_steps, *args, return_last=True, progbar=True, **kwargs):
