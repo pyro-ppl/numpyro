@@ -202,7 +202,10 @@ def _poisson_large(val):
         cond2 = (k < 0) | ((us < 0.013) & (V > us))
         cond3 = ((np.log(V) + np.log(invalpha) - np.log(a / (us * us) + b))
                  <= (-lam + k * loglam - gammaln(k + 1)))
-        return (~cond1) & (cond2 | (~cond3))
+        cond4 = lam >= 10 # lax.cond in _poisson_one apparently may still
+                          # execute _poisson_large for small lam:
+                          # don't iterate if that is the case
+        return (~cond1) & (cond2 | (~cond3)) & cond4
 
     def body_fn(val):
         rng_key, *_ = val
@@ -221,6 +224,13 @@ def _poisson_small(val):
     rng_key, lam = val
     enlam = np.exp(-lam)
 
+    def cond_fn(val):
+        cond1 = val[1] > enlam
+        cond2 = lam < 10  # lax.cond in _poisson_one apparently may still
+                          # execute _poisson_small for large lam:
+                          # don't iterate if that is the case
+        return cond1 & cond2
+
     def body_fn(val):
         rng_key, prod, k = val
         rng_key, key_U = random.split(rng_key)
@@ -229,7 +239,7 @@ def _poisson_small(val):
         return rng_key, prod, k + 1
 
     init = np.where(lam == 0., 0., -1.)
-    *_, k = lax.while_loop(lambda val: val[1] > enlam, body_fn, (rng_key, 1., init))
+    *_, k = lax.while_loop(cond_fn, body_fn, (rng_key, 1., init))
     return k
 
 
