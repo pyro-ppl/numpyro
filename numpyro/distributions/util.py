@@ -415,10 +415,17 @@ def logmatmulexp(x, y):
     """
     Numerically stable version of ``(x.log() @ y.log()).exp()``.
     """
-    x_shift = np.amax(x, -1, keepdims=True)
-    y_shift = np.amax(y, -2, keepdims=True)
+    x_shift = lax.stop_gradient(np.amax(x, -1, keepdims=True))
+    y_shift = lax.stop_gradient(np.amax(y, -2, keepdims=True))
     xy = np.log(np.matmul(np.exp(x - x_shift), np.exp(y - y_shift)))
     return xy + x_shift + y_shift
+
+
+def logsumexp(x, axis=0, keepdims=False):
+    # TODO: remove when https://github.com/google/jax/pull/2260 merged upstream
+    x_max = lax.stop_gradient(np.amax(x, axis=axis, keepdims=True))
+    y = np.log(np.sum(np.exp(x - x_max), axis=axis, keepdims=True)) + x_max
+    return y if keepdims else y.squeeze(axis=axis)
 
 
 def clamp_probs(probs):

@@ -630,7 +630,7 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                         lambda x: _combine_tree(*x, False))
 
         leaf_idx = current_tree.num_proposals
-        # NB: in the special case leaf_idx=0, ckpt_idx_min=1 and ckpt_idx_max=1,
+        # NB: in the special case leaf_idx=0, ckpt_idx_min=1 and ckpt_idx_max=0,
         # the following logic is still valid for that case
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
         r, _ = ravel_pytree(new_leaf.r_right)
