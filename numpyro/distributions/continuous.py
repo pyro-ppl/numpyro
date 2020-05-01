@@ -1111,5 +1111,5 @@ class Logistic(Distribution):
 
     @property
     def variance(self):
-        var = (self.loc ** 2) * (np.pi ** 2) / 3
+        var = (self.scale ** 2) * (np.pi ** 2) / 3
         return np.broadcast_to(var, self.batch_shape)
