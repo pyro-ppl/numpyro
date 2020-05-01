@@ -29,6 +29,7 @@
 from jax import lax, ops
 import jax.numpy as np
 import jax.random as random
+import jax.nn as nn
 from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
 
@@ -1102,7 +1103,7 @@ class Logistic(Distribution):
     @validate_sample
     def log_prob(self, value):
         log_exponent = (self.loc - value) / self.scale
-        log_denominator = np.log(self.scale) + 2 * np.log(1 + np.exp(log_exponent))
+        log_denominator = np.log(self.scale) + 2 * nn.softplus(log_exponent)
         return log_exponent - log_denominator
 
     @property
