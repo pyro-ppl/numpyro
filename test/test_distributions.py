@@ -83,6 +83,7 @@ _DIST_MAP = {
     dist.Poisson: lambda rate: osp.poisson(rate),
     dist.StudentT: lambda df, loc, scale: osp.t(df=df, loc=loc, scale=scale),
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
+    dist.Logistic: lambda loc, scale: osp.logistic(loc=loc, scale=scale)
 }
 
 
@@ -123,6 +124,9 @@ CONTINUOUS = [
     pytest.param(*T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
                  marks=pytest.mark.skipif('CI' in os.environ, reason="reduce time for Travis")),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
+    T(dist.Logistic, 0, 1),
+    T(dist.Logistic, 1., np.array([1., 2.])),
+    T(dist.Logistic, np.array([0., 1.]), np.array([[1.], [2.]])),
     T(dist.LogNormal, 1., 0.2),
     T(dist.LogNormal, -1., np.array([0.5, 1.3])),
     T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),

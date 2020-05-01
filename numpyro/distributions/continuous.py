@@ -1082,3 +1082,34 @@ class Uniform(TransformedDistribution):
     @property
     def variance(self):
         return (self.high - self.low) ** 2 / 12.
+
+
+@copy_docs_from(Distribution)
+class Logistic(Distribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['loc', 'real']
+
+    def __init__(self, loc=0., scale=1., validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
+        super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        z = random.logistic(key, shape=sample_shape + self.batch_shape + self.event_shape)
+        return self.loc + z * self.scale
+
+    @validate_sample
+    def log_prob(self, value):
+        log_exponent = (self.loc - value) / self.scale
+        log_denominator = np.log(self.scale) + 2 * np.log(1 + np.exp(log_exponent))
+        return log_exponent - log_denominator
+
+    @property
+    def mean(self):
+        return np.broadcast_to(self.loc, self.batch_shape)
+
+    @property
+    def variance(self):
+        var = (self.loc ** 2) * (np.pi ** 2) / 3
+        return np.broadcast_to(var, self.batch_shape)
