@@ -124,7 +124,7 @@ CONTINUOUS = [
     pytest.param(*T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
                  marks=pytest.mark.skipif('CI' in os.environ, reason="reduce time for Travis")),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
-    T(dist.Logistic, 0, 1),
+    T(dist.Logistic, 0., 1.),
     T(dist.Logistic, 1., np.array([1., 2.])),
     T(dist.Logistic, np.array([0., 1.]), np.array([[1.], [2.]])),
     T(dist.LogNormal, 1., 0.2),
