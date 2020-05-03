@@ -314,7 +314,7 @@ class scale(Messenger):
         super(scale, self).__init__(fn)
 
     def process_message(self, msg):
-        msg["scale"] = self.scale if msg['scale'] is None else self.scale * msg['scale']
+        msg["scale"] = self.scale if msg.get('scale') is None else self.scale * msg['scale']
 
 
 class seed(Messenger):

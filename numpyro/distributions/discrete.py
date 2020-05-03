@@ -48,7 +48,7 @@ from numpyro.distributions.util import (
     _to_probs_multinom,
     validate_sample,
 )
-from numpyro.util import copy_docs_from
+from numpyro.util import copy_docs_from, not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):
@@ -69,6 +69,8 @@ def _to_logits_multinom(probs):
 class BernoulliProbs(Distribution):
     arg_constraints = {'probs': constraints.unit_interval}
     support = constraints.boolean
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
@@ -89,11 +91,19 @@ class BernoulliProbs(Distribution):
     def variance(self):
         return self.probs * (1 - self.probs)
 
+    def enumerate_support(self, expand=True):
+        values = np.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
 
 @copy_docs_from(Distribution)
 class BernoulliLogits(Distribution):
     arg_constraints = {'logits': constraints.real}
     support = constraints.boolean
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, logits=None, validate_args=None):
         self.logits = logits
@@ -118,6 +128,12 @@ class BernoulliLogits(Distribution):
     def variance(self):
         return self.probs * (1 - self.probs)
 
+    def enumerate_support(self, expand=True):
+        values = np.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
 
 def Bernoulli(probs=None, logits=None, validate_args=None):
     if probs is not None:
@@ -132,6 +148,8 @@ def Bernoulli(probs=None, logits=None, validate_args=None):
 class BinomialProbs(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'probs': constraints.unit_interval}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
@@ -161,11 +179,25 @@ class BinomialProbs(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
+    def enumerate_support(self, expand=True):
+        total_count = np.amax(self.total_count)
+        if not_jax_tracer(total_count):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            if np.amin(self.total_count) != total_count:
+                raise NotImplementedError("Inhomogeneous total count not supported"
+                                          " by `enumerate_support`.")
+        values = np.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
 
 @copy_docs_from(Distribution)
 class BinomialLogits(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'logits': constraints.real}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
         self.logits, self.total_count = promote_shapes(logits, total_count)
@@ -201,6 +233,18 @@ class BinomialLogits(Distribution):
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
+    def enumerate_support(self, expand=True):
+        total_count = np.amax(self.total_count)
+        if not_jax_tracer(total_count):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            if np.amin(self.total_count) != total_count:
+                raise NotImplementedError("Inhomogeneous total count not supported"
+                                          " by `enumerate_support`.")
+        values = np.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
 
 def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
     if probs is not None:
@@ -214,6 +258,8 @@ def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
 @copy_docs_from(Distribution)
 class CategoricalProbs(Distribution):
     arg_constraints = {'probs': constraints.simplex}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         if np.ndim(probs) < 1:
@@ -246,10 +292,18 @@ class CategoricalProbs(Distribution):
     def support(self):
         return constraints.integer_interval(0, np.shape(self.probs)[-1])
 
+    def enumerate_support(self, expand=True):
+        values = np.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
 
 @copy_docs_from(Distribution)
 class CategoricalLogits(Distribution):
     arg_constraints = {'logits': constraints.real}
+    has_enumerate_support = True
+    is_discrete = True
 
     def __init__(self, logits, validate_args=None):
         if np.ndim(logits) < 1:
@@ -286,6 +340,12 @@ class CategoricalLogits(Distribution):
     def support(self):
         return constraints.integer_interval(0, np.shape(self.logits)[-1])
 
+    def enumerate_support(self, expand=True):
+        values = np.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
+        if expand:
+            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+        return values
+
 
 def Categorical(probs=None, logits=None, validate_args=None):
     if probs is not None:
@@ -300,6 +360,7 @@ def Categorical(probs=None, logits=None, validate_args=None):
 class Delta(Distribution):
     arg_constraints = {'value': constraints.real, 'log_density': constraints.real}
     support = constraints.real
+    is_discrete = True
 
     def __init__(self, value=0., log_density=0., event_ndim=0, validate_args=None):
         if event_ndim > np.ndim(value):
@@ -365,6 +426,8 @@ class PRNGIdentity(Distribution):
     draw a batch of :func:`~jax.random.PRNGKey` using the :class:`~numpyro.handlers.seed`
     handler. Only `sample` method is supported.
     """
+    is_discrete = True
+
     def __init__(self):
         super(PRNGIdentity, self).__init__(event_shape=(2,))
 
@@ -377,6 +440,7 @@ class PRNGIdentity(Distribution):
 class MultinomialProbs(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'probs': constraints.simplex}
+    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         if np.ndim(probs) < 1:
@@ -415,6 +479,7 @@ class MultinomialProbs(Distribution):
 class MultinomialLogits(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
                        'logits': constraints.real}
+    is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
         if np.ndim(logits) < 1:
@@ -467,6 +532,7 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
 class Poisson(Distribution):
     arg_constraints = {'rate': constraints.positive}
     support = constraints.nonnegative_integer
+    is_discrete = True
 
     def __init__(self, rate, validate_args=None):
         self.rate = rate
@@ -499,6 +565,7 @@ class ZeroInflatedPoisson(Distribution):
     """
     arg_constraints = {'gate': constraints.unit_interval, 'rate': constraints.positive}
     support = constraints.nonnegative_integer
+    is_discrete = True
 
     def __init__(self, gate, rate=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(np.shape(gate), np.shape(rate))

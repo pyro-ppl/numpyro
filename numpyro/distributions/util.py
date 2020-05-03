@@ -4,7 +4,7 @@ from collections import namedtuple
 from functools import update_wrapper
 import math
 
-from jax import custom_transforms, defjvp, jit, lax, random, vmap
+from jax import jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
 from jax.nn import softmax
@@ -168,7 +168,7 @@ def _categorical(key, p, shape):
     # this implementation is fast when event shape is small, and slow otherwise
     # Ref: https://stackoverflow.com/a/34190035
     shape = shape or p.shape[:-1]
-    s = cumsum(p)
+    s = np.cumsum(p, axis=-1)
     r = random.uniform(key, shape=shape + (1,))
     # FIXME: replace this computation by using binary search as suggested in the above
     # reference. A while_loop + vmap for a reshaped 2D array would be enough.
@@ -340,24 +340,6 @@ def binary_cross_entropy_with_logits(x, y):
     return np.clip(x, 0) + np.log1p(np.exp(-np.abs(x))) - x * y
 
 
-@custom_transforms
-def cumsum(x):
-    return np.cumsum(x, axis=-1)
-
-
-defjvp(cumsum, lambda g, ans, x: np.cumsum(g, axis=-1))
-
-
-@custom_transforms
-def cumprod(x):
-    return np.cumprod(x, axis=-1)
-
-
-# XXX this implementation does not address the case x=0, hence the result in that case will be nan
-# Ref: https://stackoverflow.com/questions/40916955/how-to-compute-gradient-of-cumprod-safely
-defjvp(cumprod, lambda g, ans, x: np.cumsum(g / x, axis=-1) * ans)
-
-
 def promote_shapes(*args, shape=()):
     # adapted from lax.lax_numpy
     if len(args) < 2 and not shape:
@@ -446,7 +428,7 @@ def signed_stick_breaking_tril(t):
     # we omit the step of computing s = z * z_cumprod by using the fact:
     #     y = sign(r) * s = sign(r) * sqrt(z * z_cumprod) = r * sqrt(z_cumprod)
     z = r ** 2
-    z1m_cumprod = cumprod(1 - z)
+    z1m_cumprod = np.cumprod(1 - z, axis=-1)
     z1m_cumprod_sqrt = np.sqrt(z1m_cumprod)
 
     pad_width = [(0, 0)] * z.ndim

@@ -328,7 +328,7 @@ def _identity_step_size(inverse_mass_matrix, z, rng_key, step_size):
     return step_size
 
 
-def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_size,
+def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    dense_mass=False, target_accept_prob=0.8):
     """
@@ -349,6 +349,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         step size, hence the sampling will be slower but more robust. Default to 0.8.
     :return: a pair of (`init_fn`, `update_fn`).
     """
+    if find_reasonable_step_size is None:
+        find_reasonable_step_size = _identity_step_size
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))

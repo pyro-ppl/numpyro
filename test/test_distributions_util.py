@@ -7,7 +7,7 @@ import numpy as onp
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jacobian, lax, random, vmap
+from jax import lax, random, vmap
 import jax.numpy as np
 from jax.scipy.special import expit, xlog1py, xlogy
 
@@ -15,8 +15,6 @@ from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     categorical,
     cholesky_update,
-    cumprod,
-    cumsum,
     multinomial,
     poisson,
     vec_to_tril_matrix,
@@ -31,36 +29,6 @@ def test_binary_cross_entropy_with_logits(x, y):
     actual = -y * np.log(expit(x)) - (1 - y) * np.log(expit(-x))
     expect = binary_cross_entropy_with_logits(x, y)
     assert_allclose(actual, expect, rtol=1e-6)
-
-
-@pytest.mark.parametrize('shape', [
-    (3,),
-    (5, 3),
-])
-def test_cumsum_jac(shape):
-    rng_key = random.PRNGKey(0)
-    x = random.normal(rng_key, shape=shape)
-
-    def test_fn(x):
-        return np.stack([x[..., 0], x[..., 0] + x[..., 1], x[..., 0] + x[..., 1] + x[..., 2]], -1)
-
-    assert_allclose(cumsum(x), test_fn(x))
-    assert_allclose(jacobian(cumsum)(x), jacobian(test_fn)(x))
-
-
-@pytest.mark.parametrize('shape', [
-    (3,),
-    (5, 3),
-])
-def test_cumprod_jac(shape):
-    rng_key = random.PRNGKey(0)
-    x = random.uniform(rng_key, shape=shape)
-
-    def test_fn(x):
-        return np.stack([x[..., 0], x[..., 0] * x[..., 1], x[..., 0] * x[..., 1] * x[..., 2]], -1)
-
-    assert_allclose(cumprod(x), test_fn(x))
-    assert_allclose(jacobian(cumprod)(x), jacobian(test_fn)(x), atol=1e-7)
 
 
 @pytest.mark.parametrize('prim', [
@@ -84,19 +52,6 @@ def test_binop_batch_rule(prim):
     actual_bx_y = vmap(lambda x: prim(x, y))(bx)
     for i in range(3):
         assert_allclose(actual_bx_y[i], prim(bx[i], y))
-
-
-@pytest.mark.parametrize('prim', [
-    cumsum,
-    cumprod,
-])
-def test_unop_batch_rule(prim):
-    rng_key = random.PRNGKey(0)
-    bx = random.normal(rng_key, (3, 5))
-
-    actual = vmap(prim)(bx)
-    for i in range(3):
-        assert_allclose(actual[i], prim(bx[i]))
 
 
 @pytest.mark.parametrize('p, shape', [

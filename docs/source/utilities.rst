@@ -84,3 +84,12 @@ init_to_feasible
 init_to_value
 ^^^^^^^^^^^^^
 .. autofunction:: numpyro.infer.util.init_to_value
+
+Tensor Indexing
+---------------
+
+.. automodule:: numpyro.contrib.indexing
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

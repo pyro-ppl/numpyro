@@ -18,6 +18,7 @@ from numpyro.distributions.continuous import (
     HalfNormal,
     InverseGamma,
     LKJCholesky,
+    Logistic,
     LogNormal,
     LowRankMultivariateNormal,
     MultivariateNormal,
@@ -47,7 +48,13 @@ from numpyro.distributions.discrete import (
     PRNGIdentity,
     ZeroInflatedPoisson
 )
-from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution, Unit
+from numpyro.distributions.distribution import (
+    Distribution,
+    ExpandedDistribution,
+    Independent,
+    TransformedDistribution,
+    Unit
+)
 import numpyro.distributions.transforms  # noqa: F401
 from numpyro.distributions.transforms import biject_to
 
@@ -72,6 +79,7 @@ __all__ = [
     'Dirichlet',
     'Distribution',
     'Exponential',
+    'ExpandedDistribution',
     'Gamma',
     'GammaPoisson',
     'GaussianRandomWalk',
@@ -83,6 +91,7 @@ __all__ = [
     'InverseGamma',
     'LKJ',
     'LKJCholesky',
+    'Logistic',
     'LogNormal',
     'Multinomial',
     'MultinomialLogits',
@@ -101,4 +110,5 @@ __all__ = [
     'Uniform',
     'Unit',
     'ZeroInflatedPoisson',
+
 ]
