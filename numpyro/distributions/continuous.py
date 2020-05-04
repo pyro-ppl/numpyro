@@ -1121,9 +1121,10 @@ class PolyaGamma(Distribution):
     arg_constraints = {'concentration': constraints.positive}
     support = constraints.positive
 
-    def __init__(self, concentration=1., num_log_prob_terms=16, validate_args=None):
+    def __init__(self, concentration=1., num_log_prob_terms=15, validate_args=None):
         self.concentration = concentration
         self.num_log_prob_terms = num_log_prob_terms
+        assert num_log_prob_terms % 2 == 1 and num_log_prob_terms >= 5, "num_log_prob_terms must be odd and at least 5"
         super(PolyaGamma, self).__init__(np.shape(concentration), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -1133,7 +1134,7 @@ class PolyaGamma(Distribution):
     def log_prob(self, value):
         b = self.concentration
         log_prefactor = (b - 1.0) * np.log(2.0) - gammaln(b) - 0.5 * np.log(2.0 * np.pi)
-        all_indices = np.arange(0, self.num_log_prob_terms + 1)
+        all_indices = np.arange(0, self.num_log_prob_terms)
         b = b[..., None]
         log_terms = gammaln(b + all_indices) - gammaln(1.0 + all_indices) + np.log(2.0 * all_indices + b) -\
             1.5 * np.log(value[..., None]) - 0.125 * np.square(2.0 * all_indices + b) / value[..., None]
@@ -1146,5 +1147,5 @@ class PolyaGamma(Distribution):
         log_sum = logsumexp_even + np.log1p(-even_odd_ratio)
         large_value_result = log_sum
         small_value_result = np.take(even_terms, 0, axis=-1)
-        result = np.where(value <= 0.01 * np.square(self.concentration), small_value_result, large_value_result)
+        result = np.where(value <= 0.001 * np.square(self.concentration), small_value_result, large_value_result)
         return log_prefactor + result
