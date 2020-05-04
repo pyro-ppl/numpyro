@@ -31,7 +31,7 @@ import jax.numpy as np
 import jax.random as random
 import jax.nn as nn
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
+from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri, logsumexp
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -1114,3 +1114,36 @@ class Logistic(Distribution):
     def variance(self):
         var = (self.scale ** 2) * (np.pi ** 2) / 3
         return np.broadcast_to(var, self.batch_shape)
+
+
+@copy_docs_from(Distribution)
+class PolyaGamma(Distribution):
+    arg_constraints = {'concentration': constraints.positive}
+    support = constraints.positive
+
+    def __init__(self, concentration=1., num_log_prob_terms=24, validate_args=None):
+        self.concentration = concentration
+        self.num_log_prob_terms = num_log_prob_terms
+        super(PolyaGamma, self).__init__(np.shape(concentration), validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        raise NotImplementedError
+
+    @validate_sample
+    def log_prob(self, value):
+        b = self.concentration
+        log_prefactor = (b - 1.0) * np.log(2.0) - gammaln(b) - 0.5 * np.log(2.0 * np.pi)
+        all_indices = np.arange(0, self.num_log_prob_terms + 1)
+        even_indices = np.arange(0, self.num_log_prob_terms + 2, 2)
+        odd_indices = np.arange(1, self.num_log_prob_terms, 2)
+        b = b[..., None]
+        log_terms = gammaln(b + all_indices) - gammaln(1.0 + all_indices) + np.log(2.0 * all_indices + b) \
+                    - 1.5 * np.log(value[..., None]) - 0.125 * np.square(2.0 * all_indices + b) / value[..., None]
+        even_terms = np.take(log_terms, even_indices, axis=-1)
+        odd_terms = np.take(log_terms, odd_indices, axis=-1)
+        sum_even = np.exp(logsumexp(even_terms, axis=-1))
+        sum_odd = np.exp(logsumexp(odd_terms, axis=-1))
+        log_sum = np.log(sum_even - sum_odd)
+        large_value_result = log_sum + log_prefactor
+        small_value_result = np.take(even_terms, 0, axis=-1)
+        return np.where(value <= 0.01 * np.square(self.concentration), small_value_result, large_value_result)
