@@ -1137,8 +1137,8 @@ class PolyaGamma(Distribution):
         even_indices = np.arange(0, self.num_log_prob_terms + 2, 2)
         odd_indices = np.arange(1, self.num_log_prob_terms, 2)
         b = b[..., None]
-        log_terms = gammaln(b + all_indices) - gammaln(1.0 + all_indices) + np.log(2.0 * all_indices + b) \
-                    - 1.5 * np.log(value[..., None]) - 0.125 * np.square(2.0 * all_indices + b) / value[..., None]
+        log_terms = gammaln(b + all_indices) - gammaln(1.0 + all_indices) + np.log(2.0 * all_indices + b) -\
+            1.5 * np.log(value[..., None]) - 0.125 * np.square(2.0 * all_indices + b) / value[..., None]
         even_terms = np.take(log_terms, even_indices, axis=-1)
         odd_terms = np.take(log_terms, odd_indices, axis=-1)
         logsumexp_even = logsumexp(even_terms, axis=-1)
