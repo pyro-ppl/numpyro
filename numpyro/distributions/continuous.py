@@ -1134,13 +1134,11 @@ class PolyaGamma(Distribution):
         b = self.concentration
         log_prefactor = (b - 1.0) * np.log(2.0) - gammaln(b) - 0.5 * np.log(2.0 * np.pi)
         all_indices = np.arange(0, self.num_log_prob_terms + 1)
-        even_indices = np.arange(0, self.num_log_prob_terms + 2, 2)
-        odd_indices = np.arange(1, self.num_log_prob_terms, 2)
         b = b[..., None]
         log_terms = gammaln(b + all_indices) - gammaln(1.0 + all_indices) + np.log(2.0 * all_indices + b) -\
             1.5 * np.log(value[..., None]) - 0.125 * np.square(2.0 * all_indices + b) / value[..., None]
-        even_terms = np.take(log_terms, even_indices, axis=-1)
-        odd_terms = np.take(log_terms, odd_indices, axis=-1)
+        even_terms = np.take(log_terms, all_indices[::2], axis=-1)
+        odd_terms = np.take(log_terms, all_indices[1::2], axis=-1)
         logsumexp_even = logsumexp(even_terms, axis=-1)
         logsumexp_odd = logsumexp(odd_terms, axis=-1)
         even_odd_ratio = np.exp(logsumexp_odd - logsumexp_even)
