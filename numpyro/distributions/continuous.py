@@ -1128,7 +1128,43 @@ class PolyaGamma(Distribution):
         super(PolyaGamma, self).__init__(np.shape(concentration), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return np.ones(sample_shape)
+        return np.ones(self.concentration.shape + sample_shape)
+        #raise NotImplementedError
+
+    @validate_sample
+    def log_prob(self, value):
+        b = self.concentration
+        log_prefactor = (b - 1.0) * np.log(2.0) - gammaln(b) - 0.5 * np.log(2.0 * np.pi)
+        all_indices = np.arange(0, self.num_log_prob_terms)
+        b = b[..., None]
+        log_terms = gammaln(b + all_indices) - gammaln(1.0 + all_indices) + np.log(2.0 * all_indices + b) -\
+            1.5 * np.log(value[..., None]) - 0.125 * np.square(2.0 * all_indices + b) / value[..., None]
+        even_terms = np.take(log_terms, all_indices[::2], axis=-1)
+        odd_terms = np.take(log_terms, all_indices[1::2], axis=-1)
+        logsumexp_even = logsumexp(even_terms, axis=-1)
+        logsumexp_odd = logsumexp(odd_terms, axis=-1)
+        even_odd_ratio = np.exp(logsumexp_odd - logsumexp_even)
+        even_odd_ratio = np.clip(even_odd_ratio, a_max=1.0 - 1.0e-6)
+        log_sum = logsumexp_even + np.log1p(-even_odd_ratio)
+        large_value_result = log_sum
+        small_value_result = np.take(even_terms, 0, axis=-1)
+        result = np.where(value <= 0.001 * np.square(self.concentration), small_value_result, large_value_result)
+        return log_prefactor + result
+
+
+@copy_docs_from(Distribution)
+class TruncatedPolyaGamma(Distribution):
+    arg_constraints = {'concentration': constraints.positive}
+    support = constraints.interval(0.0, 4.0)
+
+    def __init__(self, concentration=1., num_log_prob_terms=11, validate_args=None):
+        self.concentration = concentration
+        self.num_log_prob_terms = num_log_prob_terms
+        assert num_log_prob_terms % 2 == 1 and num_log_prob_terms >= 5, "num_log_prob_terms must be odd and at least 5"
+        super(TruncatedPolyaGamma, self).__init__(np.shape(concentration), validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        return np.ones(self.concentration.shape + sample_shape)
         #raise NotImplementedError
 
     @validate_sample
