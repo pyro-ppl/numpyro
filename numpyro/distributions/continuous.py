@@ -1141,9 +1141,12 @@ class PolyaGamma(Distribution):
                     - 1.5 * np.log(value[..., None]) - 0.125 * np.square(2.0 * all_indices + b) / value[..., None]
         even_terms = np.take(log_terms, even_indices, axis=-1)
         odd_terms = np.take(log_terms, odd_indices, axis=-1)
-        sum_even = np.exp(logsumexp(even_terms, axis=-1))
-        sum_odd = np.exp(logsumexp(odd_terms, axis=-1))
-        log_sum = np.log(sum_even - sum_odd)
-        large_value_result = log_sum + log_prefactor
+        logsumexp_even = logsumexp(even_terms, axis=-1)
+        logsumexp_odd = logsumexp(odd_terms, axis=-1)
+        even_odd_ratio = np.exp(logsumexp_odd - logsumexp_even)
+        even_odd_ratio = np.clip(even_odd_ratio, a_max=1.0 - 1.0e-6)
+        log_sum = logsumexp_even + np.log1p(-even_odd_ratio)
+        large_value_result = log_sum
         small_value_result = np.take(even_terms, 0, axis=-1)
-        return np.where(value <= 0.01 * np.square(self.concentration), small_value_result, large_value_result)
+        result = np.where(value <= 0.01 * np.square(self.concentration), small_value_result, large_value_result)
+        return log_prefactor + result
