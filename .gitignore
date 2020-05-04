@@ -21,7 +21,6 @@ notebooks/source/examples/
 numpyro/examples/.data
 examples/.results
 examples/*.pdf
-numpyro/.DS_Store
 
 # test related
 .pytest_cache
@@ -34,4 +33,6 @@ numpyro/examples/.data
 
 # docs
 docs/build
-docs/.DS_Store
+
+# Mac directories
+*.DS_Store
