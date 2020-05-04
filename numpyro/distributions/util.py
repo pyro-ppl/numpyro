@@ -202,9 +202,11 @@ def _poisson_large(val):
         cond2 = (k < 0) | ((us < 0.013) & (V > us))
         cond3 = ((np.log(V) + np.log(invalpha) - np.log(a / (us * us) + b))
                  <= (-lam + k * loglam - gammaln(k + 1)))
-        cond4 = lam >= 10 # lax.cond in _poisson_one apparently may still
-                          # execute _poisson_large for small lam:
-                          # don't iterate if that is the case
+
+        # lax.cond in _poisson_one apparently may still
+        # execute _poisson_large for small lam:
+        # additional condition to not iterate if that is the case
+        cond4 = lam >= 10
         return (~cond1) & (cond2 | (~cond3)) & cond4
 
     def body_fn(val):
@@ -226,9 +228,11 @@ def _poisson_small(val):
 
     def cond_fn(val):
         cond1 = val[1] > enlam
-        cond2 = lam < 10  # lax.cond in _poisson_one apparently may still
-                          # execute _poisson_small for large lam:
-                          # don't iterate if that is the case
+
+        # lax.cond in _poisson_one apparently may still
+        # execute _poisson_small for large lam:
+        # additional condition to not iterate if that is the case
+        cond2 = lam < 10
         return cond1 & cond2
 
     def body_fn(val):
