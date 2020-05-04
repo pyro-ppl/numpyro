@@ -1128,7 +1128,8 @@ class PolyaGamma(Distribution):
         super(PolyaGamma, self).__init__(np.shape(concentration), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        raise NotImplementedError
+        return np.ones(sample_shape)
+        #raise NotImplementedError
 
     @validate_sample
     def log_prob(self, value):
