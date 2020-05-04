@@ -294,7 +294,7 @@ class CategoricalProbs(Distribution):
 
     @property
     def support(self):
-        return constraints.integer_interval(0, np.shape(self.probs)[-1])
+        return constraints.integer_interval(0, np.shape(self.probs)[-1] - 1)
 
     def enumerate_support(self, expand=True):
         values = np.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
@@ -305,7 +305,7 @@ class CategoricalProbs(Distribution):
 
 @copy_docs_from(Distribution)
 class CategoricalLogits(Distribution):
-    arg_constraints = {'logits': constraints.real}
+    arg_constraints = {'logits': constraints.real_vector}
     has_enumerate_support = True
     is_discrete = True
 
@@ -342,10 +342,10 @@ class CategoricalLogits(Distribution):
 
     @property
     def support(self):
-        return constraints.integer_interval(0, np.shape(self.logits)[-1])
+        return constraints.integer_interval(0, np.shape(self.logits)[-1] - 1)
 
     def enumerate_support(self, expand=True):
-        values = np.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
+        values = np.arange(self.logits.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
             values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values

@@ -51,6 +51,7 @@ from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
     Independent,
+    MaskedDistribution,
     TransformedDistribution,
     Unit
 )
@@ -91,6 +92,7 @@ __all__ = [
     'LKJCholesky',
     'Logistic',
     'LogNormal',
+    'MaskedDistribution',
     'Multinomial',
     'MultinomialLogits',
     'MultinomialProbs',
