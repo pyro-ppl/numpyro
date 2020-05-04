@@ -1121,7 +1121,7 @@ class PolyaGamma(Distribution):
     arg_constraints = {'concentration': constraints.positive}
     support = constraints.positive
 
-    def __init__(self, concentration=1., num_log_prob_terms=24, validate_args=None):
+    def __init__(self, concentration=1., num_log_prob_terms=16, validate_args=None):
         self.concentration = concentration
         self.num_log_prob_terms = num_log_prob_terms
         super(PolyaGamma, self).__init__(np.shape(concentration), validate_args=validate_args)
