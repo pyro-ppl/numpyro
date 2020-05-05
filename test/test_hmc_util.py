@@ -328,6 +328,7 @@ def test_warmup_adapter(jitted):
 
 
 @pytest.mark.parametrize('leaf_idx, ckpt_idxs', [
+    (0, (1, 0)),
     (6, (3, 2)),
     (7, (0, 2)),
     (13, (2, 2)),

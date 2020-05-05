@@ -36,10 +36,10 @@ from scipy.stats import gaussian_kde
 
 from jax import lax, random
 import jax.numpy as np
-from jax.scipy.special import logsumexp
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions.util import logsumexp
 from numpyro.infer import MCMC, NUTS
 
 
