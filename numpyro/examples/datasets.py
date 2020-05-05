@@ -6,6 +6,7 @@ import csv
 import gzip
 import os
 import struct
+import pickle
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
@@ -55,6 +56,11 @@ UCBADMIT = dset('ucbadmit', [
 
 LYNXHARE = dset('lynxhare', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt',
+])
+
+
+JSBCHORALES = dset('jsbchorales', [
+    'http://www-etud.iro.umontreal.ca/~boulanni/JSB%20Chorales.pickle',
 ])
 
 
@@ -166,6 +172,28 @@ def _load_lynxhare():
     }
 
 
+def _load_jsbchorales():
+    _download(JSBCHORALES)
+
+    file_path = os.path.join(DATA_DIR, 'JSB%20Chorales.pickle')
+    with open(file_path, 'rb') as file:
+        rawdset = pickle.load(file)
+        dset = {}
+        for key, vals in rawdset.items():
+            res = []
+            lengths = []
+            for chords in vals:
+                lengths.append(len(chords))
+                padded_chords = np.stack([np.pad(chord, (0, 4 - len(chord))) for chord in chords])
+                res.append(padded_chords)
+            padded_res = np.stack([np.pad(cs, [(0, max(lengths) - cs.shape[0]), (0,0)])
+                                   for cs in res])
+            padded_res_rev = np.stack([np.pad(np.flip(cs, axis=0), [(0, max(lengths) - cs.shape[0]), (0,0)]) 
+                                       for cs in res]) 
+            dset[key] = (padded_res, padded_res_rev, np.array(lengths))
+        return dset
+
+
 def _load(dset):
     if dset == BASEBALL:
         return _load_baseball()
@@ -179,6 +207,8 @@ def _load(dset):
         return _load_ucbadmit()
     elif dset == LYNXHARE:
         return _load_lynxhare()
+    elif dset == JSBCHORALES:
+        return _load_jsbchorales()
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
