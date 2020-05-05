@@ -202,7 +202,12 @@ def _poisson_large(val):
         cond2 = (k < 0) | ((us < 0.013) & (V > us))
         cond3 = ((np.log(V) + np.log(invalpha) - np.log(a / (us * us) + b))
                  <= (-lam + k * loglam - gammaln(k + 1)))
-        return (~cond1) & (cond2 | (~cond3))
+
+        # lax.cond in _poisson_one apparently may still
+        # execute _poisson_large for small lam:
+        # additional condition to not iterate if that is the case
+        cond4 = lam >= 10
+        return (~cond1) & (cond2 | (~cond3)) & cond4
 
     def body_fn(val):
         rng_key, *_ = val
@@ -221,6 +226,15 @@ def _poisson_small(val):
     rng_key, lam = val
     enlam = np.exp(-lam)
 
+    def cond_fn(val):
+        cond1 = val[1] > enlam
+
+        # lax.cond in _poisson_one apparently may still
+        # execute _poisson_small for large lam:
+        # additional condition to not iterate if that is the case
+        cond2 = lam < 10
+        return cond1 & cond2
+
     def body_fn(val):
         rng_key, prod, k = val
         rng_key, key_U = random.split(rng_key)
@@ -229,7 +243,7 @@ def _poisson_small(val):
         return rng_key, prod, k + 1
 
     init = np.where(lam == 0., 0., -1.)
-    *_, k = lax.while_loop(lambda val: val[1] > enlam, body_fn, (rng_key, 1., init))
+    *_, k = lax.while_loop(cond_fn, body_fn, (rng_key, 1., init))
     return k
 
 
@@ -415,10 +429,17 @@ def logmatmulexp(x, y):
     """
     Numerically stable version of ``(x.log() @ y.log()).exp()``.
     """
-    x_shift = np.amax(x, -1, keepdims=True)
-    y_shift = np.amax(y, -2, keepdims=True)
+    x_shift = lax.stop_gradient(np.amax(x, -1, keepdims=True))
+    y_shift = lax.stop_gradient(np.amax(y, -2, keepdims=True))
     xy = np.log(np.matmul(np.exp(x - x_shift), np.exp(y - y_shift)))
     return xy + x_shift + y_shift
+
+
+def logsumexp(x, axis=0, keepdims=False):
+    # TODO: remove when https://github.com/google/jax/pull/2260 merged upstream
+    x_max = lax.stop_gradient(np.amax(x, axis=axis, keepdims=True))
+    y = np.log(np.sum(np.exp(x - x_max), axis=axis, keepdims=True)) + x_max
+    return y if keepdims else y.squeeze(axis=axis)
 
 
 def clamp_probs(probs):

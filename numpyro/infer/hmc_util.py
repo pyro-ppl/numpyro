@@ -561,11 +561,9 @@ def _get_leaf(tree, going_right):
 def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_size,
                  going_right, rng_key, energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
     key, transition_key = random.split(rng_key)
-    # If we are going to the right, start from the right leaf of the current tree.
-    z, r, z_grad = _get_leaf(current_tree, going_right)
 
-    new_tree = _iterative_build_subtree(current_tree.depth, vv_update, kinetic_fn,
-                                        z, r, z_grad, inverse_mass_matrix, step_size,
+    new_tree = _iterative_build_subtree(current_tree, vv_update, kinetic_fn,
+                                        inverse_mass_matrix, step_size,
                                         going_right, key, energy_current, max_delta_energy,
                                         r_ckpts, r_sum_ckpts)
 
@@ -609,10 +607,10 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
     return turning
 
 
-def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
+def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                              inverse_mass_matrix, step_size, going_right, rng_key,
                              energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
-    max_num_proposals = 2 ** depth
+    max_num_proposals = 2 ** prototype_tree.depth
 
     def _cond_fn(state):
         tree, turning, _, _, _ = state
@@ -621,13 +619,19 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     def _body_fn(state):
         current_tree, _, r_ckpts, r_sum_ckpts, rng_key = state
         rng_key, transition_rng_key = random.split(rng_key)
+        # If we are going to the right, start from the right leaf of the current tree.
         z, r, z_grad = _get_leaf(current_tree, going_right)
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
-        new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
-                                 transition_rng_key, False)
+        new_tree = cond(current_tree.num_proposals == 0,
+                        new_leaf,
+                        lambda x: x,
+                        (current_tree, new_leaf, inverse_mass_matrix, going_right, transition_rng_key),
+                        lambda x: _combine_tree(*x, False))
 
         leaf_idx = current_tree.num_proposals
+        # NB: in the special case leaf_idx=0, ckpt_idx_min=1 and ckpt_idx_max=0,
+        # the following logic is still valid for that case
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
         r, _ = ravel_pytree(new_leaf.r_right)
         r_sum, _ = ravel_pytree(new_tree.r_sum)
@@ -643,11 +647,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                         ckpt_idx_min, ckpt_idx_max)
         return new_tree, turning, r_ckpts, r_sum_ckpts, rng_key
 
-    basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
-                               going_right, energy_current, max_delta_energy)
-    r_init, _ = ravel_pytree(basetree.r_left)
-    r_ckpts = index_update(r_ckpts, 0, r_init)
-    r_sum_ckpts = index_update(r_sum_ckpts, 0, r_init)
+    basetree = prototype_tree._replace(num_proposals=0)
 
     tree, turning, _, _, _ = while_loop(
         _cond_fn,
@@ -658,7 +658,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     return TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
                     tree.z_right, tree.r_right, tree.z_right_grad,
                     tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad, tree.z_proposal_energy,
-                    depth, tree.weight, tree.r_sum, turning, tree.diverging,
+                    prototype_tree.depth, tree.weight, tree.r_sum, turning, tree.diverging,
                     tree.sum_accept_probs, tree.num_proposals)
 
 

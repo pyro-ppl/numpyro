@@ -1118,9 +1118,9 @@ class Logistic(Distribution):
 
 @copy_docs_from(Distribution)
 class TruncatedPolyaGamma(Distribution):
-    truncation_point = 4.0
-    num_log_prob_terms = 11
-    num_gamma_variates = 20
+    truncation_point = 3.0
+    num_log_prob_terms = 7
+    num_gamma_variates = 10
     assert num_log_prob_terms % 2 == 1
 
     arg_constraints = {}

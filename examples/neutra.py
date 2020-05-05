@@ -32,14 +32,9 @@ from numpyro.contrib.autoguide import AutoContinuousELBO, AutoBNAFNormal
 from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
+from numpyro.distributions.util import logsumexp
 from numpyro.infer import MCMC, NUTS, SVI
 from numpyro.infer.util import initialize_model, transformed_potential_energy
-
-
-def logsumexp(x, axis=0):
-    # TODO: remove when https://github.com/google/jax/pull/2260 merged upstream
-    x_max = lax.stop_gradient(np.max(x, axis=axis, keepdims=True))
-    return np.log(np.sum(np.exp(x - x_max), axis=axis)) + x_max.squeeze(axis=axis)
 
 
 class DualMoonDistribution(dist.Distribution):

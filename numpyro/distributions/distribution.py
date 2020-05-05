@@ -251,6 +251,19 @@ class Distribution(object):
         """
         return ExpandedDistribution(self, batch_shape)
 
+    def mask(self, mask):
+        """
+        Masks a distribution by a boolean or boolean-valued array that is
+        broadcastable to the distributions
+        :attr:`Distribution.batch_shape` .
+
+        :param mask: A boolean or boolean valued array.
+        :type mask: bool or np.ndarray
+        :return: A masked copy of this distribution.
+        :rtype: :class:`MaskedDistribution`
+        """
+        return MaskedDistribution(self, mask)
+
 
 class ExpandedDistribution(Distribution):
     arg_constraints = {}
@@ -306,7 +319,8 @@ class ExpandedDistribution(Distribution):
 
     def sample(self, key, sample_shape=()):
         interstitial_dims = tuple(self._interstitial_sizes.keys())
-        interstitial_dims = tuple(i - self.event_dim for i in interstitial_dims)
+        event_dim = len(self.event_shape)
+        interstitial_dims = tuple(i - event_dim for i in interstitial_dims)
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
@@ -406,6 +420,67 @@ class Independent(Distribution):
     def log_prob(self, value):
         log_prob = self.base_dist.log_prob(value)
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
+
+
+class MaskedDistribution(Distribution):
+    """
+    Masks a distribution by a boolean array that is broadcastable to the
+    distribution's :attr:`Distribution.batch_shape`.
+    In the special case ``mask is False``, computation of :meth:`log_prob` , is skipped,
+    and constant zero values are returned instead.
+
+    :param mask: A boolean or boolean-valued array.
+    :type mask: np.ndarray or bool
+    """
+    arg_constraints = {}
+
+    def __init__(self, base_dist, mask):
+        if isinstance(mask, bool):
+            self._mask = mask
+        else:
+            batch_shape = lax.broadcast_shapes(np.shape(mask), base_dist.batch_shape)
+            if mask.shape != batch_shape:
+                mask = np.broadcast_to(mask, batch_shape)
+            if base_dist.batch_shape != batch_shape:
+                base_dist = base_dist.expand(batch_shape)
+            self._mask = mask.astype('bool')
+        self.base_dist = base_dist
+        super().__init__(base_dist.batch_shape, base_dist.event_shape)
+
+    @property
+    def has_enumerate_support(self):
+        return self.base_dist.has_enumerate_support
+
+    @property
+    def is_discrete(self):
+        return self.base_dist.is_discrete
+
+    @property
+    def support(self):
+        return self.base_dist.support
+
+    def sample(self, key, sample_shape=()):
+        return self.base_dist.sample(key, sample_shape)
+
+    def log_prob(self, value):
+        if self._mask is False:
+            shape = lax.broadcast_shapes(self.base_dist.batch_shape,
+                                         np.shape(value)[:max(np.ndim(value) - len(self.event_shape), 0)])
+            return np.zeros(shape)
+        if self._mask is True:
+            return self.base_dist.log_prob(value)
+        return self.base_dist.log_prob(value) * self._mask
+
+    def enumerate_support(self, expand=True):
+        return self.base_dist.enumerate_support(expand=expand)
+
+    @property
+    def mean(self):
+        return self.base_dist.mean
+
+    @property
+    def variance(self):
+        return self.base_dist.variance
 
 
 class TransformedDistribution(Distribution):
