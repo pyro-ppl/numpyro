@@ -17,7 +17,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
-from jax.scipy.linalg import cho_factor, cho_solve
+from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
 from numpyro.util import enable_x64
 
 
@@ -68,7 +68,9 @@ def model(X, Y, hypers):
 
     kY = np.matmul(k, Y)
     log_factor1 = dot(Y, kY)
-    log_factor2 = dot(Y, np.matmul(k, cho_solve((L, True), kY)))
+    Linv_kY = solve_triangular(L, kY, lower=True)
+    log_factor2 = dot(Linv_kY, Linv_kY)
+    #log_factor2 = dot(kY, cho_solve((L, True), kY))
     log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
 
     obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
@@ -78,7 +80,7 @@ def model(X, Y, hypers):
 # Compute the mean and variance of coefficient theta_i (where i = dimension) for a
 # MCMC sample of the kernel hyperparameters (eta1, xisq, ...).
 # Compare to theorem 5.1 in reference [1].
-def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, eta2, xisq, c, kappa, kX):
+def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, eta2, xisq, c, kappa, kX, omega):
     P, N = X.shape[1], X.shape[0]
 
     probe = np.zeros((2, P))
@@ -87,12 +89,19 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, eta2, xisq,
 
     k_xx = kernel(kX, kX, eta1, eta2, c)
     k_xx_inv = np.linalg.inv(k_xx)
+
+    k_xx_omega = k_xx + np.eye(N) * (1.0 / omega)
+    k_xx_omega_inv = np.linalg.inv(k_xx_omega)
+    kY = 0.5 * np.matmul(k_xx, Y)
+    rhs = np.matmul(k_xx_omega_inv, kY)
+
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
+    rhs = np.matmul(k_probeX, rhs)
+    rhs = 0.5 * dot(k_probeX, Y) - rhs
 
     vec = np.array([0.50, -0.50])
-    mu = np.matmul(k_probeX, np.matmul(k_xx_inv, Y))
-    mu = np.dot(mu, vec)
+    mu = np.dot(rhs, vec)
 
     var = k_prbprb - np.matmul(k_probeX, np.matmul(k_xx_inv, np.transpose(k_probeX)))
     var = np.matmul(var, vec)
@@ -217,7 +226,7 @@ def get_data(N=20, S=2, P=10):
 
     X = onp.random.randn(N, P)
     # generate S coefficients with non-negligible magnitude
-    W = 0.5 + 2.5 * onp.random.rand(S)
+    W = 5.5 + 7.5 * onp.random.rand(S)
     print("W", W)
     # generate data using the S coefficients and a single pairwise interaction
     Y = onp.sum(X[:, 0:S] * W, axis=-1) + X[:, 0] * X[:, 1]
@@ -233,12 +242,11 @@ def get_data(N=20, S=2, P=10):
 # Helper function for analyzing the posterior statistics for coefficient theta_i
 def analyze_dimension(samples, X, Y, dimension, hypers):
     vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['eta2'],
-                samples['xisq'], samples['kappa'], samples['kappa_X'])
-    mus, variances = vmap(lambda msq, lam, eta1, eta2, xisq, kappa, kX:
-                          compute_singleton_mean_variance(X, Y, dimension, msq, lam,
-                                                          eta1, eta2, xisq, hypers['c'], kappa, kX))(*vmap_args)
+                 samples['xisq'], samples['kappa'], samples['kappa_X'], samples['omega'])
+    mus, variances = vmap(lambda msq, lam, eta1, eta2, xisq, kappa, kX, omega:
+                          compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, eta2,
+                                                          xisq, hypers['c'], kappa, kX, omega))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
-    print("mean", mean)
     std = np.sqrt(variance)
     return mean, std
 
@@ -262,8 +270,7 @@ def main(args):
     hypers = {'expected_sparsity': max(1.0, args.num_dimensions / 10),
               'alpha1': 3.0, 'beta1': 1.0,
               'alpha2': 3.0, 'beta2': 1.0,
-              'alpha3': 1.0, 'c': 1.0,
-              'alpha_obs': 3.0, 'beta_obs': 1.0}
+              'alpha3': 1.0, 'c': 1.0}
 
     # do inference
     rng_key = random.PRNGKey(0)
@@ -271,6 +278,8 @@ def main(args):
 
     # compute the mean and square root variance of each coefficient theta_i
     means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))
+    print("means", means)
+    print("stds", stds)
 
     return
 
@@ -315,11 +324,11 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=100, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
-    parser.add_argument("--num-data", nargs='?', default=150, type=int)
+    parser.add_argument("--num-data", nargs='?', default=80, type=int)
     parser.add_argument("--num-dimensions", nargs='?', default=6, type=int)
     parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
