@@ -1024,8 +1024,8 @@ def test_polya_gamma(batch_shape, num_points=20000):
 
     # test density approximately normalized
     x = np.linspace(1.0e-6, d.truncation_point, num_points)
-    prob = (d.truncation_point / num_points) * np.sum(np.exp(d.log_prob(x)), axis=-1)
-    assert_allclose(prob, np.ones(batch_shape), rtol=1.0e-4)
+    prob = (d.truncation_point / num_points) * np.exp(logsumexp(d.log_prob(x), axis=-1))
+    assert_allclose(prob, np.ones(batch_shape), rtol=5.0e-5)
 
     # test mean of approximate sampler
     z = d.sample(rng_key, sample_shape=(3000,))
