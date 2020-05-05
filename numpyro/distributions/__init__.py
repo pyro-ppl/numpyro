@@ -23,11 +23,11 @@ from numpyro.distributions.continuous import (
     MultivariateNormal,
     Normal,
     Pareto,
-    PolyaGamma,
     TruncatedPolyaGamma,
     StudentT,
     TruncatedCauchy,
     TruncatedNormal,
+    TruncatedPolyaGamma,
     Uniform
 )
 from numpyro.distributions.discrete import (
@@ -102,13 +102,13 @@ __all__ = [
     'OrderedLogistic',
     'Pareto',
     'Poisson',
-    'PolyaGamma',
     'TruncatedPolyaGamma',
     'PRNGIdentity',
     'StudentT',
     'TransformedDistribution',
     'TruncatedCauchy',
     'TruncatedNormal',
+    'TruncatedPolyaGamma',
     'Uniform',
     'Unit',
     'ZeroInflatedPoisson',
