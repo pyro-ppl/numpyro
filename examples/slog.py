@@ -58,7 +58,7 @@ def model(X, Y, hypers):
     lam = numpyro.sample("lambda", dist.HalfCauchy(np.ones(P)))
     kappa = numpyro.deterministic('kappa', np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam)))
 
-    omega = numpyro.sample("omega", dist.TruncatedPolyaGamma(concentration=np.ones(N)))
+    omega = numpyro.sample("omega", dist.TruncatedPolyaGamma(batch_shape=(N,)))
 
     kX = numpyro.deterministic('kappa_X', kappa * X)
     k = kernel(kX, kX, eta1, eta2, hypers['c'])
