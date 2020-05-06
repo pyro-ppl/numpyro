@@ -88,22 +88,19 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, eta2, xisq,
     kprobe = kappa * probe
 
     k_xx = kernel(kX, kX, eta1, eta2, c)
-    k_xx_inv = np.linalg.inv(k_xx)
-
-    k_xx_omega = k_xx + np.eye(N) * (1.0 / omega)
-    k_xx_omega_inv = np.linalg.inv(k_xx_omega)
-    kY = 0.5 * np.matmul(k_xx, Y)
-    rhs = np.matmul(k_xx_omega_inv, kY)
 
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
-    rhs = np.matmul(k_probeX, rhs)
-    rhs = 0.5 * dot(k_probeX, Y) - rhs
+
+    M = np.linalg.inv(np.eye(N) + omega[:, None] * k_xx)
+    mu = 0.5 * np.matmul(M, Y)
+    mu = dot(k_probeX, mu)
 
     vec = np.array([0.50, -0.50])
-    mu = np.dot(rhs, vec)
+    mu = np.dot(mu, vec)
 
-    var = k_prbprb - np.matmul(k_probeX, np.matmul(k_xx_inv, np.transpose(k_probeX)))
+    k_omega_inv = np.linalg.inv(k_xx + np.eye(N) * (1.0 / omega))
+    var = k_prbprb - np.matmul(k_probeX, np.matmul(k_omega_inv, np.transpose(k_probeX)))
     var = np.matmul(var, vec)
     var = np.dot(var, vec)
 
@@ -224,10 +221,9 @@ def get_data(N=20, S=2, P=10):
     assert S < P and P > 1 and S > 0
     onp.random.seed(0)
 
-    X = onp.random.randn(N, P)
+    X = 2.0 * onp.random.rand(N, P) - 1.0
     # generate S coefficients with non-negligible magnitude
-    W = 5.5 + 7.5 * onp.random.rand(S)
-    print("W", W)
+    W = 1.5 + 1.5 * onp.random.rand(S)
     # generate data using the S coefficients and a single pairwise interaction
     Y = onp.sum(X[:, 0:S] * W, axis=-1) + X[:, 0] * X[:, 1]
     Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
@@ -278,18 +274,14 @@ def main(args):
 
     # compute the mean and square root variance of each coefficient theta_i
     means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))
-    print("means", means)
-    print("stds", stds)
-
-    return
 
     print("Coefficients theta_1 to theta_%d used to generate the data:" % args.active_dimensions, expected_thetas)
     print("The single quadratic coefficient theta_{1,2} used to generate the data:", expected_pairwise)
     active_dimensions = []
 
     for dim, (mean, std) in enumerate(zip(means, stds)):
-        # we mark the dimension as inactive if the interval [mean - 3 * std, mean + 3 * std] contains zero
-        lower, upper = mean - 3.0 * std, mean + 3.0 * std
+        # we mark the dimension as inactive if the interval [mean - 2 * std, mean + 2 * std] contains zero
+        lower, upper = mean - 2.0 * std, mean + 2.0 * std
         inactive = "inactive" if lower < 0.0 and upper > 0.0 else "active"
         if inactive == "active":
             active_dimensions.append(dim)
@@ -297,6 +289,7 @@ def main(args):
 
     print("Identified a total of %d active dimensions; expected %d." % (len(active_dimensions),
                                                                         args.active_dimensions))
+    return
 
     # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
     # Note that the resulting numbers are only meaningful for i != j.
@@ -324,12 +317,12 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=100, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
-    parser.add_argument("--mtd", nargs='?', default=6, type=int)
-    parser.add_argument("--num-data", nargs='?', default=80, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=6, type=int)
+    parser.add_argument("--mtd", nargs='?', default=8, type=int)
+    parser.add_argument("--num-data", nargs='?', default=150, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=7, type=int)
     parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
