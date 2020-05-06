@@ -60,7 +60,7 @@ def model(X, Y, hypers):
 
     omega = numpyro.sample("omega", dist.TruncatedPolyaGamma(batch_shape=(N,)))
 
-    kX = numpyro.deterministic('kappa_X', kappa * X)
+    kX = kappa * X
     k = kernel(kX, kX, eta1, eta2, hypers['c'])
 
     k_omega = k + np.eye(N) * (1.0 / omega)
@@ -70,7 +70,6 @@ def model(X, Y, hypers):
     log_factor1 = dot(Y, kY)
     Linv_kY = solve_triangular(L, kY, lower=True)
     log_factor2 = dot(Linv_kY, Linv_kY)
-    #log_factor2 = dot(kY, cho_solve((L, True), kY))
     log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
 
     obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
@@ -78,14 +77,14 @@ def model(X, Y, hypers):
 
 
 # Compute the mean and variance of coefficient theta_i (where i = dimension) for a
-# MCMC sample of the kernel hyperparameters (eta1, xisq, ...).
-# Compare to theorem 5.1 in reference [1].
-def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, eta2, xisq, c, kappa, kX, omega):
+# MCMC sample of the kernel hyperparameters (eta1, eta2, ...).
+def compute_singleton_mean_variance(X, Y, dimension, eta1, eta2, c, kappa, omega):
     P, N = X.shape[1], X.shape[0]
 
     probe = np.zeros((2, P))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dimension], np.array([1.0, -1.0]))
-    kprobe = kappa * probe
+
+    kprobe, kX = kappa * probe, kappa * X
 
     k_xx = kernel(kX, kX, eta1, eta2, c)
 
@@ -108,91 +107,33 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, eta2, xisq,
 
 
 # Compute the mean and variance of coefficient theta_ij for a MCMC sample of the
-# kernel hyperparameters (eta1, xisq, ...). Compare to theorem 5.1 in reference [1].
-def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, var_obs):
+# kernel hyperparameters (eta1, eta2, ...).
+def compute_pairwise_mean_variance(X, Y, dim1, dim2, eta1, eta2, c, kappa, omega):
     P, N = X.shape[1], X.shape[0]
 
     probe = np.zeros((4, P))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dim1], np.array([1.0, 1.0, -1.0, -1.0]))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dim2], np.array([1.0, -1.0, 1.0, -1.0]))
 
-    eta2 = np.square(eta1) * np.sqrt(xisq) / msq
-    kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
+    kprobe, kX = kappa * probe, kappa * X
 
-    kX = kappa * X
-    kprobe = kappa * probe
-
-    k_xx = kernel(kX, kX, eta1, eta2, c) + var_obs * np.eye(N)
-    k_xx_inv = np.linalg.inv(k_xx)
+    k_xx = kernel(kX, kX, eta1, eta2, c)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
 
+    M = np.linalg.inv(np.eye(N) + omega[:, None] * k_xx)
+    mu = 0.5 * np.matmul(M, Y)
+    mu = dot(k_probeX, mu)
+
     vec = np.array([0.25, -0.25, -0.25, 0.25])
-    mu = np.matmul(k_probeX, np.matmul(k_xx_inv, Y))
     mu = np.dot(mu, vec)
 
-    var = k_prbprb - np.matmul(k_probeX, np.matmul(k_xx_inv, np.transpose(k_probeX)))
+    k_omega_inv = np.linalg.inv(k_xx + np.eye(N) * (1.0 / omega))
+    var = k_prbprb - np.matmul(k_probeX, np.matmul(k_omega_inv, np.transpose(k_probeX)))
     var = np.matmul(var, vec)
     var = np.dot(var, vec)
 
     return mu, var
-
-
-# Sample coefficients theta from the posterior for a given MCMC sample.
-# The first P returned values are {theta_1, theta_2, ...., theta_P}, while
-# the remaining values are {theta_ij} for i,j in the list `active_dims`,
-# sorted so that i < j.
-def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, var_obs):
-    P, N, M = X.shape[1], X.shape[0], len(active_dims)
-    # the total number of coefficients we return
-    num_coefficients = P + M * (M - 1) // 2
-
-    probe = np.zeros((2 * P + 2 * M * (M - 1), P))
-    vec = np.zeros((num_coefficients, 2 * P + 2 * M * (M - 1)))
-    start1 = 0
-    start2 = 0
-
-    for dim in range(P):
-        probe = jax.ops.index_update(probe, jax.ops.index[start1:start1 + 2, dim], np.array([1.0, -1.0]))
-        vec = jax.ops.index_update(vec, jax.ops.index[start2, start1:start1 + 2], np.array([0.5, -0.5]))
-        start1 += 2
-        start2 += 1
-
-    for dim1 in active_dims:
-        for dim2 in active_dims:
-            if dim1 >= dim2:
-                continue
-            probe = jax.ops.index_update(probe, jax.ops.index[start1:start1 + 4, dim1],
-                                         np.array([1.0, 1.0, -1.0, -1.0]))
-            probe = jax.ops.index_update(probe, jax.ops.index[start1:start1 + 4, dim2],
-                                         np.array([1.0, -1.0, 1.0, -1.0]))
-            vec = jax.ops.index_update(vec, jax.ops.index[start2, start1:start1 + 4],
-                                       np.array([0.25, -0.25, -0.25, 0.25]))
-            start1 += 4
-            start2 += 1
-
-    eta2 = np.square(eta1) * np.sqrt(xisq) / msq
-    kappa = np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam))
-
-    kX = kappa * X
-    kprobe = kappa * probe
-
-    k_xx = kernel(kX, kX, eta1, eta2, c) + var_obs * np.eye(N)
-    k_xx_inv = np.linalg.inv(k_xx)
-    k_probeX = kernel(kprobe, kX, eta1, eta2, c)
-    k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
-
-    mu = np.matmul(k_probeX, np.matmul(k_xx_inv, Y))
-    mu = np.sum(mu * vec, axis=-1)
-
-    covar = k_prbprb - np.matmul(k_probeX, np.matmul(k_xx_inv, np.transpose(k_probeX)))
-    covar = np.matmul(vec, np.matmul(covar, np.transpose(vec)))
-    L = np.linalg.cholesky(covar)
-
-    # sample from N(mu, covar)
-    sample = mu + np.matmul(L, onp.random.randn(num_coefficients))
-
-    return sample
 
 
 # Helper function for doing HMC inference
@@ -221,27 +162,32 @@ def get_data(N=20, S=2, P=10):
     assert S < P and P > 1 and S > 0
     onp.random.seed(0)
 
-    X = 2.0 * onp.random.rand(N, P) - 1.0
+    X = onp.random.rand(N, P) + 0.5
+    flip = 2 * onp.random.binomial(1, 0.5, X.shape) - 1
+    X *= flip
+
     # generate S coefficients with non-negligible magnitude
-    W = 1.5 + 1.5 * onp.random.rand(S)
+    W = 1.5 + 2.5 * onp.random.rand(S)
+    flip = 2 * onp.random.binomial(1, 0.5, W.shape) - 1
+    W *= flip
+
     # generate data using the S coefficients and a single pairwise interaction
-    Y = onp.sum(X[:, 0:S] * W, axis=-1) + X[:, 0] * X[:, 1]
+    pairwise_coefficient = 3.0
+    Y = onp.sum(X[:, 0:S] * W, axis=-1) + pairwise_coefficient * X[:, 0] * X[:, 1]
     Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
     print("number of 1s: {}  number of -1s: {}".format(np.sum(Y == 1.0), np.sum(Y == -1.0)))
 
     assert X.shape == (N, P)
     assert Y.shape == (N,)
 
-    return X, Y, W, 1.0
+    return X, Y, W, pairwise_coefficient
 
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
 def analyze_dimension(samples, X, Y, dimension, hypers):
-    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['eta2'],
-                 samples['xisq'], samples['kappa'], samples['kappa_X'], samples['omega'])
-    mus, variances = vmap(lambda msq, lam, eta1, eta2, xisq, kappa, kX, omega:
-                          compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, eta2,
-                                                          xisq, hypers['c'], kappa, kX, omega))(*vmap_args)
+    vmap_args = (samples['eta1'], samples['eta2'], samples['kappa'], samples['omega'])
+    mus, variances = vmap(lambda eta1, eta2, kappa, omega:
+                          compute_singleton_mean_variance(X, Y, dimension, eta1, eta2, hypers['c'], kappa, omega))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = np.sqrt(variance)
     return mean, std
@@ -249,10 +195,9 @@ def analyze_dimension(samples, X, Y, dimension, hypers):
 
 # Helper function for analyzing the posterior statistics for coefficient theta_ij
 def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
-    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['var_obs'])
-    mus, variances = vmap(lambda msq, lam, eta1, xisq, var_obs:
-                          compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam,
-                                                         eta1, xisq, hypers['c'], var_obs))(*vmap_args)
+    vmap_args = (samples['eta1'], samples['eta2'], samples['kappa'], samples['omega'])
+    mus, variances = vmap(lambda eta1, eta2, kappa, omega:
+                          compute_pairwise_mean_variance(X, Y, dim1, dim2, eta1, eta2, hypers['c'], kappa, omega))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = np.sqrt(variance)
     return mean, std
@@ -276,7 +221,6 @@ def main(args):
     means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))
 
     print("Coefficients theta_1 to theta_%d used to generate the data:" % args.active_dimensions, expected_thetas)
-    print("The single quadratic coefficient theta_{1,2} used to generate the data:", expected_pairwise)
     active_dimensions = []
 
     for dim, (mean, std) in enumerate(zip(means, stds)):
@@ -289,7 +233,7 @@ def main(args):
 
     print("Identified a total of %d active dimensions; expected %d." % (len(active_dimensions),
                                                                         args.active_dimensions))
-    return
+    print("The single quadratic coefficient theta_{1,2} used to generate the data:", expected_pairwise)
 
     # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
     # Note that the resulting numbers are only meaningful for i != j.
@@ -301,29 +245,25 @@ def main(args):
             dim1, dim2 = dim_pair
             if dim1 >= dim2:
                 continue
-            lower, upper = mean - 3.0 * std, mean + 3.0 * std
+            lower, upper = mean - 2.0 * std, mean + 2.0 * std
             if not (lower < 0.0 and upper > 0.0):
                 format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
                 print(format_str % (dim1 + 1, dim2 + 1, mean, std))
-
-        # Draw a single sample of coefficients theta from the posterior, where we return all singleton
-        # coefficients theta_i and pairwise coefficients theta_ij for i, j active dimensions. We use the
-        # final MCMC sample obtained from the HMC sampler.
-        thetas = sample_theta_space(X, Y, active_dimensions, samples['msq'][-1], samples['lambda'][-1],
-                                    samples['eta1'][-1], samples['xisq'][-1], hypers['c'], samples['var_obs'][-1])
-        print("Single posterior sample theta:\n", thetas)
+            else:
+                format_str = "No pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
+                print(format_str % (dim1 + 1, dim2 + 1, mean, std))
 
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=100, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=700, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=200, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=8, type=int)
-    parser.add_argument("--num-data", nargs='?', default=150, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=7, type=int)
-    parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
+    parser.add_argument("--num-data", nargs='?', default=350, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=50, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=5, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
