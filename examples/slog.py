@@ -62,7 +62,8 @@ def model(X, Y, hypers):
     msq = numpyro.sample("msq", dist.InverseGamma(hypers['alpha1'], hypers['beta1']))
     xisq = numpyro.sample("xisq", dist.InverseGamma(hypers['alpha2'], hypers['beta2']))
 
-    eta2 = numpyro.deterministic('eta2', np.square(eta1) * np.sqrt(xisq) / msq)
+    eta2 = numpyro.deterministic('eta2', np.square(eta1) / (msq * np.sqrt(xisq)))
+    #eta2 = numpyro.deterministic('eta2', np.square(eta1) * np.sqrt(xisq) / msq)
 
     lam = numpyro.sample("lambda", dist.HalfCauchy(np.ones(P)))
     kappa = numpyro.deterministic('kappa', np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam)))
@@ -141,21 +142,22 @@ def gaussian_mixture_stats(mus, variances):
 # Create artificial regression dataset where only S out of P feature
 # dimensions contain signal and where there is a single pairwise interaction
 # between the first and second dimensions.
-def get_data(N=20, S=2, P=10):
+def get_data(N=20, S=2, P=10, seed=0):
     assert S < P and P > 1 and S > 0
-    onp.random.seed(0)
-
-    X = onp.random.rand(N, P) + 0.5
-    flip = 2 * onp.random.binomial(1, 0.5, X.shape) - 1
-    X *= flip
+    onp.random.seed(seed)
 
     # generate S coefficients with non-negligible magnitude
     W = 2.0 + 3.0 * onp.random.rand(S)
     flip = 2 * onp.random.binomial(1, 0.5, W.shape) - 1
     W *= flip
 
-    # generate data using the S coefficients and a single pairwise interaction
+    X = onp.random.rand(N, P) + 0.5
+    flip = 2 * onp.random.binomial(1, 0.5, X.shape) - 1
+    X *= flip
+
+    # generate data using the S coefficients and two pairwise interactions
     pairwise_coefficient = 3.0
+    expected_quad_dims = [(0, 1), (2, 3)]
     Y = onp.sum(X[:, 0:S] * W, axis=-1) + pairwise_coefficient * (X[:, 0] * X[:, 1] - X[:, 2] * X[:, 3])
     Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
     print("number of 1s: {}  number of -1s: {}".format(np.sum(Y == 1.0), np.sum(Y == -1.0)))
@@ -163,7 +165,7 @@ def get_data(N=20, S=2, P=10):
     assert X.shape == (N, P)
     assert Y.shape == (N,)
 
-    return X, Y, W, pairwise_coefficient
+    return X, Y, W, pairwise_coefficient, expected_quad_dims
 
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
@@ -187,44 +189,65 @@ def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
 
 
 def main(args):
+    results = {'args': args}
+    P = args.num_dimensions
 
-    for P in [10]:
+    for N in [64, 128, 256, 512]:
+        results[N] = {}
 
-        X, Y, expected_thetas, expected_pairwise = get_data(N=args.num_data, P=args.num_dimensions,
-                                                            S=args.active_dimensions)
+        X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
+            get_data(N=N, P=P, S=args.active_dimensions, seed=args.seed)
+            #get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
 
         # setup hyperparameters
-        hypers = {'expected_sparsity': max(1.0, args.num_dimensions / 10.0),
+        hypers = {'expected_sparsity': args.active_dimensions,
                   'alpha1': 3.0, 'beta1': 1.0,
                   'alpha2': 3.0, 'beta2': 1.0,
                   'alpha3': 1.0, 'c': 1.0}
 
         # do inference
-        rng_key = random.PRNGKey(0)
+        rng_key = random.PRNGKey(args.seed)
         samples = run_inference(model, args, rng_key, X, Y, hypers)
 
         # compute the mean and square root variance of each coefficient theta_i
         means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))
 
+        results[N]['expected_thetas'] = onp.array(expected_thetas).tolist()
+        results[N]['coeff_means'] = onp.array(means).tolist()
+        results[N]['coeff_stds'] = onp.array(stds).tolist()
+
         print("Coefficients theta_1 to theta_%d used to generate the data:" % args.active_dimensions, expected_thetas)
-        active_dimensions = []
+        active_dims = []
+        expected_active_dims = onp.arange(args.active_dimensions).tolist()
 
         for dim, (mean, std) in enumerate(zip(means, stds)):
             # we mark the dimension as inactive if the interval [mean - 2 * std, mean + 2 * std] contains zero
             lower, upper = mean - 2.0 * std, mean + 2.0 * std
             inactive = "inactive" if lower < 0.0 and upper > 0.0 else "active"
             if inactive == "active":
-                active_dimensions.append(dim)
+                active_dims.append(dim)
             print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, args.num_dimensions, inactive, mean, std))
 
-        print("Identified a total of %d active dimensions; expected %d." % (len(active_dimensions),
+        correct_singletons = len(set(active_dims) & set(expected_active_dims))
+        false_singletons = len(set(active_dims) - set(expected_active_dims))
+        missed_singletons = len(set(expected_active_dims) - set(active_dims))
+
+        results[N]['correct_singletons'] = correct_singletons
+        results[N]['false_singletons'] = false_singletons
+        results[N]['missed_singletons'] = missed_singletons
+
+        print("correct_singletons: ", correct_singletons, "  false_singletons: ", false_singletons,
+              "  missed_singletons: ", missed_singletons)
+
+        print("Identified a total of %d active dimensions; expected %d." % (len(active_dims),
                                                                             args.active_dimensions))
         print("The single quadratic coefficient theta_{1,2} used to generate the data:", expected_pairwise)
 
         # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
         # Note that the resulting numbers are only meaningful for i != j.
-        if len(active_dimensions) > 0:
-            dim_pairs = np.array(list(itertools.product(active_dimensions, active_dimensions)))
+        active_quad_dims = []
+        if len(active_dims) > 0:
+            dim_pairs = np.array(list(itertools.product(active_dims, active_dims)))
             means, stds = vmap(lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y,
                                                                            dim_pair[0], dim_pair[1], hypers))(dim_pairs)
             for dim_pair, mean, std in zip(dim_pairs, means, stds):
@@ -235,20 +258,42 @@ def main(args):
                 if not (lower < 0.0 and upper > 0.0):
                     format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
                     print(format_str % (dim1 + 1, dim2 + 1, mean, std))
+                    active_quad_dims.append((dim1, dim2))
                 else:
                     format_str = "No pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
                     print(format_str % (dim1 + 1, dim2 + 1, mean, std))
+
+        correct_quads = len(set(active_quad_dims) & set(expected_quad_dims))
+        false_quads = len(set(active_quad_dims) - set(expected_quad_dims))
+        missed_quads = len(set(expected_quad_dims) - set(active_quad_dims))
+
+        results[N]['correct_quads'] = correct_quads
+        results[N]['false_quads'] = false_quads
+        results[N]['missed_quads'] = missed_quads
+
+        print("correct_quads: ", correct_quads, "  false_quads: ", false_quads,
+              "  missed_quads: ", missed_quads)
+
+    print("RESULTS\n", results)
+    log_dir = '/home/jankowiak/Research/numpyro/slog/'
+    log_file = 'slog.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
+    log_file = log_file.format(args.num_dimensions, args.active_dimensions, args.seed,
+                               args.num_warmup, args.num_samples, args.mtd)
+
+    with open(log_dir + log_file + '.pkl', 'wb') as f:
+        pickle.dump(results, f, protocol=2)
 
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=100, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=150, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=50, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
-    parser.add_argument("--num-data", nargs='?', default=180, type=int)
+    parser.add_argument("--num-data", nargs='?', default=100, type=int)
     parser.add_argument("--num-dimensions", nargs='?', default=40, type=int)
+    parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--active-dimensions", nargs='?', default=4, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
