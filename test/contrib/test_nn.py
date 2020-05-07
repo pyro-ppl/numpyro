@@ -23,7 +23,7 @@ from numpyro.distributions.util import matrix_to_tril_vec
 @pytest.mark.parametrize('skip_connections', [True, False])
 def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
     rng_key, rng_key_perm = random.split(random.PRNGKey(0))
-    perm = random.shuffle(rng_key_perm, onp.arange(input_dim))
+    perm = random.permutation(rng_key_perm, onp.arange(input_dim))
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims,
                                      skip_connections=skip_connections, permutation=perm)
 

@@ -66,7 +66,7 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
         if isinstance(transform, InverseAutoregressiveTransform):
             permuted_jac = onp.zeros(jac.shape)
             _, rng_key_perm = random.split(random.PRNGKey(0))
-            perm = random.shuffle(rng_key_perm, onp.arange(input_dim))
+            perm = random.permutation(rng_key_perm, onp.arange(input_dim))
 
             for j in range(input_dim):
                 for k in range(input_dim):
