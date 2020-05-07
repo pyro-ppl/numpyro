@@ -17,7 +17,7 @@ from numpyro.distributions.util import matrix_to_tril_vec
 
 def _make_iaf_args(input_dim, hidden_dims):
     _, rng_perm = random.split(random.PRNGKey(0))
-    perm = random.shuffle(rng_perm, onp.arange(input_dim))
+    perm = random.permutation(rng_perm, onp.arange(input_dim))
     # we use Elu nonlinearity because the default one, Relu, masks out negative hidden values,
     # which in turn create some zero entries in the lower triangular part of Jacobian.
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1],
