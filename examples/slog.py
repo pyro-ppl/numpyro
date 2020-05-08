@@ -52,18 +52,15 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
 
 # Most of the model code is concerned with constructing the sparsity inducing prior.
 def model(X, Y, hypers):
-    S, P, N = hypers['expected_sparsity'], X.shape[1], X.shape[0]
+    S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
-    #sigma = numpyro.sample("sigma", dist.HalfNormal(hypers['alpha3']))
-    sigma = 4.0
     phi = sigma * (S / np.sqrt(N)) / (P - S)
     eta1 = numpyro.sample("eta1", dist.HalfCauchy(phi))
 
     msq = numpyro.sample("msq", dist.InverseGamma(hypers['alpha1'], hypers['beta1']))
     xisq = numpyro.sample("xisq", dist.InverseGamma(hypers['alpha2'], hypers['beta2']))
 
-    eta2 = numpyro.deterministic('eta2', np.square(eta1) / (msq * np.sqrt(xisq)))
-    #eta2 = numpyro.deterministic('eta2', np.square(eta1) * np.sqrt(xisq) / msq)
+    eta2 = numpyro.deterministic('eta2', np.square(eta1) * np.sqrt(xisq) / msq)
 
     lam = numpyro.sample("lambda", dist.HalfCauchy(np.ones(P)))
     kappa = numpyro.deterministic('kappa', np.sqrt(msq) * lam / np.sqrt(msq + np.square(eta1 * lam)))
@@ -86,6 +83,7 @@ def model(X, Y, hypers):
     numpyro.factor("obs", obs_factor)
 
 
+# helper for computing the posterior marginal N(theta_i) or N(theta_ij)
 def compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, omega):
     kprobe, kX = kappa * probe, kappa * X
 
@@ -105,6 +103,7 @@ def compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, om
     return mu, var
 
 
+# compute the posterior marginal N(theta_i)
 def compute_singleton_mean_variance(X, Y, dimension, eta1, eta2, c, kappa, omega):
     probe = np.zeros((2, X.shape[1]))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dimension], np.array([1.0, -1.0]))
@@ -112,6 +111,7 @@ def compute_singleton_mean_variance(X, Y, dimension, eta1, eta2, c, kappa, omega
     return compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, omega)
 
 
+# compute the posterior marginal N(theta_ij)
 def compute_pairwise_mean_variance(X, Y, dim1, dim2, eta1, eta2, c, kappa, omega):
     probe = np.zeros((4, X.shape[1]))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dim1], np.array([1.0, 1.0, -1.0, -1.0]))
@@ -129,7 +129,13 @@ def run_inference(model, args, rng_key, X, Y, hypers):
     mcmc.run(rng_key, X, Y, hypers)
     mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
-    return mcmc.get_samples()
+
+    samples = mcmc.get_samples()
+    # thin samples
+    for k, v in samples.items():
+        samples[k] = v[::args.thinning]
+
+    return samples
 
 
 # Get the mean and variance of a gaussian mixture
@@ -140,17 +146,17 @@ def gaussian_mixture_stats(mus, variances):
 
 
 # Create artificial regression dataset where only S out of P feature
-# dimensions contain signal and where there is a single pairwise interaction
-# between the first and second dimensions.
+# dimensions contain signal and where there are two pairwise interactions
 def get_data(N=20, S=2, P=10, seed=0):
     assert S < P and P > 1 and S > 0
     onp.random.seed(seed)
 
     # generate S coefficients with non-negligible magnitude
-    W = 2.0 + 3.0 * onp.random.rand(S)
+    W = 1.0 + 1.5 * onp.random.rand(S)
     flip = 2 * onp.random.binomial(1, 0.5, W.shape) - 1
     W *= flip
 
+    # generate covariates with non-negligible magnitude
     X = onp.random.rand(N, P) + 0.5
     flip = 2 * onp.random.binomial(1, 0.5, X.shape) - 1
     X *= flip
@@ -192,7 +198,8 @@ def main(args):
     results = {'args': args}
     P = args.num_dimensions
 
-    for N in [64, 128, 256, 512]:
+    for N in [200]:
+    #for N in [64, 128, 256, 512]:
         results[N] = {}
 
         X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
@@ -201,9 +208,8 @@ def main(args):
 
         # setup hyperparameters
         hypers = {'expected_sparsity': args.active_dimensions,
-                  'alpha1': 3.0, 'beta1': 1.0,
-                  'alpha2': 3.0, 'beta2': 1.0,
-                  'alpha3': 1.0, 'c': 1.0}
+                  'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
+                  'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
         # do inference
         rng_key = random.PRNGKey(args.seed)
@@ -280,21 +286,22 @@ def main(args):
     log_file = log_file.format(args.num_dimensions, args.active_dimensions, args.seed,
                                args.num_warmup, args.num_samples, args.mtd)
 
-    with open(log_dir + log_file + '.pkl', 'wb') as f:
-        pickle.dump(results, f, protocol=2)
+    #with open(log_dir + log_file + '.pkl', 'wb') as f:
+    #    pickle.dump(results, f, protocol=2)
 
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=150, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=50, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=200, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
-    parser.add_argument("--num-data", nargs='?', default=100, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=40, type=int)
+    parser.add_argument("--num-data", nargs='?', default=0, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=128, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
-    parser.add_argument("--active-dimensions", nargs='?', default=4, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=6, type=int)
+    parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
