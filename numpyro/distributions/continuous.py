@@ -1118,9 +1118,9 @@ class Logistic(Distribution):
 
 @copy_docs_from(Distribution)
 class TruncatedPolyaGamma(Distribution):
-    truncation_point = 3.0
+    truncation_point = 2.5
     num_log_prob_terms = 7
-    num_gamma_variates = 10
+    num_gamma_variates = 8
     assert num_log_prob_terms % 2 == 1
 
     arg_constraints = {}
@@ -1143,8 +1143,6 @@ class TruncatedPolyaGamma(Distribution):
         log_terms = np.log(two_n_plus_one) - 1.5 * np.log(value) - 0.125 * np.square(two_n_plus_one) / value
         even_terms = np.take(log_terms, all_indices[::2], axis=-1)
         odd_terms = np.take(log_terms, all_indices[1::2], axis=-1)
-        logsumexp_even = logsumexp(even_terms, axis=-1)
-        logsumexp_odd = logsumexp(odd_terms, axis=-1)
-        even_odd_ratio = np.exp(logsumexp_odd - logsumexp_even)
-        even_odd_ratio = np.clip(even_odd_ratio, a_max=1.0 - 1.0e-6)
-        return logsumexp_even + np.log1p(-even_odd_ratio) - 0.5 * np.log(2.0 * np.pi)
+        sum_even = np.exp(logsumexp(even_terms, axis=-1))
+        sum_odd = np.exp(logsumexp(odd_terms, axis=-1))
+        return np.log(sum_even - sum_odd) - 0.5 * np.log(2.0 * np.pi)
