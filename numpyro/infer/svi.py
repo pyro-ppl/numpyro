@@ -1,9 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from functools import namedtuple
+from functools import namedtuple, partial
 
-import jax
 from jax import random, value_and_grad
 
 from numpyro.distributions import constraints
@@ -67,7 +66,7 @@ class SVI(object):
                 inv_transforms[site['name']] = transform
                 params[site['name']] = transform.inv(site['value'])
 
-        self.constrain_fn = jax.partial(transform_fn, inv_transforms)
+        self.constrain_fn = partial(transform_fn, inv_transforms)
         return SVIState(self.optim.init(params), rng_key)
 
     def get_params(self, svi_state):

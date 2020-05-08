@@ -315,7 +315,7 @@ def find_valid_initial_params(rng_key, model,
     :param dict model_kwargs: kwargs provided to the model.
     :return: tuple of (`init_params`, `is_valid`).
     """
-    init_strategy = jax.partial(init_strategy, skip_param=not param_as_improper)
+    init_strategy = partial(init_strategy, skip_param=not param_as_improper)
 
     def cond_fn(state):
         i, _, _, is_valid = state
@@ -351,7 +351,7 @@ def find_valid_initial_params(rng_key, model,
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)
-        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
+        potential_fn = partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
         pe, param_grads = value_and_grad(potential_fn)(params)
         z_grad = ravel_pytree(param_grads)[0]
         is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
@@ -429,23 +429,23 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
     if dynamic_args:
         def potential_fn(*args, **kwargs):
             inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
-            return jax.partial(potential_energy, model, inv_transforms, args, kwargs)
+            return partial(potential_energy, model, inv_transforms, args, kwargs)
 
         def postprocess_fn(*args, **kwargs):
             inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
             if replay_model:
-                return jax.partial(constrain_fn, model, inv_transforms, args, kwargs,
-                                   return_deterministic=True)
+                return partial(constrain_fn, model, inv_transforms, args, kwargs,
+                               return_deterministic=True)
             else:
-                return jax.partial(transform_fn, inv_transforms)
+                return partial(transform_fn, inv_transforms)
     else:
         inv_transforms, replay_model = get_model_transforms(rng_key, model, model_args, model_kwargs)
-        potential_fn = jax.partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
+        potential_fn = partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
         if replay_model:
-            postprocess_fn = jax.partial(constrain_fn, model, inv_transforms, model_args, model_kwargs,
-                                         return_deterministic=True)
+            postprocess_fn = partial(constrain_fn, model, inv_transforms, model_args, model_kwargs,
+                                     return_deterministic=True)
         else:
-            postprocess_fn = jax.partial(transform_fn, inv_transforms)
+            postprocess_fn = partial(transform_fn, inv_transforms)
 
     return potential_fn, postprocess_fn
 
