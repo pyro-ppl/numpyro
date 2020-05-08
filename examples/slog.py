@@ -247,7 +247,8 @@ def main(args):
 
         print("Identified a total of %d active dimensions; expected %d." % (len(active_dims),
                                                                             args.active_dimensions))
-        print("The single quadratic coefficient theta_{1,2} used to generate the data:", expected_pairwise)
+        print("The magnitude of the quadratic coefficients theta_{1,2} and theta_{3,4} used to generate the data:",
+              expected_pairwise)
 
         # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
         # Note that the resulting numbers are only meaningful for i != j.
