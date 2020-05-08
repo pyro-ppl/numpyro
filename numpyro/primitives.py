@@ -199,7 +199,7 @@ def module(name, nn, input_shape=None):
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
         _, nn_params = nn_init(rng_key, input_shape)
         param(module_key, nn_params)
-    return jax.partial(nn_apply, nn_params)
+    return functools.partial(nn_apply, nn_params)
 
 
 class plate(Messenger):
