@@ -123,8 +123,8 @@ def compute_pairwise_mean_variance(X, Y, dim1, dim2, eta1, eta2, c, kappa, omega
 # Helper function for doing HMC inference
 def run_inference(model, args, rng_key, X, Y, hypers):
     start = time.time()
-    kernel = NUTS(model, max_tree_depth=args.mtd)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+    kernel = NUTS(model, max_tree_depth=args['mtd'])
+    mcmc = MCMC(kernel, args['num_warmup'], args['num_samples'], num_chains=args['num_chains'],
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y, hypers)
     mcmc.print_summary()
@@ -133,7 +133,7 @@ def run_inference(model, args, rng_key, X, Y, hypers):
     samples = mcmc.get_samples()
     # thin samples
     for k, v in samples.items():
-        samples[k] = v[::args.thinning]
+        samples[k] = v[::args['thinning']]
 
     return samples
 
@@ -194,37 +194,36 @@ def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
     return mean, std
 
 
-def main(args):
+def main(**args):
     results = {'args': args}
-    P = args.num_dimensions
+    P = args['num_dimensions']
 
-    for N in [200]:
-    #for N in [64, 128, 256, 512]:
+    for N in [100, 200, 400, 600]:
         results[N] = {}
 
         X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
-            get_data(N=N, P=P, S=args.active_dimensions, seed=args.seed)
-            #get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
+            get_data(N=N, P=P, S=args['active_dimensions'], seed=args['seed'])
+            #get_data(N=args['num_data, P=args['num_dimensions, S=args['active_dimensions)
 
         # setup hyperparameters
-        hypers = {'expected_sparsity': args.active_dimensions,
+        hypers = {'expected_sparsity': args['active_dimensions'],
                   'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
                   'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
         # do inference
-        rng_key = random.PRNGKey(args.seed)
+        rng_key = random.PRNGKey(args['seed'])
         samples = run_inference(model, args, rng_key, X, Y, hypers)
 
         # compute the mean and square root variance of each coefficient theta_i
-        means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(args.num_dimensions))
+        means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(P))
 
         results[N]['expected_thetas'] = onp.array(expected_thetas).tolist()
         results[N]['coeff_means'] = onp.array(means).tolist()
         results[N]['coeff_stds'] = onp.array(stds).tolist()
 
-        print("Coefficients theta_1 to theta_%d used to generate the data:" % args.active_dimensions, expected_thetas)
+        print("Coefficients theta_1 to theta_%d used to generate the data:" % args['active_dimensions'], expected_thetas)
         active_dims = []
-        expected_active_dims = onp.arange(args.active_dimensions).tolist()
+        expected_active_dims = onp.arange(args['active_dimensions']).tolist()
 
         for dim, (mean, std) in enumerate(zip(means, stds)):
             # we mark the dimension as inactive if the interval [mean - 2 * std, mean + 2 * std] contains zero
@@ -232,7 +231,7 @@ def main(args):
             inactive = "inactive" if lower < 0.0 and upper > 0.0 else "active"
             if inactive == "active":
                 active_dims.append(dim)
-            print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, args.num_dimensions, inactive, mean, std))
+            print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, P, inactive, mean, std))
 
         correct_singletons = len(set(active_dims) & set(expected_active_dims))
         false_singletons = len(set(active_dims) - set(expected_active_dims))
@@ -246,7 +245,7 @@ def main(args):
               "  missed_singletons: ", missed_singletons)
 
         print("Identified a total of %d active dimensions; expected %d." % (len(active_dims),
-                                                                            args.active_dimensions))
+                                                                            args['active_dimensions']))
         print("The magnitude of the quadratic coefficients theta_{1,2} and theta_{3,4} used to generate the data:",
               expected_pairwise)
 
@@ -282,13 +281,12 @@ def main(args):
               "  missed_quads: ", missed_quads)
 
     print("RESULTS\n", results)
-    log_dir = '/home/jankowiak/Research/numpyro/slog/'
     log_file = 'slog.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
-    log_file = log_file.format(args.num_dimensions, args.active_dimensions, args.seed,
-                               args.num_warmup, args.num_samples, args.mtd)
+    log_file = log_file.format(P, args['active_dimensions'], args['seed'],
+                               args['num_warmup'], args['num_samples'], args['mtd'])
 
-    #with open(log_dir + log_file + '.pkl', 'wb') as f:
-    #    pickle.dump(results, f, protocol=2)
+    with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
+        pickle.dump(results, f, protocol=2)
 
 
 if __name__ == "__main__":
@@ -299,15 +297,16 @@ if __name__ == "__main__":
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=128, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=256, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
-    parser.add_argument("--active-dimensions", nargs='?', default=6, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=10, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--log-dir", default='./', type=str)
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
     enable_x64()
 
-    main(args)
+    main(**vars(args))
