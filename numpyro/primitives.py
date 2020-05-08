@@ -4,7 +4,6 @@
 from collections import namedtuple
 import functools
 
-import jax
 from jax import lax
 
 import numpyro

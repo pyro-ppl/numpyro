@@ -3,7 +3,6 @@
 
 from functools import namedtuple, partial
 
-import jax
 from jax import random, value_and_grad
 
 from numpyro.distributions import constraints
