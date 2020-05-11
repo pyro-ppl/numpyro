@@ -190,7 +190,7 @@ def module(name, nn, input_shape=None):
     if nn_params is None:
         if input_shape is None:
             raise ValueError('Valid value for `input_size` needed to initialize.')
-        rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
+        rng_key = numpyro.rng_key(name + '$rng_key')
         _, nn_params = nn_init(rng_key, input_shape)
         param(module_key, nn_params)
     return functools.partial(nn_apply, nn_params)

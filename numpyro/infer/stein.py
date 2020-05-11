@@ -103,13 +103,18 @@ class SVGD:
             return jax.vmap(lambda l: np.sum(jax.vmap(lambda m: jax.grad(lambda x: kernel(x, y)[l, m])(x)[m])
                                             (np.arange(x.shape[0]))))(np.arange(x.shape[0]))
 
+    def _param_size(self, param):
+        if isinstance(param, tuple) or isinstance(param, list):
+            return sum(map(self._param_size, param))
+        return param.size
+
     def _calc_particle_info(self, uparams, num_particles):
         uparam_keys = list(uparams.keys())
         uparam_keys.sort()
         start_index = 0
         res = {}
         for k in uparam_keys:
-            end_index = start_index + uparams[k].size // num_particles
+            end_index = start_index + self._param_size(uparams[k]) // num_particles
             res[k] = (start_index, end_index)
             start_index = end_index
         return res

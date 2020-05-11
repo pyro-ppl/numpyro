@@ -16,10 +16,11 @@ class ReinitGuide(ABC):
     def find_params(self, rng_keys, *args, **kwargs):
         raise NotImplementedError
 
-# TODO Actually Test This out
+
 class WrappedGuide(ReinitGuide):
-    def __init__(self, fn, init_strategy=init_to_uniform()):
+    def __init__(self, fn, reinit_hide_fn=lambda site: False, init_strategy=init_to_uniform()):
         self.fn = fn
+        self.reinit_hide_fn = reinit_hide_fn
         self._init_params = None
         self.init_strategy = init_strategy
 
@@ -28,11 +29,21 @@ class WrappedGuide(ReinitGuide):
 
     def find_params(self, rng_keys, *args, **kwargs):
         guide_trace = handlers.trace(handlers.seed(self.fn, rng_keys[0])).get_trace(*args, **kwargs)
-        init_params, _ = handlers.block(find_valid_initial_params)(rng_keys, self.fn,
-                                                                   init_strategy=self.init_strategy,
-                                                                   param_as_improper=True, # To get new values for existing parameters
-                                                                   model_args=args,
-                                                                   model_kwargs=kwargs)
+
+        def _find_valid_params(rng_key):
+            k1, k2 = jax.random.split(rng_key)
+            guide = handlers.seed(handlers.block(self.fn, self.reinit_hide_fn), k2)
+            guide_trace = handlers.trace(handlers.seed(self.fn, rng_key)).get_trace(*args, **kwargs)
+            mapped_params, _ = handlers.block(find_valid_initial_params)(k1, guide, init_strategy=self.init_strategy,
+                                                                         param_as_improper=True,
+                                                                         model_args=args,
+                                                                         model_kwargs=kwargs)
+            hidden_params = {name: site['value'] for name, site in guide_trace.items()
+                             if site['type'] == 'param' and self.reinit_hide_fn(site)}
+            res_params = {**mapped_params, **hidden_params}
+            return res_params
+
+        init_params = jax.vmap(_find_valid_params)(rng_keys)
         params = {}
         for name, site in guide_trace.items():
             if site['type'] == 'param':
@@ -40,3 +51,6 @@ class WrappedGuide(ReinitGuide):
                 param_val = biject_to(constraint)(init_params[name])
                 params[name] = (name, param_val, constraint)
         self._init_params = {param: (val, constr) for param, val, constr in params.values()}
+
+    def __call__(self, *args, **kwargs):
+        return self.fn(*args, **kwargs)
