@@ -33,4 +33,5 @@ __all__ = [
     'Predictive',
     'SA',
     'SVI',
+    'SVGD'
 ]
