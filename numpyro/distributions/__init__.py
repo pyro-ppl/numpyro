@@ -26,6 +26,7 @@ from numpyro.distributions.continuous import (
     StudentT,
     TruncatedCauchy,
     TruncatedNormal,
+    TruncatedPolyaGamma,
     Uniform
 )
 from numpyro.distributions.discrete import (
@@ -107,6 +108,7 @@ __all__ = [
     'TransformedDistribution',
     'TruncatedCauchy',
     'TruncatedNormal',
+    'TruncatedPolyaGamma',
     'Uniform',
     'Unit',
     'ZeroInflatedPoisson',

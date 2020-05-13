@@ -31,7 +31,7 @@ import jax.numpy as np
 import jax.random as random
 import jax.nn as nn
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
+from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri, logsumexp
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -1114,3 +1114,35 @@ class Logistic(Distribution):
     def variance(self):
         var = (self.scale ** 2) * (np.pi ** 2) / 3
         return np.broadcast_to(var, self.batch_shape)
+
+
+@copy_docs_from(Distribution)
+class TruncatedPolyaGamma(Distribution):
+    truncation_point = 2.5
+    num_log_prob_terms = 7
+    num_gamma_variates = 8
+    assert num_log_prob_terms % 2 == 1
+
+    arg_constraints = {}
+    support = constraints.interval(0.0, truncation_point)
+
+    def __init__(self, batch_shape=(), validate_args=None):
+        super(TruncatedPolyaGamma, self).__init__(batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        denom = np.square(np.arange(0.5, self.num_gamma_variates))
+        x = random.gamma(key, np.ones(self.batch_shape + sample_shape + (self.num_gamma_variates,)))
+        x = np.sum(x / denom, axis=-1)
+        return np.clip(x * (0.5 / np.pi ** 2), a_max=self.truncation_point)
+
+    @validate_sample
+    def log_prob(self, value):
+        value = value[..., None]
+        all_indices = np.arange(0, self.num_log_prob_terms)
+        two_n_plus_one = 2.0 * all_indices + 1.0
+        log_terms = np.log(two_n_plus_one) - 1.5 * np.log(value) - 0.125 * np.square(two_n_plus_one) / value
+        even_terms = np.take(log_terms, all_indices[::2], axis=-1)
+        odd_terms = np.take(log_terms, all_indices[1::2], axis=-1)
+        sum_even = np.exp(logsumexp(even_terms, axis=-1))
+        sum_odd = np.exp(logsumexp(odd_terms, axis=-1))
+        return np.log(sum_even - sum_odd) - 0.5 * np.log(2.0 * np.pi)
