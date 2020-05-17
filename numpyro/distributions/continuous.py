@@ -126,7 +126,8 @@ class Dirichlet(Distribution):
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
         gamma_samples = random.gamma(key, self.concentration, shape=shape)
-        return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
+        samples = gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
+        return np.clip(samples, a_min=np.finfo(samples).tiny, a_max=1 - np.finfo(samples).eps)
 
     @validate_sample
     def log_prob(self, value):

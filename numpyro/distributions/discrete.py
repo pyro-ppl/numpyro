@@ -482,7 +482,7 @@ class MultinomialProbs(Distribution):
 @copy_docs_from(Distribution)
 class MultinomialLogits(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'logits': constraints.real}
+                       'logits': constraints.real_vector}
     is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
