@@ -852,7 +852,7 @@ class LowRankMultivariateNormal(Distribution):
 
 
 @copy_docs_from(Distribution)
-class Normal(Distribution, pytree_params=['loc', 'scale']):
+class Normal(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
     reparametrized_params = ['loc', 'scale']

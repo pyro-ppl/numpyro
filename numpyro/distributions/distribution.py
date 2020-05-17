@@ -108,18 +108,17 @@ class Distribution(object):
 
     # register Distribution as a pytree
     # ref: https://github.com/google/jax/issues/2916
-    def __init_subclass__(cls, pytree_params=None, **kwargs):
+    def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        cls.pytree_params = pytree_params
-
         tree_util.register_pytree_node(cls,
                                        cls.tree_flatten,
                                        cls.tree_unflatten)
 
     def tree_flatten(self):
-        if self.pytree_params is None:
-            raise RuntimeError("pytree_params should be specified, even as an empty tuple")
-        return tuple(getattr(self, param) for param in self.pytree_params), None
+        # XXX: this won't work with MultivariateNormal, which has different interpretations
+        # depending on which one specified among `scale_tril`, `covariance_matrix`, `precision_matrix`
+        # TODO: arrange keys in arg_constraints to be the same order as constructor
+        return tuple(getattr(self, param) for param in self.arg_constraints.keys()), None
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
