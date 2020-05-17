@@ -30,7 +30,7 @@ from contextlib import contextmanager
 import warnings
 
 import jax.numpy as np
-from jax import lax
+from jax import lax, tree_util
 
 from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform
@@ -105,6 +105,23 @@ class Distribution(object):
     is_discrete = False
     reparametrized_params = []
     _validate_args = False
+
+    def __init_subclass__(cls, pytree_params=None, **kwargs):
+        super().__init_subclass__(**kwargs)
+        cls.pytree_params = pytree_params
+
+        tree_util.register_pytree_node(cls,
+                                       cls.tree_flatten,
+                                       cls.tree_unflatten)
+
+    def tree_flatten(self):
+        if self.pytree_params is None:
+            raise RuntimeError("pytree_params should be specified, even as an empty tuple")
+        return tuple(getattr(self, param) for param in self.pytree_params), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params)
 
     @staticmethod
     def set_default_validate_args(value):
