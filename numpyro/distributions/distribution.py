@@ -106,6 +106,8 @@ class Distribution(object):
     reparametrized_params = []
     _validate_args = False
 
+    # register Distribution as a pytree
+    # ref: https://github.com/google/jax/issues/2916
     def __init_subclass__(cls, pytree_params=None, **kwargs):
         super().__init_subclass__(**kwargs)
         cls.pytree_params = pytree_params
