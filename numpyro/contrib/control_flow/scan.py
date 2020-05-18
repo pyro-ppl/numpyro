@@ -18,13 +18,13 @@ def scan_wrapper(fn, init_value, xs, rng_key=None, param_map=None):
         else:
             seeded_fn = fn
 
-        blocked_fn = handlers.block(handlers.substitute(seeded_fn, param_map=site_values))
-        traced_fn = handlers.trace(blocked_fn)
-        carry, y = traced_fn(carry, x)
+        with handlers.block():
+            traced_fn = handlers.trace(handlers.substitute(seeded_fn, param_map=site_values))
+            carry, y = traced_fn(carry, x)
         # we return 3 informations: distribution, value, is_subtituted
-        site_infos = {name: (site["fn"], site["value"], name in site_values)
-                      for name, site in traced_fn.trace.items()}
-        return (rng_key, carry), (site_infos, y)
+        site_values = {name: site["value"] for name, site in traced_fn.trace.items()}
+        site_dists = {name: site["fn"] for name, site in traced_fn.trace.items()}
+        return (rng_key, carry), (site_values, site_dists, y)
 
     param_map = {} if param_map is None else param_map
     return lax.scan(body_fn, (rng_key, init_value), (param_map, xs))
@@ -33,7 +33,7 @@ def scan_wrapper(fn, init_value, xs, rng_key=None, param_map=None):
 def scan(name, fn, init_value, xs, rng_key=None):
     # if there are no active Messengers, we just run and return it as expected:
     if not _PYRO_STACK:
-        (rng_key, carry), (site_infos, ys) = scan_wrapper(fn, init_value, xs, rng_key=rng_key)
+        (rng_key, carry), (site_values, site_dists, ys) = scan_wrapper(fn, init_value, xs, rng_key=rng_key)
     else:
         if rng_key is None:
             rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
@@ -50,10 +50,10 @@ def scan(name, fn, init_value, xs, rng_key=None):
 
         # ...and use apply_stack to send it to the Messengers
         msg = apply_stack(initial_msg)
-        (rng_key, carry), (site_infos, ys) = msg['value']
+        (rng_key, carry), (site_values, site_dists, ys) = msg['value']
 
-    with handlers.substitute(param_map={name: infos[1] for name, infos in site_infos.items()}):
-        for site_name, (dist, value, is_subtituted) in site_infos:
+    with handlers.substitute(param_map=site_values):
+        for site_name, dist in site_dists.items():
             numpyro.sample(site_name, dist)
 
     return carry, ys
