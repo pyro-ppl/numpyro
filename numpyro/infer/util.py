@@ -220,6 +220,9 @@ def init_to_prior():
 
 def _init_to_uniform(site, radius=2, skip_param=False):
     if site['type'] == 'sample' and not site['is_observed']:
+        if site['fn'].is_discrete:
+            return site['value']
+
         if isinstance(site['fn'], dist.TransformedDistribution):
             fn = site['fn'].base_dist
         else:
@@ -327,11 +330,15 @@ def find_valid_initial_params(rng_key, model,
 
         # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
         # Use `block` to not record sample primitives in `init_loc_fn`.
+        # TODO: here we use the same subkey for all sites, which is not right
+        # a solution is to create InitMessenger as in Pyro
         seeded_model = substitute(model, substitute_fn=block(seed(init_strategy, subkey)))
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
         constrained_values, inv_transforms = {}, {}
         for k, v in model_trace.items():
             if v['type'] == 'sample' and not v['is_observed']:
+                if v['fn'].is_discrete:
+                    continue
                 if v['intermediates']:
                     constrained_values[k] = v['intermediates'][0][0]
                     inv_transforms[k] = biject_to(v['fn'].base_dist.support)
@@ -385,6 +392,9 @@ def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
     replay_model = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
+            if v['fn'].is_discrete:
+                continue
+
             if v['intermediates']:
                 inv_transforms[k] = biject_to(v['fn'].base_dist.support)
                 replay_model = True

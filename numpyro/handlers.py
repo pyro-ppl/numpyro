@@ -370,8 +370,8 @@ class seed(Messenger):
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample' and not msg['is_observed'] and \
-                msg['kwargs']['rng_key'] is None:
+        if (msg['type'] == 'sample' and not msg['is_observed'] and
+                msg['kwargs']['rng_key'] is None) or msg['type'] == 'control_flow':
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg['kwargs']['rng_key'] = rng_key_sample
 
@@ -425,7 +425,9 @@ class substitute(Messenger):
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'param'):
             if msg['type'] == 'control_flow':
-                msg['kwargs']['param_map'] = self.base_param_map
+                msg['kwargs']['param_map'] = self.param_map if self.param_map is not None \
+                    else self.base_param_map
+                msg['kwargs']['substitute_fn'] = self.substitute_fn
             return
 
         if self.param_map is not None:
