@@ -424,7 +424,10 @@ class substitute(Messenger):
 
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'param'):
+            if msg['type'] == 'control_flow':
+                msg['kwargs']['param_map'] = self.base_param_map
             return
+
         if self.param_map is not None:
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
