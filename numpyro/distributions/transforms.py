@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import math
+import warnings
 
-from jax import ops
-from jax.flatten_util import ravel_pytree
+from jax import ops, tree_map, vmap
 from jax.dtypes import canonicalize_dtype
+from jax.flatten_util import ravel_pytree
 from jax.nn import softplus
 import jax.numpy as np
 from jax.scipy.linalg import solve_triangular
@@ -494,9 +495,16 @@ class UnpackTransform(Transform):
         self.unpack_fn = unpack_fn
 
     def __call__(self, x):
-        return self.unpack_fn(x)
+        batch_shape = x.shape[:-1]
+        if batch_shape:
+            unpacked = vmap(self.unpack_fn)(x.reshape((-1,) + x.shape[-1:]))
+            return tree_map(lambda x: np.reshape(x, batch_shape + x.shape[1:]), unpacked)
+        else:
+            return self.unpack_fn(x)
 
     def inv(self, y):
+        warnings.warn("UnpackTransform.inv might lead to an unexpected behavior because it"
+                      " cannot transform a batch of unpacked arrays.")
         return ravel_pytree(y)[0]
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):

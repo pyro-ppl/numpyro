@@ -211,7 +211,6 @@ class AutoContinuous(AutoGuide):
 
     def _unpack_and_constrain(self, latent_sample, params):
         sample_shape = np.shape(latent_sample)[:-1]
-        latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
         # XXX: we do not support priors with supports depending on dynamic data
         # because it adds complexity to the interface.
         # Users can achieve that behaviour by changing the default `self._args`
@@ -229,9 +228,13 @@ class AutoContinuous(AutoGuide):
             else:
                 return transform_fn(self._inv_transforms, unpacked_samples)
 
-        unpacked_samples = vmap(unpack_single_latent)(latent_sample)
-        unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
-                                    unpacked_samples)
+        if sample_shape:
+            latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
+            unpacked_samples = vmap(unpack_single_latent)(latent_sample)
+            unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
+                                        unpacked_samples)
+        else:
+            unpacked_samples = unpack_single_latent(latent_sample)
         return unpacked_samples
 
     @property

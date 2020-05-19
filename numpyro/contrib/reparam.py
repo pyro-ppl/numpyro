@@ -118,7 +118,7 @@ class NeuTraReparam(Reparam):
 
         # Step 2. Use trained guide in NeuTra MCMC
         neutra = NeuTraReparam(guide)
-        model = reparam(model, config=lambda _: neutra)
+        model = netra.reparam(model)
         nuts = NUTS(model)
         # ...now use the model in HMC or NUTS...
 
@@ -146,21 +146,28 @@ class NeuTraReparam(Reparam):
                              "`get_transform` method that does not depend on the "
                              "model's `*args, **kwargs`")
 
+    def _reparam_config(self, site):
+        if site["name"] in self.guide.prototype_trace and not site.get("is_observed", False):
+            return self
+
+    def reparam(self, fn=None):
+        return reparam(fn, config=self._reparam_config)
+
     def __call__(self, name, fn, obs):
-        if name not in self.guide.prototype_trace.nodes:
+        if name not in self.guide.prototype_trace:
             return fn, obs
         assert obs is None, "NeuTraReparam does not support observe statements"
 
         log_density = 0.
         if not self._x_unconstrained:  # On first sample site.
             # Sample a shared latent.
-            z_unconstrained = numpyro.sample("{}_shared_latent".format(name),
-                                             self.guide.get_base_dist().mask(False))
+            z_unconstrained = numpyro.sample("{}_shared_latent".format(self.guide.prefix),
+                                             self.guide.base_dist.mask(False))
 
             # Differentiably transform.
             x_unconstrained = self.transform(z_unconstrained)
             log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
-            self._x_unconstrained = self.guide._unpack_latent(x_unconstrained)
+            self._x_unconstrained = x_unconstrained
 
         # Extract a single site's value from the shared latent.
         unconstrained_value = self._x_unconstrained.pop(name)
@@ -174,19 +181,12 @@ class NeuTraReparam(Reparam):
 
     def transform_sample(self, latent):
         """
-        Given latent samples from the warped posterior (with a possible batch dimension),
+        Given latent samples from the warped posterior (with possible batch dimensions),
         return a `dict` of samples from the latent sites in the model.
 
-        :param latent: sample from the warped posterior (possibly batched). Note that the
-            batch dimension must not collide with plate dimensions in the model, i.e.
-            any batch dims `d < - max_plate_nesting`.
+        :param latent: sample from the warped posterior (possibly batched).
         :return: a `dict` of samples keyed by latent sites in the model.
         :rtype: dict
         """
         x_unconstrained = self.transform(latent)
-        transformed_samples = {}
-        for site, value in self.guide._unpack_latent(x_unconstrained):
-            transform = biject_to(site["fn"].support)
-            x_constrained = transform(value)
-            transformed_samples[site["name"]] = x_constrained
-        return transformed_samples
+        return self.guide._unpack_and_constrain(x_unconstrained)
