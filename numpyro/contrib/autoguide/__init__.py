@@ -159,7 +159,10 @@ class AutoContinuous(AutoGuide):
                     self._inv_transforms[name] = transform
                     unconstrained_sites[name] = transform.inv(site['value'])
 
-        self._init_latent, self._unpack_latent = ravel_pytree(init_params)
+        self._init_latent, unpack_latent = ravel_pytree(init_params)
+        # this is to match the behavior of Pyro, where we can apply
+        # unpack_latent for a batch of samples
+        self._unpack_latent = UnpackTransform(unpack_latent)
         self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
             self.base_dist = dist.Independent(dist.Normal(np.zeros(self.latent_size), 1.), 1)
@@ -173,6 +176,8 @@ class AutoContinuous(AutoGuide):
 
     def _sample_latent(self, base_dist, *args, **kwargs):
         sample_shape = kwargs.pop('sample_shape', ())
+        # TODO: no need to create an extra `transform` layer,
+        # each subclass should implement `_sample_latent` and `_get_transform` separately.
         transform = self._get_transform()
         posterior = dist.TransformedDistribution(base_dist, transform)
         return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
@@ -242,23 +247,31 @@ class AutoContinuous(AutoGuide):
         """
         Base distribution of the posterior. By default, it is standard normal.
         """
+        # TODO: expose this through `get_base_dist` method as in Pyro for consistency
         return self._base_dist
 
     @base_dist.setter
     def base_dist(self, base_dist):
+        # TODO: not allow changing base_dist
         self._base_dist = base_dist
 
-    def get_transform(self, params):
+    def get_transform(self, params, unpack=True):
         """
         Returns the transformation learned by the guide to generate samples from the unconstrained
         (approximate) posterior.
 
         :param dict params: Current parameters of model and autoguide.
+        :param bool unpack: Whether to return a transform that also unpacks the
+            flatten join of latent variables.
         :return: the transform of posterior distribution
         :rtype: :class:`~numpyro.distributions.transforms.Transform`
         """
-        return ComposeTransform([handlers.substitute(self._get_transform, params)(),
-                                 UnpackTransform(self._unpack_latent)])
+        # TODO: with NeuTraRepram, this `unpack` flag is not useful anymore;
+        # we'll make this method behave as `unpack=False` when refactoring this file
+        transform = handlers.substitute(self._get_transform, params)()
+        if unpack:
+            transform = ComposeTransform([transform, self._unpack_latent])
+        return transform
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         """
@@ -323,11 +336,11 @@ class AutoDiagonalNormal(AutoContinuous):
         return AffineTransform(loc, scale, domain=constraints.real_vector)
 
     def median(self, params):
-        transform = handlers.substitute(self._get_transform, params)()
+        transform = self.get_transform(params, unpack=False)
         return self._unpack_and_constrain(transform.loc, params)
 
     def quantiles(self, params, quantiles):
-        transform = handlers.substitute(self._get_transform, params)()
+        transform = self.get_transform(params, unpack=False)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, transform.scale).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
@@ -358,11 +371,11 @@ class AutoMultivariateNormal(AutoContinuous):
         return MultivariateAffineTransform(loc, scale_tril)
 
     def median(self, params):
-        transform = handlers.substitute(self._get_transform, params)()
+        transform = self.get_transform(params, unpack=False)
         return self._unpack_and_constrain(transform.loc, params)
 
     def quantiles(self, params, quantiles):
-        transform = handlers.substitute(self._get_transform, params)()
+        transform = self.get_transform(params, unpack=False)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
@@ -415,16 +428,18 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng_key, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-    def get_transform(self, params):
-        return ComposeTransform([self._get_transform(params),
-                                 UnpackTransform(self._unpack_latent)])
+    def get_transform(self, params, unpack=True):
+        transform = self._get_transform(params)
+        if unpack:
+            transform = ComposeTransform([transform, self._unpack_latent])
+        return transform
 
     def median(self, params):
         loc = params['{}_loc'.format(self.prefix)]
         return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
-        transform = self._get_transform(params)
+        transform = self.get_transform(params, unpack=False)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
@@ -476,9 +491,11 @@ class AutoLaplaceApproximation(AutoContinuous):
         latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng_key, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-    def get_transform(self, params):
-        return ComposeTransform([self._get_transform(params),
-                                 UnpackTransform(self._unpack_latent)])
+    def get_transform(self, params, unpack=True):
+        transform = self._get_transform(params)
+        if unpack:
+            transform = ComposeTransform([transform, self._unpack_latent])
+        return transform
 
     def median(self, params):
         loc = params['{}_loc'.format(self.prefix)]

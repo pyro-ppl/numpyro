@@ -498,7 +498,7 @@ class UnpackTransform(Transform):
         batch_shape = x.shape[:-1]
         if batch_shape:
             unpacked = vmap(self.unpack_fn)(x.reshape((-1,) + x.shape[-1:]))
-            return tree_map(lambda x: np.reshape(x, batch_shape + x.shape[1:]), unpacked)
+            return tree_map(lambda x: np.reshape(x, batch_shape + x.shape[-1:]), unpacked)
         else:
             return self.unpack_fn(x)
 

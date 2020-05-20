@@ -138,13 +138,14 @@ class NeuTraReparam(Reparam):
             raise TypeError("NeuTraReparam expected an AutoContinuous guide, but got {}"
                             .format(type(guide)))
         self.guide = guide
-        self._x_unconstrained = {}
+        self.params = params
         try:
-            self.transform = self.guide.get_transform(params)
+            self.transform = self.guide.get_transform(self.params, unpack=False)
         except (NotImplementedError, TypeError):
             raise ValueError("NeuTraReparam only supports guides that implement "
                              "`get_transform` method that does not depend on the "
                              "model's `*args, **kwargs`")
+        self._x_unconstrained = {}
 
     def _reparam_config(self, site):
         if site["name"] in self.guide.prototype_trace and not site.get("is_observed", False):
@@ -167,7 +168,7 @@ class NeuTraReparam(Reparam):
             # Differentiably transform.
             x_unconstrained = self.transform(z_unconstrained)
             log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
-            self._x_unconstrained = x_unconstrained
+            self._x_unconstrained = self.guide._unpack_latent(x_unconstrained)
 
         # Extract a single site's value from the shared latent.
         unconstrained_value = self._x_unconstrained.pop(name)
@@ -189,4 +190,4 @@ class NeuTraReparam(Reparam):
         :rtype: dict
         """
         x_unconstrained = self.transform(latent)
-        return self.guide._unpack_and_constrain(x_unconstrained)
+        return self.guide._unpack_and_constrain(x_unconstrained, self.params)
