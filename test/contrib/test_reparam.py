@@ -94,7 +94,7 @@ def test_neals_funnel_smoke():
     mcmc = MCMC(nuts, num_warmup=50, num_samples=50)
     mcmc.run(random.PRNGKey(1), dim)
     samples = mcmc.get_samples()
-    transformed_samples = neutra.transform(samples['auto_shared_latent'])
+    transformed_samples = neutra.transform_sample(samples['auto_shared_latent'])
     assert 'x' in transformed_samples
     assert 'y' in transformed_samples
 
@@ -116,5 +116,5 @@ def test_reparam_log_joint(model, kwargs):
     pe_transformed = pe_fn_neutra(init_params)
     latent_y = neutra.transform(latent_x)
     log_det_jacobian = neutra.transform.log_abs_det_jacobian(latent_x, latent_y)
-    pe = pe_fn(latent_y)
+    pe = pe_fn(guide._unpack_latent(latent_y))
     assert_allclose(pe_transformed, pe - log_det_jacobian)

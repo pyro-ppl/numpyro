@@ -268,7 +268,7 @@ def test_dynamic_supports():
 
 def test_elbo_dynamic_support():
     x_prior = dist.Uniform(0, 5)
-    x_unconstrained = 2.
+    x_unconstrained = np.array([2.])
 
     def model():
         numpyro.sample('x', x_prior)
