@@ -503,9 +503,11 @@ class UnpackTransform(Transform):
             return self.unpack_fn(x)
 
     def inv(self, y):
-        leading_dims = [v.shape[:1] if np.ndim(v) > 0 else 0
+        leading_dims = [v.shape[0] if np.ndim(v) > 0 else 0
                         for v in tree_flatten(y)[0]]
-        if all(d == leading_dims[0] for d in leading_dims[1:]):
+        d0 = leading_dims[0]
+        not_scalar = d0 > 0 or len(leading_dims) > 1
+        if not_scalar and all(d == d0 for d in leading_dims[1:]):
             warnings.warn("UnpackTransform.inv might lead to an unexpected behavior because it"
                           " cannot transform a batch of unpacked arrays.")
         return ravel_pytree(y)[0]
