@@ -937,6 +937,7 @@ def test_compose_transform_with_intermediates(ts):
     assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))
 
 
+@pytest.mark.filterwarnings("ignore:UnpackTransform.inv")
 def test_unpack_transform():
     x = np.ones(3)
     unpack_fn = lambda x: {'key': x}  # noqa: E731
