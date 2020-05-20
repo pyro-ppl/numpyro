@@ -937,15 +937,19 @@ def test_compose_transform_with_intermediates(ts):
     assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))
 
 
-@pytest.mark.filterwarnings("ignore:UnpackTransform.inv")
-def test_unpack_transform():
-    x = np.ones(3)
-    unpack_fn = lambda x: {'key': x}  # noqa: E731
+@pytest.mark.parametrize('x_dim, y_dim', [(3, 3), (3, 4)])
+def test_unpack_transform(x_dim, y_dim):
+    xy = onp.random.randn(x_dim + y_dim)
+    unpack_fn = lambda xy: {'x': xy[:x_dim], 'y': xy[x_dim:]}  # noqa: E731
     transform = transforms.UnpackTransform(unpack_fn)
-    y = transform(x)
-    z = transform.inv(y)
-    assert_allclose(y['key'], x)
-    assert_allclose(z, x)
+    z = transform(xy)
+    if x_dim == y_dim:
+        with pytest.warns(UserWarning, match="UnpackTransform.inv"):
+            t = transform.inv(z)
+    else:
+        t = transform.inv(z)
+
+    assert_allclose(t, xy)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)

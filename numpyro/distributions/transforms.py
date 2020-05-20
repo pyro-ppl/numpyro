@@ -4,7 +4,7 @@
 import math
 import warnings
 
-from jax import ops, tree_map, vmap
+from jax import ops, tree_flatten, tree_map, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
 from jax.nn import softplus
@@ -503,8 +503,11 @@ class UnpackTransform(Transform):
             return self.unpack_fn(x)
 
     def inv(self, y):
-        warnings.warn("UnpackTransform.inv might lead to an unexpected behavior because it"
-                      " cannot transform a batch of unpacked arrays.")
+        leading_dims = [v.shape[:1] if np.ndim(v) > 0 else 0
+                        for v in tree_flatten(y)[0]]
+        if all(d == leading_dims[0] for d in leading_dims[1:]):
+            warnings.warn("UnpackTransform.inv might lead to an unexpected behavior because it"
+                          " cannot transform a batch of unpacked arrays.")
         return ravel_pytree(y)[0]
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
