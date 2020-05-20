@@ -3,6 +3,7 @@
 
 from jax import lax, numpy as np, random
 import numpy as onp
+from numpy.testing import assert_allclose
 import pytest
 
 import numpyro
@@ -14,7 +15,6 @@ from numpyro.contrib.reparam import NeuTraReparam, TransformReparam, reparam
 from numpyro.infer.util import initialize_model
 from numpyro.infer import MCMC, NUTS, SVI, ELBO
 from numpyro.optim import Adam
-from tests.common import assert_close
 
 
 # Test helper to extract a few log central moments from samples.
@@ -57,7 +57,7 @@ def test_log_normal(shape):
             value = handlers.seed(model, 0)()
     assert isinstance(tr["x"]["fn"], dist.Delta)
     actual_moments = get_moments(value)
-    assert_close(actual_moments, expected_moments, atol=0.05)
+    assert_allclose(actual_moments, expected_moments, atol=0.05)
 
 
 def neals_funnel(dim):
@@ -117,4 +117,4 @@ def test_reparam_log_joint(model, kwargs):
     latent_y = neutra.transform(latent_x)
     log_det_jacobian = neutra.transform.log_abs_det_jacobian(latent_x, latent_y)
     pe = pe_fn(latent_y)
-    assert_close(pe_transformed, pe - log_det_jacobian)
+    assert_allclose(pe_transformed, pe - log_det_jacobian)
