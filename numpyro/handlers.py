@@ -231,16 +231,13 @@ class block(Messenger):
 
 class condition(Messenger):
     """
-    Conditions unobserved sample sites to values from `param_map` or `condition_fn`.
+    Conditions unobserved sample sites to values from `param_map`.
     Similar to :class:`~numpyro.handlers.substitute` except that it only affects
     `sample` sites and changes the `is_observed` property to `True`.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
        site names.
-    :param condition_fn: callable that takes in a site dict and returns
-       a numpy array or `None` (in which case the handler has no side
-       effect).
 
     **Example:**
 
@@ -259,20 +256,16 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
-    def __init__(self, fn=None, param_map=None, substitute_fn=None):
-        self.substitute_fn = substitute_fn
+    def __init__(self, fn=None, param_map=None):
         self.param_map = param_map
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
-        site_name = msg['name']
         if msg['type'] == 'sample':
+            site_name = msg['name']
             value = None
-            if self.param_map is not None:
-                if site_name in self.param_map:
-                    value = self.param_map[site_name]
-            else:
-                value = self.substitute_fn(msg)
+            if site_name in self.param_map:
+                value = self.param_map[site_name]
             if value is not None:
                 msg['value'] = value
                 if msg['is_observed']:
@@ -378,24 +371,14 @@ class seed(Messenger):
 
 class substitute(Messenger):
     """
-    Given a callable `fn` and a dict `param_map` keyed by site names
-    (alternatively, a callable `substitute_fn`), return a callable
-    which substitutes all primitive calls in `fn` with values from
+    Given a callable `fn` and a dict `param_map` keyed by site names,
+    return a callable which substitutes all primitive calls in `fn` with values from
     `param_map` whose key matches the site name. If the site name
     is not present in `param_map`, there is no side effect.
-
-    If a `substitute_fn` is provided, then the value at the site is
-    replaced by the value returned from the call to `substitute_fn`
-    for the given site.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
         site names.
-    :param dict base_param_map: similar to `param_map` but only holds samples
-        from base distributions.
-    :param substitute_fn: callable that takes in a site dict and returns
-        a numpy array or `None` (in which case the handler has no side
-        effect).
 
     **Example:**
 
@@ -413,13 +396,10 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None, base_param_map=None, substitute_fn=None):
-        self.substitute_fn = substitute_fn
+    def __init__(self, fn=None, param_map=None):
+        if not isinstance(param_map, dict):
+            raise TypeError(f'Incorrect type for param_map; expected to be a dict, but got {type(param_map)}')
         self.param_map = param_map
-        self.base_param_map = base_param_map
-        if sum((x is not None for x in (param_map, base_param_map, substitute_fn))) != 1:
-            raise ValueError('Only one of `param_map`, `base_param_map`, or `substitute_fn` '
-                             'should be provided.')
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
@@ -428,19 +408,3 @@ class substitute(Messenger):
         if self.param_map is not None:
             if msg['name'] in self.param_map:
                 msg['value'] = self.param_map[msg['name']]
-        else:
-            base_value = self.substitute_fn(msg) if self.substitute_fn \
-                else self.base_param_map.get(msg['name'], None)
-            if base_value is not None:
-                if msg['type'] == 'sample':
-                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
-                        base_value)
-                else:
-                    constraint = msg['kwargs'].pop('constraint', real)
-                    transform = biject_to(constraint)
-                    if isinstance(transform, ComposeTransform):
-                        # No need to apply the first transform since the base value
-                        # should have the same support as the first part's co-domain.
-                        msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
-                    else:
-                        msg['value'] = base_value

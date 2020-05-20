@@ -24,12 +24,7 @@ def apply_stack(msg):
         if msg.get("stop"):
             break
     if msg['value'] is None:
-        if msg['type'] == 'sample':
-            msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
-                                                           sample_intermediates=True,
-                                                           **msg['kwargs'])
-        else:
-            msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
+        msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
