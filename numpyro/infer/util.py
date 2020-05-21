@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 
-def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
+def log_density(model, model_args, model_kwargs, params):
     """
     (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
     latent values ``params``.
@@ -43,21 +43,9 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
     :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of current parameter values keyed by site
         name.
-    :param bool skip_dist_transforms: whether to compute log probability of a site
-        (if its prior is a transformed distribution) in its base distribution
-        domain.
     :return: log of joint density and a corresponding model trace
     """
-    # We skip transforms in
-    #   + autoguide's model
-    #   + hmc's model
-    # We apply transforms in
-    #   + autoguide's guide
-    #   + svi's model + guide
-    if skip_dist_transforms:
-        model = substitute(model, base_param_map=params)
-    else:
-        model = substitute(model, param_map=params)
+    model = substitute(model, param_map=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jax.device_put(0.)
     for site in model_trace.values():
@@ -70,9 +58,6 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
             if not_jax_tracer(mask) and mask is not None and not np.any(mask):
                 continue
             if intermediates:
-                if skip_dist_transforms:
-                    log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
-                else:
                     log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)

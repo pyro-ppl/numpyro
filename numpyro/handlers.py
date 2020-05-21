@@ -84,8 +84,6 @@ import warnings
 from jax import lax, random
 import jax.numpy as np
 
-from numpyro.distributions.constraints import real
-from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.primitives import Messenger
 from numpyro.util import not_jax_tracer
 
@@ -231,13 +229,16 @@ class block(Messenger):
 
 class condition(Messenger):
     """
-    Conditions unobserved sample sites to values from `param_map`.
+    Conditions unobserved sample sites to values from `param_map` or `condition_fn`.
     Similar to :class:`~numpyro.handlers.substitute` except that it only affects
     `sample` sites and changes the `is_observed` property to `True`.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
        site names.
+    :param condition_fn: callable that takes in a site dict and returns
+       a numpy array or `None` (in which case the handler has no side
+       effect).
 
     **Example:**
 
@@ -256,21 +257,28 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
-    def __init__(self, fn=None, param_map=None):
+    def __init__(self, fn=None, param_map=None, condition_fn=None):
+        self.condition_fn = condition_fn
         self.param_map = param_map
+        if sum((x is not None for x in (param_map, condition_fn))) != 1:
+            raise ValueError('Only one of `param_map` or `condition_fn` '
+                             'should be provided.')
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample':
-            site_name = msg['name']
-            value = None
-            if site_name in self.param_map:
-                value = self.param_map[site_name]
-            if value is not None:
-                msg['value'] = value
-                if msg['is_observed']:
-                    raise ValueError("Cannot condition an already observed site: {}.".format(site_name))
-                msg['is_observed'] = True
+        if msg['type'] != 'sample':
+            return
+
+        if self.param_map is not None:
+            value = self.param_map.get(self.param_map)
+        else:
+            value = self.condition_fn(msg)
+
+        if value is not None:
+            msg['value'] = value
+            if msg['is_observed']:
+                raise ValueError("Cannot condition an already observed site: {}.".format(site_name))
+            msg['is_observed'] = True
 
 
 class mask(Messenger):
@@ -371,14 +379,22 @@ class seed(Messenger):
 
 class substitute(Messenger):
     """
-    Given a callable `fn` and a dict `param_map` keyed by site names,
-    return a callable which substitutes all primitive calls in `fn` with values from
+    Given a callable `fn` and a dict `param_map` keyed by site names
+    (alternatively, a callable `substitute_fn`), return a callable
+    which substitutes all primitive calls in `fn` with values from
     `param_map` whose key matches the site name. If the site name
     is not present in `param_map`, there is no side effect.
+
+    If a `substitute_fn` is provided, then the value at the site is
+    replaced by the value returned from the call to `substitute_fn`
+    for the given site.
 
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
         site names.
+    :param substitute_fn: callable that takes in a site dict and returns
+        a numpy array or `None` (in which case the handler has no side
+        effect).
 
     **Example:**
 
@@ -396,15 +412,22 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None):
-        if not isinstance(param_map, dict):
-            raise TypeError(f'Incorrect type for param_map; expected to be a dict, but got {type(param_map)}')
+    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+        self.substitute_fn = substitute_fn
         self.param_map = param_map
+        if sum((x is not None for x in (param_map, substitute_fn))) != 1:
+            raise ValueError('Only one of `param_map` or `substitute_fn` '
+                             'should be provided.')
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'param'):
             return
+
         if self.param_map is not None:
-            if msg['name'] in self.param_map:
-                msg['value'] = self.param_map[msg['name']]
+            value = self.param_map.get(self.param_map)
+        else:
+            value = self.substitute_fn(msg)
+
+        if value is not None:
+            msg['value'] = value

@@ -122,6 +122,12 @@ class ComposeTransform(Transform):
 
     @property
     def codomain(self):
+        # like in the support of TransformedDistribution, we loop through transforms
+        # to update domain, codomain
+        domain = self.domain
+        for t in self.parts[1:]:
+            t.domain = domain
+            domain = t.codomain
         return self.parts[-1].codomain
 
     @property

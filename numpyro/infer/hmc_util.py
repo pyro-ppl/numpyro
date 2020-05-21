@@ -12,7 +12,7 @@ from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import cholesky_of_inverse, get_dtype
-from numpyro.util import cond, while_loop
+from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
@@ -209,8 +209,8 @@ def velocity_verlet(potential_fn, kinetic_fn):
     return init_fn, update_fn
 
 
-def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
-                              position, rng_key, init_step_size):
+def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
+                              init_step_size, inverse_mass_matrix, position, rng_key):
     """
     Finds a reasonable step size by tuning `init_step_size`. This function is used
     to avoid working with a too large or too small step size in HMC.
@@ -223,10 +223,10 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     :param potential_fn: A callable to compute potential energy.
     :param kinetic_fn: A callable to compute kinetic energy.
     :param momentum_generator: A generator to get a random momentum variable.
+    :param float init_step_size: Initial step size to be tuned.
     :param inverse_mass_matrix: Inverse of mass matrix.
     :param position: Current position of the particle.
     :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
-    :param float init_step_size: Initial step size to be tuned.
     :return: a reasonable value for step size.
     :rtype: float
     """
@@ -324,10 +324,6 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
-def _identity_step_size(inverse_mass_matrix, z, rng_key, step_size):
-    return step_size
-
-
 def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    dense_mass=False, target_accept_prob=0.8):
@@ -350,7 +346,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
     :return: a pair of (`init_fn`, `update_fn`).
     """
     if find_reasonable_step_size is None:
-        find_reasonable_step_size = _identity_step_size
+        find_reasonable_step_size = identity
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
@@ -382,7 +378,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                 mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
         ss_state = ss_init(np.log(10 * step_size))
 
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
@@ -399,7 +395,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
             ss_state = ss_init(np.log(10 * step_size))
 
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
