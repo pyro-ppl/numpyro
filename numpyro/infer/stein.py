@@ -240,6 +240,8 @@ class SVGD:
                 transforms[site['name']] = transform.inv
                 if site['name'] in guide_init_params:
                     pval, _ = guide_init_params[site['name']]
+                    if self.classic_guide_params_fn(site['name']):
+                        pval = pval[0]
                 else:
                     pval =  site['value']
                 params[site['name']] = transform.inv(pval)
