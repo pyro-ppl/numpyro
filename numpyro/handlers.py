@@ -270,14 +270,14 @@ class condition(Messenger):
             return
 
         if self.param_map is not None:
-            value = self.param_map.get(self.param_map)
+            value = self.param_map.get(msg['name'])
         else:
             value = self.condition_fn(msg)
 
         if value is not None:
             msg['value'] = value
             if msg['is_observed']:
-                raise ValueError("Cannot condition an already observed site: {}.".format(site_name))
+                raise ValueError("Cannot condition an already observed site: {}.".format(msg['name']))
             msg['is_observed'] = True
 
 
@@ -425,7 +425,7 @@ class substitute(Messenger):
             return
 
         if self.param_map is not None:
-            value = self.param_map.get(self.param_map)
+            value = self.param_map.get(msg['name'])
         else:
             value = self.substitute_fn(msg)
 
