@@ -41,7 +41,7 @@ class _NumpyroOptim(object):
         :return: initial optimizer state.
         """
         opt_state = self.init_fn(params)
-        return 0, opt_state
+        return np.array(0), opt_state
 
     def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
         """
