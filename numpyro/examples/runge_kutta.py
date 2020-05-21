@@ -6,10 +6,7 @@ import jax.numpy as np
 from jax import ops
 from jax.experimental import loops
 
-class generic( object ):
-    pass
-
-# @functools.partial(jax.jit, static_argnums=(0,1,2,3,4))
+@functools.partial(jax.jit, static_argnums=(0,1,2,3,4))
 def runge_kutta_4(f: Callable[[float, np.ndarray], np.ndarray], 
                   step_size,
                   num_steps,
