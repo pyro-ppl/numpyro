@@ -226,7 +226,7 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     fn = (jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
           if jitted else find_reasonable_step_size)
     rng_key = random.PRNGKey(0)
-    step_size = fn(potential_fn, kinetic_fn, p_generator, m_inv, q, rng_key, init_step_size)
+    step_size = fn(potential_fn, kinetic_fn, p_generator, init_step_size, m_inv, q, rng_key)
 
     # Apply 1 velocity verlet step with step_size=eps, we have
     # z_new = eps, r_new = 1 - eps^2 / 2, hence energy_new = 0.5 + eps^4 / 8,
