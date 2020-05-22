@@ -54,9 +54,6 @@ class reparam(Messenger):
 
         new_fn, value = reparam(msg["name"], msg["fn"], msg["value"])
 
-        if new_fn is None:
-            msg['type'] = 'deterministic'
-
         if value is not None:
             if new_fn is None:
                 msg['type'] = 'deterministic'
