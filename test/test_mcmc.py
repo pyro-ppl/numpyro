@@ -14,6 +14,7 @@ import jax.numpy as np
 from jax.scipy.special import logit
 
 import numpyro
+from numpyro.contrib.reparam import TransformReparam, reparam
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import HMC, MCMC, NUTS, SA
@@ -105,7 +106,8 @@ def test_uniform_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+        with reparam(config={'loc': TransformReparam()}):
+            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))

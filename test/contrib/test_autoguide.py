@@ -41,6 +41,7 @@ init_strategy = init_to_median(num_samples=2)
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
 ])
+@pytest.mark.filterwarnings("ignore:Explicitly requested dtype float64 requested in asarray")
 def test_beta_bernoulli(auto_class):
     data = np.array([[1.0] * 8 + [0.0] * 2,
                      [1.0] * 4 + [0.0] * 6]).T
@@ -74,6 +75,7 @@ def test_beta_bernoulli(auto_class):
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
 ])
+@pytest.mark.filterwarnings("ignore:Explicitly requested dtype float64 requested in asarray")
 def test_logistic_regression(auto_class):
     N, dim = 3000, 3
     data = random.normal(random.PRNGKey(0), (N, dim))

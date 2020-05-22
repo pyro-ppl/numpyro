@@ -264,7 +264,7 @@ def test_build_adaptation_schedule(num_steps, expected):
     pytest.param(False, marks=pytest.mark.skipif("CI" in os.environ, reason="slow in Travis"))
 ])
 def test_warmup_adapter(jitted):
-    def find_reasonable_step_size(m_inv, z, rng_key, step_size):
+    def find_reasonable_step_size(step_size, m_inv, z, rng_key):
         return np.where(step_size < 1, step_size * 4, step_size / 4)
 
     num_steps = 150
@@ -279,7 +279,7 @@ def test_warmup_adapter(jitted):
     z = np.ones(3)
     wa_state = wa_init(z, rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
     step_size, inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
-    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, rng_key, init_step_size)
+    assert step_size == find_reasonable_step_size(init_step_size, inverse_mass_matrix, z, rng_key)
     assert_allclose(inverse_mass_matrix, np.ones(mass_matrix_size))
     assert window_idx == 0
 

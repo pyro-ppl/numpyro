@@ -55,7 +55,7 @@ def test_log_normal(shape):
     with reparam(config={"x": TransformReparam()}):
         with handlers.trace() as tr:
             value = handlers.seed(model, 0)()
-    assert isinstance(tr["x"]["fn"], dist.Delta)
+    assert tr["x"]["type"] == "deterministic"
     actual_moments = get_moments(value)
     assert_allclose(actual_moments, expected_moments, atol=0.05)
 

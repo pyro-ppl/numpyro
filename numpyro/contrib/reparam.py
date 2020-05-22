@@ -186,7 +186,7 @@ class NeuTraReparam(Reparam):
         logdet = transform.log_abs_det_jacobian(unconstrained_value, value)
         logdet = sum_rightmost(logdet, jnp.ndim(logdet) - jnp.ndim(value) + len(fn.event_shape))
         log_density = log_density + fn.log_prob(value) + logdet
-        numpyro.factor("{}_log_prob", log_density)
+        numpyro.factor("_{}_log_prob".format(name), log_density)
         return None, value
 
     def transform_sample(self, latent):
