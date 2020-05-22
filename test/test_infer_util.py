@@ -158,8 +158,9 @@ def test_model_with_transformed_distribution():
     base_inv_transforms = {'x': biject_to(x_prior.support), 'y_base': biject_to(y_prior.base_dist.support)}
     reparam_model = reparam(model, {'y': TransformReparam()})
     base_params = {'x': params['x'], 'y_base': params['y']}
-    # TODO: find a simple way to get actual samples
-    actual_samples = expected_samples
+    actual_samples = constrain_fn(
+        handlers.seed(reparam_model, random.PRNGKey(0)),
+        base_inv_transforms, (), {}, base_params, return_deterministic=True)
     actual_potential_energy = potential_energy(reparam_model, base_inv_transforms, (), {}, base_params)
 
     assert_allclose(expected_samples['x'], actual_samples['x'])

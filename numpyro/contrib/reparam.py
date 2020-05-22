@@ -54,7 +54,18 @@ class reparam(Messenger):
 
         new_fn, value = reparam(msg["name"], msg["fn"], msg["value"])
 
+        if new_fn is None:
+            msg['type'] = 'deterministic'
+
         if value is not None:
+            if new_fn is None:
+                msg['type'] = 'deterministic'
+                msg['value'] = value
+                for key in list(msg.keys()):
+                    if key not in ('type', 'name', 'value'):
+                        del msg[key]
+                return
+
             if msg["value"] is None:
                 msg["is_observed"] = True
             msg["value"] = value
@@ -99,8 +110,7 @@ class TransformReparam(Reparam):
             x = t(x)
 
         # Simulate a pyro.deterministic() site.
-        new_fn = dist.Delta(x, event_ndim=len(fn.event_shape))
-        return new_fn, x
+        return None, x
 
 
 class NeuTraReparam(Reparam):
@@ -177,8 +187,8 @@ class NeuTraReparam(Reparam):
         logdet = transform.log_abs_det_jacobian(unconstrained_value, value)
         logdet = sum_rightmost(logdet, jnp.ndim(logdet) - jnp.ndim(value) + len(fn.event_shape))
         log_density = log_density + fn.log_prob(value) + logdet
-        new_fn = dist.Delta(value, log_density, event_ndim=len(fn.event_shape))
-        return new_fn, value
+        numpyro.factor("{}_log_prob", log_density)
+        return None, value
 
     def transform_sample(self, latent):
         """

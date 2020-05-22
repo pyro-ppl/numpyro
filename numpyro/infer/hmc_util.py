@@ -430,7 +430,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
                             (z_flat, mm_state), lambda args: mm_update(*args),
-                            mm_state, lambda x: x)
+                            mm_state, identity)
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
@@ -438,7 +438,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                               ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
                      (z, rng_key_ss, state), lambda args: _update_at_window_end(*args),
-                     state, lambda x: x)
+                     state, identity)
         return state
 
     return init_fn, update_fn
@@ -621,7 +621,7 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                                    going_right, energy_current, max_delta_energy)
         new_tree = cond(current_tree.num_proposals == 0,
                         new_leaf,
-                        lambda x: x,
+                        identity,
                         (current_tree, new_leaf, inverse_mass_matrix, going_right, transition_rng_key),
                         lambda x: _combine_tree(*x, False))
 
@@ -637,7 +637,7 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                                     lambda x: (index_update(x[0], ckpt_idx_max, r),
                                                index_update(x[1], ckpt_idx_max, r_sum)),
                                     (r_ckpts, r_sum_ckpts),
-                                    lambda x: x)
+                                    identity)
 
         turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
                                         ckpt_idx_min, ckpt_idx_max)
