@@ -75,14 +75,13 @@ def _init_to_uniform(site, radius=2, skip_param=False):
         return base_transform(unconstrained_value)
 
 
-def init_to_uniform(site=None, radius=2):
+def init_to_uniform(radius=2):
     """
     Initialize to a random point in the area `(-radius, radius)` of unconstrained domain.
 
     :param float radius: specifies the range to draw an initial point in the unconstrained domain.
     """
-    if site is None:
-        return partial(init_to_uniform, radius=radius)
+    return partial(init_to_uniform, radius=radius)
 
 
 def init_to_feasible():
