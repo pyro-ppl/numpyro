@@ -148,9 +148,8 @@ class NeuTraReparam(Reparam):
             raise TypeError("NeuTraReparam expected an AutoContinuous guide, but got {}"
                             .format(type(guide)))
         self.guide = guide
-        self.params = params
         try:
-            self.transform = self.guide.get_transform(self.params, unpack=False)
+            self.transform = self.guide.get_transform(params)
         except (NotImplementedError, TypeError):
             raise ValueError("NeuTraReparam only supports guides that implement "
                              "`get_transform` method that does not depend on the "
@@ -200,4 +199,4 @@ class NeuTraReparam(Reparam):
         :rtype: dict
         """
         x_unconstrained = self.transform(latent)
-        return self.guide._unpack_and_constrain(x_unconstrained, self.params)
+        return self.guide._unpack_and_constrain(x_unconstrained)

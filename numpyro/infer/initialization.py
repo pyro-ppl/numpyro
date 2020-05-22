@@ -81,7 +81,7 @@ def init_to_uniform(radius=2):
 
     :param float radius: specifies the range to draw an initial point in the unconstrained domain.
     """
-    return partial(init_to_uniform, radius=radius)
+    return partial(_init_to_uniform, radius=radius)
 
 
 def init_to_feasible():
