@@ -10,7 +10,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
 from numpyro.distributions.transforms import biject_to
-from numpyro.handlers import block, seed, substitute, trace
+from numpyro.handlers import seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform
 from numpyro.util import not_jax_tracer, while_loop
 
@@ -143,7 +143,7 @@ def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
 
 
 def find_valid_initial_params(rng_key, model,
-                              init_strategy=init_to_uniform(),
+                              init_strategy=init_to_uniform,
                               model_args=(),
                               model_kwargs=None):
     """
@@ -162,8 +162,6 @@ def find_valid_initial_params(rng_key, model,
     :param dict model_kwargs: kwargs provided to the model.
     :return: tuple of (`init_params`, `is_valid`).
     """
-    init_strategy = partial(init_strategy, skip_param=True)
-
     def cond_fn(state):
         i, _, _, is_valid = state
         return (i < 100) & (~is_valid)
@@ -173,9 +171,7 @@ def find_valid_initial_params(rng_key, model,
         key, subkey = random.split(key)
 
         # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
-        # Use `block` to not record sample primitives in `init_loc_fn`.
-        # TODO: fix the issue that we are using the same subkey for all sites
-        seeded_model = substitute(model, substitute_fn=block(seed(init_strategy, subkey)))
+        seeded_model = substitute(seed(model, subkey), substitute_fn=init_strategy)
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
         constrained_values, inv_transforms = {}, {}
         for k, v in model_trace.items():
@@ -288,7 +284,7 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
 
 
 def initialize_model(rng_key, model,
-                     init_strategy=init_to_uniform(),
+                     init_strategy=init_to_uniform,
                      dynamic_args=False,
                      model_args=(),
                      model_kwargs=None):

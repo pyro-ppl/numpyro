@@ -457,7 +457,7 @@ class HMC(MCMCKernel):
                  dense_mass=False,
                  target_accept_prob=0.8,
                  trajectory_length=2 * math.pi,
-                 init_strategy=init_to_uniform(),
+                 init_strategy=init_to_uniform,
                  find_heuristic_step_size=False):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
@@ -625,7 +625,7 @@ class NUTS(HMC):
                  target_accept_prob=0.8,
                  trajectory_length=None,
                  max_tree_depth=10,
-                 init_strategy=init_to_uniform(),
+                 init_strategy=init_to_uniform,
                  find_heuristic_step_size=False):
         super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
                                    step_size=step_size, adapt_step_size=adapt_step_size,
@@ -848,7 +848,7 @@ class SA(MCMCKernel):
         See :ref:`init_strategy` section for available functions.
     """
     def __init__(self, model=None, potential_fn=None, adapt_state_size=None,
-                 dense_mass=True, init_strategy=init_to_uniform()):
+                 dense_mass=True, init_strategy=init_to_uniform):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
