@@ -16,11 +16,12 @@ import jax.random as random
 import numpyro
 import numpyro.distributions as dist
 import numpyro.optim as optim
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, SVI, ELBO
 from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoContinuousELBO
-from numpyro.infer import SVI, ELBO
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
+from numpyro.infer.util import Predictive
+from numpyro.handlers import seed, trace
 
 from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpyro.util import enable_x64
@@ -95,7 +96,6 @@ def guide(X, Y, hypers):
     phi = sigma * (S / np.sqrt(N)) / (P - S)
 
     eta1_loc = numpyro.param("eta1_loc", 0.25, constraint=constraints.positive)
-    #eta1_loc = numpyro.param("eta1_loc", phi, constraint=constraints.positive)
     eta1 = numpyro.sample("eta1", dist.Delta(eta1_loc))
 
     msq_loc = numpyro.param("msq_loc", 1.0, constraint=constraints.positive)
@@ -152,7 +152,7 @@ def compute_pairwise_mean_variance(X, Y, dim1, dim2, eta1, eta2, c, kappa, omega
 
 
 # Helper function for doing HMC inference
-def run_inference(model, args, rng_key, X, Y, hypers):
+def run_hmc(model, args, rng_key, X, Y, hypers):
     start = time.time()
     kernel = NUTS(model, max_tree_depth=args['mtd'])
     mcmc = MCMC(kernel, args['num_warmup'], args['num_samples'], num_chains=args['num_chains'],
@@ -166,6 +166,32 @@ def run_inference(model, args, rng_key, X, Y, hypers):
     for k, v in samples.items():
         samples[k] = v[::args['thinning']]
 
+    return samples
+
+def do_svi(model, guide, args, rng_key, X, Y, hypers):
+    adam = optim.Adam(args['lr'])  #guide = AutoDiagonalNormal(model)
+    svi = SVI(model, guide, adam, ELBO())  # AutoContinuousELBO()
+    svi_state = svi.init(rng_key, X, Y, hypers)
+
+    def body_fn(i, init_val):
+        svi_state, loss = init_val
+        svi_state, loss = svi.update(svi_state, X, Y, hypers)
+        return (svi_state, loss)
+
+    num_steps = args['num_samples']
+    report_frequency = 200
+    ts = [time.time()]
+    for step_chunk in range(1, 1 + num_steps // report_frequency):
+        svi_state, loss = fori_loop(0, report_frequency, body_fn, (svi_state, 0.0))
+        ts.append(time.time())
+        dt = (ts[-1] - ts[-2]) / float(report_frequency)
+        print("[iter %03d]  %.3f \t\t [dt: %.3f]" % (step_chunk * report_frequency, loss, dt))
+
+    params = svi.get_params(svi_state)
+    rng_key_post = random.PRNGKey(args['seed'] + 1373483)
+    return_sites = ['eta1', 'eta2', 'kappa', 'omega']
+    samples = Predictive(model, guide=guide, num_samples=50, params=params,
+                             return_sites=return_sites)(rng_key_post, X, Y, hypers)
     return samples
 
 
@@ -229,43 +255,24 @@ def main(**args):
     results = {'args': args}
     P = args['num_dimensions']
 
-    for N in [400]:
+    # setup hyperparameters
+    hypers = {'expected_sparsity': args['active_dimensions'],
+              'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
+              'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
+
+    for N in [500]:
         results[N] = {}
 
         X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
             get_data(N=N, P=P, S=args['active_dimensions'], seed=args['seed'])
-            #get_data(N=args['num_data, P=args['num_dimensions, S=args['active_dimensions)
-
-        # setup hyperparameters
-        hypers = {'expected_sparsity': args['active_dimensions'],
-                  'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
-                  'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
+        #get_data(N=args['num_data, P=args['num_dimensions, S=args['active_dimensions)
 
         rng_key = random.PRNGKey(args['seed'])
 
-        if args['num_warmup'] == 0: # do SVI
-            adam = optim.Adam(0.01)
-            #guide = AutoDiagonalNormal(model)
-            svi = SVI(model, guide, adam, ELBO())
-            #svi = SVI(model, guide, adam, AutoContinuousELBO())
-            svi_state = svi.init(rng_key, X, Y, hypers)
-
-            def body_fn(i, val):
-                svi_state, loss = svi.update(val, X, Y, hypers)
-                return svi_state
-
-            svi_state = fori_loop(0, args['num_samples'], body_fn, svi_state)
-            params = svi.get_params(svi_state)
-            print(params)
-            import sys; sys.exit()
-            #print("mean autoloc", onp.mean(params['auto_loc']))
-            #print("mean autoscale", onp.mean(params['auto_scale']))
-            rng_key_post = random.PRNGKey(args['seed'] + 1373483)
-            samples = guide.sample_posterior(rng_key_post, params, sample_shape=(1,))
-            print("posterior_samples", samples)
-
-        else: # do HMC
-            samples = run_inference(model, args, rng_key, X, Y, hypers)
+        if args['inference'] == 'svi':
+            samples = do_svi(model, guide, args, rng_key, X, Y, hypers)
+        elif args['inference'] == 'hmc':
+            samples = run_hmc(model, args, rng_key, X, Y, hypers)
 
         # compute the mean and square root variance of each coefficient theta_i
         means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(P))
@@ -278,9 +285,11 @@ def main(**args):
         active_dims = []
         expected_active_dims = onp.arange(args['active_dimensions']).tolist()
 
+        strictness = 3.0
+
         for dim, (mean, std) in enumerate(zip(means, stds)):
             # we mark the dimension as inactive if the interval [mean - 2 * std, mean + 2 * std] contains zero
-            lower, upper = mean - 2.0 * std, mean + 2.0 * std
+            lower, upper = mean - strictness * std, mean + strictness * std
             inactive = "inactive" if lower < 0.0 and upper > 0.0 else "active"
             if inactive == "active":
                 active_dims.append(dim)
@@ -313,7 +322,7 @@ def main(**args):
                 dim1, dim2 = dim_pair
                 if dim1 >= dim2:
                     continue
-                lower, upper = mean - 2.0 * std, mean + 2.0 * std
+                lower, upper = mean - strictness * std, mean + strictness * std
                 if not (lower < 0.0 and upper > 0.0):
                     format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
                     print(format_str % (dim1 + 1, dim2 + 1, mean, std))
@@ -333,26 +342,28 @@ def main(**args):
         print("correct_quads: ", correct_quads, "  false_quads: ", false_quads,
               "  missed_quads: ", missed_quads)
 
-    print("RESULTS\n", results)
+    #print("RESULTS\n", results)
     log_file = 'slog.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
     log_file = log_file.format(P, args['active_dimensions'], args['seed'],
                                args['num_warmup'], args['num_samples'], args['mtd'])
 
-    with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
-        pickle.dump(results, f, protocol=2)
+    #with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
+    #    pickle.dump(results, f, protocol=2)
 
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
+    parser.add_argument("--inference", nargs="?", default='hmc', type=str)
     parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=250, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=200, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
-    parser.add_argument("--active-dimensions", nargs='?', default=10, type=int)
+    parser.add_argument("--lr", nargs='?', default=0.005, type=float)
+    parser.add_argument("--active-dimensions", nargs='?', default=15, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./', type=str)
