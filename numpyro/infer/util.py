@@ -9,7 +9,6 @@ from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
-from numpyro.distributions.constraints import real
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import block, seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform
@@ -145,7 +144,6 @@ def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
 
 def find_valid_initial_params(rng_key, model,
                               init_strategy=init_to_uniform(),
-                              param_as_improper=False,
                               model_args=(),
                               model_kwargs=None):
     """
@@ -160,13 +158,11 @@ def find_valid_initial_params(rng_key, model,
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param callable init_strategy: a per-site initialization function.
-    :param bool param_as_improper: a flag to decide whether to consider sites with
-        `param` statement as sites with improper priors.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
     :return: tuple of (`init_params`, `is_valid`).
     """
-    init_strategy = partial(init_strategy, skip_param=not param_as_improper)
+    init_strategy = partial(init_strategy, skip_param=True)
 
     def cond_fn(state):
         i, _, _, is_valid = state
@@ -187,10 +183,6 @@ def find_valid_initial_params(rng_key, model,
             if v['type'] == 'sample' and not v['is_observed']:
                 constrained_values[k] = v['value']
                 inv_transforms[k] = biject_to(v['fn'].support)
-            elif v['type'] == 'param' and param_as_improper:
-                constrained_values[k] = v['value']
-                constraint = v['kwargs'].pop('constraint', real)
-                inv_transforms[k] = biject_to(constraint)
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)
@@ -239,8 +231,10 @@ def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
         if v['type'] == 'sample' and not v['is_observed']:
             inv_transforms[k] = biject_to(v['fn'].support)
         elif v['type'] == 'param':
-            constraint = v['kwargs'].pop('constraint', real)
-            inv_transforms[k] = biject_to(constraint)
+            warnings.warn("'param' sites will be treated as constants during inference. To define "
+                          "an improper variable, please you a 'sample' site with log probability "
+                          "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
+                          "means that `x` has improper distribution over the positive domain.")
         elif v['type'] == 'deterministic':
             replay_model = True
     return inv_transforms, replay_model
@@ -332,7 +326,6 @@ def initialize_model(rng_key, model,
 
     init_params, is_valid = find_valid_initial_params(rng_key, model,
                                                       init_strategy=init_strategy,
-                                                      param_as_improper=True,
                                                       model_args=model_args,
                                                       model_kwargs=model_kwargs)
 

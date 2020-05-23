@@ -518,7 +518,6 @@ class HMC(MCMCKernel):
         if self._model and not init_params:
             init_params, is_valid = find_valid_initial_params(rng_key, self._model,
                                                               init_strategy=self._init_strategy,
-                                                              param_as_improper=True,
                                                               model_args=model_args,
                                                               model_kwargs=model_kwargs)
             if not_jax_tracer(is_valid):
@@ -893,7 +892,6 @@ class SA(MCMCKernel):
         if self._model and not init_params:
             init_params, is_valid = find_valid_initial_params(rng_key, self._model,
                                                               init_strategy=self._init_strategy,
-                                                              param_as_improper=True,
                                                               model_args=model_args,
                                                               model_kwargs=model_kwargs)
             if not_jax_tracer(is_valid):
