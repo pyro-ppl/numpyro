@@ -15,10 +15,16 @@ import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
+import numpyro.optim as optim
 from numpyro.infer import MCMC, NUTS
+from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoContinuousELBO
+from numpyro.infer import SVI, ELBO
+from numpyro.distributions import constraints
+from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 
 from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpyro.util import enable_x64
+from numpyro.util import fori_loop
 
 import pickle
 
@@ -81,6 +87,31 @@ def model(X, Y, hypers):
 
     obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
     numpyro.factor("obs", obs_factor)
+
+
+def guide(X, Y, hypers):
+    S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
+
+    phi = sigma * (S / np.sqrt(N)) / (P - S)
+
+    eta1_loc = numpyro.param("eta1_loc", 0.25, constraint=constraints.positive)
+    #eta1_loc = numpyro.param("eta1_loc", phi, constraint=constraints.positive)
+    eta1 = numpyro.sample("eta1", dist.Delta(eta1_loc))
+
+    msq_loc = numpyro.param("msq_loc", 1.0, constraint=constraints.positive)
+    msq = numpyro.sample("msq", dist.Delta(msq_loc))
+
+    xisq_loc = numpyro.param("xisq_loc", 1.0, constraint=constraints.positive)
+    xisq = numpyro.sample("xisq", dist.Delta(xisq_loc))
+
+    lam_loc = numpyro.param("lam_loc", 0.5 * np.ones(P), constraint=constraints.positive)
+    lam = numpyro.sample("lambda", dist.Delta(lam_loc))
+
+    omega_loc = numpyro.param('omega_loc', -2.0 * np.ones(N))
+    omega_scale = numpyro.param('omega_scale', 0.8 * np.ones(N), constraint=constraints.positive)
+    base_dist = dist.Normal(omega_loc, omega_scale)
+    omega_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform(), AffineTransform(0, 2.5)])
+    omega = numpyro.sample("omega", omega_dist)
 
 
 # helper for computing the posterior marginal N(theta_i) or N(theta_ij)
@@ -198,7 +229,7 @@ def main(**args):
     results = {'args': args}
     P = args['num_dimensions']
 
-    for N in [100, 200, 400, 600]:
+    for N in [400]:
         results[N] = {}
 
         X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
@@ -210,9 +241,31 @@ def main(**args):
                   'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
                   'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-        # do inference
         rng_key = random.PRNGKey(args['seed'])
-        samples = run_inference(model, args, rng_key, X, Y, hypers)
+
+        if args['num_warmup'] == 0: # do SVI
+            adam = optim.Adam(0.01)
+            #guide = AutoDiagonalNormal(model)
+            svi = SVI(model, guide, adam, ELBO())
+            #svi = SVI(model, guide, adam, AutoContinuousELBO())
+            svi_state = svi.init(rng_key, X, Y, hypers)
+
+            def body_fn(i, val):
+                svi_state, loss = svi.update(val, X, Y, hypers)
+                return svi_state
+
+            svi_state = fori_loop(0, args['num_samples'], body_fn, svi_state)
+            params = svi.get_params(svi_state)
+            print(params)
+            import sys; sys.exit()
+            #print("mean autoloc", onp.mean(params['auto_loc']))
+            #print("mean autoscale", onp.mean(params['auto_scale']))
+            rng_key_post = random.PRNGKey(args['seed'] + 1373483)
+            samples = guide.sample_posterior(rng_key_post, params, sample_shape=(1,))
+            print("posterior_samples", samples)
+
+        else: # do HMC
+            samples = run_inference(model, args, rng_key, X, Y, hypers)
 
         # compute the mean and square root variance of each coefficient theta_i
         means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(P))
@@ -293,11 +346,11 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=200, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=256, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=250, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--active-dimensions", nargs='?', default=10, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
