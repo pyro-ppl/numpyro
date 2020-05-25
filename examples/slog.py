@@ -9,7 +9,7 @@ import time
 import numpy as onp
 
 import jax
-from jax import vmap
+from jax import vmap, jit
 import jax.numpy as np
 import jax.random as random
 
@@ -22,7 +22,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.infer.util import Predictive
 from numpyro.handlers import seed, trace
-
+from numpyro.diagnostics import print_summary, summary
 from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpyro.util import enable_x64
 from numpyro.util import fori_loop
@@ -135,6 +135,7 @@ def compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, om
 
 
 # compute the posterior marginal N(theta_i)
+@jit
 def compute_singleton_mean_variance(X, Y, dimension, eta1, eta2, c, kappa, omega):
     probe = np.zeros((2, X.shape[1]))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dimension], np.array([1.0, -1.0]))
@@ -143,6 +144,7 @@ def compute_singleton_mean_variance(X, Y, dimension, eta1, eta2, c, kappa, omega
 
 
 # compute the posterior marginal N(theta_ij)
+@jit
 def compute_pairwise_mean_variance(X, Y, dim1, dim2, eta1, eta2, c, kappa, omega):
     probe = np.zeros((4, X.shape[1]))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dim1], np.array([1.0, 1.0, -1.0, -1.0]))
@@ -173,25 +175,40 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers):
     svi = SVI(model, guide, adam, ELBO())  # AutoContinuousELBO()
     svi_state = svi.init(rng_key, X, Y, hypers)
 
-    def body_fn(i, init_val):
-        svi_state, loss = init_val
-        svi_state, loss = svi.update(svi_state, X, Y, hypers)
-        return (svi_state, loss)
-
     num_steps = args['num_samples']
     report_frequency = 200
+    beta = 0.95
+
+    def body_fn(i, init_val):
+        svi_state, old_loss = init_val
+        svi_state, loss = svi.update(svi_state, X, Y, hypers)
+        loss = (1.0 - beta) * loss + beta * old_loss
+        return (svi_state, loss)
+
+    @jit
+    def do_chunk(svi_state, loss):
+        return fori_loop(0, report_frequency, body_fn, (svi_state, loss))
+
     ts = [time.time()]
     for step_chunk in range(1, 1 + num_steps // report_frequency):
-        svi_state, loss = fori_loop(0, report_frequency, body_fn, (svi_state, 0.0))
+        svi_state, loss = do_chunk(svi_state, 0.0)
         ts.append(time.time())
         dt = (ts[-1] - ts[-2]) / float(report_frequency)
         print("[iter %03d]  %.3f \t\t [dt: %.3f]" % (step_chunk * report_frequency, loss, dt))
 
     params = svi.get_params(svi_state)
     rng_key_post = random.PRNGKey(args['seed'] + 1373483)
-    return_sites = ['eta1', 'eta2', 'kappa', 'omega']
+    return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'msq', 'xisq', 'lambda']
     samples = Predictive(model, guide=guide, num_samples=50, params=params,
                              return_sites=return_sites)(rng_key_post, X, Y, hypers)
+
+    for k, v in samples.items():
+        if v.ndim == 1:
+            print("{}  {:.4f}".format(k, v[0]))
+
+    _report = {k: v for k, v in samples.items() if v.ndim == 2}
+    print_summary(_report)
+
     return samples
 
 
@@ -232,6 +249,7 @@ def get_data(N=20, S=2, P=10, seed=0):
 
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
+@jit
 def analyze_dimension(samples, X, Y, dimension, hypers):
     vmap_args = (samples['eta1'], samples['eta2'], samples['kappa'], samples['omega'])
     mus, variances = vmap(lambda eta1, eta2, kappa, omega:
@@ -242,6 +260,7 @@ def analyze_dimension(samples, X, Y, dimension, hypers):
 
 
 # Helper function for analyzing the posterior statistics for coefficient theta_ij
+@jit
 def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
     vmap_args = (samples['eta1'], samples['eta2'], samples['kappa'], samples['omega'])
     mus, variances = vmap(lambda eta1, eta2, kappa, omega:
@@ -254,13 +273,14 @@ def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
 def main(**args):
     results = {'args': args}
     P = args['num_dimensions']
+    print(args)
 
     # setup hyperparameters
     hypers = {'expected_sparsity': args['active_dimensions'],
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [500]:
+    for N in [200]:
         results[N] = {}
 
         X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
@@ -269,10 +289,15 @@ def main(**args):
 
         rng_key = random.PRNGKey(args['seed'])
 
+        print("starting {} inference...".format(args['inference']))
         if args['inference'] == 'svi':
             samples = do_svi(model, guide, args, rng_key, X, Y, hypers)
         elif args['inference'] == 'hmc':
             samples = run_hmc(model, args, rng_key, X, Y, hypers)
+        print("done with inference!")
+
+        print("leading lambda", onp.mean(samples['lambda'], axis=0)[:15])
+        print("leading kappa", onp.mean(samples['kappa'], axis=0)[:15])
 
         # compute the mean and square root variance of each coefficient theta_i
         means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(P))
@@ -342,20 +367,20 @@ def main(**args):
         print("correct_quads: ", correct_quads, "  false_quads: ", false_quads,
               "  missed_quads: ", missed_quads)
 
-    #print("RESULTS\n", results)
-    log_file = 'slog.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
-    log_file = log_file.format(P, args['active_dimensions'], args['seed'],
+    print("RESULTS\n", results)
+    log_file = 'slog.{}.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
+    log_file = log_file.format(args['inference'], P, args['active_dimensions'], args['seed'],
                                args['num_warmup'], args['num_samples'], args['mtd'])
 
-    #with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
-    #    pickle.dump(results, f, protocol=2)
+    with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
+        pickle.dump(results, f, protocol=2)
 
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
-    parser = argparse.ArgumentParser(description="Gaussian Process example")
-    parser.add_argument("--inference", nargs="?", default='hmc', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
+    parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
+    parser.add_argument("--inference", nargs="?", default='svi', type=str)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
@@ -363,10 +388,10 @@ if __name__ == "__main__":
     parser.add_argument("--num-dimensions", nargs='?', default=200, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=15, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=10, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
-    parser.add_argument("--log-dir", default='./', type=str)
+    parser.add_argument("--log-dir", default='./svi/', type=str)
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
