@@ -17,11 +17,7 @@ from jax import ops
 from jax.tree_util import tree_map
 
 # TODO
-# Fix MCMC to work with guides
-# Examples:
-# * Implement Deep Markov Model with Stein updates
-# * Implement NeuTra-based Sparse Bayesian Logistic Regression
-# * Implement dynamical process - e.g. economics or biology
+# Fix MCMC updates to work reasonably with optimizer
 
 SVGDState = namedtuple('SVGDState', ['optim_state', 'rng_key'])
 
@@ -320,3 +316,20 @@ class SVGD:
         loss_val, _ = self._svgd_loss_and_grads(rng_key_eval, params, 
                                                 *args, **kwargs, **self.static_kwargs)
         return loss_val
+
+    def predict(self, state, *args, num_samples=1, **kwargs):
+        def predict_model(rng_key, params):
+            guide_trace = handlers.trace(handlers.substitute(handlers.seed(self.guide, rng_key), params)
+                                        ).get_trace(*args, **kwargs)
+            model_trace = handlers.trace(handlers.replay(
+                                         handlers.substitute(handlers.seed(self.model, rng_key), params), guide_trace)
+                                        ).get_trace(*args, **kwargs)
+            return {name: site['value'] for name, site in model_trace.items() if not site['is_observed']}
+        _, rng_key_predict = jax.random.split(state.rng_key)
+        params = self.get_params(state)
+        classic_params = {p: v for p, v in params.items() if p not in self.guide_param_names or self.classic_guide_params_fn(p)}
+        stein_params = {p: v for p, v in params.items() if p not in classic_params}
+        if num_samples == 1:
+            return jax.vmap(lambda sp: predict_model(rng_key_predict, {**sp, **classic_params}))(stein_params)
+        else:
+            return jax.vmap(lambda rk: jax.vmap(lambda sp: predict_model(rk, {**sp, **classic_params}))(stein_params))(jax.random.split(rng_key_predict))

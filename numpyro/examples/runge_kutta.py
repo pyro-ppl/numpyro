@@ -6,12 +6,13 @@ import jax.numpy as np
 from jax import ops
 from jax.experimental import loops
 
-@functools.partial(jax.jit, static_argnums=(0,1,2,3,4))
+@functools.partial(jax.jit, static_argnums=(0,1,2,3,4,5))
 def runge_kutta_4(f: Callable[[float, np.ndarray], np.ndarray], 
                   step_size,
                   num_steps,
                   dampening_rate,
                   lyapunov_scale,
+                  clip,
                   rng_key,
                   y0: np.ndarray,
                   **kwargs):
@@ -20,7 +21,7 @@ def runge_kutta_4(f: Callable[[float, np.ndarray], np.ndarray],
         k2 = step_size * f(t + step_size / 2, y + k1 / 2, **kwargs)
         k3 = step_size * f(t + step_size / 2, y + k2 / 2, **kwargs)
         k4 = step_size * f(t + step_size, y + k3, **kwargs)
-        return y + (k1 + 2 * k2 + 2 * k3 + k4) / 6 
+        return y + clip((k1 + 2 * k2 + 2 * k3 + k4) / 6)
 
     with loops.Scope() as s:
         s.res = np.empty((num_steps, *y0.shape))
