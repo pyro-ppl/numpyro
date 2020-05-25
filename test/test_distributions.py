@@ -210,7 +210,7 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.randint(key, size, lower_bound, upper_bound + 1)
     elif isinstance(constraint, constraints._IntegerGreaterThan):
         return constraint.lower_bound + poisson(key, 5, shape=size)
-    elif isinstance(constraint, constraints._Interval):
+    elif isinstance(constraint, constraints._Open_Interval):
         lower_bound = np.broadcast_to(constraint.lower_bound, size)
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=lower_bound, maxval=upper_bound)
@@ -250,7 +250,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return random.randint(key, size, lower_bound - 1, lower_bound)
     elif isinstance(constraint, constraints._IntegerGreaterThan):
         return constraint.lower_bound - poisson(key, 5, shape=size)
-    elif isinstance(constraint, constraints._Interval):
+    elif isinstance(constraint, constraints._Open_Interval):
         upper_bound = np.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.)
     elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
@@ -781,7 +781,7 @@ def test_biject_to(constraint, shape):
         event_dim = 1  # actual dim of unconstrained domain
     else:
         event_dim = transform.event_dim
-    if isinstance(constraint, constraints._Interval):
+    if isinstance(constraint, constraints._Open_Interval):
         assert transform.codomain.upper_bound == constraint.upper_bound
         assert transform.codomain.lower_bound == constraint.lower_bound
     elif isinstance(constraint, constraints._GreaterThan):
