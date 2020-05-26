@@ -25,7 +25,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from jax import device_put, lax
+from jax import lax
 from jax.dtypes import canonicalize_dtype
 from jax.nn import softmax
 import jax.numpy as np
@@ -380,7 +380,7 @@ class Delta(Distribution):
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
-        return np.broadcast_to(device_put(self.value), shape)
+        return np.broadcast_to(self.value, shape)
 
     @validate_sample
     def log_prob(self, value):

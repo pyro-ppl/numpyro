@@ -181,13 +181,16 @@ def velocity_verlet(potential_fn, kinetic_fn):
         inverse mass matrix and momentum.
     :return: a pair of (`init_fn`, `update_fn`).
     """
-    def init_fn(z, r):
+    def init_fn(z, r, potential_energy=None, z_grad=None):
         """
         :param z: Position of the particle.
         :param r: Momentum of the particle.
+        :param potential_energy: Potential energy at `z`.
+        :param z_grad: gradient of potential energy at `z`.
         :return: initial state for the integrator.
         """
-        potential_energy, z_grad = value_and_grad(potential_fn)(z)
+        if potential_energy is None or z_grad is None:
+            potential_energy, z_grad = value_and_grad(potential_fn)(z)
         return IntegratorState(z, r, potential_energy, z_grad)
 
     def update_fn(step_size, inverse_mass_matrix, state):

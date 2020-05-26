@@ -4,14 +4,13 @@
 from functools import partial
 import warnings
 
-import jax
 from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import seed, substitute, trace
-from numpyro.infer.initialization import init_to_uniform
+from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, while_loop
 
 __all__ = [
@@ -39,7 +38,7 @@ def log_density(model, model_args, model_kwargs, params):
     """
     model = substitute(model, param_map=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = jax.device_put(0.)
+    log_joint = np.array(0.)
     for site in model_trace.values():
         if site['type'] == 'sample':
             value = site['value']
@@ -88,9 +87,7 @@ def transform_fn(transforms, params, invert=False):
             for k, v in params.items()}
 
 
-# TODO: remove this function, which is unnecessary when dynamic support is removed
-# we still keep it here for `deterministic` behavior
-def constrain_fn(model, transforms, model_args, model_kwargs, params, return_deterministic=False):
+def constrain_fn(model, inv_transforms, model_args, model_kwargs, params, return_deterministic=False):
     """
     (EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given
     unconstrained parameters `params`. The `transforms` is used to transform these
@@ -100,7 +97,7 @@ def constrain_fn(model, transforms, model_args, model_kwargs, params, return_det
     of the distribution.
 
     :param model: a callable containing NumPyro primitives.
-    :param dict transforms: dictionary of transforms keyed by names. Names in
+    :param dict inv_transforms: dictionary of transforms keyed by names. Names in
         `transforms` and `params` should align.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
@@ -110,11 +107,11 @@ def constrain_fn(model, transforms, model_args, model_kwargs, params, return_det
         sites from the model. Defaults to `False`.
     :return: `dict` of transformed params.
     """
-    params_constrained = transform_fn(transforms, params)
+    params_constrained = transform_fn(inv_transforms, params)
     substituted_model = substitute(model, param_map=params_constrained)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
     return {k: v['value'] for k, v in model_trace.items() if (k in params) or
-            (return_deterministic and (v['type'] == 'deterministic'))}
+            (return_deterministic and v['type'] == 'deterministic')}
 
 
 def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
@@ -142,13 +139,12 @@ def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
     return - log_joint
 
 
-def find_valid_initial_params(rng_key, model,
-                              init_strategy=init_to_uniform,
-                              model_args=(),
-                              model_kwargs=None):
+def find_valid_initial_params(rng_key, model, inv_transforms, init_strategy,
+                              model_args, model_kwargs, prototype_params):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
-    valid unconstrained value for all the parameters. This function also returns an
+    valid unconstrained value for all the parameters. This function also returns
+    the corresponding potential energy, the gradients, and an
     `is_valid` flag to say whether the initial parameters are valid. Parameter values
     are considered valid if the values and the gradients for the log density have
     finite values.
@@ -160,8 +156,20 @@ def find_valid_initial_params(rng_key, model,
     :param callable init_strategy: a per-site initialization function.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
-    :return: tuple of (`init_params`, `is_valid`).
+    :return: tuple of `init_params_info` and `is_valid`, where `init_params_info` is the tuple
+        containing the initial params, their potential energy, and their gradients.
     """
+    init_strategy = init_strategy if isinstance(init_strategy, partial) else init_strategy()
+    # handle those init strategies differently to save computation
+    if isinstance(init_strategy.func, init_to_uniform):
+        radius = init_strategy.keywords.get("radius")
+        init_values = {}
+    elif isinstance(init_strategy.func, init_to_value):
+        radius = 2
+        init_values = init_strategy.keywords.get("values")
+    else:
+        radius = None
+
     def cond_fn(state):
         i, _, _, is_valid = state
         return (i < 100) & (~is_valid)
@@ -170,73 +178,64 @@ def find_valid_initial_params(rng_key, model,
         i, key, _, _ = state
         key, subkey = random.split(key)
 
-        # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
-        seeded_model = substitute(seed(model, subkey), substitute_fn=init_strategy)
-        model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-        constrained_values, inv_transforms = {}, {}
-        for k, v in model_trace.items():
-            # TODO: filter out discrete sites here
-            if v['type'] == 'sample' and not v['is_observed']:
-                constrained_values[k] = v['value']
-                inv_transforms[k] = biject_to(v['fn'].support)
-        params = transform_fn(inv_transforms,
-                              {k: v for k, v in constrained_values.items()},
-                              invert=True)
+        if radius is None:
+            # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
+            seeded_model = substitute(seed(model, subkey), substitute_fn=init_strategy)
+            model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+            constrained_values, inv_transforms = {}, {}
+            for k, v in model_trace.items():
+                # TODO: filter out discrete sites here
+                if v['type'] == 'sample' and not v['is_observed']:
+                    constrained_values[k] = v['value']
+                    inv_transforms[k] = biject_to(v['fn'].support)
+                params = transform_fn(inv_transforms, constrained_values, invert=True)
+        else:  # this branch doesn't require tracing the model
+            params = {}
+            for k, v in prototype_params:
+                if k in init_values:
+                    params[k] = init_values[k]
+                else:
+                    params[k] = random.uniform(subkey, np.shape(v), minval=-radius, maxval=radius)
+                    key, subkey = random.split(key)
+
         potential_fn = partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
-        pe, param_grads = value_and_grad(potential_fn)(params)
-        z_grad = ravel_pytree(param_grads)[0]
-        is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad))
-        return i + 1, key, params, is_valid
+        pe, z_grad = value_and_grad(potential_fn)(params)
+        z_grad_flat = ravel_pytree(z_grad)[0]
+        is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad_flat))
+        return i + 1, key, (params, pe, z_grad), is_valid
 
-    def _find_valid_params(rng_key_):
-        _, _, prototype_params, is_valid = init_state = body_fn((0, rng_key_, None, None))
-        # Early return if valid params found.
-        if not_jax_tracer(is_valid):
-            if device_get(is_valid):
-                return prototype_params, is_valid
-
-        # TODO: we are tracing the model 4 times here, make sure that we just do it one
-        # Historically, we don't know the initial structure of params
-        # so we need the do-while pattern (lax.while_loop requires initial values)
-        # In addition, the body_fn requires tracing through model 2 times: 1 to find the params
-        # the other one is to compute potential_energy...
-        # TODO: add tests to track down the number of time we trace the model
-        # and try to optimize it in follow-up PRs
-        _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
-        return init_params, is_valid
+    def _find_valid_params(rng_key):
+        init_state = (0, rng_key, (prototype_params, 0., prototype_params), False)
+        _, _, (init_params, pe, z_grad), is_valid = while_loop(cond_fn, body_fn, init_state)
+        return (init_params, pe, z_grad), is_valid
 
     # Handle possible vectorization
     if rng_key.ndim == 1:
-        init_params, is_valid = _find_valid_params(rng_key)
+        (init_params, pe, z_grad), is_valid = _find_valid_params(rng_key)
     else:
-        init_params, is_valid = lax.map(_find_valid_params, rng_key)
-    return init_params, is_valid
+        (init_params, pe, z_grad), is_valid = lax.map(_find_valid_params, rng_key)
+    return (init_params, pe, z_grad), is_valid
 
 
-# TODO: we should combine this with potential_energy
-# to reduce the number of times we trace the model
 def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
+    seeded_model = seed(model, rng_key)
     model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-    inv_transforms = {}
-    # model code may need to be replayed in the presence of dynamic constraints
-    # or deterministic sites
+    constrained_values, inv_transforms = {}, {}
+    # model code may need to be replayed in the presence of deterministic sites
     replay_model = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
+            constrained_values[k] = v['value']
             inv_transforms[k] = biject_to(v['fn'].support)
-        elif v['type'] == 'param':
-            warnings.warn("'param' sites will be treated as constants during inference. To define "
-                          "an improper variable, please you a 'sample' site with log probability "
-                          "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
-                          "means that `x` has improper distribution over the positive domain.")
         elif v['type'] == 'deterministic':
             replay_model = True
-    return inv_transforms, replay_model
+    prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
+    return inv_transforms, prototype_params, replay_model
 
 
-def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kwargs=None):
+def get_potential_fn(model, inv_transforms, replay_model=False, dynamic_args=False, model_args=(),
+                     model_kwargs=None):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
     function which, given unconstrained parameters, evaluates the potential
@@ -244,10 +243,8 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
     function to transform unconstrained values at sample sites to constrained
     values within their respective support.
 
-    :param jax.random.PRNGKey rng_key: random number generator seed to
-        sample from the prior. The returned `init_params` will have the
-        batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
+    :param dict inv_transforms: dictionary of transforms keyed by names.
     :param bool dynamic_args: if `True`, the `potential_fn` and
         `constraints_fn` are themselves dependent on model arguments.
         When provided a `*model_args, **model_kwargs`, they return
@@ -259,20 +256,19 @@ def get_potential_fn(rng_key, model, dynamic_args=False, model_args=(), model_kw
         to values that lie within the site's support, and return values at
         `deterministic` sites in the model.
     """
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+
     if dynamic_args:
         def potential_fn(*args, **kwargs):
-            inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
             return partial(potential_energy, model, inv_transforms, args, kwargs)
 
         def postprocess_fn(*args, **kwargs):
-            inv_transforms, replay_model = get_model_transforms(rng_key, model, args, kwargs)
             if replay_model:
                 return partial(constrain_fn, model, inv_transforms, args, kwargs,
                                return_deterministic=True)
             else:
                 return partial(transform_fn, inv_transforms)
     else:
-        inv_transforms, replay_model = get_model_transforms(rng_key, model, model_args, model_kwargs)
         potential_fn = partial(potential_energy, model, inv_transforms, model_args, model_kwargs)
         if replay_model:
             postprocess_fn = partial(constrain_fn, model, inv_transforms, model_args, model_kwargs,
@@ -291,7 +287,7 @@ def initialize_model(rng_key, model,
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
     and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
-    to return a tuple of (`init_params`, `potential_fn`, `constrain_fn`).
+    to return a tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`).
 
     :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
@@ -305,30 +301,35 @@ def initialize_model(rng_key, model,
         `potential_fn` and `constraints_fn` callables, respectively.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
-    :return: tuple of (`init_params`, `potential_fn`, `postprocess_fn`),
-        `init_params` are values from the prior used to initiate MCMC,
+    :return: tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`),
+        `init_params_info` is a tuple containing values from the prior used to initiate MCMC,
+        their corresponding potential energy, and their gradients,
         `postprocess_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support, in addition to returning values
         at `deterministic` sites in the model.
     """
-    if model_kwargs is None:
-        model_kwargs = {}
-    potential_fn, postprocess_fn = get_potential_fn(rng_key if rng_key.ndim == 1 else rng_key[0],
-                                                    model,
+    model_kwargs = {} if model_kwargs is None else model_kwargs
+    inv_transforms, prototype_params, replay_model = get_model_transforms(
+        rng_key if rng_key.ndim == 1 else rng_key[0], model, model_args, model_kwargs)
+
+    potential_fn, postprocess_fn = get_potential_fn(model,
+                                                    inv_transforms,
+                                                    replay_model=replay_model,
                                                     dynamic_args=dynamic_args,
                                                     model_args=model_args,
                                                     model_kwargs=model_kwargs)
 
-    init_params, is_valid = find_valid_initial_params(rng_key, model,
-                                                      init_strategy=init_strategy,
-                                                      model_args=model_args,
-                                                      model_kwargs=model_kwargs)
+    init_params_info, is_valid = find_valid_initial_params(rng_key, model, inv_transforms,
+                                                           init_strategy=init_strategy,
+                                                           model_args=model_args,
+                                                           model_kwargs=model_kwargs,
+                                                           prototype_params=prototype_params)
 
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return init_params, potential_fn, postprocess_fn
+    return init_params_info, potential_fn, postprocess_fn
 
 
 def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,
