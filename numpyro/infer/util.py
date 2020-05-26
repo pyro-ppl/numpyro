@@ -161,10 +161,10 @@ def find_valid_initial_params(rng_key, model, inv_transforms, init_strategy,
     """
     init_strategy = init_strategy if isinstance(init_strategy, partial) else init_strategy()
     # handle those init strategies differently to save computation
-    if isinstance(init_strategy.func, init_to_uniform):
+    if init_strategy.func is init_to_uniform:
         radius = init_strategy.keywords.get("radius")
         init_values = {}
-    elif isinstance(init_strategy.func, init_to_value):
+    elif init_strategy.func is init_to_value:
         radius = 2
         init_values = init_strategy.keywords.get("values")
     else:
@@ -182,16 +182,15 @@ def find_valid_initial_params(rng_key, model, inv_transforms, init_strategy,
             # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
             seeded_model = substitute(seed(model, subkey), substitute_fn=init_strategy)
             model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
-            constrained_values, inv_transforms = {}, {}
+            constrained_values = {}
             for k, v in model_trace.items():
                 # TODO: filter out discrete sites here
                 if v['type'] == 'sample' and not v['is_observed']:
                     constrained_values[k] = v['value']
-                    inv_transforms[k] = biject_to(v['fn'].support)
                 params = transform_fn(inv_transforms, constrained_values, invert=True)
         else:  # this branch doesn't require tracing the model
             params = {}
-            for k, v in prototype_params:
+            for k, v in prototype_params.items():
                 if k in init_values:
                     params[k] = init_values[k]
                 else:

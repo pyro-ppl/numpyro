@@ -31,9 +31,9 @@ def test_mcmc_one_chain(deterministic):
     mcmc.get_samples()
 
     if deterministic:
-        assert GLOBAL["count"] == 8
+        assert GLOBAL["count"] == 4
     else:
-        assert GLOBAL["count"] == 7
+        assert GLOBAL["count"] == 3
 
 
 @pytest.mark.parametrize('deterministic', [True, False])

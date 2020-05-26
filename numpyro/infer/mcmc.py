@@ -9,7 +9,7 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import jit, lax, partial, pmap, random, vmap, device_get, device_put
+from jax import jit, lax, partial, pmap, random, vmap, device_put
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
@@ -31,8 +31,8 @@ from numpyro.infer.hmc_util import (
     velocity_verlet,
     warmup_adapter
 )
-from numpyro.infer.util import init_to_uniform, get_potential_fn, find_valid_initial_params
-from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, not_jax_tracer, cached_by
+from numpyro.infer.util import init_to_uniform, initialize_model
+from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, cached_by
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
@@ -63,6 +63,8 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
  - **rng_key** - random number generator seed used for the iteration.
 """
+
+_ZINFO = namedtuple('_ZINFO', ['z', 'potential_energy', 'z_grad'])
 
 
 def _get_num_steps(step_size, trajectory_length):
@@ -235,7 +237,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         wa_steps = num_warmup
         trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
-        z = init_params
+        if isinstance(init_params, _ZINFO):
+            z, pe, z_grad = init_params
+        else:
+            z, pe, z_grad = init_params, None, None
         z_flat, unravel_fn = ravel_pytree(z)
         momentum_generator = partial(_sample_momentum, unravel_fn)
         pe_fn = potential_fn
@@ -266,7 +271,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                            mass_matrix_size=np.size(z_flat))
         r = momentum_generator(wa_state.mass_matrix_sqrt, rng_key_momentum)
         vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn)
-        vv_state = vv_init(z, r)
+        vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
                              0, 0., 0., False, wa_state, rng_key_hmc)
@@ -476,24 +481,32 @@ class HMC(MCMCKernel):
         self._find_heuristic_step_size = find_heuristic_step_size
         # Set on first call to init
         self._init_fn = None
+        self._potential_fn_gen = None
         self._postprocess_fn = None
         self._sample_fn = None
 
-    def _init_state(self, rng_key, model_args, model_kwargs):
+    def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            potential_fn_gen, self._postprocess_fn = get_potential_fn(
+            init_params, potential_fn_gen, postprocess_fn = initialize_model(
                 rng_key,
                 self._model,
                 dynamic_args=True,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
-            self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn_gen,
-                                                 kinetic_fn=self._kinetic_fn,
-                                                 algo=self._algo)
+            init_params = _ZINFO(*init_params)
+            self._init_fn, sample_fn = hmc(potential_fn_gen=potential_fn_gen,
+                                           kinetic_fn=self._kinetic_fn,
+                                           algo=self._algo)
+            if self._postprocess_fn is None:
+                self._postprocess_fn = postprocess_fn
         else:
-            self._init_fn, self._sample_fn = hmc(potential_fn=self._potential_fn,
-                                                 kinetic_fn=self._kinetic_fn,
-                                                 algo=self._algo)
+            self._init_fn, sample_fn = hmc(potential_fn=self._potential_fn,
+                                           kinetic_fn=self._kinetic_fn,
+                                           algo=self._algo)
+
+        if self._sample_fn is None:
+            self._sample_fn = sample_fn
+        return init_params
 
     @property
     def model(self):
@@ -507,26 +520,13 @@ class HMC(MCMCKernel):
         # vectorized
         else:
             rng_key, rng_key_init_model = np.swapaxes(vmap(random.split)(rng_key), 0, 1)
-            # we need only a single key for initializing PE / constraints fn
-            rng_key_init_model = rng_key_init_model[0]
-        if not self._init_fn:
-            self._init_state(rng_key_init_model, model_args, model_kwargs)
+        init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
         if self._potential_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
-        # Find valid initial params
-        if self._model and not init_params:
-            init_params, is_valid = find_valid_initial_params(rng_key, self._model,
-                                                              init_strategy=self._init_strategy,
-                                                              model_args=model_args,
-                                                              model_kwargs=model_kwargs)
-            if not_jax_tracer(is_valid):
-                if device_get(~np.all(is_valid)):
-                    raise RuntimeError("Cannot find valid initial parameters. "
-                                       "Please check your model again.")
 
-        hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
-            init_params,
+        hmc_init_fn = lambda init_params_info, rng_key: self._init_fn(  # noqa: E731
+            init_params_info,
             num_warmup=num_warmup,
             step_size=self._step_size,
             adapt_step_size=self._adapt_step_size,
@@ -540,13 +540,16 @@ class HMC(MCMCKernel):
             model_kwargs=model_kwargs,
             rng_key=rng_key,
         )
+        if init_params is not None:
+            init_params_info = init_params
+
         if rng_key.ndim == 1:
-            init_state = hmc_init_fn(init_params, rng_key)
+            init_state = hmc_init_fn(init_params_info, rng_key)
         else:
             # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
-            init_state = vmap(hmc_init_fn)(init_params, rng_key)
+            init_state = vmap(hmc_init_fn)(init_params_info, rng_key)
             sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
             self._sample_fn = sample_fn
         return init_state
@@ -860,18 +863,25 @@ class SA(MCMCKernel):
         self._postprocess_fn = None
         self._sample_fn = None
 
-    def _init_state(self, rng_key, model_args, model_kwargs):
+    def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            potential_fn_gen, self._postprocess_fn = get_potential_fn(
+            init_params, potential_fn_gen, postprocess_fn = initialize_model(
                 rng_key,
                 self._model,
                 dynamic_args=True,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
+            init_params = init_params[0]
             # NB: init args is different from HMC
-            self._init_fn, self._sample_fn = _sa(potential_fn_gen=potential_fn_gen)
+            self._init_fn, sample_fn = _sa(potential_fn_gen=potential_fn_gen)
+            if self._postprocess_fn is None:
+                self._postprocess_fn = postprocess_fn
         else:
-            self._init_fn, self._sample_fn = _sa(potential_fn=self._potential_fn)
+            self._init_fn, sample_fn = _sa(potential_fn=self._potential_fn)
+
+        if self._sample_fn is not None:
+            self._sample_fn = sample_fn
+        return init_params
 
     @copy_docs_from(MCMCKernel.init)
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
@@ -883,21 +893,10 @@ class SA(MCMCKernel):
             rng_key, rng_key_init_model = np.swapaxes(vmap(random.split)(rng_key), 0, 1)
             # we need only a single key for initializing PE / constraints fn
             rng_key_init_model = rng_key_init_model[0]
-        if not self._init_fn:
-            self._init_state(rng_key_init_model, model_args, model_kwargs)
+        init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
         if self._potential_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
-        # Find valid initial params
-        if self._model and not init_params:
-            init_params, is_valid = find_valid_initial_params(rng_key, self._model,
-                                                              init_strategy=self._init_strategy,
-                                                              model_args=model_args,
-                                                              model_kwargs=model_kwargs)
-            if not_jax_tracer(is_valid):
-                if device_get(~np.all(is_valid)):
-                    raise RuntimeError("Cannot find valid initial parameters. "
-                                       "Please check your model again.")
 
         # NB: init args is different from HMC
         sa_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
