@@ -237,7 +237,7 @@ class SVGD:
                 if site['name'] in guide_init_params:
                     pval, _ = guide_init_params[site['name']]
                     if self.classic_guide_params_fn(site['name']):
-                        pval = pval[0]
+                        pval = tree_map(lambda x: x[0], pval)
                 else:
                     pval =  site['value']
                 params[site['name']] = transform.inv(pval)
