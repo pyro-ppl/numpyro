@@ -27,6 +27,8 @@ from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpyro.util import enable_x64
 from numpyro.util import fori_loop
 
+from chunk_vmap import chunk_vmap
+
 import pickle
 
 
@@ -114,6 +116,56 @@ def guide(X, Y, hypers):
     omega = numpyro.sample("omega", omega_dist)
 
 
+def model2(X, Y, hypers):
+    S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
+
+    phi = sigma * (S / np.sqrt(N)) / (P - S)
+    eta1 = numpyro.sample("eta1", dist.HalfCauchy(phi))
+
+    #msq = numpyro.sample("msq", dist.InverseGamma(hypers['alpha1'], hypers['beta1']))
+    #xisq = numpyro.sample("xisq", dist.InverseGamma(hypers['alpha2'], hypers['beta2']))
+
+    eta2 = numpyro.deterministic('eta2', eta1)
+
+    lam = numpyro.sample("lambda", dist.HalfCauchy(np.ones(P)))
+    kappa = numpyro.deterministic('kappa', np.clip(lam, a_max=5.0))
+
+    omega = numpyro.sample("omega", dist.TruncatedPolyaGamma(batch_shape=(N,)))
+
+    kX = kappa * X
+    k = kernel(kX, kX, eta1, eta2, hypers['c'])
+
+    k_omega = k + np.eye(N) * (1.0 / omega)
+
+    kY = np.matmul(k, Y)
+    L, Linv_kY = cho_tri_solve(k_omega, kY)
+
+    log_factor1 = dot(Y, kY)
+    log_factor2 = dot(Linv_kY, Linv_kY)
+    log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
+
+    obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
+    numpyro.factor("obs", obs_factor)
+
+
+def guide2(X, Y, hypers):
+    S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
+
+    phi = sigma * (S / np.sqrt(N)) / (P - S)
+
+    eta1_loc = numpyro.param("eta1_loc", 0.25, constraint=constraints.positive)
+    eta1 = numpyro.sample("eta1", dist.Delta(eta1_loc))
+
+    lam_loc = numpyro.param("lam_loc", 0.5 * np.ones(P), constraint=constraints.positive)
+    lam = numpyro.sample("lambda", dist.Delta(lam_loc))
+
+    omega_loc = numpyro.param('omega_loc', -2.0 * np.ones(N))
+    omega_scale = numpyro.param('omega_scale', 0.8 * np.ones(N), constraint=constraints.positive)
+    base_dist = dist.Normal(omega_loc, omega_scale)
+    omega_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform(), AffineTransform(0, 2.5)])
+    omega = numpyro.sample("omega", omega_dist)
+
+
 # helper for computing the posterior marginal N(theta_i) or N(theta_ij)
 def compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, omega):
     kprobe, kX = kappa * probe, kappa * X
@@ -170,7 +222,7 @@ def run_hmc(model, args, rng_key, X, Y, hypers):
 
     return samples
 
-def do_svi(model, guide, args, rng_key, X, Y, hypers):
+def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
     adam = optim.Adam(args['lr'])  #guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, adam, ELBO())  # AutoContinuousELBO()
     svi_state = svi.init(rng_key, X, Y, hypers)
@@ -198,9 +250,10 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers):
 
     params = svi.get_params(svi_state)
     rng_key_post = random.PRNGKey(args['seed'] + 1373483)
-    return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'msq', 'xisq', 'lambda']
-    samples = Predictive(model, guide=guide, num_samples=50, params=params,
-                             return_sites=return_sites)(rng_key_post, X, Y, hypers)
+    #return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'msq', 'xisq', 'lambda']
+    return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'lambda']
+    samples = Predictive(model, guide=guide, num_samples=num_samples, params=params,
+                         return_sites=return_sites)(rng_key_post, X, Y, hypers)
 
     for k, v in samples.items():
         if v.ndim == 1:
@@ -280,7 +333,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [200]:
+    for N in [500]:
         results[N] = {}
 
         X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
@@ -291,7 +344,7 @@ def main(**args):
 
         print("starting {} inference...".format(args['inference']))
         if args['inference'] == 'svi':
-            samples = do_svi(model, guide, args, rng_key, X, Y, hypers)
+            samples = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32)
         elif args['inference'] == 'hmc':
             samples = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference!")
@@ -300,7 +353,8 @@ def main(**args):
         print("leading kappa", onp.mean(samples['kappa'], axis=0)[:15])
 
         # compute the mean and square root variance of each coefficient theta_i
-        means, stds = vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers))(np.arange(P))
+        means, stds = chunk_vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers),
+                                 np.arange(P), chunk_size=8)
 
         results[N]['expected_thetas'] = onp.array(expected_thetas).tolist()
         results[N]['coeff_means'] = onp.array(means).tolist()
@@ -318,7 +372,8 @@ def main(**args):
             inactive = "inactive" if lower < 0.0 and upper > 0.0 else "active"
             if inactive == "active":
                 active_dims.append(dim)
-            print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, P, inactive, mean, std))
+            if dim < args['active_dimensions'] or inactive == "active":
+                print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, P, inactive, mean, std))
 
         correct_singletons = len(set(active_dims) & set(expected_active_dims))
         false_singletons = len(set(active_dims) - set(expected_active_dims))
@@ -341,8 +396,8 @@ def main(**args):
         active_quad_dims = []
         if len(active_dims) > 0:
             dim_pairs = np.array(list(itertools.product(active_dims, active_dims)))
-            means, stds = vmap(lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y,
-                                                                           dim_pair[0], dim_pair[1], hypers))(dim_pairs)
+            fun = lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers)
+            means, stds = chunk_vmap(fun, dim_pairs, chunk_size=8)
             for dim_pair, mean, std in zip(dim_pairs, means, stds):
                 dim1, dim2 = dim_pair
                 if dim1 >= dim2:
@@ -380,7 +435,7 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=200, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
@@ -390,12 +445,12 @@ if __name__ == "__main__":
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
     parser.add_argument("--active-dimensions", nargs='?', default=10, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
-    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./svi/', type=str)
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
-    numpyro.set_host_device_count(args.num_chains)
+    #numpyro.set_host_device_count(args.num_chains)
     enable_x64()
 
     main(**vars(args))
