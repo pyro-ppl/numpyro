@@ -216,10 +216,7 @@ def find_valid_initial_params(rng_key, model, inv_transforms, init_strategy,
     return (init_params, pe, z_grad), is_valid
 
 
-def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
-    model_kwargs = {} if model_kwargs is None else model_kwargs
-    seeded_model = seed(model, rng_key)
-    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+def get_model_transforms(model_trace):
     constrained_values, inv_transforms = {}, {}
     # model code may need to be replayed in the presence of deterministic sites
     replay_model = False
@@ -309,8 +306,9 @@ def initialize_model(rng_key, model,
         at `deterministic` sites in the model.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    inv_transforms, prototype_params, replay_model = get_model_transforms(
-        rng_key if rng_key.ndim == 1 else rng_key[0], model, model_args, model_kwargs)
+    seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
+    prototype_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    inv_transforms, prototype_params, replay_model = get_model_transforms(prototype_trace)
 
     potential_fn, postprocess_fn = get_potential_fn(model,
                                                     inv_transforms,
@@ -319,16 +317,22 @@ def initialize_model(rng_key, model,
                                                     model_args=model_args,
                                                     model_kwargs=model_kwargs)
 
-    init_params_info, is_valid = find_valid_initial_params(rng_key, model, inv_transforms,
-                                                           init_strategy=init_strategy,
-                                                           model_args=model_args,
-                                                           model_kwargs=model_kwargs,
-                                                           prototype_params=prototype_params)
+    (init_params, pe, grad), is_valid = find_valid_initial_params(rng_key, model, inv_transforms,
+                                                                  init_strategy=init_strategy,
+                                                                  model_args=model_args,
+                                                                  model_kwargs=model_kwargs,
+                                                                  prototype_params=prototype_params)
 
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return init_params_info, potential_fn, postprocess_fn
+    return {'init_params': init_params,
+            'init_params_potential_energy': pe,
+            'init_params_grad': grad,
+            'potential_fn': potential_fn,
+            'postprocess_fn': postprocess_fn,
+            'inv_transforms': inv_transforms,
+            'prototype_trace': prototype_trace}
 
 
 def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,
