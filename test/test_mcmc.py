@@ -16,7 +16,7 @@ from jax.scipy.special import logit
 import numpyro
 from numpyro.contrib.reparam import TransformReparam, reparam
 import numpyro.distributions as dist
-from numpyro.distributions import constraints
+from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import HMC, MCMC, NUTS, SA
 from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
 from numpyro.infer.util import initialize_model
@@ -127,7 +127,10 @@ def test_improper_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        loc = numpyro.param('loc', 0., constraint=constraints.interval(0., alpha))
+        with reparam(config={'loc': TransformReparam()}):
+            loc = numpyro.sample('loc', dist.TransformedDistribution(
+                dist.Uniform(0, 1).mask(False),
+                AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
@@ -253,8 +256,8 @@ def test_improper_prior():
     num_warmup, num_samples = 1000, 8000
 
     def model(data):
-        mean = numpyro.param('mean', 0.)
-        std = numpyro.param('std', 1., constraint=constraints.positive)
+        mean = numpyro.sample('mean', dist.Normal(0, 1).mask(False))
+        std = numpyro.sample('std', dist.LogNormal(0, 1).mask(False))
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
@@ -272,8 +275,8 @@ def test_mcmc_progbar():
     num_warmup, num_samples = 10, 10
 
     def model(data):
-        mean = numpyro.param('mean', 0.)
-        std = numpyro.param('std', 1., constraint=constraints.positive)
+        mean = numpyro.sample('mean', dist.Normal(0, 1).mask(False))
+        std = numpyro.sample('std', dist.LogNormal(0, 1).mask(False))
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))

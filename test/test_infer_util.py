@@ -14,7 +14,7 @@ from numpyro import handlers
 from numpyro.contrib.reparam import TransformReparam, reparam
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.transforms import biject_to
+from numpyro.distributions.transforms import AffineTransform, biject_to
 from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -104,7 +104,10 @@ def test_predictive_with_improper():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        loc = numpyro.param('loc', 0., constraint=constraints.interval(0., alpha))
+        with reparam(config={'loc': TransformReparam()}):
+            loc = numpyro.sample('loc', dist.TransformedDistribution(
+                dist.Uniform(0, 1).mask(False),
+                AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
