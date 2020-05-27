@@ -54,11 +54,10 @@ class AutoGuide(ABC):
     :param str prefix: a prefix that will be prefixed to all param internal sites
     """
 
-    def __init__(self, model, prefix='auto', init_strategy=init_to_uniform):
+    def __init__(self, model, prefix='auto'):
         assert isinstance(prefix, str)
         self.model = model
         self.prefix = prefix
-        self.init_strategy = init_strategy
         self.prototype_trace = None
 
     @abstractmethod
@@ -120,31 +119,32 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform:
         self._base_dist = None
-        super(AutoContinuous, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
+        self.init_stratgy = init_strategy
+        super(AutoContinuous, self).__init__(model, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
         rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
         with handlers.block():
             model_infos = initialize_model(rng_key, self.model,
+                                           init_strategy=self.init_strategy,
                                            dynamic_args=False,
                                            model_args=args,
                                            model_kwargs=kwargs)
-
         self.prototype_trace = model_infos['prototype_trace']
+        self._postprocess_fn = model_infos['postprocess_fn']
+
         self._init_latent, unpack_latent = ravel_pytree(model_infos['init_params'])
-        self.latent_size = np.size(self._init_latent)
-        if self.latent_size == 0:
-            raise RuntimeError('{} found no latent variables; Use an empty guide instead'
-                               .format(type(self).__name__))
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)
-        self._postprocess_fn = model_infos['postprocess_fn']
-
+        self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
             self.base_dist = dist.Normal(np.zeros(self.latent_size), 1.).to_event(1)
+        if self.latent_size == 0:
+            raise RuntimeError('{} found no latent variables; Use an empty guide instead'
+                               .format(type(self).__name__))
 
     @abstractmethod
     def _get_transform(self):
@@ -170,8 +170,10 @@ class AutoContinuous(AutoGuide):
             self._setup_prototype(*args, **kwargs)
 
         latent = self._sample_latent(self.base_dist, *args, **kwargs)
+
         # unpack continuous latent samples
         result = {}
+
         for name, unconstrained_value in self._unpack_latent(latent).items():
             site = self.prototype_trace[name]
             transform = biject_to(site['fn'])
@@ -272,7 +274,7 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -307,7 +309,7 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -342,7 +344,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1, rank=None):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1, rank=None):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -485,7 +487,7 @@ class AutoIAFNormal(AutoContinuous):
         * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
           Defaults to :func:`jax.experimental.stax.Relu`.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(),
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform,
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
@@ -541,7 +543,7 @@ class AutoBNAFNormal(AutoContinuous):
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), num_flows=1,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, num_flows=1,
                  hidden_factors=[8, 8]):
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
