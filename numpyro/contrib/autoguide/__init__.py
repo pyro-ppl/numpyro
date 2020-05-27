@@ -95,21 +95,8 @@ class AutoGuide(ABC):
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
         rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
-        with handlers.block():
-            model_infos = initialize_model(rng_key, self.model,
-                                           dynamic_args=False,
-                                           model_args=args,
-                                           model_kwargs=kwargs)
-        self.prototype_trace = model_infos['prototype_trace']
-        self._init_latent, unpack_latent = ravel_pytree(model_infos['init_params'])
-        self.latent_size = np.size(self._init_latent)
-        if self.latent_size == 0:
-            raise RuntimeError('{} found no latent variables; Use an empty guide instead'
-                               .format(type(self).__name__))
-        # this is to match the behavior of Pyro, where we can apply
-        # unpack_latent for a batch of samples
-        self._unpack_latent = UnpackTransform(unpack_latent)
-        self._postprocess_fn = model_infos['postprocess_fn']
+        model = handlers.seed(self.model, rng_key)
+        self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
 
 
 class AutoContinuous(AutoGuide):
@@ -138,7 +125,24 @@ class AutoContinuous(AutoGuide):
         super(AutoContinuous, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
 
     def _setup_prototype(self, *args, **kwargs):
-        super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
+        rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
+        with handlers.block():
+            model_infos = initialize_model(rng_key, self.model,
+                                           dynamic_args=False,
+                                           model_args=args,
+                                           model_kwargs=kwargs)
+
+        self.prototype_trace = model_infos['prototype_trace']
+        self._init_latent, unpack_latent = ravel_pytree(model_infos['init_params'])
+        self.latent_size = np.size(self._init_latent)
+        if self.latent_size == 0:
+            raise RuntimeError('{} found no latent variables; Use an empty guide instead'
+                               .format(type(self).__name__))
+        # this is to match the behavior of Pyro, where we can apply
+        # unpack_latent for a batch of samples
+        self._unpack_latent = UnpackTransform(unpack_latent)
+        self._postprocess_fn = model_infos['postprocess_fn']
+
         if self.base_dist is None:
             self.base_dist = dist.Normal(np.zeros(self.latent_size), 1.).to_event(1)
 
