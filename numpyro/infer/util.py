@@ -110,7 +110,7 @@ def constrain_fn(model, inv_transforms, model_args, model_kwargs, params, return
     substituted_model = substitute(model, param_map=params_constrained)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
     return {k: v['value'] for k, v in model_trace.items() if (k in params) or
-            (return_deterministic and v['type'] == 'deterministic')}
+            (return_deterministic and (v['type'] == 'deterministic'))}
 
 
 def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
@@ -138,8 +138,11 @@ def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
     return - log_joint
 
 
-def find_valid_initial_params(rng_key, model, inv_transforms, init_strategy,
-                              model_args, model_kwargs, prototype_params):
+def find_valid_initial_params(rng_key, model, inv_transforms,
+                              init_strategy=init_to_uniform,
+                              model_args=(),
+                              model_kwargs=None,
+                              prototype_params=None):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
     valid unconstrained value for all the parameters. This function also returns
@@ -177,7 +180,7 @@ def find_valid_initial_params(rng_key, model, inv_transforms, init_strategy,
         i, key, _, _ = state
         key, subkey = random.split(key)
 
-        if radius is None:
+        if radius is None or prototype_params is None:
             # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
             seeded_model = substitute(seed(model, subkey), substitute_fn=init_strategy)
             model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)

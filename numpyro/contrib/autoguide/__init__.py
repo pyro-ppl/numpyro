@@ -119,9 +119,9 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform:
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform):
+        self.init_strategy = init_strategy
         self._base_dist = None
-        self.init_stratgy = init_strategy
         super(AutoContinuous, self).__init__(model, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
@@ -176,7 +176,7 @@ class AutoContinuous(AutoGuide):
 
         for name, unconstrained_value in self._unpack_latent(latent).items():
             site = self.prototype_trace[name]
-            transform = biject_to(site['fn'])
+            transform = biject_to(site['fn'].support)
             value = transform(unconstrained_value)
             log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
             event_ndim = len(site['fn'].event_shape)
@@ -190,7 +190,8 @@ class AutoContinuous(AutoGuide):
     def _unpack_and_constrain(self, latent_sample, params):
         def unpack_single_latent(latent):
             unpacked_samples = self._unpack_latent(latent)
-            return self._postprocess_fn(unpacked_samples.update(params))
+            unpacked_samples.update(params)
+            return self._postprocess_fn(unpacked_samples)
 
         sample_shape = np.shape(latent_sample)[:-1]
         if sample_shape:
@@ -426,7 +427,9 @@ class AutoLaplaceApproximation(AutoContinuous):
 
     def _get_transform(self, params):
         def loss_fn(z):
-            return self._loss_fn(params.copy().update({'{}_loc'.format(self.prefix): z}))
+            params1 = params.copy()
+            params1['{}_loc'.format(self.prefix)] = z
+            return self._loss_fn(params1)
 
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(self._loss_fn)(loc)
