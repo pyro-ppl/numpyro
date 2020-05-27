@@ -18,7 +18,6 @@ __all__ = [
     'get_potential_fn',
     'log_density',
     'log_likelihood',
-    'potential_energy',
     'initialize_model',
     'Predictive',
 ]
@@ -327,7 +326,7 @@ def initialize_model(rng_key, model,
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return {'init_params': init_params,
-            'init_params_potential_energy': pe,
+            'init_potential_energy': pe,
             'init_params_grad': grad,
             'potential_fn': potential_fn,
             'postprocess_fn': postprocess_fn,
