@@ -157,7 +157,7 @@ def test_beta_bernoulli_x64(kernel_cls):
     if kernel_cls is SA:
         kernel = SA(model=model)
     else:
-        kernel = kernel_cls(model=model, trajectory_length=1.)
+        kernel = kernel_cls(model=model, trajectory_length=0.1)
     mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
     mcmc.print_summary()
