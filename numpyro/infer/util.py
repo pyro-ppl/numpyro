@@ -330,7 +330,6 @@ def initialize_model(rng_key, model,
             'init_params_grad': grad,
             'potential_fn': potential_fn,
             'postprocess_fn': postprocess_fn,
-            'inv_transforms': inv_transforms,
             'prototype_trace': prototype_trace}
 
 

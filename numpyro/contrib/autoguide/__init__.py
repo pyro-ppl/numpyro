@@ -28,6 +28,7 @@ from numpyro.distributions.transforms import (
     MultivariateAffineTransform,
     PermuteTransform,
     UnpackTransform,
+    biject_to
 )
 from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
 from numpyro.infer.elbo import ELBO
@@ -109,9 +110,6 @@ class AutoGuide(ABC):
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)
         self._postprocess_fn = model_infos['postprocess_fn']
-        self._inv_transforms = model_infos['inv_transforms']
-        self._args = args
-        self._kwargs = kwargs
 
 
 class AutoContinuous(AutoGuide):
@@ -171,8 +169,8 @@ class AutoContinuous(AutoGuide):
         # unpack continuous latent samples
         result = {}
         for name, unconstrained_value in self._unpack_latent(latent).items():
-            transform = self._inv_transforms[name]
             site = self.prototype_trace[name]
+            transform = biject_to(site['fn'])
             value = transform(unconstrained_value)
             log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
             event_ndim = len(site['fn'].event_shape)
@@ -186,10 +184,8 @@ class AutoContinuous(AutoGuide):
     def _unpack_and_constrain(self, latent_sample, params):
         def unpack_single_latent(latent):
             unpacked_samples = self._unpack_latent(latent)
-            return self._postprocess_fn(model, self._args, self._kwargs,
-                                        unpacked_samples.update(params))
+            return self._postprocess_fn(unpacked_samples.update(params))
 
-        model = handlers.substitute(self.model, param_map=params)
         sample_shape = np.shape(latent_sample)[:-1]
         if sample_shape:
             latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
@@ -406,6 +402,15 @@ class AutoLaplaceApproximation(AutoContinuous):
         guide = AutoLaplaceApproximation(model, ...)
         svi = SVI(model, guide, ...)
     """
+    def _setup_prototype(self, *args, **kwargs):
+        super(AutoLaplaceApproximation, self)._setup_prototype(*args, **kwargs)
+
+        def loss_fn(params):
+            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
+            return ELBO().loss(random.PRNGKey(0), params, self.model, self, *args, **kwargs)
+
+        self._loss_fn = loss_fn
+
     def _sample_latent(self, base_dist, *args, **kwargs):
         # sample from Delta guide
         sample_shape = kwargs.pop('sample_shape', ())
@@ -415,14 +420,10 @@ class AutoLaplaceApproximation(AutoContinuous):
 
     def _get_transform(self, params):
         def loss_fn(z):
-            params1 = params.copy()
-            params1['{}_loc'.format(self.prefix)] = z
-            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
-            return ELBO().loss(random.PRNGKey(0), params1, self.model, self,
-                               *self._args, **self._kwargs)
+            return self._loss_fn(params.copy().update({'{}_loc'.format(self.prefix): z}))
 
         loc = params['{}_loc'.format(self.prefix)]
-        precision = hessian(loss_fn)(loc)
+        precision = hessian(self._loss_fn)(loc)
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
             if np.any(np.isnan(scale_tril)):
