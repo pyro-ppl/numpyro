@@ -61,6 +61,6 @@ def test_autoguide(deterministic):
     guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(100,))
 
     if deterministic:
-        assert GLOBAL["count"] == 6
+        assert GLOBAL["count"] == 5
     else:
         assert GLOBAL["count"] == 5
