@@ -285,7 +285,7 @@ def initialize_model(rng_key, model,
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
     and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
-    to return a tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`).
+    to return a tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`, `model_trace`).
 
     :param jax.random.PRNGKey rng_key: random number generator seed to
         sample from the prior. The returned `init_params` will have the
@@ -299,7 +299,7 @@ def initialize_model(rng_key, model,
         `potential_fn` and `constraints_fn` callables, respectively.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
-    :return: tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`),
+    :return: tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`, `model_trace`),
         `init_params_info` is a tuple containing values from the prior used to initiate MCMC,
         their corresponding potential energy, and their gradients,
         `postprocess_fn` is a callable that uses inverse transforms

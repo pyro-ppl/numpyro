@@ -524,8 +524,8 @@ class HMC(MCMCKernel):
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
 
-        hmc_init_fn = lambda init_params_info, rng_key: self._init_fn(  # noqa: E731
-            init_params_info,
+        hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
+            init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
             adapt_step_size=self._adapt_step_size,
@@ -539,16 +539,13 @@ class HMC(MCMCKernel):
             model_kwargs=model_kwargs,
             rng_key=rng_key,
         )
-        if init_params is not None:
-            init_params_info = init_params
-
         if rng_key.ndim == 1:
-            init_state = hmc_init_fn(init_params_info, rng_key)
+            init_state = hmc_init_fn(init_params, rng_key)
         else:
             # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
             # wa_steps because those variables do not depend on traced args: init_params, rng_key.
-            init_state = vmap(hmc_init_fn)(init_params_info, rng_key)
+            init_state = vmap(hmc_init_fn)(init_params, rng_key)
             sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
             self._sample_fn = sample_fn
         return init_state
