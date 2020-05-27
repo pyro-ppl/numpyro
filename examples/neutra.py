@@ -26,13 +26,13 @@ import jax.numpy as np
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoContinuousELBO, AutoBNAFNormal
+from numpyro.contrib.autoguide import AutoBNAFNormal
 from numpyro.contrib.reparam import NeuTraReparam
 from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.util import logsumexp
-from numpyro.infer import MCMC, NUTS, SVI
+from numpyro.infer import ELBO, MCMC, NUTS, SVI
 
 
 class DualMoonDistribution(dist.Distribution):
@@ -66,7 +66,7 @@ def main(args):
     vanilla_samples = mcmc.get_samples()['x'].copy()
 
     guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
-    svi = SVI(dual_moon_model, guide, optim.Adam(0.003), AutoContinuousELBO())
+    svi = SVI(dual_moon_model, guide, optim.Adam(0.003), ELBO())
     svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")

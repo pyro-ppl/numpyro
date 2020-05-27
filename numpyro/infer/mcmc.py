@@ -291,8 +291,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         diverging = delta_energy > max_delta_energy
         transition = random.bernoulli(rng_key, accept_prob)
         vv_state, energy = cond(transition,
-                                (vv_state_new, energy_new), lambda args: args,
-                                (vv_state, energy_old), lambda args: args)
+                                (vv_state_new, energy_new), identity,
+                                (vv_state, energy_old), identity)
         return vv_state, energy, num_steps, accept_prob, diverging
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state,
@@ -343,7 +343,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                            (hmc_state.i, accept_prob, vv_state.z, hmc_state.adapt_state),
                            lambda args: wa_update(*args),
                            hmc_state.adapt_state,
-                           lambda x: x)
+                           identity)
 
         itr = hmc_state.i + 1
         n = np.where(hmc_state.i < wa_steps, itr, itr - wa_steps)

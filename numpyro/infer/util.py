@@ -9,11 +9,10 @@ from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
-import numpyro
-import numpyro.distributions as dist
 from numpyro.distributions.constraints import real
-from numpyro.distributions.transforms import ComposeTransform, biject_to
+from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import block, seed, substitute, trace
+from numpyro.infer.initialization import init_to_uniform
 from numpyro.util import not_jax_tracer, while_loop
 
 __all__ = [
@@ -21,19 +20,13 @@ __all__ = [
     'get_potential_fn',
     'log_density',
     'log_likelihood',
-    'init_to_feasible',
-    'init_to_median',
-    'init_to_prior',
-    'init_to_uniform',
-    'init_to_value',
     'potential_energy',
     'initialize_model',
     'Predictive',
-    'transformed_potential_energy',
 ]
 
 
-def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=False):
+def log_density(model, model_args, model_kwargs, params):
     """
     (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
     latent values ``params``.
@@ -43,21 +36,9 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
     :param dict model_kwargs: kwargs provided to the model.
     :param dict params: dictionary of current parameter values keyed by site
         name.
-    :param bool skip_dist_transforms: whether to compute log probability of a site
-        (if its prior is a transformed distribution) in its base distribution
-        domain.
     :return: log of joint density and a corresponding model trace
     """
-    # We skip transforms in
-    #   + autoguide's model
-    #   + hmc's model
-    # We apply transforms in
-    #   + autoguide's guide
-    #   + svi's model + guide
-    if skip_dist_transforms:
-        model = substitute(model, base_param_map=params)
-    else:
-        model = substitute(model, param_map=params)
+    model = substitute(model, param_map=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jax.device_put(0.)
     for site in model_trace.values():
@@ -70,10 +51,7 @@ def log_density(model, model_args, model_kwargs, params, skip_dist_transforms=Fa
             if not_jax_tracer(mask) and mask is not None and not np.any(mask):
                 continue
             if intermediates:
-                if skip_dist_transforms:
-                    log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
-                else:
-                    log_prob = site['fn'].log_prob(value, intermediates)
+                log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)
 
@@ -132,10 +110,10 @@ def constrain_fn(model, transforms, model_args, model_kwargs, params, return_det
     :return: `dict` of transformed params.
     """
     params_constrained = transform_fn(transforms, params)
-    substituted_model = substitute(model, base_param_map=params_constrained)
+    substituted_model = substitute(model, param_map=params_constrained)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
     return {k: v['value'] for k, v in model_trace.items() if (k in params) or
-            (return_deterministic and v['type'] == 'deterministic')}
+            (return_deterministic and (v['type'] == 'deterministic'))}
 
 
 def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
@@ -154,142 +132,13 @@ def potential_energy(model, inv_transforms, model_args, model_kwargs, params):
     :return: potential energy given unconstrained parameters.
     """
     params_constrained = transform_fn(inv_transforms, params)
-    log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained,
-                                         skip_dist_transforms=True)
+    log_joint, model_trace = log_density(model, model_args, model_kwargs, params_constrained)
     for name, t in inv_transforms.items():
         t_log_det = np.sum(t.log_abs_det_jacobian(params[name], params_constrained[name]))
         if model_trace[name]['scale'] is not None:
             t_log_det = model_trace[name]['scale'] * t_log_det
         log_joint = log_joint + t_log_det
     return - log_joint
-
-
-def transformed_potential_energy(potential_energy, inv_transform, z):
-    """
-    Given a potential energy `p(x)`, compute potential energy of `p(z)`
-    with `z = transform(x)` (i.e. `x = inv_transform(z)`).
-
-    :param potential_energy: a callable to compute potential energy of original
-        variable `x`.
-    :param ~numpyro.distributions.constraints.Transform inv_transform: a
-        transform from the new variable `z` to `x`.
-    :param z: new variable to compute potential energy
-    :return: potential energy of `z`.
-    """
-    x, intermediates = inv_transform.call_with_intermediates(z)
-    logdet = inv_transform.log_abs_det_jacobian(z, x, intermediates=intermediates)
-    return potential_energy(x) - logdet
-
-
-def _init_to_median(site, num_samples=15, skip_param=False):
-    if site['type'] == 'sample' and not site['is_observed']:
-        if isinstance(site['fn'], dist.TransformedDistribution):
-            fn = site['fn'].base_dist
-        else:
-            fn = site['fn']
-        samples = numpyro.sample('_init', fn,
-                                 sample_shape=(num_samples,) + site['kwargs']['sample_shape'])
-        return np.median(samples, axis=0)
-
-    if site['type'] == 'param' and not skip_param:
-        # return base value of param site
-        constraint = site['kwargs'].pop('constraint', real)
-        transform = biject_to(constraint)
-        value = site['args'][0]
-        if isinstance(transform, ComposeTransform):
-            base_transform = transform.parts[0]
-            value = base_transform(transform.inv(value))
-        return value
-
-
-def init_to_median(num_samples=15):
-    """
-    Initialize to the prior median.
-
-    :param int num_samples: number of prior points to calculate median.
-    """
-    return partial(_init_to_median, num_samples=num_samples)
-
-
-def init_to_prior():
-    """
-    Initialize to a prior sample.
-    """
-    return init_to_median(num_samples=1)
-
-
-def _init_to_uniform(site, radius=2, skip_param=False):
-    if site['type'] == 'sample' and not site['is_observed']:
-        if isinstance(site['fn'], dist.TransformedDistribution):
-            fn = site['fn'].base_dist
-        else:
-            fn = site['fn']
-        value = numpyro.sample('_init', fn, sample_shape=site['kwargs']['sample_shape'])
-        base_transform = biject_to(fn.support)
-        unconstrained_value = numpyro.sample('_unconstrained_init', dist.Uniform(-radius, radius),
-                                             sample_shape=np.shape(base_transform.inv(value)))
-        return base_transform(unconstrained_value)
-
-    if site['type'] == 'param' and not skip_param:
-        # return base value of param site
-        constraint = site['kwargs'].pop('constraint', real)
-        transform = biject_to(constraint)
-        value = site['args'][0]
-        unconstrained_value = numpyro.sample('_unconstrained_init', dist.Uniform(-radius, radius),
-                                             sample_shape=np.shape(transform.inv(value)))
-        if isinstance(transform, ComposeTransform):
-            base_transform = transform.parts[0]
-        else:
-            base_transform = transform
-        return base_transform(unconstrained_value)
-
-
-def init_to_uniform(radius=2):
-    """
-    Initialize to a random point in the area `(-radius, radius)` of unconstrained domain.
-
-    :param float radius: specifies the range to draw an initial point in the unconstrained domain.
-    """
-    return partial(_init_to_uniform, radius=radius)
-
-
-def init_to_feasible():
-    """
-    Initialize to an arbitrary feasible point, ignoring distribution
-    parameters.
-    """
-    return init_to_uniform(radius=0)
-
-
-def _init_to_value(site, values={}, skip_param=False):
-    if site['type'] == 'sample' and not site['is_observed']:
-        if site['name'] not in values:
-            return _init_to_uniform(site, skip_param=skip_param)
-
-        value = values[site['name']]
-        if isinstance(site['fn'], dist.TransformedDistribution):
-            value = ComposeTransform(site['fn'].transforms).inv(value)
-        return value
-
-    if site['type'] == 'param' and not skip_param:
-        # return base value of param site
-        constraint = site['kwargs'].pop('constraint', real)
-        transform = biject_to(constraint)
-        value = site['args'][0]
-        if isinstance(transform, ComposeTransform):
-            base_transform = transform.parts[0]
-            value = base_transform(transform.inv(value))
-        return value
-
-
-def init_to_value(values):
-    """
-    Initialize to the value specified in `values`. We defer to
-    :func:`init_to_uniform` strategy for sites which do not appear in `values`.
-
-    :param dict values: dictionary of initial values keyed by site name.
-    """
-    return partial(_init_to_value, values=values)
 
 
 def find_valid_initial_params(rng_key, model,
@@ -327,27 +176,19 @@ def find_valid_initial_params(rng_key, model,
 
         # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
         # Use `block` to not record sample primitives in `init_loc_fn`.
+        # TODO: fix the issue that we are using the same subkey for all sites
         seeded_model = substitute(model, substitute_fn=block(seed(init_strategy, subkey)))
         model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
         constrained_values, inv_transforms = {}, {}
         for k, v in model_trace.items():
+            # TODO: filter out discrete sites here
             if v['type'] == 'sample' and not v['is_observed']:
-                if v['intermediates']:
-                    constrained_values[k] = v['intermediates'][0][0]
-                    inv_transforms[k] = biject_to(v['fn'].base_dist.support)
-                else:
-                    constrained_values[k] = v['value']
-                    inv_transforms[k] = biject_to(v['fn'].support)
+                constrained_values[k] = v['value']
+                inv_transforms[k] = biject_to(v['fn'].support)
             elif v['type'] == 'param' and param_as_improper:
+                constrained_values[k] = v['value']
                 constraint = v['kwargs'].pop('constraint', real)
-                transform = biject_to(constraint)
-                if isinstance(transform, ComposeTransform):
-                    base_transform = transform.parts[0]
-                    inv_transforms[k] = base_transform
-                    constrained_values[k] = base_transform(transform.inv(v['value']))
-                else:
-                    inv_transforms[k] = transform
-                    constrained_values[k] = v['value']
+                inv_transforms[k] = biject_to(constraint)
         params = transform_fn(inv_transforms,
                               {k: v for k, v in constrained_values.items()},
                               invert=True)
@@ -364,6 +205,13 @@ def find_valid_initial_params(rng_key, model,
             if device_get(is_valid):
                 return prototype_params, is_valid
 
+        # TODO: we are tracing the model 4 times here, make sure that we just do it one
+        # Historically, we don't know the initial structure of params
+        # so we need the do-while pattern (lax.while_loop requires initial values)
+        # In addition, the body_fn requires tracing through model 2 times: 1 to find the params
+        # the other one is to compute potential_energy...
+        # TODO: add tests to track down the number of time we trace the model
+        # and try to optimize it in follow-up PRs
         _, _, init_params, is_valid = while_loop(cond_fn, body_fn, init_state)
         return init_params, is_valid
 
@@ -375,6 +223,8 @@ def find_valid_initial_params(rng_key, model,
     return init_params, is_valid
 
 
+# TODO: we should combine this with potential_energy
+# to reduce the number of times we trace the model
 def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
     model_kwargs = {} if model_kwargs is None else model_kwargs
     seeded_model = seed(model, rng_key if rng_key.ndim == 1 else rng_key[0])
@@ -385,19 +235,10 @@ def get_model_transforms(rng_key, model, model_args=(), model_kwargs=None):
     replay_model = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
-            if v['intermediates']:
-                inv_transforms[k] = biject_to(v['fn'].base_dist.support)
-                replay_model = True
-            else:
-                inv_transforms[k] = biject_to(v['fn'].support)
+            inv_transforms[k] = biject_to(v['fn'].support)
         elif v['type'] == 'param':
             constraint = v['kwargs'].pop('constraint', real)
-            transform = biject_to(constraint)
-            if isinstance(transform, ComposeTransform):
-                inv_transforms[k] = transform.parts[0]
-                replay_model = True
-            else:
-                inv_transforms[k] = transform
+            inv_transforms[k] = biject_to(constraint)
         elif v['type'] == 'deterministic':
             replay_model = True
     return inv_transforms, replay_model

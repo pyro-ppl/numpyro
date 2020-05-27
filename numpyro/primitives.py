@@ -9,6 +9,7 @@ from jax import lax
 
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
+from numpyro.util import identity
 
 _PYRO_STACK = []
 
@@ -107,10 +108,6 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
     return msg['value']
-
-
-def identity(x, *args, **kwargs):
-    return x
 
 
 def param(name, init_value=None, **kwargs):
@@ -263,6 +260,7 @@ class plate(Messenger):
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'plate'):
             return
+
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)

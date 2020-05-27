@@ -10,11 +10,10 @@
 from abc import ABC, abstractmethod
 import warnings
 
-from jax import hessian, random, vmap
+from jax import hessian, lax, random, tree_map
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
-from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import handlers
@@ -32,14 +31,12 @@ from numpyro.distributions.transforms import (
     biject_to
 )
 from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
-from numpyro.handlers import seed, substitute
 from numpyro.infer.elbo import ELBO
-from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, log_density, transform_fn
+from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, transform_fn
 from numpyro.util import not_jax_tracer
 
 __all__ = [
     'AutoContinuous',
-    'AutoContinuousELBO',
     'AutoGuide',
     'AutoDiagonalNormal',
     'AutoMultivariateNormal',
@@ -113,14 +110,6 @@ class AutoContinuous(AutoGuide):
     Assumes model structure and latent dimension are fixed, and all latent
     variables are continuous.
 
-    .. note::
-        We recommend using :class:`AutoContinuousELBO` as the
-        objective function `loss` in :class:`~numpyro.infer.svi.SVI`.
-        In addition, we recommend using :meth:`sample_posterior` method
-        for drawing posterior samples from the autoguide as it will
-        automatically do any unpacking and transformations required
-        to constrain the samples to the support of the latent sites.
-
     **Reference:**
 
     1. *Automatic Differentiation Variational Inference*,
@@ -144,20 +133,17 @@ class AutoContinuous(AutoGuide):
                                                                    init_strategy=self.init_strategy,
                                                                    model_args=args,
                                                                    model_kwargs=kwargs)
+        # TODO: we can just simply use infer/get_model_transforms here
         self._inv_transforms = {}
-        self._has_transformed_dist = False
+        self._replay_model = False
         unconstrained_sites = {}
         for name, site in self.prototype_trace.items():
             if site['type'] == 'sample' and not site['is_observed']:
-                if site['intermediates']:
-                    transform = biject_to(site['fn'].base_dist.support)
-                    self._inv_transforms[name] = transform
-                    unconstrained_sites[name] = transform.inv(site['intermediates'][0][0])
-                    self._has_transformed_dist = True
-                else:
-                    transform = biject_to(site['fn'].support)
-                    self._inv_transforms[name] = transform
-                    unconstrained_sites[name] = transform.inv(site['value'])
+                transform = biject_to(site['fn'].support)
+                self._inv_transforms[name] = transform
+                unconstrained_sites[name] = transform.inv(site['value'])
+            elif site['type'] == 'deterministic' and not self._replay_model:
+                self._replay_model = True
 
         self._init_latent, unpack_latent = ravel_pytree(init_params)
         # this is to match the behavior of Pyro, where we can apply
@@ -165,7 +151,7 @@ class AutoContinuous(AutoGuide):
         self._unpack_latent = UnpackTransform(unpack_latent)
         self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
-            self.base_dist = dist.Independent(dist.Normal(np.zeros(self.latent_size), 1.), 1)
+            self.base_dist = dist.Normal(np.zeros(self.latent_size), 1.).to_event(1)
         if self.latent_size == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'
                                .format(type(self).__name__))
@@ -203,10 +189,7 @@ class AutoContinuous(AutoGuide):
             site = self.prototype_trace[name]
             value = transform(unconstrained_value)
             log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-            if site['intermediates']:
-                event_ndim = len(site['fn'].base_dist.event_shape)
-            else:
-                event_ndim = len(site['fn'].event_shape)
+            event_ndim = len(site['fn'].event_shape)
             log_density = sum_rightmost(log_density,
                                         np.ndim(log_density) - np.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_ndim=event_ndim)
@@ -215,32 +198,23 @@ class AutoContinuous(AutoGuide):
         return result
 
     def _unpack_and_constrain(self, latent_sample, params):
-        sample_shape = np.shape(latent_sample)[:-1]
-        # XXX: we do not support priors with supports depending on dynamic data
-        # because it adds complexity to the interface.
-        # Users can achieve that behaviour by changing the default `self._args`
-        # but we will not recommend doing so.
-        model_args = self._args
-        model_kwargs = self._kwargs
+        if self._replay_model:
+            def unpack_single_latent(latent):
+                unpacked_samples = self._unpack_latent(latent)
+                return constrain_fn(model, self._inv_transforms, self._args, self._kwargs,
+                                    unpacked_samples, return_deterministic=True)
 
-        def unpack_single_latent(latent):
-            unpacked_samples = self._unpack_latent(latent)
-            if self._has_transformed_dist:
-                # first, substitute to `param` statements in model
-                model = handlers.substitute(self.model, params)
-                return constrain_fn(model, self._inv_transforms, model_args,
-                                    model_kwargs, unpacked_samples)
+            model = handlers.substitute(self.model, param_map=params)
+            sample_shape = np.shape(latent_sample)[:-1]
+            if sample_shape:
+                latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
+                unpacked_samples = lax.map(unpack_single_latent, latent_sample)
+                return tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
+                                unpacked_samples)
             else:
-                return transform_fn(self._inv_transforms, unpacked_samples)
-
-        if sample_shape:
-            latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
-            unpacked_samples = vmap(unpack_single_latent)(latent_sample)
-            unpacked_samples = tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
-                                        unpacked_samples)
+                return unpack_single_latent(latent_sample)
         else:
-            unpacked_samples = unpack_single_latent(latent_sample)
-        return unpacked_samples
+            return transform_fn(self._inv_transforms, self._unpack_latent(latent_sample))
 
     @property
     def base_dist(self):
@@ -255,23 +229,16 @@ class AutoContinuous(AutoGuide):
         # TODO: not allow changing base_dist
         self._base_dist = base_dist
 
-    def get_transform(self, params, unpack=True):
+    def get_transform(self, params):
         """
         Returns the transformation learned by the guide to generate samples from the unconstrained
         (approximate) posterior.
 
         :param dict params: Current parameters of model and autoguide.
-        :param bool unpack: Whether to return a transform that also unpacks the
-            flatten join of latent variables.
         :return: the transform of posterior distribution
         :rtype: :class:`~numpyro.distributions.transforms.Transform`
         """
-        # TODO: with NeuTraRepram, this `unpack` flag is not useful anymore;
-        # we'll make this method behave as `unpack=False` when refactoring this file
-        transform = handlers.substitute(self._get_transform, params)()
-        if unpack:
-            transform = ComposeTransform([transform, self._unpack_latent])
-        return transform
+        return handlers.substitute(self._get_transform, params)()
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         """
@@ -336,11 +303,11 @@ class AutoDiagonalNormal(AutoContinuous):
         return AffineTransform(loc, scale, domain=constraints.real_vector)
 
     def median(self, params):
-        transform = self.get_transform(params, unpack=False)
+        transform = self.get_transform(params)
         return self._unpack_and_constrain(transform.loc, params)
 
     def quantiles(self, params, quantiles):
-        transform = self.get_transform(params, unpack=False)
+        transform = self.get_transform(params)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, transform.scale).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
@@ -371,11 +338,11 @@ class AutoMultivariateNormal(AutoContinuous):
         return MultivariateAffineTransform(loc, scale_tril)
 
     def median(self, params):
-        transform = self.get_transform(params, unpack=False)
+        transform = self.get_transform(params)
         return self._unpack_and_constrain(transform.loc, params)
 
     def quantiles(self, params, quantiles):
-        transform = self.get_transform(params, unpack=False)
+        transform = self.get_transform(params)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
@@ -428,18 +395,15 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng_key, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-    def get_transform(self, params, unpack=True):
-        transform = self._get_transform(params)
-        if unpack:
-            transform = ComposeTransform([transform, self._unpack_latent])
-        return transform
+    def get_transform(self, params):
+        return self._get_transform(params)
 
     def median(self, params):
         loc = params['{}_loc'.format(self.prefix)]
         return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
-        transform = self.get_transform(params, unpack=False)
+        transform = self.get_transform(params)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
@@ -471,8 +435,8 @@ class AutoLaplaceApproximation(AutoContinuous):
             params1 = params.copy()
             params1['{}_loc'.format(self.prefix)] = z
             # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
-            return AutoContinuousELBO().loss(random.PRNGKey(0), params1, self.model, self,
-                                             *self._args, **self._kwargs)
+            return ELBO().loss(random.PRNGKey(0), params1, self.model, self,
+                               *self._args, **self._kwargs)
 
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(loss_fn)(loc)
@@ -491,11 +455,8 @@ class AutoLaplaceApproximation(AutoContinuous):
         latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng_key, sample_shape)
         return self._unpack_and_constrain(latent_sample, params)
 
-    def get_transform(self, params, unpack=True):
-        transform = self._get_transform(params)
-        if unpack:
-            transform = ComposeTransform([transform, self._unpack_latent])
-        return transform
+    def get_transform(self, params):
+        return self._get_transform(params)
 
     def median(self, params):
         loc = params['{}_loc'.format(self.prefix)]
@@ -610,42 +571,3 @@ class AutoBNAFNormal(AutoContinuous):
             arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_size,))
             flows.append(BlockNeuralAutoregressiveTransform(arnn))
         return ComposeTransform(flows)
-
-
-class AutoContinuousELBO(ELBO):
-    """
-    An ELBO implementation specific to :class:`AutoContinuous` guides. In those guide, the latent
-    variables of the model are transformed to unconstrained domains. This class provides ELBO of
-    the "transformed" model (i.e. the corresponding model with unconstrained variables) and the
-    guide.
-    """
-    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
-        assert isinstance(guide, AutoContinuous)
-
-        def single_particle_elbo(rng_key):
-            model_seed, guide_seed = random.split(rng_key)
-            seeded_model = seed(model, model_seed)
-            seeded_guide = seed(guide, guide_seed)
-            guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
-            # first, we substitute `param_map` to `param` primitives of `model`
-            seeded_model = substitute(seeded_model, param_map)
-            # then creates a new `param_map` which holds base values of `sample` primitives
-            base_param_map = {}
-            # in autoguide, a site's value holds intermediate value
-            for name, site in guide_trace.items():
-                if site['type'] == 'sample':
-                    base_param_map[name] = site['value']
-            model_log_density, _ = log_density(seeded_model, args, kwargs, base_param_map,
-                                               skip_dist_transforms=True)
-
-            # log p(z) - log q(z)
-            elbo = model_log_density - guide_log_density
-            # Return (-elbo) since by convention we do gradient descent on a loss and
-            # the ELBO is a lower bound that needs to be maximized.
-            return -elbo
-
-        if self.num_particles == 1:
-            return single_particle_elbo(rng_key)
-        else:
-            rng_keys = random.split(rng_key, self.num_particles)
-            return np.mean(vmap(single_particle_elbo)(rng_keys))
