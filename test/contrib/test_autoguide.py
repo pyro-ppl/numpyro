@@ -41,7 +41,6 @@ init_strategy = init_to_median(num_samples=2)
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
 ])
-@pytest.mark.filterwarnings("ignore:Explicitly requested dtype float64")
 def test_beta_bernoulli(auto_class):
     data = np.array([[1.0] * 8 + [0.0] * 2,
                      [1.0] * 4 + [0.0] * 6]).T
@@ -75,7 +74,6 @@ def test_beta_bernoulli(auto_class):
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
 ])
-@pytest.mark.filterwarnings("ignore:Explicitly requested dtype float64")
 def test_logistic_regression(auto_class):
     N, dim = 3000, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
@@ -182,10 +180,10 @@ def test_uniform_normal():
     svi_state = fori_loop(0, 1000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     median = guide.median(params)
-    assert_allclose(median['loc_base'] * median['alpha'], true_coef, rtol=0.05)
+    assert_allclose(median['loc'], true_coef, rtol=0.05)
     # test .quantile method
     median = guide.quantiles(params, [0.2, 0.5])
-    assert_allclose(median['loc_base'][1], true_coef, rtol=0.1)
+    assert_allclose(median['loc'][1], true_coef, rtol=0.1)
 
 
 def test_param():

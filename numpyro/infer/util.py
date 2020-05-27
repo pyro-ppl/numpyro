@@ -88,8 +88,6 @@ def transform_fn(transforms, params, invert=False):
             for k, v in params.items()}
 
 
-# TODO: remove this function, which is unnecessary when dynamic support is removed
-# we still keep it here for `deterministic` behavior
 def constrain_fn(model, transforms, model_args, model_kwargs, params, return_deterministic=False):
     """
     (EXPERIMENTAL INTERFACE) Gets value at each latent site in `model` given
