@@ -418,7 +418,6 @@ def test_gaussian_subposterior(method, diagonal):
         assert_allclose(np.cov(draws.T), cov, atol=0.05)
 
 
-@pytest.mark.filterwarnings('ignore:Explicitly requested dtype float64')
 @pytest.mark.parametrize('method', [consensus, parametric_draws])
 def test_subposterior_structure(method):
     subposteriors = [{'x': np.ones((100, 3)), 'y': np.zeros((100,))} for i in range(10)]

@@ -10,7 +10,7 @@
 from abc import ABC, abstractmethod
 import warnings
 
-from jax import hessian, random
+from jax import hessian, lax, random, tree_map
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
 import jax.numpy as np
@@ -32,7 +32,7 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
 from numpyro.infer.elbo import ELBO
-from numpyro.infer.util import find_valid_initial_params, init_to_uniform, transform_fn
+from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, transform_fn
 from numpyro.util import not_jax_tracer
 
 __all__ = [
@@ -133,13 +133,17 @@ class AutoContinuous(AutoGuide):
                                                                    init_strategy=self.init_strategy,
                                                                    model_args=args,
                                                                    model_kwargs=kwargs)
+        # TODO: we can just simply use infer/get_model_transforms here
         self._inv_transforms = {}
+        self._replay_model = False
         unconstrained_sites = {}
         for name, site in self.prototype_trace.items():
             if site['type'] == 'sample' and not site['is_observed']:
                 transform = biject_to(site['fn'].support)
                 self._inv_transforms[name] = transform
                 unconstrained_sites[name] = transform.inv(site['value'])
+            elif site['type'] == 'deterministic' and not self._replay_model:
+                self._replay_model = True
 
         self._init_latent, unpack_latent = ravel_pytree(init_params)
         # this is to match the behavior of Pyro, where we can apply
@@ -193,8 +197,24 @@ class AutoContinuous(AutoGuide):
 
         return result
 
-    def _unpack_and_constrain(self, latent_sample):
-        return transform_fn(self._inv_transforms, self._unpack_latent(latent_sample))
+    def _unpack_and_constrain(self, latent_sample, params):
+        if self._replay_model:
+            def unpack_single_latent(latent):
+                unpacked_samples = self._unpack_latent(latent)
+                return constrain_fn(model, self._inv_transforms, self._args, self._kwargs,
+                                    unpacked_samples, return_deterministic=True)
+
+            model = handlers.substitute(self.model, param_map=params)
+            sample_shape = np.shape(latent_sample)[:-1]
+            if sample_shape:
+                latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
+                unpacked_samples = lax.map(unpack_single_latent, latent_sample)
+                return tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
+                                unpacked_samples)
+            else:
+                return unpack_single_latent(latent_sample)
+        else:
+            return transform_fn(self._inv_transforms, self._unpack_latent(latent_sample))
 
     @property
     def base_dist(self):
@@ -284,7 +304,7 @@ class AutoDiagonalNormal(AutoContinuous):
 
     def median(self, params):
         transform = self.get_transform(params)
-        return self._unpack_and_constrain(transform.loc)
+        return self._unpack_and_constrain(transform.loc, params)
 
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
@@ -319,13 +339,13 @@ class AutoMultivariateNormal(AutoContinuous):
 
     def median(self, params):
         transform = self.get_transform(params)
-        return self._unpack_and_constrain(transform.loc)
+        return self._unpack_and_constrain(transform.loc, params)
 
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
-        return self._unpack_and_constrain(latent)
+        return self._unpack_and_constrain(latent, params)
 
 
 class AutoLowRankMultivariateNormal(AutoContinuous):
