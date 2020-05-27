@@ -328,12 +328,7 @@ def initialize_model(rng_key, model,
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return {'init_params': init_params,
-            'init_potential_energy': pe,
-            'init_params_grad': grad,
-            'potential_fn': potential_fn,
-            'postprocess_fn': postprocess_fn,
-            'prototype_trace': prototype_trace}
+    return (init_params, pe, grad), potential_fn, postprocess_fn, prototype_trace
 
 
 def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,

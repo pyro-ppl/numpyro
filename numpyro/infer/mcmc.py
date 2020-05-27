@@ -161,8 +161,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
-        >>> init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(0),
-        ...                                                            model, model_args=(data, labels,))
+        >>> init_params, potential_fn, constrain_fn, _ = initialize_model(random.PRNGKey(0),
+        ...                                                               model, model_args=(data, labels,))
         >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
         >>> hmc_state = init_kernel(init_params,
         ...                         trajectory_length=10,
@@ -486,20 +486,18 @@ class HMC(MCMCKernel):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            model_infos = initialize_model(
+            init_params, potential_fn, postprocess_fn, _ = initialize_model(
                 rng_key,
                 self._model,
                 dynamic_args=True,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
-            init_params = _ZINFO(model_infos['init_params'],
-                                 model_infos['init_potential_energy'],
-                                 model_infos['init_params_grad'])
-            self._init_fn, sample_fn = hmc(potential_fn_gen=model_infos['potential_fn'],
+            init_params = _ZINFO(*init_params)
+            self._init_fn, sample_fn = hmc(potential_fn_gen=potential_fn,
                                            kinetic_fn=self._kinetic_fn,
                                            algo=self._algo)
             if self._postprocess_fn is None:
-                self._postprocess_fn = model_infos['postprocess_fn']
+                self._postprocess_fn = postprocess_fn
         else:
             self._init_fn, sample_fn = hmc(potential_fn=self._potential_fn,
                                            kinetic_fn=self._kinetic_fn,
@@ -866,17 +864,17 @@ class SA(MCMCKernel):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            model_infos = initialize_model(
+            init_params, potential_fn, postprocess_fn = initialize_model(
                 rng_key,
                 self._model,
                 dynamic_args=True,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
-            init_params = model_infos['init_params']
+            init_params = init_params[0]
             # NB: init args is different from HMC
-            self._init_fn, sample_fn = _sa(potential_fn_gen=model_infos['potential_fn'])
+            self._init_fn, sample_fn = _sa(potential_fn_gen=potential_fn)
             if self._postprocess_fn is None:
-                self._postprocess_fn = model_infos['postprocess_fn']
+                self._postprocess_fn = postprocess_fn
         else:
             self._init_fn, sample_fn = _sa(potential_fn=self._potential_fn)
 
