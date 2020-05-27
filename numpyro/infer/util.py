@@ -18,6 +18,7 @@ __all__ = [
     'get_potential_fn',
     'log_density',
     'log_likelihood',
+    'potential_energy',
     'initialize_model',
     'Predictive',
 ]
@@ -155,9 +156,12 @@ def find_valid_initial_params(rng_key, model, inv_transforms,
         sample from the prior. The returned `init_params` will have the
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
+    :param dict inv_transforms: dictionary of transforms keyed by names.
     :param callable init_strategy: a per-site initialization function.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
+    :param dict prototype_params: an optional prototype parameters, which is used
+        to define the shape for initial parameters.
     :return: tuple of `init_params_info` and `is_valid`, where `init_params_info` is the tuple
         containing the initial params, their potential energy, and their gradients.
     """
