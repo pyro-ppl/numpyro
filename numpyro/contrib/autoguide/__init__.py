@@ -252,7 +252,7 @@ class AutoContinuous(AutoGuide):
         """
         latent_sample = handlers.substitute(handlers.seed(self._sample_latent, rng_key), params)(
             self.base_dist, sample_shape=sample_shape)
-        return self._unpack_and_constrain(latent_sample)
+        return self._unpack_and_constrain(latent_sample, params)
 
     def median(self, params):
         """
@@ -310,7 +310,7 @@ class AutoDiagonalNormal(AutoContinuous):
         transform = self.get_transform(params)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, transform.scale).icdf(quantiles)
-        return self._unpack_and_constrain(latent)
+        return self._unpack_and_constrain(latent, params)
 
 
 class AutoMultivariateNormal(AutoContinuous):
@@ -393,20 +393,20 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         transform = self._get_transform(params)
         loc, scale_tril = transform.loc, transform.scale_tril
         latent_sample = dist.MultivariateNormal(loc, scale_tril=scale_tril).sample(rng_key, sample_shape)
-        return self._unpack_and_constrain(latent_sample)
+        return self._unpack_and_constrain(latent_sample, params)
 
     def get_transform(self, params):
         return self._get_transform(params)
 
     def median(self, params):
         loc = params['{}_loc'.format(self.prefix)]
-        return self._unpack_and_constrain(loc)
+        return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
-        return self._unpack_and_constrain(latent)
+        return self._unpack_and_constrain(latent, params)
 
 
 class AutoLaplaceApproximation(AutoContinuous):
@@ -460,13 +460,13 @@ class AutoLaplaceApproximation(AutoContinuous):
 
     def median(self, params):
         loc = params['{}_loc'.format(self.prefix)]
-        return self._unpack_and_constrain(loc)
+        return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
         transform = self._get_transform(params)
         quantiles = np.array(quantiles)[..., None]
         latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
-        return self._unpack_and_constrain(latent)
+        return self._unpack_and_constrain(latent, params)
 
 
 class AutoIAFNormal(AutoContinuous):

@@ -189,8 +189,6 @@ def test_model_with_mask_false():
     init_to_prior(),
     init_to_uniform(),
 ])
-# TODO: remove in next release of JAX (current release has a bug at np.quantile)
-@pytest.mark.filterwarnings("ignore:Explicitly requested dtype float64")
 def test_initialize_model_change_point(init_strategy):
     def model(data):
         alpha = 1 / np.mean(data)
@@ -228,7 +226,6 @@ def test_initialize_model_change_point(init_strategy):
     init_to_prior(),
     init_to_uniform(),
 ])
-@pytest.mark.filterwarnings("ignore:Explicitly requested dtype float64")
 def test_initialize_model_dirichlet_categorical(init_strategy):
     def model(data):
         concentration = np.array([1.0, 1.0, 1.0])
