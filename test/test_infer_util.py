@@ -20,7 +20,8 @@ from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
     init_to_prior,
-    init_to_uniform
+    init_to_uniform,
+    init_to_value,
 )
 from numpyro.infer.util import (
     Predictive,
@@ -187,7 +188,13 @@ def test_model_with_mask_false():
     init_to_feasible(),
     init_to_median(num_samples=2),
     init_to_prior(),
-    init_to_uniform(),
+    init_to_uniform(radius=3),
+    init_to_value(values={'tau': 0.7}),
+    init_to_feasible,
+    init_to_median,
+    init_to_prior,
+    init_to_uniform,
+    init_to_value,
 ])
 def test_initialize_model_change_point(init_strategy):
     def model(data):
