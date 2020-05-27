@@ -121,7 +121,7 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
         self.init_strategy = init_strategy
         self._base_dist = None
         super(AutoContinuous, self).__init__(model, prefix=prefix)
@@ -289,7 +289,7 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -324,7 +324,7 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -359,7 +359,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1, rank=None):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1, rank=None):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -497,7 +497,7 @@ class AutoIAFNormal(AutoContinuous):
         * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
           Defaults to :func:`jax.experimental.stax.Relu`.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(),
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
@@ -553,7 +553,7 @@ class AutoBNAFNormal(AutoContinuous):
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, num_flows=1,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), num_flows=1,
                  hidden_factors=[8, 8]):
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
