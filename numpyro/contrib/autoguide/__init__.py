@@ -28,11 +28,10 @@ from numpyro.distributions.transforms import (
     MultivariateAffineTransform,
     PermuteTransform,
     UnpackTransform,
-    biject_to
 )
 from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
 from numpyro.infer.elbo import ELBO
-from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, transform_fn
+from numpyro.infer.util import initialize_model, init_to_uniform
 from numpyro.util import not_jax_tracer
 
 __all__ = [
@@ -54,10 +53,11 @@ class AutoGuide(ABC):
     :param str prefix: a prefix that will be prefixed to all param internal sites
     """
 
-    def __init__(self, model, prefix='auto'):
+    def __init__(self, model, prefix='auto', init_strategy=init_to_uniform):
         assert isinstance(prefix, str)
         self.model = model
         self.prefix = prefix
+        self.init_strategy = init_strategy
         self.prototype_trace = None
 
     @abstractmethod
@@ -94,8 +94,22 @@ class AutoGuide(ABC):
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
         rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
-        model = handlers.seed(self.model, rng_key)
-        self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
+        with handlers.block():
+            model_infos = initialize_model(rng_key, self.model,
+                                           dynamic_args=False,
+                                           model_args=args,
+                                           model_kwargs=kwargs)
+        self.prototype_trace = model_infos['prototype_trace']
+        self._init_latent, unpack_latent = ravel_pytree(model_infos['init_params'])
+        self.latent_size = np.size(self._init_latent)
+        if self.latent_size == 0:
+            raise RuntimeError('{} found no latent variables; Use an empty guide instead'
+                               .format(type(self).__name__))
+        # this is to match the behavior of Pyro, where we can apply
+        # unpack_latent for a batch of samples
+        self._unpack_latent = UnpackTransform(unpack_latent)
+        self._postprocess_fn = model_infos['postprocess_fn']
+        self._inv_transforms = model_infos['inv_transforms']
         self._args = args
         self._kwargs = kwargs
 
@@ -122,39 +136,13 @@ class AutoContinuous(AutoGuide):
         See :ref:`init_strategy` section for available functions.
     """
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
-        self.init_strategy = init_strategy
         self._base_dist = None
-        super(AutoContinuous, self).__init__(model, prefix=prefix)
+        super(AutoContinuous, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
-        rng_key = numpyro.sample("_{}_rng_key_init".format(self.prefix), dist.PRNGIdentity())
-        init_params, _ = handlers.block(find_valid_initial_params)(rng_key, self.model,
-                                                                   init_strategy=self.init_strategy,
-                                                                   model_args=args,
-                                                                   model_kwargs=kwargs)
-        # TODO: we can just simply use infer/get_model_transforms here
-        self._inv_transforms = {}
-        self._replay_model = False
-        unconstrained_sites = {}
-        for name, site in self.prototype_trace.items():
-            if site['type'] == 'sample' and not site['is_observed']:
-                transform = biject_to(site['fn'].support)
-                self._inv_transforms[name] = transform
-                unconstrained_sites[name] = transform.inv(site['value'])
-            elif site['type'] == 'deterministic' and not self._replay_model:
-                self._replay_model = True
-
-        self._init_latent, unpack_latent = ravel_pytree(init_params)
-        # this is to match the behavior of Pyro, where we can apply
-        # unpack_latent for a batch of samples
-        self._unpack_latent = UnpackTransform(unpack_latent)
-        self.latent_size = np.size(self._init_latent)
         if self.base_dist is None:
             self.base_dist = dist.Normal(np.zeros(self.latent_size), 1.).to_event(1)
-        if self.latent_size == 0:
-            raise RuntimeError('{} found no latent variables; Use an empty guide instead'
-                               .format(type(self).__name__))
 
     @abstractmethod
     def _get_transform(self):
@@ -180,10 +168,8 @@ class AutoContinuous(AutoGuide):
             self._setup_prototype(*args, **kwargs)
 
         latent = self._sample_latent(self.base_dist, *args, **kwargs)
-
         # unpack continuous latent samples
         result = {}
-
         for name, unconstrained_value in self._unpack_latent(latent).items():
             transform = self._inv_transforms[name]
             site = self.prototype_trace[name]
@@ -198,23 +184,20 @@ class AutoContinuous(AutoGuide):
         return result
 
     def _unpack_and_constrain(self, latent_sample, params):
-        if self._replay_model:
-            def unpack_single_latent(latent):
-                unpacked_samples = self._unpack_latent(latent)
-                return constrain_fn(model, self._inv_transforms, self._args, self._kwargs,
-                                    unpacked_samples, return_deterministic=True)
+        def unpack_single_latent(latent):
+            unpacked_samples = self._unpack_latent(latent)
+            return self._postprocess_fn(model, self._args, self._kwargs,
+                                        unpacked_samples.update(params))
 
-            model = handlers.substitute(self.model, param_map=params)
-            sample_shape = np.shape(latent_sample)[:-1]
-            if sample_shape:
-                latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
-                unpacked_samples = lax.map(unpack_single_latent, latent_sample)
-                return tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
-                                unpacked_samples)
-            else:
-                return unpack_single_latent(latent_sample)
+        model = handlers.substitute(self.model, param_map=params)
+        sample_shape = np.shape(latent_sample)[:-1]
+        if sample_shape:
+            latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
+            unpacked_samples = lax.map(unpack_single_latent, latent_sample)
+            return tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
+                            unpacked_samples)
         else:
-            return transform_fn(self._inv_transforms, self._unpack_latent(latent_sample))
+            return unpack_single_latent(latent_sample)
 
     @property
     def base_dist(self):
