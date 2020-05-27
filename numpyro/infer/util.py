@@ -169,6 +169,8 @@ def find_valid_initial_params(rng_key, model, inv_transforms,
     elif init_strategy.func is init_to_value:
         radius = 2
         init_values = init_strategy.keywords.get("values")
+        # transform to unconstrained space
+        init_values = transform_fn(inv_transforms, init_values, invert=True)
     else:
         radius = None
 
