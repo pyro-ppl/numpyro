@@ -81,7 +81,7 @@ def forward_one_step(prev_log_prob, curr_word, transition_log_prob, emission_log
     return logsumexp(log_prob, axis=0)
 
 
-def forward_log_prob(init_log_prob, words, transition_log_prob, emission_log_prob):
+def forward_log_prob(init_log_prob, words, transition_log_prob, emission_log_prob, unroll_loop=False):
     # Note: The following naive implementation will make it very slow to compile
     # and do inference. So we use lax.scan instead.
     #
@@ -91,13 +91,18 @@ def forward_log_prob(init_log_prob, words, transition_log_prob, emission_log_pro
     def scan_fn(log_prob, word):
         return forward_one_step(log_prob, word, transition_log_prob, emission_log_prob), np.zeros((0,))
 
-    log_prob, _ = lax.scan(scan_fn, init_log_prob, words)
+    if unroll_loop:
+        log_prob = init_log_prob
+        for word in words:
+            log_prob = forward_one_step(log_prob, word, transition_log_prob, emission_log_prob)
+    else:
+        log_prob, _ = lax.scan(scan_fn, init_log_prob, words)
     return log_prob
 
 
 def semi_supervised_hmm(transition_prior, emission_prior,
                         supervised_categories, supervised_words,
-                        unsupervised_words):
+                        unsupervised_words, unroll_loop=False):
     num_categories, num_words = transition_prior.shape[0], emission_prior.shape[0]
     transition_prob = numpyro.sample('transition_prob', dist.Dirichlet(
         np.broadcast_to(transition_prior, (num_categories, num_categories))))
@@ -117,7 +122,7 @@ def semi_supervised_hmm(transition_prior, emission_prior,
     emission_log_prob = np.log(emission_prob)
     init_log_prob = emission_log_prob[:, unsupervised_words[0]]
     log_prob = forward_log_prob(init_log_prob, unsupervised_words[1:],
-                                transition_log_prob, emission_log_prob)
+                                transition_log_prob, emission_log_prob, unroll_loop)
     log_prob = logsumexp(log_prob, axis=0, keepdims=True)
     # inject log_prob to potential function
     numpyro.factor('forward_log_prob', log_prob)
@@ -161,7 +166,7 @@ def main(args):
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, transition_prior, emission_prior, supervised_categories,
-             supervised_words, unsupervised_words)
+             supervised_words, unsupervised_words, args.unroll_loop)
     samples = mcmc.get_samples()
     print_results(samples, transition_prob, emission_prob)
     print('\nMCMC elapsed time:', time.time() - start)
@@ -193,6 +198,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--num-samples', nargs='?', default=1000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
+    parser.add_argument("--unroll-loop", action='store_true')
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 

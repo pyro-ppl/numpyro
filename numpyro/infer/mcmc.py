@@ -31,7 +31,7 @@ from numpyro.infer.hmc_util import (
     velocity_verlet,
     warmup_adapter
 )
-from numpyro.infer.util import init_to_uniform, initialize_model
+from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
 from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, cached_by
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
@@ -63,8 +63,6 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
  - **rng_key** - random number generator seed used for the iteration.
 """
-
-_ZINFO = namedtuple('_ZINFO', ['z', 'potential_energy', 'z_grad'])
 
 
 def _get_num_steps(step_size, trajectory_length):
@@ -237,7 +235,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         wa_steps = num_warmup
         trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
-        if isinstance(init_params, _ZINFO):
+        if isinstance(init_params, ParamInfo):
             z, pe, z_grad = init_params
         else:
             z, pe, z_grad = init_params, None, None
@@ -492,7 +490,6 @@ class HMC(MCMCKernel):
                 dynamic_args=True,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
-            init_params = _ZINFO(*init_params)
             self._init_fn, sample_fn = hmc(potential_fn_gen=potential_fn,
                                            kinetic_fn=self._kinetic_fn,
                                            algo=self._algo)
