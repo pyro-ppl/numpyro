@@ -214,14 +214,24 @@ def find_valid_initial_params(rng_key, model, inv_transforms,
         is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad_flat))
         return i + 1, key, (params, pe, z_grad), is_valid
 
-    def _find_valid_params(rng_key):
+    def _find_valid_params(rng_key, exit_early=False):
         init_state = (0, rng_key, (prototype_params, 0., prototype_params), False)
+        if exit_early:
+            # Early return if valid params found. This is only helpful for single chain,
+            # where we can avoid compiling body_fn in while_loop.
+            _, _, (init_params, pe, z_grad), is_valid = init_state = body_fn(init_state)
+            if not_jax_tracer(is_valid):
+                if device_get(is_valid):
+                    return (init_params, pe, z_grad), is_valid
+
+        # XXX: this requires compiling the model, so for multi-chain, we trace the model 2-times
+        # even if the init_state is a valid result
         _, _, (init_params, pe, z_grad), is_valid = while_loop(cond_fn, body_fn, init_state)
         return (init_params, pe, z_grad), is_valid
 
     # Handle possible vectorization
     if rng_key.ndim == 1:
-        (init_params, pe, z_grad), is_valid = _find_valid_params(rng_key)
+        (init_params, pe, z_grad), is_valid = _find_valid_params(rng_key, exit_early=True)
     else:
         (init_params, pe, z_grad), is_valid = lax.map(_find_valid_params, rng_key)
     return (init_params, pe, z_grad), is_valid

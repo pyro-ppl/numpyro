@@ -127,7 +127,7 @@ class AutoContinuous(AutoGuide):
     def _setup_prototype(self, *args, **kwargs):
         rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
         with handlers.block():
-            init_params, _, self._postprocess_fn, self._prototype_trace = initialize_model(
+            init_params, _, self._postprocess_fn, self.prototype_trace = initialize_model(
                 rng_key, self.model,
                 init_strategy=self.init_strategy,
                 dynamic_args=False,

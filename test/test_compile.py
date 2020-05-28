@@ -46,10 +46,11 @@ def test_mcmc_parallel_chain(deterministic):
     mcmc.run(random.PRNGKey(0), deterministic=deterministic)
     mcmc.get_samples()
 
+    # TODO: reduce those numbers by 1 by spliting out mcmc init and mcmc sample
     if deterministic:
-        assert GLOBAL["count"] == 4
+        assert GLOBAL["count"] == 5
     else:
-        assert GLOBAL["count"] == 3
+        assert GLOBAL["count"] == 4
 
 
 @pytest.mark.parametrize('deterministic', [True, False])
