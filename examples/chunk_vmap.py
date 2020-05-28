@@ -22,6 +22,13 @@ def chunk_vmap(fun, array, chunk_size=10):
     return tuple([np.concatenate([res[i] for res in results]) for i in range(num_return)])
 
 
+def safe_chunk_vmap(fun, array, chunk_size=10):
+    try:
+        return chunk_vmap(fun, array, chunk_size)
+    except:
+        return safe_chunk_vmap(fun, array, chunk_size // 2)
+
+
 ### simple test ###
 if __name__ == '__main__':
     from numpy.testing import assert_allclose
