@@ -219,12 +219,12 @@ def test_initialize_model_change_point(init_strategy):
                                             init_strategy=init_strategy,
                                             model_args=(count_data,))
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rng_keys[i], model,
-                                               init_strategy=init_strategy,
-                                               model_args=(count_data,))
-        for name, p in init_params.items():
+        init_params_i, _, _, _ = initialize_model(rng_keys[i], model,
+                                                  init_strategy=init_strategy,
+                                                  model_args=(count_data,))
+        for name, p in init_params[0].items():
             # XXX: the result is equal if we disable fast-math-mode
-            assert_allclose(p[i], init_params_i[name], atol=1e-6)
+            assert_allclose(p[i], init_params_i[0][name], atol=1e-6)
 
 
 @pytest.mark.parametrize('init_strategy', [
@@ -248,9 +248,9 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
                                             init_strategy=init_strategy,
                                             model_args=(data,))
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rng_keys[i], model,
-                                               init_strategy=init_strategy,
-                                               model_args=(data,))
-        for name, p in init_params.items():
+        init_params_i, _, _, _ = initialize_model(rng_keys[i], model,
+                                                  init_strategy=init_strategy,
+                                                  model_args=(data,))
+        for name, p in init_params[0].items():
             # XXX: the result is equal if we disable fast-math-mode
-            assert_allclose(p[i], init_params_i[name], atol=1e-6)
+            assert_allclose(p[i], init_params_i[0][name], atol=1e-6)

@@ -3,7 +3,6 @@
 
 import pytest
 
-import jax
 from jax import lax, random
 from jax.lib import xla_bridge
 
@@ -14,7 +13,6 @@ from numpyro.infer import ELBO, MCMC, NUTS, SVI
 import numpyro.optim as optim
 
 
-jax.config.update('jax_log_compiles', True)
 GLOBAL = {"count": 0}
 
 
