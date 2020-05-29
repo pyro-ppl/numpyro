@@ -72,7 +72,8 @@ def _get_num_steps(step_size, trajectory_length):
     return num_steps.astype(canonicalize_dtype(np.int64))
 
 
-def _sample_momentum(unpack_fn, mass_matrix_sqrt, rng_key):
+def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
+    _, unpack_fn = ravel_pytree(prototype_r)
     eps = random.normal(rng_key, np.shape(mass_matrix_sqrt)[:1])
     if mass_matrix_sqrt.ndim == 1:
         r = np.multiply(mass_matrix_sqrt, eps)
@@ -175,7 +176,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
     vv_update = None
     trajectory_len = None
     max_treedepth = None
-    momentum_generator = None
     wa_update = None
     wa_steps = None
     max_delta_energy = 1000.
@@ -231,7 +231,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
         """
         step_size = lax.convert_element_type(step_size, canonicalize_dtype(np.float64))
-        nonlocal momentum_generator, wa_update, trajectory_len, max_treedepth, vv_update, wa_steps
+        nonlocal wa_update, trajectory_len, max_treedepth, vv_update, wa_steps
         wa_steps = num_warmup
         trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
@@ -239,8 +239,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             z, pe, z_grad = init_params
         else:
             z, pe, z_grad = init_params, None, None
-        z_flat, unravel_fn = ravel_pytree(z)
-        momentum_generator = partial(_sample_momentum, unravel_fn)
         pe_fn = potential_fn
         if potential_fn_gen:
             if pe_fn is not None:
@@ -266,8 +264,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
         wa_state = wa_init(z, rng_key_wa, step_size,
                            inverse_mass_matrix=inverse_mass_matrix,
-                           mass_matrix_size=np.size(z_flat))
-        r = momentum_generator(wa_state.mass_matrix_sqrt, rng_key_momentum)
+                           mass_matrix_size=np.size(ravel_pytree(z)[0]))
+        r = momentum_generator(z, wa_state.mass_matrix_sqrt, rng_key_momentum)
         vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn)
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
@@ -333,7 +331,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         """
         model_kwargs = {} if model_kwargs is None else model_kwargs
         rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
-        r = momentum_generator(hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
+        r = momentum_generator(hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
                                                                     hmc_state.adapt_state.inverse_mass_matrix,

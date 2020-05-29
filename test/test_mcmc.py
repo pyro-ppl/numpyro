@@ -565,8 +565,11 @@ def test_model_with_multiple_exec_paths(jit_args):
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 20, 10, jit_model_args=jit_args)
     mcmc.run(random.PRNGKey(1), a, b=None, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'x', 'sigma'}
     mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'y', 'sigma'}
     mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'x', 'y', 'sigma'}
 
 
 @pytest.mark.parametrize('num_chains', [1, 2])

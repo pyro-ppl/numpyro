@@ -289,8 +289,6 @@ def get_potential_fn(model, inv_transforms, replay_model=False, dynamic_args=Fal
         to values that lie within the site's support, and return values at
         `deterministic` sites in the model.
     """
-    model_kwargs = {} if model_kwargs is None else model_kwargs
-
     if dynamic_args:
         def potential_fn(*args, **kwargs):
             return partial(potential_energy, model, args, kwargs)
@@ -301,6 +299,7 @@ def get_potential_fn(model, inv_transforms, replay_model=False, dynamic_args=Fal
             else:
                 return partial(transform_fn, inv_transforms)
     else:
+        model_kwargs = {} if model_kwargs is None else model_kwargs
         potential_fn = partial(potential_energy, model, model_args, model_kwargs)
         if replay_model:
             postprocess_fn = partial(constrain_fn, model, model_args, model_kwargs,
