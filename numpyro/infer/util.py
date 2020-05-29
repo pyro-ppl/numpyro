@@ -181,6 +181,7 @@ def find_valid_initial_params(rng_key, model,
     :return: tuple of `init_params_info` and `is_valid`, where `init_params_info` is the tuple
         containing the initial params, their potential energy, and their gradients.
     """
+    model_kwargs = {} if model_kwargs is None else model_kwargs
     init_strategy = init_strategy if isinstance(init_strategy, partial) else init_strategy()
     # handle those init strategies differently to save computation
     if init_strategy.func is init_to_uniform:
@@ -230,7 +231,7 @@ def find_valid_initial_params(rng_key, model,
 
     def _find_valid_params(rng_key, exit_early=False):
         init_state = (0, rng_key, (prototype_params, 0., prototype_params), False)
-        if exit_early:
+        if exit_early and not_jax_tracer(rng_key):
             # Early return if valid params found. This is only helpful for single chain,
             # where we can avoid compiling body_fn in while_loop.
             _, _, (init_params, pe, z_grad), is_valid = init_state = body_fn(init_state)
@@ -340,6 +341,7 @@ def initialize_model(rng_key, model,
         lie within the site's support, in addition to returning values
         at `deterministic` sites in the model.
     """
+    model_kwargs = {} if model_kwargs is None else model_kwargs
     inv_transforms, replay_model, model_trace = get_model_transforms(
         model, model_args, model_kwargs)
     constrained_values = {k: v['value'] for k, v in model_trace.items()

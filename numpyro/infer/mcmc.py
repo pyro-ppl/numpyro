@@ -493,17 +493,16 @@ class HMC(MCMCKernel):
                               "an improper variable, please use a 'sample' site with log probability "
                               "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
                               "means that `x` has improper distribution over the positive domain.")
-            self._init_fn, sample_fn = hmc(potential_fn_gen=potential_fn,
-                                           kinetic_fn=self._kinetic_fn,
-                                           algo=self._algo)
+            if self._init_fn is None:
+                self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
+                                                     kinetic_fn=self._kinetic_fn,
+                                                     algo=self._algo)
             self._postprocess_fn = postprocess_fn
-        else:
-            self._init_fn, sample_fn = hmc(potential_fn=self._potential_fn,
-                                           kinetic_fn=self._kinetic_fn,
-                                           algo=self._algo)
+        elif self._init_fn is None:
+            self._init_fn, self._sample_fn = hmc(potential_fn=self._potential_fn,
+                                                 kinetic_fn=self._kinetic_fn,
+                                                 algo=self._algo)
 
-        if self._sample_fn is None:
-            self._sample_fn = sample_fn
         return init_params
 
     @property
