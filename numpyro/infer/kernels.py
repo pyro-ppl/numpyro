@@ -201,7 +201,13 @@ class HessianPrecondMatrix(PrecondMatrix):
     """
     def compute(self, particles, loss_fn):
         hessian = -jax.vmap(jax.hessian(loss_fn))(particles)
-        return hessian
+        mlambda, mvec = np.linalg.eigh(hessian)
+        mlambda = np.maximum(mlambda, 1e-3)
+        if np.ndim(mlambda) >= 2:
+            mlambda = jax.vmap(np.diag)(mlambda)
+        else:
+            mlambda = np.diag(mlambda)
+        return mvec @ mlambda @ np.swapaxes(mvec, -2, -1)
 
 class PrecondMatrixKernel(SteinKernel):
     """
@@ -238,7 +244,7 @@ class PrecondMatrixKernel(SteinKernel):
             else:
                 wxs = jax.nn.softmax(jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(x))(particles, qs_inv))
                 wys = jax.nn.softmax(jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(y))(particles, qs_inv))
-            return np.sum(jax.vmap(lambda qs, qis, wx, wy: qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose())(qs_sqrt, qs_inv_sqrt, wxs, wys), axis=0)
+            return np.sum(jax.vmap(lambda qs, qis, wx, wy: wx * wy * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose()))(qs_sqrt, qs_inv_sqrt, wxs, wys), axis=0)
         return kernel
 
 class GraphicalKernel(SteinKernel):
