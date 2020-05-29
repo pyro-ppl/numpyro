@@ -433,7 +433,7 @@ class AutoLaplaceApproximation(AutoContinuous):
             return self._loss_fn(params1)
 
         loc = params['{}_loc'.format(self.prefix)]
-        precision = hessian(self._loss_fn)(loc)
+        precision = hessian(loss_fn)(loc)
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
             if np.any(np.isnan(scale_tril)):

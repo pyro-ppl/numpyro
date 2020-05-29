@@ -859,7 +859,7 @@ class SA(MCMCKernel):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            init_params, potential_fn, postprocess_fn = initialize_model(
+            init_params, potential_fn, postprocess_fn, _ = initialize_model(
                 rng_key,
                 self._model,
                 dynamic_args=True,
