@@ -492,14 +492,13 @@ class HMC(MCMCKernel):
                 model_kwargs=model_kwargs)
             if any(v['type'] == 'param' for v in model_trace.values()):
                 warnings.warn("'param' sites will be treated as constants during inference. To define "
-                              "an improper variable, please you a 'sample' site with log probability "
+                              "an improper variable, please use a 'sample' site with log probability "
                               "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
                               "means that `x` has improper distribution over the positive domain.")
             self._init_fn, sample_fn = hmc(potential_fn_gen=potential_fn,
                                            kinetic_fn=self._kinetic_fn,
                                            algo=self._algo)
-            if self._postprocess_fn is None:
-                self._postprocess_fn = postprocess_fn
+            self._postprocess_fn = postprocess_fn
         else:
             self._init_fn, sample_fn = hmc(potential_fn=self._potential_fn,
                                            kinetic_fn=self._kinetic_fn,
@@ -877,7 +876,7 @@ class SA(MCMCKernel):
         else:
             self._init_fn, sample_fn = _sa(potential_fn=self._potential_fn)
 
-        if self._sample_fn is not None:
+        if self._sample_fn is None:
             self._sample_fn = sample_fn
         return init_params
 
@@ -1081,7 +1080,9 @@ class MCMC(object):
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
         if self.postprocess_fn is None:
-            self.postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
+            postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
+        else:
+            postprocess_fn = self.postprocess_fn
         diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
@@ -1107,7 +1108,7 @@ class MCMC(object):
         # Apply constraints if number of samples is non-zero
         site_values = tree_flatten(states['z'])[0]
         if len(site_values) > 0 and site_values[0].size > 0:
-            states['z'] = lax.map(self.postprocess_fn, states['z'])
+            states['z'] = lax.map(postprocess_fn, states['z'])
         return states, last_state
 
     def _single_chain_jit_args(self, init, collect_fields=('z',)):

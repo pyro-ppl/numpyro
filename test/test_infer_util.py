@@ -159,13 +159,12 @@ def test_model_with_transformed_distribution():
         inv_transforms['y'].log_abs_det_jacobian(params['y'], expected_samples['y'])
     )
 
-    base_inv_transforms = {'x': biject_to(x_prior.support), 'y_base': biject_to(y_prior.base_dist.support)}
     reparam_model = reparam(model, {'y': TransformReparam()})
     base_params = {'x': params['x'], 'y_base': params['y']}
     actual_samples = constrain_fn(
         handlers.seed(reparam_model, random.PRNGKey(0)),
-        base_inv_transforms, (), {}, base_params, return_deterministic=True)
-    actual_potential_energy = potential_energy(reparam_model, base_inv_transforms, (), {}, base_params)
+        (), {}, base_params, return_deterministic=True)
+    actual_potential_energy = potential_energy(reparam_model, (), {}, base_params)
 
     assert_allclose(expected_samples['x'], actual_samples['x'])
     assert_allclose(expected_samples['y'], actual_samples['y'])
