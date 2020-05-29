@@ -27,7 +27,7 @@ from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpyro.util import enable_x64
 from numpyro.util import fori_loop
 
-from chunk_vmap import chunk_vmap, safe_chunk_vmap
+from chunk_vmap import chunk_vmap
 
 import pickle
 
@@ -229,7 +229,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
     svi_state = svi.init(rng_key, X, Y, hypers)
 
     num_steps = args['num_samples']
-    report_frequency = 200
+    report_frequency = 100
     beta = 0.95
 
     def body_fn(i, init_val):
@@ -281,7 +281,7 @@ def get_data(N=20, S=2, P=10, seed=0):
     onp.random.seed(seed)
 
     # generate S coefficients with non-negligible magnitude
-    W = 0.5 + 1.0 * onp.random.rand(S)
+    W = 0.25 + 1.25 * onp.random.rand(S)
     #W = 1.0 + 1.5 * onp.random.rand(S)
     flip = 2 * onp.random.binomial(1, 0.5, W.shape) - 1
     W *= flip
@@ -296,10 +296,12 @@ def get_data(N=20, S=2, P=10, seed=0):
     #pairwise_coefficient2 = 2.0
     pairwise_coefficient1 = 2.0
     pairwise_coefficient2 = 1.0
-    expected_quad_dims = [(0, 1), (2, 3), (4, 5), (6, 7)]
+    pairwise_coefficient3 = 0.5
+    expected_quad_dims = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11)]
     Y = onp.sum(X[:, 0:S] * W, axis=-1) + \
         pairwise_coefficient1 * (X[:, 0] * X[:, 1] - X[:, 2] * X[:, 3]) + \
-        pairwise_coefficient2 * (X[:, 4] * X[:, 5] - X[:, 6] * X[:, 7])
+        pairwise_coefficient2 * (X[:, 4] * X[:, 5] - X[:, 6] * X[:, 7]) + \
+        pairwise_coefficient3 * (X[:, 8] * X[:, 9] - X[:, 10] * X[:, 11])
     Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
     print("number of 1s: {}  number of -1s: {}".format(np.sum(Y == 1.0), np.sum(Y == -1.0)))
 
@@ -311,10 +313,11 @@ def get_data(N=20, S=2, P=10, seed=0):
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
 @jit
-def analyze_dimension(samples, X, Y, dimension, hypers):
+def analyze_dimension(samples, X, Y, dimension, hypers, chunk_size=1):
     vmap_args = (samples['eta1'], samples['eta2'], samples['kappa'], samples['omega'])
-    mus, variances = vmap(lambda eta1, eta2, kappa, omega:
-                          compute_singleton_mean_variance(X, Y, dimension, eta1, eta2, hypers['c'], kappa, omega))(*vmap_args)
+    fun = lambda eta1, eta2, kappa, omega: compute_singleton_mean_variance(X, Y, dimension, eta1, eta2,
+                                                                           hypers['c'], kappa, omega)
+    mus, variances = chunk_vmap(fun, vmap_args, chunk_size=chunk_size)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = np.sqrt(variance)
     return mean, std
@@ -322,10 +325,11 @@ def analyze_dimension(samples, X, Y, dimension, hypers):
 
 # Helper function for analyzing the posterior statistics for coefficient theta_ij
 @jit
-def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
+def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers, chunk_size=1):
     vmap_args = (samples['eta1'], samples['eta2'], samples['kappa'], samples['omega'])
-    mus, variances = vmap(lambda eta1, eta2, kappa, omega:
-                          compute_pairwise_mean_variance(X, Y, dim1, dim2, eta1, eta2, hypers['c'], kappa, omega))(*vmap_args)
+    fun = lambda eta1, eta2, kappa, omega: compute_pairwise_mean_variance(X, Y, dim1, dim2, eta1, eta2,
+                                                                          hypers['c'], kappa, omega)
+    mus, variances = chunk_vmap(fun, vmap_args, chunk_size=chunk_size)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = np.sqrt(variance)
     return mean, std
@@ -341,7 +345,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [1000, 2000, 3000]:
+    for N in [6000]:
         results[N] = {}
 
         X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
@@ -352,17 +356,19 @@ def main(**args):
 
         print("starting {} inference...".format(args['inference']))
         if args['inference'] == 'svi':
-            samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32)
+            samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48)
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
 
-        print("leading lambda", onp.mean(samples['lambda'], axis=0)[:20])
-        print("leading kappa", onp.mean(samples['kappa'], axis=0)[:20])
+        print("leading lambda", onp.mean(samples['lambda'], axis=0)[:30])
+        print("leading kappa", onp.mean(samples['kappa'], axis=0)[:30])
 
+        t0 = time.time()
         # compute the mean and square root variance of each coefficient theta_i
         means, stds = chunk_vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers),
                                  np.arange(P), chunk_size=1)
+        print("analyze_dimension time", time.time()-t0)
 
         results[N]['inf_time'] = inf_time
         results[N]['expected_thetas'] = onp.array(expected_thetas).tolist()
@@ -405,10 +411,11 @@ def main(**args):
         # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
         # Note that the resulting numbers are only meaningful for i != j.
         active_quad_dims = []
+        t0 = time.time()
         if len(active_dims) > 0:
             dim_pairs = np.array(list(itertools.product(active_dims, active_dims)))
             fun = lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers)
-            means, stds = chunk_vmap(fun, dim_pairs, chunk_size=1)
+            means, stds = chunk_vmap(fun, dim_pairs, chunk_size=32)
             results[N]['pairwise_coeff_means'] = onp.array(means).tolist()
             results[N]['pairwise_coeff_stds'] = onp.array(stds).tolist()
             for dim_pair, mean, std in zip(dim_pairs, means, stds):
@@ -424,6 +431,8 @@ def main(**args):
                     format_str = "No pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
                     print(format_str % (dim1 + 1, dim2 + 1, mean, std))
 
+        print("analyze_pair_dimension time", time.time()-t0)
+
         correct_quads = len(set(active_quad_dims) & set(expected_quad_dims))
         false_quads = len(set(active_quad_dims) - set(expected_quad_dims))
         missed_quads = len(set(expected_quad_dims) - set(active_quad_dims))
@@ -435,7 +444,7 @@ def main(**args):
         print("correct_quads: ", correct_quads, "  false_quads: ", false_quads,
               "  missed_quads: ", missed_quads)
 
-    print("RESULTS\n", results)
+    #print("RESULTS\n", results)
     log_file = 'slog.{}.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
     log_file = log_file.format(args['inference'], P, args['active_dimensions'], args['seed'],
                                args['num_warmup'], args['num_samples'], args['mtd'])
@@ -448,18 +457,18 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=2400, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=100, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=256, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=1024, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=16, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=24, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
-    parser.add_argument("--log-dir", default='./large/', type=str)
+    parser.add_argument("--log-dir", default='./very_large/', type=str)
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

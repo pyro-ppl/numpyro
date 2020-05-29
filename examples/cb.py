@@ -59,6 +59,36 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
     return k1 + k2 + k3 + k4
 
 
+def rbf_kernel(X, Z, length, os, jitter=1.0e-6):
+    deltasq = np.square((X[:, None, :] - Z) / length)
+    k = os * np.exp(-0.5 * np.sum(deltasq, axis=-1))
+    if X.shape == Z.shape:
+        k += jitter * np.eye(X.shape[0])
+    return k
+
+
+
+def gp_model(X, Y, hypers):
+    P, N = X.shape[1], X.shape[0]
+
+    length = numpyro.sample("length", dist.LogNormal(np.zeros(P), 1.0))
+    os = numpyro.sample("os", dist.LogNormal(0.0, 1.0))
+    omega = numpyro.sample("omega", dist.TruncatedPolyaGamma(batch_shape=(N,)))
+
+    k = rbf_kernel(X, X, length, os)
+    k_omega = k + np.eye(N) * (1.0 / omega)
+
+    kY = np.matmul(k, Y)
+    L, Linv_kY = cho_tri_solve(k_omega, kY)
+
+    log_factor1 = dot(Y, kY)
+    log_factor2 = dot(Linv_kY, Linv_kY)
+    log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
+
+    obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
+    numpyro.factor("obs", obs_factor)
+
+
 # Most of the model code is concerned with constructing the sparsity inducing prior.
 def pg_model(X, Y, hypers):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
@@ -122,6 +152,29 @@ def log_model(X, Y, hypers):
 
     theta = numpyro.sample("theta", dist.Normal(np.zeros(P), 1.0))
     numpyro.sample("obs", dist.BernoulliLogits(np.sum(theta * X, axis=-1)), obs=0.5 + 0.5 * Y)
+
+
+def sample_gp_posterior(X, Y, X_test, samples, rng):
+    length = samples['length'][-1]
+    os = samples['os'][-1]
+    omega = samples['omega'][-1]
+
+    k_xx = rbf_kernel(X, X, length, os)
+    k_probeX = rbf_kernel(X_test, X, length, os)
+    k_prbprb = rbf_kernel(X_test, X_test, length, os)
+
+    L = cho_factor(k_xx + np.eye(X.shape[0]) * (1.0 / omega), lower=True)[0]
+    mu = 0.5 * cho_solve((L, True), Y / omega)
+    mu = np.dot(k_probeX, mu)
+
+    Linv_kXprobe = solve_triangular(L, np.transpose(k_probeX), lower=True)
+    var = k_prbprb - np.matmul(np.transpose(Linv_kXprobe), Linv_kXprobe)
+
+    epsilon = dist.Normal(np.zeros(mu.shape), 1.0).sample(rng)
+    L = cho_factor(var, lower=True)[0]
+    sample = mu + np.matmul(L, epsilon)
+
+    return sample
 
 
 def sample_pg_posterior(X, Y, probe, samples, hypers, rng):
@@ -197,7 +250,29 @@ def get_data(N=20, S=2, P=10, seed=0, bias=0.0):
     assert X.shape == (N, P)
     assert Y.shape == (N,)
 
-    return X, Y, W, pairwise_coefficient1, expected_quad_dims
+    return X, Y
+
+def get_data2(N=20, S=2, P=10, seed=0, bias=0.0):
+    onp.random.seed(seed)
+
+    X = onp.random.rand(N, P) + 0.5
+    flip = 2 * onp.random.binomial(1, 0.5, X.shape) - 1
+    X *= flip
+
+    W = 0.5 + 1.0 * onp.random.rand(P)
+    flip = 2 * onp.random.binomial(1, 0.5, W.shape) - 1
+
+    half = P // 2
+
+    Y = 2.0 * np.sin(np.sum(W[:half] * X[:, :half], axis=-1)) + bias + \
+            - 0.25 * np.square(np.sum(W[half:] * X[:, half:], axis=-1))
+    Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
+    print("number of 1s: {}  number of -1s: {}".format(np.sum(Y == 1.0), np.sum(Y == -1.0)))
+
+    assert X.shape == (N, P)
+    assert Y.shape == (N,)
+
+    return X, Y
 
 
 def main(**args):
@@ -211,8 +286,7 @@ def main(**args):
               'alpha1': 1.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 1.0, 'beta2': 1.0, 'c': 2.0}
 
-    _X, _Y, expected_thetas, expected_pairwise, expected_quad_dims = \
-        get_data(N=N, P=P, S=args['active_dimensions'], seed=args['seed'])
+    _X, _Y = get_data2(N=N, P=P, S=args['active_dimensions'], seed=args['seed'])
 
     start = args['num_arms']
     num_arms = args['num_arms']
@@ -221,7 +295,8 @@ def main(**args):
     X, Y = _X[:start], _Y[:start]
     total_reward = 0
     max_reward = 0
-    model = pg2_model if args['model'] == 'pg' else log_model
+    model = gp_model if args['model'] == 'gp' else log_model
+    #model = gp_model #pg2_model if args['model'] == 'pg' else log_model
     results = {'total_reward': [], 'max_reward': []}
 
     print("Starting {} rounds of optimization on {} arms".format(num_rounds, num_arms))
@@ -239,6 +314,8 @@ def main(**args):
             sample = sample_pg_posterior(X, Y, X_test, samples, hypers, rng_key2)
         elif args['model'] == 'log':
             sample = np.sum(samples['theta'][-1] * X_test, axis=-1)
+        elif args['model'] == 'gp':
+            sample = sample_gp_posterior(X, Y, X_test, samples, rng_key2)
 
         argmax = np.argmax(sample)
         reward = int(0.5 + 0.5 * Y_test[argmax])
@@ -269,16 +346,16 @@ def main(**args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="contextual bandits")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=80, type=int)
-    parser.add_argument("-m", "--model", nargs="?", default="pg", type=str)
-    parser.add_argument("--num-warmup", nargs='?', default=120, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=100, type=int)
+    parser.add_argument("-m", "--model", nargs="?", default="gp", type=str)
+    parser.add_argument("--num-warmup", nargs='?', default=100, type=int)
     parser.add_argument("--mtd", nargs='?', default=6, type=int)
-    parser.add_argument("--num-data", nargs='?', default=256, type=int)
+    parser.add_argument("--num-data", nargs='?', default=128, type=int)
     parser.add_argument("--num-arms", nargs='?', default=8, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=256, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=8, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--bias", nargs='?', default=-2.0, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=16, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=4, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./cbres2/', type=str)
     args = parser.parse_args()

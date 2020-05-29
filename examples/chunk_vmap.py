@@ -12,12 +12,24 @@ def get_chunks(L, chunk_size):
     return chunks, len(chunks)
 
 
+def slice_tuple(array, index):
+    return tuple([a[index] for a in array])
+
+
 def chunk_vmap(fun, array, chunk_size=10):
-    L = array.shape[0]
-    if chunk_size >= L:
+    if isinstance(array, tuple):
+        L = array[0].shape[0]
+    else:
+        L = array.shape[0]
+    if chunk_size >= L and isinstance(array, tuple):
+        return vmap(fun)(*array)
+    elif chunk_size >= L:
         return vmap(fun)(array)
     chunks, num_chunks = get_chunks(L, chunk_size)
-    results = [vmap(fun)(array[chunk]) for chunk in chunks]
+    if isinstance(array, tuple):
+        results = [vmap(fun)(*slice_tuple(array, chunk)) for chunk in chunks]
+    else:
+        results = [vmap(fun)(array[chunk]) for chunk in chunks]
     num_return = len(results[0])
     return tuple([np.concatenate([res[i] for res in results]) for i in range(num_return)])
 
@@ -42,3 +54,13 @@ if __name__ == '__main__':
     assert_allclose(expected, chunk_vmap(f, np.arange(5), 2))
     assert_allclose(expected, chunk_vmap(f, np.arange(5), 3))
     assert_allclose(expected, chunk_vmap(f, np.arange(5), 5))
+
+    def f(x, y):
+        return x * y, x * x * y
+
+    expected = vmap(f)(np.arange(5), np.arange(5) + 1)
+
+    assert_allclose(expected, chunk_vmap(f, (np.arange(5), np.arange(5) + 1), 1))
+    assert_allclose(expected, chunk_vmap(f, (np.arange(5), np.arange(5) + 1), 2))
+    assert_allclose(expected, chunk_vmap(f, (np.arange(5), np.arange(5) + 1), 3))
+    assert_allclose(expected, chunk_vmap(f, (np.arange(5), np.arange(5) + 1), 5))
