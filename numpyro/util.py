@@ -305,6 +305,14 @@ def ravel_pytree(pytree, *, batch_dims=0):
     else:
         return flat, unravel_pytree
 
+def posdef(m):
+    mlambda, mvec = np.linalg.eigh(m)
+    if np.ndim(mlambda) >= 2:
+        mlambda = jax.vmap(lambda ml: np.diag(np.maximum(ml, 1e-5)), in_axes=tuple(range(np.ndim(mlambda) - 1)))(mlambda)
+    else:
+        mlambda = np.diag(np.maximum(mlambda, 1e-5))
+    return mvec @ mlambda @ np.swapaxes(mvec, -2, -1)
+
 def sqrth(m):
     mlambda, mvec = np.linalg.eigh(m)
     if np.ndim(mlambda) >= 2:
