@@ -307,8 +307,6 @@ class SVGD:
         ts = datetime.utcnow().strftime(SVGD.STRFTIME)
         (ch_dir / ts).mkdir()
 
-        print(self.get_params(state))
-
         with bz2.open(ch_dir / ts / SVGD.STATE_FILE, 'w') as f:
             c_pickle.dump(self.get_params(state), f)
         with bz2.open(ch_dir / ts / SVGD.TRANSFORMS_FILE, 'w') as f:
