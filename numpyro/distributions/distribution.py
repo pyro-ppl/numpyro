@@ -115,9 +115,6 @@ class Distribution(object):
                                        cls.tree_unflatten)
 
     def tree_flatten(self):
-        # XXX: this won't work with MultivariateNormal, which has different interpretations
-        # depending on which one specified among `scale_tril`, `covariance_matrix`, `precision_matrix`
-        # TODO: arrange keys in arg_constraints to be the same order as constructor
         return tuple(getattr(self, param) for param in self.arg_constraints.keys()), None
 
     @classmethod

@@ -214,7 +214,7 @@ class Chi2(Gamma):
 
 @copy_docs_from(Distribution)
 class GaussianRandomWalk(Distribution):
-    arg_constraints = {'num_steps': constraints.positive_integer, 'scale': constraints.positive}
+    arg_constraints = {'scale': constraints.positive, 'num_steps': constraints.positive_integer}
     support = constraints.real_vector
     reparametrized_params = ['scale']
 
@@ -245,6 +245,13 @@ class GaussianRandomWalk(Distribution):
     def variance(self):
         return np.broadcast_to(np.expand_dims(self.scale, -1) ** 2 * np.arange(1, self.num_steps + 1),
                                self.batch_shape + self.event_shape)
+
+    def tree_flatten(self):
+        return (self.scale,), self.num_steps
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params, num_steps=aux_data)
 
 
 @copy_docs_from(Distribution)
@@ -402,6 +409,14 @@ class LKJ(TransformedDistribution):
     @property
     def mean(self):
         return np.broadcast_to(np.identity(self.dimension), self.batch_shape + (self.dimension, self.dimension))
+
+    def tree_flatten(self):
+        return (self.concentration,), (self.dimension, self.sample_method)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        dimension, sample_method = aux_data
+        return cls(dimension, *params, sample_method=sample_method)
 
 
 @copy_docs_from(Distribution)
@@ -569,6 +584,14 @@ class LKJCholesky(Distribution):
         normalize_term = pi_constant + numerator - denominator
         return unnormalized - normalize_term
 
+    def tree_flatten(self):
+        return (self.concentration,), (self.dimension, self.sample_method)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        dimension, sample_method = aux_data
+        return cls(dimension, *params, sample_method=sample_method)
+
 
 @copy_docs_from(Distribution)
 class LogNormal(TransformedDistribution):
@@ -694,6 +717,14 @@ class MultivariateNormal(Distribution):
     def variance(self):
         return np.broadcast_to(np.sum(self.scale_tril ** 2, axis=-1),
                                self.batch_shape + self.event_shape)
+
+    def tree_flatten(self):
+        return (self.loc, self.scale_tril), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        loc, scale_tril = params
+        return cls(loc, scale_tril=scale_tril)
 
 
 def _batch_mv(bmat, bvec):
@@ -1147,3 +1178,10 @@ class TruncatedPolyaGamma(Distribution):
         sum_even = np.exp(logsumexp(even_terms, axis=-1))
         sum_odd = np.exp(logsumexp(odd_terms, axis=-1))
         return np.log(sum_even - sum_odd) - 0.5 * np.log(2.0 * np.pi)
+
+    def tree_flatten(self):
+        return (), self.batch_shape
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(batch_shape=aux_data)
