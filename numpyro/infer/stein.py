@@ -418,7 +418,7 @@ class SVGD:
             model_trace = handlers.trace(handlers.replay(
                 handlers.substitute(handlers.seed(self.model, rng_key), params), guide_trace)
             ).get_trace(*args, **kwargs)
-            return {name: site['value'] for name, site in model_trace.items() if not site['is_observed']}
+            return {name: site['value'] for name, site in model_trace.items() if ('is_observed' not in site) or not site['is_observed']}
 
         _, rng_key_predict = jax.random.split(state.rng_key)
         params = self.get_params(state)
