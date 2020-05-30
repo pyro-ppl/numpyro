@@ -194,9 +194,6 @@ class Distribution(object):
         """
         return self.sample(key, sample_shape=sample_shape), []
 
-    def transform_with_intermediates(self, base_value):
-        return base_value, []
-
     def log_prob(self, value):
         """
         Evaluates the log probability density for a batch of samples given by
@@ -554,11 +551,7 @@ class TransformedDistribution(Distribution):
         return x
 
     def sample_with_intermediates(self, key, sample_shape=()):
-        base_value = self.base_dist.sample(key, sample_shape)
-        return self.transform_with_intermediates(base_value)
-
-    def transform_with_intermediates(self, base_value):
-        x = base_value
+        x = self.base_dist.sample(key, sample_shape)
         intermediates = []
         for transform in self.transforms:
             x_tmp = x

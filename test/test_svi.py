@@ -145,13 +145,11 @@ def test_elbo_dynamic_support():
         numpyro.sample('x', x_guide)
 
     adam = optim.Adam(0.01)
-    # set base value of x_guide is 0.9
-    x_base = 0.9
-    guide = substitute(guide, base_param_map={'x': x_base})
+    x = 2.
+    guide = substitute(guide, param_map={'x': x})
     svi = SVI(model, guide, adam, ELBO())
     svi_state = svi.init(random.PRNGKey(0))
     actual_loss = svi.evaluate(svi_state)
     assert np.isfinite(actual_loss)
-    x, _ = x_guide.transform_with_intermediates(x_base)
     expected_loss = x_guide.log_prob(x) - x_prior.log_prob(x)
     assert_allclose(actual_loss, expected_loss)

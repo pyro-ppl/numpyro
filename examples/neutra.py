@@ -15,26 +15,24 @@ Gaussian-like one. The transform will be used to get better mixing rate for NUTS
 """
 
 import argparse
-from functools import partial
 import os
 
 from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from jax import lax, random, vmap
+from jax import lax, random
 import jax.numpy as np
-from jax.tree_util import tree_map
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoContinuousELBO, AutoBNAFNormal
+from numpyro.contrib.autoguide import AutoBNAFNormal
+from numpyro.contrib.reparam import NeuTraReparam
 from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.util import logsumexp
-from numpyro.infer import MCMC, NUTS, SVI
-from numpyro.infer.util import initialize_model, transformed_potential_energy
+from numpyro.infer import ELBO, MCMC, NUTS, SVI
 
 
 class DualMoonDistribution(dist.Distribution):
@@ -61,14 +59,14 @@ def dual_moon_model():
 def main(args):
     print("Start vanilla HMC...")
     nuts_kernel = NUTS(dual_moon_model)
-    mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples,
+    mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(random.PRNGKey(0))
     mcmc.print_summary()
     vanilla_samples = mcmc.get_samples()['x'].copy()
 
     guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
-    svi = SVI(dual_moon_model, guide, optim.Adam(0.003), AutoContinuousELBO())
+    svi = SVI(dual_moon_model, guide, optim.Adam(0.003), ELBO())
     svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
@@ -78,29 +76,26 @@ def main(args):
     guide_samples = guide.sample_posterior(random.PRNGKey(0), params,
                                            sample_shape=(args.num_samples,))['x'].copy()
 
-    transform = guide.get_transform(params)
-    _, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), dual_moon_model)
-    transformed_potential_fn = partial(transformed_potential_energy, potential_fn, transform)
-    transformed_constrain_fn = lambda x: constrain_fn(transform(x))  # noqa: E731
-
     print("\nStart NeuTra HMC...")
-    nuts_kernel = NUTS(potential_fn=transformed_potential_fn)
-    mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples,
+    neutra = NeuTraReparam(guide, params)
+    neutra_model = neutra.reparam(dual_moon_model)
+    nuts_kernel = NUTS(neutra_model)
+    mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
-    init_params = np.zeros(guide.latent_size)
-    mcmc.run(random.PRNGKey(3), init_params=init_params)
+    mcmc.run(random.PRNGKey(3))
     mcmc.print_summary()
-    zs = mcmc.get_samples()
+    zs = mcmc.get_samples(group_by_chain=True)["auto_shared_latent"]
     print("Transform samples into unwarped space...")
-    samples = vmap(transformed_constrain_fn)(zs)
-    print_summary(tree_map(lambda x: x[None, ...], samples))
-    samples = samples['x'].copy()
+    samples = neutra.transform_sample(zs)
+    print_summary(samples)
+    zs = zs.reshape(-1, 2)
+    samples = samples['x'].reshape(-1, 2).copy()
 
     # make plots
 
     # guide samples (for plotting)
     guide_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(4), (1000,))
-    guide_trans_samples = vmap(transformed_constrain_fn)(guide_base_samples)['x']
+    guide_trans_samples = neutra.transform_sample(guide_base_samples)['x']
 
     x1 = np.linspace(-3, 3, 100)
     x2 = np.linspace(-3, 3, 100)
@@ -154,11 +149,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="NeuTra HMC")
     parser.add_argument('-n', '--num-samples', nargs='?', default=4000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=1000, type=int)
+    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--hidden-factor', nargs='?', default=8, type=int)
     parser.add_argument('--num-iters', nargs='?', default=10000, type=int)
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
+    numpyro.set_host_device_count(args.num_chains)
 
     main(args)

@@ -15,6 +15,10 @@ plate
 -----
 .. autoclass:: numpyro.primitives.plate
 
+plate_stack
+-----------
+.. autoclass:: numpyro.primitives.plate_stack
+
 deterministic
 -------------
 .. autofunction:: numpyro.primitives.deterministic

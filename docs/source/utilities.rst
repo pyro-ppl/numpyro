@@ -67,23 +67,23 @@ Initialization Strategies
 
 init_to_median
 ^^^^^^^^^^^^^^
-.. autofunction:: numpyro.infer.util.init_to_median
+.. autofunction:: numpyro.infer.initialization.init_to_median
 
 init_to_prior
 ^^^^^^^^^^^^^
-.. autofunction:: numpyro.infer.util.init_to_prior
+.. autofunction:: numpyro.infer.initialization.init_to_prior
 
 init_to_uniform
 ^^^^^^^^^^^^^^^
-.. autofunction:: numpyro.infer.util.init_to_uniform
+.. autofunction:: numpyro.infer.initialization.init_to_uniform
 
 init_to_feasible
 ^^^^^^^^^^^^^^^^
-.. autofunction:: numpyro.infer.util.init_to_feasible
+.. autofunction:: numpyro.infer.initialization.init_to_feasible
 
 init_to_value
 ^^^^^^^^^^^^^
-.. autofunction:: numpyro.infer.util.init_to_value
+.. autofunction:: numpyro.infer.initialization.init_to_value
 
 Tensor Indexing
 ---------------

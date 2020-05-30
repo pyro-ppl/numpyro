@@ -102,7 +102,7 @@ Gamma
     :member-order: bysource
 
 Gumbel
------
+------
 .. autoclass:: numpyro.distributions.continuous.Gumbel
     :members:
     :undoc-members:
