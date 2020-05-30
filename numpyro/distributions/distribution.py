@@ -364,6 +364,13 @@ class ExpandedDistribution(Distribution):
     def variance(self):
         return np.broadcast_to(self.base_dist.variance, self.batch_shape + self.event_shape)
 
+    def tree_flatten(self):
+        return (self.base_dist), self.batch_shape
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params, batch_shape=aux_data)
+
 
 class Independent(Distribution):
     """
@@ -433,6 +440,13 @@ class Independent(Distribution):
         log_prob = self.base_dist.log_prob(value)
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
+    def tree_flatten(self):
+        return (self.base_dist), self.reinterpreted_batch_ndims
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params, reinterpreted_batch_ndims=aux_data)
+
 
 class MaskedDistribution(Distribution):
     """
@@ -493,6 +507,19 @@ class MaskedDistribution(Distribution):
     @property
     def variance(self):
         return self.base_dist.variance
+
+    def tree_flatten(self):
+        if isinstance(self._mask, bool):
+            return (self.base_dist,), self._mask
+        else:
+            return (self.base_dist, self._mask), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        if aux_data is None:
+            return cls(*params)
+        else:
+            return cls(*params, mask=aux_data)
 
 
 class TransformedDistribution(Distribution):
@@ -582,6 +609,17 @@ class TransformedDistribution(Distribution):
 
     @property
     def variance(self):
+        raise NotImplementedError
+
+    def tree_flatten(self):
+        raise NotImplementedError(
+            "Flatenning TransformedDistribution is only supported for some specific cases."
+            " Consider using `TransformReparam` to convert this distribution to the base_dist,"
+            " which is supported in most situtations. In addition, please reach out to us with"
+            " your usage cases.")
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
         raise NotImplementedError
 
 
