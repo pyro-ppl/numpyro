@@ -17,9 +17,6 @@ from numpyro.infer.kernels import RBFKernel
 from numpyro.infer.stein import SVGD
 from numpyro.optim import ClippedAdam
 
-## CONFIGURE JAX TO USE TPU
-config.FLAGS.jax_xla_backend = "tpu_driver"
-config.FLAGS.jax_backend_target = "grpc://" + os.environ['TPU_ADDR']
 
 
 def _one_hot_chorales(seqs, num_nodes=88):
@@ -156,7 +153,7 @@ def GRU(hidden_dim, W_init=stax.glorot_normal()):
 
 
 def model(seqs, seqs_rev, lengths, *,
-          latent_dim=100, emission_dim=88, transition_dim=200,
+          latent_dim=100, emission_dim=100, transition_dim=200,
           data_dim=88, gru_dim=400, annealing_factor=1.0):
     batch_size, max_seq_length, *_ = seqs.shape
 
@@ -192,7 +189,6 @@ def guide(seqs, seqs_rev, lengths, *,
           data_dim=88, gru_dim=400, annealing_factor=1.0):
     batch_size, max_seq_length, *_ = seqs.shape
     seqs_rev = np.transpose(seqs_rev, axes=(1, 0, 2))
-
     gru = numpyro.module('gru', GRU(gru_dim), input_shape=(max_seq_length, batch_size, data_dim))
     combiner = numpyro.module('combiner', Combiner(gru_dim, latent_dim),
                               input_shape=(batch_size, gru_dim))
@@ -208,8 +204,12 @@ def guide(seqs, seqs_rev, lengths, *,
         with numpyro.handlers.scale(scale_factor=annealing_factor):
             numpyro.sample('z', dist.Normal(z_loc, z_scale).mask(np.expand_dims(masks, axis=-1)).to_event(2))
 
-
 if __name__ == '__main__':
+
+    ## CONFIGURE JAX TO USE TPU
+    #config.FLAGS.jax_xla_backend = "tpu_driver"
+    #config.FLAGS.jax_backend_target = "grpc://" + os.environ['TPU_ADDR']
+
     ## FETCH DATASET
     batch_size = 32
     init, get_batch = load_dataset(JSBCHORALES, batch_size=batch_size, split='train')
@@ -225,10 +225,9 @@ if __name__ == '__main__':
                    "b1": beta1, "b2": beta2,
                    "clip_norm": clip_norm}
     svgd = SVGD(model, WrappedGuide(guide, reinit_hide_fn=lambda site: site['name'].endswith('$params')),
-                ClippedAdam(**adam_params), ELBO(), RBFKernel(), num_stein_particles=10,
+                ClippedAdam(**adam_params), ELBO(), RBFKernel(), num_particles=10,
                 repulsion_temperature=batch_size)
 
-    batch_size = 16
     init, get_batch = load_dataset(JSBCHORALES, batch_size=batch_size, split='train')
     ds_count, ds_indxs = init()
 
@@ -240,10 +239,10 @@ if __name__ == '__main__':
     seqs, seqs_rev, lengths = get_batch(0, ds_indxs)
 
     try:
-        state, num_done_epochs = svgd.load_latest_checkout(rng_key)
-        num_epochs -= num_done_epochs
+        state = svgd.load_latest_checkout(rng_key)
     except:
         state = svgd.init(rng_key, seqs, seqs_rev, lengths)
+
     init_test, get_batch_test = load_dataset(JSBCHORALES, batch_size=batch_size, split='test')
     ds_count_test, ds_indxs_test = init_test()
 
@@ -255,12 +254,12 @@ if __name__ == '__main__':
     for j in pbar:
         random.shuffle(ds_indxs)
         if j % check_point_freq == 0:
-            svgd.store_checkout(state, j)
+            svgd.store_checkout(state)
         loss = 0.
         for i in range(ds_count):
             i = j % ds_count
             seqs, seqs_rev, lengths = get_batch(i, ds_indxs)
-            state, batch_loss = jax.jit(svgd.update, backend='TPU')(state, seqs, seqs_rev, lengths)
+            state, batch_loss = jax.jit(svgd.update)(state, seqs, seqs_rev, lengths)
             loss += batch_loss
         if j % test_eval_freq == 0:
             loss = 0
