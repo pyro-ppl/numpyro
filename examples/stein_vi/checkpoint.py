@@ -20,7 +20,7 @@ if __name__ == '__main__':
 
     optimizer = ClippedAdam(step_size=lambda i: learning_rate * lr_decay ** i, b1=0.96, b2=0.999, clip_norm=10)
     svgd = SVGD(model, WrappedGuide(guide, reinit_hide_fn=lambda site: site['name'].endswith('$params')),
-                optimizer, ELBO(), RBFKernel(), num_stein_particles=10,
+                optimizer, ELBO(), RBFKernel(), num_particles=10,
                 repulsion_temperature=batch_size)
 
     ##
@@ -32,6 +32,6 @@ if __name__ == '__main__':
 
     ##
     svgd = SVGD(model, WrappedGuide(guide, reinit_hide_fn=lambda site: site['name'].endswith('$params')),
-                optimizer, ELBO(), RBFKernel(), num_stein_particles=10,
+                optimizer, ELBO(), RBFKernel(), num_particles=10,
                 repulsion_temperature=batch_size)
     svgd.load_latest_checkout(rng_key)

@@ -37,8 +37,7 @@ class SVGD:
     GUIDE_PARAM_NAMES_FILE = 'guide_param_names.pbz2'
 
     def __init__(self, model, guide: ReinitGuide, optim, loss, kernel_fn: SteinKernel,
-                 num_stein_particles: int = 10, num_loss_particles: int = 2,
-                 loss_temperature: float = 1.0, repulsion_temperature: float = 1.0,
+                 num_particles: int = 10, loss_temperature: float = 1.0, repulsion_temperature: float = 1.0,
                  classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
                  sp_mcmc_crit='infl', sp_mode='local',
                  num_mcmc_particles: int = 0, num_mcmc_warmup: int = 100, num_mcmc_updates: int = 10,
@@ -52,10 +51,8 @@ class SVGD:
         :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
         :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
         :param kernel_fn: Function that produces a logarithm of the statistical kernel to use with Stein inference
-        :param num_stein_particles: number of particles for Stein inference.
+        :param num_particles: number of particles for Stein inference.
             (More particles capture more of the posterior distribution)
-        :param num_loss_particles: number of particles to evaluate the loss.
-            (More loss particles reduce variance of loss estimates for each Stein particle)
         :param loss_temperature: scaling of loss factor
         :param repulsion_temperature: scaling of repulsive forces (Non-linear SVGD)
         :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically without Stein
@@ -74,7 +71,7 @@ class SVGD:
         """
         assert sp_mcmc_crit == 'infl' or sp_mcmc_crit == 'rand'
         assert sp_mode == 'local' or sp_mode == 'global'
-        assert 0 <= num_mcmc_particles <= num_stein_particles
+        assert 0 <= num_mcmc_particles <= num_particles
 
         self.model = model
         self.guide = guide
@@ -82,8 +79,7 @@ class SVGD:
         self.loss = loss
         self.kernel_fn = kernel_fn
         self.static_kwargs = static_kwargs
-        self.num_stein_particles = num_stein_particles
-        self.num_loss_particles = num_loss_particles
+        self.num_particles = num_particles
         self.loss_temperature = loss_temperature
         self.repulsion_temperature = repulsion_temperature
         self.classic_guide_params_fn = classic_guide_params_fn
@@ -143,7 +139,7 @@ class SVGD:
         stein_particles, unravel_pytree, unravel_pytree_batched = ravel_pytree(stein_uparams, batch_dims=1)
         particle_info = self._calc_particle_info(stein_uparams, stein_particles.shape[0])
 
-        # 2. Calculate loss and gradients for each parameter (broadcasting by num_loss_particles for increased variance reduction)
+        # 2. Calculate loss and gradients for each parameter
         def scaled_loss(rng_key, classic_params, stein_params):
             params = {**classic_params, **stein_params}
             loss_val = self.loss.loss(rng_key, params, handlers.scale(self.model, self.loss_temperature), self.guide,
@@ -170,7 +166,7 @@ class SVGD:
         repulsive_force = jax.vmap(lambda y: np.sum(
             jax.vmap(lambda x: self.repulsion_temperature * self._kernel_grad(kernel, x, y))(stein_particles), axis=0))(
             stein_particles)
-        particle_grads = (attractive_force + repulsive_force) / self.num_stein_particles
+        particle_grads = (attractive_force + repulsive_force) / self.num_particles
 
         # 5. Decompose the monolithic particle forces back to concrete parameter values
         stein_param_grads = unravel_pytree_batched(particle_grads)
@@ -210,15 +206,15 @@ class SVGD:
 
         # 2. Choose MCMC particles
         mcmc_key, choice_key = jax.random.split(mcmc_key)
-        if self.num_mcmc_particles == self.num_stein_particles:
-            idxs = np.arange(self.num_stein_particles)
+        if self.num_mcmc_particles == self.num_particles:
+            idxs = np.arange(self.num_particles)
         else:
             if self.sp_mcmc_crit == 'rand':
-                idxs = jax.random.shuffle(choice_key, np.arange(self.num_stein_particles))[:self.num_mcmc_particles]
+                idxs = jax.random.shuffle(choice_key, np.arange(self.num_particles))[:self.num_mcmc_particles]
             elif self.sp_mcmc_crit == 'infl':
                 _, grads = self._svgd_loss_and_grads(choice_key, unconstr_params, *args, **kwargs)
                 ksd = np.linalg.norm(
-                    np.concatenate([np.reshape(grads[p], (self.num_stein_particles, -1)) for p in stein_uparams.keys()],
+                    np.concatenate([np.reshape(grads[p], (self.num_particles, -1)) for p in stein_uparams.keys()],
                                    axis=-1),
                     ord=2, axis=-1)
                 idxs = np.argsort(ksd)[:self.num_mcmc_particles]
@@ -255,7 +251,7 @@ class SVGD:
         guide_trace = handlers.trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
         model_trace = handlers.trace(model_init).get_trace(*args, **kwargs, **self.static_kwargs)
         rng_key, particle_seed = jax.random.split(rng_key)
-        particle_seeds = jax.random.split(particle_seed, num=self.num_stein_particles)
+        particle_seeds = jax.random.split(particle_seed, num=self.num_particles)
         self.guide.find_params(particle_seeds, *args, **kwargs,
                                **self.static_kwargs)  # Get parameter values for each particle
         guide_init_params = self.guide.init_params()
