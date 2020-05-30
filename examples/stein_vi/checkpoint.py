@@ -1,6 +1,6 @@
 import jax
 
-from examples.stein_vi.stein_mixture_dmm import model, guide
+from examples.stein_vi.sm_dmm import model, guide
 from numpyro.examples.datasets import load_dataset, JSBCHORALES
 from numpyro.guides import WrappedGuide
 from numpyro.infer import ELBO
@@ -28,10 +28,11 @@ if __name__ == '__main__':
     seqs, seqs_rev, lengths = get_batch(0, ds_indxs)
     state = svgd.init(rng_key, seqs, seqs_rev, lengths)
 
-    svgd.store_checkout(state)
+    svgd.store_checkout(state, 0)
 
     ##
     svgd = SVGD(model, WrappedGuide(guide, reinit_hide_fn=lambda site: site['name'].endswith('$params')),
                 optimizer, ELBO(), RBFKernel(), num_particles=10,
                 repulsion_temperature=batch_size)
-    svgd.load_latest_checkout(rng_key)
+    state, it = svgd.load_latest_checkout(rng_key)
+    print(it)
