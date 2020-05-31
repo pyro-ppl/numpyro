@@ -673,6 +673,8 @@ class MultivariateNormal(Distribution):
 
     def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
                  validate_args=None):
+        if np.isscalar(loc):
+            loc = np.expand_dims(loc, axis=-1)
         # temporary append a new axis to loc
         loc = np.expand_dims(loc, axis=-1)
         if covariance_matrix is not None:
