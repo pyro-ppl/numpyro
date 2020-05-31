@@ -655,10 +655,6 @@ class TransformedDistribution(Distribution):
             " which is supported in most situtations. In addition, please reach out to us with"
             " your usage cases.")
 
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        raise NotImplementedError
-
 
 class Unit(Distribution):
     """

@@ -30,12 +30,14 @@ class PytreeTrace:
                             site_aux['mask'] = site['mask']
                         else:
                             site_main['mask'] = site['mask']
+                    # XXX: we block the scan body_fn so those sites will have 'stop' field;
+                    # here we remove that field!
                     elif key != 'stop':
                         site_main[key] = site[key]
                 trace[name] = site_main
                 aux_trace[name] = site_aux
             elif site['type'] == 'deterministic':
-                aux_trace[name] = {'type': 'sample', 'name': name}
+                aux_trace[name] = {'type': 'deterministic', 'name': name}
                 trace[name] = {'value': site['value']}
         return (trace,), (aux_trace, tuple(self.trace))
 

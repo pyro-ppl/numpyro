@@ -397,7 +397,7 @@ class Delta(Distribution):
         return np.zeros(self.batch_shape + self.event_shape)
 
     def tree_flatten(self):
-        return (self.value, self.log_density), self.event_ndim
+        return (self.value, self.log_density), len(self.event_shape)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):

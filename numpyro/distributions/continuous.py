@@ -319,8 +319,8 @@ class InverseGamma(TransformedDistribution):
         # it plays the role of scale parameter of InverseGamma in literatures
         # (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
         base_dist = Gamma(concentration, rate)
-        self.concentration = concentration
-        self.rate = rate
+        self.concentration = base_dist.concentration
+        self.rate = base_dist.rate
         super(InverseGamma, self).__init__(base_dist, PowerTransform(-1.0),
                                            validate_args=validate_args)
 
@@ -335,6 +335,9 @@ class InverseGamma(TransformedDistribution):
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return np.where(self.concentration <= 2, np.inf, a)
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
 
 
 @copy_docs_from(Distribution)
@@ -611,6 +614,9 @@ class LogNormal(TransformedDistribution):
     def variance(self):
         return (np.exp(self.scale ** 2) - 1) * np.exp(2 * self.loc + self.scale ** 2)
 
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
+
 
 def _batch_mahalanobis(bL, bx):
     if bL.shape[:-1] == bx.shape:
@@ -667,10 +673,8 @@ class MultivariateNormal(Distribution):
 
     def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
                  validate_args=None):
-        if np.isscalar(loc):
-            loc = np.expand_dims(loc, axis=-1)
         # temporary append a new axis to loc
-        loc = loc[..., np.newaxis]
+        loc = np.expand_dims(loc, axis=-1)
         if covariance_matrix is not None:
             loc, self.covariance_matrix = promote_shapes(loc, covariance_matrix)
             self.scale_tril = np.linalg.cholesky(self.covariance_matrix)
@@ -943,6 +947,9 @@ class Pareto(TransformedDistribution):
     def support(self):
         return constraints.greater_than(self.scale)
 
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
+
 
 @copy_docs_from(Distribution)
 class StudentT(Distribution):
@@ -1030,6 +1037,9 @@ class TruncatedCauchy(TransformedDistribution):
     def variance(self):
         return np.full(self.batch_shape, np.nan)
 
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
+
 
 class _BaseTruncatedNormal(Distribution):
     # NB: this is a truncated normal with low=0, scale=1
@@ -1080,6 +1090,9 @@ class TruncatedNormal(TransformedDistribution):
         low_prob_scaled = np.exp(self.base_dist.log_prob(0.))
         return (self.scale ** 2) * (1 - self.base_dist.base_loc * low_prob_scaled - low_prob_scaled ** 2)
 
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
+
 
 class _BaseUniform(Distribution):
     support = constraints.unit_interval
@@ -1115,6 +1128,9 @@ class Uniform(TransformedDistribution):
     @property
     def variance(self):
         return (self.high - self.low) ** 2 / 12.
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
 
 
 @copy_docs_from(Distribution)
