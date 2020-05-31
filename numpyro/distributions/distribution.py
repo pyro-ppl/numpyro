@@ -377,22 +377,21 @@ class ExpandedDistribution(Distribution):
         # Either way is a bit ambiguous... depending on which is time dimension
         # we want to collect. So we raise an error here.
         if len(self.batch_shape) != len(self.base_dist.batch_shape):
-            # It is better to raise an error here. However, in JAX, vmap behavior is
-            # a bit strange. Consider the following program:
+            # NB: the following program will fail
             #   def f(x):
             #     return dist.Normal(x, np.ones(10)).expand([10])
             #   vmap(f)(np.ones(3))
-            # which will raise the warning but still gives the expected result ?!!
-            # In principle, the warning shouldn't be triggered with the above program.
-            # Actually, for some reason, under vmap, base_dist.batch_shape is (), rather than (10,).
+            # because, for some reason, under vmap, base_dist.batch_shape is (), rather than (10,).
             # This issue does not happen with other JAX transformations such as `jit` or `lax.map`.
             # NB: vmap does not work for all distributions due to the issue
             #   https://github.com/google/jax/issues/3265
-            warnings.warn("base_dist's batch_shape and expand shape have different lengths."
-                          " This will lead to ambiguous results when unflattening a"
-                          " scanned/vmapped version of this distribution."
-                          " To avoid this issue, make sure that your base_dist's"
-                          " parameters have the same batch_shape as this expand distribution.")
+            # Anyway, it is fine to vmap a trace having scan(f) (see the discussions in the above
+            # issue). So we don't have to worry about it.
+            raise ValueError("base_dist's batch_shape and expand shape have different lengths."
+                             " This will lead to ambiguous results when unflattening a"
+                             " scanned/vmapped version of this distribution."
+                             " To avoid this issue, make sure that your base_dist's"
+                             " parameters have the same batch_shape as this expand distribution.")
         return base_flatten, (type(self.base_dist), base_aux, self.batch_shape)
 
     @classmethod

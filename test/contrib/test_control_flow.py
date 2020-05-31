@@ -39,9 +39,10 @@ def test_scan():
 
     samples = mcmc.get_samples()
     x = samples.pop('x')[0]  # take 1 sample of x
-    # this also tests for the composition of condition and substitute
+    # this tests for the composition of condition and substitute
+    # this also tests if we can use `vmap` for predictive.
     predictive = Predictive(numpyro.handlers.condition(target, {'x': x}),
-                            samples, return_sites=['x', 'y'])
+                            samples, return_sites=['x', 'y'], parallel=True)
     result = predictive(jax.random.PRNGKey(1))
     assert_allclose(result['x'], np.broadcast_to(x, result['x'].shape))
     assert_allclose(result['y'], samples['y'])
