@@ -386,6 +386,8 @@ class ExpandedDistribution(Distribution):
             # In principle, the warning shouldn't be triggered with the above program.
             # Actually, for some reason, under vmap, base_dist.batch_shape is (), rather than (10,).
             # This issue does not happen with other JAX transformations such as `jit` or `lax.map`.
+            # NB: vmap does not work for all distributions due to the issue
+            #   https://github.com/google/jax/issues/3265
             warnings.warn("base_dist's batch_shape and expand shape have different lengths."
                           " This will lead to ambiguous results when unflattening a"
                           " scanned/vmapped version of this distribution."
