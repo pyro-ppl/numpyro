@@ -30,10 +30,10 @@ from contextlib import contextmanager
 import warnings
 
 import jax.numpy as np
-from jax import lax
+from jax import lax, random
 
 from numpyro.distributions.constraints import is_dependent, real
-from numpyro.distributions.transforms import Transform
+from numpyro.distributions.transforms import Transform, biject_to
 from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
 
@@ -348,6 +348,37 @@ class ExpandedDistribution(Distribution):
     @property
     def variance(self):
         return np.broadcast_to(self.base_dist.variance, self.batch_shape + self.event_shape)
+
+
+class Improper(Distribution):
+    """
+    A helper distribution with zero :meth:`log_prob` and improper
+    :meth:`sample`.
+
+    .. note:: `sample` method does not generate samples distributed uniformly over the support.
+        Instead, it only returns valid values belong to the support.
+    """
+    arg_constraints = {}
+    unconstrained_radius = 2
+
+    def __init__(self, support, event_shape, batch_shape=()):
+        self.support = support
+        super().__init__(batch_shape, event_shape)
+
+    def sample(self, key, sample_shape=()):
+        transform = biject_to(self.support)
+        prototype_value = np.zeros(self.event_shape)
+        unconstrained_event_shape = np.shape(transform.inv(prototype_value))
+        shape = sample_shape + self.batch_shape + unconstrained_event_shape
+        unconstrained_samples = random.uniform(key, shape,
+                                               minval=-self.unconstrained_radius,
+                                               maxval=self.unconstrained_radius)
+        return transform(unconstrained_samples)
+
+    def log_prob(self, value):
+        batch_shape = value.shape[:len(np.shape(value)) - len(self.event_shape)]
+        batch_shape = lax.broadcast_shapes(batch_shape, self.batch_shape)
+        return np.zeros(batch_shape)
 
 
 class Independent(Distribution):
