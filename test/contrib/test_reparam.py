@@ -110,10 +110,10 @@ def test_reparam_log_joint(model, kwargs):
     params = svi.get_params(svi_state)
     neutra = NeuTraReparam(guide, params)
     reparam_model = neutra.reparam(model)
-    _, pe_fn, _ = initialize_model(random.PRNGKey(1), model, model_kwargs=kwargs)
-    init_params, pe_fn_neutra, _ = initialize_model(random.PRNGKey(2), reparam_model, model_kwargs=kwargs)
-    latent_x = list(init_params.values())[0]
-    pe_transformed = pe_fn_neutra(init_params)
+    _, pe_fn, _, _ = initialize_model(random.PRNGKey(1), model, model_kwargs=kwargs)
+    init_params, pe_fn_neutra, _, _ = initialize_model(random.PRNGKey(2), reparam_model, model_kwargs=kwargs)
+    latent_x = list(init_params[0].values())[0]
+    pe_transformed = pe_fn_neutra(init_params[0])
     latent_y = neutra.transform(latent_x)
     log_det_jacobian = neutra.transform.log_abs_det_jacobian(latent_x, latent_y)
     pe = pe_fn(guide._unpack_latent(latent_y))

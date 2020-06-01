@@ -73,7 +73,7 @@ def main(args):
     last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, np.zeros(args.num_iters))
     params = svi.get_params(last_state)
     print("Finish training guide. Extract samples...")
-    guide_samples = guide.sample_posterior(random.PRNGKey(0), params,
+    guide_samples = guide.sample_posterior(random.PRNGKey(2), params,
                                            sample_shape=(args.num_samples,))['x'].copy()
 
     print("\nStart NeuTra HMC...")
