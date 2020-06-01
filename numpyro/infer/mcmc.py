@@ -160,14 +160,13 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
-        >>> init_params, potential_fn, constrain_fn, _ = initialize_model(random.PRNGKey(0),
-        ...                                                               model, model_args=(data, labels,))
-        >>> init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-        >>> hmc_state = init_kernel(init_params,
+        >>> model_info = initialize_model(random.PRNGKey(0), model, model_args=(data, labels,))
+        >>> init_kernel, sample_kernel = hmc(model_info.potential_fn, algo='NUTS')
+        >>> hmc_state = init_kernel(model_info.param_info,
         ...                         trajectory_length=10,
         ...                         num_warmup=300)
         >>> samples = fori_collect(0, 500, sample_kernel, hmc_state,
-        ...                        transform=lambda state: constrain_fn(state.z))
+        ...                        transform=lambda state: model_info.postprocess_fn(state.z))
         >>> print(np.mean(samples['beta'], axis=0))  # doctest: +SKIP
         [0.9153987 2.0754058 2.9621222]
     """

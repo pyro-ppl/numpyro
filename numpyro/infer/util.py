@@ -25,6 +25,7 @@ __all__ = [
     'Predictive',
 ]
 
+ModelInfo = namedtuple('ModelInfo', ['param_info', 'potential_fn', 'postprocess_fn', 'model_trace'])
 ParamInfo = namedtuple('ParamInfo', ['z', 'potential_energy', 'z_grad'])
 
 
@@ -333,9 +334,10 @@ def initialize_model(rng_key, model,
         `potential_fn` and `constraints_fn` callables, respectively.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
-    :return: tuple of (`init_params_info`, `potential_fn`, `postprocess_fn`, `model_trace`),
-        `init_params_info` is a tuple containing values from the prior used to initiate MCMC,
-        their corresponding potential energy, and their gradients,
+    :return: a namedtupe `ModelInfo` which contains the fields
+        (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`), where
+        `param_info` is a namedtuple `ParamInfo` containing values from the prior
+        used to initiate MCMC, their corresponding potential energy, and their gradients;
         `postprocess_fn` is a callable that uses inverse transforms
         to convert unconstrained HMC samples to constrained values that
         lie within the site's support, in addition to returning values
@@ -369,7 +371,7 @@ def initialize_model(rng_key, model,
     if not_jax_tracer(is_valid):
         if device_get(~np.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
-    return ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace
+    return ModelInfo(ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace)
 
 
 def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,
