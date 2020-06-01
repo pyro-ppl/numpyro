@@ -231,3 +231,13 @@ def test_messenger_fn_invalid():
     with pytest.raises(ValueError, match="to be a Python callable object"):
         with numpyro.handlers.mask(False):
             pass
+
+
+@pytest.mark.parametrize('shape', [(), (5,), (2, 3)])
+def test_plate_stack(shape):
+    def guide():
+        with numpyro.plate_stack("plates", shape):
+            return numpyro.sample("x", dist.Normal(0, 1))
+
+    x = handlers.seed(guide, 0)()
+    assert x.shape == shape

@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from contextlib import contextmanager, ExitStack
 import functools
 
-import jax
 from jax import lax
 
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
+from numpyro.util import identity
 
 _PYRO_STACK = []
 
@@ -66,7 +67,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, rng_key=None, sample_shape=(), **kwargs):
+def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -102,16 +103,11 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=(), **kwargs):
         'is_observed': obs is not None,
         'intermediates': [],
         'cond_indep_stack': [],
-        'infer': kwargs.pop("infer", {}),
     }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
     return msg['value']
-
-
-def identity(x, *args, **kwargs):
-    return x
 
 
 def param(name, init_value=None, **kwargs):
@@ -144,7 +140,6 @@ def param(name, init_value=None, **kwargs):
         'mask': None,
         'scale': None,
         'cond_indep_stack': [],
-        'infer': kwargs.pop('infer', {}),
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -201,7 +196,7 @@ def module(name, nn, input_shape=None):
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
         _, nn_params = nn_init(rng_key, input_shape)
         param(module_key, nn_params)
-    return jax.partial(nn_apply, nn_params)
+    return functools.partial(nn_apply, nn_params)
 
 
 class plate(Messenger):
@@ -265,6 +260,7 @@ class plate(Messenger):
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'plate'):
             return
+
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
@@ -285,6 +281,24 @@ class plate(Messenger):
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
             msg['scale'] = scale * self.size / self.subsample_size
+
+
+@contextmanager
+def plate_stack(prefix, sizes, rightmost_dim=-1):
+    """
+    Create a contiguous stack of :class:`plate` s with dimensions::
+        rightmost_dim - len(sizes), ..., rightmost_dim
+
+    :param str prefix: Name prefix for plates.
+    :param iterable sizes: An iterable of plate sizes.
+    :param int rightmost_dim: The rightmost dim, counting from the right.
+    """
+    assert rightmost_dim < 0
+    with ExitStack() as stack:
+        for i, size in enumerate(reversed(sizes)):
+            plate_i = plate("{}_{}".format(prefix, i), size, dim=rightmost_dim - i)
+            stack.enter_context(plate_i)
+        yield
 
 
 def factor(name, log_factor):

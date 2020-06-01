@@ -83,6 +83,7 @@ _DIST_MAP = {
     dist.Poisson: lambda rate: osp.poisson(rate),
     dist.StudentT: lambda df, loc, scale: osp.t(df=df, loc=loc, scale=scale),
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
+    dist.Logistic: lambda loc, scale: osp.logistic(loc=loc, scale=scale)
 }
 
 
@@ -123,6 +124,9 @@ CONTINUOUS = [
     pytest.param(*T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "onion"),
                  marks=pytest.mark.skipif('CI' in os.environ, reason="reduce time for Travis")),
     T(dist.LKJCholesky, 3, np.array([[3., 0.6], [0.2, 5.]]), "cvine"),
+    T(dist.Logistic, 0., 1.),
+    T(dist.Logistic, 1., np.array([1., 2.])),
+    T(dist.Logistic, np.array([0., 1.]), np.array([[1.], [2.]])),
     T(dist.LogNormal, 1., 0.2),
     T(dist.LogNormal, -1., np.array([0.5, 1.3])),
     T(dist.LogNormal, np.array([0.5, -0.7]), np.array([[0.1, 0.4], [0.5, 0.1]])),
@@ -933,14 +937,19 @@ def test_compose_transform_with_intermediates(ts):
     assert_allclose(logdet, transform.log_abs_det_jacobian(x, y))
 
 
-def test_unpack_transform():
-    x = np.ones(3)
-    unpack_fn = lambda x: {'key': x}  # noqa: E731
+@pytest.mark.parametrize('x_dim, y_dim', [(3, 3), (3, 4)])
+def test_unpack_transform(x_dim, y_dim):
+    xy = onp.random.randn(x_dim + y_dim)
+    unpack_fn = lambda xy: {'x': xy[:x_dim], 'y': xy[x_dim:]}  # noqa: E731
     transform = transforms.UnpackTransform(unpack_fn)
-    y = transform(x)
-    z = transform.inv(y)
-    assert_allclose(y['key'], x)
-    assert_allclose(z, x)
+    z = transform(xy)
+    if x_dim == y_dim:
+        with pytest.warns(UserWarning, match="UnpackTransform.inv"):
+            t = transform.inv(z)
+    else:
+        t = transform.inv(z)
+
+    assert_allclose(t, xy)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
@@ -1008,3 +1017,73 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
     if prepend_shape:
         with pytest.raises(ValueError, match="Cannot broadcast distribution of shape"):
             assert expanded_dist.expand((3,) + jax_dist.batch_shape)
+
+
+@pytest.mark.parametrize('batch_shape', [
+    (),
+    (4,),
+])
+def test_polya_gamma(batch_shape, num_points=20000):
+    d = dist.TruncatedPolyaGamma(batch_shape=batch_shape)
+    rng_key = random.PRNGKey(0)
+
+    # test density approximately normalized
+    x = np.linspace(1.0e-6, d.truncation_point, num_points)
+    prob = (d.truncation_point / num_points) * np.exp(logsumexp(d.log_prob(x), axis=-1))
+    assert_allclose(prob, np.ones(batch_shape), rtol=1.0e-4)
+
+    # test mean of approximate sampler
+    z = d.sample(rng_key, sample_shape=(3000,))
+    mean = np.mean(z, axis=-1)
+    assert_allclose(mean, 0.25 * np.ones(batch_shape), rtol=0.07)
+
+
+@pytest.mark.parametrize("extra_event_dims,expand_shape", [
+    (0, (4, 3, 2, 1)),
+    (0, (4, 3, 2, 2)),
+    (1, (5, 4, 3, 2)),
+    (2, (5, 4, 3)),
+])
+def test_expand_reshaped_distribution(extra_event_dims, expand_shape):
+    loc = np.zeros((1, 6))
+    scale_tril = np.eye(6)
+    d = dist.MultivariateNormal(loc, scale_tril=scale_tril)
+    full_shape = (4, 1, 1, 1, 6)
+    reshaped_dist = d.expand([4, 1, 1, 1]).to_event(extra_event_dims)
+    cut = 4 - extra_event_dims
+    batch_shape, event_shape = full_shape[:cut], full_shape[cut:]
+    assert reshaped_dist.batch_shape == batch_shape
+    assert reshaped_dist.event_shape == event_shape
+    large = reshaped_dist.expand(expand_shape)
+    assert large.batch_shape == expand_shape
+    assert large.event_shape == event_shape
+
+    # Throws error when batch shape cannot be broadcasted
+    with pytest.raises((RuntimeError, ValueError)):
+        reshaped_dist.expand(expand_shape + (3,))
+
+    # Throws error when trying to shrink existing batch shape
+    with pytest.raises((RuntimeError, ValueError)):
+        large.expand(expand_shape[1:])
+
+
+@pytest.mark.parametrize('batch_shape, mask_shape', [
+    ((), ()),
+    ((2,), ()),
+    ((), (2,)),
+    ((2,), (2,)),
+    ((4, 2), (1, 2)),
+    ((2,), (4, 2)),
+])
+@pytest.mark.parametrize('event_shape', [
+    (),
+    (3,)
+])
+def test_mask(batch_shape, event_shape, mask_shape):
+    jax_dist = dist.Normal().expand(batch_shape + event_shape).to_event(len(event_shape))
+    mask = dist.Bernoulli(0.5).sample(random.PRNGKey(0), mask_shape)
+    if mask_shape == ():
+        mask = bool(mask)
+    samples = jax_dist.sample(random.PRNGKey(1))
+    actual = jax_dist.mask(mask).log_prob(samples)
+    assert_allclose(actual != 0, np.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))

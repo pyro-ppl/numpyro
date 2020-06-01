@@ -12,7 +12,7 @@ from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import cholesky_of_inverse, get_dtype
-from numpyro.util import cond, while_loop
+from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
@@ -209,8 +209,8 @@ def velocity_verlet(potential_fn, kinetic_fn):
     return init_fn, update_fn
 
 
-def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
-                              position, rng_key, init_step_size):
+def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
+                              init_step_size, inverse_mass_matrix, position, rng_key):
     """
     Finds a reasonable step size by tuning `init_step_size`. This function is used
     to avoid working with a too large or too small step size in HMC.
@@ -223,10 +223,10 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     :param potential_fn: A callable to compute potential energy.
     :param kinetic_fn: A callable to compute kinetic energy.
     :param momentum_generator: A generator to get a random momentum variable.
+    :param float init_step_size: Initial step size to be tuned.
     :param inverse_mass_matrix: Inverse of mass matrix.
     :param position: Current position of the particle.
     :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
-    :param float init_step_size: Initial step size to be tuned.
     :return: a reasonable value for step size.
     :rtype: float
     """
@@ -324,10 +324,6 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
-def _identity_step_size(inverse_mass_matrix, z, rng_key, step_size):
-    return step_size
-
-
 def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    dense_mass=False, target_accept_prob=0.8):
@@ -350,7 +346,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
     :return: a pair of (`init_fn`, `update_fn`).
     """
     if find_reasonable_step_size is None:
-        find_reasonable_step_size = _identity_step_size
+        find_reasonable_step_size = identity
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
@@ -382,7 +378,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                 mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
         ss_state = ss_init(np.log(10 * step_size))
 
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
@@ -399,7 +395,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
             ss_state = ss_init(np.log(10 * step_size))
 
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
@@ -434,7 +430,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
                             (z_flat, mm_state), lambda args: mm_update(*args),
-                            mm_state, lambda x: x)
+                            mm_state, identity)
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
@@ -442,7 +438,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                               ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
                      (z, rng_key_ss, state), lambda args: _update_at_window_end(*args),
-                     state, lambda x: x)
+                     state, identity)
         return state
 
     return init_fn, update_fn
@@ -561,11 +557,9 @@ def _get_leaf(tree, going_right):
 def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_size,
                  going_right, rng_key, energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
     key, transition_key = random.split(rng_key)
-    # If we are going to the right, start from the right leaf of the current tree.
-    z, r, z_grad = _get_leaf(current_tree, going_right)
 
-    new_tree = _iterative_build_subtree(current_tree.depth, vv_update, kinetic_fn,
-                                        z, r, z_grad, inverse_mass_matrix, step_size,
+    new_tree = _iterative_build_subtree(current_tree, vv_update, kinetic_fn,
+                                        inverse_mass_matrix, step_size,
                                         going_right, key, energy_current, max_delta_energy,
                                         r_ckpts, r_sum_ckpts)
 
@@ -609,10 +603,10 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
     return turning
 
 
-def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
+def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                              inverse_mass_matrix, step_size, going_right, rng_key,
                              energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
-    max_num_proposals = 2 ** depth
+    max_num_proposals = 2 ** prototype_tree.depth
 
     def _cond_fn(state):
         tree, turning, _, _, _ = state
@@ -621,13 +615,19 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     def _body_fn(state):
         current_tree, _, r_ckpts, r_sum_ckpts, rng_key = state
         rng_key, transition_rng_key = random.split(rng_key)
+        # If we are going to the right, start from the right leaf of the current tree.
         z, r, z_grad = _get_leaf(current_tree, going_right)
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
-        new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
-                                 transition_rng_key, False)
+        new_tree = cond(current_tree.num_proposals == 0,
+                        new_leaf,
+                        identity,
+                        (current_tree, new_leaf, inverse_mass_matrix, going_right, transition_rng_key),
+                        lambda x: _combine_tree(*x, False))
 
         leaf_idx = current_tree.num_proposals
+        # NB: in the special case leaf_idx=0, ckpt_idx_min=1 and ckpt_idx_max=0,
+        # the following logic is still valid for that case
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
         r, _ = ravel_pytree(new_leaf.r_right)
         r_sum, _ = ravel_pytree(new_tree.r_sum)
@@ -637,17 +637,13 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                     lambda x: (index_update(x[0], ckpt_idx_max, r),
                                                index_update(x[1], ckpt_idx_max, r_sum)),
                                     (r_ckpts, r_sum_ckpts),
-                                    lambda x: x)
+                                    identity)
 
         turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
                                         ckpt_idx_min, ckpt_idx_max)
         return new_tree, turning, r_ckpts, r_sum_ckpts, rng_key
 
-    basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
-                               going_right, energy_current, max_delta_energy)
-    r_init, _ = ravel_pytree(basetree.r_left)
-    r_ckpts = index_update(r_ckpts, 0, r_init)
-    r_sum_ckpts = index_update(r_sum_ckpts, 0, r_init)
+    basetree = prototype_tree._replace(num_proposals=0)
 
     tree, turning, _, _, _ = while_loop(
         _cond_fn,
@@ -658,7 +654,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     return TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
                     tree.z_right, tree.r_right, tree.z_right_grad,
                     tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad, tree.z_proposal_energy,
-                    depth, tree.weight, tree.r_sum, turning, tree.diverging,
+                    prototype_tree.depth, tree.weight, tree.r_sum, turning, tree.diverging,
                     tree.sum_accept_probs, tree.num_proposals)
 
 

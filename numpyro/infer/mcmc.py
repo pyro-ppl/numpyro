@@ -291,8 +291,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         diverging = delta_energy > max_delta_energy
         transition = random.bernoulli(rng_key, accept_prob)
         vv_state, energy = cond(transition,
-                                (vv_state_new, energy_new), lambda args: args,
-                                (vv_state, energy_old), lambda args: args)
+                                (vv_state_new, energy_new), identity,
+                                (vv_state, energy_old), identity)
         return vv_state, energy, num_steps, accept_prob, diverging
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state,
@@ -343,7 +343,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                            (hmc_state.i, accept_prob, vv_state.z, hmc_state.adapt_state),
                            lambda args: wa_update(*args),
                            hmc_state.adapt_state,
-                           lambda x: x)
+                           identity)
 
         itr = hmc_state.i + 1
         n = np.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
@@ -457,7 +457,7 @@ class HMC(MCMCKernel):
                  dense_mass=False,
                  target_accept_prob=0.8,
                  trajectory_length=2 * math.pi,
-                 init_strategy=init_to_uniform(),
+                 init_strategy=init_to_uniform,
                  find_heuristic_step_size=False):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
@@ -518,7 +518,6 @@ class HMC(MCMCKernel):
         if self._model and not init_params:
             init_params, is_valid = find_valid_initial_params(rng_key, self._model,
                                                               init_strategy=self._init_strategy,
-                                                              param_as_improper=True,
                                                               model_args=model_args,
                                                               model_kwargs=model_kwargs)
             if not_jax_tracer(is_valid):
@@ -626,7 +625,7 @@ class NUTS(HMC):
                  target_accept_prob=0.8,
                  trajectory_length=None,
                  max_tree_depth=10,
-                 init_strategy=init_to_uniform(),
+                 init_strategy=init_to_uniform,
                  find_heuristic_step_size=False):
         super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
                                    step_size=step_size, adapt_step_size=adapt_step_size,
@@ -849,7 +848,7 @@ class SA(MCMCKernel):
         See :ref:`init_strategy` section for available functions.
     """
     def __init__(self, model=None, potential_fn=None, adapt_state_size=None,
-                 dense_mass=True, init_strategy=init_to_uniform()):
+                 dense_mass=True, init_strategy=init_to_uniform):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
@@ -893,7 +892,6 @@ class SA(MCMCKernel):
         if self._model and not init_params:
             init_params, is_valid = find_valid_initial_params(rng_key, self._model,
                                                               init_strategy=self._init_strategy,
-                                                              param_as_improper=True,
                                                               model_args=model_args,
                                                               model_kwargs=model_kwargs)
             if not_jax_tracer(is_valid):

@@ -25,6 +25,14 @@ Independent
     :show-inheritance:
     :member-order: bysource
 
+MaskedDistribution
+------------------
+.. autoclass:: numpyro.distributions.distribution.MaskedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 TransformedDistribution
 -----------------------
 .. autoclass:: numpyro.distributions.distribution.TransformedDistribution
@@ -94,7 +102,7 @@ Gamma
     :member-order: bysource
 
 Gumbel
------
+------
 .. autoclass:: numpyro.distributions.continuous.Gumbel
     :members:
     :undoc-members:

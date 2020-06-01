@@ -29,8 +29,9 @@
 from jax import lax, ops
 import jax.numpy as np
 import jax.random as random
+import jax.nn as nn
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri
+from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri, logsumexp
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -125,7 +126,8 @@ class Dirichlet(Distribution):
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
         gamma_samples = random.gamma(key, self.concentration, shape=shape)
-        return gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
+        samples = gamma_samples / np.sum(gamma_samples, axis=-1, keepdims=True)
+        return np.clip(samples, a_min=np.finfo(samples).tiny, a_max=1 - np.finfo(samples).eps)
 
     @validate_sample
     def log_prob(self, value):
@@ -1082,3 +1084,66 @@ class Uniform(TransformedDistribution):
     @property
     def variance(self):
         return (self.high - self.low) ** 2 / 12.
+
+
+@copy_docs_from(Distribution)
+class Logistic(Distribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['loc', 'real']
+
+    def __init__(self, loc=0., scale=1., validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(np.shape(loc), np.shape(scale))
+        super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        z = random.logistic(key, shape=sample_shape + self.batch_shape + self.event_shape)
+        return self.loc + z * self.scale
+
+    @validate_sample
+    def log_prob(self, value):
+        log_exponent = (self.loc - value) / self.scale
+        log_denominator = np.log(self.scale) + 2 * nn.softplus(log_exponent)
+        return log_exponent - log_denominator
+
+    @property
+    def mean(self):
+        return np.broadcast_to(self.loc, self.batch_shape)
+
+    @property
+    def variance(self):
+        var = (self.scale ** 2) * (np.pi ** 2) / 3
+        return np.broadcast_to(var, self.batch_shape)
+
+
+@copy_docs_from(Distribution)
+class TruncatedPolyaGamma(Distribution):
+    truncation_point = 2.5
+    num_log_prob_terms = 7
+    num_gamma_variates = 8
+    assert num_log_prob_terms % 2 == 1
+
+    arg_constraints = {}
+    support = constraints.interval(0.0, truncation_point)
+
+    def __init__(self, batch_shape=(), validate_args=None):
+        super(TruncatedPolyaGamma, self).__init__(batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        denom = np.square(np.arange(0.5, self.num_gamma_variates))
+        x = random.gamma(key, np.ones(self.batch_shape + sample_shape + (self.num_gamma_variates,)))
+        x = np.sum(x / denom, axis=-1)
+        return np.clip(x * (0.5 / np.pi ** 2), a_max=self.truncation_point)
+
+    @validate_sample
+    def log_prob(self, value):
+        value = value[..., None]
+        all_indices = np.arange(0, self.num_log_prob_terms)
+        two_n_plus_one = 2.0 * all_indices + 1.0
+        log_terms = np.log(two_n_plus_one) - 1.5 * np.log(value) - 0.125 * np.square(two_n_plus_one) / value
+        even_terms = np.take(log_terms, all_indices[::2], axis=-1)
+        odd_terms = np.take(log_terms, all_indices[1::2], axis=-1)
+        sum_even = np.exp(logsumexp(even_terms, axis=-1))
+        sum_odd = np.exp(logsumexp(odd_terms, axis=-1))
+        return np.log(sum_even - sum_odd) - 0.5 * np.log(2.0 * np.pi)

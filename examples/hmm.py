@@ -36,10 +36,10 @@ from scipy.stats import gaussian_kde
 
 from jax import lax, random
 import jax.numpy as np
-from jax.scipy.special import logsumexp
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions.util import logsumexp
 from numpyro.infer import MCMC, NUTS
 
 
@@ -158,7 +158,7 @@ def main(args):
     rng_key = random.PRNGKey(2)
     start = time.time()
     kernel = NUTS(semi_supervised_hmm)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples,
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, transition_prior, emission_prior, supervised_categories,
              supervised_words, unsupervised_words)
