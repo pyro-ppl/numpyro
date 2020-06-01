@@ -5,6 +5,7 @@ import argparse
 import itertools
 import os
 import time
+import math
 
 import numpy as onp
 
@@ -264,7 +265,7 @@ def get_data2(N=20, S=2, P=10, seed=0, bias=0.0):
 
     half = P // 2
 
-    Y = 2.0 * np.sin(np.sum(W[:half] * X[:, :half], axis=-1)) + bias + \
+    Y = 2.0 * np.sin(np.sum(W[:half] * X[:, :half], axis=-1) / math.sqrt(half)) + bias + \
             - 0.25 * np.square(np.sum(W[half:] * X[:, half:], axis=-1))
     Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
     print("number of 1s: {}  number of -1s: {}".format(np.sum(Y == 1.0), np.sum(Y == -1.0)))
@@ -288,7 +289,7 @@ def main(**args):
 
     _X, _Y = get_data2(N=N, P=P, S=args['active_dimensions'], seed=args['seed'])
 
-    start = args['num_arms']
+    start = N // 2 #args['num_arms']
     num_arms = args['num_arms']
     num_rounds = (N - start) // num_arms
 
@@ -346,18 +347,18 @@ def main(**args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="contextual bandits")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=100, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=60, type=int)
     parser.add_argument("-m", "--model", nargs="?", default="gp", type=str)
-    parser.add_argument("--num-warmup", nargs='?', default=100, type=int)
-    parser.add_argument("--mtd", nargs='?', default=6, type=int)
-    parser.add_argument("--num-data", nargs='?', default=128, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=60, type=int)
+    parser.add_argument("--mtd", nargs='?', default=5, type=int)
+    parser.add_argument("--num-data", nargs='?', default=256, type=int)
     parser.add_argument("--num-arms", nargs='?', default=8, type=int)
     parser.add_argument("--num-dimensions", nargs='?', default=8, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--bias", nargs='?', default=-2.0, type=float)
     parser.add_argument("--active-dimensions", nargs='?', default=4, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
-    parser.add_argument("--log-dir", default='./cbres2/', type=str)
+    parser.add_argument("--log-dir", default='./cbres4/', type=str)
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

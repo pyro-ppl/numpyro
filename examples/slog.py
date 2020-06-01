@@ -116,57 +116,6 @@ def guide(X, Y, hypers):
     omega = numpyro.sample("omega", omega_dist)
 
 
-def model2(X, Y, hypers):
-    S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
-
-    phi = sigma * (S / np.sqrt(N)) / (P - S)
-    #eta1 = numpyro.sample("eta1", dist.HalfCauchy(phi))
-    eta1 = numpyro.deterministic('eta1', 1.0)
-    #msq = numpyro.sample("msq", dist.InverseGamma(hypers['alpha1'], hypers['beta1']))
-    #xisq = numpyro.sample("xisq", dist.InverseGamma(hypers['alpha2'], hypers['beta2']))
-
-    eta2 = numpyro.deterministic('eta2', eta1)
-
-    #lam = numpyro.sample("lambda", dist.Exponential(np.ones(P) / phi))
-    lam = numpyro.sample("lambda", dist.HalfCauchy(np.ones(P) * phi))
-    kappa = numpyro.deterministic('kappa', np.clip(lam, a_max=1.0))
-
-    omega = numpyro.sample("omega", dist.TruncatedPolyaGamma(batch_shape=(N,)))
-
-    kX = kappa * X
-    k = kernel(kX, kX, eta1, eta2, hypers['c'])
-
-    k_omega = k + np.eye(N) * (1.0 / omega)
-
-    kY = np.matmul(k, Y)
-    L, Linv_kY = cho_tri_solve(k_omega, kY)
-
-    log_factor1 = dot(Y, kY)
-    log_factor2 = dot(Linv_kY, Linv_kY)
-    log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
-
-    obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
-    numpyro.factor("obs", obs_factor)
-
-
-def guide2(X, Y, hypers):
-    S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
-
-    phi = sigma * (S / np.sqrt(N)) / (P - S)
-
-    #eta1_loc = numpyro.param("eta1_loc", 0.25, constraint=constraints.positive)
-    #eta1 = numpyro.sample("eta1", dist.Delta(eta1_loc))
-
-    lam_loc = numpyro.param("lam_loc", 0.5 * np.ones(P), constraint=constraints.positive)
-    lam = numpyro.sample("lambda", dist.Delta(lam_loc))
-
-    omega_loc = numpyro.param('omega_loc', -2.0 * np.ones(N))
-    omega_scale = numpyro.param('omega_scale', 0.8 * np.ones(N), constraint=constraints.positive)
-    base_dist = dist.Normal(omega_loc, omega_scale)
-    omega_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform(), AffineTransform(0, 2.5)])
-    omega = numpyro.sample("omega", omega_dist)
-
-
 # helper for computing the posterior marginal N(theta_i) or N(theta_ij)
 def compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, omega):
     kprobe, kX = kappa * probe, kappa * X
@@ -186,6 +135,75 @@ def compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, om
 
     return mu, var
 
+def process_singleton_svi(X, Y, samples, c, omega_chunk_size=8, probe_chunk_size=8):
+    kappa = samples['kappa'][-1]
+    eta1, eta2 = samples['eta1'][-1], samples['eta2'][-1]
+    P = X.shape[1]
+
+    kX = kappa * X
+    k_xx = kernel(kX, kX, eta1, eta2, c)
+
+    fun = lambda omega: process_omega_singleton(k_xx, kX, kappa, omega, Y, P, eta1, eta2, c, probe_chunk_size)
+    mu, var = chunk_vmap(fun, samples['omega'], chunk_size=omega_chunk_size)
+    mu, var = gaussian_mixture_stats(mu, var)
+
+    return mu, np.sqrt(var)
+
+def process_quad_svi(X, Y, samples, dim_pairs, c, omega_chunk_size=8, probe_chunk_size=8):
+    kappa = samples['kappa'][-1]
+    eta1, eta2 = samples['eta1'][-1], samples['eta2'][-1]
+    P = X.shape[1]
+
+    kX = kappa * X
+    k_xx = kernel(kX, kX, eta1, eta2, c)
+
+    fun = lambda omega: process_omega_quad(dim_pairs, k_xx, kX, kappa, omega, Y, P, eta1, eta2, c, probe_chunk_size)
+    mu, var = chunk_vmap(fun, samples['omega'], chunk_size=omega_chunk_size)
+    mu, var = gaussian_mixture_stats(mu, var)
+
+    return mu, np.sqrt(var)
+
+def process_omega_singleton(k_xx, kX, kappa, omega, Y, P, eta1, eta2, c, probe_chunk_size):
+    L = cho_factor(k_xx + np.eye(k_xx.shape[0]) * (1.0 / omega), lower=True)[0]
+    LL_Y = 0.5 * cho_solve((L, True), Y / omega)
+
+    fun = lambda dim: process_singleton(dim, P, kappa, kX, L, LL_Y, eta1, eta2, c)
+    mu, var = chunk_vmap(fun, np.arange(P), chunk_size=probe_chunk_size)
+    return mu, var
+
+def process_omega_quad(dim_pairs, k_xx, kX, kappa, omega, Y, P, eta1, eta2, c, probe_chunk_size):
+    L = cho_factor(k_xx + np.eye(k_xx.shape[0]) * (1.0 / omega), lower=True)[0]
+    LL_Y = 0.5 * cho_solve((L, True), Y / omega)
+
+    fun = lambda dim_pair: process_quad(dim_pair[0], dim_pair[1], P, kappa, kX, L, LL_Y, eta1, eta2, c)
+    mu, var = chunk_vmap(fun, dim_pairs, chunk_size=probe_chunk_size)
+    return mu, var
+
+def process_singleton(dim, P, kappa, kX, L, LL_Y, eta1, eta2, c):
+    probe = np.zeros((2, P))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dim], np.array([1.0, -1.0]))
+    vec = np.array([0.50, -0.50])
+    mu, var = process_probe(kappa * probe, kX, L, LL_Y, vec, eta1, eta2, c)
+    return mu, var
+
+def process_quad(dim1, dim2, P, kappa, kX, L, LL_Y, eta1, eta2, c):
+    probe = np.zeros((4, P))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dim1], np.array([1.0, 1.0, -1.0, -1.0]))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dim2], np.array([1.0, -1.0, 1.0, -1.0]))
+    vec = np.array([0.25, -0.25, -0.25, 0.25])
+    mu, var = process_probe(kappa * probe, kX, L, LL_Y, vec, eta1, eta2, c)
+    return mu, var
+
+def process_probe(kprobe, kX, L, LL_Y, vec, eta1, eta2, c):
+    k_probeX = kernel(kprobe, kX, eta1, eta2, c)
+    k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
+
+    mu = np.dot(vec, dot(k_probeX, LL_Y))
+
+    Linv_kXprobe = solve_triangular(L, np.transpose(k_probeX), lower=True)
+    var = k_prbprb - np.matmul(np.transpose(Linv_kXprobe), Linv_kXprobe)
+    var = np.dot(vec, np.matmul(var, vec))
+    return mu, var
 
 # compute the posterior marginal N(theta_i)
 @jit
@@ -269,8 +287,8 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
 
 # Get the mean and variance of a gaussian mixture
 def gaussian_mixture_stats(mus, variances):
-    mean_mu = np.mean(mus)
-    mean_var = np.mean(variances) + np.mean(np.square(mus)) - np.square(mean_mu)
+    mean_mu = np.mean(mus, axis=0)
+    mean_var = np.mean(variances, axis=0) + np.mean(np.square(mus), axis=0) - np.square(mean_mu)
     return mean_mu, mean_var
 
 
@@ -292,8 +310,6 @@ def get_data(N=20, S=2, P=10, seed=0):
     X *= flip
 
     # generate data using the S coefficients and four pairwise interactions
-    #pairwise_coefficient1 = 3.0
-    #pairwise_coefficient2 = 2.0
     pairwise_coefficient1 = 2.0
     pairwise_coefficient2 = 1.0
     pairwise_coefficient3 = 0.5
@@ -308,7 +324,7 @@ def get_data(N=20, S=2, P=10, seed=0):
     assert X.shape == (N, P)
     assert Y.shape == (N,)
 
-    return X, Y, W, pairwise_coefficient1, expected_quad_dims
+    return X, Y, W, expected_quad_dims
 
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
@@ -345,12 +361,11 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [6000]:
+    for N in [1200, 2400, 3600]:
+    #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
-        X, Y, expected_thetas, expected_pairwise, expected_quad_dims = \
-            get_data(N=N, P=P, S=args['active_dimensions'], seed=args['seed'])
-        #get_data(N=args['num_data, P=args['num_dimensions, S=args['active_dimensions)
+        X, Y, expected_thetas, expected_quad_dims = get_data(N=N, P=P, S=args['active_dimensions'], seed=args['seed'])
 
         rng_key = random.PRNGKey(args['seed'])
 
@@ -361,13 +376,15 @@ def main(**args):
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
 
-        print("leading lambda", onp.mean(samples['lambda'], axis=0)[:30])
-        print("leading kappa", onp.mean(samples['kappa'], axis=0)[:30])
+        print("leading lambda", onp.mean(samples['lambda'], axis=0)[:40])
+        print("leading kappa", onp.mean(samples['kappa'], axis=0)[:40])
 
-        t0 = time.time()
         # compute the mean and square root variance of each coefficient theta_i
-        means, stds = chunk_vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers),
-                                 np.arange(P), chunk_size=1)
+        #means, stds = chunk_vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers),
+        #                         np.arange(P), chunk_size=999)
+        #print("analyze_dimension time", time.time()-t0)
+        t0 = time.time()
+        means, stds = process_singleton_svi(X, Y, samples, hypers['c'], omega_chunk_size=1, probe_chunk_size=256)
         print("analyze_dimension time", time.time()-t0)
 
         results[N]['inf_time'] = inf_time
@@ -403,8 +420,6 @@ def main(**args):
 
         print("Identified a total of %d active dimensions; expected %d." % (len(active_dims),
                                                                             args['active_dimensions']))
-        print("The magnitude of the quadratic coefficients theta_{1,2} and theta_{3,4} used to generate the data:",
-              expected_pairwise)
 
         strictness = 5.0
 
@@ -414,8 +429,9 @@ def main(**args):
         t0 = time.time()
         if len(active_dims) > 0:
             dim_pairs = np.array(list(itertools.product(active_dims, active_dims)))
-            fun = lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers)
-            means, stds = chunk_vmap(fun, dim_pairs, chunk_size=32)
+            #fun = lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers)
+            #means, stds = chunk_vmap(fun, dim_pairs, chunk_size=32)
+            means, stds = process_quad_svi(X, Y, samples, dim_pairs, hypers['c'], omega_chunk_size=1, probe_chunk_size=256)
             results[N]['pairwise_coeff_means'] = onp.array(means).tolist()
             results[N]['pairwise_coeff_stds'] = onp.array(stds).tolist()
             for dim_pair, mean, std in zip(dim_pairs, means, stds):
@@ -451,21 +467,22 @@ def main(**args):
 
     with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
         pickle.dump(results, f, protocol=2)
+    print("saved results to {}".format(args['log_dir'] + log_file + '.pkl'))
 
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=100, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=3600, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=1024, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=8192, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=24, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=36, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./very_large/', type=str)
