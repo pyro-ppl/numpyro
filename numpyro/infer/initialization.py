@@ -19,7 +19,7 @@ def init_to_median(site=None, num_samples=15):
     if site is None:
         return partial(init_to_median, num_samples=num_samples)
 
-    if site['type'] == 'sample' and not site['is_observed']:
+    if site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete:
         rng_key = site['kwargs'].get('rng_key')
         sample_shape = site['kwargs'].get('sample_shape')
         samples = site['fn'].sample(rng_key, sample_shape=(num_samples,) + sample_shape)
@@ -42,15 +42,14 @@ def init_to_uniform(site=None, radius=2):
     if site is None:
         return partial(init_to_uniform, radius=radius)
 
-    if site['type'] == 'sample' and not site['is_observed']:
-        fn = site['fn']
+    if site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete:
         rng_key = site['kwargs'].get('rng_key')
         sample_shape = site['kwargs'].get('sample_shape')
         rng_key, subkey = random.split(rng_key)
         # this is used to interpret the changes of event_shape in
         # domain and codomain spaces
-        prototype_value = fn.sample(subkey, sample_shape=())
-        transform = biject_to(fn.support)
+        prototype_value = site['fn'].sample(subkey, sample_shape=())
+        transform = biject_to(site['fn'].support)
         unconstrained_event_shape = np.shape(transform.inv(prototype_value))
         unconstrained_samples = dist.Uniform(-radius, radius).sample(
             rng_key, sample_shape=sample_shape + unconstrained_event_shape)
