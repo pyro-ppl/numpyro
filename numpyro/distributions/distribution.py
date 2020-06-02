@@ -350,7 +350,7 @@ class ExpandedDistribution(Distribution):
         return np.broadcast_to(self.base_dist.variance, self.batch_shape + self.event_shape)
 
 
-class Improper(Distribution):
+class ImproperUniform(Distribution):
     """
     A helper distribution with zero :meth:`log_prob` and improper
     :meth:`sample`.
@@ -361,9 +361,9 @@ class Improper(Distribution):
     arg_constraints = {}
     unconstrained_radius = 2
 
-    def __init__(self, support, event_shape, batch_shape=()):
+    def __init__(self, support, event_shape, batch_shape=(), validate_args=None):
         self.support = support
-        super().__init__(batch_shape, event_shape)
+        super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         transform = biject_to(self.support)
@@ -375,10 +375,18 @@ class Improper(Distribution):
                                                maxval=self.unconstrained_radius)
         return transform(unconstrained_samples)
 
+    @validate_sample
     def log_prob(self, value):
-        batch_shape = value.shape[:len(np.shape(value)) - len(self.event_shape)]
+        batch_shape = np.shape(value)[:np.ndim(value) - len(self.event_shape)]
         batch_shape = lax.broadcast_shapes(batch_shape, self.batch_shape)
         return np.zeros(batch_shape)
+
+    def _validate_sample(self, value):
+        mask = super(ImproperUniform, self)._validate_sample(value)
+        batch_dim = np.ndim(value) - len(self.event_shape)
+        if batch_dim < np.ndim(mask):
+            mask = np.all(np.reshape(mask, np.shape(mask)[:batch_dim] + (-1,)), -1)
+        return mask
 
 
 class Independent(Distribution):

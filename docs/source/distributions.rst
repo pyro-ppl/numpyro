@@ -17,9 +17,9 @@ ExpandedDistribution
     :show-inheritance:
     :member-order: bysource
 
-Improper
---------
-.. autoclass:: numpyro.distributions.distribution.Improper
+ImproperUniform
+---------------
+.. autoclass:: numpyro.distributions.distribution.ImproperUniform
     :members:
     :undoc-members:
     :show-inheritance:

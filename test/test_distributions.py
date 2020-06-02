@@ -112,6 +112,7 @@ CONTINUOUS = [
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
     T(dist.HalfNormal, np.array([1., 2.])),
+    T(dist.ImproperUniform, constraints.positive, (3,)),
     T(dist.InverseGamma, np.array([1.7]), np.array([[2.], [3.]])),
     T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
     T(dist.LKJ, 2, 0.5, "onion"),
@@ -556,6 +557,8 @@ def test_gamma_poisson_log_prob(shape):
 def test_log_prob_gradient(jax_dist, sp_dist, params):
     if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip('we have separated tests for LKJCholesky distribution')
+    if jax_dist is dist.ImproperUniform:
+        pytest.skip('no param for ImproperUniform to test for log_prob gradient')
     rng_key = random.PRNGKey(0)
 
     value = jax_dist(*params).sample(rng_key)
@@ -584,6 +587,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_mean_var(jax_dist, sp_dist, params):
+    if jax_dist is dist.ImproperUniform:
+        pytest.skip("Improper distribution does not has mean/var implemented")
+
     n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)
     k = random.PRNGKey(0)
@@ -653,7 +659,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     key = random.PRNGKey(1)
     dependent_constraint = False
     for i in range(len(params)):
-        if jax_dist in (dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
+        if jax_dist in (dist.ImproperUniform, dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
             continue
         if params[i] is None:
             oob_params[i] = None
@@ -670,7 +676,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
-    if not dependent_constraint:
+    if not dependent_constraint and jax_dist is not dist.ImproperUniform:
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
