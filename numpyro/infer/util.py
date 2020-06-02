@@ -159,6 +159,7 @@ def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, param
     import funsor
     funsor.set_backend("jax")
 
+    # TODO: use unconstrained reparam
     params_constrained = transform_fn(inv_transforms, params)
     model = substitute(model, base_param_map=params_constrained)
     model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
