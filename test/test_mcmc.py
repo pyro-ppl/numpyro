@@ -257,7 +257,7 @@ def test_improper_prior():
 
     def model(data):
         mean = numpyro.sample('mean', dist.Normal(0, 1).mask(False))
-        std = numpyro.sample('std', dist.Improper(dist.constraints.positive, ()))
+        std = numpyro.sample('std', dist.ImproperUniform(dist.constraints.positive, ()))
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
