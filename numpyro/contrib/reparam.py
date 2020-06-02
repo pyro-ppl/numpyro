@@ -170,7 +170,7 @@ class NeuTraReparam(Reparam):
         if not self._x_unconstrained:  # On first sample site.
             # Sample a shared latent.
             z_unconstrained = numpyro.sample("{}_shared_latent".format(self.guide.prefix),
-                                             self.guide.base_dist.mask(False))
+                                             self.guide.get_base_dist().mask(False))
 
             # Differentiably transform.
             x_unconstrained = self.transform(z_unconstrained)
