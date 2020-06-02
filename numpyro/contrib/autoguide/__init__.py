@@ -32,7 +32,7 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
 from numpyro.infer.elbo import ELBO
-from numpyro.infer.util import constrain_fn, find_valid_initial_params, init_to_uniform, transform_fn
+from numpyro.infer.util import initialize_model, init_to_uniform
 from numpyro.util import not_jax_tracer
 
 __all__ = [
@@ -96,8 +96,6 @@ class AutoGuide(ABC):
         rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
         model = handlers.seed(self.model, rng_key)
         self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
-        self._args = args
-        self._kwargs = kwargs
 
 
 class AutoContinuous(AutoGuide):
@@ -121,31 +119,22 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform()):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform):
         self.init_strategy = init_strategy
         self._base_dist = None
         super(AutoContinuous, self).__init__(model, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
-        super(AutoContinuous, self)._setup_prototype(*args, **kwargs)
-        rng_key = numpyro.sample("_{}_rng_key_init".format(self.prefix), dist.PRNGIdentity())
-        init_params, _ = handlers.block(find_valid_initial_params)(rng_key, self.model,
-                                                                   init_strategy=self.init_strategy,
-                                                                   model_args=args,
-                                                                   model_kwargs=kwargs)
-        # TODO: we can just simply use infer/get_model_transforms here
-        self._inv_transforms = {}
-        self._replay_model = False
-        unconstrained_sites = {}
-        for name, site in self.prototype_trace.items():
-            if site['type'] == 'sample' and not site['is_observed']:
-                transform = biject_to(site['fn'].support)
-                self._inv_transforms[name] = transform
-                unconstrained_sites[name] = transform.inv(site['value'])
-            elif site['type'] == 'deterministic' and not self._replay_model:
-                self._replay_model = True
+        rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
+        with handlers.block():
+            init_params, _, self._postprocess_fn, self.prototype_trace = initialize_model(
+                rng_key, self.model,
+                init_strategy=self.init_strategy,
+                dynamic_args=False,
+                model_args=args,
+                model_kwargs=kwargs)
 
-        self._init_latent, unpack_latent = ravel_pytree(init_params)
+        self._init_latent, unpack_latent = ravel_pytree(init_params[0])
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)
@@ -185,8 +174,8 @@ class AutoContinuous(AutoGuide):
         result = {}
 
         for name, unconstrained_value in self._unpack_latent(latent).items():
-            transform = self._inv_transforms[name]
             site = self.prototype_trace[name]
+            transform = biject_to(site['fn'].support)
             value = transform(unconstrained_value)
             log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
             event_ndim = len(site['fn'].event_shape)
@@ -198,23 +187,21 @@ class AutoContinuous(AutoGuide):
         return result
 
     def _unpack_and_constrain(self, latent_sample, params):
-        if self._replay_model:
-            def unpack_single_latent(latent):
-                unpacked_samples = self._unpack_latent(latent)
-                return constrain_fn(model, self._inv_transforms, self._args, self._kwargs,
-                                    unpacked_samples, return_deterministic=True)
+        def unpack_single_latent(latent):
+            unpacked_samples = self._unpack_latent(latent)
+            # add param sites in model
+            unpacked_samples.update({k: v for k, v in params.items() if k in self.prototype_trace
+                                     and v['type'] == 'param'})
+            return self._postprocess_fn(unpacked_samples)
 
-            model = handlers.substitute(self.model, param_map=params)
-            sample_shape = np.shape(latent_sample)[:-1]
-            if sample_shape:
-                latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
-                unpacked_samples = lax.map(unpack_single_latent, latent_sample)
-                return tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
-                                unpacked_samples)
-            else:
-                return unpack_single_latent(latent_sample)
+        sample_shape = np.shape(latent_sample)[:-1]
+        if sample_shape:
+            latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
+            unpacked_samples = lax.map(unpack_single_latent, latent_sample)
+            return tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
+                            unpacked_samples)
         else:
-            return transform_fn(self._inv_transforms, self._unpack_latent(latent_sample))
+            return unpack_single_latent(latent_sample)
 
     @property
     def base_dist(self):
@@ -289,7 +276,7 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -324,7 +311,7 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -359,7 +346,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), init_scale=0.1, rank=None):
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1, rank=None):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -423,6 +410,15 @@ class AutoLaplaceApproximation(AutoContinuous):
         guide = AutoLaplaceApproximation(model, ...)
         svi = SVI(model, guide, ...)
     """
+    def _setup_prototype(self, *args, **kwargs):
+        super(AutoLaplaceApproximation, self)._setup_prototype(*args, **kwargs)
+
+        def loss_fn(params):
+            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
+            return ELBO().loss(random.PRNGKey(0), params, self.model, self, *args, **kwargs)
+
+        self._loss_fn = loss_fn
+
     def _sample_latent(self, base_dist, *args, **kwargs):
         # sample from Delta guide
         sample_shape = kwargs.pop('sample_shape', ())
@@ -434,9 +430,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         def loss_fn(z):
             params1 = params.copy()
             params1['{}_loc'.format(self.prefix)] = z
-            # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
-            return ELBO().loss(random.PRNGKey(0), params1, self.model, self,
-                               *self._args, **self._kwargs)
+            return self._loss_fn(params1)
 
         loc = params['{}_loc'.format(self.prefix)]
         precision = hessian(loss_fn)(loc)
@@ -497,7 +491,7 @@ class AutoIAFNormal(AutoContinuous):
         * **nonlinearity** (``callable``) - the nonlinearity to use in the feedforward network.
           Defaults to :func:`jax.experimental.stax.Relu`.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(),
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform,
                  num_flows=3, **arn_kwargs):
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
@@ -553,7 +547,7 @@ class AutoBNAFNormal(AutoContinuous):
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform(), num_flows=1,
+    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, num_flows=1,
                  hidden_factors=[8, 8]):
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors

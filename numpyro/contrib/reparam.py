@@ -174,6 +174,7 @@ class NeuTraReparam(Reparam):
 
             # Differentiably transform.
             x_unconstrained = self.transform(z_unconstrained)
+            # TODO: find a way to only compute those log_prob terms when needed
             log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
             self._x_unconstrained = self.guide._unpack_latent(x_unconstrained)
 

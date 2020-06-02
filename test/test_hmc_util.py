@@ -219,7 +219,7 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     def potential_fn(q):
         return 0.5 * q ** 2
 
-    p_generator = lambda m_inv, rng_key: 1.0  # noqa: E731
+    p_generator = lambda prototype, m_inv, rng_key: 1.0  # noqa: E731
     q = 0.0
     m_inv = np.array([1.])
 

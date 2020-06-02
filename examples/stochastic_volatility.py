@@ -85,11 +85,11 @@ def main(args):
     _, fetch = load_dataset(SP500, shuffle=False)
     dates, returns = fetch()
     init_rng_key, sample_rng_key = random.split(random.PRNGKey(args.rng_seed))
-    init_params, potential_fn, constrain_fn = initialize_model(init_rng_key, model, model_args=(returns,))
-    init_kernel, sample_kernel = hmc(potential_fn, algo='NUTS')
-    hmc_state = init_kernel(init_params, args.num_warmup, rng_key=sample_rng_key)
+    model_info = initialize_model(init_rng_key, model, model_args=(returns,))
+    init_kernel, sample_kernel = hmc(model_info.potential_fn, algo='NUTS')
+    hmc_state = init_kernel(model_info.param_info, args.num_warmup, rng_key=sample_rng_key)
     hmc_states = fori_collect(args.num_warmup, args.num_warmup + args.num_samples, sample_kernel, hmc_state,
-                              transform=lambda hmc_state: constrain_fn(hmc_state.z),
+                              transform=lambda hmc_state: model_info.postprocess_fn(hmc_state.z),
                               progbar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     print_results(hmc_states, dates)
 
