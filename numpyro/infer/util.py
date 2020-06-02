@@ -159,14 +159,12 @@ def potential_energy(model, model_args, model_kwargs, params):
     return - log_joint
 
 
-def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, params):
+def enum_potential_energy(model, model_args, model_kwargs, params):
     import funsor
     funsor.set_backend("jax")
 
-    # TODO: use unconstrained reparam
-    params_constrained = transform_fn(inv_transforms, params)
-    model = substitute(model, base_param_map=params_constrained)
-    model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
+    substituted_model = substitute(model, substitute_fn=partial(_unconstrain_reparam, params))
+    model_trace = packed_trace(substituted_model).get_trace(*model_args, **model_kwargs)
     log_factors = []
     sum_vars, prod_vars = frozenset(), frozenset()
     for site in model_trace.values():
@@ -191,20 +189,6 @@ def enum_potential_energy(model, inv_transforms, model_args, model_kwargs, param
             log_factors.append(log_prob)
             sum_vars |= frozenset({site['name']})
             prod_vars |= frozenset(f.name for f in site['cond_indep_stack'] if f.dim is not None)
-
-    for name, t in inv_transforms.items():
-        t_log_det = t.log_abs_det_jacobian(params[name], params_constrained[name])
-        if model_trace[name]['scale'] is not None:
-            t_log_det = model_trace[name]['scale'] * t_log_det
-        keepdims = False
-        for d in range(-len(t_log_det.shape), 0, 1):
-            if d not in model_trace[name]['infer']['dim_to_name']:
-                t_log_det = t_log_det.sum(d, keepdims=keepdims)
-            else:
-                keepdims = True
-        log_factors.append(funsor.to_funsor(
-            t_log_det, output=funsor.reals(),
-            dim_to_name=model_trace[name]['infer']['dim_to_name']))
 
     with funsor.interpreter.interpretation(funsor.terms.lazy):
         lazy_result = funsor.sum_product.sum_product(
@@ -413,7 +397,7 @@ def initialize_model(rng_key, model,
     model_kwargs = {} if model_kwargs is None else model_kwargs
     inv_transforms, replay_model, model_trace = get_model_transforms(
         model, model_args, model_kwargs)
-    enum = any(site['fn'].has_enumerate_support for site in model_trace if site['type'] == 'sample')
+    enum = any(site['fn'].has_enumerate_support for site in model_trace.values() if site['type'] == 'sample')
     constrained_values = {k: v['value'] for k, v in model_trace.items()
                           if v['type'] == 'sample' and not v['is_observed']
                           and not v['fn'].is_discrete}
