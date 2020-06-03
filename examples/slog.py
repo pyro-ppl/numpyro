@@ -361,7 +361,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [1200, 2400, 3600]:
+    for N in [400]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -474,17 +474,17 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=3600, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=8192, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=50, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=36, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=12, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
-    parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./very_large/', type=str)
     args = parser.parse_args()
 
