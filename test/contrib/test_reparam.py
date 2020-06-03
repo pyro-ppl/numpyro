@@ -49,7 +49,6 @@ def test_log_normal(shape):
 
     with handlers.trace() as tr:
         value = handlers.seed(model, 0)()
-    assert isinstance(tr["x"]["fn"], dist.TransformedDistribution)
     expected_moments = get_moments(value)
 
     with reparam(config={"x": TransformReparam()}):
