@@ -30,6 +30,7 @@ from numpyro.util import fori_loop
 from chunk_vmap import chunk_vmap
 
 import pickle
+from cg import vanilla_quad_form_log_det, quad_form_log_det
 
 
 def sigmoid(x):
@@ -60,7 +61,7 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
 
 
 # Most of the model code is concerned with constructing the sparsity inducing prior.
-def model(X, Y, hypers):
+def model(X, Y, hypers, method="vanilla"):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -82,17 +83,24 @@ def model(X, Y, hypers):
     k_omega = k + np.eye(N) * (1.0 / omega)
 
     kY = np.matmul(k, Y)
-    L, Linv_kY = cho_tri_solve(k_omega, kY)
-
     log_factor1 = dot(Y, kY)
-    log_factor2 = dot(Linv_kY, Linv_kY)
-    log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
 
-    obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
+    if method == "vanilla":
+        L, Linv_kY = cho_tri_solve(k_omega, kY)
+        log_factor2 = dot(Linv_kY, Linv_kY)
+        log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
+        obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
+    elif method == "vanilla2":
+        obs_factor = 0.125 * log_factor1 - 0.5 * vanilla_quad_form_log_det(k_omega, 0.5 * kY) \
+                     - 0.5 * np.sum(np.log(omega))
+    elif method == "cg":
+        obs_factor = 0.125 * log_factor1 - 0.5 * quad_form_log_det(k_omega, 0.5 * kY) \
+                     - 0.5 * np.sum(np.log(omega))
+
     numpyro.factor("obs", obs_factor)
 
 
-def guide(X, Y, hypers):
+def guide(X, Y, hypers, method="vanilla"):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -252,7 +260,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
 
     def body_fn(i, init_val):
         svi_state, old_loss = init_val
-        svi_state, loss = svi.update(svi_state, X, Y, hypers)
+        svi_state, loss = svi.update(svi_state, X, Y, hypers, method="cg")
         loss = (1.0 - beta) * loss + beta * old_loss
         return (svi_state, loss)
 
@@ -465,9 +473,9 @@ def main(**args):
     log_file = log_file.format(args['inference'], P, args['active_dimensions'], args['seed'],
                                args['num_warmup'], args['num_samples'], args['mtd'])
 
-    with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
-        pickle.dump(results, f, protocol=2)
-    print("saved results to {}".format(args['log_dir'] + log_file + '.pkl'))
+    #with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
+    #    pickle.dump(results, f, protocol=2)
+    #print("saved results to {}".format(args['log_dir'] + log_file + '.pkl'))
 
 
 if __name__ == "__main__":
