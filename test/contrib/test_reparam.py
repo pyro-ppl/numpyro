@@ -45,11 +45,10 @@ def test_log_normal(shape):
                                           dist.Normal(np.zeros_like(loc),
                                                       np.ones_like(scale)),
                                           [AffineTransform(loc, scale),
-                                           ExpTransform()]))
+                                           ExpTransform()]).expand_by([100000]))
 
     with handlers.trace() as tr:
         value = handlers.seed(model, 0)()
-    assert isinstance(tr["x"]["fn"], dist.TransformedDistribution)
     expected_moments = get_moments(value)
 
     with reparam(config={"x": TransformReparam()}):
