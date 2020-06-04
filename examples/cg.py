@@ -2,7 +2,7 @@ from functools import namedtuple
 import numpy as onp
 import jax
 from jax import vmap, jit, custom_jvp, grad, jvp, vjp
-from jax.lax import while_loop
+from jax.lax import while_loop, fori_loop
 import jax.numpy as np
 from scipy.linalg import cho_solve
 import time
@@ -11,50 +11,55 @@ from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve, eigh#, eig
 from numpy.testing import assert_allclose
 
 
-CGState = namedtuple('CGState', ['u', 'r', 'd', 'r_dot_r', 'iter', 'alpha', 'beta'])
+CGState = namedtuple('CGState', ['u', 'r', 'd', 'r_dot_r', 'iter', 'diag', 'offdiag', 'alpha', 'beta'])
 
 
 
 def cg_body_fun(state, mvm):
-    u, r, d, r_dot_r, iteration, alpha, beta = state
+    u, r, d, r_dot_r, iteration, diag, offdiag, prev_alpha, prev_beta = state
     v = mvm(d)
-    _alpha = r_dot_r / np.dot(d, v)
-    u = u + _alpha * d
-    r = r - _alpha * v
-    _beta_denom = r_dot_r
+    alpha = r_dot_r / np.dot(d, v)
+    u = u + alpha * d
+    r = r - alpha * v
+    beta_denom = r_dot_r
     r_dot_r = np.dot(r, r)
-    _beta = r_dot_r / _beta_denom
-    d = r + _beta * d
-    alpha = jax.ops.index_update(alpha, iteration, _alpha)
-    beta = jax.ops.index_update(beta, iteration, _beta)
-    return CGState(u, r, d, r_dot_r, iteration + 1, alpha, beta)
+    beta = r_dot_r / beta_denom
+    d = r + beta * d
+    diag = jax.ops.index_update(diag, iteration, 1.0 / alpha + prev_beta / prev_alpha)
+    offdiag = jax.ops.index_update(offdiag, iteration, np.sqrt(beta) / alpha)
+    return CGState(u, r, d, r_dot_r, iteration + 1, diag, offdiag, alpha, beta)
 
 def cg_cond_fun(state, mvm, epsilon=1.0e-14, max_iters=100):
     return (np.sqrt(state.r_dot_r) > epsilon) & (state.iter < max_iters)
 
 def cg(b, A, epsilon=1.0e-14, max_iters=100):
     mvm = lambda rhs: np.matmul(A, rhs)
-    _cond_fun = lambda state: cg_cond_fun(state, mvm=mvm, epsilon=epsilon, max_iters=max_iters)
-    _body_fun = lambda state: cg_body_fun(state, mvm=mvm)
+    #_cond_fun = lambda state: cg_cond_fun(state, mvm=mvm, epsilon=epsilon, max_iters=max_iters)
+    _body_fun = lambda null, state: cg_body_fun(state, mvm=mvm)
     zero = np.zeros(b.shape[-1])
-    init_state = CGState(zero, b, b, np.dot(b, b), 0, zero, zero)
-    final_state = while_loop(_cond_fun, _body_fun, init_state)
+    init_state = CGState(zero, b, b, np.dot(b, b), 0, zero, zero, 1.0, 0.0)
+    #final_state = while_loop(_cond_fun, _body_fun, init_state)
+    final_state = fori_loop(0, max_iters, _body_fun, init_state)
     #return final_state.u, np.sqrt(final_state.r_dot_r), final_state.iter
-    P, alpha, beta = final_state.iter, final_state.alpha, final_state.beta
-    #print("alpha", alpha)
-    #print("beta", beta)
+    #P, alpha, beta = final_state.iter, final_state.alpha, final_state.beta
+    diag = final_state.diag
+    #P = np.nonzero(diag)[0][-1] + 1
+    #return final_state.u, np.sqrt(final_state.r_dot_r), final_state.iter
+    #P, alpha, beta = final_state.iter, final_state.alpha, final_state.beta
+    diag = final_state.diag
+    #P = np.nonzero(diag)[0][-1] + 1
+    P = final_state.iter
+    diag, offdiag = diag[:P], final_state.offdiag[:P-1]
     #alphaP = jax.lax.dynamic_slice_in_dim(alpha, 0, P)
-    blah = alpha[0:P:1]
-    diag = jax.ops.index_add(1.0 / alpha[0:P:1], np.arange(1, P), beta[:P-1] / alpha[:P-1])
+    #diag = jax.ops.index_add(1.0 / alpha[0:P:1], np.arange(1, P), beta[:P-1] / alpha[:P-1])
     T = onp.zeros(P * P)
-    offdiag = np.sqrt(beta[:P-1]) / alpha[:P-1]
+    #offdiag = np.sqrt(beta[:P-1]) / alpha[:P-1]
     T = jax.ops.index_add(T, np.arange(1, P * P, P + 1), offdiag)
     T = jax.ops.index_add(T, np.arange(P, P * P, P + 1), offdiag)
     T = jax.ops.index_add(T, np.arange(0, P * P, P + 1), diag)
     T = T.reshape((P, P))
-    logdetT = 0.0
-    #eig, V = np.linalg.eigh(T)
-    #logdetT = np.dot(V[0, :], V[0, :] * np.log(eig))
+    eig, V = np.linalg.eigh(T)
+    logdetT = np.dot(V[0, :], V[0, :] * np.log(eig))
     #print("VeigV", logT)
     #print("T\n",T, onp.linalg.slogdet(T))
     #print("diag0", 1/ alpha[0])
@@ -74,14 +79,15 @@ def batch_cg2(b, A, epsilon=1.0e-14, max_iters=100):
     return vmap(lambda _b, _A: cg(_b, _A, epsilon=epsilon, max_iters=max_iters))(b, A)
 
 
-# compute logdet A - b A^{-1} b
+# compute logdet A + b A^{-1} b
 @custom_jvp
 def quad_form_log_det(A, b):
+    return np.nan
     L = cho_factor(A, lower=True)[0]
     Linv_b = solve_triangular(L, b, lower=True)
     quad_form = np.dot(Linv_b, Linv_b)
     log_det = 2.0 * np.sum(np.log(np.diagonal(L)))
-    return 0.0 #log_det + quad_form
+    return log_det + quad_form
 
 def vanilla_quad_form_log_det(A, b):
     L = cho_factor(A, lower=True)[0]
@@ -91,31 +97,35 @@ def vanilla_quad_form_log_det(A, b):
     return log_det + quad_form
 
 @quad_form_log_det.defjvp
-def quad_form_log_det_jvp(primals, tangents, num_probes=5, max_iters=4):
+def quad_form_log_det_jvp(primals, tangents, num_probes=4, max_iters=80):
     A, b = primals
     D = b.shape[-1]
     Ainv_b, _, _, _ = cg(b, A, epsilon=1.0e-14, max_iters=max_iters)
     A_dot, b_dot = tangents
-    primal_out = 0.0#quad_form_log_det(A, b)
 
-    #probes = onp.random.randn(D * num_probes).reshape((num_probes, D))
-    probes = np.ones((num_probes, D))
-    Ainv_probes, _, _, _ = batch_cg(probes, A, max_iters=max_iters)
+    quad_form = np.dot(Ainv_b, b)
+
+    probes = onp.random.randn(D * num_probes).reshape((num_probes, D))
+    Ainv_probes, _, _, log_det = batch_cg(probes, A, max_iters=max_iters)
+    log_det = D * np.mean(log_det)
 
     quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
     quad_form_db = 2.0 * np.dot(Ainv_b, b_dot)
     log_det_dA = np.mean(np.einsum('...i,...i->...', np.matmul(probes, A_dot), Ainv_probes))
+
     tangent_out = log_det_dA + quad_form_dA + quad_form_db
+    primal_out = quad_form + log_det
 
     return primal_out, tangent_out
 
 
 if __name__ == "__main__":
-    #onp.random.seed(0)
-    D = 4
+    #onp.random.seed(1)
+    D = 30
     A = onp.random.rand(D * D // 2).reshape((D, D // 2))
     A = onp.matmul(A, onp.transpose(A)) + 0.05 * onp.eye(D)
-    A = A + onp.diag(np.array([0.1,0.2,0.3,0.4]))
+    #A = A + onp.diag(np.array([0.1,0.2,0.3,0.4,0.03, 0.09]))
+    print("Aslogdet", onp.linalg.slogdet(A))
     b = onp.random.rand(D)
     #L = onp.linalg.cholesky(A)
     #truth = cho_solve((L, True), b)

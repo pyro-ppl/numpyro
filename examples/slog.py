@@ -260,7 +260,8 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
 
     def body_fn(i, init_val):
         svi_state, old_loss = init_val
-        svi_state, loss = svi.update(svi_state, X, Y, hypers, method="cg")
+        svi_state, loss = svi.update(svi_state, X, Y, hypers, method="vanilla")
+        #svi_state, loss = svi.update(svi_state, X, Y, hypers, method="cg")
         loss = (1.0 - beta) * loss + beta * old_loss
         return (svi_state, loss)
 
@@ -369,7 +370,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [400]:
+    for N in [1200]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
