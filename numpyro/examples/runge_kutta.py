@@ -17,11 +17,12 @@ def runge_kutta_4(f: Callable[[float, np.ndarray], np.ndarray],
                   y0: np.ndarray,
                   **kwargs):
     def step(t, y):
-        k1 = step_size * f(t, y, **kwargs)
-        k2 = step_size * f(t + step_size / 2, y + k1 / 2, **kwargs)
-        k3 = step_size * f(t + step_size / 2, y + k2 / 2, **kwargs)
-        k4 = step_size * f(t + step_size, y + k3, **kwargs)
-        return y + clip((k1 + 2 * k2 + 2 * k3 + k4) / 6)
+        k1 = clip(step_size * f(t, y, **kwargs))
+        k2 = clip(step_size * f(t + step_size / 2, y + k1 / 2, **kwargs))
+        k3 = clip(step_size * f(t + step_size / 2, y + k2 / 2, **kwargs))
+        k4 = clip(step_size * f(t + step_size, y + k3, **kwargs))
+        dy = clip((k1 + 2 * k2 + 2 * k3 + k4) / 6)
+        return y + dy
 
     with loops.Scope() as s:
         s.res = np.empty((num_steps, *y0.shape))
