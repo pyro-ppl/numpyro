@@ -176,7 +176,7 @@ class AutoContinuous(AutoGuide):
             event_ndim = len(site['fn'].event_shape)
             log_density = sum_rightmost(log_density,
                                         np.ndim(log_density) - np.ndim(value) + event_ndim)
-            delta_dist = dist.Delta(value, log_density=log_density, event_ndim=event_ndim)
+            delta_dist = dist.Delta(value, log_density=log_density, event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
         return result
@@ -456,7 +456,7 @@ class AutoLaplaceApproximation(AutoContinuous):
     def _get_posterior(self, *args, **kwargs):
         # sample from Delta guide
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        return dist.Delta(loc, event_ndim=1)
+        return dist.Delta(loc, event_dim=1)
 
     def get_base_dist(self):
         return dist.Normal(np.zeros(self.latent_size), 1).to_event(1)
