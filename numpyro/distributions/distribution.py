@@ -401,7 +401,7 @@ class ImproperUniform(Distribution):
     A helper distribution with zero :meth:`log_prob` over the `support` domain.
 
     .. note:: `sample` method is not implemented for this distribution. In autoguide and mcmc,
-        initial parameters for improper sites are derived `init_to_uniform` or `init_to_value`
+        initial parameters for improper sites are derived from `init_to_uniform` or `init_to_value`
         strategies.
 
     **Usage:**
