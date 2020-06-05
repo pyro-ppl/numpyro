@@ -32,7 +32,7 @@ import warnings
 import jax.numpy as np
 from jax import lax
 
-from numpyro.distributions.constraints import Constraint, is_dependent, real  # noqa: F401
+from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
@@ -385,7 +385,7 @@ class ImproperUniform(Distribution):
         ...                TransformedDistribution(ImproperUniform(constraints.positive, (), ()),
         ...                                        transforms.AffineTransform(a, 1)))
 
-    :param Constraint support: the support of this distribution.
+    :param ~numpyro.distributions.constraints.Constraint support: the support of this distribution.
     :param tuple batch_shape: batch shape of this distribution. It is usually safe to
         set `batch_shape=()`.
     :param tuple event_shape: event shape of this distribution.
