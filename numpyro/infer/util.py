@@ -265,6 +265,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
             inv_transforms[k] = biject_to(v['fn'].support)
+            # TODO: check if the support is dynamic, then we set replay_model = True
         elif v['type'] == 'deterministic':
             replay_model = True
     return inv_transforms, replay_model, model_trace

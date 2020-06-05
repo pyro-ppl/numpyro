@@ -295,6 +295,9 @@ class mask(Messenger):
         super(mask, self).__init__(fn)
 
     def process_message(self, msg):
+        if msg['type'] != 'sample':
+            return
+
         msg['mask'] = self.mask if msg['mask'] is None else self.mask & msg['mask']
 
 
@@ -315,6 +318,9 @@ class scale(Messenger):
         super(scale, self).__init__(fn)
 
     def process_message(self, msg):
+        if msg['type'] not in ('sample', 'plate'):
+            return
+
         msg["scale"] = self.scale if msg.get('scale') is None else self.scale * msg['scale']
 
 

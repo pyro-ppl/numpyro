@@ -150,6 +150,29 @@ class Distribution(object):
         """
         return self._event_shape
 
+    @property
+    def event_dim(self):
+        """
+        :return: Number of dimensions of individual events.
+        :rtype: int
+        """
+        return len(self.event_shape)
+
+    def shape(self, sample_shape=()):
+        """
+        The tensor shape of samples from this distribution.
+
+        Samples are of shape::
+
+            d.shape(sample_shape) == sample_shape + d.batch_shape + d.event_shape
+
+        :param tuple sample_shape: the size of the iid batch to be drawn from the
+            distribution.
+        :return: shape of samples.
+        :rtype: tuple
+        """
+        return sample_shape + self.batch_shape + self.event_shape
+
     def sample(self, key, sample_shape=()):
         """
         Returns a sample from the distribution having shape given by
@@ -228,6 +251,8 @@ class Distribution(object):
         """
         if reinterpreted_batch_ndims is None:
             reinterpreted_batch_ndims = len(self.batch_shape)
+        elif reinterpreted_batch_ndims == 0:
+            return self
         return Independent(self, reinterpreted_batch_ndims)
 
     def enumerate_support(self, expand=True):
@@ -246,7 +271,24 @@ class Distribution(object):
         :return: an instance of `ExpandedDistribution`.
         :rtype: :class:`ExpandedDistribution`
         """
+        batch_shape = tuple(batch_shape)
+        if batch_shape == self.batch_shape:
+            return self
         return ExpandedDistribution(self, batch_shape)
+
+    def expand_by(self, sample_shape):
+        """
+        Expands a distribution by adding ``sample_shape`` to the left side of
+        its :attr:`~numpyro.distributions.distribution.Distribution.batch_shape`.
+        To expand internal dims of ``self.batch_shape`` from 1 to something
+        larger, use :meth:`expand` instead.
+
+        :param tuple sample_shape: The size of the iid batch to be drawn
+            from the distribution.
+        :return: An expanded version of this distribution.
+        :rtype: :class:`ExpandedDistribution`
+        """
+        return self.expand(tuple(sample_shape) + self._batch_shape)
 
     def mask(self, mask):
         """
@@ -259,6 +301,8 @@ class Distribution(object):
         :return: A masked copy of this distribution.
         :rtype: :class:`MaskedDistribution`
         """
+        if mask is True:
+            return self
         return MaskedDistribution(self, mask)
 
 
@@ -266,6 +310,8 @@ class ExpandedDistribution(Distribution):
     arg_constraints = {}
 
     def __init__(self, base_dist, batch_shape=()):
+        if isinstance(base_dist, ExpandedDistribution):
+            base_dist = base_dist.base_dist
         self.base_dist = base_dist
         super().__init__(base_dist.batch_shape, base_dist.event_shape)
         # adjust batch shape
@@ -581,6 +627,13 @@ class TransformedDistribution(Distribution):
         else:
             self.base_dist = base_distribution
             self.transforms = transforms
+        # NB: here we assume that base_dist.shape == transformed_dist.shape
+        # but that might not be True for some transforms such as StickBreakingTransform
+        # because the event dimension is transformed from (n - 1,) to (n,).
+        # Currently, we have no mechanism to fix this issue. Given that
+        # this is just an edge case, we might skip this issue but need
+        # to pay attention to any inference function that inspects
+        # transformed distribution's shape.
         shape = base_distribution.batch_shape + base_distribution.event_shape
         event_dim = max([len(base_distribution.event_shape)] + [t.event_dim for t in transforms])
         batch_shape = shape[:len(shape) - event_dim]
