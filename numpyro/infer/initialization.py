@@ -62,9 +62,8 @@ def init_to_uniform(site=None, radius=2):
             # we can't use this logic for general priors
             # because some distributions such as TransformedDistribution might
             # have wrong event_shape.
-            prototype_value = np.full(site['fn'].event_shape, np.nan)
-            unconstrained_event_shape = np.shape(transform.inv(prototype_value))
-            unconstrained_shape = site['fn'].batch_shape + unconstrained_event_shape
+            prototype_value = np.full(site['fn'].shape(), np.nan)
+            unconstrained_shape = np.shape(transform.inv(prototype_value))
 
         unconstrained_samples = dist.Uniform(-radius, radius).sample(
             rng_key, sample_shape=sample_shape + unconstrained_shape)
