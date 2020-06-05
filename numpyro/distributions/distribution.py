@@ -30,10 +30,10 @@ from contextlib import contextmanager
 import warnings
 
 import jax.numpy as np
-from jax import lax, random
+from jax import lax
 
-from numpyro.distributions.constraints import is_dependent, real
-from numpyro.distributions.transforms import Transform, biject_to
+from numpyro.distributions.constraints import Constraint, is_dependent, real  # noqa: F401
+from numpyro.distributions.transforms import Transform
 from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
 
@@ -352,28 +352,49 @@ class ExpandedDistribution(Distribution):
 
 class ImproperUniform(Distribution):
     """
-    A helper distribution with zero :meth:`log_prob` and improper
-    :meth:`sample`.
+    A helper distribution with zero :meth:`log_prob` over the `support` domain.
 
-    .. note:: `sample` method does not generate samples distributed uniformly over the support.
-        Instead, it only returns valid values belong to the support.
+    .. note:: `sample` method is not implemented for this distribution.
+
+    **Usage**::
+
+        >>> from numpyro.distributions import constraints
+        >>>
+        >>> def model():
+        ...     # ordered vector with length 10
+        ...     x = sample('x', ImproperUniform(constraints.ordered_vector, (), event_shape=(10,))
+        ...
+        ...     # real matrix with shape (3, 4)
+        ...     y = sample('y', ImproperUniform(constraints.real, (), event_shape=(3, 4))
+        ...
+        ...     # a shape-(6, 8) batch of length-5 vectors greater than 3
+        ...     z = sample('z', ImproperUniform(constraints.greater_than(3), (6, 8), event_shape=(5,))
+
+    If you want to set improper prior over all values greater than `a`, where `a` is
+    another random variable, you might use
+
+        >>> x = sample('x', ImproperUniform(constraints.greater_than(a), (), event_shape=()))
+
+    or if you want to reparameterize it
+
+        >>> from numpyro.distributions import constraints, transforms
+        >>> from numpyro.contrib.reparam import reparam, TransformReparam
+        >>>
+        >>> with reparam(config={'x': TransformReparam()}):
+        ...     x = sample('x',
+        ...                TransformedDistribution(ImproperUniform(constraints.positive, (), ()),
+        ...                                        transforms.AffineTransform(a, 1)))
+
+    :param Constraint support: the support of this distribution.
+    :param tuple batch_shape: batch shape of this distribution. It is usually safe to
+        set `batch_shape=()`.
+    :param tuple event_shape: event shape of this distribution.
     """
     arg_constraints = {}
-    unconstrained_radius = 2
 
-    def __init__(self, support, event_shape, batch_shape=(), validate_args=None):
+    def __init__(self, support, batch_shape, event_shape, validate_args=None):
         self.support = support
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        transform = biject_to(self.support)
-        prototype_value = np.zeros(self.event_shape)
-        unconstrained_event_shape = np.shape(transform.inv(prototype_value))
-        shape = sample_shape + self.batch_shape + unconstrained_event_shape
-        unconstrained_samples = random.uniform(key, shape,
-                                               minval=-self.unconstrained_radius,
-                                               maxval=self.unconstrained_radius)
-        return transform(unconstrained_samples)
 
     @validate_sample
     def log_prob(self, value):

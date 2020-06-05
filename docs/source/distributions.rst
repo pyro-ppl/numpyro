@@ -380,6 +380,14 @@ ZeroInflatedPoisson
 Constraints
 ===========
 
+Constraint
+----------
+.. autoclass:: numpyro.distributions.constraints.Constraint
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 boolean
 -------
 .. autodata:: numpyro.distributions.constraints.boolean
