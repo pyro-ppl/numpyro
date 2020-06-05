@@ -62,12 +62,12 @@ def direct_quad_form_log_det(A, b, include_log_det=True):
 
 # compute logdet A + b A^{-1} b
 @custom_jvp
-def quad_form_log_det(A, b, probes, max_iters=100):
+def cg_quad_form_log_det(A, b, probes, max_iters=100):
     return np.nan
 
 
-@quad_form_log_det.defjvp
-def quad_form_log_det_jvp(primals, tangents):
+@cg_quad_form_log_det.defjvp
+def cg_quad_form_log_det_jvp(primals, tangents):
     A, b, probes, max_iters = primals
     A_dot, b_dot, _, _ = tangents
     D = b.shape[-1]
@@ -109,13 +109,13 @@ if __name__ == "__main__":
         direct_include = lambda A, b: direct_quad_form_log_det(A, b, include_log_det=True)
         direct_exclude = lambda A, b: direct_quad_form_log_det(A, b, include_log_det=False)
 
-        v1, g1 = value_and_grad(quad_form_log_det, 1)(A, b, probes)
+        v1, g1 = value_and_grad(cg_quad_form_log_det, 1)(A, b, probes)
         v2, _ = value_and_grad(direct_exclude, 1)(A, b)
         _, g2 = value_and_grad(direct_include, 1)(A, b)
         assert_allclose(v1, v2, atol=atol, rtol=rtol)
         assert_allclose(g1, g2, atol=atol, rtol=rtol)
 
-        v1, g1 = value_and_grad(quad_form_log_det, 0)(A, b, probes)
+        v1, g1 = value_and_grad(cg_quad_form_log_det, 0)(A, b, probes)
         v2, _ = value_and_grad(direct_exclude, 0)(A, b)
         _, g2 = value_and_grad(direct_include, 0)(A, b)
         assert_allclose(v1, v2, atol=atol, rtol=rtol)

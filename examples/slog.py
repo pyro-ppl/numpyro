@@ -30,7 +30,7 @@ from numpyro.util import fori_loop
 from chunk_vmap import chunk_vmap
 
 import pickle
-from cg import quad_form_log_det
+from cg import cg_quad_form_log_det, direct_quad_form_log_det
 import jax.random as random
 
 
@@ -61,8 +61,24 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
     return k1 + k2 + k3 + k4
 
 
+# X X^t b
+def quad_mvm(b, X):
+    result = np.einsum('np,n->p', X, b)
+    return np.einsum('np,p->n', X, result)
+
+def kernel_mvm(b, X, Xsq, eta1sq, eta2sq, c, jitter=1.0e-6):
+    XXb = quad_mvm(b, X)
+    k1b = 0.5 * eta2sq * (b + 2.0 * XXb + quad_mvm(XXb, X))
+    k2b = -0.5 * eta2sq * quad_mvm(b, Xsq)
+    k3b = (eta1sq - eta2sq) * XXb
+    k4b = (np.square(c) - 0.5 * eta2sq + jitter) * np.sum(b) * np.ones(b.shape)
+    return k1b + k2b + k3b + k4b
+
+
+
+
 # Most of the model code is concerned with constructing the sparsity inducing prior.
-def model(X, Y, hypers, method="direct", rng=None, num_probes=4):
+def model(X, Y, hypers, method="direct", rng=None, num_probes=16):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -84,17 +100,13 @@ def model(X, Y, hypers, method="direct", rng=None, num_probes=4):
     k_omega = k + np.eye(N) * (1.0 / omega)
 
     kY = np.matmul(k, Y)
-    log_factor1 = dot(Y, kY)
+    log_factor = 0.125 * dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     if method == "direct":
-        L, Linv_kY = cho_tri_solve(k_omega, kY)
-        log_factor2 = dot(Linv_kY, Linv_kY)
-        log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
-        obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
+        obs_factor = log_factor - 0.5 * direct_quad_form_log_det(k_omega, 0.5 * kY)
     elif method == "cg":
         probe = random.normal(rng, shape=(num_probes, N))
-        obs_factor = 0.125 * log_factor1 - 0.5 * quad_form_log_det(k_omega, 0.5 * kY, probe) \
-                     - 0.5 * np.sum(np.log(omega))
+        obs_factor = log_factor - 0.5 * cg_quad_form_log_det(k_omega, 0.5 * kY, probe, max_iters=400)
 
     numpyro.factor("obs", obs_factor)
 
@@ -369,7 +381,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [800]:
+    for N in [600]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -380,7 +392,7 @@ def main(**args):
         print("starting {} inference...".format(args['inference']))
         if args['inference'] == 'svi':
             samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48,
-                                       method="direct")
+                                       method="cg")
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
