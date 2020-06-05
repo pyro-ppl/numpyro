@@ -30,7 +30,8 @@ from numpyro.util import fori_loop
 from chunk_vmap import chunk_vmap
 
 import pickle
-from cg import vanilla_quad_form_log_det, quad_form_log_det
+from cg import quad_form_log_det
+import jax.random as random
 
 
 def sigmoid(x):
@@ -61,7 +62,7 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
 
 
 # Most of the model code is concerned with constructing the sparsity inducing prior.
-def model(X, Y, hypers, method="vanilla"):
+def model(X, Y, hypers, method="direct", rng=None, num_probes=4):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -85,22 +86,20 @@ def model(X, Y, hypers, method="vanilla"):
     kY = np.matmul(k, Y)
     log_factor1 = dot(Y, kY)
 
-    if method == "vanilla":
+    if method == "direct":
         L, Linv_kY = cho_tri_solve(k_omega, kY)
         log_factor2 = dot(Linv_kY, Linv_kY)
         log_factor3 = np.sum(np.log(np.diagonal(L))) + 0.5 * np.sum(np.log(omega))
         obs_factor = 0.125 * (log_factor1 - log_factor2) - log_factor3
-    elif method == "vanilla2":
-        obs_factor = 0.125 * log_factor1 - 0.5 * vanilla_quad_form_log_det(k_omega, 0.5 * kY) \
-                     - 0.5 * np.sum(np.log(omega))
     elif method == "cg":
-        obs_factor = 0.125 * log_factor1 - 0.5 * quad_form_log_det(k_omega, 0.5 * kY) \
+        probe = random.normal(rng, shape=(num_probes, N))
+        obs_factor = 0.125 * log_factor1 - 0.5 * quad_form_log_det(k_omega, 0.5 * kY, probe) \
                      - 0.5 * np.sum(np.log(omega))
 
     numpyro.factor("obs", obs_factor)
 
 
-def guide(X, Y, hypers, method="vanilla"):
+def guide(X, Y, hypers, method="direct", rng=None, num_probes=4):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -249,9 +248,10 @@ def run_hmc(model, args, rng_key, X, Y, hypers):
 
     return samples, elapsed_time
 
-def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
+def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="direct"):
     adam = optim.Adam(args['lr'])  #guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, adam, ELBO())  # AutoContinuousELBO()
+    rng_key, rng_key_probe = random.split(rng_key, 2)
     svi_state = svi.init(rng_key, X, Y, hypers)
 
     num_steps = args['num_samples']
@@ -260,8 +260,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
 
     def body_fn(i, init_val):
         svi_state, old_loss = init_val
-        svi_state, loss = svi.update(svi_state, X, Y, hypers, method="vanilla")
-        #svi_state, loss = svi.update(svi_state, X, Y, hypers, method="cg")
+        svi_state, loss = svi.update(svi_state, X, Y, hypers, method=method, rng=rng_key_probe)
         loss = (1.0 - beta) * loss + beta * old_loss
         return (svi_state, loss)
 
@@ -370,7 +369,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [1200]:
+    for N in [200]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -380,7 +379,8 @@ def main(**args):
 
         print("starting {} inference...".format(args['inference']))
         if args['inference'] == 'svi':
-            samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48)
+            samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48,
+                                       method="cg")
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
