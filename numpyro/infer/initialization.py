@@ -20,7 +20,7 @@ def init_to_median(site=None, num_samples=15):
     if site is None:
         return partial(init_to_median, num_samples=num_samples)
 
-    if site['type'] == 'sample' and not site['is_observed']:
+    if site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete:
         rng_key = site['kwargs'].get('rng_key')
         sample_shape = site['kwargs'].get('sample_shape')
         try:
@@ -47,25 +47,24 @@ def init_to_uniform(site=None, radius=2):
     if site is None:
         return partial(init_to_uniform, radius=radius)
 
-    if site['type'] == 'sample' and not site['is_observed']:
-        fn = site['fn']
+    if site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete:
         rng_key = site['kwargs'].get('rng_key')
         sample_shape = site['kwargs'].get('sample_shape')
         rng_key, subkey = random.split(rng_key)
-        transform = biject_to(fn.support)
+        transform = biject_to(site['fn'].support)
         # this is used to interpret the changes of event_shape in
         # domain and codomain spaces
         try:
-            prototype_value = fn.sample(subkey, sample_shape=())
+            prototype_value = site['fn'].sample(subkey, sample_shape=())
             unconstrained_shape = np.shape(transform.inv(prototype_value))
         except NotImplementedError:
             # XXX: this works for ImproperUniform prior,
             # we can't use this logic for general priors
             # because some distributions such as TransformedDistribution might
             # have wrong event_shape.
-            prototype_value = np.full(fn.event_shape, np.nan)
+            prototype_value = np.full(site['fn'].event_shape, np.nan)
             unconstrained_event_shape = np.shape(transform.inv(prototype_value))
-            unconstrained_shape = fn.batch_shape + unconstrained_event_shape
+            unconstrained_shape = site['fn'].batch_shape + unconstrained_event_shape
 
         unconstrained_samples = dist.Uniform(-radius, radius).sample(
             rng_key, sample_shape=sample_shape + unconstrained_shape)

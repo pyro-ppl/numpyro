@@ -11,6 +11,7 @@ import jax.numpy as np
 
 import numpyro
 from numpyro.distributions.transforms import biject_to
+from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, while_loop
@@ -120,6 +121,21 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
             (return_deterministic and (v['type'] == 'deterministic'))}
 
 
+def _unconstrain_reparam(params, site):
+    name = site['name']
+    if name in params:
+        p = params[name]
+        t = biject_to(site['fn'].support)
+        value = t(p)
+
+        log_det = t.log_abs_det_jacobian(p, value)
+        log_det = sum_rightmost(log_det, np.ndim(log_det) - np.ndim(value) + len(site['fn'].event_shape))
+        if site['scale'] is not None:
+            log_det = site['scale'] * log_det
+        numpyro.factor('_{}_log_det'.format(name), log_det)
+        return value
+
+
 def potential_energy(model, model_args, model_kwargs, params):
     """
     (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
@@ -134,19 +150,7 @@ def potential_energy(model, model_args, model_kwargs, params):
     :param dict params: unconstrained parameters of `model`.
     :return: potential energy given unconstrained parameters.
     """
-    def substitute_fn(site):
-        name = site['name']
-        if name in params:
-            p = params[name]
-            t = biject_to(site['fn'].support)
-            p_constrained = t(p)
-            log_det = np.sum(t.log_abs_det_jacobian(p, p_constrained))
-            if site['scale'] is not None:
-                log_det = site['scale'] * log_det
-            numpyro.factor('_{}_log_det'.format(name), log_det)
-            return p_constrained
-
-    substituted_model = substitute(model, substitute_fn=substitute_fn)
+    substituted_model = substitute(model, substitute_fn=partial(_unconstrain_reparam, params))
     # no param is needed for log_density computation because we already substitute
     log_joint, model_trace = log_density(substituted_model, model_args, model_kwargs, {})
     return - log_joint
@@ -208,8 +212,7 @@ def find_valid_initial_params(rng_key, model,
             model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
             constrained_values, inv_transforms = {}, {}
             for k, v in model_trace.items():
-                # TODO: filter out discrete sites here
-                if v['type'] == 'sample' and not v['is_observed']:
+                if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
                     constrained_values[k] = v['value']
                     inv_transforms[k] = biject_to(v['fn'].support)
             params = transform_fn(inv_transforms,
@@ -260,7 +263,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     # model code may need to be replayed in the presence of deterministic sites
     replay_model = False
     for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed']:
+        if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
             inv_transforms[k] = biject_to(v['fn'].support)
         elif v['type'] == 'deterministic':
             replay_model = True
@@ -348,7 +351,8 @@ def initialize_model(rng_key, model,
     inv_transforms, replay_model, model_trace = _get_model_transforms(
         substituted_model, model_args, model_kwargs)
     constrained_values = {k: v['value'] for k, v in model_trace.items()
-                          if v['type'] == 'sample' and not v['is_observed']}
+                          if v['type'] == 'sample' and not v['is_observed']
+                          and not v['fn'].is_discrete}
 
     potential_fn, postprocess_fn = get_potential_fn(model,
                                                     inv_transforms,
