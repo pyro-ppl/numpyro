@@ -268,8 +268,7 @@ def get_model_transforms(model, model_args=(), model_kwargs=None):
         if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
             support = v['fn'].support
             inv_transforms[k] = biject_to(support)
-            # TODO: check if the support is dynamic, then we set replay_model = True
-            # the following code filters out most situations with dynamic supports
+            # XXX: the following code filters out most situations with dynamic supports
             args = ()
             if isinstance(support, _GreaterThan):
                 args = ('lower_bound',)

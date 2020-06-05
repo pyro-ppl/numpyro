@@ -17,7 +17,7 @@ plate
 
 plate_stack
 -----------
-.. autoclass:: numpyro.primitives.plate_stack
+.. autofunction:: numpyro.primitives.plate_stack
 
 deterministic
 -------------

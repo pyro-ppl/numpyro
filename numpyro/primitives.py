@@ -285,6 +285,7 @@ class plate(Messenger):
 def plate_stack(prefix, sizes, rightmost_dim=-1):
     """
     Create a contiguous stack of :class:`plate` s with dimensions::
+
         rightmost_dim - len(sizes), ..., rightmost_dim
 
     :param str prefix: Name prefix for plates.
