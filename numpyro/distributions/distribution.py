@@ -354,36 +354,45 @@ class ImproperUniform(Distribution):
     """
     A helper distribution with zero :meth:`log_prob` over the `support` domain.
 
-    .. note:: `sample` method is not implemented for this distribution.
+    .. note:: `sample` method is not implemented for this distribution. In autoguide and mcmc,
+        initial parameters for improper sites are derived `init_to_uniform` or `init_to_value`
+        strategies.
 
-    **Usage**::
+    **Usage:**
 
-        >>> from numpyro.distributions import constraints
-        >>>
-        >>> def model():
-        ...     # ordered vector with length 10
-        ...     x = sample('x', ImproperUniform(constraints.ordered_vector, (), event_shape=(10,))
-        ...
-        ...     # real matrix with shape (3, 4)
-        ...     y = sample('y', ImproperUniform(constraints.real, (), event_shape=(3, 4))
-        ...
-        ...     # a shape-(6, 8) batch of length-5 vectors greater than 3
-        ...     z = sample('z', ImproperUniform(constraints.greater_than(3), (6, 8), event_shape=(5,))
+    .. doctest::
+
+       >>> from numpyro import sample
+       >>> from numpyro.distributions import ImproperUniform, Normal, constraints
+       >>>
+       >>> def model():
+       ...     # ordered vector with length 10
+       ...     x = sample('x', ImproperUniform(constraints.ordered_vector, (), event_shape=(10,)))
+       ...
+       ...     # real matrix with shape (3, 4)
+       ...     y = sample('y', ImproperUniform(constraints.real, (), event_shape=(3, 4)))
+       ...
+       ...     # a shape-(6, 8) batch of length-5 vectors greater than 3
+       ...     z = sample('z', ImproperUniform(constraints.greater_than(3), (6, 8), event_shape=(5,)))
 
     If you want to set improper prior over all values greater than `a`, where `a` is
     another random variable, you might use
 
-        >>> x = sample('x', ImproperUniform(constraints.greater_than(a), (), event_shape=()))
+       >>> def model():
+       ...     a = sample('a', Normal(0, 1))
+       ...     x = sample('x', ImproperUniform(constraints.greater_than(a), (), event_shape=()))
 
     or if you want to reparameterize it
 
-        >>> from numpyro.distributions import constraints, transforms
-        >>> from numpyro.contrib.reparam import reparam, TransformReparam
-        >>>
-        >>> with reparam(config={'x': TransformReparam()}):
-        ...     x = sample('x',
-        ...                TransformedDistribution(ImproperUniform(constraints.positive, (), ()),
-        ...                                        transforms.AffineTransform(a, 1)))
+       >>> from numpyro.distributions import TransformedDistribution, transforms
+       >>> from numpyro.contrib.reparam import reparam, TransformReparam
+       >>>
+       >>> def model():
+       ...     a = sample('a', Normal(0, 1))
+       ...     with reparam(config={'x': TransformReparam()}):
+       ...         x = sample('x',
+       ...                    TransformedDistribution(ImproperUniform(constraints.positive, (), ()),
+       ...                                            transforms.AffineTransform(a, 1)))
 
     :param ~numpyro.distributions.constraints.Constraint support: the support of this distribution.
     :param tuple batch_shape: batch shape of this distribution. It is usually safe to
