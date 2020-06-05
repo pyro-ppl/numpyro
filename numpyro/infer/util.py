@@ -10,6 +10,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as np
 
 import numpyro
+from numpyro.distributions.constraints import _GreaterThan, _Interval
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import seed, substitute, trace
@@ -265,8 +266,18 @@ def get_model_transforms(model, model_args=(), model_kwargs=None):
     replay_model = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
-            inv_transforms[k] = biject_to(v['fn'].support)
+            support = v['fn'].support
+            inv_transforms[k] = biject_to(support)
             # TODO: check if the support is dynamic, then we set replay_model = True
+            # the following code filters out most situations with dynamic supports
+            args = ()
+            if isinstance(support, _GreaterThan):
+                args = ('lower_bound',)
+            elif isinstance(support, _Interval):
+                args = ('lower_bound', 'upper_bound')
+            for arg in args:
+                if not isinstance(getattr(support, arg), (int, float)):
+                    replay_model = True
         elif v['type'] == 'deterministic':
             replay_model = True
     return inv_transforms, replay_model, model_trace
