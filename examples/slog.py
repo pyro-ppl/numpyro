@@ -369,7 +369,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [200]:
+    for N in [800]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -380,7 +380,7 @@ def main(**args):
         print("starting {} inference...".format(args['inference']))
         if args['inference'] == 'svi':
             samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48,
-                                       method="cg")
+                                       method="direct")
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
