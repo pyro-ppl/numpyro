@@ -1,16 +1,17 @@
 from functools import namedtuple
 import numpy as onp
 import jax
-from jax import vmap, jit, custom_jvp, grad, jvp, vjp, value_and_grad
+from jax import vmap, jit, custom_jvp, grad, jvp, vjp, value_and_grad, jacfwd, jacrev
 from jax.lax import while_loop, fori_loop
 import jax.numpy as np
-from scipy.linalg import cho_solve
 import time
 from jax.util import partial
 from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve, eigh#, eigh_tridiagonal
 from numpy.testing import assert_allclose
+from tensor_sketch import create_sketch_transform, sketch_transform
 
-
+lowrank = None
+approx_kernel = None
 CGState = namedtuple('CGState', ['x', 'r', 'p', 'r_dot_r', 'iter'])
 PCGState = namedtuple('CGState', ['x', 'r', 'p', 'z', 'r_dot_z', 'iter'])
 
@@ -59,7 +60,16 @@ def cg(b, A, epsilon=1.0e-14, max_iters=4):
 
 
 def pcg(b, A, epsilon=1.0e-14, max_iters=4):
-    presolve = lambda rhs: rhs
+    if 0:
+        sigmasq = 0.1
+        M = sigmasq * np.eye(lowrank.shape[-1]) + np.matmul(np.transpose(lowrank), lowrank)
+        L = cho_factor(M, lower=True)[0]
+        def presolve(rhs):
+            lowrank_rhs = np.matmul(np.transpose(lowrank), rhs)
+            lowrank_rhs = cho_solve((L, True), lowrank_rhs)
+            return (1.0 / sigmasq) * (rhs - np.matmul(lowrank, lowrank_rhs))
+    else:
+        presolve = lambda rhs: rhs
     mvm = lambda rhs: np.matmul(A, rhs)
     cond_fun = lambda state: pcg_cond_fun(state, epsilon=epsilon, max_iters=max_iters)
     body_fun = lambda state: pcg_body_fun(state, mvm=mvm, presolve=presolve)
@@ -75,11 +85,8 @@ def cg_batch_b(b, A, epsilon=1.0e-14, max_iters=100):
 def cg_batch_bA(b, A, epsilon=1.0e-14, max_iters=100):
     return vmap(lambda _b, _A: cg(_b, _A, epsilon=epsilon, max_iters=max_iters))(b, A)
 
-def pcg_batch_b(b, A, epsilon=1.0e-14, max_iters=4):
-    ret = vmap(lambda _b: pcg(_b, A, epsilon=epsilon, max_iters=max_iters))(b)
-    print("res", np.mean(ret[1]))
-    return ret
-    #return vmap(lambda _b: pcg(_b, A, epsilon=epsilon, max_iters=max_iters))(b)
+def pcg_batch_b(b, A, epsilon=1.0e-14, max_iters=8):
+    return vmap(lambda _b: pcg(_b, A, epsilon=epsilon, max_iters=max_iters))(b)
 
 
 # compute logdet A + b A^{-1} b
@@ -124,7 +131,7 @@ def cg_quad_form_log_det_jvp(primals, tangents):
 # compute logdet A + b A^{-1} b
 @custom_jvp
 def pcg_quad_form_log_det(A, b, probes, max_iters=5):
-    return np.nan
+    return (np.nan, np.nan)
 
 
 @pcg_quad_form_log_det.defjvp
@@ -134,7 +141,8 @@ def pcg_quad_form_log_det_jvp(primals, tangents):
     D = b.shape[-1]
 
     b_probes = np.concatenate([b[None, :], probes])
-    Ainv_b_probes = pcg_batch_b(b_probes, A, max_iters=max_iters)[0]
+    Ainv_b_probes, res_norm, _ = pcg_batch_b(b_probes, A, max_iters=max_iters)
+    print("pcg res norm", np.mean(res_norm))
     Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
 
     quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
@@ -153,6 +161,35 @@ def symmetrize(x):
 
 
 if __name__ == "__main__":
+    t0 = time.time()
+    num_trials = 10
+    for trial in range(num_trials):
+        rng_key = jax.random.PRNGKey(trial)
+        onp.random.seed(trial)
+
+        N = 8000
+        D = 500
+        K = 1000
+        b = onp.random.randn(N)
+        X = onp.random.randn(N * D).reshape((N, D)) / onp.sqrt(D)
+        X[:, 10:] *= 0.01
+        transform = create_sketch_transform(rng_key, D, K)
+        lowrank = sketch_transform(X, transform)
+
+        sigmasq = 0.1
+        kernel = onp.square(np.matmul(X, np.transpose(X))) + sigmasq * onp.eye(N)
+        approx_kernel = onp.matmul(lowrank, onp.transpose(lowrank)) + sigmasq * onp.eye(N)
+
+        probes = onp.random.randn(8 * N).reshape((8, N))
+        value_and_grad(pcg_quad_form_log_det, 1)(kernel, b, probes)
+    t1= time.time()
+    print("time per comp", (t1-t0)/num_trials)
+
+
+
+    import sys; sys.exit()
+
+
     onp.random.seed(1)
     trials = 3
     D = 10
