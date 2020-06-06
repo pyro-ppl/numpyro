@@ -253,3 +253,19 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
         for name, p in init_params[0].items():
             # XXX: the result is equal if we disable fast-math-mode
             assert_allclose(p[i], init_params_i[0][name], atol=1e-6)
+
+
+@pytest.mark.parametrize('event_shape', [(3,), ()])
+def test_improper_expand(event_shape):
+
+    def model():
+        population = np.array([1000., 2000., 3000.])
+        with numpyro.plate("region", 3):
+            d = dist.ImproperUniform(support=constraints.interval(0, population),
+                                     batch_shape=(3,),
+                                     event_shape=event_shape)
+            incidence = numpyro.sample("incidence", d)
+            assert d.log_prob(incidence).shape == (3,)
+
+    model_info = initialize_model(random.PRNGKey(0), model)
+    assert model_info.param_info.z['incidence'].shape == (3,) + event_shape

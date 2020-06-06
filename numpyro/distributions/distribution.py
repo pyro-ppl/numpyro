@@ -396,6 +396,75 @@ class ExpandedDistribution(Distribution):
         return np.broadcast_to(self.base_dist.variance, self.batch_shape + self.event_shape)
 
 
+class ImproperUniform(Distribution):
+    """
+    A helper distribution with zero :meth:`log_prob` over the `support` domain.
+
+    .. note:: `sample` method is not implemented for this distribution. In autoguide and mcmc,
+        initial parameters for improper sites are derived from `init_to_uniform` or `init_to_value`
+        strategies.
+
+    **Usage:**
+
+    .. doctest::
+
+       >>> from numpyro import sample
+       >>> from numpyro.distributions import ImproperUniform, Normal, constraints
+       >>>
+       >>> def model():
+       ...     # ordered vector with length 10
+       ...     x = sample('x', ImproperUniform(constraints.ordered_vector, (), event_shape=(10,)))
+       ...
+       ...     # real matrix with shape (3, 4)
+       ...     y = sample('y', ImproperUniform(constraints.real, (), event_shape=(3, 4)))
+       ...
+       ...     # a shape-(6, 8) batch of length-5 vectors greater than 3
+       ...     z = sample('z', ImproperUniform(constraints.greater_than(3), (6, 8), event_shape=(5,)))
+
+    If you want to set improper prior over all values greater than `a`, where `a` is
+    another random variable, you might use
+
+       >>> def model():
+       ...     a = sample('a', Normal(0, 1))
+       ...     x = sample('x', ImproperUniform(constraints.greater_than(a), (), event_shape=()))
+
+    or if you want to reparameterize it
+
+       >>> from numpyro.distributions import TransformedDistribution, transforms
+       >>> from numpyro.contrib.reparam import reparam, TransformReparam
+       >>>
+       >>> def model():
+       ...     a = sample('a', Normal(0, 1))
+       ...     with reparam(config={'x': TransformReparam()}):
+       ...         x = sample('x',
+       ...                    TransformedDistribution(ImproperUniform(constraints.positive, (), ()),
+       ...                                            transforms.AffineTransform(a, 1)))
+
+    :param ~numpyro.distributions.constraints.Constraint support: the support of this distribution.
+    :param tuple batch_shape: batch shape of this distribution. It is usually safe to
+        set `batch_shape=()`.
+    :param tuple event_shape: event shape of this distribution.
+    """
+    arg_constraints = {}
+
+    def __init__(self, support, batch_shape, event_shape, validate_args=None):
+        self.support = support
+        super().__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value):
+        batch_shape = np.shape(value)[:np.ndim(value) - len(self.event_shape)]
+        batch_shape = lax.broadcast_shapes(batch_shape, self.batch_shape)
+        return np.zeros(batch_shape)
+
+    def _validate_sample(self, value):
+        mask = super(ImproperUniform, self)._validate_sample(value)
+        batch_dim = np.ndim(value) - len(self.event_shape)
+        if batch_dim < np.ndim(mask):
+            mask = np.all(np.reshape(mask, np.shape(mask)[:batch_dim] + (-1,)), -1)
+        return mask
+
+
 class Independent(Distribution):
     """
     Reinterprets batch dimensions of a distribution as event dims by shifting

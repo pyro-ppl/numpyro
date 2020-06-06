@@ -51,6 +51,7 @@ from numpyro.distributions.discrete import (
 from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
+    ImproperUniform,
     Independent,
     MaskedDistribution,
     TransformedDistribution,
@@ -87,6 +88,7 @@ __all__ = [
     'Gumbel',
     'HalfCauchy',
     'HalfNormal',
+    'ImproperUniform',
     'Independent',
     'InverseGamma',
     'LKJ',
