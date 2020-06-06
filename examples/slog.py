@@ -30,7 +30,7 @@ from numpyro.util import fori_loop
 from chunk_vmap import chunk_vmap
 
 import pickle
-from cg import cg_quad_form_log_det, direct_quad_form_log_det, structured_cg_quad_form_log_det
+from cg import cg_quad_form_log_det, direct_quad_form_log_det
 import jax.random as random
 
 
@@ -91,11 +91,6 @@ def model(X, Y, hypers, method="direct", rng=None, num_probes=8):
     elif method == "cg":
         probe = random.normal(rng, shape=(num_probes, N))
         obs_factor = log_factor - 0.5 * cg_quad_form_log_det(k_omega, 0.5 * kY, probe, max_iters=200)
-    elif method == "structured_cg":
-        probe = random.normal(rng, shape=(num_probes, N))
-        obs_factor = log_factor - 0.5 * structured_cg_quad_form_log_det(k_omega, 0.5 * kY, probe, kX, np.square(kX),
-                                                                        np.square(eta1), np.square(eta2),
-                                                                        hypers['c'], 1.0e-6, max_iters=400)
 
     numpyro.factor("obs", obs_factor)
 
@@ -381,7 +376,7 @@ def main(**args):
         print("starting {} inference...".format(args['inference']))
         if args['inference'] == 'svi':
             samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48,
-                                       method="structured_cg")
+                                       method="cg")
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
