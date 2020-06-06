@@ -30,7 +30,7 @@ from numpyro.util import fori_loop
 from chunk_vmap import chunk_vmap
 
 import pickle
-from cg import cg_quad_form_log_det, direct_quad_form_log_det
+from cg import cg_quad_form_log_det, direct_quad_form_log_det, structured_cg_quad_form_log_det
 import jax.random as random
 
 
@@ -61,24 +61,8 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
     return k1 + k2 + k3 + k4
 
 
-# X X^t b
-def quad_mvm(b, X):
-    result = np.einsum('np,n->p', X, b)
-    return np.einsum('np,p->n', X, result)
-
-def kernel_mvm(b, X, Xsq, eta1sq, eta2sq, c, jitter=1.0e-6):
-    XXb = quad_mvm(b, X)
-    k1b = 0.5 * eta2sq * (b + 2.0 * XXb + quad_mvm(XXb, X))
-    k2b = -0.5 * eta2sq * quad_mvm(b, Xsq)
-    k3b = (eta1sq - eta2sq) * XXb
-    k4b = (np.square(c) - 0.5 * eta2sq + jitter) * np.sum(b) * np.ones(b.shape)
-    return k1b + k2b + k3b + k4b
-
-
-
-
 # Most of the model code is concerned with constructing the sparsity inducing prior.
-def model(X, Y, hypers, method="direct", rng=None, num_probes=16):
+def model(X, Y, hypers, method="direct", rng=None, num_probes=8):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -106,7 +90,12 @@ def model(X, Y, hypers, method="direct", rng=None, num_probes=16):
         obs_factor = log_factor - 0.5 * direct_quad_form_log_det(k_omega, 0.5 * kY)
     elif method == "cg":
         probe = random.normal(rng, shape=(num_probes, N))
-        obs_factor = log_factor - 0.5 * cg_quad_form_log_det(k_omega, 0.5 * kY, probe, max_iters=400)
+        obs_factor = log_factor - 0.5 * cg_quad_form_log_det(k_omega, 0.5 * kY, probe, max_iters=200)
+    elif method == "structured_cg":
+        probe = random.normal(rng, shape=(num_probes, N))
+        obs_factor = log_factor - 0.5 * structured_cg_quad_form_log_det(k_omega, 0.5 * kY, probe, kX, np.square(kX),
+                                                                        np.square(eta1), np.square(eta2),
+                                                                        hypers['c'], 1.0e-6, max_iters=400)
 
     numpyro.factor("obs", obs_factor)
 
@@ -392,7 +381,7 @@ def main(**args):
         print("starting {} inference...".format(args['inference']))
         if args['inference'] == 'svi':
             samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48,
-                                       method="cg")
+                                       method="structured_cg")
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
