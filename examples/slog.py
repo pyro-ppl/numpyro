@@ -30,7 +30,7 @@ from numpyro.util import fori_loop
 from chunk_vmap import chunk_vmap
 
 import pickle
-from cg import cg_quad_form_log_det, direct_quad_form_log_det
+from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det
 import jax.random as random
 
 
@@ -62,7 +62,7 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
 
 
 # Most of the model code is concerned with constructing the sparsity inducing prior.
-def model(X, Y, hypers, method="direct", rng=None, num_probes=8):
+def model(rng, X, Y, hypers, method="direct", num_probes=12):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -84,18 +84,30 @@ def model(X, Y, hypers, method="direct", rng=None, num_probes=8):
     k_omega = k + np.eye(N) * (1.0 / omega)
 
     kY = np.matmul(k, Y)
-    log_factor = 0.125 * dot(Y, kY) - 0.5 * np.sum(np.log(omega))
+    log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
+
+    max_iters = 100
+    epsilon = 1.0e-8
 
     if method == "direct":
         obs_factor = log_factor - 0.5 * direct_quad_form_log_det(k_omega, 0.5 * kY)
     elif method == "cg":
         probe = random.normal(rng, shape=(num_probes, N))
-        obs_factor = log_factor - 0.5 * cg_quad_form_log_det(k_omega, 0.5 * kY, probe, max_iters=200)
+        qfld, res_norm, iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=epsilon, max_iters=max_iters)
+        obs_factor = log_factor - 0.5 * qfld
+    elif method == "cpcg":
+        probe = random.normal(rng, shape=(num_probes, N))
+        qfld = cpcg_quad_form_log_det(k_omega, 0.5 * kY, eta1, eta2, hypers['c'], X,
+                                                       1.0 / omega, probe, epsilon=epsilon, max_iters=max_iters)
+        obs_factor = log_factor - 0.5 * qfld
+
+    #numpyro.deterministic('res_norm', res_norm)
+    #numpyro.deterministic('iters', iters)
 
     numpyro.factor("obs", obs_factor)
 
 
-def guide(X, Y, hypers, method="direct", rng=None, num_probes=4):
+def guide(rng, X, Y, hypers, method="direct", num_probes=4):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -245,10 +257,10 @@ def run_hmc(model, args, rng_key, X, Y, hypers):
     return samples, elapsed_time
 
 def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="direct"):
-    adam = optim.Adam(args['lr'])  #guide = AutoDiagonalNormal(model)
-    svi = SVI(model, guide, adam, ELBO())  # AutoContinuousELBO()
     rng_key, rng_key_probe = random.split(rng_key, 2)
-    svi_state = svi.init(rng_key, X, Y, hypers)
+    adam = optim.Adam(args['lr'])
+    svi = SVI(model, guide, adam, ELBO())
+    svi_state = svi.init(rng_key, rng_key_probe, X, Y, hypers)
 
     num_steps = args['num_samples']
     report_frequency = 100
@@ -256,7 +268,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
 
     def body_fn(i, init_val):
         svi_state, old_loss = init_val
-        svi_state, loss = svi.update(svi_state, X, Y, hypers, method=method, rng=rng_key_probe)
+        svi_state, loss = svi.update(svi_state, rng_key_probe, X, Y, hypers, method=method)
         loss = (1.0 - beta) * loss + beta * old_loss
         return (svi_state, loss)
 
@@ -277,7 +289,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
     #return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'msq', 'xisq', 'lambda']
     return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'lambda']
     samples = Predictive(model, guide=guide, num_samples=num_samples, params=params,
-                         return_sites=return_sites)(rng_key_post, X, Y, hypers)
+                         return_sites=return_sites)(rng_key_post, rng_key_probe, X, Y, hypers)
 
     for k, v in samples.items():
         if v.ndim == 1:
@@ -320,8 +332,8 @@ def get_data(N=20, S=2, P=10, seed=0):
     expected_quad_dims = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11)]
     Y = onp.sum(X[:, 0:S] * W, axis=-1) + \
         pairwise_coefficient1 * (X[:, 0] * X[:, 1] - X[:, 2] * X[:, 3]) + \
-        pairwise_coefficient2 * (X[:, 4] * X[:, 5] - X[:, 6] * X[:, 7]) + \
-        pairwise_coefficient3 * (X[:, 8] * X[:, 9] - X[:, 10] * X[:, 11])
+        pairwise_coefficient2 * (X[:, 4] * X[:, 5] - X[:, 6] * X[:, 7])# + \
+        #pairwise_coefficient3 * (X[:, 8] * X[:, 9] - X[:, 10] * X[:, 11])
     Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
     print("number of 1s: {}  number of -1s: {}".format(np.sum(Y == 1.0), np.sum(Y == -1.0)))
 
@@ -365,18 +377,22 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [600]:
+    for N in [2000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
         X, Y, expected_thetas, expected_quad_dims = get_data(N=N, P=P, S=args['active_dimensions'], seed=args['seed'])
+        print("X, Y", X.shape, Y.shape)
 
         rng_key = random.PRNGKey(args['seed'])
 
-        print("starting {} inference...".format(args['inference']))
+        method = "cg"
+        inference_str = "svi-" + method if args['inference'] == 'svi' else 'hmc'
+
+        print("starting {} inference...".format(inference_str))
         if args['inference'] == 'svi':
             samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48,
-                                       method="cg")
+                                       method=method)
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
@@ -479,15 +495,15 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=50, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=200, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=12, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=16, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./very_large/', type=str)
