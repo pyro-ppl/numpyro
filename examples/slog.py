@@ -9,20 +9,17 @@ import time
 import numpy as onp
 
 import jax
-from jax import vmap, jit
+from jax import jit
 import jax.numpy as np
 import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-import numpyro.optim as optim
 from numpyro.infer import MCMC, NUTS, SVI, ELBO
-from numpyro.contrib.autoguide import AutoDiagonalNormal, AutoContinuousELBO
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.infer.util import Predictive
-from numpyro.handlers import seed, trace
-from numpyro.diagnostics import print_summary, summary
+from numpyro.diagnostics import print_summary
 from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpyro.util import enable_x64
 from numpyro.util import fori_loop
@@ -31,35 +28,7 @@ from chunk_vmap import chunk_vmap
 
 import pickle
 from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det
-import jax.random as random
-
-
-class CustomAdam(numpyro.optim.Adam):
-    def init(self, params, num_stats=2):
-        return super().init(params), np.zeros(num_stats)
-    def update(self, g, state):
-        return super().update(g, state[0]), g['stats']
-    def get_params(self, state):
-        return super().get_params(state[0])
-
-
-def record_stat(stat_value, num_stats=2):
-    stat = numpyro.param('stats', np.zeros(num_stats)) * jax.lax.stop_gradient(stat_value)
-    numpyro.factor('stats_dummy_factor', -stat + jax.lax.stop_gradient(stat))
-
-
-def sigmoid(x):
-      return 1.0 / (1.0 + np.exp(-x))
-
-
-def kdot(X, Z):
-    return np.dot(X, Z[..., None])[..., 0]
-
-
-def cho_tri_solve(A, b):
-    L = cho_factor(A, lower=True)[0]
-    Linv_b = solve_triangular(L, b, lower=True)
-    return L, Linv_b
+from utils import CustomAdam, record_stats, kdot, cho_tri_solve, sigmoid
 
 
 # The kernel that corresponds to our quadratic logit function
@@ -102,27 +71,22 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
 
     max_iters = 200
     epsilon = 0.001
-    rank = 50
-    res_norm, cg_iters = 0.0, 0.0
+    rank = 64
+    res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
-        obs_factor = log_factor - 0.5 * direct_quad_form_log_det(k_omega, 0.5 * kY)
+        qfld = direct_quad_form_log_det(k_omega, 0.5 * kY)
     elif method == "cg":
         probe = random.normal(rng, shape=(num_probes, N))
         qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=epsilon, max_iters=max_iters)
-        obs_factor = log_factor - 0.5 * qfld
     elif method == "cpcg":
         probe = random.normal(rng, shape=(num_probes, N))
         qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11))(k_omega, 0.5 * kY, eta1, eta2,
                                        hypers['c'], X, 1.0 / omega, kappa, probe, rank, epsilon, max_iters)
-        #qfld, res_norm, cg_iters = cpcg_quad_form_log_det(k_omega, 0.5 * kY, eta1, eta2, hypers['c'], X,
-        #                                                  1.0 / omega, kappa, probe,
-        #                                                  rank=rank, epsilon=epsilon, max_iters=max_iters)
-        obs_factor = log_factor - 0.5 * qfld
 
-    record_stat(np.array([res_norm, cg_iters]))
+    record_stats(np.array([res_norm, cg_iters]))
 
-    numpyro.factor("obs", obs_factor)
+    numpyro.factor("obs", log_factor - 0.5 * qfld)
 
 
 def guide(rng, X, Y, hypers, method="direct", num_probes=4):
@@ -281,7 +245,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
     svi_state = svi.init(rng_key, rng_key_probe, X, Y, hypers)
 
     num_steps = args['num_samples']
-    report_frequency = 50
+    report_frequency = 100
     beta = 0.95
     bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
@@ -411,7 +375,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [2000]:
+    for N in [11000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -529,22 +493,25 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=3200, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=1000, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=2000, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=24, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=32, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./very_large/', type=str)
+    parser.add_argument("--double", action="store_true")
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
-    #numpyro.set_host_device_count(args.num_chains)
-    #enable_x64()
+    numpyro.set_host_device_count(args.num_chains)
+
+    if args.double:
+        enable_x64()
 
     main(**vars(args))

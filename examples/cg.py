@@ -39,17 +39,19 @@ def kernel_approx(X, Z, eta1, eta2, c, jitter=1.0e-6, rank=0):
 #def quad_mvm(b, X):
 #    return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
 
-def lowrank_presolve(b, X, D, eta1sq, eta2sq, c, kappa, rank=0):
+
+def lowrank_presolve(b, X, D, eta1, eta2, c, kappa, rank=0):
     P = X.shape[-1]
     all_ones = np.ones((b.shape[-1], 1))
     top_features = dynamic_slice_in_dim(np.argsort(kappa), P - rank, P)
     X_top = np.take(X, top_features, -1)
-    eta12 = np.sqrt(eta1sq - eta2sq)
+    eta12 = np.sqrt(np.square(eta1) - np.square(eta2))
     Z = np.concatenate([eta12 * X_top, c * all_ones], axis=1)
     ZD = Z / D[:, None]
     ZDZ = np.eye(top_features.shape[-1] + 1) + np.matmul(np.transpose(Z), ZD)
     L = cho_factor(ZDZ, lower=True)[0]
     return b / D - np.matmul(ZD, cho_solve((L, True), np.matmul(np.transpose(ZD), b)))
+
 
 def cg_body_fun(state, mvm):
     x, r, p, r_dot_r, iteration = state
@@ -186,7 +188,7 @@ def cpcg_quad_form_log_det_jvp(primals, tangents):
     A_dot, b_dot, _, _, _, _, _, _, _, _, _, _ = tangents
     D = b.shape[-1]
 
-    presolve = lambda b: lowrank_presolve(b, X, diag, np.square(eta1), np.square(eta2), c, kappa, rank=rank)
+    presolve = lambda b: lowrank_presolve(b, X, diag, eta1, eta2, c, kappa, rank=rank)
 
     b_probes = np.concatenate([b[None, :], probes])
     Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, A, presolve=presolve, epsilon=epsilon, max_iters=max_iters)
