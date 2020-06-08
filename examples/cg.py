@@ -156,7 +156,6 @@ def direct_quad_form_log_det(A, b, include_log_det=True):
 def cg_quad_form_log_det(A, b, probes, epsilon=1.0e-5, max_iters=100):
     return (np.nan, np.nan, np.nan)
 
-
 @cg_quad_form_log_det.defjvp
 def cg_quad_form_log_det_jvp(primals, tangents):
     A, b, probes, epsilon, max_iters = primals

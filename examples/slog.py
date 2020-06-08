@@ -34,6 +34,20 @@ from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_lo
 import jax.random as random
 
 
+class CustomAdam(numpyro.optim.Adam):
+    def init(self, params):
+        return super().init(params), 0.0, 0.0
+    def update(self, g, state):
+        return super().update(g, state[0]), g['stat1'], g['stat2']
+    def get_params(self, state):
+        return super().get_params(state[0])
+
+
+def record_stat(stat_name, stat_value):
+    stat = numpyro.param(stat_name, 0.) * jax.lax.stop_gradient(stat_value)
+    numpyro.factor(stat_name + '_dummy_factor', -stat + jax.lax.stop_gradient(stat))
+
+
 def sigmoid(x):
       return 1.0 / (1.0 + np.exp(-x))
 
@@ -86,23 +100,24 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
     kY = np.matmul(k, Y)
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
-    max_iters = 100
-    epsilon = 1.0e-8
+    max_iters = 200
+    epsilon = 1.0e-4
+    res_norm, cg_iters = 0.0, 0.0
 
     if method == "direct":
         obs_factor = log_factor - 0.5 * direct_quad_form_log_det(k_omega, 0.5 * kY)
     elif method == "cg":
         probe = random.normal(rng, shape=(num_probes, N))
-        qfld, res_norm, iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=epsilon, max_iters=max_iters)
+        qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=epsilon, max_iters=max_iters)
         obs_factor = log_factor - 0.5 * qfld
     elif method == "cpcg":
         probe = random.normal(rng, shape=(num_probes, N))
         qfld = cpcg_quad_form_log_det(k_omega, 0.5 * kY, eta1, eta2, hypers['c'], X,
-                                                       1.0 / omega, probe, epsilon=epsilon, max_iters=max_iters)
+                                      1.0 / omega, probe, epsilon=epsilon, max_iters=max_iters)
         obs_factor = log_factor - 0.5 * qfld
 
-    #numpyro.deterministic('res_norm', res_norm)
-    #numpyro.deterministic('iters', iters)
+    record_stat('stat1', res_norm)
+    record_stat('stat2', cg_iters)
 
     numpyro.factor("obs", obs_factor)
 
@@ -258,7 +273,7 @@ def run_hmc(model, args, rng_key, X, Y, hypers):
 
 def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="direct"):
     rng_key, rng_key_probe = random.split(rng_key, 2)
-    adam = optim.Adam(args['lr'])
+    adam = CustomAdam(args['lr'])
     svi = SVI(model, guide, adam, ELBO())
     svi_state = svi.init(rng_key, rng_key_probe, X, Y, hypers)
 
@@ -267,21 +282,28 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
     beta = 0.95
 
     def body_fn(i, init_val):
-        svi_state, old_loss = init_val
+        svi_state, old_loss, old_rn, old_iters = init_val
         svi_state, loss = svi.update(svi_state, rng_key_probe, X, Y, hypers, method=method)
         loss = (1.0 - beta) * loss + beta * old_loss
-        return (svi_state, loss)
+        rn = (1.0 - beta) * svi_state.optim_state[1] + beta * old_rn
+        cg_iters = (1.0 - beta) * svi_state.optim_state[2] + beta * old_iters
+        return (svi_state, loss, rn, cg_iters)
 
     @jit
-    def do_chunk(svi_state, loss):
-        return fori_loop(0, report_frequency, body_fn, (svi_state, loss))
+    def do_chunk(svi_state):
+        return fori_loop(0, report_frequency, body_fn, (svi_state, 0.0, 0.0, 0.0))
 
     ts = [time.time()]
     for step_chunk in range(1, 1 + num_steps // report_frequency):
-        svi_state, loss = do_chunk(svi_state, 0.0)
+        svi_state, loss, res_norm, cg_iters = do_chunk(svi_state)
         ts.append(time.time())
         dt = (ts[-1] - ts[-2]) / float(report_frequency)
-        print("[iter %03d]  %.3f \t\t [dt: %.3f]" % (step_chunk * report_frequency, loss, dt))
+        if method != "direct":
+            print("[iter %03d]  %.3f \t\t  res_norm: %.2e  cg_iters: %.1f \t\t [dt: %.3f]" % (step_chunk * report_frequency,
+                  loss, res_norm, cg_iters, dt))
+        else:
+            print("[iter %03d]  %.3f \t\t [dt: %.3f]" % (step_chunk * report_frequency, loss, dt))
+
     elapsed_time = time.time() - ts[0]
 
     params = svi.get_params(svi_state)
@@ -377,7 +399,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [2000]:
+    for N in [200]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
