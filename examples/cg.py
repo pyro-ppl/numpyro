@@ -1,29 +1,29 @@
 from functools import namedtuple
 import numpy as onp
 import jax
-from jax import vmap, jit, custom_jvp, grad, jvp, vjp, value_and_grad, jacfwd, jacrev
-from jax.lax import while_loop, fori_loop
+from jax import vmap, jit, custom_jvp, value_and_grad
+from jax.lax import while_loop, dynamic_slice_in_dim
 import jax.numpy as np
 import time
-from jax.util import partial
-from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve, eigh#, eigh_tridiagonal
+from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpy.testing import assert_allclose
 from tensor_sketch import create_sketch_transform, sketch_transform
+
 
 CGState = namedtuple('CGState', ['x', 'r', 'p', 'r_dot_r', 'iter'])
 PCGState = namedtuple('CGState', ['x', 'r', 'p', 'z', 'r_dot_z', 'iter'])
 
 
-def dot(X, Z):
+def kdot(X, Z):
     return onp.dot(X, Z[..., None])[..., 0]
 
 
 def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
     eta1sq = onp.square(eta1)
     eta2sq = onp.square(eta2)
-    k1 = 0.5 * eta2sq * onp.square(1.0 + dot(X, Z))
-    k2 = -0.5 * eta2sq * dot(onp.square(X), onp.square(Z))
-    k3 = (eta1sq - eta2sq) * dot(X, Z)
+    k1 = 0.5 * eta2sq * onp.square(1.0 + kdot(X, Z))
+    k2 = -0.5 * eta2sq * kdot(onp.square(X), onp.square(Z))
+    k3 = (eta1sq - eta2sq) * kdot(X, Z)
     k4 = onp.square(c) - 0.5 * eta2sq
     if X.shape == Z.shape:
         k4 += jitter * onp.eye(X.shape[0])
@@ -32,32 +32,22 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
 def kernel_approx(X, Z, eta1, eta2, c, jitter=1.0e-6, rank=0):
     eta1sq = onp.square(eta1)
     eta2sq = onp.square(eta2)
-    #k1 = 0.5 * eta2sq * onp.square(1.0 + dot(X, Z))
-    #k2 = -0.5 * eta2sq * dot(onp.square(X), onp.square(Z))
-    if rank > 0:
-        k3 = (eta1sq - eta2sq) * dot(X[:, :rank], Z[:, :rank])
-    else:
-        k3 = 0.0
+    k3 = (eta1sq - eta2sq) * kdot(X[:, :rank], Z[:, :rank])
     k4 = onp.square(c) - 0.5 * eta2sq + jitter * onp.eye(X.shape[0])
     return k3 + k4
 
-def quad_mvm(b, X):
-    return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
+#def quad_mvm(b, X):
+#    return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
 
-def lowrank_presolve(b, X, D, eta1sq, eta2sq, c, rank=0):
-    #if rank == 0:
-    #    Dinv = 1.0 / D
-    #    Dinv_b = Dinv * b
-    #    cetasq = np.square(c) - 0.5 * eta2sq
-    #    factor = cetasq / (1.0 + cetasq * np.sum(Dinv)) * np.sum(Dinv_b)
-    #    return Dinv_b - factor * Dinv
-    #else:
+def lowrank_presolve(b, X, D, eta1sq, eta2sq, c, kappa, rank=0):
+    P = X.shape[-1]
+    all_ones = np.ones((b.shape[-1], 1))
+    top_features = dynamic_slice_in_dim(np.argsort(kappa), P - rank, P)
+    X_top = np.take(X, top_features, -1)
     eta12 = np.sqrt(eta1sq - eta2sq)
-    y = c * np.ones((b.shape[-1], 1))
-    rank = 16
-    Z = np.concatenate([eta12 * X[:, :rank], y], axis=1)
+    Z = np.concatenate([eta12 * X_top, c * all_ones], axis=1)
     ZD = Z / D[:, None]
-    ZDZ = np.eye(rank+1) + np.matmul(np.transpose(Z), ZD)
+    ZDZ = np.eye(top_features.shape[-1] + 1) + np.matmul(np.transpose(Z), ZD)
     L = cho_factor(ZDZ, lower=True)[0]
     return b / D - np.matmul(ZD, cho_solve((L, True), np.matmul(np.transpose(ZD), b)))
 
@@ -104,22 +94,7 @@ def cg(b, A, epsilon=1.0e-4, max_iters=50):
     return final_state.x, np.sqrt(final_state.r_dot_r), final_state.iter
 
 
-#def woodruff_presolve(lowrank, rhs):
-#    sigmasq = 0.1
-#    M = sigmasq * np.eye(lowrank.shape[-1]) + np.matmul(np.transpose(lowrank), lowrank)
-#    L = cho_factor(M, lower=True)[0]
-#    def presolve(rhs):
-#        lowrank_rhs = np.matmul(np.transpose(lowrank), rhs)
-#        lowrank_rhs = cho_solve((L, True), lowrank_rhs)
-#        return (1.0 / sigmasq) * (rhs - np.matmul(lowrank, lowrank_rhs))
-
-
 def pcg(b, A, presolve, epsilon=1.0e-4, max_iters=4):
-    #if 1:
-    #    L = cho_factor(approx, lower=True)[0]
-    #    presolve = lambda rhs: cho_solve((L, True), rhs)
-    #else:
-    #    presolve = lambda rhs: rhs #/ np.mean(np.diag(A))
     mvm = lambda rhs: np.matmul(A, rhs)
     cond_fun = lambda state: pcg_cond_fun(state, epsilon=epsilon, max_iters=max_iters)
     body_fun = lambda state: pcg_body_fun(state, mvm=mvm, presolve=presolve)
@@ -164,7 +139,6 @@ def cg_quad_form_log_det_jvp(primals, tangents):
 
     b_probes = np.concatenate([b[None, :], probes])
     Ainv_b_probes, res_norm, iters = cg_batch_b(b_probes, A, epsilon=epsilon, max_iters=max_iters)
-    #print("cg res_norm", np.mean(res_norm), np.mean(iters))
     Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
 
     quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
@@ -173,9 +147,6 @@ def cg_quad_form_log_det_jvp(primals, tangents):
     tangent_out = log_det_dA + quad_form_dA + quad_form_db
     quad_form = np.dot(b, Ainv_b)
 
-    #if not report_stats:
-    #    return quad_form, tangent_out
-    #else:
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
 
@@ -206,20 +177,19 @@ def pcg_quad_form_log_det_jvp(primals, tangents):
 
 # compute logdet A + b A^{-1} b
 @custom_jvp
-def cpcg_quad_form_log_det(A, b, eta1, eta2, c, X, D, probes, rank=0, epsilon=1.0e-5, max_iters=20):
-    return np.nan
+def cpcg_quad_form_log_det(A, b, eta1, eta2, c, X, D, kappa, probes, rank=0, epsilon=1.0e-5, max_iters=20):
+    return (np.nan, np.nan, np.nan)
 
 @cpcg_quad_form_log_det.defjvp
 def cpcg_quad_form_log_det_jvp(primals, tangents):
-    A, b, eta1, eta2, c, X, diag, probes, rank, epsilon, max_iters = primals
-    A_dot, b_dot, _, _, _, _, _, _, _, _, _ = tangents
+    A, b, eta1, eta2, c, X, diag, kappa, probes, rank, epsilon, max_iters = primals
+    A_dot, b_dot, _, _, _, _, _, _, _, _, _, _ = tangents
     D = b.shape[-1]
 
-    presolve = lambda b: lowrank_presolve(b, X, diag, np.square(eta1), np.square(eta2), c, rank=rank)
+    presolve = lambda b: lowrank_presolve(b, X, diag, np.square(eta1), np.square(eta2), c, kappa, rank=rank)
 
     b_probes = np.concatenate([b[None, :], probes])
     Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, A, presolve=presolve, epsilon=epsilon, max_iters=max_iters)
-    #print("pcg resnorm", np.mean(res_norm), np.mean(iters))
     Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
 
     quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
@@ -228,7 +198,7 @@ def cpcg_quad_form_log_det_jvp(primals, tangents):
     tangent_out = log_det_dA + quad_form_dA + quad_form_db
     quad_form = np.dot(b, Ainv_b)
 
-    return quad_form, tangent_out
+    return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
 
 

@@ -6,6 +6,17 @@ from jax.numpy.fft import fft, ifft
 from numpy.testing import assert_allclose
 
 
+#def woodruff_presolve(lowrank, rhs):
+#    sigmasq = 0.1
+#    M = sigmasq * np.eye(lowrank.shape[-1]) + np.matmul(np.transpose(lowrank), lowrank)
+#    L = cho_factor(M, lower=True)[0]
+#    def presolve(rhs):
+#        lowrank_rhs = np.matmul(np.transpose(lowrank), rhs)
+#        lowrank_rhs = cho_solve((L, True), lowrank_rhs)
+#        return (1.0 / sigmasq) * (rhs - np.matmul(lowrank, lowrank_rhs))
+
+
+
 def create_sketch_transform(rng_key, D, K):
     hash_indices = random.categorical(rng_key, np.zeros(K), shape=(2, D))
     hash_signs = 2 * random.bernoulli(rng_key, shape=(2, D)) - 1

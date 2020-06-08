@@ -52,7 +52,7 @@ def sigmoid(x):
       return 1.0 / (1.0 + np.exp(-x))
 
 
-def dot(X, Z):
+def kdot(X, Z):
     return np.dot(X, Z[..., None])[..., 0]
 
 
@@ -66,9 +66,9 @@ def cho_tri_solve(A, b):
 def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
-    k1 = 0.5 * eta2sq * np.square(1.0 + dot(X, Z))
-    k2 = -0.5 * eta2sq * dot(np.square(X), np.square(Z))
-    k3 = (eta1sq - eta2sq) * dot(X, Z)
+    k1 = 0.5 * eta2sq * np.square(1.0 + kdot(X, Z))
+    k2 = -0.5 * eta2sq * kdot(np.square(X), np.square(Z))
+    k3 = (eta1sq - eta2sq) * kdot(X, Z)
     k4 = np.square(c) - 0.5 * eta2sq
     if X.shape == Z.shape:
         k4 += jitter * np.eye(X.shape[0])
@@ -101,7 +101,8 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    epsilon = 5.0e-0
+    epsilon = 0.001
+    rank = 50
     res_norm, cg_iters = 0.0, 0.0
 
     if method == "direct":
@@ -112,8 +113,11 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
         obs_factor = log_factor - 0.5 * qfld
     elif method == "cpcg":
         probe = random.normal(rng, shape=(num_probes, N))
-        qfld = cpcg_quad_form_log_det(k_omega, 0.5 * kY, eta1, eta2, hypers['c'], X,
-                                      1.0 / omega, probe, epsilon=epsilon, max_iters=max_iters)
+        qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11))(k_omega, 0.5 * kY, eta1, eta2,
+                                       hypers['c'], X, 1.0 / omega, kappa, probe, rank, epsilon, max_iters)
+        #qfld, res_norm, cg_iters = cpcg_quad_form_log_det(k_omega, 0.5 * kY, eta1, eta2, hypers['c'], X,
+        #                                                  1.0 / omega, kappa, probe,
+        #                                                  rank=rank, epsilon=epsilon, max_iters=max_iters)
         obs_factor = log_factor - 0.5 * qfld
 
     record_stat(np.array([res_norm, cg_iters]))
@@ -156,7 +160,7 @@ def compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, om
     L = cho_factor(k_xx + np.eye(X.shape[0]) * (1.0 / omega), lower=True)[0]
 
     mu = 0.5 * cho_solve((L, True), Y / omega)
-    mu = np.dot(vec, dot(k_probeX, mu))
+    mu = np.dot(vec, np.dot(k_probeX, mu))
 
     Linv_kXprobe = solve_triangular(L, np.transpose(k_probeX), lower=True)
     var = k_prbprb - np.matmul(np.transpose(Linv_kXprobe), Linv_kXprobe)
@@ -227,7 +231,7 @@ def process_probe(kprobe, kX, L, LL_Y, vec, eta1, eta2, c):
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
 
-    mu = np.dot(vec, dot(k_probeX, LL_Y))
+    mu = np.dot(vec, np.dot(k_probeX, LL_Y))
 
     Linv_kXprobe = solve_triangular(L, np.transpose(k_probeX), lower=True)
     var = k_prbprb - np.matmul(np.transpose(Linv_kXprobe), Linv_kXprobe)
@@ -277,8 +281,9 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
     svi_state = svi.init(rng_key, rng_key_probe, X, Y, hypers)
 
     num_steps = args['num_samples']
-    report_frequency = 100
+    report_frequency = 50
     beta = 0.95
+    bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
     def body_fn(i, init_val):
         svi_state, old_loss, old_stats = init_val
@@ -292,21 +297,30 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
         return fori_loop(0, report_frequency, body_fn, (svi_state, 0.0, np.zeros(2)))
 
     ts = [time.time()]
+    res_norm_history = []
+    cg_iters_history = []
+
     for step_chunk in range(1, 1 + num_steps // report_frequency):
         svi_state, loss, (res_norm, cg_iters) = do_chunk(svi_state)
+        loss *= bias_correction
+        res_norm *= bias_correction
+        cg_iters *= bias_correction
         ts.append(time.time())
         dt = (ts[-1] - ts[-2]) / float(report_frequency)
         if method != "direct":
             print("[iter %03d]  %.3f \t\t  res_norm: %.2e  cg_iters: %.1f \t\t [dt: %.3f]" % (step_chunk * report_frequency,
                   loss, res_norm, cg_iters, dt))
+            res_norm_history.append(res_norm)
+            cg_iters_history.append(cg_iters)
         else:
             print("[iter %03d]  %.3f \t\t [dt: %.3f]" % (step_chunk * report_frequency, loss, dt))
 
+    print("res_norm_history", res_norm_history)
+    print("cg_iters_history", cg_iters_history)
     elapsed_time = time.time() - ts[0]
 
     params = svi.get_params(svi_state)
     rng_key_post = random.PRNGKey(args['seed'] + 1373483)
-    #return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'msq', 'xisq', 'lambda']
     return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'lambda']
     samples = Predictive(model, guide=guide, num_samples=num_samples, params=params,
                          return_sites=return_sites)(rng_key_post, rng_key_probe, X, Y, hypers)
@@ -352,8 +366,8 @@ def get_data(N=20, S=2, P=10, seed=0):
     expected_quad_dims = [(0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11)]
     Y = onp.sum(X[:, 0:S] * W, axis=-1) + \
         pairwise_coefficient1 * (X[:, 0] * X[:, 1] - X[:, 2] * X[:, 3]) + \
-        pairwise_coefficient2 * (X[:, 4] * X[:, 5] - X[:, 6] * X[:, 7])# + \
-        #pairwise_coefficient3 * (X[:, 8] * X[:, 9] - X[:, 10] * X[:, 11])
+        pairwise_coefficient2 * (X[:, 4] * X[:, 5] - X[:, 6] * X[:, 7]) + \
+        pairwise_coefficient3 * (X[:, 8] * X[:, 9] - X[:, 10] * X[:, 11])
     Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
     print("number of 1s: {}  number of -1s: {}".format(np.sum(Y == 1.0), np.sum(Y == -1.0)))
 
@@ -397,7 +411,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [3000]:
+    for N in [2000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -406,7 +420,7 @@ def main(**args):
 
         rng_key = random.PRNGKey(args['seed'])
 
-        method = "cg"
+        method = "cpcg"
         inference_str = "svi-" + method if args['inference'] == 'svi' else 'hmc'
 
         print("starting {} inference...".format(inference_str))
@@ -515,22 +529,22 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=200, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=1000, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=16, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=24, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
-    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./very_large/', type=str)
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
     #numpyro.set_host_device_count(args.num_chains)
-    enable_x64()
+    #enable_x64()
 
     main(**vars(args))
