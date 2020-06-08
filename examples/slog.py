@@ -35,17 +35,17 @@ import jax.random as random
 
 
 class CustomAdam(numpyro.optim.Adam):
-    def init(self, params):
-        return super().init(params), 0.0, 0.0
+    def init(self, params, num_stats=2):
+        return super().init(params), np.zeros(num_stats)
     def update(self, g, state):
-        return super().update(g, state[0]), g['stat1'], g['stat2']
+        return super().update(g, state[0]), g['stats']
     def get_params(self, state):
         return super().get_params(state[0])
 
 
-def record_stat(stat_name, stat_value):
-    stat = numpyro.param(stat_name, 0.) * jax.lax.stop_gradient(stat_value)
-    numpyro.factor(stat_name + '_dummy_factor', -stat + jax.lax.stop_gradient(stat))
+def record_stat(stat_value, num_stats=2):
+    stat = numpyro.param('stats', np.zeros(num_stats)) * jax.lax.stop_gradient(stat_value)
+    numpyro.factor('stats_dummy_factor', -stat + jax.lax.stop_gradient(stat))
 
 
 def sigmoid(x):
@@ -101,7 +101,7 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    epsilon = 1.0e-4
+    epsilon = 5.0e-0
     res_norm, cg_iters = 0.0, 0.0
 
     if method == "direct":
@@ -116,8 +116,7 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
                                       1.0 / omega, probe, epsilon=epsilon, max_iters=max_iters)
         obs_factor = log_factor - 0.5 * qfld
 
-    record_stat('stat1', res_norm)
-    record_stat('stat2', cg_iters)
+    record_stat(np.array([res_norm, cg_iters]))
 
     numpyro.factor("obs", obs_factor)
 
@@ -282,20 +281,19 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
     beta = 0.95
 
     def body_fn(i, init_val):
-        svi_state, old_loss, old_rn, old_iters = init_val
+        svi_state, old_loss, old_stats = init_val
         svi_state, loss = svi.update(svi_state, rng_key_probe, X, Y, hypers, method=method)
         loss = (1.0 - beta) * loss + beta * old_loss
-        rn = (1.0 - beta) * svi_state.optim_state[1] + beta * old_rn
-        cg_iters = (1.0 - beta) * svi_state.optim_state[2] + beta * old_iters
-        return (svi_state, loss, rn, cg_iters)
+        stats = (1.0 - beta) * svi_state.optim_state[1] + beta * old_stats
+        return (svi_state, loss, stats)
 
     @jit
     def do_chunk(svi_state):
-        return fori_loop(0, report_frequency, body_fn, (svi_state, 0.0, 0.0, 0.0))
+        return fori_loop(0, report_frequency, body_fn, (svi_state, 0.0, np.zeros(2)))
 
     ts = [time.time()]
     for step_chunk in range(1, 1 + num_steps // report_frequency):
-        svi_state, loss, res_norm, cg_iters = do_chunk(svi_state)
+        svi_state, loss, (res_norm, cg_iters) = do_chunk(svi_state)
         ts.append(time.time())
         dt = (ts[-1] - ts[-2]) / float(report_frequency)
         if method != "direct":
@@ -399,7 +397,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [200]:
+    for N in [3000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
