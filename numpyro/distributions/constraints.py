@@ -118,6 +118,13 @@ class _IntegerInterval(Constraint):
         return (x >= self.lower_bound) & (x <= self.upper_bound) & (x == np.floor(x))
 
 
+class _IntegerGreaterThan(Constraint):
+    def __init__(self, lower_bound):
+        self.lower_bound = lower_bound
+
+    def __call__(self, x):
+        return (x % 1 == 0) & (x >= self.lower_bound)
+
 class _Open_Interval(Constraint):
     def __init__(self, lower_bound, upper_bound):
         self.lower_bound = lower_bound
