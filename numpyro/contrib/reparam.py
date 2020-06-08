@@ -97,10 +97,16 @@ class TransformReparam(Reparam):
     """
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
+        batch_shape = fn.batch_shape
+        if isinstance(fn, dist.ExpandedDistribution):
+            fn = fn.base_dist
         assert isinstance(fn, dist.TransformedDistribution)
 
         # Draw noise from the base distribution.
-        x = numpyro.sample("{}_base".format(name), fn.base_dist)
+        # We need to make sure that we have the same batch_shape
+        reinterpreted_batch_ndims = fn.event_dim - fn.base_dist.event_dim
+        x = numpyro.sample("{}_base".format(name),
+                           fn.base_dist.to_event(reinterpreted_batch_ndims).expand(batch_shape))
 
         # Differentiably transform.
         for t in fn.transforms:
@@ -170,10 +176,11 @@ class NeuTraReparam(Reparam):
         if not self._x_unconstrained:  # On first sample site.
             # Sample a shared latent.
             z_unconstrained = numpyro.sample("{}_shared_latent".format(self.guide.prefix),
-                                             self.guide.base_dist.mask(False))
+                                             self.guide.get_base_dist().mask(False))
 
             # Differentiably transform.
             x_unconstrained = self.transform(z_unconstrained)
+            # TODO: find a way to only compute those log_prob terms when needed
             log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
             self._x_unconstrained = self.guide._unpack_latent(x_unconstrained)
 

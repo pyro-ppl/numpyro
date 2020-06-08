@@ -54,8 +54,21 @@ import jax.numpy as np
 
 
 class Constraint(object):
+    """
+    Abstract base class for constraints.
+
+    A constraint object represents a region over which a variable is valid,
+    e.g. within which a variable can be optimized.
+    """
     def __call__(self, x):
         raise NotImplementedError
+
+    def check(self, value):
+        """
+        Returns a byte tensor of `sample_shape + batch_shape` indicating
+        whether each event in value satisfies this constraint.
+        """
+        return self(value)
 
 
 class _Boolean(Constraint):

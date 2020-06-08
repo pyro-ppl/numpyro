@@ -20,7 +20,8 @@ from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
     init_to_prior,
-    init_to_uniform
+    init_to_uniform,
+    init_to_value,
 )
 from numpyro.infer.util import (
     Predictive,
@@ -158,13 +159,12 @@ def test_model_with_transformed_distribution():
         inv_transforms['y'].log_abs_det_jacobian(params['y'], expected_samples['y'])
     )
 
-    base_inv_transforms = {'x': biject_to(x_prior.support), 'y_base': biject_to(y_prior.base_dist.support)}
     reparam_model = reparam(model, {'y': TransformReparam()})
     base_params = {'x': params['x'], 'y_base': params['y']}
     actual_samples = constrain_fn(
         handlers.seed(reparam_model, random.PRNGKey(0)),
-        base_inv_transforms, (), {}, base_params, return_deterministic=True)
-    actual_potential_energy = potential_energy(reparam_model, base_inv_transforms, (), {}, base_params)
+        (), {}, base_params, return_deterministic=True)
+    actual_potential_energy = potential_energy(reparam_model, (), {}, base_params)
 
     assert_allclose(expected_samples['x'], actual_samples['x'])
     assert_allclose(expected_samples['y'], actual_samples['y'])
@@ -187,7 +187,13 @@ def test_model_with_mask_false():
     init_to_feasible(),
     init_to_median(num_samples=2),
     init_to_prior(),
-    init_to_uniform(),
+    init_to_uniform(radius=3),
+    init_to_value(values={'tau': 0.7}),
+    init_to_feasible,
+    init_to_median,
+    init_to_prior,
+    init_to_uniform,
+    init_to_value,
 ])
 def test_initialize_model_change_point(init_strategy):
     def model(data):
@@ -208,16 +214,16 @@ def test_initialize_model_change_point(init_strategy):
     ])
 
     rng_keys = random.split(random.PRNGKey(1), 2)
-    init_params, _, _ = initialize_model(rng_keys, model,
-                                         init_strategy=init_strategy,
-                                         model_args=(count_data,))
+    init_params, _, _, _ = initialize_model(rng_keys, model,
+                                            init_strategy=init_strategy,
+                                            model_args=(count_data,))
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rng_keys[i], model,
-                                               init_strategy=init_strategy,
-                                               model_args=(count_data,))
-        for name, p in init_params.items():
+        init_params_i, _, _, _ = initialize_model(rng_keys[i], model,
+                                                  init_strategy=init_strategy,
+                                                  model_args=(count_data,))
+        for name, p in init_params[0].items():
             # XXX: the result is equal if we disable fast-math-mode
-            assert_allclose(p[i], init_params_i[name], atol=1e-6)
+            assert_allclose(p[i], init_params_i[0][name], atol=1e-6)
 
 
 @pytest.mark.parametrize('init_strategy', [
@@ -237,13 +243,29 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
 
     rng_keys = random.split(random.PRNGKey(1), 2)
-    init_params, _, _ = initialize_model(rng_keys, model,
-                                         init_strategy=init_strategy,
-                                         model_args=(data,))
+    init_params, _, _, _ = initialize_model(rng_keys, model,
+                                            init_strategy=init_strategy,
+                                            model_args=(data,))
     for i in range(2):
-        init_params_i, _, _ = initialize_model(rng_keys[i], model,
-                                               init_strategy=init_strategy,
-                                               model_args=(data,))
-        for name, p in init_params.items():
+        init_params_i, _, _, _ = initialize_model(rng_keys[i], model,
+                                                  init_strategy=init_strategy,
+                                                  model_args=(data,))
+        for name, p in init_params[0].items():
             # XXX: the result is equal if we disable fast-math-mode
-            assert_allclose(p[i], init_params_i[name], atol=1e-6)
+            assert_allclose(p[i], init_params_i[0][name], atol=1e-6)
+
+
+@pytest.mark.parametrize('event_shape', [(3,), ()])
+def test_improper_expand(event_shape):
+
+    def model():
+        population = np.array([1000., 2000., 3000.])
+        with numpyro.plate("region", 3):
+            d = dist.ImproperUniform(support=constraints.interval(0, population),
+                                     batch_shape=(3,),
+                                     event_shape=event_shape)
+            incidence = numpyro.sample("incidence", d)
+            assert d.log_prob(incidence).shape == (3,)
+
+    model_info = initialize_model(random.PRNGKey(0), model)
+    assert model_info.param_info.z['incidence'].shape == (3,) + event_shape

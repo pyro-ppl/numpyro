@@ -31,9 +31,9 @@ def test_mcmc_one_chain(deterministic):
     mcmc.get_samples()
 
     if deterministic:
-        assert GLOBAL["count"] == 8
+        assert GLOBAL["count"] == 4
     else:
-        assert GLOBAL["count"] == 7
+        assert GLOBAL["count"] == 3
 
 
 @pytest.mark.parametrize('deterministic', [True, False])
@@ -45,9 +45,9 @@ def test_mcmc_parallel_chain(deterministic):
     mcmc.get_samples()
 
     if deterministic:
-        assert GLOBAL["count"] == 10
+        assert GLOBAL["count"] == 4
     else:
-        assert GLOBAL["count"] == 9
+        assert GLOBAL["count"] == 3
 
 
 @pytest.mark.parametrize('deterministic', [True, False])
@@ -61,6 +61,6 @@ def test_autoguide(deterministic):
     guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(100,))
 
     if deterministic:
-        assert GLOBAL["count"] == 6
-    else:
         assert GLOBAL["count"] == 5
+    else:
+        assert GLOBAL["count"] == 4
