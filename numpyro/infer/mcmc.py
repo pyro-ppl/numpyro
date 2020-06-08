@@ -1176,9 +1176,9 @@ class MCMC(object):
             method. These are typically the keyword arguments needed by the `model`.
 
         .. note:: jax allows python code to continue even when the compiled code has not finished yet.
-        This can cause troubles when trying to profile the code for speed.
-        See https://jax.readthedocs.io/en/latest/async_dispatch.html and
-        https://jax.readthedocs.io/en/latest/profiling.html for pointers on profiling jax programs.
+            This can cause troubles when trying to profile the code for speed.
+            See https://jax.readthedocs.io/en/latest/async_dispatch.html and
+            https://jax.readthedocs.io/en/latest/profiling.html for pointers on profiling jax programs.
         """
         self._args = args
         self._kwargs = kwargs
