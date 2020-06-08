@@ -267,6 +267,9 @@ class ExpandedDistribution(Distribution):
 
     def __init__(self, base_dist, batch_shape=()):
         self.base_dist = base_dist
+        if isinstance(base_dist, ExpandedDistribution):
+            batch_shape = self._broadcast_shape(base_dist.batch_shape, batch_shape)
+            base_dist = base_dist.base_dist
         super().__init__(base_dist.batch_shape, base_dist.event_shape)
         # adjust batch shape
         self.expand(batch_shape)
