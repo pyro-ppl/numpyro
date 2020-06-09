@@ -40,17 +40,17 @@ def kernel_approx(X, Z, eta1, eta2, c, jitter=1.0e-6, rank=0):
 #    return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
 
 
-def lowrank_presolve(b, X, D, eta1, eta2, c, kappa, rank=0):
-    P = X.shape[-1]
+def lowrank_presolve(b, kX, D, eta1, eta2, c, kappa, rank=0):
+    P = kX.shape[-1]
     all_ones = np.ones((b.shape[-1], 1))
     top_features = dynamic_slice_in_dim(np.argsort(kappa), P - rank, P)
-    X_top = np.take(X, top_features, -1)
+    kX_top = np.take(kX, top_features, -1)
     eta12 = np.sqrt(np.square(eta1) - np.square(eta2))
-    Z = np.concatenate([eta12 * X_top, c * all_ones], axis=1)
+    Z = np.concatenate([eta12 * kX_top, c * all_ones], axis=1)
     ZD = Z / D[:, None]
     ZDZ = np.eye(top_features.shape[-1] + 1) + np.matmul(np.transpose(Z), ZD)
     L = cho_factor(ZDZ, lower=True)[0]
-    return b / D - np.matmul(ZD, cho_solve((L, True), np.matmul(np.transpose(ZD), b)))
+    return lambda b: b / D - np.matmul(ZD, cho_solve((L, True), np.matmul(np.transpose(ZD), b)))
 
 
 def cg_body_fun(state, mvm):
@@ -179,16 +179,16 @@ def pcg_quad_form_log_det_jvp(primals, tangents):
 
 # compute logdet A + b A^{-1} b
 @custom_jvp
-def cpcg_quad_form_log_det(A, b, eta1, eta2, c, X, D, kappa, probes, rank=0, epsilon=1.0e-5, max_iters=20):
+def cpcg_quad_form_log_det(A, b, eta1, eta2, c, kX, D, kappa, probes, rank=0, epsilon=1.0e-5, max_iters=20):
     return (np.nan, np.nan, np.nan)
 
 @cpcg_quad_form_log_det.defjvp
 def cpcg_quad_form_log_det_jvp(primals, tangents):
-    A, b, eta1, eta2, c, X, diag, kappa, probes, rank, epsilon, max_iters = primals
+    A, b, eta1, eta2, c, kX, diag, kappa, probes, rank, epsilon, max_iters = primals
     A_dot, b_dot, _, _, _, _, _, _, _, _, _, _ = tangents
     D = b.shape[-1]
 
-    presolve = lambda b: lowrank_presolve(b, X, diag, eta1, eta2, c, kappa, rank=rank)
+    presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank=rank)
 
     b_probes = np.concatenate([b[None, :], probes])
     Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, A, presolve=presolve, epsilon=epsilon, max_iters=max_iters)

@@ -1,4 +1,5 @@
-import jax
+import jax.numpy as np
+from jax.lax import stop_gradient
 import numpyro
 
 
@@ -14,8 +15,8 @@ class CustomAdam(numpyro.optim.Adam):
 
 
 def record_stats(stat_value, num_stats=2):
-    stat = numpyro.param('stats', np.zeros(num_stats)) * jax.lax.stop_gradient(stat_value)
-    numpyro.factor('stats_dummy_factor', -stat + jax.lax.stop_gradient(stat))
+    stat = numpyro.param('stats', np.zeros(num_stats)) * stop_gradient(stat_value)
+    numpyro.factor('stats_dummy_factor', -stat + stop_gradient(stat))
 
 
 def sigmoid(x):

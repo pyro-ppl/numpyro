@@ -71,7 +71,7 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
 
     max_iters = 200
     epsilon = 0.001
-    rank = 64
+    rank = 32
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
@@ -79,10 +79,10 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
     elif method == "cg":
         probe = random.normal(rng, shape=(num_probes, N))
         qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=epsilon, max_iters=max_iters)
-    elif method == "cpcg":
+    elif method == "pcg":
         probe = random.normal(rng, shape=(num_probes, N))
         qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11))(k_omega, 0.5 * kY, eta1, eta2,
-                                       hypers['c'], X, 1.0 / omega, kappa, probe, rank, epsilon, max_iters)
+                                       hypers['c'], kX, 1.0 / omega, kappa, probe, rank, epsilon, max_iters)
 
     record_stats(np.array([res_norm, cg_iters]))
 
@@ -375,7 +375,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [11000]:
+    for N in [8000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -384,13 +384,10 @@ def main(**args):
 
         rng_key = random.PRNGKey(args['seed'])
 
-        method = "cpcg"
-        inference_str = "svi-" + method if args['inference'] == 'svi' else 'hmc'
-
-        print("starting {} inference...".format(inference_str))
-        if args['inference'] == 'svi':
+        print("starting {} inference...".format(args['inference']))
+        if 'svi' in args['inference']:
             samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48,
-                                       method=method)
+                                       method=args['inference'][4:])
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
@@ -462,9 +459,9 @@ def main(**args):
                     format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
                     print(format_str % (dim1 + 1, dim2 + 1, mean, std))
                     active_quad_dims.append((dim1, dim2))
-                elif dim1 < args['active_dimensions'] and dim2 < args['active_dimensions']:
-                    format_str = "No pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
-                    print(format_str % (dim1 + 1, dim2 + 1, mean, std))
+                #elif dim1 < args['active_dimensions'] and dim2 < args['active_dimensions']:
+                #    format_str = "No pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
+                #    print(format_str % (dim1 + 1, dim2 + 1, mean, std))
 
         print("analyze_pair_dimension time", time.time()-t0)
 
@@ -492,8 +489,9 @@ def main(**args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
-    parser.add_argument("--inference", nargs="?", default='svi', type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=3200, type=int)
+    parser.add_argument("--inference", nargs="?", default='svi-pcg', type=str,
+                        choices=['hmc','svi-direct','svi-cg','svi-pcg'])
+    parser.add_argument("-n", "--num-samples", nargs="?", default=3600, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
