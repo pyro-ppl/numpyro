@@ -67,7 +67,7 @@ _DIST_MAP = {
     dist.Chi2: lambda df: osp.chi2(df),
     dist.Dirichlet: lambda conc: osp.dirichlet(conc),
     dist.Exponential: lambda rate: osp.expon(scale=np.reciprocal(rate)),
-    dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1./rate),
+    dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1. / rate),
     dist.Gumbel: lambda loc, scale: osp.gumbel_r(loc=loc, scale=scale),
     dist.HalfCauchy: lambda scale: osp.halfcauchy(scale=scale),
     dist.HalfNormal: lambda scale: osp.halfnorm(scale=scale),
@@ -85,7 +85,6 @@ _DIST_MAP = {
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
     dist.Logistic: lambda loc, scale: osp.logistic(loc=loc, scale=scale)
 }
-
 
 CONTINUOUS = [
     T(dist.Beta, 1., 2.),
@@ -160,6 +159,9 @@ CONTINUOUS = [
     T(dist.Uniform, np.array([0., 0.]), np.array([[2.], [3.]])),
 ]
 
+DIRECTIONAL = [
+    T(dist.VonMises, 2., 10.)
+]
 
 DISCRETE = [
     T(dist.BetaBinomial, 2., 5., 10),
@@ -279,7 +281,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 @pytest.mark.parametrize('prepend_shape', [
     (),
     (2,),
@@ -371,7 +373,7 @@ def test_pathwise_gradient(jax_dist, sp_dist, params):
         assert_allclose(actual_grad[i], expected_grad, rtol=0.005)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 @pytest.mark.parametrize('prepend_shape', [
     (),
     (2,),
@@ -552,7 +554,7 @@ def test_gamma_poisson_log_prob(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_log_prob_gradient(jax_dist, sp_dist, params):
     if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip('we have separated tests for LKJCholesky distribution')
@@ -582,7 +584,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         assert_allclose(np.sum(actual_grad), expected_grad, rtol=0.01, atol=0.01)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_mean_var(jax_dist, sp_dist, params):
     n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)
@@ -633,6 +635,14 @@ def test_mean_var(jax_dist, sp_dist, params):
 
         assert_allclose(np.mean(corr_samples, axis=0), expected_mean, atol=0.01)
         assert_allclose(np.std(corr_samples, axis=0), expected_std, atol=0.01)
+    elif jax_dist in [dist.VonMises]:
+        if np.all(np.isfinite(d_jax.mean)):
+            assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
+        loc, conc = params
+
+        # von Mises circular variance
+        expected_variance = 1 - lax.bessel_i1e(conc)/lax.bessel_i0e(conc)
+        assert_allclose(expected_variance, d_jax.variance, rtol=0.05, atol=1e-2)
     else:
         if np.all(np.isfinite(d_jax.mean)):
             assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
@@ -640,7 +650,7 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(np.std(samples, 0), np.sqrt(d_jax.variance), rtol=0.05, atol=1e-2)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 @pytest.mark.parametrize('prepend_shape', [
     (),
     (2,),

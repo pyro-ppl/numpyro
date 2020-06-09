@@ -7,50 +7,22 @@ from numpyro.distributions.util import validate_sample
 from numpyro.util import copy_docs_from
 
 
-def _eval_poly(y, coef):
-    "TODO: rewrite as vector"
-    coef = list(coef)
-    result = coef.pop()
-    while coef:
-        result = coef.pop() + y * result
-    return result
-
-
-def log_modfied_bessel_0(x):
-    """
-    Returns ``log(I0(x))`` for ``x > 0``.
-    """
-
-    _COEF_SMALL = [1.0, 3.5156229, 3.0899424, 1.2067492, 0.2659732, 0.360768e-1, 0.45813e-2]
-    _COEF_LARGE = [0.39894228, 0.1328592e-1, 0.225319e-2, -0.157565e-2, 0.916281e-2,
-                   -0.2057706e-1, 0.2635537e-1, -0.1647633e-1, 0.392377e-2]
-
-    # compute small solution
-    y = (x / 3.75).pow(2)
-    small = _eval_poly(y, _COEF_SMALL).log()
-
-    # compute large solution
-    y = 3.75 / x
-    large = x - 0.5 * x.log() + _eval_poly(y, _COEF_LARGE).log()
-
-    mask = (x < 3.75)
-    result = large
-    if mask.any():
-        result[mask] = small[mask]
-    return result
-
-
 @copy_docs_from(Distribution)
 class VonMises(Distribution):
     arg_constraints = {'location': constraints.real, 'concentration': constraints.positive}
     support = constraints.real
-    s_cutoff_map = {np.float16: 1.8e-1,
-                    np.float32: 2e-2,
-                    np.float64: 1.2e-4}
+    s_cutoff_map = {np.dtype(np.float16): 1.8e-1,
+                    np.dtype(np.float32): 2e-2,
+                    np.dtype(np.float64): 1.2e-4}
 
     def __init__(self, location, concentration, validate_args=None):
-        # Von Mises doesn't work for concentration=0, so set to tiny value
-        concentration = np.max(self.concentration, np.finfo(self.concentration.dtype).tiny)
+        # von Mises doesn't work for concentration=0, so set to tiny value
+        try:
+            dtype = np.dtype(concentration.dtype)
+        except AttributeError:
+            dtype = np.dtype(type(concentration))
+        concentration = np.maximum(concentration, np.finfo(dtype).tiny)
+        self.dtype = dtype
         self._concentration = concentration
         self._loc = location
 
@@ -78,34 +50,38 @@ class VonMises(Distribution):
 
         s_approximate = 1. / conc
 
-        s_cutoff = VonMises.s_cutoff_map.get(conc.dtype)
+        s_cutoff = VonMises.s_cutoff_map.get(self.dtype)
 
         s = np.where(conc > s_cutoff, s_exact, s_approximate)
 
-        def body_function(done, _, w, key):
-            uni_ukey, uni_vkey, rng_key = random.split(key, 3)
+        def body_function(i, *args):
+            done, _, w = args[0]
+            nonlocal rng_key
+            uni_ukey, uni_vkey, rng_key = random.split(rng_key, 3)
 
             u = random.uniform(key=uni_ukey, shape=sample_shape, dtype=conc.dtype, minval=-1., maxval=1.)
             z = np.cos(np.pi * u)
-            w = np.where(done, w, (1. + s * z / (s + z)))  # Update where not done
+            w = np.where(done, w, (1. + s * z) / (s + z))  # Update where not done
 
             y = self.concentration * (s - w)
-            v = random.vniform(key=uni_vkey, shape=sample_shape, dtype=conc.dtype, minval=-1., maxval=1.)
+            v = random.uniform(key=uni_vkey, shape=sample_shape, dtype=conc.dtype, minval=-1., maxval=1.)
 
             accept = (y * (2. - y) >= v) | (np.log(y / v) + 1. >= y)
 
-            return accept | done, u, w, rng_key
+            return accept | done, u, w
 
-        done = np.zeros(sample_shape, dtype=bool)
+        init_done = np.zeros(sample_shape, dtype=bool)
         init_u = np.zeros(sample_shape)
         init_w = np.zeros(sample_shape)
 
-        _, u, w = lax.while_loop(
-            lambda done, *_: np.all(done),
-            body_fun=body_function
-            (done, init_u, init_w, rng_key)
+        done, u, w = lax.fori_loop(
+            lower=0,
+            upper=100,
+            body_fun=body_function,
+            init_val=(init_done, init_u, init_w)
         )
 
+        # cond_fun=lambda done, *_: np.logical_not(np.all(done)),
         return np.sign(u) * np.arccos(w)
 
     def sample(self, key, sample_shape=()):
@@ -116,14 +92,14 @@ class VonMises(Distribution):
             :return: samples from von Mises
         """
         samples = self._sample_centered(rng_key=key, sample_shape=sample_shape)
-        samples += self._loc  # VM(0, concentration) -> VM(loc,concentration)
         samples -= 2. * np.pi * np.round(samples / (2. * np.pi))  # Map to [-pi,pi]
+        samples += self._loc  # VM(0, concentration) -> VM(loc,concentration)
 
         return samples
 
     @validate_sample
     def log_prob(self, value):
-        return -(np.log(2 * np.pi) + log_modfied_bessel_0(self._concentration)) + (
+        return -(np.log(2 * np.pi) + lax.bessel_i0e(self._concentration)) + (
                 self._concentration * np.cos(value - self._loc))
 
     @property
@@ -131,5 +107,18 @@ class VonMises(Distribution):
         return self._loc
 
     @property
+    def location(self):
+        return self._loc
+
+    @property
     def concentration(self):
         return self._concentration
+
+    @property
+    def variance(self):
+        return 1 - lax.bessel_i1e(self._concentration) / lax.bessel_i0e(self._concentration)
+
+if __name__ == '__main__':
+
+    vm = VonMises(2., 10.)
+    print(vm.variance)

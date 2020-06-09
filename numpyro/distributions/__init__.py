@@ -48,6 +48,9 @@ from numpyro.distributions.discrete import (
     PRNGIdentity,
     ZeroInflatedPoisson
 )
+from numpyro.distributions.directional import (
+    VonMises
+)
 from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
