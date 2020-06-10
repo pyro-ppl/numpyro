@@ -15,18 +15,18 @@ PCGState = namedtuple('CGState', ['x', 'r', 'p', 'z', 'r_dot_z', 'iter'])
 
 
 def kdot(X, Z):
-    return onp.dot(X, Z[..., None])[..., 0]
+    return np.dot(X, Z[..., None])[..., 0]
 
 
 def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
-    eta1sq = onp.square(eta1)
-    eta2sq = onp.square(eta2)
-    k1 = 0.5 * eta2sq * onp.square(1.0 + kdot(X, Z))
-    k2 = -0.5 * eta2sq * kdot(onp.square(X), onp.square(Z))
+    eta1sq = np.square(eta1)
+    eta2sq = np.square(eta2)
+    k1 = 0.5 * eta2sq * np.square(1.0 + kdot(X, Z))
+    k2 = -0.5 * eta2sq * kdot(np.square(X), np.square(Z))
     k3 = (eta1sq - eta2sq) * kdot(X, Z)
-    k4 = onp.square(c) - 0.5 * eta2sq
+    k4 = np.square(c) - 0.5 * eta2sq
     if X.shape == Z.shape:
-        k4 += jitter * onp.eye(X.shape[0])
+        k4 += jitter * np.eye(X.shape[0])
     return k1 + k2 + k3 + k4
 
 def kernel_approx(X, Z, eta1, eta2, c, jitter=1.0e-6, rank=0):
@@ -188,8 +188,6 @@ def pcg_quad_form_log_det_jvp(primals, tangents):
     quad_form = np.dot(b, Ainv_b)
 
     return quad_form, tangent_out
-    #print("np.mean(res_norm), np.mean(iters)",np.mean(res_norm), np.mean(iters))
-    #return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
 # compute logdet A + b A^{-1} b
 @custom_jvp
@@ -216,6 +214,65 @@ def cpcg_quad_form_log_det_jvp(primals, tangents):
 
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
+@custom_jvp
+def pcpcg_quad_form_log_det(kappa, b, eta1, eta2, c, X, diag, probes, rank=0, epsilon=1.0e-5, max_iters=20):
+    return (np.nan, np.nan, np.nan)
+
+def meansum(x):
+    return np.sum(x) / x.shape[0]
+
+@pcpcg_quad_form_log_det.defjvp
+def pcpcg_quad_form_log_det_jvp(primals, tangents):
+    kappa, b, eta1, eta2, c, X, diag, probes, rank, epsilon, max_iters = primals
+    kappa_dot, b_dot, eta1_dot, eta2_dot, _, _, _, _, _, _, _ = tangents
+
+    Xsq = np.square(X)
+    kX = kappa * X
+    kXsq = kappa * Xsq
+    k3Xsq = kappa ** 3 * Xsq
+    dkX = kappa_dot * X
+    dkXsq = kappa_dot * Xsq
+
+    A = kernel(kX, kX, eta1, eta2, c) + np.diag(diag)
+
+    presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank=rank)
+
+    b_probes = np.concatenate([b[None, :], probes])
+    Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, A, presolve=presolve, epsilon=epsilon, max_iters=max_iters)
+    Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
+
+    eta1sq = np.square(eta1)
+    eta2sq = np.square(eta2)
+
+    #quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
+    kXkX = kdot(kX, kX)
+    expensive1 = kXkX * kdot(kX, dkX)
+    expensive1 = 0.5 * (expensive1 + np.transpose(expensive1))
+    quad_form_dk = - 2.0 * eta1sq * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, dkX)) \
+                   + 2.0 * eta2sq * np.dot(np.dot(Ainv_b, k3Xsq), np.dot(Ainv_b, dkXsq)) \
+                   - 2.0 * eta2sq * np.dot(Ainv_b, np.matmul(expensive1, Ainv_b))
+    quad_form_db = 2.0 * np.dot(Ainv_b, b_dot)
+    quad_form_deta1 = - 2.0 * eta1 * eta1_dot * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX))
+    expensive2 = np.square(1.0 + kXkX)
+    quad_form_deta2 = 2.0 * eta2 * eta2_dot * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX)) \
+                      + eta2 * eta2_dot * np.square(np.sum(Ainv_b)) \
+                      + eta2 * eta2_dot * np.dot(np.dot(Ainv_b, kXsq), np.dot(Ainv_b, kXsq)) \
+                      - eta2 * eta2_dot * np.dot(Ainv_b, np.matmul(expensive2, Ainv_b))
+    #log_det_dA = np.mean(np.einsum('...i,...i->...', np.matmul(probes, A_dot), Ainv_probes))
+    log_det_dk = 2.0 * eta1sq * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, dkX)) \
+                   - 2.0 * eta2sq * meansum(np.matmul(probes, k3Xsq) * np.matmul(Ainv_probes, dkXsq)) \
+                   + 2.0 * eta2sq * np.mean(np.einsum('...i,...i->...', np.matmul(probes, expensive1), Ainv_probes))
+    log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX))
+    log_det_deta2 = - 2.0 * eta2 * eta2_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX)) \
+                    - eta2 * eta2_dot * np.mean(np.sum(probes, axis=-1) * np.sum(Ainv_probes, axis=-1)) \
+                    - eta2 * eta2_dot * meansum(np.matmul(probes, kXsq) * np.matmul(Ainv_probes, kXsq)) \
+                    + eta2 * eta2_dot * np.mean(np.einsum('...i,...i->...', np.matmul(probes, expensive2), Ainv_probes))
+    #tangent_out = log_det_dA + quad_form_dA + quad_form_db
+    tangent_out = log_det_dk + log_det_deta1 + log_det_deta2 + \
+                  quad_form_dk + quad_form_deta1 + quad_form_deta2 + quad_form_db
+    quad_form = np.dot(b, Ainv_b)
+
+    return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
 
 def symmetrize(x):

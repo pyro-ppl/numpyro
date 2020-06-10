@@ -31,6 +31,8 @@ def chunk_vmap(fun, array, chunk_size=10):
     else:
         results = [vmap(fun)(array[chunk]) for chunk in chunks]
     num_return = len(results[0])
+    #if results[0].ndim == 1:
+    #    return np.concatenate(results)
     return tuple([np.concatenate([res[i] for res in results]) for i in range(num_return)])
 
 

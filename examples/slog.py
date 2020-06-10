@@ -28,7 +28,7 @@ from numpyro.handlers import block
 from chunk_vmap import chunk_vmap
 
 import pickle
-from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det
+from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det, pcpcg_quad_form_log_det
 from utils import CustomAdam, record_stats, kdot, cho_tri_solve, sigmoid
 
 
@@ -77,17 +77,22 @@ def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
     if method == "direct":
         qfld = direct_quad_form_log_det(k_omega, 0.5 * kY)
     elif method == "cg":
+        key = numpyro.sample('rng_key', dist.PRNGIdentity())
         with block():
-            probe = random.normal(numpyro.sample('rng_key', dist.PRNGIdentity()), shape=(num_probes, N))
+            probe = random.normal(key, shape=(num_probes, N))
         qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=cg_tol, max_iters=max_iters)
     elif method == "pcg":
         key = numpyro.sample('rng_key', dist.PRNGIdentity())
         with block():
             probe = random.normal(key, shape=(num_probes, N))
-        #with block():
-        #    probe = numpyro.sample("probe", dist.Normal(0.0, np.ones((8, N))))
         qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11))(k_omega, 0.5 * kY, eta1, eta2,
                                        hypers['c'], kX, 1.0 / omega, kappa, probe, rank, cg_tol, max_iters)
+    elif method == "ppcg":
+        key = numpyro.sample('rng_key', dist.PRNGIdentity())
+        with block():
+            probe = random.normal(key, shape=(num_probes, N))
+        qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(4,5,8,9,10))(kappa, 0.5 * kY, eta1, eta2,
+                                       hypers['c'], X, 1.0 / omega, probe, rank, cg_tol, max_iters)
 
     record_stats(np.array([res_norm, cg_iters]))
 
@@ -380,7 +385,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [9000]:
+    for N in [2000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -494,13 +499,13 @@ if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-pcg', type=str,
-                        choices=['hmc','svi-direct','svi-cg','svi-pcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=2400, type=int)
+                        choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
+    parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=1000, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=500, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
     parser.add_argument("--cg-tol", nargs='?', default=0.001, type=float)
