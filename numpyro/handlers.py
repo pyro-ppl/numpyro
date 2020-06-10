@@ -133,7 +133,8 @@ class trace(Messenger):
         return self.trace
 
     def postprocess_message(self, msg):
-        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), 'all sites must have unique names'
+        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), \
+            'all sites must have unique names but got `{}` duplicated'.format(msg['name'])
         self.trace[msg['name']] = msg.copy()
 
     def get_trace(self, *args, **kwargs):
@@ -268,14 +269,10 @@ class condition(Messenger):
     def process_message(self, msg):
         if msg['type'] != 'sample':
             if msg['type'] == 'control_flow':
-                # xxx: only the outer-most condition message takes effect;
-                # we can support a stack of messages but it is unlikely necessary
-                msg['kwargs']['condition_fn'] = self.condition_fn
                 if self.param_map is not None:
-                    if msg['kwargs']['condition_map'] is None:
-                        msg['kwargs']['condition_map'] = self.param_map
-                    else:
-                        msg['kwargs']['condition_map'].update(self.param_map)
+                    msg['kwargs']['substitute_stack'].append(self.param_map)
+                if self.condition_fn is not None:
+                    msg['kwargs']['substitute_stack'].append(self.condition_fn)
             return
 
         if self.param_map is not None:
@@ -438,12 +435,10 @@ class substitute(Messenger):
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'param'):
             if msg['type'] == 'control_flow':
-                msg['kwargs']['substitute_fn'] = self.substitute_fn
                 if self.param_map is not None:
-                    if msg['kwargs']['substitute_map'] is None:
-                        msg['kwargs']['substitute_map'] = self.param_map
-                    else:
-                        msg['kwargs']['substitute_map'].update(self.param_map)
+                    msg['kwargs']['substitute_stack'].append(self.param_map)
+                if self.substitute_fn is not None:
+                    msg['kwargs']['substitute_stack'].append(self.substitute_fn)
             return
 
         if self.param_map is not None:

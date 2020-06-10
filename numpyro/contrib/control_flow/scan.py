@@ -1,7 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from jax import lax, random, tree_flatten
+from functools import partial
+
+from jax import lax, random
 import jax.numpy as np
 from jax.tree_util import register_pytree_node_class
 
@@ -50,62 +52,43 @@ class PytreeTrace:
         return cls({name: trace[name] for name in keys})
 
 
-def scan_wrapper(fn, init_value, xs, length, rng_key=None,
-                 condition_map=None, condition_fn=None,
-                 substitute_map=None, substitute_fn=None):
+def _subs_wrapper(subs_map, i, site):
+    value = None
+    if isinstance(subs_map, dict) and site['name'] in subs_map:
+        value = subs_map[site['name']]
+    elif callable(subs_map):
+        rng_key = site['kwargs'].get('rng_key')
+        subs_map = handlers.seed(subs_map, rng_seed=rng_key) if rng_key is not None else subs_map
+        # we only collect the output and block any new sites created in substitute_fn
+        # those new sites will be addressed when we apply `apply_stack` on scanned messages.
+        with handlers.block():
+            value = subs_map(site)
 
-    def body_fn(wrapped_carry, wrapped_x):
-        rng_key, carry = wrapped_carry
-        cond_map, subs_map, x = wrapped_x
-
-        if rng_key is not None:
-            rng_key, subkey = random.split(rng_key)
+    if value is not None:
+        if np.ndim(value) > len(site['kwargs']['sample_shape']) + len(site['fn'].shape()):
+            return value[i]
         else:
-            subkey = None
+            return value
+
+
+def scan_wrapper(fn, init_value, xs, length, rng_key=None, substitute_stack=[]):
+
+    def body_fn(wrapped_carry, x):
+        i, rng_key, carry = wrapped_carry
+        rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
         with handlers.block():
-            trace_fn = fn
-            if subkey is not None:
-                trace_fn = handlers.seed(trace_fn, subkey)
+            seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
+            for subs_map in substitute_stack:
+                seeded_fn = handlers.substitute(seeded_fn,
+                                                substitute_fn=partial(_subs_wrapper, subs_map, i))
 
-            if cond_map is not None or condition_fn is not None:
-                # NB: we substitute here to avoid overwriting `is_observed` field;
-                # If we condition on a user-defined observed site,
-                # the error "Cannot condition an already observed site" will not happen here
-                # instead, it will happen outside this wrapper: when we send the returned msgs
-                # to the stack.
-                # If we use condition handler here, those sites will become observed sites,
-                # which will trigger "Cannot condition an already observed site" when a condition
-                # handler applies on those sites.
-                trace_fn = handlers.substitute(trace_fn,
-                                               param_map=cond_map,
-                                               substitute_fn=condition_fn)
+            with handlers.trace() as trace:
+                carry, y = seeded_fn(carry, x)
 
-            if subs_map is not None or substitute_fn is not None:
-                trace_fn = handlers.substitute(trace_fn,
-                                               param_map=subs_map,
-                                               substitute_fn=substitute_fn)
-            traced_fn = handlers.trace(trace_fn)
-            carry, y = traced_fn(carry, x)
+        return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-        return (rng_key, carry), (PytreeTrace(traced_fn.trace), y)
-
-    xs_flatten = tree_flatten(xs)[0]
-    if len(xs_flatten) > 0:
-        xs_length = xs_flatten[0].shape[0]
-    else:
-        xs_length = length
-    # only keeps sites have the same leading dimension as xs
-    if condition_map is not None:
-        condition_map = condition_map.copy()
-    if substitute_map is not None:
-        substitute_map = substitute_map.copy()
-    for param_map in (condition_map, substitute_map):
-        if param_map is not None:
-            for site_name in list(param_map.keys()):
-                if np.ndim(param_map[site_name]) == 0 or np.shape(param_map[site_name])[0] != xs_length:
-                    param_map.pop(site_name)
-    return lax.scan(body_fn, (rng_key, init_value), (condition_map, substitute_map, xs), length=length)
+    return lax.scan(body_fn, (np.array(0), rng_key, init_value), xs, length=length)
 
 
 def scan(name, fn, init_value, xs, length=None, rng_key=None):
@@ -116,14 +99,32 @@ def scan(name, fn, init_value, xs, length=None, rng_key=None):
 
     **Usage**::
 
-        def gaussian_hmm(y=None, T=10):
-            def transition(x_prev, y_curr):
-                x_curr = numpyro.sample('x', dist.Normal(x_prev, 1))
-                y_curr = numpyro.sample('y', dist.Normal(x_curr, 1), obs=y_curr)
-                return x_curr, y_curr
+    .. doctest::
 
-            x0 = numpyro.sample('x_0', dist.Normal(0, 1))
-            _, y = scan("scan", transition, x0, y, length=T)
+       >>> import jax.numpy as np
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.contrib.control_flow import scan
+       >>>
+       >>> def gaussian_hmm(y=None, T=10):
+       ...     def transition(x_prev, y_curr):
+       ...         x_curr = numpyro.sample('x', dist.Normal(x_prev, 1))
+       ...         y_curr = numpyro.sample('y', dist.Normal(x_curr, 1), obs=y_curr)
+       ...         return x_curr, (x_curr, y_curr)
+       ...
+       ...     x0 = numpyro.sample('x_0', dist.Normal(0, 1))
+       ...     _, (x, y) = scan('scan', transition, x0, y, length=T)
+       ...     return (x, y)
+       >>>
+       >>> # here we do some quick tests
+       >>> with numpyro.handlers.seed(rng_seed=0):
+       ...     x, y = gaussian_hmm(np.arange(10.))
+       >>> assert x.shape == (10,) and y.shape == (10,)
+       >>> assert np.all(y == np.arange(10))
+       >>>
+       >>> with numpyro.handlers.seed(rng_seed=0):  # generative
+       ...     x, y = gaussian_hmm()
+       >>> assert x.shape == (10,) and y.shape == (10,)
 
     :param str name: name of this primitive
     :param callable fn: a function to be scanned.
@@ -140,7 +141,7 @@ def scan(name, fn, init_value, xs, length=None, rng_key=None):
     """
     # if there are no active Messengers, we just run and return it as expected:
     if not _PYRO_STACK:
-        (rng_key, carry), (pytree_trace, ys) = scan_wrapper(
+        (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(
             fn, init_value, xs, length, rng_key=rng_key)
     else:
         # Otherwise, we initialize a message...
@@ -150,18 +151,21 @@ def scan(name, fn, init_value, xs, length=None, rng_key=None):
             'fn': scan_wrapper,
             'args': (fn, init_value, xs, length),
             'kwargs': {'rng_key': rng_key,
-                       'condition_map': None,
-                       'condition_fn': None,
-                       'substitute_map': None,
-                       'substitute_fn': None},
+                       'substitute_stack': []},
             'value': None,
         }
 
         # ...and use apply_stack to send it to the Messengers
         msg = apply_stack(initial_msg)
-        (rng_key, carry), (pytree_trace, ys) = msg['value']
+        (length, rng_key, carry), (pytree_trace, ys) = msg['value']
 
     for msg in pytree_trace.trace.values():
+        # XXX: it would be best to have a mechanism to block condition, substitute
+        # handlers from processing those messages; so we can
+        #   + use `condition` handler in scan_wrapper (currently, we use `substitute`
+        #     instead of `condition` there to avoid overwriting `is_observed` field)
+        #   + remove `block` handler in `subs_handler` (i.e. we also scanned those
+        #     extra sites, e.g. `log_det` sites, created in `substitute_fn`)
         apply_stack(msg)
 
     return carry, ys
