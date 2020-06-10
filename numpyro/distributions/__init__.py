@@ -116,6 +116,7 @@ __all__ = [
     'TruncatedPolyaGamma',
     'Uniform',
     'Unit',
+    'VonMises'
     'ZeroInflatedPoisson',
 
 ]
