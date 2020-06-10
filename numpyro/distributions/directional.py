@@ -32,7 +32,7 @@ class VonMises(Distribution):
                                        validate_args=validate_args)
 
     def _sample_centered(self, sample_shape, rng_key):
-        """ Compute centered von Mises samples using rejection sampling from [1] with Cauchy proposal.
+        """ Compute centered von Mises samples using rejection sampling from [1] with wrapped Cauchy proposal.
 
             *** References ***
             [1] Luc Devroye "Non-Uniform Random Variate Generation", Springer-Verlag, 1986;
