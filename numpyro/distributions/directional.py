@@ -116,6 +116,7 @@ class VonMises(Distribution):
 
     @property
     def variance(self):
+        """ Computes circular variance of distribution """
         return 1 - lax.bessel_i1e(self._concentration) / lax.bessel_i0e(self._concentration)
 
 if __name__ == '__main__':
