@@ -397,11 +397,11 @@ class Delta(Distribution):
         return np.zeros(self.batch_shape + self.event_shape)
 
     def tree_flatten(self):
-        return (self.value, self.log_density), len(self.event_shape)
+        return (self.value, self.log_density), self.event_dim
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        return cls(*params, event_ndim=aux_data)
+        return cls(*params, event_dim=aux_data)
 
 
 class OrderedLogistic(CategoricalProbs):

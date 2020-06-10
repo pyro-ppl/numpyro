@@ -517,6 +517,14 @@ class ImproperUniform(Distribution):
             mask = np.all(np.reshape(mask, np.shape(mask)[:batch_dim] + (-1,)), -1)
         return mask
 
+    def tree_flatten(self):
+        raise NotImplementedError(
+            "Cannot flattening ImproperPrior distribution for general supports. "
+            "Please raising a feature request for your specific `support`. "
+            "Alternatively, you can use '.mask(False)' pattern. "
+            "For example, to define an improper prior over positive domain, "
+            "we can use the distribution `dist.LogNormal(0, 1).mask(False)`.")
+
 
 class Independent(Distribution):
     """

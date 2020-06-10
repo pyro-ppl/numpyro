@@ -1116,6 +1116,8 @@ def test_dist_pytree(jax_dist, sp_dist, params):
     def f(x):
         return jax_dist(*params)
 
+    if jax_dist is _ImproperWrapper:
+        pytest.skip('Cannot flattening ImproperUniform')
     jax.jit(f)(0)  # this test for flatten/unflatten
     lax.map(f, np.ones(3))  # this test for compatibility w.r.t. scan
 
