@@ -1,7 +1,7 @@
 from functools import namedtuple
 import numpy as onp
 import jax
-from jax import vmap, jit, custom_jvp, value_and_grad
+from jax import vmap, jit, custom_jvp, value_and_grad, grad
 from jax.lax import while_loop, dynamic_slice_in_dim
 import jax.numpy as np
 import time
@@ -135,6 +135,7 @@ def direct_quad_form_log_det(A, b, include_log_det=True):
     L = cho_factor(A, lower=True)[0]
     Linv_b = solve_triangular(L, b, lower=True)
     quad_form = np.dot(Linv_b, Linv_b)
+    return 2.0 * np.sum(np.log(np.diagonal(L)))
     if include_log_det:
         log_det = 2.0 * np.sum(np.log(np.diagonal(L)))
         return log_det + quad_form
@@ -160,7 +161,7 @@ def cg_quad_form_log_det_jvp(primals, tangents):
     quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
     quad_form_db = 2.0 * np.dot(Ainv_b, b_dot)
     log_det_dA = np.mean(np.einsum('...i,...i->...', np.matmul(probes, A_dot), Ainv_probes))
-    tangent_out = log_det_dA + quad_form_dA + quad_form_db
+    tangent_out = log_det_dA #+ quad_form_dA + quad_form_db
     quad_form = np.dot(b, Ainv_b)
 
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
@@ -215,7 +216,7 @@ def cpcg_quad_form_log_det_jvp(primals, tangents):
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
 @custom_jvp
-def pcpcg_quad_form_log_det(kappa, b, eta1, eta2, c, X, diag, probes, rank=0, epsilon=1.0e-5, max_iters=20):
+def pcpcg_quad_form_log_det(kappa, b, eta1, eta2, diag, c, X, probes, rank=0, epsilon=1.0e-5, max_iters=20):
     return (np.nan, np.nan, np.nan)
 
 def meansum(x):
@@ -223,8 +224,8 @@ def meansum(x):
 
 @pcpcg_quad_form_log_det.defjvp
 def pcpcg_quad_form_log_det_jvp(primals, tangents):
-    kappa, b, eta1, eta2, c, X, diag, probes, rank, epsilon, max_iters = primals
-    kappa_dot, b_dot, eta1_dot, eta2_dot, _, _, _, _, _, _, _ = tangents
+    kappa, b, eta1, eta2, diag, c, X, probes, rank, epsilon, max_iters = primals
+    kappa_dot, b_dot, eta1_dot, eta2_dot, diag_dot, _, _, _, _, _, _ = tangents
 
     Xsq = np.square(X)
     kX = kappa * X
@@ -235,7 +236,8 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
 
     A = kernel(kX, kX, eta1, eta2, c) + np.diag(diag)
 
-    presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank=rank)
+    #presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank=rank)
+    presolve = lambda b: b
 
     b_probes = np.concatenate([b[None, :], probes])
     Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, A, presolve=presolve, epsilon=epsilon, max_iters=max_iters)
@@ -254,22 +256,26 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
     quad_form_db = 2.0 * np.dot(Ainv_b, b_dot)
     quad_form_deta1 = - 2.0 * eta1 * eta1_dot * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX))
     expensive2 = np.square(1.0 + kXkX)
-    quad_form_deta2 = 2.0 * eta2 * eta2_dot * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX)) \
-                      + eta2 * eta2_dot * np.square(np.sum(Ainv_b)) \
-                      + eta2 * eta2_dot * np.dot(np.dot(Ainv_b, kXsq), np.dot(Ainv_b, kXsq)) \
-                      - eta2 * eta2_dot * np.dot(Ainv_b, np.matmul(expensive2, Ainv_b))
+    #quad_form_deta2 = 2.0 * eta2 * eta2_dot * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX)) \
+    #                  + eta2 * eta2_dot * np.square(np.sum(Ainv_b)) \
+    #                  + eta2 * eta2_dot * np.dot(np.dot(Ainv_b, kXsq), np.dot(Ainv_b, kXsq)) \
+    #                  - eta2 * eta2_dot * np.dot(Ainv_b, np.matmul(expensive2, Ainv_b))
+    quad_form_deta2 = 0.0
+    quad_form_ddiag = -np.dot(np.square(Ainv_b), diag_dot)
     #log_det_dA = np.mean(np.einsum('...i,...i->...', np.matmul(probes, A_dot), Ainv_probes))
+    #log_det_deta2 = - 2.0 * eta2 * eta2_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX)) \
+    #                - eta2 * eta2_dot * np.mean(np.sum(probes, axis=-1) * np.sum(Ainv_probes, axis=-1)) \
+    #                - eta2 * eta2_dot * meansum(np.matmul(probes, kXsq) * np.matmul(Ainv_probes, kXsq)) \
+    #                + eta2 * eta2_dot * np.mean(np.einsum('...i,...i->...', np.matmul(probes, expensive2), Ainv_probes))
     log_det_dk = 2.0 * eta1sq * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, dkX)) \
-                   - 2.0 * eta2sq * meansum(np.matmul(probes, k3Xsq) * np.matmul(Ainv_probes, dkXsq)) \
-                   + 2.0 * eta2sq * np.mean(np.einsum('...i,...i->...', np.matmul(probes, expensive1), Ainv_probes))
-    log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX))
-    log_det_deta2 = - 2.0 * eta2 * eta2_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX)) \
-                    - eta2 * eta2_dot * np.mean(np.sum(probes, axis=-1) * np.sum(Ainv_probes, axis=-1)) \
-                    - eta2 * eta2_dot * meansum(np.matmul(probes, kXsq) * np.matmul(Ainv_probes, kXsq)) \
-                    + eta2 * eta2_dot * np.mean(np.einsum('...i,...i->...', np.matmul(probes, expensive2), Ainv_probes))
-    #tangent_out = log_det_dA + quad_form_dA + quad_form_db
-    tangent_out = log_det_dk + log_det_deta1 + log_det_deta2 + \
-                  quad_form_dk + quad_form_deta1 + quad_form_deta2 + quad_form_db
+                 - 2.0 * eta2sq * meansum(np.matmul(probes, k3Xsq) * np.matmul(Ainv_probes, dkXsq)) \
+                 + 2.0 * eta2sq * meansum(np.matmul(probes, expensive1) * Ainv_probes)
+    log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_b, kX))
+    k_dot = np.square(1.0 + kdot(kX, kX)) - kdot(np.square(kX), np.square(kX)) - 2.0 * kdot(kX, kX) - 1.0
+    log_det_deta2 = eta2 * eta2_dot * meansum(np.matmul(probes, k_dot) * Ainv_probes)
+    log_det_ddiag = meansum(probes * diag_dot * Ainv_probes)
+    tangent_out = log_det_dk + log_det_deta1 + log_det_deta2 + log_det_ddiag + \
+                  quad_form_dk + quad_form_deta1 + quad_form_deta2 + quad_form_ddiag + quad_form_db
     quad_form = np.dot(b, Ainv_b)
 
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
@@ -281,31 +287,49 @@ def symmetrize(x):
 
 if __name__ == "__main__":
     onp.random.seed(0)
-    N = 1000
-    D = 200
+    N = 5
+    P = 4
     b = onp.random.randn(N)
-    X = onp.random.randn(N * D).reshape((N, D))
-    X[:, 20:] *= 0.01
-    X[:, 10:20] *= 0.3
+    X = onp.random.randn(N * P).reshape((N, P))
+    kappa = np.exp(0.2 * onp.random.randn(P))
 
-    eta1 = 0.5
-    eta2 = 0.05
+    eta1 = np.array(0.5)
+    eta2 = np.array(0.05)
     c = 1.0
-    diag = 10.0
-    k = kernel(X, X, eta1, eta2, c, jitter=diag)
-    probes = onp.random.randn(8 * N).reshape((8, N))
+    diag = np.exp(0.2 * onp.random.randn(N))
+    num_probes = 10 ** 6
+    probes = onp.random.randn(num_probes * N).reshape((num_probes, N))
 
-    rank = 30
-    max_iters = 5
+    def f1(_kappa, _b, _eta1, _eta2, _diag):
+        return pcpcg_quad_form_log_det(_kappa, _b, _eta1, _eta2, _diag, c, X, probes,
+                                       rank=36, epsilon=1.0e-8, max_iters=300)[0]
 
-    def f(_k, _b):
-        return cpcg_quad_form_log_det(_k, _b, eta1, eta2, c, X, diag * onp.ones(N), probes, rank=rank,
-                                      epsilon=1.0e-5, max_iters=max_iters)
-    value_and_grad(f, 1)(k, b)
+    def f2(_kappa, _b, _eta1, _eta2, _diag):
+        kX = _kappa * X
+        k = kernel(kX, kX, _eta1, _eta2, c) + np.diag(_diag)
+        return direct_quad_form_log_det(k, _b)
 
-    def f(_k, _b):
-        return cg_quad_form_log_det(_k, _b, probes, epsilon=1.0e-5, max_iters=max_iters)[0]
-    value_and_grad(f, 1)(k, b)
+    def f3(_kappa, _b, _eta1, _eta2, _diag):
+        kX = _kappa * X
+        k = kernel(kX, kX, _eta1, _eta2, c) + np.diag(_diag)
+        return cg_quad_form_log_det(k, _b, probes, epsilon=1.0e-8, max_iters=300)[0]
+
+    which = 3
+
+    g1 = grad(f1, which)(kappa, b, eta1, eta2, diag)
+    g2 = grad(f2, which)(kappa, b, eta1, eta2, diag)
+    g3 = grad(f3, which)(kappa, b, eta1, eta2, diag)
+    print("g1 g2 g3", g1.shape, g2.shape, g3.shape)
+    print("g1sum", np.sum(g1))
+
+    assert_allclose(g3, g2, atol=1.0e-3, rtol=1.0e-3)
+    print("passed cg = direct")
+    assert_allclose(g1, g2, atol=1.0e-2, rtol=1.0e-2)
+    print("passed pcpcg = direct")
+    assert_allclose(g1, g3, atol=0.0, rtol=1.0e-30)
+    print("passed pcpcg = cg")
+
+    import sys; sys.exit()
 
     presolve = lambda b: lowrank_presolve(b, X, diag * onp.ones(N), np.square(eta1), np.square(eta2), c, rank=rank)
     k2 = kernel_approx(X, X, eta1, eta2, c, jitter=diag, rank=rank)

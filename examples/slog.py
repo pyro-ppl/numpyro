@@ -91,8 +91,8 @@ def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
         key = numpyro.sample('rng_key', dist.PRNGIdentity())
         with block():
             probe = random.normal(key, shape=(num_probes, N))
-        qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(4,5,8,9,10))(kappa, 0.5 * kY, eta1, eta2,
-                                       hypers['c'], X, 1.0 / omega, probe, rank, cg_tol, max_iters)
+        qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5,6,7,8,9,10))(kappa, 0.5 * kY, eta1, eta2,
+                                       1.0 / omega, hypers['c'], X, probe, rank, cg_tol, max_iters)
 
     record_stats(np.array([res_norm, cg_iters]))
 
@@ -500,7 +500,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-pcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
