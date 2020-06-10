@@ -6,11 +6,11 @@ from abc import ABC, abstractmethod
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.autoguide import AutoContinuous
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to
 from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import Messenger
+from numpyro.infer.autoguide import AutoContinuous
 
 
 class reparam(Messenger):

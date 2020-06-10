@@ -7,11 +7,11 @@ from numpy.testing import assert_allclose
 import pytest
 
 import numpyro
+from numpyro.contrib.reparam import NeuTraReparam, TransformReparam, reparam
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
-from numpyro.contrib.autoguide import AutoIAFNormal
-from numpyro.contrib.reparam import NeuTraReparam, TransformReparam, reparam
+from numpyro.infer.autoguide import AutoIAFNormal
 from numpyro.infer.util import initialize_model
 from numpyro.infer import MCMC, NUTS, SVI, ELBO
 from numpyro.optim import Adam
