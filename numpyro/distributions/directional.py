@@ -118,8 +118,3 @@ class VonMises(Distribution):
     def variance(self):
         """ Computes circular variance of distribution """
         return 1 - lax.bessel_i1e(self._concentration) / lax.bessel_i0e(self._concentration)
-
-if __name__ == '__main__':
-
-    vm = VonMises(2., 10.)
-    print(vm.variance)
