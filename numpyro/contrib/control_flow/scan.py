@@ -50,7 +50,7 @@ class PytreeTrace:
         return cls({name: trace[name] for name in keys})
 
 
-def scan_wrapper(fn, init_value, xs, rng_key=None,
+def scan_wrapper(fn, init_value, xs, length, rng_key=None,
                  condition_map=None, condition_fn=None,
                  substitute_map=None, substitute_fn=None):
 
@@ -90,7 +90,11 @@ def scan_wrapper(fn, init_value, xs, rng_key=None,
 
         return (rng_key, carry), (PytreeTrace(traced_fn.trace), y)
 
-    length = tree_flatten(xs)[0][0].shape[0]
+    xs_flatten = tree_flatten(xs)[0]
+    if len(xs_flatten) > 0:
+        xs_length = xs_flatten[0].shape[0]
+    else:
+        xs_length = length
     # only keeps sites have the same leading dimension as xs
     if condition_map is not None:
         condition_map = condition_map.copy()
@@ -99,22 +103,52 @@ def scan_wrapper(fn, init_value, xs, rng_key=None,
     for param_map in (condition_map, substitute_map):
         if param_map is not None:
             for site_name in list(param_map.keys()):
-                if np.ndim(param_map[site_name]) == 0 or np.shape(param_map[site_name])[0] != length:
+                if np.ndim(param_map[site_name]) == 0 or np.shape(param_map[site_name])[0] != xs_length:
                     param_map.pop(site_name)
-    return lax.scan(body_fn, (rng_key, init_value), (condition_map, substitute_map, xs))
+    return lax.scan(body_fn, (rng_key, init_value), (condition_map, substitute_map, xs), length=length)
 
 
-def scan(name, fn, init_value, xs, rng_key=None):
+def scan(name, fn, init_value, xs, length=None, rng_key=None):
+    """
+    This primitive scans a function over the leading array axes of
+    `xs` while carrying along state. See :func:`jax.lax.scan` for more
+    information.
+
+    **Usage**::
+
+        def gaussian_hmm(y=None, T=10):
+            def transition(x_prev, y_curr):
+                x_curr = numpyro.sample('x', dist.Normal(x_prev, 1))
+                y_curr = numpyro.sample('y', dist.Normal(x_curr, 1), obs=y_curr)
+                return x_curr, y_curr
+
+            x0 = numpyro.sample('x_0', dist.Normal(0, 1))
+            _, y = scan("scan", transition, x0, y, length=T)
+
+    :param str name: name of this primitive
+    :param callable fn: a function to be scanned.
+    :param init_value: the initial carrying state
+    :param xs: the values over which we scan along the leading axis. This can
+        be any JAX pytree (e.g. list/dict of arrays).
+    :param init length: optional value specifying the length of `xs`
+        but can be used when `xs` is an empty pytree (e.g. None)
+    :param jax.random.PRNGKey rng_key: an optional random key to seed `fn`.
+    :return: output of scan, quoted from :func:`jax.lax.scan` docs:
+        "pair of type (c, [b]) where the first element represents the final loop
+        carry value and the second element represents the stacked outputs of the
+        second output of f when scanned over the leading axis of the inputs".
+    """
     # if there are no active Messengers, we just run and return it as expected:
     if not _PYRO_STACK:
-        (rng_key, carry), (pytree_trace, ys) = scan_wrapper(fn, init_value, xs, rng_key=rng_key)
+        (rng_key, carry), (pytree_trace, ys) = scan_wrapper(
+            fn, init_value, xs, length, rng_key=rng_key)
     else:
         # Otherwise, we initialize a message...
         initial_msg = {
             'type': 'control_flow',
             'name': name,
             'fn': scan_wrapper,
-            'args': (fn, init_value, xs),
+            'args': (fn, init_value, xs, length),
             'kwargs': {'rng_key': rng_key,
                        'condition_map': None,
                        'condition_fn': None,
