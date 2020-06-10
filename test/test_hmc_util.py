@@ -219,14 +219,14 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     def potential_fn(q):
         return 0.5 * q ** 2
 
-    p_generator = lambda m_inv, rng_key: 1.0  # noqa: E731
+    p_generator = lambda prototype, m_inv, rng_key: 1.0  # noqa: E731
     q = 0.0
     m_inv = np.array([1.])
 
     fn = (jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
           if jitted else find_reasonable_step_size)
     rng_key = random.PRNGKey(0)
-    step_size = fn(potential_fn, kinetic_fn, p_generator, m_inv, q, rng_key, init_step_size)
+    step_size = fn(potential_fn, kinetic_fn, p_generator, init_step_size, m_inv, q, rng_key)
 
     # Apply 1 velocity verlet step with step_size=eps, we have
     # z_new = eps, r_new = 1 - eps^2 / 2, hence energy_new = 0.5 + eps^4 / 8,
@@ -264,7 +264,7 @@ def test_build_adaptation_schedule(num_steps, expected):
     pytest.param(False, marks=pytest.mark.skipif("CI" in os.environ, reason="slow in Travis"))
 ])
 def test_warmup_adapter(jitted):
-    def find_reasonable_step_size(m_inv, z, rng_key, step_size):
+    def find_reasonable_step_size(step_size, m_inv, z, rng_key):
         return np.where(step_size < 1, step_size * 4, step_size / 4)
 
     num_steps = 150
@@ -279,7 +279,7 @@ def test_warmup_adapter(jitted):
     z = np.ones(3)
     wa_state = wa_init(z, rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
     step_size, inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
-    assert step_size == find_reasonable_step_size(inverse_mass_matrix, z, rng_key, init_step_size)
+    assert step_size == find_reasonable_step_size(init_step_size, inverse_mass_matrix, z, rng_key)
     assert_allclose(inverse_mass_matrix, np.ones(mass_matrix_size))
     assert window_idx == 0
 
@@ -418,7 +418,6 @@ def test_gaussian_subposterior(method, diagonal):
         assert_allclose(np.cov(draws.T), cov, atol=0.05)
 
 
-@pytest.mark.filterwarnings('ignore:Explicitly requested dtype float64')
 @pytest.mark.parametrize('method', [consensus, parametric_draws])
 def test_subposterior_structure(method):
     subposteriors = [{'x': np.ones((100, 3)), 'y': np.zeros((100,))} for i in range(10)]

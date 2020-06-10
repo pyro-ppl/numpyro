@@ -12,7 +12,7 @@ from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
 from numpyro.distributions.util import cholesky_of_inverse, get_dtype
-from numpyro.util import cond, while_loop
+from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
@@ -181,13 +181,16 @@ def velocity_verlet(potential_fn, kinetic_fn):
         inverse mass matrix and momentum.
     :return: a pair of (`init_fn`, `update_fn`).
     """
-    def init_fn(z, r):
+    def init_fn(z, r, potential_energy=None, z_grad=None):
         """
         :param z: Position of the particle.
         :param r: Momentum of the particle.
+        :param potential_energy: Potential energy at `z`.
+        :param z_grad: gradient of potential energy at `z`.
         :return: initial state for the integrator.
         """
-        potential_energy, z_grad = value_and_grad(potential_fn)(z)
+        if potential_energy is None or z_grad is None:
+            potential_energy, z_grad = value_and_grad(potential_fn)(z)
         return IntegratorState(z, r, potential_energy, z_grad)
 
     def update_fn(step_size, inverse_mass_matrix, state):
@@ -209,8 +212,8 @@ def velocity_verlet(potential_fn, kinetic_fn):
     return init_fn, update_fn
 
 
-def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
-                              position, rng_key, init_step_size):
+def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
+                              init_step_size, inverse_mass_matrix, position, rng_key):
     """
     Finds a reasonable step size by tuning `init_step_size`. This function is used
     to avoid working with a too large or too small step size in HMC.
@@ -223,10 +226,10 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     :param potential_fn: A callable to compute potential energy.
     :param kinetic_fn: A callable to compute kinetic energy.
     :param momentum_generator: A generator to get a random momentum variable.
+    :param float init_step_size: Initial step size to be tuned.
     :param inverse_mass_matrix: Inverse of mass matrix.
     :param position: Current position of the particle.
     :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
-    :param float init_step_size: Initial step size to be tuned.
     :return: a reasonable value for step size.
     :rtype: float
     """
@@ -249,7 +252,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
-        r = momentum_generator(inverse_mass_matrix, rng_key_momentum)
+        r = momentum_generator(position, inverse_mass_matrix, rng_key_momentum)
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
                                                       (z, r, potential_energy, z_grad))
@@ -324,10 +327,6 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
-def _identity_step_size(inverse_mass_matrix, z, rng_key, step_size):
-    return step_size
-
-
 def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    dense_mass=False, target_accept_prob=0.8):
@@ -350,7 +349,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
     :return: a pair of (`init_fn`, `update_fn`).
     """
     if find_reasonable_step_size is None:
-        find_reasonable_step_size = _identity_step_size
+        find_reasonable_step_size = identity
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
     adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
@@ -382,7 +381,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                 mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
         ss_state = ss_init(np.log(10 * step_size))
 
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
@@ -399,7 +398,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
             ss_state = ss_init(np.log(10 * step_size))
 
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
@@ -434,7 +433,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
                             (z_flat, mm_state), lambda args: mm_update(*args),
-                            mm_state, lambda x: x)
+                            mm_state, identity)
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
@@ -442,7 +441,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                               ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
                      (z, rng_key_ss, state), lambda args: _update_at_window_end(*args),
-                     state, lambda x: x)
+                     state, identity)
         return state
 
     return init_fn, update_fn
@@ -625,7 +624,7 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                                    going_right, energy_current, max_delta_energy)
         new_tree = cond(current_tree.num_proposals == 0,
                         new_leaf,
-                        lambda x: x,
+                        identity,
                         (current_tree, new_leaf, inverse_mass_matrix, going_right, transition_rng_key),
                         lambda x: _combine_tree(*x, False))
 
@@ -641,7 +640,7 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                                     lambda x: (index_update(x[0], ckpt_idx_max, r),
                                                index_update(x[1], ckpt_idx_max, r_sum)),
                                     (r_ckpts, r_sum_ckpts),
-                                    lambda x: x)
+                                    identity)
 
         turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
                                         ckpt_idx_min, ckpt_idx_max)

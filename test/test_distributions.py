@@ -57,6 +57,18 @@ def _lowrank_mvn_to_scipy(loc, cov_fac, cov_diag):
     return osp.multivariate_normal(mean=mean, cov=cov)
 
 
+class _ImproperWrapper(dist.ImproperUniform):
+    def sample(self, key, sample_shape=()):
+        transform = biject_to(self.support)
+        prototype_value = np.zeros(self.event_shape)
+        unconstrained_event_shape = np.shape(transform.inv(prototype_value))
+        shape = sample_shape + self.batch_shape + unconstrained_event_shape
+        unconstrained_samples = random.uniform(key, shape,
+                                               minval=-2,
+                                               maxval=2)
+        return transform(unconstrained_samples)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -111,6 +123,7 @@ CONTINUOUS = [
     T(dist.HalfCauchy, np.array([1., 2.])),
     T(dist.HalfNormal, 1.),
     T(dist.HalfNormal, np.array([1., 2.])),
+    T(_ImproperWrapper, constraints.positive, (), (3,)),
     T(dist.InverseGamma, np.array([1.7]), np.array([[2.], [3.]])),
     T(dist.InverseGamma, np.array([0.5, 1.3]), np.array([[1.], [3.]])),
     T(dist.LKJ, 2, 0.5, "onion"),
@@ -558,8 +571,10 @@ def test_gamma_poisson_log_prob(shape):
 def test_log_prob_gradient(jax_dist, sp_dist, params):
     if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip('we have separated tests for LKJCholesky distribution')
-    rng_key = random.PRNGKey(0)
+    if jax_dist is _ImproperWrapper:
+        pytest.skip('no param for ImproperUniform to test for log_prob gradient')
 
+    rng_key = random.PRNGKey(0)
     value = jax_dist(*params).sample(rng_key)
 
     def fn(*args):
@@ -586,6 +601,9 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_mean_var(jax_dist, sp_dist, params):
+    if jax_dist is _ImproperWrapper:
+        pytest.skip("Improper distribution does not has mean/var implemented")
+
     n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)
     k = random.PRNGKey(0)
@@ -663,7 +681,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     key = random.PRNGKey(1)
     dependent_constraint = False
     for i in range(len(params)):
-        if jax_dist in (dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
+        if jax_dist in (_ImproperWrapper, dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
             continue
         if params[i] is None:
             oob_params[i] = None
@@ -680,7 +698,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     assert jax_dist(*oob_params)
 
     # Invalid parameter values throw ValueError
-    if not dependent_constraint:
+    if not dependent_constraint and jax_dist is not _ImproperWrapper:
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
@@ -801,6 +819,10 @@ def test_biject_to(constraint, shape):
     rng_key = random.PRNGKey(0)
     x = random.normal(rng_key, shape)
     y = transform(x)
+
+    # test inv work for NaN arrays:
+    x_nan = transform.inv(np.full(np.shape(y), np.nan))
+    assert (x_nan.shape == x.shape)
 
     # test codomain
     batch_shape = shape if event_dim == 0 else shape[:-1]

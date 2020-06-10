@@ -84,8 +84,6 @@ import warnings
 from jax import lax, random
 import jax.numpy as np
 
-from numpyro.distributions.constraints import real
-from numpyro.distributions.transforms import ComposeTransform, biject_to
 from numpyro.primitives import Messenger
 from numpyro.util import not_jax_tracer
 
@@ -259,25 +257,28 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
-    def __init__(self, fn=None, param_map=None, substitute_fn=None):
-        self.substitute_fn = substitute_fn
+    def __init__(self, fn=None, param_map=None, condition_fn=None):
+        self.condition_fn = condition_fn
         self.param_map = param_map
+        if sum((x is not None for x in (param_map, condition_fn))) != 1:
+            raise ValueError('Only one of `param_map` or `condition_fn` '
+                             'should be provided.')
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
-        site_name = msg['name']
-        if msg['type'] == 'sample':
-            value = None
-            if self.param_map is not None:
-                if site_name in self.param_map:
-                    value = self.param_map[site_name]
-            else:
-                value = self.substitute_fn(msg)
-            if value is not None:
-                msg['value'] = value
-                if msg['is_observed']:
-                    raise ValueError("Cannot condition an already observed site: {}.".format(site_name))
-                msg['is_observed'] = True
+        if msg['type'] != 'sample':
+            return
+
+        if self.param_map is not None:
+            value = self.param_map.get(msg['name'])
+        else:
+            value = self.condition_fn(msg)
+
+        if value is not None:
+            msg['value'] = value
+            if msg['is_observed']:
+                raise ValueError("Cannot condition an already observed site: {}.".format(msg['name']))
+            msg['is_observed'] = True
 
 
 class mask(Messenger):
@@ -294,6 +295,9 @@ class mask(Messenger):
         super(mask, self).__init__(fn)
 
     def process_message(self, msg):
+        if msg['type'] != 'sample':
+            return
+
         msg['mask'] = self.mask if msg['mask'] is None else self.mask & msg['mask']
 
 
@@ -314,6 +318,9 @@ class scale(Messenger):
         super(scale, self).__init__(fn)
 
     def process_message(self, msg):
+        if msg['type'] not in ('sample', 'plate'):
+            return
+
         msg["scale"] = self.scale if msg.get('scale') is None else self.scale * msg['scale']
 
 
@@ -391,8 +398,6 @@ class substitute(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param dict param_map: dictionary of `numpy.ndarray` values keyed by
         site names.
-    :param dict base_param_map: similar to `param_map` but only holds samples
-        from base distributions.
     :param substitute_fn: callable that takes in a site dict and returns
         a numpy array or `None` (in which case the handler has no side
         effect).
@@ -413,34 +418,22 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None, base_param_map=None, substitute_fn=None):
+    def __init__(self, fn=None, param_map=None, substitute_fn=None):
         self.substitute_fn = substitute_fn
         self.param_map = param_map
-        self.base_param_map = base_param_map
-        if sum((x is not None for x in (param_map, base_param_map, substitute_fn))) != 1:
-            raise ValueError('Only one of `param_map`, `base_param_map`, or `substitute_fn` '
+        if sum((x is not None for x in (param_map, substitute_fn))) != 1:
+            raise ValueError('Only one of `param_map` or `substitute_fn` '
                              'should be provided.')
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'param'):
             return
+
         if self.param_map is not None:
-            if msg['name'] in self.param_map:
-                msg['value'] = self.param_map[msg['name']]
+            value = self.param_map.get(msg['name'])
         else:
-            base_value = self.substitute_fn(msg) if self.substitute_fn \
-                else self.base_param_map.get(msg['name'], None)
-            if base_value is not None:
-                if msg['type'] == 'sample':
-                    msg['value'], msg['intermediates'] = msg['fn'].transform_with_intermediates(
-                        base_value)
-                else:
-                    constraint = msg['kwargs'].pop('constraint', real)
-                    transform = biject_to(constraint)
-                    if isinstance(transform, ComposeTransform):
-                        # No need to apply the first transform since the base value
-                        # should have the same support as the first part's co-domain.
-                        msg['value'] = ComposeTransform(transform.parts[1:])(base_value)
-                    else:
-                        msg['value'] = base_value
+            value = self.substitute_fn(msg)
+
+        if value is not None:
+            msg['value'] = value

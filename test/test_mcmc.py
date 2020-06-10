@@ -14,8 +14,9 @@ import jax.numpy as np
 from jax.scipy.special import logit
 
 import numpyro
+from numpyro.contrib.reparam import TransformReparam, reparam
 import numpyro.distributions as dist
-from numpyro.distributions import constraints
+from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import HMC, MCMC, NUTS, SA
 from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
 from numpyro.infer.util import initialize_model
@@ -105,7 +106,8 @@ def test_uniform_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+        with reparam(config={'loc': TransformReparam()}):
+            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
@@ -125,7 +127,10 @@ def test_improper_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        loc = numpyro.param('loc', 0., constraint=constraints.interval(0., alpha))
+        with reparam(config={'loc': TransformReparam()}):
+            loc = numpyro.sample('loc', dist.TransformedDistribution(
+                dist.Uniform(0, 1).mask(False),
+                AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
@@ -152,7 +157,7 @@ def test_beta_bernoulli_x64(kernel_cls):
     if kernel_cls is SA:
         kernel = SA(model=model)
     else:
-        kernel = kernel_cls(model=model, trajectory_length=1.)
+        kernel = kernel_cls(model=model, trajectory_length=0.1)
     mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
     mcmc.print_summary()
@@ -251,8 +256,8 @@ def test_improper_prior():
     num_warmup, num_samples = 1000, 8000
 
     def model(data):
-        mean = numpyro.param('mean', 0.)
-        std = numpyro.param('std', 1., constraint=constraints.positive)
+        mean = numpyro.sample('mean', dist.Normal(0, 1).mask(False))
+        std = numpyro.sample('std', dist.ImproperUniform(dist.constraints.positive, (), ()))
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
@@ -270,8 +275,8 @@ def test_mcmc_progbar():
     num_warmup, num_samples = 10, 10
 
     def model(data):
-        mean = numpyro.param('mean', 0.)
-        std = numpyro.param('std', 1., constraint=constraints.positive)
+        mean = numpyro.sample('mean', dist.Normal(0, 1).mask(False))
+        std = numpyro.sample('std', dist.LogNormal(0, 1).mask(False))
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
@@ -474,7 +479,7 @@ def test_functional_beta_bernoulli_x64(algo):
 
     true_probs = np.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, model_args=(data,))
+    init_params, potential_fn, constrain_fn, _ = initialize_model(random.PRNGKey(2), model, model_args=(data,))
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
@@ -560,8 +565,11 @@ def test_model_with_multiple_exec_paths(jit_args):
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 20, 10, jit_model_args=jit_args)
     mcmc.run(random.PRNGKey(1), a, b=None, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'x', 'sigma'}
     mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'y', 'sigma'}
     mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'x', 'y', 'sigma'}
 
 
 @pytest.mark.parametrize('num_chains', [1, 2])

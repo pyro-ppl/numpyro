@@ -140,7 +140,7 @@ def not_jax_tracer(x):
     return not isinstance(x, Tracer)
 
 
-def identity(x):
+def identity(x, *args, **kwargs):
     return x
 
 

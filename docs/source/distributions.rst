@@ -17,6 +17,14 @@ ExpandedDistribution
     :show-inheritance:
     :member-order: bysource
 
+ImproperUniform
+---------------
+.. autoclass:: numpyro.distributions.distribution.ImproperUniform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Independent
 -----------
 .. autoclass:: numpyro.distributions.distribution.Independent
@@ -102,7 +110,7 @@ Gamma
     :member-order: bysource
 
 Gumbel
------
+------
 .. autoclass:: numpyro.distributions.continuous.Gumbel
     :members:
     :undoc-members:
@@ -371,6 +379,14 @@ ZeroInflatedPoisson
 
 Constraints
 ===========
+
+Constraint
+----------
+.. autoclass:: numpyro.distributions.constraints.Constraint
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 boolean
 -------
