@@ -1045,7 +1045,18 @@ class TruncatedCauchy(TransformedDistribution):
         return np.full(self.batch_shape, np.nan)
 
     def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
+        if isinstance(self._support.lower_bound, (int, float)):
+            aux_data = self._support.lower_bound
+        else:
+            aux_data = None
+        return (self.low, self.loc, self.scale), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = cls(*params)
+        if aux_data is not None:
+            d._support = constraints.greater_than(aux_data)
+        return d
 
 
 class _BaseTruncatedNormal(Distribution):
@@ -1103,7 +1114,18 @@ class TruncatedNormal(TransformedDistribution):
         return (self.scale ** 2) * (1 - self.base_dist.base_loc * low_prob_scaled - low_prob_scaled ** 2)
 
     def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
+        if isinstance(self._support.lower_bound, (int, float)):
+            aux_data = self._support.lower_bound
+        else:
+            aux_data = None
+        return (self.low, self.loc, self.scale), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = cls(*params)
+        if aux_data is not None:
+            d._support = constraints.greater_than(aux_data)
+        return d
 
 
 class _BaseUniform(Distribution):
@@ -1147,7 +1169,19 @@ class Uniform(TransformedDistribution):
         return (self.high - self.low) ** 2 / 12.
 
     def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
+        if isinstance(self._support.lower_bound, (int, float)) and \
+                isinstance(self._support.upper_bound, (int, float)):
+            aux_data = (self._support.lower_bound, self._support.upper_bound)
+        else:
+            aux_data = None
+        return (self.low, self.high), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = cls(*params)
+        if aux_data is not None:
+            d._support = constraints.interval(*aux_data)
+        return d
 
 
 @copy_docs_from(Distribution)
