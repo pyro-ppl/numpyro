@@ -257,7 +257,7 @@ def test_improper_prior():
 
     def model(data):
         mean = numpyro.sample('mean', dist.Normal(0, 1).mask(False))
-        std = numpyro.sample('std', dist.LogNormal(0, 1).mask(False))
+        std = numpyro.sample('std', dist.ImproperUniform(dist.constraints.positive, (), ()))
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
@@ -479,7 +479,7 @@ def test_functional_beta_bernoulli_x64(algo):
 
     true_probs = np.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, model_args=(data,))
+    init_params, potential_fn, constrain_fn, _ = initialize_model(random.PRNGKey(2), model, model_args=(data,))
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
@@ -565,8 +565,11 @@ def test_model_with_multiple_exec_paths(jit_args):
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 20, 10, jit_model_args=jit_args)
     mcmc.run(random.PRNGKey(1), a, b=None, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'x', 'sigma'}
     mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'y', 'sigma'}
     mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'x', 'y', 'sigma'}
 
 
 @pytest.mark.parametrize('num_chains', [1, 2])

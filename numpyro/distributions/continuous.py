@@ -1027,8 +1027,13 @@ class TruncatedCauchy(TransformedDistribution):
         self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
         base_loc = (loc - low) / scale
         base_dist = _BaseTruncatedCauchy(base_loc)
+        self._support = constraints.greater_than(low)
         super(TruncatedCauchy, self).__init__(base_dist, AffineTransform(low, scale),
                                               validate_args=validate_args)
+
+    @property
+    def support(self):
+        return self._support
 
     # NB: these stats do not apply when arg `high` is supported
     @property
@@ -1079,8 +1084,13 @@ class TruncatedNormal(TransformedDistribution):
         self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
         base_loc = (loc - low) / scale
         base_dist = _BaseTruncatedNormal(base_loc)
+        self._support = constraints.greater_than(low)
         super(TruncatedNormal, self).__init__(base_dist, AffineTransform(low, scale),
                                               validate_args=validate_args)
+
+    @property
+    def support(self):
+        return self._support
 
     @property
     def mean(self):
@@ -1121,7 +1131,12 @@ class Uniform(TransformedDistribution):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(np.shape(low), np.shape(high))
         base_dist = _BaseUniform(batch_shape)
+        self._support = constraints.interval(low, high)
         super(Uniform, self).__init__(base_dist, AffineTransform(low, high - low), validate_args=validate_args)
+
+    @property
+    def support(self):
+        return self._support
 
     @property
     def mean(self):

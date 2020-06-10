@@ -366,11 +366,11 @@ class Delta(Distribution):
     support = constraints.real
     is_discrete = True
 
-    def __init__(self, value=0., log_density=0., event_ndim=0, validate_args=None):
-        if event_ndim > np.ndim(value):
+    def __init__(self, value=0., log_density=0., event_dim=0, validate_args=None):
+        if event_dim > np.ndim(value):
             raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
-                             .format(event_ndim, np.ndim(value)))
-        batch_dim = np.ndim(value) - event_ndim
+                             .format(event_dim, np.ndim(value)))
+        batch_dim = np.ndim(value) - event_dim
         batch_shape = np.shape(value)[:batch_dim]
         event_shape = np.shape(value)[batch_dim:]
         self.value = lax.convert_element_type(value, canonicalize_dtype(np.float64))

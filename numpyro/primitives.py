@@ -137,8 +137,6 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
-        'mask': None,
-        'scale': None,
         'cond_indep_stack': [],
     }
 
@@ -265,19 +263,16 @@ class plate(Messenger):
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
         expected_shape = self._get_batch_shape(cond_indep_stack)
-        dist_batch_shape = msg['fn'].batch_shape if msg['type'] == 'sample' else ()
-        overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
-        trailing_shape = expected_shape[overlap_idx:]
-        # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
-        broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
-        if broadcast_shape != dist_batch_shape:
-            raise ValueError('Distribution batch shape = {} cannot be broadcast up to {}. '
-                             'Consider using unbatched distributions.'
-                             .format(dist_batch_shape, broadcast_shape))
-        batch_shape = expected_shape[:overlap_idx]
-        if 'sample_shape' in msg['kwargs']:
-            batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
-        msg['kwargs']['sample_shape'] = batch_shape
+        if msg['type'] == 'sample':
+            dist_batch_shape = msg['fn'].batch_shape
+            if 'sample_shape' in msg['kwargs']:
+                dist_batch_shape = msg['kwargs']['sample_shape'] + dist_batch_shape
+                msg['kwargs']['sample_shape'] = ()
+            overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
+            trailing_shape = expected_shape[overlap_idx:]
+            broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+            batch_shape = expected_shape[:overlap_idx] + broadcast_shape
+            msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
             msg['scale'] = scale * self.size / self.subsample_size
@@ -287,6 +282,7 @@ class plate(Messenger):
 def plate_stack(prefix, sizes, rightmost_dim=-1):
     """
     Create a contiguous stack of :class:`plate` s with dimensions::
+
         rightmost_dim - len(sizes), ..., rightmost_dim
 
     :param str prefix: Name prefix for plates.
