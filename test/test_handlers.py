@@ -34,7 +34,8 @@ def test_mask(mask_last, use_jit):
     data = random.normal(random.PRNGKey(0), (N,))
     x = random.normal(random.PRNGKey(1), (N,))
     if use_jit:
-        log_joint = jit(log_density, static_argnums=(0,))(model, (data, mask), {}, {'x': x, 'y': x})[0]
+        log_joint = jit(lambda *args: log_density(*args)[0], static_argnums=(0,))(
+            model, (data, mask), {}, {'x': x, 'y': x})
     else:
         log_joint = log_density(model, (data, mask), {}, {'x': x, 'y': x})[0]
     log_prob_x = dist.Normal(0, 1).log_prob(x)
