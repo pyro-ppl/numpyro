@@ -12,8 +12,8 @@ import jax.numpy as np
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.nn.auto_reg_nn import AutoregressiveNN
-from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
+from numpyro.nn.auto_reg_nn import AutoregressiveNN
+from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform

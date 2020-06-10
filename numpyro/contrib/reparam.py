@@ -143,7 +143,7 @@ class NeuTraReparam(Reparam):
         "NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport"
         https://arxiv.org/abs/1903.03704
 
-    :param ~numpyro.contrib.autoguide.AutoContinuous guide: A guide.
+    :param ~numpyro.infer.autoguide.AutoContinuous guide: A guide.
     :param params: trained parameters of the guide.
     """
     def __init__(self, guide, params):
