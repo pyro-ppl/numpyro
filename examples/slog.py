@@ -23,6 +23,7 @@ from numpyro.diagnostics import print_summary
 from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpyro.util import enable_x64
 from numpyro.util import fori_loop
+from numpyro.handlers import block
 
 from chunk_vmap import chunk_vmap
 
@@ -45,7 +46,7 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
 
 
 # Most of the model code is concerned with constructing the sparsity inducing prior.
-def model(rng, X, Y, hypers, method="direct", num_probes=12):
+def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -70,26 +71,30 @@ def model(rng, X, Y, hypers, method="direct", num_probes=12):
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    epsilon = 0.001
-    rank = 32
+    rank = 64
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
         qfld = direct_quad_form_log_det(k_omega, 0.5 * kY)
     elif method == "cg":
-        probe = random.normal(rng, shape=(num_probes, N))
-        qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=epsilon, max_iters=max_iters)
+        with block():
+            probe = random.normal(numpyro.sample('rng_key', dist.PRNGIdentity()), shape=(num_probes, N))
+        qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=cg_tol, max_iters=max_iters)
     elif method == "pcg":
-        probe = random.normal(rng, shape=(num_probes, N))
+        key = numpyro.sample('rng_key', dist.PRNGIdentity())
+        with block():
+            probe = random.normal(key, shape=(num_probes, N))
+        #with block():
+        #    probe = numpyro.sample("probe", dist.Normal(0.0, np.ones((8, N))))
         qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11))(k_omega, 0.5 * kY, eta1, eta2,
-                                       hypers['c'], kX, 1.0 / omega, kappa, probe, rank, epsilon, max_iters)
+                                       hypers['c'], kX, 1.0 / omega, kappa, probe, rank, cg_tol, max_iters)
 
     record_stats(np.array([res_norm, cg_iters]))
 
     numpyro.factor("obs", log_factor - 0.5 * qfld)
 
 
-def guide(rng, X, Y, hypers, method="direct", num_probes=4):
+def guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -238,11 +243,11 @@ def run_hmc(model, args, rng_key, X, Y, hypers):
 
     return samples, elapsed_time
 
-def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="direct"):
-    rng_key, rng_key_probe = random.split(rng_key, 2)
+def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
+    rng_key_init, rng_key_post = random.split(rng_key, 2)
     adam = CustomAdam(args['lr'])
     svi = SVI(model, guide, adam, ELBO())
-    svi_state = svi.init(rng_key, rng_key_probe, X, Y, hypers)
+    svi_state = svi.init(rng_key_init, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
 
     num_steps = args['num_samples']
     report_frequency = 100
@@ -251,7 +256,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
 
     def body_fn(i, init_val):
         svi_state, old_loss, old_stats = init_val
-        svi_state, loss = svi.update(svi_state, rng_key_probe, X, Y, hypers, method=method)
+        svi_state, loss = svi.update(svi_state, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
         loss = (1.0 - beta) * loss + beta * old_loss
         stats = (1.0 - beta) * svi_state.optim_state[1] + beta * old_stats
         return (svi_state, loss, stats)
@@ -271,7 +276,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
         cg_iters *= bias_correction
         ts.append(time.time())
         dt = (ts[-1] - ts[-2]) / float(report_frequency)
-        if method != "direct":
+        if "direct" not in args['inference']:
             print("[iter %03d]  %.3f \t\t  res_norm: %.2e  cg_iters: %.1f \t\t [dt: %.3f]" % (step_chunk * report_frequency,
                   loss, res_norm, cg_iters, dt))
             res_norm_history.append(res_norm)
@@ -284,10 +289,10 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32, method="di
     elapsed_time = time.time() - ts[0]
 
     params = svi.get_params(svi_state)
-    rng_key_post = random.PRNGKey(args['seed'] + 1373483)
     return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'lambda']
+    ## TODO drop obs in model?
     samples = Predictive(model, guide=guide, num_samples=num_samples, params=params,
-                         return_sites=return_sites)(rng_key_post, rng_key_probe, X, Y, hypers)
+                         return_sites=return_sites)(rng_key_post, X, Y, hypers)
 
     for k, v in samples.items():
         if v.ndim == 1:
@@ -375,7 +380,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [8000]:
+    for N in [9000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -386,8 +391,7 @@ def main(**args):
 
         print("starting {} inference...".format(args['inference']))
         if 'svi' in args['inference']:
-            samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48,
-                                       method=args['inference'][4:])
+            samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48)
         elif args['inference'] == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
@@ -491,14 +495,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-pcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=3600, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=2400, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=2000, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=1000, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
+    parser.add_argument("--cg-tol", nargs='?', default=0.001, type=float)
     parser.add_argument("--active-dimensions", nargs='?', default=32, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')

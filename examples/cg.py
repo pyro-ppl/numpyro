@@ -41,14 +41,28 @@ def kernel_approx(X, Z, eta1, eta2, c, jitter=1.0e-6, rank=0):
 
 
 def lowrank_presolve(b, kX, D, eta1, eta2, c, kappa, rank=0):
-    P = kX.shape[-1]
-    all_ones = np.ones((b.shape[-1], 1))
-    top_features = dynamic_slice_in_dim(np.argsort(kappa), P - rank, P)
+    rank1 = 32
+    rank2 = 16
+    N, P = kX.shape
+    all_ones = np.ones((N, 1))
+    kappa_indices = np.argsort(kappa)
+
+    top_features = dynamic_slice_in_dim(kappa_indices, P - rank1, rank1)
     kX_top = np.take(kX, top_features, -1)
-    eta12 = np.sqrt(np.square(eta1) - np.square(eta2))
-    Z = np.concatenate([eta12 * kX_top, c * all_ones], axis=1)
+
+    if rank2 > 0:
+        top_features2 = dynamic_slice_in_dim(kappa_indices, P - rank2, rank2)
+        kX_top2 = np.take(kX, top_features2, -1)  # N rank2
+        kX_top2 = kX_top2[:, None, :] * kX_top2[:, :, None] # N rank2 rank2
+        lower_diag = np.ravel(np.arange(rank2) < np.arange(rank2)[:, None])
+        kX_top2 = np.compress(lower_diag, kX_top2.reshape((N, -1)), axis=-1)
+
+        Z = np.concatenate([eta2 * kX_top2, eta1 * kX_top, c * all_ones], axis=1)
+    else:
+        Z = np.concatenate([eta1 * kX_top, c * all_ones], axis=1)
+
     ZD = Z / D[:, None]
-    ZDZ = np.eye(top_features.shape[-1] + 1) + np.matmul(np.transpose(Z), ZD)
+    ZDZ = np.eye(ZD.shape[-1]) + np.matmul(np.transpose(Z), ZD)
     L = cho_factor(ZDZ, lower=True)[0]
     return lambda b: b / D - np.matmul(ZD, cho_solve((L, True), np.matmul(np.transpose(ZD), b)))
 
@@ -179,7 +193,7 @@ def pcg_quad_form_log_det_jvp(primals, tangents):
 
 # compute logdet A + b A^{-1} b
 @custom_jvp
-def cpcg_quad_form_log_det(A, b, eta1, eta2, c, kX, D, kappa, probes, rank=0, epsilon=1.0e-5, max_iters=20):
+def cpcg_quad_form_log_det(A, b, eta1, eta2, c, kX, diag, kappa, probes, rank=0, epsilon=1.0e-5, max_iters=20):
     return (np.nan, np.nan, np.nan)
 
 @cpcg_quad_form_log_det.defjvp
