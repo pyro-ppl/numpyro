@@ -39,17 +39,16 @@ class PytreeTrace:
                 trace[name] = site_main
                 aux_trace[name] = site_aux
             elif site['type'] == 'deterministic':
-                aux_trace[name] = {'type': 'deterministic', 'name': name}
                 trace[name] = {'value': site['value']}
-        return (trace,), (aux_trace, tuple(self.trace))
+                aux_trace[name] = {'type': 'deterministic', 'name': name}
+        return (trace,), aux_trace
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         trace, = children
-        aux_trace, keys = aux_data
         for name, site in trace.items():
-            site.update(aux_trace[name])
-        return cls({name: trace[name] for name in keys})
+            site.update(aux_data[name])
+        return cls(trace)
 
 
 def _subs_wrapper(subs_map, i, site):
