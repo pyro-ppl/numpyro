@@ -49,7 +49,6 @@ __all__ = [
     'Constraint',
 ]
 
-
 import jax.numpy as np
 
 
@@ -60,6 +59,7 @@ class Constraint(object):
     A constraint object represents a region over which a variable is valid,
     e.g. within which a variable can be optimized.
     """
+
     def __call__(self, x):
         raise NotImplementedError
 
@@ -138,22 +138,14 @@ class _IntegerGreaterThan(Constraint):
     def __call__(self, x):
         return (x % 1 == 0) & (x >= self.lower_bound)
 
-class _Open_Interval(Constraint):
+
+class _Interval(Constraint):
     def __init__(self, lower_bound, upper_bound):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
     def __call__(self, x):
         return (x > self.lower_bound) & (x < self.upper_bound)
-
-
-class _Half_Closed_Interval(Constraint):
-    def __init__(self, lower_bound, upper_bound):
-        self.lower_bound = lower_bound
-        self.upper_bound = upper_bound
-
-    def __call__(self, x):
-        return (x >= self.lower_bound) & (x < self.upper_bound)
 
 
 class _LowerCholesky(Constraint):
@@ -205,14 +197,13 @@ class _Simplex(Constraint):
 # TODO: Make types consistent
 
 boolean = _Boolean()
-circle = _Half_Closed_Interval(-np.pi, np.pi)
 corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
 greater_than = _GreaterThan
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
-interval = _Open_Interval
+interval = _Interval
 lower_cholesky = _LowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
@@ -223,4 +214,4 @@ positive_integer = _IntegerGreaterThan(1)
 real = _Real()
 real_vector = _RealVector()
 simplex = _Simplex()
-unit_interval = _Open_Interval(0., 1.)
+unit_interval = _Interval(0., 1.)
