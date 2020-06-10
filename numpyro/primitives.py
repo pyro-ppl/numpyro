@@ -139,8 +139,6 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
-        'mask': None,
-        'scale': None,
         'cond_indep_stack': [],
         'infer': kwargs.pop('infer', {}),
     }

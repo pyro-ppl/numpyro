@@ -301,19 +301,26 @@ def find_valid_initial_params(rng_key, model,
     return (init_params, pe, z_grad), is_valid
 
 
-def get_model_transforms(model, model_args=(), model_kwargs=None):
+def _get_model_transforms(model, model_args=(), model_kwargs=None):
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    seeded_model = seed(model, random.PRNGKey(0))
-    model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
+    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     inv_transforms = {}
     # model code may need to be replayed in the presence of deterministic sites
     replay_model = False
+    enum = False
     for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
-            inv_transforms[k] = biject_to(v['fn'].support)
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['fn'].is_discrete:
+                enum = True
+                if not v['fn'].has_enumerate_support:
+                    raise RuntimeError(f"MCMC only supports continuous sites or discrete sites "
+                                       "with enumerate support, but got {type(v['fn']).__name__}.")
+            else:
+                inv_transforms[k] = biject_to(v['fn'].support)
+            # TODO: check if the support is dynamic, then we set replay_model = True
         elif v['type'] == 'deterministic':
             replay_model = True
-    return inv_transforms, replay_model, model_trace
+    return inv_transforms, replay_model, enum, model_trace
 
 
 def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
@@ -395,9 +402,10 @@ def initialize_model(rng_key, model,
         at `deterministic` sites in the model.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    inv_transforms, replay_model, model_trace = get_model_transforms(
-        model, model_args, model_kwargs)
-    enum = any(site['fn'].has_enumerate_support for site in model_trace.values() if site['type'] == 'sample')
+    substituted_model = substitute(seed(model, rng_key if np.ndim(rng_key) == 1 else rng_key[0]),
+                                   substitute_fn=init_strategy)
+    inv_transforms, replay_model, enum, model_trace = _get_model_transforms(
+        substituted_model, model_args, model_kwargs)
     constrained_values = {k: v['value'] for k, v in model_trace.items()
                           if v['type'] == 'sample' and not v['is_observed']
                           and not v['fn'].is_discrete}
