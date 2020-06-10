@@ -135,7 +135,6 @@ def direct_quad_form_log_det(A, b, include_log_det=True):
     L = cho_factor(A, lower=True)[0]
     Linv_b = solve_triangular(L, b, lower=True)
     quad_form = np.dot(Linv_b, Linv_b)
-    return 2.0 * np.sum(np.log(np.diagonal(L)))
     if include_log_det:
         log_det = 2.0 * np.sum(np.log(np.diagonal(L)))
         return log_det + quad_form
@@ -161,7 +160,7 @@ def cg_quad_form_log_det_jvp(primals, tangents):
     quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
     quad_form_db = 2.0 * np.dot(Ainv_b, b_dot)
     log_det_dA = np.mean(np.einsum('...i,...i->...', np.matmul(probes, A_dot), Ainv_probes))
-    tangent_out = log_det_dA #+ quad_form_dA + quad_form_db
+    tangent_out = log_det_dA + quad_form_dA + quad_form_db
     quad_form = np.dot(b, Ainv_b)
 
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
@@ -246,22 +245,24 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
 
-    #quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
     kXkX = kdot(kX, kX)
+    k_dot_eta2 = np.square(1.0 + kXkX) - kdot(np.square(kX), np.square(kX)) - 2.0 * kXkX - 1.0
     expensive1 = kXkX * kdot(kX, dkX)
-    expensive1 = 0.5 * (expensive1 + np.transpose(expensive1))
+    expensive2 = np.square(1.0 + kXkX)
+
+    #quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
     quad_form_dk = - 2.0 * eta1sq * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, dkX)) \
                    + 2.0 * eta2sq * np.dot(np.dot(Ainv_b, k3Xsq), np.dot(Ainv_b, dkXsq)) \
                    - 2.0 * eta2sq * np.dot(Ainv_b, np.matmul(expensive1, Ainv_b))
     quad_form_db = 2.0 * np.dot(Ainv_b, b_dot)
     quad_form_deta1 = - 2.0 * eta1 * eta1_dot * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX))
-    expensive2 = np.square(1.0 + kXkX)
     #quad_form_deta2 = 2.0 * eta2 * eta2_dot * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX)) \
     #                  + eta2 * eta2_dot * np.square(np.sum(Ainv_b)) \
     #                  + eta2 * eta2_dot * np.dot(np.dot(Ainv_b, kXsq), np.dot(Ainv_b, kXsq)) \
     #                  - eta2 * eta2_dot * np.dot(Ainv_b, np.matmul(expensive2, Ainv_b))
-    quad_form_deta2 = 0.0
+    quad_form_deta2 = -eta2 * eta2_dot * np.dot(np.matmul(Ainv_b, k_dot_eta2), Ainv_b)
     quad_form_ddiag = -np.dot(np.square(Ainv_b), diag_dot)
+
     #log_det_dA = np.mean(np.einsum('...i,...i->...', np.matmul(probes, A_dot), Ainv_probes))
     #log_det_deta2 = - 2.0 * eta2 * eta2_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX)) \
     #                - eta2 * eta2_dot * np.mean(np.sum(probes, axis=-1) * np.sum(Ainv_probes, axis=-1)) \
@@ -270,9 +271,8 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
     log_det_dk = 2.0 * eta1sq * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, dkX)) \
                  - 2.0 * eta2sq * meansum(np.matmul(probes, k3Xsq) * np.matmul(Ainv_probes, dkXsq)) \
                  + 2.0 * eta2sq * meansum(np.matmul(probes, expensive1) * Ainv_probes)
-    log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_b, kX))
-    k_dot = np.square(1.0 + kdot(kX, kX)) - kdot(np.square(kX), np.square(kX)) - 2.0 * kdot(kX, kX) - 1.0
-    log_det_deta2 = eta2 * eta2_dot * meansum(np.matmul(probes, k_dot) * Ainv_probes)
+    log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX))
+    log_det_deta2 = eta2 * eta2_dot * meansum(np.matmul(probes, k_dot_eta2) * Ainv_probes)
     log_det_ddiag = meansum(probes * diag_dot * Ainv_probes)
     tangent_out = log_det_dk + log_det_deta1 + log_det_deta2 + log_det_ddiag + \
                   quad_form_dk + quad_form_deta1 + quad_form_deta2 + quad_form_ddiag + quad_form_db
@@ -314,13 +314,12 @@ if __name__ == "__main__":
         k = kernel(kX, kX, _eta1, _eta2, c) + np.diag(_diag)
         return cg_quad_form_log_det(k, _b, probes, epsilon=1.0e-8, max_iters=300)[0]
 
-    which = 3
+    which = 4
 
     g1 = grad(f1, which)(kappa, b, eta1, eta2, diag)
     g2 = grad(f2, which)(kappa, b, eta1, eta2, diag)
     g3 = grad(f3, which)(kappa, b, eta1, eta2, diag)
     print("g1 g2 g3", g1.shape, g2.shape, g3.shape)
-    print("g1sum", np.sum(g1))
 
     assert_allclose(g3, g2, atol=1.0e-3, rtol=1.0e-3)
     print("passed cg = direct")
