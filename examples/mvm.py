@@ -53,25 +53,27 @@ def kXkXsq_mvm(b, kX, dilation=2):
 def kXdkXsq_mvm(b, kX, dkX, dilation=2):
     return partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), dilation)(b)
 
-if __name__ == "__main__":
-    dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
-    kX = np.array(onp.random.randn(N * P).reshape((N, P)))
+def quad_mvm(b, X):
+    return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
 
-    res1 = partitioned_mvm(lambda i: kXkXsq_row(i, kX), 8)(b)
-    res2 = partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), 8)(b)
+def kernel(X, Z, eta1, eta2, c):
+    eta1sq = np.square(eta1)
+    eta2sq = np.square(eta2)
+    k1 = 0.5 * eta2sq * np.square(1.0 + kdot(X, Z))
+    k2 = -0.5 * eta2sq * kdot(np.square(X), np.square(Z))
+    k3 = (eta1sq - eta2sq) * kdot(X, Z)
+    k4 = np.square(c) - 0.5 * eta2sq
+    return k1 + k2 + k3 + k4
 
-    if N < 10**4:
-        res1v = vanilla_mvm(lambda i: kXkXsq_row(i, kX))(b)
-        res1vv = np.matmul(np.square(1.0 + kdot(kX, kX)), b)
-        assert_allclose(res1, res1v, atol=1.0e-3, rtol=1.0e-3)
-        print("res1 == res1v")
-        assert_allclose(res1, res1vv, atol=1.0e-3, rtol=1.0e-3)
-        print("res1 == res1vv")
+def kernel_mvm(b, kX, eta1, eta2, c, diag, dilation=2):
+    eta1sq = np.square(eta1)
+    eta2sq = np.square(eta2)
+    k1b = 0.5 * eta2sq * kXkXsq_mvm(b, kX, dilation=dilation)
+    k2b = -0.5 * eta2sq * quad_mvm(b, np.square(kX))
+    k3b = (eta1sq - eta2sq) * quad_mvm(b, kX)
+    k4b = (np.square(c) - 0.5 * eta2sq) * np.sum(b) * np.ones(b.shape)
+    return k1b + k2b + k3b + k4b + diag * b
 
-        res2v = vanilla_mvm(lambda i: kXdkXsq_row(i, kX, dkX))(b)
-        res2vv = np.matmul(kdot(kX, kX) * kdot(dkX, kX), b)
-        assert_allclose(res2, res2v, atol=1.0e-3, rtol=1.0e-3)
-        print("res2 == res2v")
 
 if __name__ == "__main__":
     numpyro.set_platform("gpu")
@@ -82,6 +84,20 @@ if __name__ == "__main__":
 
     dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
     kX = np.array(onp.random.randn(N * P).reshape((N, P)))
+
+    eta1 = 0.55
+    eta2 = 0.22
+    c = 0.9
+
+    kb1 = np.matmul(kernel(kX, kX, eta1, eta2, c), b)
+    kb2 = kernel_mvm(b, kX, eta1, eta2, c, dilation=2)
+    kb3 = kernel_mvm(b, kX, eta1, eta2, c, dilation=3)
+    assert_allclose(kb1, kb2, atol=1.0e-5, rtol=1.0e-5)
+    print("kb1 == kb2")
+    assert_allclose(kb1, kb3, atol=1.0e-5, rtol=1.0e-5)
+    print("kb1 == kb3")
+
+    import sys; sys.exit()
 
     res1 = partitioned_mvm(lambda i: kXkXsq_row(i, kX), 8)(b)
     res2 = partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), 8)(b)

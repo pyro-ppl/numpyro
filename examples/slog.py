@@ -21,15 +21,15 @@ from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.infer.util import Predictive
 from numpyro.diagnostics import print_summary
 from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
-from numpyro.util import enable_x64
-from numpyro.util import fori_loop
+from numpyro.util import enable_x64, fori_loop
 from numpyro.handlers import block
 
 from chunk_vmap import chunk_vmap
 
 import pickle
 from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det, pcpcg_quad_form_log_det
-from utils import CustomAdam, record_stats, kdot, sigmoid
+from utils import CustomAdam, record_stats, kdot, sigmoid, sample_aux_noise
+from mvm import kernel_mvm
 
 
 # The kernel that corresponds to our quadratic logit function
@@ -63,11 +63,14 @@ def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
     omega = numpyro.sample("omega", dist.TruncatedPolyaGamma(batch_shape=(N,)))
 
     kX = kappa * X
-    k = kernel(kX, kX, eta1, eta2, hypers['c'])
 
-    k_omega = k + np.eye(N) * (1.0 / omega)
+    if method != 'ppcg':
+        k = kernel(kX, kX, eta1, eta2, hypers['c'])
+        k_omega = k + np.eye(N) * (1.0 / omega)
+        kY = np.matmul(k, Y)
+    else:
+        kY = kernel_mvm(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=4)
 
-    kY = np.matmul(k, Y)
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
@@ -78,22 +81,16 @@ def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
     if method == "direct":
         qfld = direct_quad_form_log_det(k_omega, 0.5 * kY)
     elif method == "cg":
-        key = numpyro.sample('rng_key', dist.PRNGIdentity())
-        with block():
-            probe = random.normal(key, shape=(num_probes, N))
+        probe = sample_aux_noise(shape=(num_probes, N))
         qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=cg_tol, max_iters=max_iters)
     elif method == "pcg":
-        key = numpyro.sample('rng_key', dist.PRNGIdentity())
-        with block():
-            probe = random.normal(key, shape=(num_probes, N))
+        probe = sample_aux_noise(shape=(num_probes, N))
         qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11,12))(k_omega, 0.5 * kY, eta1, eta2,
                                        hypers['c'], kX, 1.0 / omega, kappa, probe, rank1, rank2, cg_tol, max_iters)
     elif method == "ppcg":
-        key = numpyro.sample('rng_key', dist.PRNGIdentity())
-        with block():
-            probe = random.normal(key, shape=(num_probes, N))
+        probe = sample_aux_noise(shape=(num_probes, N))
         qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5,6,7,8,9,10))(kappa, 0.5 * kY, eta1, eta2,
-                                       1.0 / omega, hypers['c'], X, probe, rank, cg_tol, max_iters)
+                                       1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters)
 
     record_stats(np.array([res_norm, cg_iters]))
 
@@ -256,7 +253,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
     svi_state = svi.init(rng_key_init, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
 
     num_steps = args['num_samples']
-    report_frequency = 100
+    report_frequency = 50
     beta = 0.95
     bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
@@ -386,7 +383,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [1500]:
+    for N in [9000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -501,7 +498,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-pcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)

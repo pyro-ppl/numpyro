@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as np
 from jax.lax import stop_gradient
 import numpyro
@@ -28,7 +29,13 @@ def kdot(X, Z):
 
 def dotdot(x):
     return np.dot(x, x)
+
 def cho_tri_solve(A, b):
     L = cho_factor(A, lower=True)[0]
     Linv_b = solve_triangular(L, b, lower=True)
     return L, Linv_b
+
+def sample_aux_noise(shape):
+    key = numpyro.sample('rng_key', numpyro.distributions.PRNGIdentity())
+    with numpyro.handlers.block():
+        return jax.random.normal(key, shape=shape)
