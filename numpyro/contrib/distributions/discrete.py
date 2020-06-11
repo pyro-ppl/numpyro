@@ -9,10 +9,10 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 
-import numpy as onp
+import numpy as np
 
 from jax import device_put, random
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.numpy.lax_numpy import _promote_dtypes
 from jax.scipy.special import entr, expit, gammaln, xlog1py, xlogy
 
@@ -44,7 +44,7 @@ class bernoulli_gen(jax_discrete):
             return xlogy(x, p) + xlog1py(1 - x, -p)
 
     def _pmf(self, x, p):
-        return np.exp(self._logpmf(x, p))
+        return jnp.exp(self._logpmf(x, p))
 
     def _cdf(self, x, p):
         return binom._cdf(x, 1, p)
@@ -84,7 +84,7 @@ class binom_gen(jax_discrete):
             p = expit(p)
         # use scipy samplers directly and put the samples on device later.
         # TODO: use util.binomial instead
-        random_state = onp.random.RandomState(self._random_state)
+        random_state = np.random.RandomState(self._random_state)
         sample = random_state.binomial(n, p, self._size)
         return device_put(sample)
 
@@ -98,12 +98,12 @@ class binom_gen(jax_discrete):
             # k * logit - n * log1p(e^logit) = k * logit - n * (log1p(e^-logit) + logit)
             #                                = k * logit - n * logit - n * log1p(e^-logit)
             # More context: https://github.com/pytorch/pytorch/pull/15962/
-            return combiln + x * p - (n * np.clip(p, 0) + xlog1py(n, np.exp(-np.abs(p))))
+            return combiln + x * p - (n * jnp.clip(p, 0) + xlog1py(n, jnp.exp(-jnp.abs(p))))
         else:
             return combiln + xlogy(x, p) + xlog1py(n - x, -p)
 
     def _pmf(self, x, n, p):
-        return np.exp(self._logpmf(x, n, p))
+        return jnp.exp(self._logpmf(x, n, p))
 
     def _cdf(self, x, n, p):
         raise NotImplementedError('Missing jax.scipy.special.bdtr')
@@ -120,7 +120,7 @@ class binom_gen(jax_discrete):
         var = n * p * q
         g1, g2 = None, None
         if 's' in moments:
-            g1 = (q - p) / np.sqrt(var)
+            g1 = (q - p) / jnp.sqrt(var)
         if 'k' in moments:
             g2 = (1.0 - 6 * p * q) / var
         return mu, var, g1, g2
@@ -128,9 +128,9 @@ class binom_gen(jax_discrete):
     def _entropy(self, n, p):
         if self.is_logits:
             p = expit(p)
-        k = np.arange(n + 1)
+        k = jnp.arange(n + 1)
         vals = self._pmf(k, n, p)
-        return np.sum(entr(vals), axis=0)
+        return jnp.sum(entr(vals), axis=0)
 
 
 class poisson_gen(jax_discrete):
@@ -138,7 +138,7 @@ class poisson_gen(jax_discrete):
     _support_mask = constraints.nonnegative_integer
 
     def _rvs(self, mu):
-        random_state = onp.random.RandomState(self._random_state)
+        random_state = np.random.RandomState(self._random_state)
         sample = random_state.poisson(mu, self._size)
         return device_put(sample)
 
@@ -149,7 +149,7 @@ class poisson_gen(jax_discrete):
 
     def _pmf(self, x, mu):
         # poisson.pmf(k) = exp(-mu) * mu**k / k!
-        return np.exp(self._logpmf(x, mu))
+        return jnp.exp(self._logpmf(x, mu))
 
     def _cdf(self, x, mu):
         raise NotImplementedError('Missing jax.scipy.special.pdtr')
@@ -162,10 +162,10 @@ class poisson_gen(jax_discrete):
 
     def _stats(self, mu):
         var = mu
-        tmp = np.asarray(mu)
+        tmp = jnp.asarray(mu)
         mu_nonzero = tmp > 0
-        g1 = np.where(mu_nonzero, np.sqrt(1.0 / tmp), np.inf)
-        g2 = np.where(mu_nonzero, 1.0 / tmp, np.inf)
+        g1 = jnp.where(mu_nonzero, jnp.sqrt(1.0 / tmp), jnp.inf)
+        g2 = jnp.where(mu_nonzero, 1.0 / tmp, jnp.inf)
         return mu, var, g1, g2
 
 

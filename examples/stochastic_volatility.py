@@ -37,9 +37,8 @@ import os
 import matplotlib
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
-import numpy as onp
 
-import jax.numpy as np
+import jax.numpy as jnp
 import jax.random as random
 
 import numpyro
@@ -54,9 +53,9 @@ matplotlib.use('Agg')  # noqa: E402
 
 def model(returns):
     step_size = numpyro.sample('sigma', dist.Exponential(50.))
-    s = numpyro.sample('s', dist.GaussianRandomWalk(scale=step_size, num_steps=np.shape(returns)[0]))
+    s = numpyro.sample('s', dist.GaussianRandomWalk(scale=step_size, num_steps=jnp.shape(returns)[0]))
     nu = numpyro.sample('nu', dist.Exponential(.1))
-    return numpyro.sample('r', dist.StudentT(df=nu, loc=0., scale=np.exp(s)),
+    return numpyro.sample('r', dist.StudentT(df=nu, loc=0., scale=jnp.exp(s)),
                           obs=returns)
 
 
@@ -67,7 +66,7 @@ def print_results(posterior, dates):
         header_format = row_name_fmt + '{:>12}' * 5
         row_format = row_name_fmt + '{:>12.3f}' * 5
         columns = ['(p{})'.format(q * 100) for q in quantiles]
-        q_values = onp.quantile(values, quantiles, axis=0)
+        q_values = jnp.quantile(values, quantiles, axis=0)
         print(header_format.format('', *columns))
         print(row_format.format(row_name, *q_values))
         print('\n')
@@ -78,7 +77,7 @@ def print_results(posterior, dates):
     _print_row(posterior['nu'])
     print('=' * 20, 'volatility', '=' * 20)
     for i in range(0, len(dates), 180):
-        _print_row(np.exp(posterior['s'][:, i]), dates[i])
+        _print_row(jnp.exp(posterior['s'][:, i]), dates[i])
 
 
 def main(args):
@@ -101,7 +100,7 @@ def main(args):
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y'))
     ax.xaxis.set_minor_locator(mdates.MonthLocator())
 
-    ax.plot(dates, np.exp(hmc_states['s'].T), 'r', alpha=0.01)
+    ax.plot(dates, jnp.exp(hmc_states['s'].T), 'r', alpha=0.01)
     legend = ax.legend(['returns', 'volatility'], loc='upper right')
     legend.legendHandles[1].set_alpha(0.6)
     ax.set(xlabel='time', ylabel='returns', title='Volatility of S&P500 over time')
