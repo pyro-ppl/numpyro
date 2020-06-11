@@ -11,7 +11,6 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.reparam import TransformReparam, reparam
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, biject_to
@@ -23,6 +22,7 @@ from numpyro.infer.initialization import (
     init_to_uniform,
     init_to_value,
 )
+from numpyro.contrib.reparam import TransformReparam
 from numpyro.infer.util import (
     Predictive,
     constrain_fn,
@@ -105,7 +105,7 @@ def test_predictive_with_improper():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        with reparam(config={'loc': TransformReparam()}):
+        with handlers.reparam(config={'loc': TransformReparam()}):
             loc = numpyro.sample('loc', dist.TransformedDistribution(
                 dist.Uniform(0, 1).mask(False),
                 AffineTransform(0, alpha)))
@@ -159,7 +159,7 @@ def test_model_with_transformed_distribution():
         inv_transforms['y'].log_abs_det_jacobian(params['y'], expected_samples['y'])
     )
 
-    reparam_model = reparam(model, {'y': TransformReparam()})
+    reparam_model = handlers.reparam(model, {'y': TransformReparam()})
     base_params = {'x': params['x'], 'y_base': params['y']}
     actual_samples = constrain_fn(
         handlers.seed(reparam_model, random.PRNGKey(0)),

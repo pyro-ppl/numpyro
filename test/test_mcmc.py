@@ -14,11 +14,11 @@ import jax.numpy as jnp
 from jax.scipy.special import logit
 
 import numpyro
-from numpyro.contrib.reparam import TransformReparam, reparam
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import HMC, MCMC, NUTS, SA
 from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
+from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
@@ -106,7 +106,7 @@ def test_uniform_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        with reparam(config={'loc': TransformReparam()}):
+        with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
             loc = numpyro.sample('loc', dist.Uniform(0, alpha))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
@@ -127,7 +127,7 @@ def test_improper_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        with reparam(config={'loc': TransformReparam()}):
+        with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
             loc = numpyro.sample('loc', dist.TransformedDistribution(
                 dist.Uniform(0, 1).mask(False),
                 AffineTransform(0, alpha)))
