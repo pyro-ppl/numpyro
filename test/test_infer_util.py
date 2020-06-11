@@ -7,7 +7,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import lax, random
-import jax.numpy as np
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -36,7 +36,7 @@ import numpyro.optim as optim
 
 def beta_bernoulli():
     N = 800
-    true_probs = np.array([0.2, 0.7])
+    true_probs = jnp.array([0.2, 0.7])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(0), (N,))
 
     def model(data=None):
@@ -70,7 +70,7 @@ def test_predictive(parallel):
 
 
 def test_predictive_with_guide():
-    data = np.array([1] * 8 + [0] * 2)
+    data = jnp.array([1] * 8 + [0] * 2)
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1., 1.))
@@ -97,7 +97,7 @@ def test_predictive_with_guide():
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(random.PRNGKey(2), data=None)
     assert predictive["beta_sq"].shape == (1000,)
     obs_pred = predictive["obs"]
-    assert_allclose(np.mean(obs_pred), 0.8, atol=0.05)
+    assert_allclose(jnp.mean(obs_pred), 0.8, atol=0.05)
 
 
 def test_predictive_with_improper():
@@ -117,7 +117,7 @@ def test_predictive_with_improper():
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
     obs_pred = Predictive(model, samples)(random.PRNGKey(1), data=None)["obs"]
-    assert_allclose(np.mean(obs_pred), true_coef, atol=0.05)
+    assert_allclose(jnp.mean(obs_pred), true_coef, atol=0.05)
 
 
 def test_prior_predictive():
@@ -148,7 +148,7 @@ def test_model_with_transformed_distribution():
         numpyro.sample('x', x_prior)
         numpyro.sample('y', y_prior)
 
-    params = {'x': np.array(-5.), 'y': np.array(7.)}
+    params = {'x': jnp.array(-5.), 'y': jnp.array(7.)}
     model = handlers.seed(model, random.PRNGKey(0))
     inv_transforms = {'x': biject_to(x_prior.support), 'y': biject_to(y_prior.support)}
     expected_samples = partial(transform_fn, inv_transforms)(params)
@@ -197,14 +197,14 @@ def test_model_with_mask_false():
 ])
 def test_initialize_model_change_point(init_strategy):
     def model(data):
-        alpha = 1 / np.mean(data)
+        alpha = 1 / jnp.mean(data)
         lambda1 = numpyro.sample('lambda1', dist.Exponential(alpha))
         lambda2 = numpyro.sample('lambda2', dist.Exponential(alpha))
         tau = numpyro.sample('tau', dist.Uniform(0, 1))
-        lambda12 = np.where(np.arange(len(data)) < tau * len(data), lambda1, lambda2)
+        lambda12 = jnp.where(jnp.arange(len(data)) < tau * len(data), lambda1, lambda2)
         numpyro.sample('obs', dist.Poisson(lambda12), obs=data)
 
-    count_data = np.array([
+    count_data = jnp.array([
         13,  24,   8,  24,   7,  35,  14,  11,  15,  11,  22,  22,  11,  57,
         11,  19,  29,   6,  19,  12,  22,  12,  18,  72,  32,   9,   7,  13,
         19,  23,  27,  20,   6,  17,  13,  10,  14,   6,  16,  15,   7,   2,
@@ -234,12 +234,12 @@ def test_initialize_model_change_point(init_strategy):
 ])
 def test_initialize_model_dirichlet_categorical(init_strategy):
     def model(data):
-        concentration = np.array([1.0, 1.0, 1.0])
+        concentration = jnp.array([1.0, 1.0, 1.0])
         p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
         numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
         return p_latent
 
-    true_probs = np.array([0.1, 0.6, 0.3])
+    true_probs = jnp.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
 
     rng_keys = random.split(random.PRNGKey(1), 2)
@@ -259,7 +259,7 @@ def test_initialize_model_dirichlet_categorical(init_strategy):
 def test_improper_expand(event_shape):
 
     def model():
-        population = np.array([1000., 2000., 3000.])
+        population = jnp.array([1000., 2000., 3000.])
         with numpyro.plate("region", 3):
             d = dist.ImproperUniform(support=constraints.interval(0, population),
                                      batch_shape=(3,),

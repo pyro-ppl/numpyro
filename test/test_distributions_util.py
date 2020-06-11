@@ -3,12 +3,12 @@
 
 from numbers import Number
 
-import numpy as onp
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
 from jax import lax, random, vmap
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 
 from numpyro.distributions.util import (
@@ -25,7 +25,7 @@ from numpyro.distributions.util import (
     (0.6, -10.),
 ])
 def test_binary_cross_entropy_with_logits(x, y):
-    actual = -y * np.log(expit(x)) - (1 - y) * np.log(expit(-x))
+    actual = -y * jnp.log(expit(x)) - (1 - y) * jnp.log(expit(-x))
     expect = binary_cross_entropy_with_logits(x, y)
     assert_allclose(actual, expect, rtol=1e-6)
 
@@ -35,10 +35,10 @@ def test_binary_cross_entropy_with_logits(x, y):
     xlog1py,
 ])
 def test_binop_batch_rule(prim):
-    bx = np.array([1., 2., 3.])
-    by = np.array([2., 3., 4.])
-    x = np.array(1.)
-    y = np.array(2.)
+    bx = jnp.array([1., 2., 3.])
+    by = jnp.array([2., 3., 4.])
+    x = jnp.array(1.)
+    y = jnp.array(2.)
 
     actual_bx_by = vmap(lambda x, y: prim(x, y))(bx, by)
     for i in range(3):
@@ -54,55 +54,55 @@ def test_binop_batch_rule(prim):
 
 
 @pytest.mark.parametrize('p, shape', [
-    (np.array([0.1, 0.9]), ()),
-    (np.array([0.2, 0.8]), (2,)),
-    (np.array([[0.1, 0.9], [0.2, 0.8]]), ()),
-    (np.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
+    (jnp.array([0.1, 0.9]), ()),
+    (jnp.array([0.2, 0.8]), (2,)),
+    (jnp.array([[0.1, 0.9], [0.2, 0.8]]), ()),
+    (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
 ])
 def test_categorical_shape(p, shape):
     rng_key = random.PRNGKey(0)
     expected_shape = lax.broadcast_shapes(p.shape[:-1], shape)
-    assert np.shape(categorical(rng_key, p, shape)) == expected_shape
+    assert jnp.shape(categorical(rng_key, p, shape)) == expected_shape
 
 
 @pytest.mark.parametrize("p", [
-    np.array([0.2, 0.3, 0.5]),
-    np.array([0.8, 0.1, 0.1]),
+    jnp.array([0.2, 0.3, 0.5]),
+    jnp.array([0.8, 0.1, 0.1]),
 ])
 def test_categorical_stats(p):
     rng_key = random.PRNGKey(0)
     n = 10000
     z = categorical(rng_key, p, (n,))
-    _, counts = onp.unique(z, return_counts=True)
+    _, counts = np.unique(z, return_counts=True)
     assert_allclose(counts / float(n), p, atol=0.01)
 
 
 @pytest.mark.parametrize('p, shape', [
-    (np.array([0.1, 0.9]), ()),
-    (np.array([0.2, 0.8]), (2,)),
-    (np.array([[0.1, 0.9], [0.2, 0.8]]), ()),
-    (np.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
+    (jnp.array([0.1, 0.9]), ()),
+    (jnp.array([0.2, 0.8]), (2,)),
+    (jnp.array([[0.1, 0.9], [0.2, 0.8]]), ()),
+    (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
 ])
 def test_multinomial_shape(p, shape):
     rng_key = random.PRNGKey(0)
     n = 10000
     expected_shape = lax.broadcast_shapes(p.shape[:-1], shape) + p.shape[-1:]
-    assert np.shape(multinomial(rng_key, p, n, shape)) == expected_shape
+    assert jnp.shape(multinomial(rng_key, p, n, shape)) == expected_shape
 
 
 @pytest.mark.parametrize("p", [
-    np.array([0.2, 0.3, 0.5]),
-    np.array([0.8, 0.1, 0.1]),
+    jnp.array([0.2, 0.3, 0.5]),
+    jnp.array([0.8, 0.1, 0.1]),
 ])
 @pytest.mark.parametrize("n", [
     10000,
-    np.array([10000, 20000]),
+    jnp.array([10000, 20000]),
 ])
 def test_multinomial_stats(p, n):
     rng_key = random.PRNGKey(0)
     z = multinomial(rng_key, p, n)
-    n = float(n) if isinstance(n, Number) else np.expand_dims(n.astype(p.dtype), -1)
-    p = np.broadcast_to(p, z.shape)
+    n = float(n) if isinstance(n, Number) else jnp.expand_dims(n.astype(p.dtype), -1)
+    p = jnp.broadcast_to(p, z.shape)
     assert_allclose(z / n, p, atol=0.01)
 
 
@@ -120,8 +120,8 @@ def test_vec_to_tril_matrix(shape, diagonal):
     rng_key = random.PRNGKey(0)
     x = random.normal(rng_key, shape)
     actual = vec_to_tril_matrix(x, diagonal)
-    expected = onp.zeros(shape[:-1] + actual.shape[-2:])
-    tril_idxs = onp.tril_indices(expected.shape[-1], diagonal)
+    expected = np.zeros(shape[:-1] + actual.shape[-2:])
+    tril_idxs = np.tril_indices(expected.shape[-1], diagonal)
     expected[..., tril_idxs[0], tril_idxs[1]] = x
     assert_allclose(actual, expected)
 
@@ -132,11 +132,11 @@ def test_vec_to_tril_matrix(shape, diagonal):
 @pytest.mark.parametrize("coef", [1, -1])
 def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
     A = random.normal(random.PRNGKey(0), chol_batch_shape + (dim, dim))
-    A = A @ np.swapaxes(A, -2, -1) + np.eye(dim)
+    A = A @ jnp.swapaxes(A, -2, -1) + jnp.eye(dim)
     x = random.normal(random.PRNGKey(0), vec_batch_shape + (dim,)) * 0.1
     xxt = x[..., None] @ x[..., None, :]
-    expected = np.linalg.cholesky(A + coef * xxt)
-    actual = cholesky_update(np.linalg.cholesky(A), x, coef)
+    expected = jnp.linalg.cholesky(A + coef * xxt)
+    actual = cholesky_update(jnp.linalg.cholesky(A), x, coef)
     assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
 
 
@@ -145,4 +145,4 @@ def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
 def test_binomial_mean(n, p):
     samples = binomial(random.PRNGKey(1), p, n, shape=(100, 100))
     expected_mean = n * p
-    assert_allclose(np.mean(samples), expected_mean, rtol=0.05)
+    assert_allclose(jnp.mean(samples), expected_mean, rtol=0.05)

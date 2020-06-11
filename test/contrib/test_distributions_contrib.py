@@ -4,14 +4,14 @@
 from functools import reduce
 from operator import mul
 
-import numpy as onp
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 import scipy.stats as osp_stats
 
 import jax
 from jax import grad, lax, random
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.scipy.special import logit
 
 import numpyro.contrib.distributions as dist
@@ -45,7 +45,7 @@ def idfn(param):
 ], ids=idfn)
 @pytest.mark.parametrize('loc, scale', [
     (1, 1),
-    (1., np.array([1., 2.])),
+    (1., jnp.array([1., 2.])),
 ])
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -56,46 +56,46 @@ def idfn(param):
 def test_continuous_shape(jax_dist, loc, scale, prepend_shape):
     rng_key = random.PRNGKey(0)
     args = [i + 1 for i in range(jax_dist.numargs)]
-    expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
+    expected_shape = lax.broadcast_shapes(*[jnp.shape(loc), jnp.shape(scale)])
     samples = jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng_key)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
-    assert np.shape(samples) == expected_shape
-    assert np.shape(jax_dist(*args, loc=loc, scale=scale).rvs(random_state=rng_key)) == expected_shape
+    assert jnp.shape(samples) == expected_shape
+    assert jnp.shape(jax_dist(*args, loc=loc, scale=scale).rvs(random_state=rng_key)) == expected_shape
     if prepend_shape is not None:
-        expected_shape = prepend_shape + lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
-        assert np.shape(jax_dist.rvs(*args, loc=loc, scale=scale,
-                                     size=expected_shape, random_state=rng_key)) == expected_shape
-        assert np.shape(jax_dist(*args, loc=loc, scale=scale)
-                        .rvs(random_state=rng_key, size=expected_shape)) == expected_shape
+        expected_shape = prepend_shape + lax.broadcast_shapes(*[jnp.shape(loc), jnp.shape(scale)])
+        assert jnp.shape(jax_dist.rvs(*args, loc=loc, scale=scale,
+                                      size=expected_shape, random_state=rng_key)) == expected_shape
+        assert jnp.shape(jax_dist(*args, loc=loc, scale=scale)
+                         .rvs(random_state=rng_key, size=expected_shape)) == expected_shape
 
 
 @pytest.mark.parametrize('jax_dist, dist_args, sample', [
     (dist.beta, (-1, 1), -1),
-    (dist.beta, (2, np.array([1., -3])), np.array([1., -2])),
-    (dist.cauchy, (), np.inf),
-    (dist.cauchy, (), np.array([1., np.nan])),
+    (dist.beta, (2, jnp.array([1., -3])), jnp.array([1., -2])),
+    (dist.cauchy, (), jnp.inf),
+    (dist.cauchy, (), jnp.array([1., jnp.nan])),
     (dist.expon, (), -1),
-    (dist.expon, (), np.array([1., -2])),
+    (dist.expon, (), jnp.array([1., -2])),
     (dist.gamma, (-1,), -1),
-    (dist.gamma, (np.array([-2., 3]),), np.array([1., -2])),
+    (dist.gamma, (jnp.array([-2., 3]),), jnp.array([1., -2])),
     (dist.halfcauchy, (), -1),
-    (dist.halfcauchy, (), np.array([1., -2])),
+    (dist.halfcauchy, (), jnp.array([1., -2])),
     (dist.halfnorm, (), -1),
-    (dist.halfnorm, (), np.array([1., -2])),
+    (dist.halfnorm, (), jnp.array([1., -2])),
     (dist.lognorm, (-1,), -1),
-    (dist.lognorm, (np.array([-2., 3]),), np.array([1., -2])),
-    (dist.norm, (), np.inf),
-    (dist.norm, (), np.array([1., np.nan])),
+    (dist.lognorm, (jnp.array([-2., 3]),), jnp.array([1., -2])),
+    (dist.norm, (), jnp.inf),
+    (dist.norm, (), jnp.array([1., jnp.nan])),
     (dist.pareto, (-1,), -1),
-    (dist.pareto, (np.array([-2., 3]),), np.array([1., -2])),
-    (dist.t, (-1,), np.inf),
-    (dist.t, (np.array([-2., 3]),), np.array([1., np.nan])),
+    (dist.pareto, (jnp.array([-2., 3]),), jnp.array([1., -2])),
+    (dist.t, (-1,), jnp.inf),
+    (dist.t, (jnp.array([-2., 3]),), jnp.array([1., jnp.nan])),
     (dist.trunccauchy, (), -1),
-    (dist.trunccauchy, (), np.array([1., -2])),
+    (dist.trunccauchy, (), jnp.array([1., -2])),
     (dist.truncnorm, (), -1),
-    (dist.truncnorm, (), np.array([1., -2])),
+    (dist.truncnorm, (), jnp.array([1., -2])),
     (dist.uniform, (), -1),
-    (dist.uniform, (), np.array([0.5, -2])),
+    (dist.uniform, (), jnp.array([0.5, -2])),
 ], ids=idfn)
 def test_continuous_validate_args(jax_dist, dist_args, sample):
     valid_args = [i + 1 for i in range(jax_dist.numargs)]
@@ -113,12 +113,12 @@ def test_continuous_validate_args(jax_dist, dist_args, sample):
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
-    (dist.categorical, (np.array([0.1, 0.9]),)),
-    (dist.categorical, (np.array([[0.1, 0.9], [0.2, 0.8]]),)),
-    (dist.dirichlet, (np.ones(3),)),
-    (dist.dirichlet, (np.ones((2, 3)),)),
-    (dist.multinomial, (10, np.array([0.1, 0.9]),)),
-    (dist.multinomial, (10, np.array([[0.1, 0.9], [0.2, 0.8]]),)),
+    (dist.categorical, (jnp.array([0.1, 0.9]),)),
+    (dist.categorical, (jnp.array([[0.1, 0.9], [0.2, 0.8]]),)),
+    (dist.dirichlet, (jnp.ones(3),)),
+    (dist.dirichlet, (jnp.ones((2, 3)),)),
+    (dist.multinomial, (10, jnp.array([0.1, 0.9]),)),
+    (dist.multinomial, (10, jnp.array([[0.1, 0.9], [0.2, 0.8]]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -131,21 +131,21 @@ def test_multivariate_shape(jax_dist, dist_args, prepend_shape):
     expected_shape = jax_dist._batch_shape(*dist_args) + jax_dist._event_shape(*dist_args)
     samples = jax_dist.rvs(*dist_args, random_state=rng_key)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
-    assert np.shape(samples) == expected_shape
-    assert np.shape(jax_dist(*dist_args).rvs(random_state=rng_key)) == expected_shape
+    assert jnp.shape(samples) == expected_shape
+    assert jnp.shape(jax_dist(*dist_args).rvs(random_state=rng_key)) == expected_shape
     if prepend_shape is not None:
         size = prepend_shape + jax_dist._batch_shape(*dist_args)
         expected_shape = size + jax_dist._event_shape(*dist_args)
         samples = jax_dist.rvs(*dist_args, size=size, random_state=rng_key)
-        assert np.shape(samples) == expected_shape
+        assert jnp.shape(samples) == expected_shape
         samples = jax_dist(*dist_args).rvs(random_state=rng_key, size=size)
-        assert np.shape(samples) == expected_shape
+        assert jnp.shape(samples) == expected_shape
 
 
 @pytest.mark.parametrize('jax_dist, valid_args, invalid_args, invalid_sample', [
-    (dist.categorical, (np.array([0.1, 0.9]),), (np.array([0.1, 0.8]),), np.array([1, 4])),
-    (dist.dirichlet, (np.ones(3),), (np.array([-1., 2., 3.]),), np.array([0.1, 0.7, 0.1])),
-    (dist.multinomial, (10, np.array([0.1, 0.9]),), (10, np.array([0.2, 0.9]),), np.array([-1, 9])),
+    (dist.categorical, (jnp.array([0.1, 0.9]),), (jnp.array([0.1, 0.8]),), jnp.array([1, 4])),
+    (dist.dirichlet, (jnp.ones(3),), (jnp.array([-1., 2., 3.]),), jnp.array([0.1, 0.7, 0.1])),
+    (dist.multinomial, (10, jnp.array([0.1, 0.9]),), (10, jnp.array([0.2, 0.9]),), jnp.array([-1, 9])),
 ], ids=idfn)
 def test_multivariate_validate_args(jax_dist, valid_args, invalid_args, invalid_sample):
     with validation_enabled():
@@ -159,11 +159,11 @@ def test_multivariate_validate_args(jax_dist, valid_args, invalid_args, invalid_
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
     (dist.bernoulli, (0.1,)),
-    (dist.bernoulli, (np.array([0.3, 0.5]),)),
+    (dist.bernoulli, (jnp.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
-    (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
+    (dist.binom, (jnp.array([10]), jnp.array([0.4, 0.3]))),
     (dist.poisson, (1.,)),
-    (dist.poisson, (np.array([1., 4., 10.]),)),
+    (dist.poisson, (jnp.array([1., 4., 10.]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('prepend_shape', [
     None,
@@ -174,18 +174,18 @@ def test_multivariate_validate_args(jax_dist, valid_args, invalid_args, invalid_
 def test_discrete_shape(jax_dist, dist_args, prepend_shape):
     rng_key = random.PRNGKey(0)
     sp_dist = getattr(osp_stats, jax_dist.name)
-    expected_shape = np.shape(sp_dist.rvs(*dist_args))
+    expected_shape = jnp.shape(sp_dist.rvs(*dist_args))
     samples = jax_dist.rvs(*dist_args, random_state=rng_key)
     assert isinstance(samples, jax.interpreters.xla.DeviceArray)
-    assert np.shape(samples) == expected_shape
+    assert jnp.shape(samples) == expected_shape
     if prepend_shape is not None:
-        shape = prepend_shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
-        expected_shape = np.shape(sp_dist.rvs(*dist_args, size=shape))
-        assert np.shape(jax_dist.rvs(*dist_args, size=shape, random_state=rng_key)) == expected_shape
+        shape = prepend_shape + lax.broadcast_shapes(*[jnp.shape(arg) for arg in dist_args])
+        expected_shape = jnp.shape(sp_dist.rvs(*dist_args, size=shape))
+        assert jnp.shape(jax_dist.rvs(*dist_args, size=shape, random_state=rng_key)) == expected_shape
 
 
 @pytest.mark.parametrize('jax_dist, valid_args, invalid_args, invalid_sample', [
-    (dist.bernoulli, (0.8,), (np.nan,), 2),
+    (dist.bernoulli, (0.8,), (jnp.nan,), 2),
     (dist.binom, (10, 0.8), (-10, 0.8), -10),
     (dist.binom, (10, 0.8), (10, 1.1), -1),
     (dist.poisson, (4.,), (-1.,), -1),
@@ -217,12 +217,12 @@ def test_discrete_validate_args(jax_dist, valid_args, invalid_args, invalid_samp
 ], ids=idfn)
 @pytest.mark.parametrize('loc, scale', [
     (1., 1.),
-    (1., np.array([1., 2.])),
+    (1., jnp.array([1., 2.])),
 ])
 def test_sample_gradient(jax_dist, loc, scale):
     rng_key = random.PRNGKey(0)
     args = [i + 1. for i in range(jax_dist.numargs)]
-    expected_shape = lax.broadcast_shapes(*[np.shape(loc), np.shape(scale)])
+    expected_shape = lax.broadcast_shapes(*[jnp.shape(loc), jnp.shape(scale)])
 
     def fn(args, loc, scale):
         return jax_dist.rvs(*args, loc=loc, scale=scale, random_state=rng_key).sum()
@@ -230,14 +230,14 @@ def test_sample_gradient(jax_dist, loc, scale):
     # FIXME: find a proper test for gradients of arg parameters
     assert len(grad(fn)(args, loc, scale)) == jax_dist.numargs
     assert_allclose(grad(fn, 1)(args, loc, scale),
-                    loc * reduce(mul, expected_shape[:len(expected_shape) - np.ndim(loc)], 1.))
+                    loc * reduce(mul, expected_shape[:len(expected_shape) - jnp.ndim(loc)], 1.))
     assert_allclose(grad(fn, 2)(args, loc, scale),
                     jax_dist.rvs(*args, size=expected_shape, random_state=rng_key))
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
-    (dist.dirichlet, (np.ones(3),)),
-    (dist.dirichlet, (np.ones((2, 3)),)),
+    (dist.dirichlet, (jnp.ones(3),)),
+    (dist.dirichlet, (jnp.ones((2, 3)),)),
 ], ids=idfn)
 def test_mvsample_gradient(jax_dist, dist_args):
     rng_key = random.PRNGKey(0)
@@ -268,7 +268,7 @@ def test_mvsample_gradient(jax_dist, dist_args):
     (),
     (1,),
     (1, 1),
-    (1., np.array([1., 2.])),
+    (1., jnp.array([1., 2.])),
 ])
 def test_continuous_logpdf(jax_dist, loc_scale):
     rng_key = random.PRNGKey(0)
@@ -277,7 +277,7 @@ def test_continuous_logpdf(jax_dist, loc_scale):
     if jax_dist is dist.trunccauchy:
         sp_dist = osp_stats.cauchy
         assert_allclose(jax_dist.logpdf(samples, args[0], args[1]),
-                        sp_dist.logpdf(samples) - np.log(sp_dist.cdf(args[1]) - sp_dist.cdf(args[0])),
+                        sp_dist.logpdf(samples) - jnp.log(sp_dist.cdf(args[1]) - sp_dist.cdf(args[0])),
                         atol=1e-6)
     else:
         sp_dist = getattr(osp_stats, jax_dist.name)
@@ -285,7 +285,7 @@ def test_continuous_logpdf(jax_dist, loc_scale):
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
-    (dist.dirichlet, (np.array([1., 2., 3.]),)),
+    (dist.dirichlet, (jnp.array([1., 2., 3.]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,
@@ -308,8 +308,8 @@ def test_multivariate_continuous_logpdf(jax_dist, dist_args, shape):
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
-    (dist.categorical, (np.array([0.7, 0.3]),)),
-    (dist.multinomial, (10, np.array([0.3, 0.7]),)),
+    (dist.categorical, (jnp.array([0.7, 0.3]),)),
+    (dist.multinomial, (10, jnp.array([0.3, 0.7]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,
@@ -324,8 +324,8 @@ def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
     if samples.ndim == 1:
         if jax_dist is dist.categorical:
             # test against PyTorch
-            assert_allclose(jax_dist.logpmf(np.array([1, 0]), *dist_args),
-                            np.array([-1.2040, -0.3567]), atol=1e-4)
+            assert_allclose(jax_dist.logpmf(jnp.array([1, 0]), *dist_args),
+                            jnp.array([-1.2040, -0.3567]), atol=1e-4)
         else:
             sp_dist = getattr(osp_stats, jax_dist.name)
             assert_allclose(jax_dist.logpmf(samples, *dist_args),
@@ -338,12 +338,12 @@ def test_multivariate_discrete_logpmf(jax_dist, dist_args, shape):
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
     (dist.bernoulli, (0.1,)),
-    (dist.bernoulli, (np.array([0.3, 0.5]),)),
+    (dist.bernoulli, (jnp.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
-    (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
-    (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
+    (dist.binom, (jnp.array([10]), jnp.array([0.4, 0.3]))),
+    (dist.binom, (jnp.array([2, 5]), jnp.array([[0.4], [0.5]]))),
     (dist.poisson, (4.,)),
-    (dist.poisson, (np.array([1., 4., 10.]),)),
+    (dist.poisson, (jnp.array([1., 4., 10.]),)),
 ], ids=idfn)
 @pytest.mark.parametrize('shape', [
     None,
@@ -356,39 +356,39 @@ def test_discrete_logpmf(jax_dist, dist_args, shape):
     sp_dist = getattr(osp_stats, jax_dist.name)
     samples = jax_dist.rvs(*dist_args, random_state=rng_key)
     assert_allclose(jax_dist.logpmf(samples, *dist_args),
-                    sp_dist.logpmf(onp.asarray(samples), *dist_args),
+                    sp_dist.logpmf(np.asarray(samples), *dist_args),
                     rtol=1e-5)
     if shape is not None:
-        shape = shape + lax.broadcast_shapes(*[np.shape(arg) for arg in dist_args])
+        shape = shape + lax.broadcast_shapes(*[jnp.shape(arg) for arg in dist_args])
         samples = jax_dist.rvs(*dist_args, size=shape, random_state=rng_key)
         assert_allclose(jax_dist.logpmf(samples, *dist_args),
-                        sp_dist.logpmf(onp.asarray(samples), *dist_args),
+                        sp_dist.logpmf(np.asarray(samples), *dist_args),
                         rtol=1e-5)
 
         def fn(sample, *args):
-            return np.sum(jax_dist.logpmf(sample, *args))
+            return jnp.sum(jax_dist.logpmf(sample, *args))
 
         for i in range(len(dist_args)):
-            if np.result_type(dist_args[i]) in (np.int32, np.int64):
+            if jnp.result_type(dist_args[i]) in (jnp.int32, jnp.int64):
                 continue
             logpmf_grad = grad(fn, i + 1)(samples, *dist_args)
-            assert np.all(np.isfinite(logpmf_grad))
+            assert jnp.all(jnp.isfinite(logpmf_grad))
 
 
 @pytest.mark.parametrize('jax_dist, dist_args', [
     (dist.bernoulli, (0.1,)),
-    (dist.bernoulli, (np.array([0.3, 0.5]),)),
+    (dist.bernoulli, (jnp.array([0.3, 0.5]),)),
     (dist.binom, (10, 0.4)),
-    (dist.binom, (np.array([10]), np.array([0.4, 0.3]))),
-    (dist.binom, (np.array([2, 5]), np.array([[0.4], [0.5]]))),
-    (dist.categorical, (np.array([0.1, 0.9]),)),
-    (dist.categorical, (np.array([[0.1, 0.9], [0.2, 0.8]]),)),
-    (dist.multinomial, (10, np.array([0.1, 0.9]),)),
-    (dist.multinomial, (10, np.array([[0.1, 0.9], [0.2, 0.8]]),)),
+    (dist.binom, (jnp.array([10]), jnp.array([0.4, 0.3]))),
+    (dist.binom, (jnp.array([2, 5]), jnp.array([[0.4], [0.5]]))),
+    (dist.categorical, (jnp.array([0.1, 0.9]),)),
+    (dist.categorical, (jnp.array([[0.1, 0.9], [0.2, 0.8]]),)),
+    (dist.multinomial, (10, jnp.array([0.1, 0.9]),)),
+    (dist.multinomial, (10, jnp.array([[0.1, 0.9], [0.2, 0.8]]),)),
 ], ids=idfn)
 def test_discrete_with_logits(jax_dist, dist_args):
     rng_key = random.PRNGKey(0)
-    logit_to_prob = np.log if isinstance(jax_dist, jax_multivariate) else logit
+    logit_to_prob = jnp.log if isinstance(jax_dist, jax_multivariate) else logit
     logit_args = dist_args[:-1] + (logit_to_prob(dist_args[-1]),)
 
     actual_sample = jax_dist.rvs(*dist_args, random_state=rng_key)

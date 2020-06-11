@@ -4,7 +4,7 @@
 from functools import partial
 
 from jax import random
-import jax.numpy as np
+import jax.numpy as jnp
 
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to
@@ -25,7 +25,7 @@ def init_to_median(site=None, num_samples=15):
         sample_shape = site['kwargs'].get('sample_shape')
         try:
             samples = site['fn'].sample(rng_key, sample_shape=(num_samples,) + sample_shape)
-            return np.median(samples, axis=0)
+            return jnp.median(samples, axis=0)
         except NotImplementedError:
             return init_to_uniform(site)
 
@@ -61,10 +61,10 @@ def init_to_uniform(site=None, radius=2):
             # we can't use this logic for general priors
             # because some distributions such as TransformedDistribution might
             # have wrong event_shape.
-            prototype_value = np.full(site['fn'].shape(), np.nan)
+            prototype_value = jnp.full(site['fn'].shape(), jnp.nan)
 
         transform = biject_to(site['fn'].support)
-        unconstrained_shape = np.shape(transform.inv(prototype_value))
+        unconstrained_shape = jnp.shape(transform.inv(prototype_value))
         unconstrained_samples = dist.Uniform(-radius, radius).sample(
             rng_key, sample_shape=sample_shape + unconstrained_shape)
         return transform(unconstrained_samples)
