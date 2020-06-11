@@ -385,7 +385,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [2000]:
+    for N in [10000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
