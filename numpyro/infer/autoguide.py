@@ -101,7 +101,7 @@ class AutoContinuous(AutoGuide):
     Base class for implementations of continuous-valued Automatic
     Differentiation Variational Inference [1].
 
-    Each derived class implements its own :meth:`_get_transform` method.
+    Each derived class implements its own :meth:`_get_posterior` method.
 
     Assumes model structure and latent dimension are fixed, and all latent
     variables are continuous.
@@ -199,7 +199,7 @@ class AutoContinuous(AutoGuide):
     def get_base_dist(self):
         """
         Returns the base distribution of the posterior when reparameterized
-        as a :class:`~numpyro.distributions.TransformedDistribution`. This
+        as a :class:`~numpyro.distributions.distribution.TransformedDistribution`. This
         should not depend on the model's `*args, **kwargs`.
         """
         raise NotImplementedError
@@ -210,6 +210,8 @@ class AutoContinuous(AutoGuide):
         (approximate) posterior.
 
         :param dict params: Current parameters of model and autoguide.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
         :return: the transform of posterior distribution
         :rtype: :class:`~numpyro.distributions.transforms.Transform`
         """
@@ -226,6 +228,8 @@ class AutoContinuous(AutoGuide):
         Returns the posterior distribution.
 
         :param dict params: Current parameters of model and autoguide.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
         """
         base_dist = self.get_base_dist()
         transform = self.get_transform(params)
@@ -237,6 +241,8 @@ class AutoContinuous(AutoGuide):
 
         :param jax.random.PRNGKey rng_key: random key to be used draw samples.
         :param dict params: Current parameters of model and autoguide.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
         :param tuple sample_shape: batch shape of each latent sample, defaults to ().
         :return: a dict containing samples drawn the this guide.
         :rtype: dict
@@ -250,6 +256,8 @@ class AutoContinuous(AutoGuide):
         Returns the posterior median value of each latent variable.
 
         :param dict params: A dict containing parameter values.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
         :return: A dict mapping sample site name to median tensor.
         :rtype: dict
         """
@@ -262,6 +270,8 @@ class AutoContinuous(AutoGuide):
             print(guide.quantiles(opt_state, [0.05, 0.5, 0.95]))
 
         :param dict params: A dict containing parameter values.
+            The parameters can be obtained using :meth:`~numpyro.infer.svi.SVI.get_params`
+            method from :class:`~numpyro.infer.svi.SVI`.
         :param list quantiles: A list of requested quantiles between 0 and 1.
         :return: A dict mapping sample site name to a list of quantile values.
         :rtype: dict
