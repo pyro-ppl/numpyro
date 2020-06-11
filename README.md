@@ -28,8 +28,8 @@ The data is given by:
 
 ```python
 >>> J = 8
->>> y = jnp.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
->>> sigma = jnp.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
+>>> y = np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
+>>> sigma = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
 ```
 , where `y` are the treatment effects and `sigma` the standard error. We build a hierarchical model for the study where we assume that the group-level parameters `theta` for each school are sampled from a Normal distribution with unknown mean `mu` and standard deviation `tau`, while the observed data are in turn generated from a Normal distribution with mean and standard deviation given by `theta` (true effect) and `sigma`, respectively. This allows us to estimate the population-level parameters `mu` and `tau` by pooling from all the observations, while still allowing for individual variation amongst the schools using the group-level `theta` parameters.
 
@@ -72,7 +72,7 @@ We can print the summary of the MCMC run, and examine if we observed any diverge
 Number of divergences: 139
 
 >>> pe = mcmc.get_extra_fields()['potential_energy']
->>> print('Expected log joint density: {:.2f}'.format(jnp.mean(-pe)))
+>>> print('Expected log joint density: {:.2f}'.format(np.mean(-pe)))
 
 Expected log joint density: -51.42
 ```
@@ -112,7 +112,7 @@ Number of divergences: 0
 
 >>> pe = mcmc.get_extra_fields()['potential_energy']
 >>> # Compare with the earlier value
->>> print('Expected log joint density: {:.2f}'.format(jnp.mean(-pe)))
+>>> print('Expected log joint density: {:.2f}'.format(np.mean(-pe)))
 
 Expected log joint density: -46.23
 ```
@@ -129,7 +129,7 @@ Now, let us assume that we have a new school for which we have not observed any 
 
 >>> predictive = Predictive(new_school, mcmc.get_samples())
 >>> samples_predictive = predictive.get_samples(random.PRNGKey(1))
->>> print(jnp.mean(samples_predictive['obs']))
+>>> print(np.mean(samples_predictive['obs']))
 
 4.419043
 ```
