@@ -61,7 +61,7 @@ def model(returns):
 
 def print_results(posterior, dates):
     def _print_row(values, row_name=''):
-        quantiles = [0.2, 0.4, 0.5, 0.6, 0.8]
+        quantiles = jnp.array([0.2, 0.4, 0.5, 0.6, 0.8])
         row_name_fmt = '{:>8}'
         header_format = row_name_fmt + '{:>12}' * 5
         row_format = row_name_fmt + '{:>12.3f}' * 5
