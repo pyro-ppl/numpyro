@@ -9,6 +9,7 @@ from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpy.testing import assert_allclose
 from tensor_sketch import create_sketch_transform, sketch_transform
 from utils import dotdot
+from mvm import kXkXsq_mvm, kXdkXsq_mvm
 
 
 CGState = namedtuple('CGState', ['x', 'r', 'p', 'r_dot_r', 'iter'])
@@ -250,20 +251,10 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
 
-    kXkX = kdot(kX, kX)
-    expensive1 = kXkX * kdot(kX, dkX)
-    expensive2 = np.square(1.0 + kXkX)
-    #kXdkXsq_Ainv_b = np.matmul(expensive1, Ainv_b)
-    #kXkXsq_Ainv_b = np.matmul(expensive2, Ainv_b)
-    #kXkXsq_Ainv_probes = np.transpose(np.matmul(expensive2, np.transpose(Ainv_probes)))
-    #kXdkXsq_Ainv_probes = np.transpose(np.matmul(expensive1, np.transpose(Ainv_probes)))
-
-    from mvm import kXkXsq_mvm, kXdkXsq_mvm
-
-    kXdkXsq_Ainv_b = kXdkXsq_mvm(Ainv_b, kX, dkX)
-    kXkXsq_Ainv_b = kXkXsq_mvm(Ainv_b, kX)
-    kXkXsq_Ainv_probes = np.transpose(kXkXsq_mvm(Ainv_probes, kX))
-    kXdkXsq_Ainv_probes = np.transpose(kXdkXsq_mvm(Ainv_probes, kX, dkX))
+    kXdkXsq_Ainv_b_probes = np.transpose(kXdkXsq_mvm(Ainv_b_probes, kX, dkX))
+    kXdkXsq_Ainv_b, kXdkXsq_Ainv_probes = kXdkXsq_Ainv_b_probes[0], kXdkXsq_Ainv_b_probes[1:]
+    kXkXsq_Ainv_b_probes = np.transpose(kXkXsq_mvm(Ainv_b_probes, kX))
+    kXkXsq_Ainv_b, kXkXsq_Ainv_probes = kXkXsq_Ainv_b_probes[0], kXkXsq_Ainv_b_probes[1:]
 
     quad_form_dk = - 2.0 * eta1sq * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, dkX)) \
                    + 2.0 * eta2sq * np.dot(np.dot(Ainv_b, k3Xsq), np.dot(Ainv_b, dkXsq)) \

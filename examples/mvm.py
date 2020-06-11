@@ -7,12 +7,6 @@ import numpy as onp
 from utils import kdot
 
 
-numpyro.set_platform("gpu")
-
-N = 9 * 10 ** 3
-P = 1000
-b = np.sin(np.ones(N)) / N
-
 def _get_chunks(L, chunk_size):
     num_chunks = L // chunk_size
     chunks = [np.arange(i * chunk_size, (i + 1) * chunk_size) for i in range(num_chunks)]
@@ -80,6 +74,12 @@ if __name__ == "__main__":
         print("res2 == res2v")
 
 if __name__ == "__main__":
+    numpyro.set_platform("gpu")
+
+    N = 9 * 10 ** 3
+    P = 1000
+    b = np.sin(np.ones(N)) / N
+
     dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
     kX = np.array(onp.random.randn(N * P).reshape((N, P)))
 
