@@ -22,7 +22,7 @@ from numpyro.infer.initialization import (
     init_to_uniform,
     init_to_value,
 )
-from numpyro.contrib.reparam import TransformReparam
+from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import (
     Predictive,
     constrain_fn,
