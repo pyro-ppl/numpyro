@@ -233,7 +233,6 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
 
     Xsq = np.square(X)
     kX = kappa * X
-    kXsq = kappa * Xsq
     ksqXsq = kappa ** 2 * Xsq
     k3Xsq = kappa ** 3 * Xsq
     dkX = kappa_dot * X
@@ -256,24 +255,29 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
     kXkXsq_Ainv_b_probes = np.transpose(kXkXsq_mvm(Ainv_b_probes, kX))
     kXkXsq_Ainv_b, kXkXsq_Ainv_probes = kXkXsq_Ainv_b_probes[0], kXkXsq_Ainv_b_probes[1:]
 
-    quad_form_dk = - 2.0 * eta1sq * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, dkX)) \
+    probes_kX = np.matmul(probes, kX)
+    Ainv_b_probes_kX = np.matmul(Ainv_b_probes, kX)
+    Ainv_b_kX, Ainv_probes_kX = Ainv_b_probes_kX[0], Ainv_b_probes_kX[1:]
+
+    quad_form_dk = - 2.0 * eta1sq * np.dot(Ainv_b_kX, np.dot(Ainv_b, dkX)) \
                    + 2.0 * eta2sq * np.dot(np.dot(Ainv_b, k3Xsq), np.dot(Ainv_b, dkXsq)) \
                    - 2.0 * eta2sq * np.dot(Ainv_b, kXdkXsq_Ainv_b)
     quad_form_db = 2.0 * np.dot(Ainv_b, b_dot)
-    quad_form_deta1 = - 2.0 * eta1 * eta1_dot * dotdot(np.dot(Ainv_b, kX))
-    quad_form_deta2 = -eta2 * eta2_dot * (np.dot(Ainv_b, kXkXsq_Ainv_b) - 2.0 * dotdot(np.dot(Ainv_b, kX))
+    quad_form_deta1 = - 2.0 * eta1 * eta1_dot * dotdot(Ainv_b_kX)
+    quad_form_deta2 = -eta2 * eta2_dot * (np.dot(Ainv_b, kXkXsq_Ainv_b) - 2.0 * dotdot(Ainv_b_kX)
                                           - dotdot(np.dot(Ainv_b, ksqXsq)) - np.square(np.sum(Ainv_b)))
     quad_form_ddiag = -np.dot(np.square(Ainv_b), diag_dot)
 
-    log_det_dk = 2.0 * eta1sq * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, dkX)) \
+    log_det_dk = 2.0 * eta1sq * meansum(probes_kX * np.matmul(Ainv_probes, dkX)) \
                  - 2.0 * eta2sq * meansum(np.matmul(probes, k3Xsq) * np.matmul(Ainv_probes, dkXsq)) \
                  + 2.0 * eta2sq * meansum(probes * kXdkXsq_Ainv_probes)
-    log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX))
+    log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(probes_kX * Ainv_probes_kX)
     log_det_deta2 = eta2 * eta2_dot * (meansum(probes * kXkXsq_Ainv_probes) \
-                                       - 2.0 * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX)) \
+                                       - 2.0 * meansum(probes_kX * Ainv_probes_kX) \
                                        - meansum(np.matmul(probes, ksqXsq) * np.matmul(Ainv_probes, ksqXsq)) \
                                        - np.mean(np.sum(probes, axis=-1) * np.sum(Ainv_probes, axis=-1)))
     log_det_ddiag = meansum(probes * diag_dot * Ainv_probes)
+
     tangent_out = log_det_dk + log_det_deta1 + log_det_deta2 + log_det_ddiag + \
                   quad_form_dk + quad_form_deta1 + quad_form_deta2 + quad_form_ddiag + quad_form_db
     quad_form = np.dot(b, Ainv_b)
