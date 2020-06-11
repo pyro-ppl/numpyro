@@ -8,7 +8,7 @@ import warnings
 from jax import hessian, lax, random, tree_map
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
-import jax.numpy as np
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -135,7 +135,7 @@ class AutoContinuous(AutoGuide):
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)
-        self.latent_dim = np.size(self._init_latent)
+        self.latent_dim = jnp.size(self._init_latent)
         if self.latent_dim == 0:
             raise RuntimeError('{} found no latent variables; Use an empty guide instead'
                                .format(type(self).__name__))
@@ -172,7 +172,7 @@ class AutoContinuous(AutoGuide):
             log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
             event_ndim = len(site['fn'].event_shape)
             log_density = sum_rightmost(log_density,
-                                        np.ndim(log_density) - np.ndim(value) + event_ndim)
+                                        jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
@@ -186,11 +186,11 @@ class AutoContinuous(AutoGuide):
                                      and v['type'] == 'param'})
             return self._postprocess_fn(unpacked_samples)
 
-        sample_shape = np.shape(latent_sample)[:-1]
+        sample_shape = jnp.shape(latent_sample)[:-1]
         if sample_shape:
-            latent_sample = np.reshape(latent_sample, (-1, np.shape(latent_sample)[-1]))
+            latent_sample = jnp.reshape(latent_sample, (-1, jnp.shape(latent_sample)[-1]))
             unpacked_samples = lax.map(unpack_single_latent, latent_sample)
-            return tree_map(lambda x: np.reshape(x, sample_shape + np.shape(x)[1:]),
+            return tree_map(lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
                             unpacked_samples)
         else:
             return unpack_single_latent(latent_sample)
@@ -289,12 +289,12 @@ class AutoDiagonalNormal(AutoContinuous):
     def _get_posterior(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
         scale = numpyro.param('{}_scale'.format(self.prefix),
-                              np.full(self.latent_dim, self._init_scale),
+                              jnp.full(self.latent_dim, self._init_scale),
                               constraint=constraints.positive)
         return dist.Normal(loc, scale)
 
     def get_base_dist(self):
-        return dist.Normal(np.zeros(self.latent_dim), 1).to_event(1)
+        return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
     def get_transform(self, params):
         loc = params['{}_loc'.format(self.prefix)]
@@ -313,7 +313,7 @@ class AutoDiagonalNormal(AutoContinuous):
         return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
-        quantiles = np.array(quantiles)[..., None]
+        quantiles = jnp.array(quantiles)[..., None]
         latent = self.get_posterior(params).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
@@ -338,12 +338,12 @@ class AutoMultivariateNormal(AutoContinuous):
     def _get_posterior(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
         scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix),
-                                   np.identity(self.latent_dim) * self._init_scale,
+                                   jnp.identity(self.latent_dim) * self._init_scale,
                                    constraint=constraints.lower_cholesky)
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
 
     def get_base_dist(self):
-        return dist.Normal(np.zeros(self.latent_dim), 1).to_event(1)
+        return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
     def get_transform(self, params):
         loc = params['{}_loc'.format(self.prefix)]
@@ -363,8 +363,8 @@ class AutoMultivariateNormal(AutoContinuous):
 
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
-        quantiles = np.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
+        quantiles = jnp.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
@@ -390,16 +390,16 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
     def _get_posterior(self, *args, **kwargs):
         rank = int(round(self.latent_dim ** 0.5)) if self.rank is None else self.rank
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
-        cov_factor = numpyro.param('{}_cov_factor'.format(self.prefix), np.zeros((self.latent_dim, rank)))
+        cov_factor = numpyro.param('{}_cov_factor'.format(self.prefix), jnp.zeros((self.latent_dim, rank)))
         scale = numpyro.param('{}_scale'.format(self.prefix),
-                              np.full(self.latent_dim, self._init_scale),
+                              jnp.full(self.latent_dim, self._init_scale),
                               constraint=constraints.positive)
         cov_diag = scale * scale
         cov_factor = cov_factor * scale[..., None]
         return dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag)
 
     def get_base_dist(self):
-        return dist.Normal(np.zeros(self.latent_dim), 1).to_event(1)
+        return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
     def get_transform(self, params):
         posterior = self.get_posterior(params)
@@ -422,8 +422,8 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
 
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
-        quantiles = np.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
+        quantiles = jnp.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
@@ -456,7 +456,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         return dist.Delta(loc, event_dim=1)
 
     def get_base_dist(self):
-        return dist.Normal(np.zeros(self.latent_dim), 1).to_event(1)
+        return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
     def get_transform(self, params):
         def loss_fn(z):
@@ -468,11 +468,11 @@ class AutoLaplaceApproximation(AutoContinuous):
         precision = hessian(loss_fn)(loc)
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
-            if np.any(np.isnan(scale_tril)):
+            if jnp.any(jnp.isnan(scale_tril)):
                 warnings.warn("Hessian of log posterior at the MAP point is singular. Posterior"
                               " samples from AutoLaplaceApproxmiation will be constant (equal to"
                               " the MAP point).")
-        scale_tril = np.where(np.isnan(scale_tril), 0., scale_tril)
+        scale_tril = jnp.where(jnp.isnan(scale_tril), 0., scale_tril)
         return MultivariateAffineTransform(loc, scale_tril)
 
     def get_posterior(self, params):
@@ -492,8 +492,8 @@ class AutoLaplaceApproximation(AutoContinuous):
 
     def quantiles(self, params, quantiles):
         transform = self.get_transform(params)
-        quantiles = np.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, np.diagonal(transform.scale_tril)).icdf(quantiles)
+        quantiles = jnp.array(quantiles)[..., None]
+        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 
@@ -539,9 +539,9 @@ class AutoIAFNormal(AutoContinuous):
         flows = []
         for i in range(self.num_flows):
             if i > 0:
-                flows.append(PermuteTransform(np.arange(self.latent_dim)[::-1]))
+                flows.append(PermuteTransform(jnp.arange(self.latent_dim)[::-1]))
             arn = AutoregressiveNN(self.latent_dim, hidden_dims,
-                                   permutation=np.arange(self.latent_dim),
+                                   permutation=jnp.arange(self.latent_dim),
                                    skip_connections=self._skip_connections,
                                    nonlinearity=self._nonlinearity)
             arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_dim,))
@@ -549,7 +549,7 @@ class AutoIAFNormal(AutoContinuous):
         return dist.TransformedDistribution(self.get_base_dist(), flows)
 
     def get_base_dist(self):
-        return dist.Normal(np.zeros(self.latent_dim), 1).to_event(1)
+        return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
 
 
 class AutoBNAFNormal(AutoContinuous):
@@ -590,7 +590,7 @@ class AutoBNAFNormal(AutoContinuous):
         flows = []
         for i in range(self.num_flows):
             if i > 0:
-                flows.append(PermuteTransform(np.arange(self.latent_dim)[::-1]))
+                flows.append(PermuteTransform(jnp.arange(self.latent_dim)[::-1]))
             residual = "gated" if i < (self.num_flows - 1) else None
             arn = BlockNeuralAutoregressiveNN(self.latent_dim, self._hidden_factors, residual)
             arnn = numpyro.module('{}_arn__{}'.format(self.prefix, i), arn, (self.latent_dim,))
@@ -598,4 +598,4 @@ class AutoBNAFNormal(AutoContinuous):
         return dist.TransformedDistribution(self.get_base_dist(), flows)
 
     def get_base_dist(self):
-        return dist.Normal(np.zeros(self.latent_dim), 1).to_event(1)
+        return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)

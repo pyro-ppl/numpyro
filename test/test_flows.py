@@ -3,7 +3,7 @@
 
 from functools import partial
 
-import numpy as onp
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -17,7 +17,7 @@ from numpyro.distributions.util import matrix_to_tril_vec
 
 def _make_iaf_args(input_dim, hidden_dims):
     _, rng_perm = random.split(random.PRNGKey(0))
-    perm = random.permutation(rng_perm, onp.arange(input_dim))
+    perm = random.permutation(rng_perm, np.arange(input_dim))
     # we use Elu nonlinearity because the default one, Relu, masks out negative hidden values,
     # which in turn create some zero entries in the lower triangular part of Jacobian.
     arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1],
@@ -54,19 +54,19 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
 
     # test jacobian shape
     actual = transform.log_abs_det_jacobian(x, y)
-    assert onp.shape(actual) == batch_shape
+    assert np.shape(actual) == batch_shape
 
     if batch_shape == ():
         # make sure transform.log_abs_det_jacobian is correct
         jac = jacfwd(transform)(x)
-        expected = onp.linalg.slogdet(jac)[1]
+        expected = np.linalg.slogdet(jac)[1]
         assert_allclose(actual, expected, atol=1e-5)
 
         # make sure jacobian is triangular, first permute jacobian as necessary
         if isinstance(transform, InverseAutoregressiveTransform):
-            permuted_jac = onp.zeros(jac.shape)
+            permuted_jac = np.zeros(jac.shape)
             _, rng_key_perm = random.split(random.PRNGKey(0))
-            perm = random.permutation(rng_key_perm, onp.arange(input_dim))
+            perm = random.permutation(rng_key_perm, np.arange(input_dim))
 
             for j in range(input_dim):
                 for k in range(input_dim):
@@ -74,5 +74,5 @@ def test_flows(flow_class, flow_args, input_dim, batch_shape):
 
             jac = permuted_jac
 
-        assert onp.sum(onp.abs(onp.triu(jac, 1))) == 0.00
-        assert onp.all(onp.abs(matrix_to_tril_vec(jac)) > 0)
+        assert np.sum(np.abs(np.triu(jac, 1))) == 0.00
+        assert np.all(np.abs(matrix_to_tril_vec(jac)) > 0)

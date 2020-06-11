@@ -2,7 +2,7 @@ from jax import ops, random
 from jax.experimental import stax
 from jax.nn import sigmoid, softplus
 from jax.nn.initializers import glorot_uniform, normal, uniform
-import jax.numpy as np
+import jax.numpy as jnp
 
 from numpyro.distributions.util import logmatmulexp, vec_to_tril_matrix
 
@@ -21,18 +21,18 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
     input_dim, out_dim = num_blocks * in_factor, num_blocks * out_factor
     # construct mask_d, mask_o for formula (8) of Ref [1]
     # Diagonal block mask
-    mask_d = np.identity(num_blocks)[..., None]
-    mask_d = np.tile(mask_d, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
+    mask_d = jnp.identity(num_blocks)[..., None]
+    mask_d = jnp.tile(mask_d, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
     # Off-diagonal block mask for upper triangular weight matrix
-    mask_o = vec_to_tril_matrix(np.ones(num_blocks * (num_blocks - 1) // 2), diagonal=-1).T[..., None]
-    mask_o = np.tile(mask_o, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
+    mask_o = vec_to_tril_matrix(jnp.ones(num_blocks * (num_blocks - 1) // 2), diagonal=-1).T[..., None]
+    mask_o = jnp.tile(mask_o, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
 
     def init_fun(rng, input_shape):
         assert input_dim == input_shape[-1]
         *k1, k2, k3 = random.split(rng, num_blocks + 2)
 
         # Initialize each column block using W_init
-        W = np.zeros((input_dim, out_dim))
+        W = jnp.zeros((input_dim, out_dim))
         for i in range(num_blocks):
             W = ops.index_add(
                 W,
@@ -41,10 +41,10 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
             )
 
         # initialize weight scale
-        ws = np.log(uniform(1.)(k2, (out_dim,)))
+        ws = jnp.log(uniform(1.)(k2, (out_dim,)))
 
         if bias:
-            b = (uniform(1.)(k3, (out_dim,)) - 0.5) * (2 / np.sqrt(out_dim))
+            b = (uniform(1.)(k3, (out_dim,)) - 0.5) * (2 / jnp.sqrt(out_dim))
             params = (W, ws, b)
         else:
             params = (W, ws)
@@ -58,23 +58,23 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
             W, ws = params
 
         # Form block weight matrix, making sure it's positive on diagonal!
-        w = np.exp(W) * mask_d + W * mask_o
+        w = jnp.exp(W) * mask_d + W * mask_o
 
         # Compute norm of each column (i.e. each output features)
-        w_norm = np.linalg.norm(w, axis=-2, keepdims=True)
+        w_norm = jnp.linalg.norm(w, axis=-2, keepdims=True)
 
         # Normalize weight and rescale
-        w = np.exp(ws) * w / w_norm
+        w = jnp.exp(ws) * w / w_norm
 
-        out = np.dot(x, w)
+        out = jnp.dot(x, w)
         if bias:
             out = out + b
 
-        dense_logdet = ws + W - np.log(w_norm)
+        dense_logdet = ws + W - jnp.log(w_norm)
         # logdet of block diagonal
         dense_logdet = dense_logdet[mask_d.astype(bool)].reshape(num_blocks, in_factor, out_factor)
         if logdet is None:
-            logdet = np.broadcast_to(dense_logdet, x.shape[:-1] + dense_logdet.shape)
+            logdet = jnp.broadcast_to(dense_logdet, x.shape[:-1] + dense_logdet.shape)
         else:
             logdet = logmatmulexp(logdet, dense_logdet)
         return out, logdet
@@ -93,8 +93,8 @@ def Tanh():
 
     def apply_fun(params, inputs, **kwargs):
         x, logdet = inputs
-        out = np.tanh(x)
-        tanh_logdet = -2 * (x + softplus(-2 * x) - np.log(2.))
+        out = jnp.tanh(x)
+        tanh_logdet = -2 * (x + softplus(-2 * x) - jnp.log(2.))
         # logdet.shape = batch_shape + (num_blocks, in_factor, out_factor)
         # tanh_logdet.shape = batch_shape + (num_blocks x out_factor,)
         # so we need to reshape tanh_logdet to: batch_shape + (num_blocks, 1, out_factor)

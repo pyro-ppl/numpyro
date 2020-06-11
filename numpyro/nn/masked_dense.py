@@ -3,7 +3,7 @@
 
 from jax import random
 from jax.nn.initializers import glorot_normal, normal
-import jax.numpy as np
+import jax.numpy as jnp
 
 
 def MaskedDense(mask, bias=True, W_init=glorot_normal(), b_init=normal()):
@@ -32,9 +32,9 @@ def MaskedDense(mask, bias=True, W_init=glorot_normal(), b_init=normal()):
     def apply_fun(params, inputs, **kwargs):
         if bias:
             W, b = params
-            return np.dot(inputs, W * mask) + b
+            return jnp.dot(inputs, W * mask) + b
         else:
             W = params
-            return np.dot(inputs, W * mask)
+            return jnp.dot(inputs, W * mask)
 
     return init_fun, apply_fun

@@ -48,9 +48,7 @@ hyper-parameters) of running HMC on different problems.
 import argparse
 import os
 
-import numpy as onp
-
-import jax.numpy as np
+import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
 
@@ -65,8 +63,8 @@ def fully_pooled(at_bats, hits=None):
     Number of hits in $K$ at bats for each player has a Binomial
     distribution with a common probability of success, $\phi$.
 
-    :param (np.DeviceArray) at_bats: Number of at bats for each player.
-    :param (np.DeviceArray) hits: Number of hits for the given at bats.
+    :param (jnp.DeviceArray) at_bats: Number of at bats for each player.
+    :param (jnp.DeviceArray) hits: Number of hits for the given at bats.
     :return: Number of hits predicted by the model.
     """
     phi_prior = dist.Uniform(0, 1)
@@ -81,8 +79,8 @@ def not_pooled(at_bats, hits=None):
     Number of hits in $K$ at bats for each player has a Binomial
     distribution with independent probability of success, $\phi_i$.
 
-    :param (np.DeviceArray) at_bats: Number of at bats for each player.
-    :param (np.DeviceArray) hits: Number of hits for the given at bats.
+    :param (jnp.DeviceArray) at_bats: Number of at bats for each player.
+    :param (jnp.DeviceArray) hits: Number of hits for the given at bats.
     :return: Number of hits predicted by the model.
     """
     num_players = at_bats.shape[0]
@@ -100,8 +98,8 @@ def partially_pooled(at_bats, hits=None):
     $c_1 = m * kappa$, $c_2 = (1 - m) * kappa$, $m ~ Uniform(0, 1)$,
     and $kappa ~ Pareto(1, 1.5)$.
 
-    :param (np.DeviceArray) at_bats: Number of at bats for each player.
-    :param (np.DeviceArray) hits: Number of hits for the given at bats.
+    :param (jnp.DeviceArray) at_bats: Number of at bats for each player.
+    :param (jnp.DeviceArray) hits: Number of hits for the given at bats.
     :return: Number of hits predicted by the model.
     """
     m = numpyro.sample("m", dist.Uniform(0, 1))
@@ -119,8 +117,8 @@ def partially_pooled_with_logit(at_bats, hits=None):
     The logits $\alpha$ for each player is normally distributed with the
     mean and scale parameters sharing a common prior.
 
-    :param (np.DeviceArray) at_bats: Number of at bats for each player.
-    :param (np.DeviceArray) hits: Number of hits for the given at bats.
+    :param (jnp.DeviceArray) at_bats: Number of at bats for each player.
+    :param (jnp.DeviceArray) hits: Number of hits for the given at bats.
     :return: Number of hits predicted by the model.
     """
     loc = numpyro.sample("loc", dist.Normal(-1, 1))
@@ -150,7 +148,7 @@ def predict(model, at_bats, hits, z, rng_key, player_names, train=True):
     if not train:
         post_loglik = log_likelihood(model, z, at_bats, hits)['obs']
         # computes expected log predictive density at each data point
-        exp_log_density = logsumexp(post_loglik, axis=0) - np.log(np.shape(post_loglik)[0])
+        exp_log_density = logsumexp(post_loglik, axis=0) - jnp.log(jnp.shape(post_loglik)[0])
         # reports log predictive density of all test points
         print('\nLog pointwise predictive density: {:.2f}\n'.format(exp_log_density.sum()))
 
@@ -159,7 +157,7 @@ def print_results(header, preds, player_names, at_bats, hits):
     columns = ['', 'At-bats', 'ActualHits', 'Pred(p25)', 'Pred(p50)', 'Pred(p75)']
     header_format = '{:>20} {:>10} {:>10} {:>10} {:>10} {:>10}'
     row_format = '{:>20} {:>10.0f} {:>10.0f} {:>10.2f} {:>10.2f} {:>10.2f}'
-    quantiles = onp.quantile(preds, [0.25, 0.5, 0.75], axis=0)
+    quantiles = jnp.quantile(preds, jnp.array([0.25, 0.5, 0.75]), axis=0)
     print('\n', header, '\n')
     print(header_format.format(*columns))
     for i, p in enumerate(player_names):

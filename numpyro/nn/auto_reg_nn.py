@@ -5,7 +5,7 @@
 
 from jax import ops
 from jax.experimental import stax
-import jax.numpy as np
+import jax.numpy as jnp
 
 from numpyro.nn.masked_dense import MaskedDense
 
@@ -19,9 +19,9 @@ def sample_mask_indices(input_dim, hidden_dim):
     :param hidden_dim: the dimensionality of the hidden layer
     :type hidden_dim: int
     """
-    indices = np.linspace(1, input_dim, num=hidden_dim)
+    indices = jnp.linspace(1, input_dim, num=hidden_dim)
     # Simple procedure tries to space fractional indices evenly by rounding to nearest int
-    return np.round(indices)
+    return jnp.round(indices)
 
 
 def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
@@ -38,13 +38,13 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     :type output_dim_multiplier: int
     """
     # Create mask indices for input, hidden layers, and final layer
-    var_index = np.zeros(permutation.shape[0])
-    var_index = ops.index_update(var_index, permutation, np.arange(input_dim))
+    var_index = jnp.zeros(permutation.shape[0])
+    var_index = ops.index_update(var_index, permutation, jnp.arange(input_dim))
 
     # Create the indices that are assigned to the neurons
     input_indices = 1 + var_index
     hidden_indices = [sample_mask_indices(input_dim - 1, h) for h in hidden_dims]
-    output_indices = np.tile(var_index + 1, output_dim_multiplier)
+    output_indices = jnp.tile(var_index + 1, output_dim_multiplier)
 
     # Create mask from input to output for the skips connections
     mask_skip = output_indices[None, :] > input_indices[:, None]
@@ -98,11 +98,11 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
     Mathieu Germain, Karol Gregor, Iain Murray, Hugo Larochelle
     """
     output_multiplier = sum(param_dims)
-    all_ones = (np.array(param_dims) == 1).all()
+    all_ones = (jnp.array(param_dims) == 1).all()
 
     # Calculate the indices on the output corresponding to each parameter
-    ends = np.cumsum(np.array(param_dims), axis=0)
-    starts = np.concatenate((np.zeros(1), ends[:-1]))
+    ends = jnp.cumsum(jnp.array(param_dims), axis=0)
+    starts = jnp.concatenate((jnp.zeros(1), ends[:-1]))
     param_slices = [slice(int(s), int(e)) for s, e in zip(starts, ends)]
 
     # Hidden dimension must be not less than the input otherwise it isn't
@@ -112,7 +112,7 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
             raise ValueError('Hidden dimension must not be less than input dimension.')
 
     if permutation is None:
-        permutation = np.arange(input_dim)
+        permutation = jnp.arange(input_dim)
 
     # Create masks
     masks, mask_skip = create_mask(input_dim=input_dim, hidden_dims=hidden_dims,
@@ -150,9 +150,9 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
         out = net(params, inputs, **kwargs)
 
         # reshape output as necessary
-        out = np.reshape(out, inputs.shape[:-1] + (output_multiplier, input_dim))
+        out = jnp.reshape(out, inputs.shape[:-1] + (output_multiplier, input_dim))
         # move param dims to the first dimension
-        out = np.moveaxis(out, -2, 0)
+        out = jnp.moveaxis(out, -2, 0)
 
         if all_ones:
             # Squeeze dimension if all parameters are one dimensional
