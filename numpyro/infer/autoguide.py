@@ -195,7 +195,6 @@ class AutoContinuous(AutoGuide):
         else:
             return unpack_single_latent(latent_sample)
 
-    @property
     def get_base_dist(self):
         """
         Returns the base distribution of the posterior when reparameterized
