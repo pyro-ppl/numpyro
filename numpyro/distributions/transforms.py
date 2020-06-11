@@ -347,9 +347,10 @@ class MultivariateAffineTransform(Transform):
     event_dim = 1
 
     def __init__(self, loc, scale_tril):
-        # TODO: relax this condition per user request
         if np.ndim(scale_tril) != 2:
-            raise ValueError("Only support 2-dimensional scale_tril matrix.")
+            raise ValueError("Only support 2-dimensional scale_tril matrix. "
+                             "Please make a feature request if you need to "
+                             "use this transform with batched scale_tril.")
         self.loc = loc
         self.scale_tril = scale_tril
 

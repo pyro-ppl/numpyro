@@ -38,12 +38,10 @@ from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     binomial,
     categorical,
-    categorical_logits,
     clamp_probs,
     get_dtype,
     lazy_property,
     multinomial,
-    poisson,
     promote_shapes,
     sum_rightmost,
     validate_sample,
@@ -317,7 +315,7 @@ class CategoricalLogits(Distribution):
                                                 validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return categorical_logits(key, self.logits, shape=sample_shape + self.batch_shape)
+        return random.categorical(key, self.logits, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):
@@ -543,7 +541,7 @@ class Poisson(Distribution):
         super(Poisson, self).__init__(np.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return poisson(key, self.rate, shape=sample_shape + self.batch_shape)
+        return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):
@@ -580,7 +578,7 @@ class ZeroInflatedPoisson(Distribution):
         key_bern, key_poisson = random.split(key)
         shape = sample_shape + self.batch_shape
         mask = random.bernoulli(key_bern, self.gate, shape)
-        samples = poisson(key_poisson, self.rate, shape)
+        samples = random.poisson(key_poisson, self.rate, shape)
         return np.where(mask, 0, samples)
 
     @validate_sample
