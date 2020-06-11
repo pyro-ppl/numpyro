@@ -250,12 +250,17 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
     expensive1 = kXkX * kdot(kX, dkX)
     expensive2 = np.square(1.0 + kXkX)
 
+    exp1_Ainv_b = np.matmul(expensive1, Ainv_b)
+    exp2_Ainv_b = np.matmul(expensive2, Ainv_b)
+    exp1_Ainv_probes = np.transpose(np.matmul(expensive1, np.transpose(Ainv_probes)))
+    exp2_Ainv_probes = np.transpose(np.matmul(expensive2, np.transpose(Ainv_probes)))
+
     quad_form_dk = - 2.0 * eta1sq * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, dkX)) \
                    + 2.0 * eta2sq * np.dot(np.dot(Ainv_b, k3Xsq), np.dot(Ainv_b, dkXsq)) \
-                   - 2.0 * eta2sq * np.dot(Ainv_b, np.matmul(expensive1, Ainv_b))
+                   - 2.0 * eta2sq * np.dot(Ainv_b, exp1_Ainv_b)
     quad_form_db = 2.0 * np.dot(Ainv_b, b_dot)
     quad_form_deta1 = - 2.0 * eta1 * eta1_dot * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX))
-    quad_form_deta2 = -eta2 * eta2_dot * (np.dot(Ainv_b, np.matmul(expensive2, Ainv_b)) \
+    quad_form_deta2 = -eta2 * eta2_dot * (np.dot(Ainv_b, exp2_Ainv_b) \
                                           - 2.0 * np.dot(np.dot(Ainv_b, kX), np.dot(Ainv_b, kX)) \
                                           - np.dot(np.dot(Ainv_b, ksqXsq), np.dot(Ainv_b, ksqXsq))
                                           - np.square(np.sum(Ainv_b)))
@@ -263,9 +268,9 @@ def pcpcg_quad_form_log_det_jvp(primals, tangents):
 
     log_det_dk = 2.0 * eta1sq * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, dkX)) \
                  - 2.0 * eta2sq * meansum(np.matmul(probes, k3Xsq) * np.matmul(Ainv_probes, dkXsq)) \
-                 + 2.0 * eta2sq * meansum(probes * np.transpose(np.matmul(expensive1,  np.transpose(Ainv_probes))))
+                 + 2.0 * eta2sq * meansum(probes * exp1_Ainv_probes)
     log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX))
-    log_det_deta2 = eta2 * eta2_dot * (meansum(probes * np.transpose(np.matmul(expensive2, np.transpose(Ainv_probes)))) \
+    log_det_deta2 = eta2 * eta2_dot * (meansum(probes * exp2_Ainv_probes) \
                                        - 2.0 * meansum(np.matmul(probes, kX) * np.matmul(Ainv_probes, kX)) \
                                        - meansum(np.matmul(probes, ksqXsq) * np.matmul(Ainv_probes, ksqXsq)) \
                                        - np.mean(np.sum(probes, axis=-1) * np.sum(Ainv_probes, axis=-1)))
