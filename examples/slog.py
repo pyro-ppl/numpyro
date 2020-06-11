@@ -29,7 +29,7 @@ from chunk_vmap import chunk_vmap
 
 import pickle
 from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det, pcpcg_quad_form_log_det
-from utils import CustomAdam, record_stats, kdot, cho_tri_solve, sigmoid
+from utils import CustomAdam, record_stats, kdot, sigmoid
 
 
 # The kernel that corresponds to our quadratic logit function
@@ -71,7 +71,8 @@ def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    rank = 64
+    rank1 = 64
+    rank2 = 16
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
@@ -85,8 +86,8 @@ def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
         key = numpyro.sample('rng_key', dist.PRNGIdentity())
         with block():
             probe = random.normal(key, shape=(num_probes, N))
-        qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11))(k_omega, 0.5 * kY, eta1, eta2,
-                                       hypers['c'], kX, 1.0 / omega, kappa, probe, rank, cg_tol, max_iters)
+        qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11,12))(k_omega, 0.5 * kY, eta1, eta2,
+                                       hypers['c'], kX, 1.0 / omega, kappa, probe, rank1, rank2, cg_tol, max_iters)
     elif method == "ppcg":
         key = numpyro.sample('rng_key', dist.PRNGIdentity())
         with block():
@@ -385,7 +386,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [10000]:
+    for N in [1500]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 

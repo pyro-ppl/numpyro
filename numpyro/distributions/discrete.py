@@ -438,8 +438,6 @@ class PRNGIdentity(Distribution):
     def sample(self, key, sample_shape=()):
         return np.reshape(random.split(key, np.product(sample_shape).astype(np.int32)),
                           sample_shape + self.event_shape)
-    def log_prob(self, value):
-        return 0.0
 
 
 @copy_docs_from(Distribution)

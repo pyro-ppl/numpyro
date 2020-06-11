@@ -40,8 +40,8 @@ def partitioned_mvm(row, dilation):
     def do_mvm(rhs):
         @jit
         def compute_element(i):
-            return np.dot(row(i), rhs)
-        return _chunk_vmap(compute_element, np.arange(rhs.shape[0]), rhs.shape[0] // dilation)
+            return np.dot(rhs, row(i))
+        return _chunk_vmap(compute_element, np.arange(rhs.shape[-1]), rhs.shape[-1] // dilation)
     return do_mvm
 
 
@@ -53,23 +53,50 @@ def kXkXsq_row(i, kX):
 def kXdkXsq_row(i, kX, dkX):
     return np.matmul(kX, kX[i]) * np.matmul(kX, dkX[i])
 
-dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
-kX = np.array(onp.random.randn(N * P).reshape((N, P)))
+def kXkXsq_mvm(b, kX, dilation=2):
+    return partitioned_mvm(lambda i: kXkXsq_row(i, kX), dilation)(b)
 
-res1 = partitioned_mvm(lambda i: kXkXsq_row(i, kX), 8)(b)
-res2 = partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), 8)(b)
+def kXdkXsq_mvm(b, kX, dkX, dilation=2):
+    return partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), dilation)(b)
 
-if N < 10**4:
-    res1v = vanilla_mvm(lambda i: kXkXsq_row(i, kX))(b)
-    res1vv = np.matmul(np.square(1.0 + kdot(kX, kX)), b)
-    assert_allclose(res1, res1v, atol=1.0e-3, rtol=1.0e-3)
-    print("res1 == res1v")
-    assert_allclose(res1, res1vv, atol=1.0e-3, rtol=1.0e-3)
-    print("res1 == res1vv")
+if __name__ == "__main__":
+    dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
+    kX = np.array(onp.random.randn(N * P).reshape((N, P)))
 
-    res2v = vanilla_mvm(lambda i: kXdkXsq_row(i, kX, dkX))(b)
-    res2vv = np.matmul(kdot(kX, kX) * kdot(dkX, kX), b)
-    assert_allclose(res2, res2v, atol=1.0e-3, rtol=1.0e-3)
-    print("res2 == res2v")
-    assert_allclose(res2, res2vv, atol=1.0e-3, rtol=1.0e-3)
-    print("res2 == res2vv")
+    res1 = partitioned_mvm(lambda i: kXkXsq_row(i, kX), 8)(b)
+    res2 = partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), 8)(b)
+
+    if N < 10**4:
+        res1v = vanilla_mvm(lambda i: kXkXsq_row(i, kX))(b)
+        res1vv = np.matmul(np.square(1.0 + kdot(kX, kX)), b)
+        assert_allclose(res1, res1v, atol=1.0e-3, rtol=1.0e-3)
+        print("res1 == res1v")
+        assert_allclose(res1, res1vv, atol=1.0e-3, rtol=1.0e-3)
+        print("res1 == res1vv")
+
+        res2v = vanilla_mvm(lambda i: kXdkXsq_row(i, kX, dkX))(b)
+        res2vv = np.matmul(kdot(kX, kX) * kdot(dkX, kX), b)
+        assert_allclose(res2, res2v, atol=1.0e-3, rtol=1.0e-3)
+        print("res2 == res2v")
+
+if __name__ == "__main__":
+    dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
+    kX = np.array(onp.random.randn(N * P).reshape((N, P)))
+
+    res1 = partitioned_mvm(lambda i: kXkXsq_row(i, kX), 8)(b)
+    res2 = partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), 8)(b)
+
+    if N < 10**4:
+        res1v = vanilla_mvm(lambda i: kXkXsq_row(i, kX))(b)
+        res1vv = np.matmul(np.square(1.0 + kdot(kX, kX)), b)
+        assert_allclose(res1, res1v, atol=1.0e-3, rtol=1.0e-3)
+        print("res1 == res1v")
+        assert_allclose(res1, res1vv, atol=1.0e-3, rtol=1.0e-3)
+        print("res1 == res1vv")
+
+        res2v = vanilla_mvm(lambda i: kXdkXsq_row(i, kX, dkX))(b)
+        res2vv = np.matmul(kdot(kX, kX) * kdot(dkX, kX), b)
+        assert_allclose(res2, res2v, atol=1.0e-3, rtol=1.0e-3)
+        print("res2 == res2v")
+        assert_allclose(res2, res2vv, atol=1.0e-3, rtol=1.0e-3)
+        print("res2 == res2vv")

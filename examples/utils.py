@@ -24,9 +24,10 @@ def sigmoid(x):
 
 
 def kdot(X, Z):
-    return np.dot(X, Z[..., None])[..., 0]
+    return np.matmul(X, np.transpose(Z))
 
-
+def dotdot(x):
+    return np.dot(x, x)
 def cho_tri_solve(A, b):
     L = cho_factor(A, lower=True)[0]
     Linv_b = solve_triangular(L, b, lower=True)
