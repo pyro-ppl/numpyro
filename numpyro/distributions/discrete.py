@@ -541,7 +541,7 @@ class Poisson(Distribution):
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
+        return random.poisson(key, device_put(self.rate), shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):
@@ -578,7 +578,7 @@ class ZeroInflatedPoisson(Distribution):
         key_bern, key_poisson = random.split(key)
         shape = sample_shape + self.batch_shape
         mask = random.bernoulli(key_bern, self.gate, shape)
-        samples = random.poisson(key_poisson, self.rate, shape)
+        samples = random.poisson(key_poisson, device_put(self.rate), shape)
         return jnp.where(mask, 0, samples)
 
     @validate_sample
