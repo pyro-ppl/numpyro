@@ -23,6 +23,7 @@ import seaborn as sns
 
 from jax import lax, random
 import jax.numpy as np
+from jax.scipy.special import logsumexp
 
 import numpyro
 from numpyro import optim
@@ -31,7 +32,6 @@ from numpyro.contrib.reparam import NeuTraReparam
 from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.util import logsumexp
 from numpyro.infer import ELBO, MCMC, NUTS, SVI
 
 

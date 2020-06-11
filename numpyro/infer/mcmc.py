@@ -16,13 +16,12 @@ from jax.flatten_util import ravel_pytree
 from jax.interpreters.xla import DeviceArray
 from jax.lib import xla_bridge
 import jax.numpy as np
-from jax.random import PRNGKey
 from jax.scipy.special import logsumexp
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
-from numpyro.distributions.util import categorical_logits, cholesky_update
+from numpyro.distributions.util import cholesky_update
 from numpyro.infer.hmc_util import (
     IntegratorState,
     build_tree,
@@ -194,7 +193,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                     find_heuristic_step_size=False,
                     model_args=(),
                     model_kwargs=None,
-                    rng_key=PRNGKey(0)):
+                    rng_key=random.PRNGKey(0)):
         """
         Initializes the HMC sampler.
 
@@ -719,7 +718,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
                     dense_mass=False,
                     model_args=(),
                     model_kwargs=None,
-                    rng_key=PRNGKey(0)):
+                    rng_key=random.PRNGKey(0)):
         nonlocal wa_steps
         wa_steps = num_warmup
         pe_fn = potential_fn
@@ -753,7 +752,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         else:
             inv_mass_matrix_sqrt = np.std(zs, 0)
         adapt_state = SAAdaptState(zs, pes, np.mean(zs, 0), inv_mass_matrix_sqrt)
-        k = categorical_logits(rng_key_z, np.zeros(zs.shape[0]))
+        k = random.categorical(rng_key_z, np.zeros(zs.shape[0]))
         z = unravel_fn(zs[k])
         pe = pes[k]
         sa_state = SAState(0, z, pe, 0., 0., False, adapt_state, rng_key_sa)
@@ -785,7 +784,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             log_weights_ = dist.Normal(locs_, scales_).log_prob(zs_).sum(-1) + pes_
         log_weights_ = np.where(np.isnan(log_weights_), -np.inf, log_weights_)
         # get rejecting index
-        j = categorical_logits(rng_key_reject, log_weights_)
+        j = random.categorical(rng_key_reject, log_weights_)
         zs = _numpy_delete(zs_, j)
         pes = _numpy_delete(pes_, j)
         loc = locs_[j]
@@ -801,7 +800,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         # XXX: we make a modification of SA sampler in [1]
         # in [1], each MCMC state contains N points `zs`
         # here we do resampling to pick randomly a point from those N points
-        k = categorical_logits(rng_key_accept, np.zeros(zs.shape[0]))
+        k = random.categorical(rng_key_accept, np.zeros(zs.shape[0]))
         z = unravel_fn(zs[k])
         pe = pes[k]
         return SAState(itr, z, pe, accept_prob, mean_accept_prob, diverging, adapt_state, rng_key)
