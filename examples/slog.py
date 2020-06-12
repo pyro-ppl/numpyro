@@ -64,7 +64,7 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     kX = kappa * X
 
-    dilation = 8
+    dilation = 16
 
     if method != 'ppcg':
         k = kernel(kX, kX, eta1, eta2, hypers['c'])
@@ -384,7 +384,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [8000]:
+    for N in [30000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 

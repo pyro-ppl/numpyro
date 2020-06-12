@@ -248,9 +248,12 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, 
     kXkXsq_Ainv_b_probes = np.transpose(kXkXsq_mvm(Ainv_b_probes, kX, dilation=dilation))
     kXkXsq_Ainv_b, kXkXsq_Ainv_probes = kXkXsq_Ainv_b_probes[0], kXkXsq_Ainv_b_probes[1:]
 
-    probes_kX = np.matmul(probes, kX)
-    Ainv_b_probes_kX = np.matmul(Ainv_b_probes, kX)
+    probes_kX = np.matmul(probes, kX)  ## dilate?
+    Ainv_b_probes_kX = np.matmul(Ainv_b_probes, kX)  ## dilate?
     Ainv_b_kX, Ainv_probes_kX = Ainv_b_probes_kX[0], Ainv_b_probes_kX[1:]
+    Ainv_probes_dkX = np.matmul(Ainv_probes, dkX)  ## dilate?
+    Ainv_probes_dkXsq = np.matmul(Ainv_probes, dkXsq)  ## dilate?
+    Ainv_probes_ksqXsq = np.matmul(Ainv_probes, ksqXsq)  ## dilate?
 
     quad_form_dk = - 2.0 * eta1sq * np.dot(Ainv_b_kX, np.dot(Ainv_b, dkX)) \
                    + 2.0 * eta2sq * np.dot(np.dot(Ainv_b, k3Xsq), np.dot(Ainv_b, dkXsq)) \
@@ -261,13 +264,13 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, 
                                           - dotdot(np.dot(Ainv_b, ksqXsq)) - np.square(np.sum(Ainv_b)))
     quad_form_ddiag = -np.dot(np.square(Ainv_b), diag_dot)
 
-    log_det_dk = 2.0 * eta1sq * meansum(probes_kX * np.matmul(Ainv_probes, dkX)) \
-                 - 2.0 * eta2sq * meansum(np.matmul(probes, k3Xsq) * np.matmul(Ainv_probes, dkXsq)) \
+    log_det_dk = 2.0 * eta1sq * meansum(probes_kX * Ainv_probes_dkX) \
+                 - 2.0 * eta2sq * meansum(np.matmul(probes, k3Xsq) * Ainv_probes_dkXsq) \
                  + 2.0 * eta2sq * meansum(probes * kXdkXsq_Ainv_probes)
     log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(probes_kX * Ainv_probes_kX)
     log_det_deta2 = eta2 * eta2_dot * (meansum(probes * kXkXsq_Ainv_probes) \
                                        - 2.0 * meansum(probes_kX * Ainv_probes_kX) \
-                                       - meansum(np.matmul(probes, ksqXsq) * np.matmul(Ainv_probes, ksqXsq)) \
+                                       - meansum(np.matmul(probes, ksqXsq) * Ainv_probes_ksqXsq) \
                                        - np.mean(np.sum(probes, axis=-1) * np.sum(Ainv_probes, axis=-1)))
     log_det_ddiag = meansum(probes * diag_dot * Ainv_probes)
 
