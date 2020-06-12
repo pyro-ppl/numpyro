@@ -7,7 +7,7 @@ import warnings
 
 from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
-import jax.numpy as np
+import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.constraints import _GreaterThan, _Interval
@@ -45,7 +45,7 @@ def log_density(model, model_args, model_kwargs, params):
     """
     model = substitute(model, param_map=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = np.array(0.)
+    log_joint = jnp.array(0.)
     for site in model_trace.values():
         if site['type'] == 'sample':
             value = site['value']
@@ -53,7 +53,7 @@ def log_density(model, model_args, model_kwargs, params):
             mask = site['mask']
             scale = site['scale']
             # Early exit when all elements are masked
-            if not_jax_tracer(mask) and mask is not None and not np.any(mask):
+            if not_jax_tracer(mask) and mask is not None and not jnp.any(mask):
                 continue
             if intermediates:
                 log_prob = site['fn'].log_prob(value, intermediates)
@@ -65,13 +65,13 @@ def log_density(model, model_args, model_kwargs, params):
             # explicit jax.DeviceArray for masking.
             if mask is not None:
                 if scale is not None:
-                    log_prob = np.where(mask, scale * log_prob, 0.)
+                    log_prob = jnp.where(mask, scale * log_prob, 0.)
                 else:
-                    log_prob = np.where(mask, log_prob, 0.)
+                    log_prob = jnp.where(mask, log_prob, 0.)
             else:
                 if scale is not None:
                     log_prob = scale * log_prob
-            log_prob = np.sum(log_prob)
+            log_prob = jnp.sum(log_prob)
             log_joint = log_joint + log_prob
     return log_joint, model_trace
 
@@ -130,7 +130,7 @@ def _unconstrain_reparam(params, site):
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)
-        log_det = sum_rightmost(log_det, np.ndim(log_det) - np.ndim(value) + len(site['fn'].event_shape))
+        log_det = sum_rightmost(log_det, jnp.ndim(log_det) - jnp.ndim(value) + len(site['fn'].event_shape))
         if site['scale'] is not None:
             log_det = site['scale'] * log_det
         numpyro.factor('_{}_log_det'.format(name), log_det)
@@ -225,13 +225,13 @@ def find_valid_initial_params(rng_key, model,
                 if k in init_values:
                     params[k] = init_values[k]
                 else:
-                    params[k] = random.uniform(subkey, np.shape(v), minval=-radius, maxval=radius)
+                    params[k] = random.uniform(subkey, jnp.shape(v), minval=-radius, maxval=radius)
                     key, subkey = random.split(key)
 
         potential_fn = partial(potential_energy, model, model_args, model_kwargs)
         pe, z_grad = value_and_grad(potential_fn)(params)
         z_grad_flat = ravel_pytree(z_grad)[0]
-        is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad_flat))
+        is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
         return i + 1, key, (params, pe, z_grad), is_valid
 
     def _find_valid_params(rng_key, exit_early=False):
@@ -357,7 +357,7 @@ def initialize_model(rng_key, model,
         at `deterministic` sites in the model.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    substituted_model = substitute(seed(model, rng_key if np.ndim(rng_key) == 1 else rng_key[0]),
+    substituted_model = substitute(seed(model, rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]),
                                    substitute_fn=init_strategy)
     inv_transforms, replay_model, model_trace = _get_model_transforms(
         substituted_model, model_args, model_kwargs)
@@ -385,7 +385,7 @@ def initialize_model(rng_key, model,
                                                                   prototype_params=prototype_params)
 
     if not_jax_tracer(is_valid):
-        if device_get(~np.all(is_valid)):
+        if device_get(~jnp.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return ModelInfo(ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace)
 

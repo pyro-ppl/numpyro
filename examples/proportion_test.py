@@ -18,7 +18,7 @@ import argparse
 import os
 from typing import Tuple
 
-import jax.numpy as np
+import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from jax import random
@@ -27,7 +27,7 @@ from numpyro.diagnostics import hpdi
 from numpyro.infer import MCMC, NUTS
 
 
-def make_dataset(rng_key) -> Tuple[np.ndarray, np.ndarray]:
+def make_dataset(rng_key) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
     Make simulated dataset where potential customers who get a
     sales calls have ~2% higher chance of making another purchase.
@@ -40,18 +40,18 @@ def make_dataset(rng_key) -> Tuple[np.ndarray, np.ndarray]:
     made_purchase_got_called = dist.Bernoulli(0.084).sample(key1, sample_shape=(num_calls,))
     made_purchase_no_calls = dist.Bernoulli(0.061).sample(key2, sample_shape=(num_no_calls,))
 
-    made_purchase = np.concatenate([made_purchase_got_called, made_purchase_no_calls])
+    made_purchase = jnp.concatenate([made_purchase_got_called, made_purchase_no_calls])
 
     is_female = dist.Bernoulli(0.5).sample(key3, sample_shape=(num_calls + num_no_calls,))
-    got_called = np.concatenate([np.ones(num_calls), np.zeros(num_no_calls)])
-    design_matrix = np.hstack([np.ones((num_no_calls + num_calls, 1)),
+    got_called = jnp.concatenate([jnp.ones(num_calls), jnp.zeros(num_no_calls)])
+    design_matrix = jnp.hstack([jnp.ones((num_no_calls + num_calls, 1)),
                                got_called.reshape(-1, 1),
                                is_female.reshape(-1, 1)])
 
     return design_matrix, made_purchase
 
 
-def model(design_matrix: np.ndarray, outcome: np.ndarray = None) -> None:
+def model(design_matrix: jnp.ndarray, outcome: jnp.ndarray = None) -> None:
     """
     Model definition: Log odds of making a purchase is a linear combination
     of covariates. Specify a Normal prior over regression coefficients.
@@ -62,14 +62,14 @@ def model(design_matrix: np.ndarray, outcome: np.ndarray = None) -> None:
     """
 
     beta = numpyro.sample('coefficients', dist.MultivariateNormal(loc=0.,
-                                                                  covariance_matrix=np.eye(design_matrix.shape[1])))
+                                                                  covariance_matrix=jnp.eye(design_matrix.shape[1])))
     logits = design_matrix.dot(beta)
 
     with numpyro.plate('data', design_matrix.shape[0]):
         numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=outcome)
 
 
-def print_results(coef: np.ndarray, interval_size: float = 0.95) -> None:
+def print_results(coef: jnp.ndarray, interval_size: float = 0.95) -> None:
     """
     Print the confidence interval for the effect size with interval_size
     probability mass.
@@ -92,8 +92,8 @@ def print_results(coef: np.ndarray, interval_size: float = 0.95) -> None:
           " Since this interval contains 0, we can conclude gender does not impact the conversion rate.")
 
 
-def run_inference(design_matrix: np.ndarray, outcome: np.ndarray,
-                  rng_key: np.ndarray,
+def run_inference(design_matrix: jnp.ndarray, outcome: jnp.ndarray,
+                  rng_key: jnp.ndarray,
                   num_warmup: int,
                   num_samples: int, num_chains: int,
                   interval_size: float = 0.95) -> None:

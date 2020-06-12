@@ -54,10 +54,9 @@ import argparse
 import os
 
 import matplotlib.pyplot as plt
-import numpy as onp
 
 from jax import random
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.scipy.special import expit
 
 import numpyro
@@ -67,15 +66,15 @@ from numpyro.infer import MCMC, NUTS, Predictive
 
 
 def glmm(dept, male, applications, admit=None):
-    v_mu = numpyro.sample('v_mu', dist.Normal(0, np.array([4., 1.])))
+    v_mu = numpyro.sample('v_mu', dist.Normal(0, jnp.array([4., 1.])))
 
-    sigma = numpyro.sample('sigma', dist.HalfNormal(np.ones(2)))
+    sigma = numpyro.sample('sigma', dist.HalfNormal(jnp.ones(2)))
     L_Rho = numpyro.sample('L_Rho', dist.LKJCholesky(2, concentration=2))
-    scale_tril = sigma[..., np.newaxis] * L_Rho
+    scale_tril = sigma[..., jnp.newaxis] * L_Rho
     # non-centered parameterization
-    num_dept = len(onp.unique(dept))
-    z = numpyro.sample('z', dist.Normal(np.zeros((num_dept, 2)), 1))
-    v = np.dot(scale_tril, z.T).T
+    num_dept = len(jnp.unique(dept))
+    z = numpyro.sample('z', dist.Normal(jnp.zeros((num_dept, 2)), 1))
+    v = jnp.dot(scale_tril, z.T).T
 
     logits = v_mu[0] + v[dept, 0] + (v_mu[1] + v[dept, 1]) * male
     if admit is None:
@@ -97,7 +96,7 @@ def print_results(header, preds, dept, male, probs):
     columns = ['Dept', 'Male', 'ActualProb', 'Pred(p25)', 'Pred(p50)', 'Pred(p75)']
     header_format = '{:>10} {:>10} {:>10} {:>10} {:>10} {:>10}'
     row_format = '{:>10.0f} {:>10.0f} {:>10.2f} {:>10.2f} {:>10.2f} {:>10.2f}'
-    quantiles = onp.quantile(preds, [0.25, 0.5, 0.75], axis=0)
+    quantiles = jnp.quantile(preds, jnp.array([0.25, 0.5, 0.75]), axis=0)
     print('\n', header, '\n')
     print(header_format.format(*columns))
     for i in range(len(dept)):
@@ -117,10 +116,10 @@ def main(args):
     fig, ax = plt.subplots(1, 1)
 
     ax.plot(range(1, 13), admit / applications, "o", ms=7, label="actual rate")
-    ax.errorbar(range(1, 13), np.mean(pred_probs, 0), np.std(pred_probs, 0),
+    ax.errorbar(range(1, 13), jnp.mean(pred_probs, 0), jnp.std(pred_probs, 0),
                 fmt="o", c="k", mfc="none", ms=7, elinewidth=1, label=r"mean $\pm$ std")
-    ax.plot(range(1, 13), np.percentile(pred_probs, 5, 0), "k+")
-    ax.plot(range(1, 13), np.percentile(pred_probs, 95, 0), "k+")
+    ax.plot(range(1, 13), jnp.percentile(pred_probs, 5, 0), "k+")
+    ax.plot(range(1, 13), jnp.percentile(pred_probs, 95, 0), "k+")
     ax.set(xlabel="cases", ylabel="admit rate", title="Posterior Predictive Check with 90% CI")
     ax.legend()
 
