@@ -22,17 +22,17 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from jax import lax, random
-import jax.numpy as np
+import jax.numpy as jnp
+from jax.scipy.special import logsumexp
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoBNAFNormal
 from numpyro.contrib.reparam import NeuTraReparam
 from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
-from numpyro.distributions.util import logsumexp
 from numpyro.infer import ELBO, MCMC, NUTS, SVI
+from numpyro.infer.autoguide import AutoBNAFNormal
 
 
 class DualMoonDistribution(dist.Distribution):
@@ -43,11 +43,11 @@ class DualMoonDistribution(dist.Distribution):
 
     def sample(self, key, sample_shape=()):
         # it is enough to return an arbitrary sample with correct shape
-        return np.zeros(sample_shape + self.event_shape)
+        return jnp.zeros(sample_shape + self.event_shape)
 
     def log_prob(self, x):
-        term1 = 0.5 * ((np.linalg.norm(x, axis=-1) - 2) / 0.4) ** 2
-        term2 = -0.5 * ((x[..., :1] + np.array([-2., 2.])) / 0.6) ** 2
+        term1 = 0.5 * ((jnp.linalg.norm(x, axis=-1) - 2) / 0.4) ** 2
+        term2 = -0.5 * ((x[..., :1] + jnp.array([-2., 2.])) / 0.6) ** 2
         pe = term1 - logsumexp(term2, axis=-1)
         return -pe
 
@@ -70,7 +70,7 @@ def main(args):
     svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
-    last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, np.zeros(args.num_iters))
+    last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(args.num_iters))
     params = svi.get_params(last_state)
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(random.PRNGKey(2), params,
@@ -94,13 +94,13 @@ def main(args):
     # make plots
 
     # guide samples (for plotting)
-    guide_base_samples = dist.Normal(np.zeros(2), 1.).sample(random.PRNGKey(4), (1000,))
+    guide_base_samples = dist.Normal(jnp.zeros(2), 1.).sample(random.PRNGKey(4), (1000,))
     guide_trans_samples = neutra.transform_sample(guide_base_samples)['x']
 
-    x1 = np.linspace(-3, 3, 100)
-    x2 = np.linspace(-3, 3, 100)
-    X1, X2 = np.meshgrid(x1, x2)
-    P = np.exp(DualMoonDistribution().log_prob(np.stack([X1, X2], axis=-1)))
+    x1 = jnp.linspace(-3, 3, 100)
+    x2 = jnp.linspace(-3, 3, 100)
+    X1, X2 = jnp.meshgrid(x1, x2)
+    P = jnp.exp(DualMoonDistribution().log_prob(jnp.stack([X1, X2], axis=-1)))
 
     fig = plt.figure(figsize=(12, 8), constrained_layout=True)
     gs = GridSpec(2, 3, figure=fig)

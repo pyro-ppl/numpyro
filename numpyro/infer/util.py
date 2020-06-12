@@ -7,16 +7,15 @@ import warnings
 
 from jax import device_get, lax, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
-import jax.numpy as np
+import jax.numpy as jnp
 
 import numpyro
+from numpyro.distributions.constraints import _GreaterThan, _Interval
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, while_loop
-
-from .enum_messenger import trace as packed_trace
 
 
 __all__ = [
@@ -47,7 +46,7 @@ def log_density(model, model_args, model_kwargs, params):
     """
     model = substitute(model, param_map=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = np.array(0.)
+    log_joint = jnp.array(0.)
     for site in model_trace.values():
         if site['type'] == 'sample':
             value = site['value']
@@ -55,7 +54,7 @@ def log_density(model, model_args, model_kwargs, params):
             mask = site['mask']
             scale = site['scale']
             # Early exit when all elements are masked
-            if not_jax_tracer(mask) and mask is not None and not np.any(mask):
+            if not_jax_tracer(mask) and mask is not None and not jnp.any(mask):
                 continue
             if intermediates:
                 log_prob = site['fn'].log_prob(value, intermediates)
@@ -67,13 +66,13 @@ def log_density(model, model_args, model_kwargs, params):
             # explicit jax.DeviceArray for masking.
             if mask is not None:
                 if scale is not None:
-                    log_prob = np.where(mask, scale * log_prob, 0.)
+                    log_prob = jnp.where(mask, scale * log_prob, 0.)
                 else:
-                    log_prob = np.where(mask, log_prob, 0.)
+                    log_prob = jnp.where(mask, log_prob, 0.)
             else:
                 if scale is not None:
                     log_prob = scale * log_prob
-            log_prob = np.sum(log_prob)
+            log_prob = jnp.sum(log_prob)
             log_joint = log_joint + log_prob
     return log_joint, model_trace
 
@@ -132,14 +131,14 @@ def _unconstrain_reparam(params, site):
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)
-        log_det = sum_rightmost(log_det, np.ndim(log_det) - np.ndim(value) + len(site['fn'].event_shape))
+        log_det = sum_rightmost(log_det, jnp.ndim(log_det) - jnp.ndim(value) + len(site['fn'].event_shape))
         if site['scale'] is not None:
             log_det = site['scale'] * log_det
         numpyro.factor('_{}_log_det'.format(name), log_det)
         return value
 
 
-def potential_energy(model, model_args, model_kwargs, params):
+def potential_energy(model, model_args, model_kwargs, params, enum=False):
     """
     (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
     The `inv_transforms` is used to transform these unconstrained parameters to base values
@@ -153,49 +152,13 @@ def potential_energy(model, model_args, model_kwargs, params):
     :param dict params: unconstrained parameters of `model`.
     :return: potential energy given unconstrained parameters.
     """
+    if enum is True:
+        from numpyro.contrib.enum import enum_log_density as log_density
+
     substituted_model = substitute(model, substitute_fn=partial(_unconstrain_reparam, params))
     # no param is needed for log_density computation because we already substitute
     log_joint, model_trace = log_density(substituted_model, model_args, model_kwargs, {})
     return - log_joint
-
-
-def enum_potential_energy(model, model_args, model_kwargs, params):
-    import funsor
-    funsor.set_backend("jax")
-
-    substituted_model = substitute(model, substitute_fn=partial(_unconstrain_reparam, params))
-    model_trace = packed_trace(substituted_model).get_trace(*model_args, **model_kwargs)
-    log_factors = []
-    sum_vars, prod_vars = frozenset(), frozenset()
-    for site in model_trace.values():
-        if site['type'] == 'sample':
-            value = site['value']
-            intermediates = site['intermediates']
-            mask = site['mask']
-            # scale = site['scale']  # TODO handle scaling
-            # Early exit when all elements are masked
-            if not_jax_tracer(mask) and mask is not None and not np.any(mask):
-                continue
-            if intermediates:
-                log_prob = site['fn'].base_dist.log_prob(intermediates[0][0])
-            else:
-                log_prob = site['fn'].log_prob(value)
-
-            # TODO handle masking and scaling together
-            if mask is not None:
-                log_prob = np.where(mask, log_prob, 0.)
-
-            log_prob = funsor.to_funsor(log_prob, output=funsor.reals(), dim_to_name=site['infer']['dim_to_name'])
-            log_factors.append(log_prob)
-            sum_vars |= frozenset({site['name']})
-            prod_vars |= frozenset(f.name for f in site['cond_indep_stack'] if f.dim is not None)
-
-    with funsor.interpreter.interpretation(funsor.terms.lazy):
-        lazy_result = funsor.sum_product.sum_product(
-            funsor.ops.logaddexp, funsor.ops.add, log_factors,
-            eliminate=sum_vars | prod_vars, plates=prod_vars)
-    result = funsor.optimizer.apply_optimizer(lazy_result)
-    return -result.data
 
 
 def _init_to_unconstrained_value(site=None, values={}):
@@ -229,8 +192,6 @@ def find_valid_initial_params(rng_key, model,
     :return: tuple of `init_params_info` and `is_valid`, where `init_params_info` is the tuple
         containing the initial params, their potential energy, and their gradients.
     """
-    _potential_energy = enum_potential_energy if enum else potential_energy
-
     model_kwargs = {} if model_kwargs is None else model_kwargs
     init_strategy = init_strategy if isinstance(init_strategy, partial) else init_strategy()
     # handle those init strategies differently to save computation
@@ -269,13 +230,13 @@ def find_valid_initial_params(rng_key, model,
                 if k in init_values:
                     params[k] = init_values[k]
                 else:
-                    params[k] = random.uniform(subkey, np.shape(v), minval=-radius, maxval=radius)
+                    params[k] = random.uniform(subkey, jnp.shape(v), minval=-radius, maxval=radius)
                     key, subkey = random.split(key)
 
-        potential_fn = partial(_potential_energy, model, model_args, model_kwargs)
+        potential_fn = partial(potential_energy, model, model_args, model_kwargs, enum=enum)
         pe, z_grad = value_and_grad(potential_fn)(params)
         z_grad_flat = ravel_pytree(z_grad)[0]
-        is_valid = np.isfinite(pe) & np.all(np.isfinite(z_grad_flat))
+        is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
         return i + 1, key, (params, pe, z_grad), is_valid
 
     def _find_valid_params(rng_key, exit_early=False):
@@ -307,20 +268,32 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     inv_transforms = {}
     # model code may need to be replayed in the presence of deterministic sites
     replay_model = False
-    enum = False
+    has_enumerate_support = False
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
             if v['fn'].is_discrete:
-                enum = True
+                # FIXME: is it correct that we will sample discrete sites
+                # after collecting posterior samples of continuous sites
+                replay_model = True
+                has_enumerate_support = True
                 if not v['fn'].has_enumerate_support:
                     raise RuntimeError(f"MCMC only supports continuous sites or discrete sites "
                                        "with enumerate support, but got {type(v['fn']).__name__}.")
             else:
-                inv_transforms[k] = biject_to(v['fn'].support)
-            # TODO: check if the support is dynamic, then we set replay_model = True
+                support = v['fn'].support
+                inv_transforms[k] = biject_to(support)
+                # XXX: the following code filters out most situations with dynamic supports
+                args = ()
+                if isinstance(support, _GreaterThan):
+                    args = ('lower_bound',)
+                elif isinstance(support, _Interval):
+                    args = ('lower_bound', 'upper_bound')
+                for arg in args:
+                    if not isinstance(getattr(support, arg), (int, float)):
+                        replay_model = True
         elif v['type'] == 'deterministic':
             replay_model = True
-    return inv_transforms, replay_model, enum, model_trace
+    return inv_transforms, replay_model, has_enumerate_support, model_trace
 
 
 def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
@@ -347,11 +320,9 @@ def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
         to values that lie within the site's support, and return values at
         `deterministic` sites in the model.
     """
-    _potential_energy = enum_potential_energy if enum else potential_energy
-
     if dynamic_args:
         def potential_fn(*args, **kwargs):
-            return partial(_potential_energy, model, args, kwargs)
+            return partial(potential_energy, model, args, kwargs, enum=enum)
 
         def postprocess_fn(*args, **kwargs):
             if replay_model:
@@ -360,7 +331,7 @@ def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
                 return partial(transform_fn, inv_transforms)
     else:
         model_kwargs = {} if model_kwargs is None else model_kwargs
-        potential_fn = partial(_potential_energy, model, model_args, model_kwargs)
+        potential_fn = partial(potential_energy, model, model_args, model_kwargs, enum=enum)
         if replay_model:
             postprocess_fn = partial(constrain_fn, model, model_args, model_kwargs,
                                      return_deterministic=True)
@@ -402,9 +373,9 @@ def initialize_model(rng_key, model,
         at `deterministic` sites in the model.
     """
     model_kwargs = {} if model_kwargs is None else model_kwargs
-    substituted_model = substitute(seed(model, rng_key if np.ndim(rng_key) == 1 else rng_key[0]),
+    substituted_model = substitute(seed(model, rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]),
                                    substitute_fn=init_strategy)
-    inv_transforms, replay_model, enum, model_trace = _get_model_transforms(
+    inv_transforms, replay_model, has_enumerate_support, model_trace = _get_model_transforms(
         substituted_model, model_args, model_kwargs)
     constrained_values = {k: v['value'] for k, v in model_trace.items()
                           if v['type'] == 'sample' and not v['is_observed']
@@ -413,7 +384,7 @@ def initialize_model(rng_key, model,
     potential_fn, postprocess_fn = get_potential_fn(model,
                                                     inv_transforms,
                                                     replay_model=replay_model,
-                                                    enum=enum,
+                                                    enum=has_enumerate_support,
                                                     dynamic_args=dynamic_args,
                                                     model_args=model_args,
                                                     model_kwargs=model_kwargs)
@@ -431,7 +402,7 @@ def initialize_model(rng_key, model,
                                                                   prototype_params=prototype_params)
 
     if not_jax_tracer(is_valid):
-        if device_get(~np.all(is_valid)):
+        if device_get(~jnp.all(is_valid)):
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return ModelInfo(ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace)
 

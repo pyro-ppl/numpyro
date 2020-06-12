@@ -15,7 +15,7 @@ import scipy.stats as osp_stats
 from scipy.stats._distn_infrastructure import instancemethod, rv_frozen, rv_generic
 
 from jax import lax
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.random import _is_prng_key
 from jax.scipy import stats
 
@@ -36,9 +36,9 @@ class jax_frozen(rv_frozen):
         shapes, _, scale = self.dist._parse_args(*args, **kwargs)
         if self._validate_args:
             # TODO: check more concretely for each parameter
-            if not np.all(self.dist._argcheck(*shapes)):
+            if not jnp.all(self.dist._argcheck(*shapes)):
                 raise ValueError('Invalid parameters provided to the distribution.')
-            if not np.all(scale > 0):
+            if not jnp.all(scale > 0):
                 raise ValueError('Invalid scale parameter provided to the distribution.')
 
         self.a, self.b = self.dist.a, self.dist.b
@@ -67,7 +67,7 @@ class jax_frozen(rv_frozen):
         return self.dist.logpmf(k, *self.args, **self.kwds)
 
     def _validate_sample(self, x):
-        if not np.all(self.support(x)):
+        if not jnp.all(self.support(x)):
             raise ValueError('Invalid values provided to log prob method. '
                              'The value argument must be within the support.')
 
@@ -84,7 +84,7 @@ class jax_generic(rv_generic):
         if args:
             for arg, arg_name in zip(args, self.shapes.split(', ')):
                 if arg_name in constraints:
-                    cond = np.logical_and(cond, constraints[arg_name](arg))
+                    cond = jnp.logical_and(cond, constraints[arg_name](arg))
         return cond
 
 
@@ -110,7 +110,7 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
         # to recognize valid arg signatures (e.g. `a` in `gamma` or `s` in lognormal)
         args, loc, scale = self._parse_args(*args, **kwargs)
         if not size:
-            shapes = [np.shape(arg) for arg in args] + [np.shape(loc), np.shape(scale)]
+            shapes = [jnp.shape(arg) for arg in args] + [jnp.shape(loc), jnp.shape(scale)]
             size = lax.broadcast_shapes(*shapes)
         elif isinstance(size, int):
             size = (size,)
@@ -132,7 +132,7 @@ class jax_continuous(jax_generic, osp_stats.rv_continuous):
         else:
             args, loc, scale = self._parse_args(*args, **kwargs)
             y = (x - loc) / scale
-            return self._logpdf(y, *args) - np.log(scale)
+            return self._logpdf(y, *args) - jnp.log(scale)
 
 
 class jax_discrete(jax_generic, osp_stats.rv_discrete):
@@ -169,7 +169,7 @@ class jax_discrete(jax_generic, osp_stats.rv_discrete):
         size = kwargs.pop('size', args.pop() if len(args) > (self.numargs + 1) else None)
         args, loc, _ = self._parse_args(*args, **kwargs)
         if not size:
-            shapes = [np.shape(arg) for arg in args] + [np.shape(loc)]
+            shapes = [jnp.shape(arg) for arg in args] + [jnp.shape(loc)]
             size = lax.broadcast_shapes(*shapes)
         elif isinstance(size, int):
             size = (size,)

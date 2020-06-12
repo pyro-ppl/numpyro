@@ -4,7 +4,7 @@
 import argparse
 
 from jax import random
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.random import PRNGKey
 
 import numpyro
@@ -23,7 +23,7 @@ def model(data):
 # distribution over the latent random variable `loc`.
 def guide(data):
     guide_loc = numpyro.param("guide_loc", 0.)
-    guide_scale = np.exp(numpyro.param("guide_scale_log", 0.))
+    guide_scale = jnp.exp(numpyro.param("guide_scale_log", 0.))
     numpyro.sample("loc", dist.Normal(guide_loc, guide_scale))
 
 
@@ -54,7 +54,7 @@ def main(args):
     # For this simple (conjugate) model we know the exact posterior. In
     # particular we know that the variational distribution should be
     # centered near 3.0. So let's check this explicitly.
-    assert np.abs(params["guide_loc"] - 3.0) < 0.1
+    assert jnp.abs(params["guide_loc"] - 3.0) < 0.1
 
 
 if __name__ == "__main__":

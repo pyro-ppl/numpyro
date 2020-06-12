@@ -17,7 +17,7 @@ install:
     # Keep track of pyro-api master branch
     - pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
     - pip install jaxlib
-    - pip install jax==0.1.67
+    - pip install jax>=0.1.70
     - pip install .[examples,test]
     - pip freeze
 

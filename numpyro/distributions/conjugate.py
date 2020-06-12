@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from jax import lax, random
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.scipy.special import betaln, gammaln
 
 from numpyro.distributions import constraints
@@ -32,10 +32,10 @@ class BetaBinomial(Distribution):
     is_discrete = True
 
     def __init__(self, concentration1, concentration0, total_count=1, validate_args=None):
-        batch_shape = lax.broadcast_shapes(np.shape(concentration1), np.shape(concentration0),
-                                           np.shape(total_count))
-        self.concentration1 = np.broadcast_to(concentration1, batch_shape)
-        self.concentration0 = np.broadcast_to(concentration0, batch_shape)
+        batch_shape = lax.broadcast_shapes(jnp.shape(concentration1), jnp.shape(concentration0),
+                                           jnp.shape(total_count))
+        self.concentration1 = jnp.broadcast_to(concentration1, batch_shape)
+        self.concentration0 = jnp.broadcast_to(concentration0, batch_shape)
         self.total_count, = promote_shapes(total_count, shape=batch_shape)
         self._beta = Beta(self.concentration1, self.concentration0)
         super(BetaBinomial, self).__init__(batch_shape, validate_args=validate_args)
@@ -67,15 +67,15 @@ class BetaBinomial(Distribution):
         return constraints.integer_interval(0, self.total_count)
 
     def enumerate_support(self, expand=True):
-        total_count = np.amax(self.total_count)
+        total_count = jnp.amax(self.total_count)
         if not_jax_tracer(total_count):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
-            if np.amin(self.total_count) != total_count:
+            if jnp.amin(self.total_count) != total_count:
                 raise NotImplementedError("Inhomogeneous total count not supported"
                                           " by `enumerate_support`.")
-        values = np.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
+        values = jnp.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
-            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
 
@@ -107,8 +107,8 @@ class GammaPoisson(Distribution):
     @validate_sample
     def log_prob(self, value):
         post_value = self.concentration + value
-        return -betaln(self.concentration, value + 1) - np.log(post_value) + \
-            self.concentration * np.log(self.rate) - post_value * np.log1p(self.rate)
+        return -betaln(self.concentration, value + 1) - jnp.log(post_value) + \
+            self.concentration * jnp.log(self.rate) - post_value * jnp.log1p(self.rate)
 
     @property
     def mean(self):
@@ -116,4 +116,4 @@ class GammaPoisson(Distribution):
 
     @property
     def variance(self):
-        return self.concentration / np.square(self.rate) * (1 + self.rate)
+        return self.concentration / jnp.square(self.rate) * (1 + self.rate)

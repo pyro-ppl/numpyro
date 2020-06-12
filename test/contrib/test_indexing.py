@@ -4,9 +4,9 @@
 import itertools
 
 import jax.lax as lax
-import jax.numpy as np
+import jax.numpy as jnp
 import jax.random as random
-import numpy as onp
+import numpy as np
 import pytest
 
 import numpyro.distributions as dist
@@ -14,7 +14,7 @@ from numpyro.contrib.indexing import Vindex
 
 
 def z(*shape):
-    return np.zeros(shape, dtype=np.int32)
+    return jnp.zeros(shape, dtype=jnp.int32)
 
 
 SHAPE_EXAMPLES = [
@@ -105,34 +105,34 @@ def test_shape(expression, expected_shape):
 @pytest.mark.parametrize('i_shape', [(), (2,), (3, 1), (4, 1, 1), (4, 3, 2)], ids=str)
 @pytest.mark.parametrize('x_shape', [(), (2,), (3, 1), (4, 1, 1), (4, 3, 2)], ids=str)
 def test_value(x_shape, i_shape, j_shape, event_shape):
-    x = np.array(onp.random.rand(*(x_shape + (5, 6) + event_shape)))
-    i = dist.Categorical(np.ones((5,))).sample(random.PRNGKey(1), i_shape)
-    j = dist.Categorical(np.ones((6,))).sample(random.PRNGKey(2), j_shape)
+    x = jnp.array(np.random.rand(*(x_shape + (5, 6) + event_shape)))
+    i = dist.Categorical(jnp.ones((5,))).sample(random.PRNGKey(1), i_shape)
+    j = dist.Categorical(jnp.ones((6,))).sample(random.PRNGKey(2), j_shape)
     if event_shape:
         actual = Vindex(x)[..., i, j, :]
     else:
         actual = Vindex(x)[..., i, j]
 
     shape = lax.broadcast_shapes(x_shape, i_shape, j_shape)
-    x = np.broadcast_to(x, shape + (5, 6) + event_shape)
-    i = np.broadcast_to(i, shape)
-    j = np.broadcast_to(j, shape)
-    expected = onp.empty(shape + event_shape, dtype=x.dtype)
+    x = jnp.broadcast_to(x, shape + (5, 6) + event_shape)
+    i = jnp.broadcast_to(i, shape)
+    j = jnp.broadcast_to(j, shape)
+    expected = np.empty(shape + event_shape, dtype=x.dtype)
     for ind in (itertools.product(*map(range, shape)) if shape else [()]):
         expected[ind] = x[ind + (i[ind].item(), j[ind].item())]
-    assert np.all(actual == np.array(expected, dtype=x.dtype))
+    assert jnp.all(actual == jnp.array(expected, dtype=x.dtype))
 
 
 @pytest.mark.parametrize('prev_enum_dim,curr_enum_dim', [(-3, -4), (-4, -5), (-5, -3)])
 def test_hmm_example(prev_enum_dim, curr_enum_dim):
     hidden_dim = 8
-    probs_x = np.array(onp.random.rand(hidden_dim, hidden_dim, hidden_dim))
-    x_prev = np.arange(hidden_dim).reshape((-1,) + (1,) * (-1 - prev_enum_dim))
-    x_curr = np.arange(hidden_dim).reshape((-1,) + (1,) * (-1 - curr_enum_dim))
+    probs_x = jnp.array(np.random.rand(hidden_dim, hidden_dim, hidden_dim))
+    x_prev = jnp.arange(hidden_dim).reshape((-1,) + (1,) * (-1 - prev_enum_dim))
+    x_curr = jnp.arange(hidden_dim).reshape((-1,) + (1,) * (-1 - curr_enum_dim))
 
     expected = probs_x[x_prev.reshape(x_prev.shape + (1,)),
                        x_curr.reshape(x_curr.shape + (1,)),
-                       np.arange(hidden_dim)]
+                       jnp.arange(hidden_dim)]
 
     actual = Vindex(probs_x)[x_prev, x_curr, :]
-    assert np.all(actual == expected)
+    assert jnp.all(actual == expected)

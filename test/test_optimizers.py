@@ -4,13 +4,13 @@
 import pytest
 
 from jax import grad, jit, partial
-import jax.numpy as np
+import jax.numpy as jnp
 
 from numpyro import optim
 
 
 def loss(params):
-    return np.sum(params['x'] ** 2 + params['y'] ** 2)
+    return jnp.sum(params['x'] ** 2 + params['y'] ** 2)
 
 
 @partial(jit, static_argnums=(1,))
@@ -30,13 +30,13 @@ def step(opt_state, optim):
     (optim.SGD, (1e-2,))
 ])
 def test_optim_multi_params(optim_class, args):
-    params = {'x': np.array([1., 1., 1.]), 'y': np.array([-1, -1., -1.])}
+    params = {'x': jnp.array([1., 1., 1.]), 'y': jnp.array([-1, -1., -1.])}
     opt = optim_class(*args)
     opt_state = opt.init(params)
     for i in range(2000):
         opt_state = step(opt_state, opt)
     for _, param in opt.get_params(opt_state).items():
-        assert np.allclose(param, np.zeros(3))
+        assert jnp.allclose(param, jnp.zeros(3))
 
 
 # note: this is somewhat of a bruteforce test. testing directly from
@@ -53,7 +53,7 @@ def test_optim_multi_params(optim_class, args):
 def test_numpyrooptim_no_double_jit(optim_class, args):
 
     opt = optim_class(*args)
-    state = opt.init(np.zeros(10))
+    state = opt.init(jnp.zeros(10))
 
     my_fn_calls = 0
 
@@ -65,8 +65,8 @@ def test_numpyrooptim_no_double_jit(optim_class, args):
         state = opt.update(g, state)
         return state
 
-    state = my_fn(state, np.ones(10)*1.)
-    state = my_fn(state, np.ones(10)*2.)
-    state = my_fn(state, np.ones(10)*3.)
+    state = my_fn(state, jnp.ones(10)*1.)
+    state = my_fn(state, jnp.ones(10)*2.)
+    state = my_fn(state, jnp.ones(10)*3.)
 
     assert my_fn_calls == 1

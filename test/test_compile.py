@@ -7,9 +7,9 @@ from jax import lax, random
 from jax.lib import xla_bridge
 
 import numpyro
-from numpyro.contrib.autoguide import AutoDiagonalNormal
 import numpyro.distributions as dist
 from numpyro.infer import ELBO, MCMC, NUTS, SVI
+from numpyro.infer.autoguide import AutoDiagonalNormal
 import numpyro.optim as optim
 
 

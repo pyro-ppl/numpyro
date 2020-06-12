@@ -8,7 +8,7 @@ This provides a small set of utilities in NumPyro that are used to diagnose post
 from collections import OrderedDict
 from itertools import product
 
-import numpy as onp
+import numpy as np
 
 from jax import device_get
 from jax.tree_util import tree_flatten, tree_map
@@ -54,8 +54,8 @@ def gelman_rubin(x):
     assert x.shape[0] >= 2
     assert x.shape[1] >= 2
     var_within, var_estimator = _compute_chain_variance_stats(x)
-    with onp.errstate(invalid="ignore", divide="ignore"):
-        rhat = onp.sqrt(var_estimator / var_within)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        rhat = np.sqrt(var_estimator / var_within)
     return rhat
 
 
@@ -73,7 +73,7 @@ def split_gelman_rubin(x):
     assert x.shape[1] >= 4
 
     N_half = x.shape[1] // 2
-    new_input = onp.concatenate([x[:, :N_half], x[:, -N_half:]], axis=0)
+    new_input = np.concatenate([x[:, :N_half], x[:, -N_half:]], axis=0)
     split_rhat = gelman_rubin(new_input)
     return split_rhat
 
@@ -113,24 +113,24 @@ def autocorrelation(x, axis=0):
     M2 = 2 * M
 
     # transpose axis with -1 for Fourier transform
-    x = onp.swapaxes(x, axis, -1)
+    x = np.swapaxes(x, axis, -1)
 
     # centering x
     centered_signal = x - x.mean(axis=-1, keepdims=True)
 
     # Fourier transform
-    freqvec = onp.fft.rfft(centered_signal, n=M2, axis=-1)
+    freqvec = np.fft.rfft(centered_signal, n=M2, axis=-1)
     # take square of magnitude of freqvec (or freqvec x freqvec*)
-    freqvec_gram = freqvec * onp.conjugate(freqvec)
+    freqvec_gram = freqvec * np.conjugate(freqvec)
     # inverse Fourier transform
-    autocorr = onp.fft.irfft(freqvec_gram, n=M2, axis=-1)
+    autocorr = np.fft.irfft(freqvec_gram, n=M2, axis=-1)
 
     # truncate and normalize the result, then transpose back to original shape
     autocorr = autocorr[..., :N]
-    autocorr = autocorr / onp.arange(N, 0., -1)
-    with onp.errstate(invalid="ignore", divide="ignore"):
+    autocorr = autocorr / np.arange(N, 0., -1)
+    with np.errstate(invalid="ignore", divide="ignore"):
         autocorr = autocorr / autocorr[..., :1]
-    return onp.swapaxes(autocorr, axis, -1)
+    return np.swapaxes(autocorr, axis, -1)
 
 
 def autocovariance(x, axis=0):
@@ -178,13 +178,13 @@ def effective_sample_size(x):
 
     # initial monotone (decreasing) sequence
     Rho_init = Rho_k[:1]
-    Rho_k = onp.concatenate(
-        [Rho_init, onp.minimum.accumulate(onp.clip(Rho_k[1:, ...], a_min=0, a_max=None), axis=0)],
+    Rho_k = np.concatenate(
+        [Rho_init, np.minimum.accumulate(np.clip(Rho_k[1:, ...], a_min=0, a_max=None), axis=0)],
         axis=0
     )
 
     tau = -1. + 2. * Rho_k.sum(axis=0)
-    n_eff = onp.prod(x.shape[:2]) / tau
+    n_eff = np.prod(x.shape[:2]) / tau
     return n_eff
 
 
@@ -200,8 +200,8 @@ def hpdi(x, prob=0.90, axis=0):
         ``(1 + prob) / 2``.
     :rtype: numpy.ndarray
     """
-    x = onp.swapaxes(x, axis, 0)
-    sorted_x = onp.sort(x, axis=0)
+    x = np.swapaxes(x, axis, 0)
+    sorted_x = np.sort(x, axis=0)
     mass = x.shape[0]
     index_length = int(prob * mass)
     intervals_left = sorted_x[:(mass - index_length)]
@@ -209,11 +209,11 @@ def hpdi(x, prob=0.90, axis=0):
     intervals_length = intervals_right - intervals_left
     index_start = intervals_length.argmin(axis=0)
     index_end = index_start + index_length
-    hpd_left = onp.take_along_axis(sorted_x, index_start[None, ...], axis=0)
-    hpd_left = onp.swapaxes(hpd_left, axis, 0)
-    hpd_right = onp.take_along_axis(sorted_x, index_end[None, ...], axis=0)
-    hpd_right = onp.swapaxes(hpd_right, axis, 0)
-    return onp.concatenate([hpd_left, hpd_right], axis=axis)
+    hpd_left = np.take_along_axis(sorted_x, index_start[None, ...], axis=0)
+    hpd_left = np.swapaxes(hpd_left, axis, 0)
+    hpd_right = np.take_along_axis(sorted_x, index_end[None, ...], axis=0)
+    hpd_right = np.swapaxes(hpd_right, axis, 0)
+    return np.concatenate([hpd_left, hpd_right], axis=axis)
 
 
 def summary(samples, prob=0.90, group_by_chain=True):
@@ -241,10 +241,10 @@ def summary(samples, prob=0.90, group_by_chain=True):
     summary_dict = {}
     for name, value in samples.items():
         value = device_get(value)
-        value_flat = onp.reshape(value, (-1,) + value.shape[2:])
+        value_flat = np.reshape(value, (-1,) + value.shape[2:])
         mean = value_flat.mean(axis=0)
         std = value_flat.std(axis=0, ddof=1)
-        median = onp.median(value_flat, axis=0)
+        median = np.median(value_flat, axis=0)
         hpd = hpdi(value_flat, prob=prob)
         n_eff = effective_sample_size(value)
         r_hat = split_gelman_rubin(value)

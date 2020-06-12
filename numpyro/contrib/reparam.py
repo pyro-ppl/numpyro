@@ -6,11 +6,11 @@ from abc import ABC, abstractmethod
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.autoguide import AutoContinuous
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to
 from numpyro.distributions.util import sum_rightmost
 from numpyro.handlers import Messenger
+from numpyro.infer.autoguide import AutoContinuous
 
 
 class reparam(Messenger):
@@ -143,7 +143,7 @@ class NeuTraReparam(Reparam):
         "NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport"
         https://arxiv.org/abs/1903.03704
 
-    :param ~numpyro.contrib.autoguide.AutoContinuous guide: A guide.
+    :param ~numpyro.infer.autoguide.AutoContinuous guide: A guide.
     :param params: trained parameters of the guide.
     """
     def __init__(self, guide, params):
