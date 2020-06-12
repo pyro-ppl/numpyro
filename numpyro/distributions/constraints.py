@@ -114,14 +114,6 @@ class _GreaterThan(Constraint):
         return x > self.lower_bound
 
 
-class _GreaterThanEqual(Constraint):
-    def __init__(self, lower_bound):
-        self.lower_bound = lower_bound
-
-    def __call__(self, x):
-        return x >= self.lower_bound
-
-
 class _IntegerInterval(Constraint):
     def __init__(self, lower_bound, upper_bound):
         self.lower_bound = lower_bound

@@ -1,3 +1,5 @@
+import math
+
 import jax.numpy as np
 from jax import lax, random
 
@@ -24,7 +26,7 @@ class VonMises(Distribution):
         concentration = np.maximum(concentration, np.finfo(dtype).tiny)
         self.dtype = dtype
         self._concentration = concentration
-        self._loc = location
+        self._loc = (location + np.pi) % 2.*np.pi - np.pi
 
         batch_shape = lax.broadcast_shapes(np.shape(concentration), np.shape(location))
 
@@ -92,8 +94,8 @@ class VonMises(Distribution):
             :return: samples from von Mises
         """
         samples = self._sample_centered(rng_key=key, sample_shape=sample_shape)
-        samples -= 2. * np.pi * np.round(samples / (2. * np.pi))  # Map to [-pi,pi]
-        samples += self._loc  # VM(0, concentration) -> VM(loc,concentration)
+        samples = samples + self._loc  # VM(0, concentration) -> VM(loc,concentration)
+        samples = samples % (2.*math.pi) - math.pi
 
         return samples
 
