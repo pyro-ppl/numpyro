@@ -16,7 +16,7 @@ NumPyro is a small probabilistic programming library that provides a NumPy backe
 NumPyro is designed to be *lightweight* and focuses on providing a flexible substrate that users can build on:
 
  - **Pyro Primitives:** NumPyro programs can contain regular Python and NumPy code, in addition to [Pyro primitives](http://pyro.ai/examples/intro_part_i.html) like `sample` and `param`. The model code should look very similar to Pyro except for some minor differences between PyTorch and Numpy's API. See the [example](https://github.com/pyro-ppl/numpyro#a-simple-example---8-schools) below.
- - **Inference algorithms:** NumPyro currently supports Hamiltonian Monte Carlo, including an implementation of the No U-Turn Sampler. One of the motivations for NumPyro was to speed up Hamiltonian Monte Carlo by JIT compiling the verlet integrator that includes multiple gradient computations. With JAX, we can compose `jit` and `grad` to compile the entire integration step into an XLA optimized kernel. We also eliminate Python overhead by JIT compiling the entire tree building stage in NUTS (this is possible using [Iterative NUTS](https://github.com/pyro-ppl/numpyro/wiki/Iterative-NUTS)). There is also a basic Variational Inference implementation for reparameterized distributions.
+ - **Inference algorithms:** NumPyro currently supports Hamiltonian Monte Carlo, including an implementation of the No U-Turn Sampler. One of the motivations for NumPyro was to speed up Hamiltonian Monte Carlo by JIT compiling the verlet integrator that includes multiple gradient computations. With JAX, we can compose `jit` and `grad` to compile the entire integration step into an XLA optimized kernel. We also eliminate Python overhead by JIT compiling the entire tree building stage in NUTS (this is possible using [Iterative NUTS](https://github.com/pyro-ppl/numpyro/wiki/Iterative-NUTS)). There is also a basic Variational Inference implementation for reparameterized distributions together with many flexible (auto)guides for Automatic Differentiation Variational Inference (ADVI).
  - **Distributions:** The [numpyro.distributions](https://numpyro.readthedocs.io/en/latest/distributions.html) module provides distribution classes, constraints and bijective transforms. The distribution classes wrap over samplers implemented to work with JAX's [functional pseudo-random number generator](https://github.com/google/jax#random-numbers-are-different). The design of the distributions module largely follows from [PyTorch](https://pytorch.org/docs/stable/distributions.html). A major subset of the API is implemented, and it contains most of the common distributions that exist in PyTorch. As a result, Pyro and PyTorch users can rely on the same API and batching semantics as in `torch.distributions`. In addition to distributions, `constraints` and `transforms` are very useful when operating on distribution classes with bounded support.
  - **Effect handlers:** Like Pyro, primitives like `sample` and `param` can be provided nonstandard interpretations using effect-handlers from the [numpyro.handlers](https://numpyro.readthedocs.io/en/latest/handlers.html) module, and these can be easily extended to implement custom inference algorithms and inference utilities.
  
@@ -77,7 +77,7 @@ Number of divergences: 139
 Expected log joint density: -51.42
 ```
 
-The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates that the chain has not fully converged. The low value for the effective sample size (`n_eff`), particularly for `tau`, and the number of divergent transitions looks problematic. Fortunately, this is a common pathology that can be rectified by using a [non-centered paramaterization](https://mc-stan.org/docs/2_18/stan-users-guide/reparameterization-section.html) for `tau` in our model. This is straightforward to do in NumPyro by using a [TransformedDistribution](http://num.pyro.ai/en/latest/distributions.html#transformeddistribution) instance. Let us rewrite the same model but instead of sampling `theta` from a `Normal(mu, tau)`, we will instead sample it from a base `Normal(0, 1)` distribution that is transformed using an [AffineTransform](http://num.pyro.ai/en/latest/distributions.html#affinetransform). Note that by doing so, NumPyro runs HMC by generating samples for the base `Normal(0, 1)` distribution instead. We see that the resulting chain does not suffer from the same pathology — the Gelman Rubin diagnostic is 1 for all the parameters and the effective sample size looks quite good! 
+The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates that the chain has not fully converged. The low value for the effective sample size (`n_eff`), particularly for `tau`, and the number of divergent transitions looks problematic. Fortunately, this is a common pathology that can be rectified by using a [non-centered paramaterization](https://mc-stan.org/docs/2_18/stan-users-guide/reparameterization-section.html) for `tau` in our model. This is straightforward to do in NumPyro by using a [TransformedDistribution](http://num.pyro.ai/en/latest/distributions.html#transformeddistribution) instance together with a [reparameterization](http://num.pyro.ai/en/latest/handlers.html#reparam) effect handler. Let us rewrite the same model but instead of sampling `theta` from a `Normal(mu, tau)`, we will instead sample it from a base `Normal(0, 1)` distribution that is transformed using an [AffineTransform](http://num.pyro.ai/en/latest/distributions.html#affinetransform). Note that by doing so, NumPyro runs HMC by generating samples `theta_base` for the base `Normal(0, 1)` distribution instead. We see that the resulting chain does not suffer from the same pathology — the Gelman Rubin diagnostic is 1 for all the parameters and the effective sample size looks quite good!q
 
 ```python
 >>> # Eight Schools example - Non-centered Reparametrization
@@ -85,28 +85,38 @@ The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates tha
 ...     mu = numpyro.sample('mu', dist.Normal(0, 5))
 ...     tau = numpyro.sample('tau', dist.HalfCauchy(5))
 ...     with numpyro.plate('J', J):
-...         theta = numpyro.sample('theta', 
-...                                dist.TransformedDistribution(dist.Normal(0., 1.),
-...                                                             dist.transforms.AffineTransform(mu, tau)))
+...         with reparam(config={'theta': TransformReparam()}):
+...             theta = numpyro.sample(
+...                 'theta',
+...                 dist.TransformedDistribution(dist.Normal(0., 1.),
+...                                              dist.transforms.AffineTransform(mu, tau)))
 ...         numpyro.sample('obs', dist.Normal(theta, sigma), obs=y)
-
+>>>
 >>> nuts_kernel = NUTS(eight_schools_noncentered)
 >>> mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=1000)
 >>> rng_key = random.PRNGKey(0)
 >>> mcmc.run(rng_key, J, sigma, y=y, extra_fields=('potential_energy',))
->>> mcmc.print_summary()
+>>> mcmc.print_summary(exclude_deterministic=False)
 
-                mean       std    median      5.0%     95.0%     n_eff     r_hat
-        mu      4.38      3.04      4.50     -0.92      9.05    876.02      1.00
-       tau      3.36      2.89      2.63      0.01      7.56    755.65      1.00
-  theta[0]      5.99      5.42      5.44     -1.33     15.13    825.18      1.00
-  theta[1]      4.80      4.50      4.78     -1.63     13.01   1114.97      1.00
-  theta[2]      3.94      4.63      4.23     -3.41     11.06    914.68      1.00
-  theta[3]      4.76      4.62      4.73     -2.31     12.11    958.40      1.00
-  theta[4]      3.62      4.66      3.75     -3.87     11.17   1091.53      1.00
-  theta[5]      3.92      4.43      4.06     -2.41     11.09   1179.74      1.00
-  theta[6]      5.88      4.84      5.34     -1.45     13.11    881.38      1.00
-  theta[7]      4.63      4.86      4.64     -3.57     11.80   1065.27      1.00
+                   mean       std    median      5.0%     95.0%     n_eff     r_hat
+           mu      4.08      3.51      4.14     -1.69      9.71    720.43      1.00
+          tau      3.96      3.31      3.09      0.01      8.34    488.63      1.00
+     theta[0]      6.48      5.72      6.08     -2.53     14.96    801.59      1.00
+     theta[1]      4.95      5.10      4.91     -3.70     12.82   1183.06      1.00
+     theta[2]      3.65      5.58      3.72     -5.71     12.13    581.31      1.00
+     theta[3]      4.56      5.04      4.32     -3.14     12.92   1282.60      1.00
+     theta[4]      3.41      4.79      3.47     -4.16     10.79    801.25      1.00
+     theta[5]      3.58      4.80      3.78     -3.95     11.55   1101.33      1.00
+     theta[6]      6.31      5.17      5.75     -2.93     13.87   1081.11      1.00
+     theta[7]      4.81      5.38      4.61     -3.29     14.05    954.14      1.00
+theta_base[0]      0.41      0.95      0.40     -1.09      1.95    851.45      1.00
+theta_base[1]      0.15      0.95      0.20     -1.42      1.66   1568.11      1.00
+theta_base[2]     -0.08      0.98     -0.10     -1.68      1.54   1037.16      1.00
+theta_base[3]      0.06      0.89      0.05     -1.42      1.47   1745.02      1.00
+theta_base[4]     -0.14      0.94     -0.16     -1.65      1.45    719.85      1.00
+theta_base[5]     -0.10      0.96     -0.14     -1.57      1.51   1128.45      1.00
+theta_base[6]      0.38      0.95      0.42     -1.32      1.82   1026.50      1.00
+theta_base[7]      0.10      0.97      0.10     -1.51      1.65   1190.98      1.00
 
 Number of divergences: 0
 
