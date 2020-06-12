@@ -6,15 +6,6 @@ import jax.numpy as np
 from jax import ops
 from jax.experimental import loops
 
-class DummyScope(object):
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type, value, traceback):
-        pass
-
-    def range(self, *args):
-        return range(*args)
 
 @functools.partial(jax.jit, static_argnums=(0,1,2,3,4,5,6,7))
 def _runge_kutta_4(f: Callable[[float, np.ndarray], np.ndarray], 
