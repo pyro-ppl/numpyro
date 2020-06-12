@@ -9,7 +9,7 @@ from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpy.testing import assert_allclose
 from tensor_sketch import create_sketch_transform, sketch_transform
 from utils import dotdot
-from mvm import kXkXsq_mvm, kXdkXsq_mvm, kernel_mvm, kX_mvm
+from mvm import kXkXsq_mvm, kXdkXsq_mvm, kernel_mvm_diag, kX_mvm
 
 
 CGState = namedtuple('CGState', ['x', 'r', 'p', 'r_dot_r', 'iter'])
@@ -233,7 +233,7 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, 
     dkX = kappa_dot * X
     dkXsq = kappa_dot * Xsq
 
-    mvm = lambda b: kernel_mvm(b, kX, eta1, eta2, c, diag, dilation=dilation)
+    mvm = lambda b: kernel_mvm_diag(b, kX, eta1, eta2, c, diag, dilation=dilation)
     presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank1, rank2)
 
     b_probes = np.concatenate([b[None, :], probes])

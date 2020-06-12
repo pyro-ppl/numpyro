@@ -1,4 +1,5 @@
-from jax import vmap, jit
+from functools import partial
+from jax import vmap, jit, custom_jvp, value_and_grad, jvp
 import jax.numpy as np
 import numpyro
 from numpy.testing import assert_allclose
@@ -64,6 +65,12 @@ def partitioned_mvm2(row, P, dilation):
 def kX_mvm(b, kX, dilation=2):
     return np.transpose(partitioned_mvm2(lambda i: kX[:, i], kX.shape[-1], dilation)(b))
 
+def kX_mvm2(b, kX, dilation=2):
+    @jit
+    def compute_element(i):
+        return np.dot(b, kX[i, :])
+    return _chunk_vmap(compute_element, np.arange(kX.shape[0]), kX.shape[0] // dilation)
+
 def quad_mvm(b, X):
     return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
 
@@ -87,7 +94,7 @@ def kernel(X, Z, eta1, eta2, c):
     k4 = np.square(c) - 0.5 * eta2sq
     return k1 + k2 + k3 + k4
 
-def kernel_mvm(b, kX, eta1, eta2, c, diag, dilation=2):
+def kernel_mvm_diag(b, kX, eta1, eta2, c, diag, dilation=2):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
     k1b = 0.5 * eta2sq * kXkXsq_mvm(b, kX, dilation=dilation)
@@ -96,26 +103,112 @@ def kernel_mvm(b, kX, eta1, eta2, c, diag, dilation=2):
     k4b = (np.square(c) - 0.5 * eta2sq) * np.sum(b) * np.ones(b.shape)
     return k1b + k2b + k3b + k4b + diag * b
 
+@custom_jvp
+@partial(custom_jvp, nondiff_argnums=(0, 2, 5, 6))
+def kernel_mvm(b, kappa, X, eta1, eta2, c, dilation):
+    return np.nan
+
+@kernel_mvm.defjvp
+def kernel_mvm_jvp(b, X, c, dilation, primals, tangents):
+    kappa, eta1, eta2 = primals
+    kappa_dot, eta1_dot, eta2_dot = tangents
+
+    eta1sq = np.square(eta1)
+    eta2sq = np.square(eta2)
+
+    kX = kappa * X
+    Xsq = np.square(X)
+    dkX = kappa_dot * X
+    dkXsq = kappa_dot * Xsq
+    k3Xsq = kappa ** 3 * Xsq
+
+    k1b = kXkXsq_mvm(b, kX, dilation=dilation)
+    k2b = quad_mvm_dil(b, np.square(kX), dilation=dilation)
+    k3b = quad_mvm_dil(b, kX, dilation=dilation)
+    k4b = np.sum(b) * np.ones(b.shape)
+
+    primal_out = 0.5 * eta2sq * k1b - 0.5 * eta2sq * k2b + (eta1sq - eta2sq) * k3b + \
+                 (np.square(c) - 0.5 * eta2sq) * k4b
+
+    b_dkX = kX_mvm(b, dkX, dilation=dilation)
+    b_dkXsq = kX_mvm(b, dkXsq, dilation=dilation)
+    kXdkXsq_b = np.transpose(kXdkXsq_mvm(b, kX, dkX, dilation=dilation))
+    kX_b_dkX = kX_mvm2(b_dkX, kX, dilation=dilation)
+    k3Xsq_b_dkXsq = kX_mvm2(b_dkXsq, k3Xsq, dilation=dilation)
+
+    tangent_out_dkappa = 2.0 * eta1sq * kX_b_dkX - 2.0 * eta2sq * (k3Xsq_b_dkXsq - kXdkXsq_b)
+    tangent_out_deta1 = 2.0 * eta1 * eta1_dot * k3b
+    tangent_out_deta2 = eta2 * eta2_dot * (k1b - k2b - 2.0 * k3b - k4b)
+
+    tangent_out = tangent_out_dkappa + tangent_out_deta1 + tangent_out_deta2
+
+    return primal_out, tangent_out
+
 
 if __name__ == "__main__":
     numpyro.set_platform("gpu")
 
-    N = 9 * 10 ** 3
-    P = 1000
+    onp.random.seed(0)
+
+    N = 9 * 10 ** 2
+    P = 100
     b = np.sin(np.ones(N)) / N
+    a = np.cos(np.ones(N)) / N
+
+    eta1 = np.array(0.55)
+    eta2 = np.array(0.22)
+    c = 0.9
+
+    kappa = np.array(onp.random.rand(P))
 
     dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
-    kX = np.array(onp.random.randn(N * P).reshape((N, P)))
+    X = np.array(onp.random.randn(N * P).reshape((N, P)))
+
+    def f(kappa, eta1, eta2):
+        kX = kappa * X
+        return np.matmul(kernel(kX, kX, eta1, eta2, c), b)
+
+    def g(kappa, eta1, eta2):
+        return kernel_mvm(b, kappa, X, eta1, eta2, c, 2)
+
+    _, t1 = jvp(f, (kappa, eta1, eta2), (1.4 * kappa, 0.1, .2))
+    _, t2 = jvp(g, (kappa, eta1, eta2), (1.4 * kappa, 0.1, .2))
+    assert_allclose(t1, t2, atol=1.0e-5, rtol=1.0e-5)
+    assert t1.shape == t2.shape
+    _, t1 = jvp(f, (kappa, eta1, eta2), (1.4 / kappa, 0.3, .4))
+    _, t2 = jvp(g, (kappa, eta1, eta2), (1.4 / kappa, 0.3, .4))
+    assert_allclose(t1, t2, atol=1.0e-5, rtol=1.0e-5)
+    assert t1.shape == t2.shape
+
+    def f(kappa, eta1, eta2):
+        kX = kappa * X
+        return np.dot(a, np.matmul(kernel(kX, kX, eta1, eta2, c), b))
+
+    def g(kappa, eta1, eta2):
+        return np.dot(a, kernel_mvm(b, kappa, X, eta1, eta2, c, 2))
+
+    v1, g1 = value_and_grad(g, 1)(kappa, eta1, eta2)
+    v2, g2 = value_and_grad(f, 1)(kappa, eta1, eta2)
+    assert_allclose(v1, v2, atol=1.0e-5, rtol=1.0e-5)
+    assert_allclose(g1, g2, atol=1.0e-30, rtol=1.0e-30)
+
+    v1, g1 = value_and_grad(g, 2)(kappa, eta1, eta2)
+    v2, g2 = value_and_grad(f, 2)(kappa, eta1, eta2)
+    assert_allclose(g1, g2, atol=1.0e-5, rtol=1.0e-5)
+
+    import sys; sys.exit()
+
+    v1, g1 = value_and_grad(kernel_quad, 1)(b, kappa, X, eta1, eta2, c, 2)
+    v2, g2 = value_and_grad(f, 0)(kappa, eta1, eta2)
+    assert_allclose(g1, g2, atol=1.0e-5, rtol=1.0e-5)
+
+    import sys; sys.exit()
 
     res1 = quad_mvm(b, kX)
     res2 = quad_mvm_dil(b, kX, dilation=2)
     assert_allclose(res1, res2, atol=1.0e-5, rtol=1.0e-8)
 
     import sys; sys.exit()
-
-    eta1 = 0.55
-    eta2 = 0.22
-    c = 0.9
 
     b2 = np.array(onp.random.randn(3,N))  # 3 N
     res1 = kX_mvm(b2, kX)   # 3 N
@@ -125,8 +218,8 @@ if __name__ == "__main__":
     import sys; sys.exit()
 
     kb1 = np.matmul(kernel(kX, kX, eta1, eta2, c), b)
-    kb2 = kernel_mvm(b, kX, eta1, eta2, c, dilation=2)
-    kb3 = kernel_mvm(b, kX, eta1, eta2, c, dilation=3)
+    kb2 = kernel_mvm_diag(b, kX, eta1, eta2, c, dilation=2)
+    kb3 = kernel_mvm_diag(b, kX, eta1, eta2, c, dilation=3)
     assert_allclose(kb1, kb2, atol=1.0e-5, rtol=1.0e-5)
     print("kb1 == kb2")
     assert_allclose(kb1, kb3, atol=1.0e-5, rtol=1.0e-5)

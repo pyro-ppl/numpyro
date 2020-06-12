@@ -29,7 +29,7 @@ from chunk_vmap import chunk_vmap
 import pickle
 from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det, pcpcg_quad_form_log_det
 from utils import CustomAdam, record_stats, kdot, sigmoid, sample_aux_noise, _fori_loop
-from mvm import kernel_mvm
+from mvm import kernel_mvm_diag, kernel_mvm
 
 
 # The kernel that corresponds to our quadratic logit function
@@ -64,16 +64,17 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     kX = kappa * X
 
-    dilation = 8
+    dilation = 4
 
     if method != 'ppcg':
         k = kernel(kX, kX, eta1, eta2, hypers['c'])
         k_omega = k + np.eye(N) * (1.0 / omega)
         kY = np.matmul(k, Y)
+        log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
     else:
-        kY = kernel_mvm(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=dilation)
-
-    log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
+        kY = kernel_mvm_diag(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=dilation)
+        #kY = kernel_mvm(Y, kappa, X, eta1, eta2, hypers['c'], dilation)
+        log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
     rank1, rank2 = 8, 4
@@ -384,7 +385,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [40000]:
+    for N in [10000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
