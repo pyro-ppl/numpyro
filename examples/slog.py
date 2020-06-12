@@ -254,7 +254,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
     svi_state = svi.init(rng_key_init, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
 
     num_steps = args['num_samples']
-    report_frequency = 50
+    report_frequency = 20
     beta = 0.95
     bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
@@ -384,7 +384,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [30000]:
+    for N in [40000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -499,9 +499,9 @@ def main(**args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
-    parser.add_argument("--inference", nargs="?", default='svi-pcg', type=str,
+    parser.add_argument("--inference", nargs="?", default='svi-ppcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=200, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=60, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)

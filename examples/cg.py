@@ -305,7 +305,7 @@ if __name__ == "__main__":
 
     def f1(_kappa, _b, _eta1, _eta2, _diag):
         return pcpcg_quad_form_log_det(_kappa, _b, _eta1, _eta2, _diag, c, X, probes, 3, 2,
-                                       1.0e-9, 400)[0]
+                                       1.0e-8, 300, 1)[0]
 
     def f2(_kappa, _b, _eta1, _eta2, _diag):
         kX = _kappa * X
@@ -317,7 +317,7 @@ if __name__ == "__main__":
         k = kernel(kX, kX, _eta1, _eta2, c) + np.diag(_diag)
         return cg_quad_form_log_det(k, _b, probes, epsilon=1.0e-8, max_iters=300)[0]
 
-    which = 3
+    which = 4
 
     g1 = grad(f1, which)(kappa, b, eta1, eta2, diag)
     g2 = grad(f2, which)(kappa, b, eta1, eta2, diag)
