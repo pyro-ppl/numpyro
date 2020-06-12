@@ -447,6 +447,66 @@ def clamp_probs(probs):
     return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
+
+@partial(jit, static_argnums=(2, 3))
+def _von_mises_centered(key, concentration, shape, dtype):
+    """ Compute centered von Mises samples using rejection sampling from [1] with wrapped Cauchy proposal.
+
+        *** References ***
+        [1] Luc Devroye "Non-Uniform Random Variate Generation", Springer-Verlag, 1986;
+            Chapter 9, p. 473-476. http://www.nrbook.com/devroye/Devroye_files/chapter_nine.pdf
+
+        :param sample_shape: shape of samples
+        :param rng_key: random number generator key
+        :return: centered samples from von Mises
+    """
+
+    # Cutoff from TensorFlow probability
+    # (https://github.com/tensorflow/probability/blob/f051e03dd3cc847d31061803c2b31c564562a993/tensorflow_probability/python/distributions/von_mises.py#L567-L570)
+    s_cutoff_map = {np.dtype(np.float16): 1.8e-1,
+                    np.dtype(np.float32): 2e-2,
+                    np.dtype(np.float64): 1.2e-4}
+
+    r = 1. + np.sqrt(1. + 4. * concentration ** 2)
+    rho = (r - np.sqrt(2. * r)) / (2. * concentration)
+    s_exact = (1. + rho ** 2) / (2. * rho)
+
+    s_approximate = 1. / concentration
+
+    s_cutoff = s_cutoff_map.get(dtype)
+
+    s = np.where(concentration > s_cutoff, s_exact, s_approximate)
+
+    def body_function(i, *args):
+        done, _, w = args[0]
+        nonlocal key
+        uni_ukey, uni_vkey, key = random.split(key, 3)
+
+        u = random.uniform(key=uni_ukey, shape=shape, dtype=concentration.dtype, minval=-1., maxval=1.)
+        z = np.cos(np.pi * u)
+        w = np.where(done, w, (1. + s * z) / (s + z))  # Update where not done
+
+        y = concentration * (s - w)
+        v = random.uniform(key=uni_vkey, shape=shape, dtype=concentration.dtype, minval=-1., maxval=1.)
+
+        accept = (y * (2. - y) >= v) | (np.log(y / v) + 1. >= y)
+
+        return accept | done, u, w
+
+    init_done = np.zeros(shape, dtype=bool)
+    init_u = np.zeros(shape)
+    init_w = np.zeros(shape)
+
+    done, u, w = lax.fori_loop(
+        lower=0,
+        upper=100,
+        body_fun=body_function,
+        init_val=(init_done, init_u, init_w)
+    )
+
+    # cond_fun=lambda done, *_: np.logical_not(np.all(done)),
+    return np.sign(u) * np.arccos(w)
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
