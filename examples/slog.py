@@ -46,7 +46,7 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
 
 
 # Most of the model code is concerned with constructing the sparsity inducing prior.
-def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
+def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
     phi = sigma * (S / np.sqrt(N)) / (P - S)
@@ -69,7 +69,7 @@ def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
         k_omega = k + np.eye(N) * (1.0 / omega)
         kY = np.matmul(k, Y)
     else:
-        kY = kernel_mvm(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=4)
+        kY = kernel_mvm(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=16)
 
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
@@ -85,12 +85,15 @@ def model(X, Y, hypers, method="direct", num_probes=8, cg_tol=0.001):
         qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=cg_tol, max_iters=max_iters)
     elif method == "pcg":
         probe = sample_aux_noise(shape=(num_probes, N))
-        qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(4,9,10,11,12))(k_omega, 0.5 * kY, eta1, eta2,
-                                       hypers['c'], kX, 1.0 / omega, kappa, probe, rank1, rank2, cg_tol, max_iters)
+        qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(5, 9, 10, 11, 12))(k_omega,
+                                       0.5 * kY, eta1, eta2, 1.0 / omega,
+                                       hypers['c'], kX, kappa, probe, rank1, rank2, cg_tol, max_iters)
     elif method == "ppcg":
         probe = sample_aux_noise(shape=(num_probes, N))
-        qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5,6,7,8,9,10))(kappa, 0.5 * kY, eta1, eta2,
-                                       1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters)
+        qfld, res_norm, cg_iters = pcpcg_quad_form_log_det(kappa, 0.5 * kY, eta1, eta2, 1.0 / omega,
+                                                           hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters)
+        #qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5,6,7,8,9,10))(kappa, 0.5 * kY, eta1, eta2,
+        #                               1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters)
 
     record_stats(np.array([res_norm, cg_iters]))
 
@@ -253,7 +256,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
     svi_state = svi.init(rng_key_init, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
 
     num_steps = args['num_samples']
-    report_frequency = 50
+    report_frequency = 25
     beta = 0.95
     bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
@@ -383,7 +386,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [9000]:
+    for N in [5000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -498,7 +501,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-pcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
