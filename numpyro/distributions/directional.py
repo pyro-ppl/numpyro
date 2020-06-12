@@ -9,13 +9,12 @@ from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import validate_sample
 from numpyro.util import copy_docs_from
-from numpyro.distributions.util import promote_shapes
-from numpyro.distributions.util import _von_mises_centered
+from numpyro.distributions.util import promote_shapes, von_mises_centered
 
 
 @copy_docs_from(Distribution)
 class VonMises(Distribution):
-    arg_constraints = {'location': constraints.real, 'concentration': constraints.positive}
+    arg_constraints = {'loc': constraints.interval(-math.pi, math.pi), 'concentration': constraints.positive}
 
     @property
     def support(self):
@@ -23,8 +22,6 @@ class VonMises(Distribution):
 
     def __init__(self, loc, concentration, validate_args=None):
         self.loc, self.concentration = promote_shapes(loc, concentration)
-        self.concentration = concentration
-        self.loc = (loc + np.pi) % 2. * np.pi - np.pi
 
         batch_shape = lax.broadcast_shapes(np.shape(concentration), np.shape(loc))
 
@@ -38,32 +35,29 @@ class VonMises(Distribution):
             :param rng_key: random number generator key
             :return: samples from von Mises
         """
-        samples = _von_mises_centered(key=key, concentration=self.concentration, shape=sample_shape,
+        samples = von_mises_centered(key, self.concentration, shape=sample_shape,
                                       dtype=dtypes.canonicalize_dtype(np.float64))
         samples = samples + self.loc  # VM(0, concentration) -> VM(loc,concentration)
-        samples = samples % (2. * math.pi) - math.pi
+        samples = (samples + np.pi) % (2. * np.pi) - np.pi
 
         return samples
 
     @validate_sample
     def log_prob(self, value):
-        return -(np.log(2 * np.pi) + lax.bessel_i0e(self._concentration)) + (
-                self._concentration * np.cos(value - self._loc))
+        return -(np.log(2 * np.pi) + lax.bessel_i0e(self.concentration)) + (
+                self.concentration * np.cos(value - self.loc))
 
     @property
     def mean(self):
-        return np.broadcast_to((self.loc + np.pi) % 2. * np.pi - np.pi, self.batch_shape)
+        """ Computes circular mean of distribution """
+        return np.broadcast_to(self.loc, self.batch_shape)
 
     @property
     def location(self):
         return self.loc
 
     @property
-    def concentration(self):
-        return self.concentration
-
-    @property
     def variance(self):
         """ Computes circular variance of distribution """
-        return np.broadcast_to(1 - lax.bessel_i1e(self._concentration) / lax.bessel_i0e(self._concentration),
+        return np.broadcast_to(1 - lax.bessel_i1e(self.concentration) / lax.bessel_i0e(self.concentration),
                                self.batch_shape)

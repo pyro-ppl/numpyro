@@ -447,6 +447,8 @@ def clamp_probs(probs):
     return np.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
+def von_mises_centered(key, concentration, shape=(), dtype=np.float64):
+    return _von_mises_centered(key, concentration, shape, dtype)
 
 @partial(jit, static_argnums=(2, 3))
 def _von_mises_centered(key, concentration, shape, dtype):

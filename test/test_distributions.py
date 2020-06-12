@@ -654,9 +654,9 @@ def test_mean_var(jax_dist, sp_dist, params):
         assert_allclose(np.mean(corr_samples, axis=0), expected_mean, atol=0.01)
         assert_allclose(np.std(corr_samples, axis=0), expected_std, atol=0.01)
     elif jax_dist in [dist.VonMises]:
-        if np.all(np.isfinite(d_jax.mean)):
-            assert_allclose(np.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
         loc, conc = params
+        if np.all(np.isfinite(d_jax.mean)):
+            assert_allclose(loc, d_jax.mean, rtol=0.05, atol=1e-2)
 
         # von Mises circular variance
         expected_variance = 1 - lax.bessel_i1e(conc)/lax.bessel_i0e(conc)
