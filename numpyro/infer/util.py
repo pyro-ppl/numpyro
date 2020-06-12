@@ -12,7 +12,7 @@ import jax.numpy as jnp
 import numpyro
 from numpyro.distributions.constraints import _GreaterThan, _Interval
 from numpyro.distributions.transforms import biject_to
-from numpyro.distributions.util import sum_rightmost
+from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, while_loop
@@ -56,7 +56,7 @@ def log_density(model, model_args, model_kwargs, params):
             else:
                 log_prob = site['fn'].log_prob(value)
 
-            if scale is not None:
+            if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
 
             log_prob = jnp.sum(log_prob)
