@@ -64,7 +64,7 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     kX = kappa * X
 
-    dilation = 16
+    dilation = 8
 
     if method != 'ppcg':
         k = kernel(kX, kX, eta1, eta2, hypers['c'])
@@ -76,7 +76,7 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    rank1, rank2 = 64, 16
+    rank1, rank2 = 8, 4
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
@@ -254,7 +254,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
     svi_state = svi.init(rng_key_init, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
 
     num_steps = args['num_samples']
-    report_frequency = 20
+    report_frequency = 40
     beta = 0.95
     bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
@@ -384,7 +384,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [45000]:
+    for N in [40000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -501,16 +501,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-ppcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=60, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=500, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=200, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
     parser.add_argument("--cg-tol", nargs='?', default=0.001, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=32, type=int)
+    parser.add_argument("--active-dimensions", nargs='?', default=14, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
     parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./very_large/', type=str)

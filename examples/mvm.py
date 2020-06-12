@@ -67,6 +67,17 @@ def kX_mvm(b, kX, dilation=2):
 def quad_mvm(b, X):
     return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
 
+def quad_mvm_dil(b, X, dilation=2):
+    N, P = X.shape
+    @jit
+    def compute_element1(i):
+        return np.dot(X[:, i], b)
+    partial = _chunk_vmap(compute_element1, np.arange(P), P // dilation)
+    @jit
+    def compute_element2(i):
+        return np.dot(X[i], partial)
+    return _chunk_vmap(compute_element2, np.arange(N), N // dilation)
+
 def kernel(X, Z, eta1, eta2, c):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
@@ -80,8 +91,8 @@ def kernel_mvm(b, kX, eta1, eta2, c, diag, dilation=2):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
     k1b = 0.5 * eta2sq * kXkXsq_mvm(b, kX, dilation=dilation)
-    k2b = -0.5 * eta2sq * quad_mvm(b, np.square(kX))
-    k3b = (eta1sq - eta2sq) * quad_mvm(b, kX)
+    k2b = -0.5 * eta2sq * quad_mvm_dil(b, np.square(kX), dilation=dilation)
+    k3b = (eta1sq - eta2sq) * quad_mvm_dil(b, kX, dilation=dilation)
     k4b = (np.square(c) - 0.5 * eta2sq) * np.sum(b) * np.ones(b.shape)
     return k1b + k2b + k3b + k4b + diag * b
 
@@ -95,6 +106,12 @@ if __name__ == "__main__":
 
     dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
     kX = np.array(onp.random.randn(N * P).reshape((N, P)))
+
+    res1 = quad_mvm(b, kX)
+    res2 = quad_mvm_dil(b, kX, dilation=2)
+    assert_allclose(res1, res2, atol=1.0e-5, rtol=1.0e-8)
+
+    import sys; sys.exit()
 
     eta1 = 0.55
     eta2 = 0.22
