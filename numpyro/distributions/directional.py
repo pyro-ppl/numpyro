@@ -35,8 +35,7 @@ class VonMises(Distribution):
             :param rng_key: random number generator key
             :return: samples from von Mises
         """
-        samples = von_mises_centered(key, self.concentration, shape=sample_shape,
-                                     dtype=dtypes.canonicalize_dtype(jnp.float64))
+        samples = von_mises_centered(key, self.concentration, sample_shape, dtypes.canonicalize_dtype(jnp.float64))
         samples = samples + self.loc  # VM(0, concentration) -> VM(loc,concentration)
         samples = (samples + jnp.pi) % (2. * jnp.pi) - jnp.pi
 
