@@ -9,7 +9,7 @@ from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from numpy.testing import assert_allclose
 from tensor_sketch import create_sketch_transform, sketch_transform
 from utils import dotdot
-from mvm import kXkXsq_mvm, kXdkXsq_mvm, kernel_mvm
+from mvm import kXkXsq_mvm, kXdkXsq_mvm, kernel_mvm, kX_mvm
 
 
 CGState = namedtuple('CGState', ['x', 'r', 'p', 'r_dot_r', 'iter'])
@@ -248,12 +248,13 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, 
     kXkXsq_Ainv_b_probes = np.transpose(kXkXsq_mvm(Ainv_b_probes, kX, dilation=dilation))
     kXkXsq_Ainv_b, kXkXsq_Ainv_probes = kXkXsq_Ainv_b_probes[0], kXkXsq_Ainv_b_probes[1:]
 
-    probes_kX = np.matmul(probes, kX)  ## dilate?
-    Ainv_b_probes_kX = np.matmul(Ainv_b_probes, kX)  ## dilate?
+    probes_kX = kX_mvm(probes, kX, dilation=dilation)
+    Ainv_b_probes_kX = kX_mvm(Ainv_b_probes, kX, dilation=dilation)
     Ainv_b_kX, Ainv_probes_kX = Ainv_b_probes_kX[0], Ainv_b_probes_kX[1:]
-    Ainv_probes_dkX = np.matmul(Ainv_probes, dkX)  ## dilate?
-    Ainv_probes_dkXsq = np.matmul(Ainv_probes, dkXsq)  ## dilate?
-    Ainv_probes_ksqXsq = np.matmul(Ainv_probes, ksqXsq)  ## dilate?
+
+    Ainv_probes_dkX = kX_mvm(Ainv_probes, dkX, dilation=dilation)
+    Ainv_probes_dkXsq = kX_mvm(Ainv_probes, dkXsq, dilation=dilation)
+    Ainv_probes_ksqXsq = kX_mvm(Ainv_probes, ksqXsq, dilation=dilation)
 
     quad_form_dk = - 2.0 * eta1sq * np.dot(Ainv_b_kX, np.dot(Ainv_b, dkX)) \
                    + 2.0 * eta2sq * np.dot(np.dot(Ainv_b, k3Xsq), np.dot(Ainv_b, dkXsq)) \
@@ -300,7 +301,7 @@ if __name__ == "__main__":
     eta2 = np.array(0.33)
     c = 1.0
     diag = np.exp(0.2 * onp.random.randn(N))
-    num_probes = 10 ** 3
+    num_probes = 10 ** 5
     probes = onp.random.randn(num_probes * N).reshape((num_probes, N))
 
     def f1(_kappa, _b, _eta1, _eta2, _diag):
@@ -323,7 +324,7 @@ if __name__ == "__main__":
     g2 = grad(f2, which)(kappa, b, eta1, eta2, diag)
     g3 = grad(f3, which)(kappa, b, eta1, eta2, diag)
 
-    assert_allclose(g3, g2, atol=1.0e-3, rtol=1.0e-2)
+    assert_allclose(g3, g2, atol=1.0e-2, rtol=1.0e-2)
     print("passed cg = direct")
     assert_allclose(g1, g2, atol=1.0e-2, rtol=1.0e-2)
     print("passed pcpcg = direct")

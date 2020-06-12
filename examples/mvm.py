@@ -43,15 +43,26 @@ def partitioned_mvm(row, dilation):
 def kXkXsq_row(i, kX):
     return np.square(1.0 + np.matmul(kX, kX[i]))
 
+def kXkXsq_mvm(b, kX, dilation=2):
+    return partitioned_mvm(lambda i: kXkXsq_row(i, kX), dilation)(b)
+
 # kdot(kX, kX) * kdot(kX, dkX)
 def kXdkXsq_row(i, kX, dkX):
     return np.matmul(kX, kX[i]) * np.matmul(kX, dkX[i])
 
-def kXkXsq_mvm(b, kX, dilation=2):
-    return partitioned_mvm(lambda i: kXkXsq_row(i, kX), dilation)(b)
-
 def kXdkXsq_mvm(b, kX, dkX, dilation=2):
     return partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), dilation)(b)
+
+def partitioned_mvm2(row, P, dilation):
+    def do_mvm(rhs):
+        @jit
+        def compute_element(i):
+            return np.dot(rhs, row(i))
+        return _chunk_vmap(compute_element, np.arange(P), P // dilation)
+    return do_mvm
+
+def kX_mvm(b, kX, dilation=2):
+    return np.transpose(partitioned_mvm2(lambda i: kX[:, i], kX.shape[-1], dilation)(b))
 
 def quad_mvm(b, X):
     return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
@@ -88,6 +99,13 @@ if __name__ == "__main__":
     eta1 = 0.55
     eta2 = 0.22
     c = 0.9
+
+    b2 = np.array(onp.random.randn(3,N))  # 3 N
+    res1 = kX_mvm(b2, kX)   # 3 N
+    res2 = np.matmul(b2, kX)              # 3 P
+    assert_allclose(res1, res2, atol=1.0e-5, rtol=1.0e-5)
+
+    import sys; sys.exit()
 
     kb1 = np.matmul(kernel(kX, kX, eta1, eta2, c), b)
     kb2 = kernel_mvm(b, kX, eta1, eta2, c, dilation=2)
