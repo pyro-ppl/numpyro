@@ -50,27 +50,15 @@ def log_density(model, model_args, model_kwargs, params):
         if site['type'] == 'sample':
             value = site['value']
             intermediates = site['intermediates']
-            mask = site['mask']
             scale = site['scale']
-            # Early exit when all elements are masked
-            if not_jax_tracer(mask) and mask is not None and not jnp.any(mask):
-                continue
             if intermediates:
                 log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)
 
-            # Minor optimizations
-            # XXX: note that this may not work correctly for dynamic masks, provide
-            # explicit jax.DeviceArray for masking.
-            if mask is not None:
-                if scale is not None:
-                    log_prob = jnp.where(mask, scale * log_prob, 0.)
-                else:
-                    log_prob = jnp.where(mask, log_prob, 0.)
-            else:
-                if scale is not None:
-                    log_prob = scale * log_prob
+            if scale is not None:
+                log_prob = scale * log_prob
+
             log_prob = jnp.sum(log_prob)
             log_joint = log_joint + log_prob
     return log_joint, model_trace
