@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
 
-from numpyro.contrib.nn import AutoregressiveNN
+from numpyro.nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom

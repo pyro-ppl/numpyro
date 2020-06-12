@@ -27,12 +27,12 @@ from jax.scipy.special import logsumexp
 
 import numpyro
 from numpyro import optim
-from numpyro.contrib.autoguide import AutoBNAFNormal
 from numpyro.contrib.reparam import NeuTraReparam
 from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import ELBO, MCMC, NUTS, SVI
+from numpyro.infer.autoguide import AutoBNAFNormal
 
 
 class DualMoonDistribution(dist.Distribution):
