@@ -41,9 +41,6 @@ def kernel_approx(X, Z, eta1, eta2, c, jitter=1.0e-6, rank=0):
 
 #@partial(jit, static_argnums=(5,7,8))
 def lowrank_presolve(b, kX, D, eta1, eta2, c, kappa, rank1, rank2):
-    rank1=32
-    rank2=12
-
     N, P = kX.shape
     all_ones = np.ones((N, 1))
     kappa_indices = np.argsort(kappa)
@@ -192,7 +189,7 @@ def pcg_quad_form_log_det_jvp(primals, tangents):
 
 # compute logdet A + b A^{-1} b
 @partial(custom_jvp, nondiff_argnums=(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
-def cpcg_quad_form_log_det(A, b, eta1, eta2, diag, c, kX, kappa, probes, rank1, rank2, epsilon=1.0e-5, max_iters=20):
+def cpcg_quad_form_log_det(A, b, eta1, eta2, diag, c, kX, kappa, probes, rank1, rank2, epsilon, max_iters):
     return (np.nan, np.nan, np.nan)
 
 @cpcg_quad_form_log_det.defjvp
@@ -201,8 +198,7 @@ def cpcg_quad_form_log_det_jvp(eta1, eta2, diag, c, kX, kappa, probes, rank1, ra
     A_dot, b_dot = tangents
     D = b.shape[-1]
 
-    #presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank1, rank2)
-    presolve = lambda b: b
+    presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank1, rank2)
     mvm = lambda b: np.matmul(A, b)
 
     b_probes = np.concatenate([b[None, :], probes])
@@ -217,15 +213,16 @@ def cpcg_quad_form_log_det_jvp(eta1, eta2, diag, c, kX, kappa, probes, rank1, ra
 
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
-@partial(custom_jvp, nondiff_argnums=(5, 6, 7, 8, 9, 10, 11))
-def pcpcg_quad_form_log_det(kappa, b, eta1, eta2, diag, c, X, probes, rank1, rank2, epsilon, max_iters):
+
+@partial(custom_jvp, nondiff_argnums=(5, 6, 7, 8, 9, 10, 11, 12))
+def pcpcg_quad_form_log_det(kappa, b, eta1, eta2, diag, c, X, probes, rank1, rank2, epsilon, max_iters, dilation):
     return (np.nan, np.nan, np.nan)
 
 def meansum(x):
     return np.sum(x) / x.shape[0]
 
 @pcpcg_quad_form_log_det.defjvp
-def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, primals, tangents):
+def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, dilation, primals, tangents):
     kappa, b, eta1, eta2, diag = primals
     kappa_dot, b_dot, eta1_dot, eta2_dot, diag_dot = tangents
 
@@ -235,8 +232,6 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, 
     k3Xsq = kappa ** 3 * Xsq
     dkX = kappa_dot * X
     dkXsq = kappa_dot * Xsq
-
-    dilation = 16
 
     mvm = lambda b: kernel_mvm(b, kX, eta1, eta2, c, diag, dilation=dilation)
     presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank1, rank2)
@@ -306,8 +301,8 @@ if __name__ == "__main__":
     probes = onp.random.randn(num_probes * N).reshape((num_probes, N))
 
     def f1(_kappa, _b, _eta1, _eta2, _diag):
-        return pcpcg_quad_form_log_det(_kappa, _b, _eta1, _eta2, _diag, c, X, probes, rank1=32, rank2=16,
-                                       epsilon=1.0e-9, max_iters=400)[0]
+        return pcpcg_quad_form_log_det(_kappa, _b, _eta1, _eta2, _diag, c, X, probes, 3, 2,
+                                       1.0e-9, 400)[0]
 
     def f2(_kappa, _b, _eta1, _eta2, _diag):
         kX = _kappa * X

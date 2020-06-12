@@ -39,3 +39,10 @@ def sample_aux_noise(shape):
     key = numpyro.sample('rng_key', numpyro.distributions.PRNGIdentity())
     with numpyro.handlers.block():
         return jax.random.normal(key, shape=shape)
+
+
+def _fori_loop(lower, upper, body_fun, init_val):
+    val = init_val
+    for i in range(lower, upper):
+        val = body_fun(i, val)
+    return val

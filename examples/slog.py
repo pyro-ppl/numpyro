@@ -21,14 +21,14 @@ from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.infer.util import Predictive
 from numpyro.diagnostics import print_summary
 from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
-from numpyro.util import enable_x64, fori_loop
+from numpyro.util import enable_x64
 from numpyro.handlers import block
 
 from chunk_vmap import chunk_vmap
 
 import pickle
 from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det, pcpcg_quad_form_log_det
-from utils import CustomAdam, record_stats, kdot, sigmoid, sample_aux_noise
+from utils import CustomAdam, record_stats, kdot, sigmoid, sample_aux_noise, _fori_loop
 from mvm import kernel_mvm
 
 
@@ -64,18 +64,19 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     kX = kappa * X
 
+    dilation = 8
+
     if method != 'ppcg':
         k = kernel(kX, kX, eta1, eta2, hypers['c'])
         k_omega = k + np.eye(N) * (1.0 / omega)
         kY = np.matmul(k, Y)
     else:
-        kY = kernel_mvm(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=16)
+        kY = kernel_mvm(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=dilation)
 
     log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    rank1 = 64
-    rank2 = 16
+    rank1, rank2 = 64, 16
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
@@ -86,14 +87,11 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
     elif method == "pcg":
         probe = sample_aux_noise(shape=(num_probes, N))
         qfld, res_norm, cg_iters = jit(cpcg_quad_form_log_det, static_argnums=(5, 9, 10, 11, 12))(k_omega,
-                                       0.5 * kY, eta1, eta2, 1.0 / omega,
-                                       hypers['c'], kX, kappa, probe, rank1, rank2, cg_tol, max_iters)
+            0.5 * kY, eta1, eta2, 1.0 / omega, hypers['c'], kX, kappa, probe, rank1, rank2, cg_tol, max_iters)
     elif method == "ppcg":
         probe = sample_aux_noise(shape=(num_probes, N))
-        qfld, res_norm, cg_iters = pcpcg_quad_form_log_det(kappa, 0.5 * kY, eta1, eta2, 1.0 / omega,
-                                                           hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters)
-        #qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5,6,7,8,9,10))(kappa, 0.5 * kY, eta1, eta2,
-        #                               1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters)
+        qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
+            0.5 * kY, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
 
     record_stats(np.array([res_norm, cg_iters]))
 
@@ -256,10 +254,11 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
     svi_state = svi.init(rng_key_init, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
 
     num_steps = args['num_samples']
-    report_frequency = 25
+    report_frequency = 50
     beta = 0.95
     bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
+    @jit
     def body_fn(i, init_val):
         svi_state, old_loss, old_stats = init_val
         svi_state, loss = svi.update(svi_state, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
@@ -267,9 +266,8 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
         stats = (1.0 - beta) * svi_state.optim_state[1] + beta * old_stats
         return (svi_state, loss, stats)
 
-    @jit
     def do_chunk(svi_state):
-        return fori_loop(0, report_frequency, body_fn, (svi_state, 0.0, np.zeros(2)))
+        return _fori_loop(0, report_frequency, body_fn, (svi_state, 0.0, np.zeros(2)))
 
     ts = [time.time()]
     res_norm_history = []
@@ -298,7 +296,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
     return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'lambda']
     ## TODO drop obs in model?
     samples = Predictive(model, guide=guide, num_samples=num_samples, params=params,
-                         return_sites=return_sites)(rng_key_post, X, Y, hypers)
+                         return_sites=return_sites)(rng_key_post, X, Y, hypers, 0, 0.0)
 
     for k, v in samples.items():
         if v.ndim == 1:
@@ -386,7 +384,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [5000]:
+    for N in [8000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -404,6 +402,8 @@ def main(**args):
 
         print("leading lambda", onp.mean(samples['lambda'], axis=0)[:40])
         print("leading kappa", onp.mean(samples['kappa'], axis=0)[:40])
+
+        import sys; sys.exit()
 
         # compute the mean and square root variance of each coefficient theta_i
         #means, stds = chunk_vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers),
@@ -501,7 +501,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-pcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=200, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
