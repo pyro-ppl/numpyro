@@ -172,7 +172,9 @@ CONTINUOUS = [
 ]
 
 DIRECTIONAL = [
-    T(dist.VonMises, 2., 10.)
+    T(dist.VonMises, 2., 10.),
+    T(dist.VonMises, 2., jnp.array([150., 10.])),
+    T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.]), jnp.array([20., 30.])),
 ]
 
 DISCRETE = [
@@ -654,9 +656,11 @@ def test_mean_var(jax_dist, sp_dist, params):
         assert_allclose(jnp.std(corr_samples, axis=0), expected_std, atol=0.01)
     elif jax_dist in [dist.VonMises]:
         # circular mean = sample mean
-        assert_allclose(d_jax.mean, jnp.mean(samples), rtol=0.05, atol=1e-2)
+        assert_allclose(d_jax.mean, jnp.mean(samples, 0), rtol=0.05, atol=1e-2)
+
         # circular variance
-        x, y = jnp.mean(jnp.cos(samples)), jnp.mean(jnp.sin(samples))
+        x, y = jnp.mean(jnp.cos(samples), 0), jnp.mean(jnp.sin(samples), 0)
+
         expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
         assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
     else:

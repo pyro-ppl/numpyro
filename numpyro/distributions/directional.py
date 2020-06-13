@@ -26,7 +26,7 @@ class VonMises(Distribution):
         :param concentration: concentration of distribution
         """
         # Map loc to [-pi, pi]
-        self.loc, self.concentration = promote_shapes((loc + jnp.pi) % (2.*jnp.pi) - jnp.pi, concentration)
+        self.loc, self.concentration = promote_shapes((loc + jnp.pi) % (2. * jnp.pi) - jnp.pi, concentration)
 
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(loc))
 
@@ -40,7 +40,7 @@ class VonMises(Distribution):
             :param key: random number generator key
             :return: samples from von Mises
         """
-        samples = von_mises_centered(key, self.concentration, sample_shape, dtypes.canonicalize_dtype(jnp.float64))
+        samples = von_mises_centered(key, self.concentration, sample_shape + self.shape())
         samples = samples + self.loc  # VM(0, concentration) -> VM(loc,concentration)
         samples = (samples + jnp.pi) % (2. * jnp.pi) - jnp.pi
 
@@ -57,11 +57,7 @@ class VonMises(Distribution):
         return jnp.broadcast_to(self.loc, self.batch_shape)
 
     @property
-    def location(self):
-        return self.loc
-
-    @property
     def variance(self):
         """ Computes circular variance of distribution """
-        return jnp.broadcast_to(1 - lax.bessel_i1e(self.concentration) / lax.bessel_i0e(self.concentration),
+        return jnp.broadcast_to(1. - lax.bessel_i1e(self.concentration) / lax.bessel_i0e(self.concentration),
                                 self.batch_shape)
