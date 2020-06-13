@@ -64,7 +64,7 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     kX = kappa * X
 
-    dilation = 4
+    dilation = 8
 
     if method != 'ppcg':
         k = kernel(kX, kX, eta1, eta2, hypers['c'])
@@ -72,12 +72,12 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
         kY = np.matmul(k, Y)
         log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
     else:
-        kY = kernel_mvm_diag(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=dilation)
-        #kY = kernel_mvm(Y, kappa, X, eta1, eta2, hypers['c'], dilation)
+        #kY = kernel_mvm_diag(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=dilation)
+        kY = kernel_mvm(Y, kappa, X, np.broadcast_to(eta1, Y.shape), np.broadcast_to(eta2, Y.shape), hypers['c'], dilation)
         log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    rank1, rank2 = 8, 4
+    rank1, rank2 = 64, 16
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
@@ -289,6 +289,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
         else:
             print("[iter %03d]  %.3f \t\t [dt: %.3f]" % (step_chunk * report_frequency, loss, dt))
 
+    print("mean res_norm {:.5f}   mean cg_iters {:.2f}".format(onp.mean(res_norm_history), onp.mean(cg_iters_history)))
     print("res_norm_history", res_norm_history)
     print("cg_iters_history", cg_iters_history)
     elapsed_time = time.time() - ts[0]
@@ -385,7 +386,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [10000]:
+    for N in [43000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 

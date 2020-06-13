@@ -248,22 +248,22 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, 
     kXkXsq_Ainv_b_probes = np.transpose(kXkXsq_mvm(Ainv_b_probes, kX, dilation=dilation))
     kXkXsq_Ainv_b, kXkXsq_Ainv_probes = kXkXsq_Ainv_b_probes[0], kXkXsq_Ainv_b_probes[1:]  # k N
 
-    probes_kX = kX_mvm(probes, kX, dilation=dilation)  # k P
+    probes_kX = kX_mvm(probes, kX, dilation=dilation)
     Ainv_b_probes_kX = kX_mvm(Ainv_b_probes, kX, dilation=dilation)
-    Ainv_b_kX, Ainv_probes_kX = Ainv_b_probes_kX[0], Ainv_b_probes_kX[1:]  # k P
+    Ainv_b_kX, Ainv_probes_kX = Ainv_b_probes_kX[0], Ainv_b_probes_kX[1:]
 
     Ainv_b_probes_dkX = kX_mvm(Ainv_b_probes, dkX, dilation=dilation)
-    Ainv_b_dkX, Ainv_probes_dkX = Ainv_b_probes_dkX[0], Ainv_b_probes_dkX[1:]  # k P
+    Ainv_b_dkX, Ainv_probes_dkX = Ainv_b_probes_dkX[0], Ainv_b_probes_dkX[1:]
 
     Ainv_b_probes_dkXsq = kX_mvm(Ainv_b_probes, dkXsq, dilation=dilation)
-    Ainv_b_dkXsq, Ainv_probes_dkXsq = Ainv_b_probes_dkXsq[0], Ainv_b_probes_dkXsq[1:]  # k P
+    Ainv_b_dkXsq, Ainv_probes_dkXsq = Ainv_b_probes_dkXsq[0], Ainv_b_probes_dkXsq[1:]
 
     Ainv_b_probes_ksqXsq = kX_mvm(Ainv_b_probes, ksqXsq, dilation=dilation)
-    Ainv_b_ksqXsq, Ainv_probes_ksqXsq = Ainv_b_probes_ksqXsq[0], Ainv_b_probes_ksqXsq[1:]  # k P
+    Ainv_b_ksqXsq, Ainv_probes_ksqXsq = Ainv_b_probes_ksqXsq[0], Ainv_b_probes_ksqXsq[1:]
 
-    probes_k3Xsq = kX_mvm(probes, k3Xsq, dilation=dilation)  # k P
-    Ainv_b_k3Xsq = kX_mvm(Ainv_b, k3Xsq, dilation=dilation)  # k P
-    probes_ksqXsq = kX_mvm(probes, ksqXsq, dilation=dilation)  # k P
+    probes_k3Xsq = kX_mvm(probes, k3Xsq, dilation=dilation)
+    Ainv_b_k3Xsq = kX_mvm(Ainv_b, k3Xsq, dilation=dilation)
+    probes_ksqXsq = kX_mvm(probes, ksqXsq, dilation=dilation)
 
     quad_form_dk = - 2.0 * eta1sq * np.dot(Ainv_b_kX, Ainv_b_dkX) \
                    + 2.0 * eta2sq * (np.dot(Ainv_b_k3Xsq, Ainv_b_dkXsq) - np.dot(Ainv_b, kXdkXsq_Ainv_b))
