@@ -3,13 +3,13 @@
 import math
 
 import jax.numpy as jnp
-from jax import lax, dtypes
+from jax import lax
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
+from numpyro.distributions.util import promote_shapes, von_mises_centered
 from numpyro.distributions.util import validate_sample
 from numpyro.util import copy_docs_from
-from numpyro.distributions.util import promote_shapes, von_mises_centered
 
 
 @copy_docs_from(Distribution)
