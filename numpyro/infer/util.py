@@ -141,7 +141,7 @@ def potential_energy(model, model_args, model_kwargs, params, enum=False):
     :return: potential energy given unconstrained parameters.
     """
     if enum is True:
-        from numpyro.contrib.enum import enum_log_density as log_density
+        from numpyro.contrib.funsor import enum_log_density as log_density
 
     substituted_model = substitute(model, substitute_fn=partial(_unconstrain_reparam, params))
     # no param is needed for log_density computation because we already substitute

@@ -3,12 +3,16 @@
 
 import funsor
 
-from numpyro.contrib.enum.enum_messenger import packed_trace
+from numpyro.contrib.funsor.enum_messenger import enum, trace as packed_trace
 from numpyro.distributions.util import is_identically_one
+from numpyro.handlers import substitute
+
+funsor.set_backend("jax")
 
 
 def enum_log_density(model, model_args, model_kwargs, params):
-    model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
+    model = substitute(model, param_map=params)
+    model_trace = packed_trace(enum(model)).get_trace(*model_args, **model_kwargs)
     log_factors = []
     sum_vars, prod_vars = frozenset(), frozenset()
     for site in model_trace.values():

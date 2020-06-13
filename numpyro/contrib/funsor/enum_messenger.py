@@ -13,8 +13,6 @@ import funsor
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
 
-funsor.set_backend("jax")
-
 
 __all__ = [
     "enum",
