@@ -21,12 +21,10 @@ class VonMises(Distribution):
     def __init__(self, loc, concentration, validate_args=None):
         """  von Mises distribution for sampling directions.
 
-        :param loc: center or distribution
-                    NOTE: mapped to [-pi, pi]
+        :param loc: center of distribution
         :param concentration: concentration of distribution
         """
-        # Map loc to [-pi, pi]
-        self.loc, self.concentration = promote_shapes((loc + jnp.pi) % (2. * jnp.pi) - jnp.pi, concentration)
+        self.loc, self.concentration = promote_shapes(loc, concentration)
 
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(loc))
 
@@ -53,8 +51,8 @@ class VonMises(Distribution):
 
     @property
     def mean(self):
-        """ Computes circular mean of distribution """
-        return jnp.broadcast_to(self.loc, self.batch_shape)
+        """ Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi] """
+        return jnp.broadcast_to((self.loc + jnp.pi) % (2. * jnp.pi) - jnp.pi, self.batch_shape)
 
     @property
     def variance(self):
