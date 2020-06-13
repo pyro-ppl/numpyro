@@ -13,6 +13,8 @@ import funsor
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
 
+funsor.set_backend("jax")
+
 
 __all__ = [
     "enum",
@@ -455,23 +457,21 @@ class plate(GlobalNamedMessenger):
     def process_message(self, msg):  # copied almost verbatim from plate
         if msg['type'] not in ('sample',):
             return super().process_message(msg)
+
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
         expected_shape = self._get_batch_shape(cond_indep_stack)
-        dist_batch_shape = msg['fn'].batch_shape if msg['type'] == 'sample' else ()
-        overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
-        trailing_shape = expected_shape[overlap_idx:]
-        # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
-        broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
-        if broadcast_shape != dist_batch_shape:
-            raise ValueError('Distribution batch shape = {} cannot be broadcast up to {}. '
-                             'Consider using unbatched distributions.'
-                             .format(dist_batch_shape, broadcast_shape))
-        batch_shape = expected_shape[:overlap_idx]
-        if 'sample_shape' in msg['kwargs']:
-            batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
-        msg['kwargs']['sample_shape'] = batch_shape
+        if msg['type'] == 'sample':
+            dist_batch_shape = msg['fn'].batch_shape
+            if 'sample_shape' in msg['kwargs']:
+                dist_batch_shape = msg['kwargs']['sample_shape'] + dist_batch_shape
+                msg['kwargs']['sample_shape'] = ()
+            overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
+            trailing_shape = expected_shape[overlap_idx:]
+            broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+            batch_shape = expected_shape[:overlap_idx] + broadcast_shape
+            msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
             msg['scale'] = scale * self.size / self.subsample_size
@@ -483,10 +483,9 @@ class enum(BaseEnumMessenger):
     for each discrete sample site.
     """
     def process_message(self, msg):
-
         if msg["type"] != "sample" or \
                 msg.get("done", False) or msg["is_observed"] or msg["infer"].get("expand", False) or \
-                msg["infer"].get("enumerate") != "parallel":
+                msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
             return
 
         if msg["infer"].get("num_samples", None) is not None:
@@ -495,10 +494,7 @@ class enum(BaseEnumMessenger):
         if msg["infer"].get("expand", False):
             raise NotImplementedError("expand=True not implemented")
 
-        if not type(msg["fn"]).__name__.startswith("Categorical"):
-            raise NotImplementedError("TODO support other discrete distributions")
-
-        size = msg["fn"].probs.shape[-1]
+        size = msg["fn"].enumerate_support(expand=False).shape[0]
         raw_value = np.arange(0, size)
         funsor_value = funsor.Tensor(
             raw_value,
