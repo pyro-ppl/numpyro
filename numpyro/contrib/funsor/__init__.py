@@ -8,7 +8,7 @@ except ImportError:
 
 from numpyro.contrib.funsor.enum_messenger import (enum, infer_config, markov, plate,
                                                    to_data, to_funsor, trace)
-from numpyro.contrib.funsor.infer_util import config_enumerate, enum_log_density
+from numpyro.contrib.funsor.infer_util import config_enumerate, log_density
 
 funsor.set_backend("jax")
 
@@ -16,8 +16,8 @@ funsor.set_backend("jax")
 __all__ = [
     "config_enumerate",
     "enum",
-    "enum_log_density",
     "infer_config",
+    "log_density",
     "markov",
     "plate",
     "to_data",

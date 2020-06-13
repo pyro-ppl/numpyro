@@ -17,7 +17,7 @@ funsor.set_backend("jax")
 @contextmanager
 def plate_to_enum_plate():
     try:
-        numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(enum_plate)
+        numpyro.plate.__new__ = lambda cls, *args, **kwargs: enum_plate(*args, **kwargs)
         yield
     finally:
         numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)
@@ -48,7 +48,7 @@ def config_enumerate(fn, default='parallel'):
     return infer_config(fn, partial(_config_fn, default))
 
 
-def enum_log_density(model, model_args, model_kwargs, params):
+def log_density(model, model_args, model_kwargs, params):
     model = substitute(config_enumerate(model), param_map=params)
     with plate_to_enum_plate():
         model_trace = packed_trace(enum(model)).get_trace(*model_args, **model_kwargs)
@@ -77,4 +77,4 @@ def enum_log_density(model, model_args, model_kwargs, params):
             funsor.ops.logaddexp, funsor.ops.add, log_factors,
             eliminate=sum_vars | prod_vars, plates=prod_vars)
     result = funsor.optimizer.apply_optimizer(lazy_result)
-    return -result.data
+    return -result.data, model_trace

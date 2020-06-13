@@ -140,12 +140,14 @@ def potential_energy(model, model_args, model_kwargs, params, enum=False):
     :param dict params: unconstrained parameters of `model`.
     :return: potential energy given unconstrained parameters.
     """
-    if enum is True:
-        from numpyro.contrib.funsor import enum_log_density as log_density
+    if enum:
+        from numpyro.contrib.funsor import log_density as log_density_
+    else:
+        log_density_ = log_density
 
     substituted_model = substitute(model, substitute_fn=partial(_unconstrain_reparam, params))
     # no param is needed for log_density computation because we already substitute
-    log_joint, model_trace = log_density(substituted_model, model_args, model_kwargs, {})
+    log_joint, model_trace = log_density_(substituted_model, model_args, model_kwargs, {})
     return - log_joint
 
 
@@ -385,6 +387,7 @@ def initialize_model(rng_key, model,
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
     (init_params, pe, grad), is_valid = find_valid_initial_params(rng_key, model,
                                                                   init_strategy=init_strategy,
+                                                                  enum=has_enumerate_support,
                                                                   model_args=model_args,
                                                                   model_kwargs=model_kwargs,
                                                                   prototype_params=prototype_params)
