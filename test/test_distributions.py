@@ -77,7 +77,7 @@ _DIST_MAP = {
     dist.Cauchy: lambda loc, scale: osp.cauchy(loc=loc, scale=scale),
     dist.Chi2: lambda df: osp.chi2(df),
     dist.Dirichlet: lambda conc: osp.dirichlet(conc),
-    dist.Exponential: lambda rate: osp.expon(scale=np.reciprocal(rate)),
+    dist.Exponential: lambda rate: osp.expon(scale=jnp.reciprocal(rate)),
     dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1. / rate),
     dist.Gumbel: lambda loc, scale: osp.gumbel_r(loc=loc, scale=scale),
     dist.HalfCauchy: lambda scale: osp.halfcauchy(scale=scale),
@@ -653,13 +653,12 @@ def test_mean_var(jax_dist, sp_dist, params):
         assert_allclose(jnp.mean(corr_samples, axis=0), expected_mean, atol=0.01)
         assert_allclose(jnp.std(corr_samples, axis=0), expected_std, atol=0.01)
     elif jax_dist in [dist.VonMises]:
-        loc, conc = params
-        if np.all(np.isfinite(d_jax.mean)):
-            assert_allclose(loc, d_jax.mean, rtol=0.05, atol=1e-2)
-
-        # von Mises circular variance
-        expected_variance = 1 - lax.bessel_i1e(conc) / lax.bessel_i0e(conc)
-        assert_allclose(expected_variance, d_jax.variance, rtol=0.05, atol=1e-2)
+        # circular mean = sample mean
+        assert_allclose(d_jax.mean, jnp.mean(samples), rtol=0.05, atol=1e-2)
+        # circular variance
+        x, y = jnp.mean(jnp.cos(samples)), jnp.mean(jnp.sin(samples))
+        expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
+        assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)

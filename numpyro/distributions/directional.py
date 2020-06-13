@@ -14,14 +14,19 @@ from numpyro.distributions.util import promote_shapes, von_mises_centered
 
 @copy_docs_from(Distribution)
 class VonMises(Distribution):
-    arg_constraints = {'loc': constraints.interval(-math.pi, math.pi), 'concentration': constraints.positive}
+    arg_constraints = {'loc': constraints.real, 'concentration': constraints.positive}
 
-    @property
-    def support(self):
-        return constraints.interval(-math.pi, math.pi)
+    support = constraints.interval(-math.pi, math.pi)
 
     def __init__(self, loc, concentration, validate_args=None):
-        self.loc, self.concentration = promote_shapes(loc, concentration)
+        """  von Mises distribution for sampling directions.
+
+        :param loc: center or distribution
+                    NOTE: mapped to [-pi, pi]
+        :param concentration: concentration of distribution
+        """
+        # Map loc to [-pi, pi]
+        self.loc, self.concentration = promote_shapes((loc + jnp.pi) % (2.*jnp.pi) - jnp.pi, concentration)
 
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(loc))
 
@@ -32,7 +37,7 @@ class VonMises(Distribution):
         """ Generate sample from von Mises distribution
 
             :param sample_shape: shape of samples
-            :param rng_key: random number generator key
+            :param key: random number generator key
             :return: samples from von Mises
         """
         samples = von_mises_centered(key, self.concentration, sample_shape, dtypes.canonicalize_dtype(jnp.float64))

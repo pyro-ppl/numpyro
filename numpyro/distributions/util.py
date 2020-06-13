@@ -347,27 +347,34 @@ def clamp_probs(probs):
 
 
 def von_mises_centered(key, concentration, shape=(), dtype=jnp.float64):
-    return _von_mises_centered(key, concentration, shape, dtype)
-
-
-@partial(jit, static_argnums=(2, 3))
-def _von_mises_centered(key, concentration, shape, dtype):
     """ Compute centered von Mises samples using rejection sampling from [1] with wrapped Cauchy proposal.
 
         *** References ***
         [1] Luc Devroye "Non-Uniform Random Variate Generation", Springer-Verlag, 1986;
             Chapter 9, p. 473-476. http://www.nrbook.com/devroye/Devroye_files/chapter_nine.pdf
 
-        :param sample_shape: shape of samples
-        :param rng_key: random number generator key
+
+        :param key: random number generator key
+        :param concentration: concentration of distribution
+        :param shape: shape of samples
+        :param dtype: float precesions for choosing correct s cutfoff
         :return: centered samples from von Mises
     """
+    shape = shape or jnp.shape(concentration)
+    dtype = canonicalize_dtype(dtype)
+    concentration = lax.convert_element_type(concentration, dtype)
+    concentration = jnp.broadcast_to(concentration, shape)
+    return _von_mises_centered(key, concentration, shape, dtype)
 
+
+@partial(jit, static_argnums=(2, 3))
+def _von_mises_centered(key, concentration, shape, dtype, max_iter=100):
     # Cutoff from TensorFlow probability
     # (https://github.com/tensorflow/probability/blob/f051e03dd3cc847d31061803c2b31c564562a993/tensorflow_probability/python/distributions/von_mises.py#L567-L570)
     s_cutoff_map = {jnp.dtype(jnp.float16): 1.8e-1,
                     jnp.dtype(jnp.float32): 2e-2,
                     jnp.dtype(jnp.float64): 1.2e-4}
+    s_cutoff = s_cutoff_map.get(dtype)
 
     r = 1. + jnp.sqrt(1. + 4. * concentration ** 2)
     rho = (r - jnp.sqrt(2. * r)) / (2. * concentration)
@@ -375,13 +382,15 @@ def _von_mises_centered(key, concentration, shape, dtype):
 
     s_approximate = 1. / concentration
 
-    s_cutoff = s_cutoff_map.get(dtype)
-
     s = jnp.where(concentration > s_cutoff, s_exact, s_approximate)
 
-    def body_function(i, *args):
-        done, _, w = args[0]
-        nonlocal key
+    def cond_fn(*args):
+        """ check if all are done or reached max number of iterations """
+        i, _, done, _, _ = args[0]
+        return jnp.bitwise_and(i < max_iter, jnp.logical_not(jnp.all(done)))
+
+    def body_fn(*args):
+        i, key, done, _, w = args[0]
         uni_ukey, uni_vkey, key = random.split(key, 3)
 
         u = random.uniform(key=uni_ukey, shape=shape, dtype=concentration.dtype, minval=-1., maxval=1.)
@@ -393,17 +402,16 @@ def _von_mises_centered(key, concentration, shape, dtype):
 
         accept = (y * (2. - y) >= v) | (jnp.log(y / v) + 1. >= y)
 
-        return accept | done, u, w
+        return i+1, key, accept | done, u, w
 
     init_done = jnp.zeros(shape, dtype=bool)
     init_u = jnp.zeros(shape)
     init_w = jnp.zeros(shape)
 
-    done, u, w = lax.fori_loop(
-        lower=0,
-        upper=100,
-        body_fun=body_function,
-        init_val=(init_done, init_u, init_w)
+    _, _, done, u, w = lax.while_loop(
+        cond_fun=cond_fn,
+        body_fun=body_fn,
+        init_val=(jnp.array(0), key, init_done, init_u, init_w)
     )
 
     return jnp.sign(u) * jnp.arccos(w)
