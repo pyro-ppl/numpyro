@@ -386,7 +386,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [18000]:
+    for N in [42000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -508,7 +508,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=3000, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=200, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
     parser.add_argument("--cg-tol", nargs='?', default=0.001, type=float)

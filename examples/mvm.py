@@ -85,6 +85,17 @@ def quad_mvm_dil(b, X, dilation=2):
         return np.dot(X[i], partial)
     return _chunk_vmap(compute_element2, np.arange(N), N // dilation)
 
+def quad_mvm_dil2(b, kX, dkX, dilation=2):
+    N, P = kX.shape
+    @jit
+    def compute_element1(i):
+        return np.dot(kX[:, i], b)
+    partial = _chunk_vmap(compute_element1, np.arange(P), P // dilation)
+    @jit
+    def compute_element2(i):
+        return np.dot(dkX[i], partial)
+    return _chunk_vmap(compute_element2, np.arange(N), N // dilation)
+
 def kernel(X, Z, eta1, eta2, c):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
@@ -130,11 +141,9 @@ def kernel_mvm_jvp(b, X, c, dilation, primals, tangents):
     primal_out = 0.5 * eta2sq * k1b - 0.5 * eta2sq * k2b + (eta1sq - eta2sq) * k3b + \
                  (np.square(c) - 0.5 * eta2sq) * k4b
 
-    b_dkX = kX_mvm(b, dkX, dilation=dilation)
-    b_dkXsq = kX_mvm(b, dkXsq, dilation=dilation)
     kXdkXsq_b = np.transpose(kXdkXsq_mvm(b, kX, dkX, dilation=dilation))
-    kX_b_dkX = kX_mvm2(b_dkX, kX, dilation=dilation)
-    k3Xsq_b_dkXsq = kX_mvm2(b_dkXsq, k3Xsq, dilation=dilation)
+    k3Xsq_b_dkXsq = quad_mvm_dil2(b, dkXsq, k3Xsq)
+    kX_b_dkX = quad_mvm_dil2(b, kX, dkX, dilation=dilation)
 
     tangent_out_dkappa = 2.0 * eta1sq * kX_b_dkX - 2.0 * eta2sq * (k3Xsq_b_dkXsq - kXdkXsq_b)
     tangent_out_deta1 = 2.0 * eta1 * eta1_dot * k3b
@@ -169,36 +178,37 @@ if __name__ == "__main__":
         return np.matmul(kernel(kX, kX, eta1, eta2, c), b)
 
     def g(kappa, eta1, eta2):
-        return kernel_mvm(b, kappa, X, eta1, eta2, c, 2)
+        return kernel_mvm(b, kappa, X, np.broadcast_to(eta1, b.shape), np.broadcast_to(eta2, b.shape), c, 2)
 
     _, t1 = jvp(f, (kappa, eta1, eta2), (1.4 * kappa, 0.1, .2))
     _, t2 = jvp(g, (kappa, eta1, eta2), (1.4 * kappa, 0.1, .2))
-    #assert_allclose(t1, t2, atol=1.0e-5, rtol=1.0e-5)
-    #assert t1.shape == t2.shape
+    assert_allclose(t1, t2, atol=1.0e-5, rtol=1.0e-5)
     _, t1 = jvp(f, (kappa, eta1, eta2), (1.4 / kappa, 0.3, .4))
     _, t2 = jvp(g, (kappa, eta1, eta2), (1.4 / kappa, 0.3, .4))
-    #assert_allclose(t1, t2, atol=1.0e-5, rtol=1.0e-5)
-    #assert t1.shape == t2.shape
+    assert_allclose(t1, t2, atol=1.0e-5, rtol=1.0e-5)
 
     def f(_kappa, _eta1, _eta2):
         kX = _kappa * X
         return np.dot(a, np.matmul(kernel(kX, kX, _eta1, _eta2, c), b))
 
     def g(_kappa, _eta1, _eta2):
-        kb = kernel_mvm(b, _kappa, X, np.broadcast_to(_eta1, b.shape), _eta2, c, 2)
+        kb = kernel_mvm(b, _kappa, X, np.broadcast_to(_eta1, b.shape), np.broadcast_to(_eta2, b.shape), c, 2)
         return np.dot(a, kb)
-
-    def h(_kappa, _eta1, _eta2):
-        return kernel_mvm(b, _kappa, X, np.broadcast_to(_eta1, b.shape), _eta2, c, 2)[0]
-
-    v1, _ = value_and_grad(h, 1)(kappa, eta1, eta2)
 
     _, t1 = jvp(f, (kappa, eta1, eta2), (1.4 * kappa, 0.1, .2))
     _, t2 = jvp(g, (kappa, eta1, eta2), (1.4 * kappa, 0.1, .2))
-    #assert_allclose(t1, t2, atol=1.0e-5, rtol=1.0e-5)
+    assert_allclose(t1, t2, atol=1.0e-5, rtol=1.0e-5)
+
+    g1 = grad(g, 0)(kappa, eta1, eta2)
+    g2 = grad(f, 0)(kappa, eta1, eta2)
+    assert_allclose(g1, g2, atol=1.0e-5, rtol=1.0e-5)
 
     g1 = grad(g, 1)(kappa, eta1, eta2)
     g2 = grad(f, 1)(kappa, eta1, eta2)
+    assert_allclose(g1, g2, atol=1.0e-5, rtol=1.0e-5)
+
+    g1 = grad(g, 2)(kappa, eta1, eta2)
+    g2 = grad(f, 2)(kappa, eta1, eta2)
     assert_allclose(g1, g2, atol=1.0e-30, rtol=1.0e-30)
 
     import sys; sys.exit()
