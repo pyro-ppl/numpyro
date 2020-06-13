@@ -368,7 +368,7 @@ def von_mises_centered(key, concentration, shape=(), dtype=jnp.float64):
 
 
 @partial(jit, static_argnums=(2, 3))
-def _von_mises_centered(key, concentration, shape, dtype, max_iter=100):
+def _von_mises_centered(key, concentration, shape, dtype):
     # Cutoff from TensorFlow probability
     # (https://github.com/tensorflow/probability/blob/f051e03dd3cc847d31061803c2b31c564562a993/tensorflow_probability/python/distributions/von_mises.py#L567-L570)
     s_cutoff_map = {jnp.dtype(jnp.float16): 1.8e-1,
@@ -387,7 +387,7 @@ def _von_mises_centered(key, concentration, shape, dtype, max_iter=100):
     def cond_fn(*args):
         """ check if all are done or reached max number of iterations """
         i, _, done, _, _ = args[0]
-        return jnp.bitwise_and(i < max_iter, jnp.logical_not(jnp.all(done)))
+        return jnp.bitwise_and(i < 100, jnp.logical_not(jnp.all(done)))
 
     def body_fn(*args):
         i, key, done, _, w = args[0]
