@@ -149,6 +149,14 @@ InverseGamma
     :show-inheritance:
     :member-order: bysource
 
+Laplace
+------
+.. autoclass:: numpyro.distributions.continuous.Laplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LKJ
 ---
 .. autoclass:: numpyro.distributions.continuous.LKJ
