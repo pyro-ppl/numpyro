@@ -377,6 +377,19 @@ ZeroInflatedPoisson
     :show-inheritance:
     :member-order: bysource
 
+
+Directional Distributions
+=========================
+
+VonMises
+--------
+.. autoclass:: numpyro.distributions.directional.VonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
 Constraints
 ===========
 
