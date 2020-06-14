@@ -364,6 +364,36 @@ class Gumbel(Distribution):
 
 
 @copy_docs_from(Distribution)
+class Laplace(Distribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['loc', 'scale']
+
+    def __init__(self, loc=0., scale=1., validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        super(Laplace, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        eps = random.laplace(key, shape=sample_shape + self.batch_shape + self.event_shape)
+        return self.loc + eps * self.scale
+
+    @validate_sample
+    def log_prob(self, value):
+        normalize_term = jnp.log(2 * self.scale)
+        value_scaled = jnp.abs(value - self.loc) / self.scale
+        return -value_scaled - normalize_term
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(self.loc, self.batch_shape)
+
+    @property
+    def variance(self):
+        return jnp.broadcast_to(2 * self.scale ** 2, self.batch_shape)
+
+
+@copy_docs_from(Distribution)
 class LKJ(TransformedDistribution):
     r"""
     LKJ distribution for correlation matrices. The distribution is controlled by ``concentration``
