@@ -101,6 +101,7 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
         sites from the model. Defaults to `False`.
     :return: `dict` of transformed params.
     """
+
     def substitute_fn(site):
         if site['name'] in params:
             return biject_to(site['fn'].support)(params[site['name']])
@@ -444,6 +445,7 @@ class Predictive(object):
 
     :return: dict of samples from the predictive distribution.
     """
+
     def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
                  return_sites=None, parallel=False):
         if posterior_samples is None and num_samples is None:
@@ -513,6 +515,7 @@ def log_likelihood(model, posterior_samples, *args, **kwargs):
     :param kwargs: model kwargs.
     :return: dict of log likelihoods at observation sites.
     """
+
     def single_loglik(samples):
         model_trace = trace(substitute(model, samples)).get_trace(*args, **kwargs)
         return {name: site['fn'].log_prob(site['value']) for name, site in model_trace.items()
