@@ -387,9 +387,10 @@ class SVGD:
         if not progbar:
             svgd_state, losses = fori_loop(0, num_steps, bodyfn, (svgd_state, losses))
         else:
+            bodyfn = jax.jit(bodyfn)
             with tqdm.trange(num_steps) as t:
                 for i in t:
-                    svgd_state, losses = jax.jit(bodyfn)(i, (svgd_state, losses))
+                    svgd_state, losses = bodyfn(i, (svgd_state, losses))
                     t.set_description('SVGD {:.5}'.format(losses[i]), refresh=False)
                     t.update()
         loss_res = losses[-1] if return_last else losses
