@@ -22,7 +22,22 @@ NumPyro is designed to be *lightweight* and focuses on providing a flexible subs
  
 ## A Simple Example - 8 Schools
 
-Let us explore NumPyro using a simple example. We will use the eight schools example from Gelman et al., Bayesian Data Analysis: Sec. 5.5, 2003, which studies the effect of coaching on SAT performance in eight schools. 
+Let us explore NumPyro using a simple example. We will use the eight schools example from Gelman et al., Bayesian Data Analysis: Sec. 5.5, 2003, which studies the effect of coaching on SAT performance in eight schools.
+
+<details>
+ <summary>imports</summary>
+
+```python
+>>> from jax import random
+>>> import numpy as np
+>>> import numpyro
+>>> import numpyro.distributions as dist
+>>> from numpyro.infer import MCMC, NUTS, Predictive
+>>> from numpyro.infer.reparam import TransformReparam
+
+```
+
+</details>
 
 The data is given by:
 
@@ -30,6 +45,7 @@ The data is given by:
 >>> J = 8
 >>> y = np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0])
 >>> sigma = np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0])
+
 ```
 , where `y` are the treatment effects and `sigma` the standard error. We build a hierarchical model for the study where we assume that the group-level parameters `theta` for each school are sampled from a Normal distribution with unknown mean `mu` and standard deviation `tau`, while the observed data are in turn generated from a Normal distribution with mean and standard deviation given by `theta` (true effect) and `sigma`, respectively. This allows us to estimate the population-level parameters `mu` and `tau` by pooling from all the observations, while still allowing for individual variation amongst the schools using the group-level `theta` parameters.
 
@@ -41,6 +57,7 @@ The data is given by:
 ...     with numpyro.plate('J', J):
 ...         theta = numpyro.sample('theta', dist.Normal(mu, tau))
 ...         numpyro.sample('obs', dist.Normal(theta, sigma), obs=y)
+
 ```
 
 Let us infer the values of the unknown parameters in our model by running MCMC using the No-U-Turn Sampler (NUTS). Note the usage of the `extra_fields` argument in [MCMC.run](http://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.mcmc.MCMC.run). By default, we only collect samples from the target (posterior) distribution when we run inference using `MCMC`. However, collecting additional fields like potential energy or the acceptance probability of a sample can be easily achieved by using the `extra_fields` argument. For a list of possible fields that can be collected, see the [HMCState](http://num.pyro.ai/en/latest/mcmc.html#numpyro.infer.mcmc.HMCState) object. In this example, we will additionally collect the `potential_energy` for each sample.
@@ -50,34 +67,35 @@ Let us infer the values of the unknown parameters in our model by running MCMC u
 >>> mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=1000)
 >>> rng_key = random.PRNGKey(0)
 >>> mcmc.run(rng_key, J, sigma, y=y, extra_fields=('potential_energy',))
+
 ```
 
 We can print the summary of the MCMC run, and examine if we observed any divergences during inference. Additionally, since we collected the potential energy for each of the samples, we can easily compute the expected log joint density.
 
 ```python
 >>> mcmc.print_summary()
-
+<BLANKLINE>
                 mean       std    median      5.0%     95.0%     n_eff     r_hat
-        mu      3.94      2.81      3.16      0.03      9.28    114.51      1.06
-       tau      3.20      2.97      2.40      0.38      7.28     24.06      1.07
-  theta[0]      5.56      5.26      4.10     -1.67     13.52     63.57      1.05
-  theta[1]      4.48      4.15      3.26     -2.44     11.25    148.63      1.05
-  theta[2]      3.62      4.40      3.26     -3.85     10.75    445.91      1.01
-  theta[3]      4.25      4.24      3.24     -2.99     10.68    366.29      1.04
-  theta[4]      3.25      3.94      3.29     -3.34      9.84    311.03      1.00
-  theta[5]      3.66      4.27      2.77     -2.79     11.06    344.57      1.02
-  theta[6]      5.74      4.67      4.34     -1.92     13.25     58.42      1.05
-  theta[7]      4.29      4.63      3.23     -2.14     12.37    342.50      1.02
-
-Number of divergences: 139
+        mu      4.14      3.18      3.87     -0.76      9.50    115.42      1.01
+       tau      4.12      3.58      3.12      0.51      8.56     90.64      1.02
+  theta[0]      6.40      6.22      5.36     -2.54     15.27    176.75      1.00
+  theta[1]      4.96      5.04      4.49     -1.98     14.22    217.12      1.00
+  theta[2]      3.65      5.41      3.31     -3.47     13.77    247.64      1.00
+  theta[3]      4.47      5.29      4.00     -3.22     12.92    213.36      1.01
+  theta[4]      3.22      4.61      3.28     -3.72     10.93    242.14      1.01
+  theta[5]      3.89      4.99      3.71     -3.39     12.54    206.27      1.00
+  theta[6]      6.55      5.72      5.66     -1.43     15.78    124.57      1.00
+  theta[7]      4.81      5.95      4.19     -3.90     13.40    299.66      1.00
+<BLANKLINE>
+Number of divergences: 19
 
 >>> pe = mcmc.get_extra_fields()['potential_energy']
 >>> print('Expected log joint density: {:.2f}'.format(np.mean(-pe)))
+Expected log joint density: -54.55
 
-Expected log joint density: -51.42
 ```
 
-The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates that the chain has not fully converged. The low value for the effective sample size (`n_eff`), particularly for `tau`, and the number of divergent transitions looks problematic. Fortunately, this is a common pathology that can be rectified by using a [non-centered paramaterization](https://mc-stan.org/docs/2_18/stan-users-guide/reparameterization-section.html) for `tau` in our model. This is straightforward to do in NumPyro by using a [TransformedDistribution](http://num.pyro.ai/en/latest/distributions.html#transformeddistribution) instance together with a [reparameterization](http://num.pyro.ai/en/latest/handlers.html#reparam) effect handler. Let us rewrite the same model but instead of sampling `theta` from a `Normal(mu, tau)`, we will instead sample it from a base `Normal(0, 1)` distribution that is transformed using an [AffineTransform](http://num.pyro.ai/en/latest/distributions.html#affinetransform). Note that by doing so, NumPyro runs HMC by generating samples `theta_base` for the base `Normal(0, 1)` distribution instead. We see that the resulting chain does not suffer from the same pathology — the Gelman Rubin diagnostic is 1 for all the parameters and the effective sample size looks quite good!q
+The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates that the chain has not fully converged. The low value for the effective sample size (`n_eff`), particularly for `tau`, and the number of divergent transitions looks problematic. Fortunately, this is a common pathology that can be rectified by using a [non-centered paramaterization](https://mc-stan.org/docs/2_18/stan-users-guide/reparameterization-section.html) for `tau` in our model. This is straightforward to do in NumPyro by using a [TransformedDistribution](http://num.pyro.ai/en/latest/distributions.html#transformeddistribution) instance together with a [reparameterization](http://num.pyro.ai/en/latest/handlers.html#reparam) effect handler. Let us rewrite the same model but instead of sampling `theta` from a `Normal(mu, tau)`, we will instead sample it from a base `Normal(0, 1)` distribution that is transformed using an [AffineTransform](http://num.pyro.ai/en/latest/distributions.html#affinetransform). Note that by doing so, NumPyro runs HMC by generating samples `theta_base` for the base `Normal(0, 1)` distribution instead. We see that the resulting chain does not suffer from the same pathology — the Gelman Rubin diagnostic is 1 for all the parameters and the effective sample size looks quite good!
 
 ```python
 >>> # Eight Schools example - Non-centered Reparametrization
@@ -85,7 +103,7 @@ The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates tha
 ...     mu = numpyro.sample('mu', dist.Normal(0, 5))
 ...     tau = numpyro.sample('tau', dist.HalfCauchy(5))
 ...     with numpyro.plate('J', J):
-...         with reparam(config={'theta': TransformReparam()}):
+...         with numpyro.handlers.reparam(config={'theta': TransformReparam()}):
 ...             theta = numpyro.sample(
 ...                 'theta',
 ...                 dist.TransformedDistribution(dist.Normal(0., 1.),
@@ -97,7 +115,7 @@ The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates tha
 >>> rng_key = random.PRNGKey(0)
 >>> mcmc.run(rng_key, J, sigma, y=y, extra_fields=('potential_energy',))
 >>> mcmc.print_summary(exclude_deterministic=False)
-
+<BLANKLINE>
                    mean       std    median      5.0%     95.0%     n_eff     r_hat
            mu      4.08      3.51      4.14     -1.69      9.71    720.43      1.00
           tau      3.96      3.31      3.09      0.01      8.34    488.63      1.00
@@ -117,14 +135,14 @@ theta_base[4]     -0.14      0.94     -0.16     -1.65      1.45    719.85      1
 theta_base[5]     -0.10      0.96     -0.14     -1.57      1.51   1128.45      1.00
 theta_base[6]      0.38      0.95      0.42     -1.32      1.82   1026.50      1.00
 theta_base[7]      0.10      0.97      0.10     -1.51      1.65   1190.98      1.00
-
+<BLANKLINE>
 Number of divergences: 0
 
 >>> pe = mcmc.get_extra_fields()['potential_energy']
 >>> # Compare with the earlier value
 >>> print('Expected log joint density: {:.2f}'.format(np.mean(-pe)))
+Expected log joint density: -46.09
 
-Expected log joint density: -46.23
 ```
 
 Now, let us assume that we have a new school for which we have not observed any test scores, but we would like to generate predictions. NumPyro provides a [Predictive](http://num.pyro.ai/en/latest/utilities.html#numpyro.infer.util.Predictive) class for such a purpose. Note that in the absence of any observed data, we simply use the population-level parameters to generate predictions. The `Predictive` utility conditions the unobserved `mu` and `tau` sites to values drawn from the posterior distribution from our last MCMC run, and runs the model forward to generate predictions. 
@@ -136,12 +154,11 @@ Now, let us assume that we have a new school for which we have not observed any 
 ...     tau = numpyro.sample('tau', dist.HalfCauchy(5))
 ...     return numpyro.sample('obs', dist.Normal(mu, tau))
 
-
 >>> predictive = Predictive(new_school, mcmc.get_samples())
 >>> samples_predictive = predictive.get_samples(random.PRNGKey(1))
 >>> print(np.mean(samples_predictive['obs']))
+3.9886456
 
-4.419043
 ```
 
 ## More Examples
