@@ -10,7 +10,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.distributions.constraints import _GreaterThan, _Interval
+from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import seed, substitute, trace
@@ -116,7 +116,10 @@ def _unconstrain_reparam(params, site):
     name = site['name']
     if name in params:
         p = params[name]
-        t = biject_to(site['fn'].support)
+        support = site['fn'].support
+        if support in [real, real_vector]:
+            return p
+        t = biject_to(support)
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)
