@@ -7,6 +7,13 @@ from jax import ops
 from jax.experimental import loops
 
 
+def scan(f, s, as_):
+    bs = []
+    for a in as_:
+        s, b = f(s, a)
+        bs.append(b)
+    return s, np.concatenate(bs)
+
 @functools.partial(jax.jit, static_argnums=(0,1,2,3,4,5,6,7))
 def _runge_kutta_4(f: Callable[[float, np.ndarray], np.ndarray], 
                    step_size,
