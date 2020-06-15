@@ -109,7 +109,7 @@ The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates tha
 ...                 dist.TransformedDistribution(dist.Normal(0., 1.),
 ...                                              dist.transforms.AffineTransform(mu, tau)))
 ...         numpyro.sample('obs', dist.Normal(theta, sigma), obs=y)
->>>
+
 >>> nuts_kernel = NUTS(eight_schools_noncentered)
 >>> mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=1000)
 >>> rng_key = random.PRNGKey(0)
