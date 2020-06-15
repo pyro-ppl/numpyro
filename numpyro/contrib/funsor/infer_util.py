@@ -7,7 +7,7 @@ from functools import partial
 import funsor
 
 import numpyro
-from numpyro.contrib.funsor.enum_messenger import enum, plate as enum_plate, trace as packed_trace
+from numpyro.contrib.funsor.enum_messenger import infer_config, plate as enum_plate, trace as packed_trace
 from numpyro.distributions.util import is_identically_one
 from numpyro.handlers import substitute
 
@@ -23,35 +23,20 @@ def plate_to_enum_plate():
         numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)
 
 
-class infer_config(numpyro.primitives.Messenger):
-    def __init__(self, fn=None, config_fn=None):
-        assert config_fn is not None
-        self.config_fn = config_fn
-        super().__init__(fn)
-
-    def process_message(self, msg):
-        if msg['type'] != 'sample':
-            return
-
-        msg["infer"].update(self.config_fn(msg))
-        return None
-
-
-def _config_fn(default, site):
-    if site['type'] == 'sample' and (not site['is_observed']) \
-            and site['fn'].has_enumerate_support:
-        return {'enumerate': site['infer'].get('enumerate', default)}
-    return {}
-
-
 def config_enumerate(fn, default='parallel'):
-    return infer_config(fn, partial(_config_fn, default))
+    def config_fn(site):
+        if site['type'] == 'sample' and (not site['is_observed']) \
+                and site['fn'].has_enumerate_support:
+            return {'enumerate': site['infer'].get('enumerate', default)}
+        return {}
+
+    return infer_config(fn, config_fn)
 
 
 def log_density(model, model_args, model_kwargs, params):
-    model = substitute(config_enumerate(model), param_map=params)
+    model = substitute(model, param_map=params)
     with plate_to_enum_plate():
-        model_trace = packed_trace(enum(model)).get_trace(*model_args, **model_kwargs)
+        model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
     log_factors = []
     sum_vars, prod_vars = frozenset(), frozenset()
     for site in model_trace.values():
@@ -60,7 +45,7 @@ def log_density(model, model_args, model_kwargs, params):
             intermediates = site['intermediates']
             scale = site['scale']
             if intermediates:
-                log_prob = site['fn'].log_prob(intermediates)
+                log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)
 

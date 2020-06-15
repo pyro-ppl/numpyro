@@ -263,9 +263,6 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     for k, v in model_trace.items():
         if v['type'] == 'sample' and not v['is_observed']:
             if v['fn'].is_discrete:
-                # FIXME: is it correct that we will sample discrete sites
-                # after collecting posterior samples of continuous sites
-                replay_model = True
                 has_enumerate_support = True
                 if not v['fn'].has_enumerate_support:
                     raise RuntimeError(f"MCMC only supports continuous sites or discrete sites "
@@ -317,19 +314,39 @@ def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
 
         def postprocess_fn(*args, **kwargs):
             if replay_model:
-                return partial(constrain_fn, model, args, kwargs, return_deterministic=True)
+                # XXX: we seed to sample discrete sites (but not collect them)
+                model_ = seed(model.fn, 0) if enum else model
+                return partial(constrain_fn, model_, args, kwargs, return_deterministic=True)
             else:
                 return partial(transform_fn, inv_transforms)
     else:
         model_kwargs = {} if model_kwargs is None else model_kwargs
         potential_fn = partial(potential_energy, model, model_args, model_kwargs, enum=enum)
         if replay_model:
-            postprocess_fn = partial(constrain_fn, model, model_args, model_kwargs,
+            model_ = seed(model.fn, 0) if enum else model
+            postprocess_fn = partial(constrain_fn, model_, model_args, model_kwargs,
                                      return_deterministic=True)
         else:
             postprocess_fn = partial(transform_fn, inv_transforms)
 
     return potential_fn, postprocess_fn
+
+
+def _guess_max_plate_nesting(model_trace):
+    """
+    Guesses max_plate_nesting by using model trace.
+    This optimistically assumes static model
+    structure.
+    """
+    sites = [site for site in model_trace.values()
+             if site["type"] == "sample"]
+
+    dims = [frame.dim
+            for site in sites
+            for frame in site["cond_indep_stack"]
+            if frame.dim is not None]
+    max_plate_nesting = -min(dims) if dims else 0
+    return max_plate_nesting
 
 
 def initialize_model(rng_key, model,
@@ -371,6 +388,13 @@ def initialize_model(rng_key, model,
     constrained_values = {k: v['value'] for k, v in model_trace.items()
                           if v['type'] == 'sample' and not v['is_observed']
                           and not v['fn'].is_discrete}
+
+    if has_enumerate_support:
+        from numpyro.contrib.funsor import config_enumerate, enum
+
+        if not isinstance(model, enum):
+            max_plate_nesting = _guess_max_plate_nesting(model_trace)
+            model = enum(config_enumerate(model), -max_plate_nesting - 1)
 
     potential_fn, postprocess_fn = get_potential_fn(model,
                                                     inv_transforms,

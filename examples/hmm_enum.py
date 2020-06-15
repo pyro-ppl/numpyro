@@ -304,6 +304,7 @@ def main(args):
     kernel = {'nuts': NUTS, 'hmc': HMC}[args.kernel](enum(model, -max_plate_nesting - 1))
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
     mcmc.run(rng_key, sequences, lengths, args=args)
+    mcmc.print_summary()
     # samples = mcmc.get_samples()  # TODO do something with this
     logging.info('\nMCMC elapsed time:', time.time() - start)
 

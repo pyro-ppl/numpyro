@@ -34,7 +34,7 @@ PLATED_EINSUM_EXAMPLES = [
 
 
 @pytest.mark.parametrize('equation,plates', PLATED_EINSUM_EXAMPLES)
-@pytest.mark.parametrize('backend', ['funsor.einsum.numpy_log',])
+@pytest.mark.parametrize('backend', ['funsor.einsum.numpy_log'])
 @pytest.mark.parametrize('sizes', [(2, 3), (16, 17)])
 def test_optimized_plated_einsum_smoke(equation, plates, backend, sizes):
 
@@ -63,7 +63,7 @@ def raw_hmm_with_indexing(operands, equation=None, backend='funsor.einsum.numpy_
 
 
 @pytest.mark.parametrize('equation', [make_hmm_einsum(t) for t in range(2, 102, 10)])
-@pytest.mark.parametrize('backend', ['funsor.einsum.numpy_log',])
+@pytest.mark.parametrize('backend', ['funsor.einsum.numpy_log'])
 @pytest.mark.parametrize('sizes', [(2, 3), (16, 17)])
 def test_hmm_einsum_smoke(equation, backend, sizes):
 
