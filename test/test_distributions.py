@@ -1127,7 +1127,7 @@ def test_mask(batch_shape, event_shape, mask_shape):
     assert_allclose(actual != 0, jnp.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_dist_pytree(jax_dist, sp_dist, params):
     def f(x):
         return jax_dist(*params)
