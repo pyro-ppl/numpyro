@@ -1124,8 +1124,7 @@ def test_mask(batch_shape, event_shape, mask_shape):
         mask = bool(mask)
     samples = jax_dist.sample(random.PRNGKey(1))
     actual = jax_dist.mask(mask).log_prob(samples)
-<<<<<<< HEAD
-    assert_allclose(actual != 0, np.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
+    assert_allclose(actual != 0, jnp.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
@@ -1151,6 +1150,3 @@ def test_special_dist_pytree(method, arg):
 
     jax.jit(f)(0)
     lax.map(f, np.ones(3))
-=======
-    assert_allclose(actual != 0, jnp.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
->>>>>>> upstream
