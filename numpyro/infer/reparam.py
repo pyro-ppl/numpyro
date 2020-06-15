@@ -9,64 +9,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to
 from numpyro.distributions.util import sum_rightmost
-from numpyro.handlers import Messenger
 from numpyro.infer.autoguide import AutoContinuous
-
-
-class reparam(Messenger):
-    """
-    Reparametrizes each affected sample site into one or more auxiliary sample
-    sites followed by a deterministic transformation [1].
-
-    To specify reparameterizers, pass a ``config`` dict or callable to the
-    constructor.  See the :mod:`numpyro.contrib.reparam` module for available
-    reparameterizers.
-
-    Note some reparameterizers can examine the ``*args,**kwargs`` inputs of
-    functions they affect; these reparameterizers require using
-    ``poutine.reparam`` as a decorator rather than as a context manager.
-
-    [1] Maria I. Gorinova, Dave Moore, Matthew D. Hoffman (2019)
-        "Automatic Reparameterisation of Probabilistic Programs"
-        https://arxiv.org/pdf/1906.03028.pdf
-
-    :param config: Configuration, either a dict mapping site name to
-        :class:`~numpyro.contrib.reparam.Reparam` ,
-        or a function mapping site to
-        :class:`~numpyro.contrib.reparam.Reparam` or None.
-    :type config: dict or callable
-    """
-    def __init__(self, fn=None, config=None):
-        assert isinstance(config, dict) or callable(config)
-        self.config = config
-        super().__init__(fn)
-
-    def process_message(self, msg):
-        if msg["type"] != "sample":
-            return
-
-        if isinstance(self.config, dict):
-            reparam = self.config.get(msg["name"])
-        else:
-            reparam = self.config(msg)
-        if reparam is None:
-            return
-
-        new_fn, value = reparam(msg["name"], msg["fn"], msg["value"])
-
-        if value is not None:
-            if new_fn is None:
-                msg['type'] = 'deterministic'
-                msg['value'] = value
-                for key in list(msg.keys()):
-                    if key not in ('type', 'name', 'value'):
-                        del msg[key]
-                return
-
-            if msg["value"] is None:
-                msg["is_observed"] = True
-            msg["value"] = value
-        msg["fn"] = new_fn
 
 
 class Reparam(ABC):
@@ -165,7 +108,7 @@ class NeuTraReparam(Reparam):
             return self
 
     def reparam(self, fn=None):
-        return reparam(fn, config=self._reparam_config)
+        return numpyro.handlers.reparam(fn, config=self._reparam_config)
 
     def __call__(self, name, fn, obs):
         if name not in self.guide.prototype_trace:
