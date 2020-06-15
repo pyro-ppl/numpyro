@@ -49,7 +49,6 @@ __all__ = [
     'Constraint',
 ]
 
-
 import jax.numpy as jnp
 
 
@@ -60,6 +59,7 @@ class Constraint(object):
     A constraint object represents a region over which a variable is valid,
     e.g. within which a variable can be optimized.
     """
+
     def __call__(self, x):
         raise NotImplementedError
 
