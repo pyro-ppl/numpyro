@@ -44,7 +44,7 @@ setup(
         'test': [
             'flake8',
             # TODO: make sure that we release funsor before releasing numpyro
-            'git+https://github.com/pyro-ppl/funsor.git@deed90145139cd63a394cbc56b8736d5cf200766#egg=funsor',
+            'funsor',
             'pytest>=4.1',
             'pyro-api>=0.1.1'
         ],
