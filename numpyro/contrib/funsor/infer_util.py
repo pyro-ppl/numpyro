@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from contextlib import contextmanager
-from functools import partial
 
 import funsor
 
