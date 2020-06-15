@@ -7,7 +7,8 @@
 # %%
 # %env JAX_DEBUG_NANS=True
 from jax.config import config
-# config.update('jax_disable_jit', True)
+config.update('jax_debug_nans', True)
+config.update('jax_disable_jit', True)
 import jax
 import jax.numpy as np
 import numpy as onp
@@ -40,7 +41,7 @@ def predator_prey_step(t, state, r=0.6, k=100, s=1.2, a=25, u=0.5, v=0.3):
 num_time = 50
 step_size = 0.1
 num_steps = int(num_time / step_size)
-dampening_rate = 0.999
+dampening_rate = 0.99
 lyapunov_scale = 1e-3
 clip = lambda x: np.clip(x, -10.0, 10.0)
 predator_prey = runge_kutta_4(predator_prey_step, step_size, num_steps, dampening_rate, 
@@ -57,13 +58,9 @@ noise = jax.random.normal(rng_key, (1000,5,2)) * 10
 data = (indices, res[indices] + noise)
 data
 
-res2, _ = predator_prey(np.array([33.552647, 27.229362]), r=30.836271, k=34.89218, s=38.366405, a=33.79758, u=8.961818, v=29.262804)
-res2 = np.reshape(res2, (num_time, num_steps // num_time, -1))[:, 0, :]
-print(np.mean(data[1], axis=0) - res2[indices])
-
 # %%
 def model(indices, observations):
-    prior_dist = dist.Uniform(0.1, 50)
+    prior_dist = dist.HalfNormal(100)
     prey0 = numpyro.sample('prey0', prior_dist)
     predator0 = numpyro.sample('predator0', prior_dist)
     r = numpyro.sample('r', prior_dist)
@@ -84,7 +81,7 @@ def model(indices, observations):
 
 # %%
 svi = numpyro.infer.SVI(model, AutoDelta(model, init_strategy=init_to_median()), 
-                        numpyro.optim.Adam(0.01), numpyro.infer.ELBO())
+                        numpyro.optim.Adam(1e-5), numpyro.infer.ELBO())
 state = svi.init(rng_key, *data)
 update_fn = jax.jit(svi.update)
 pbar = tqdm(range(100_000))
