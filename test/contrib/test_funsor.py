@@ -60,7 +60,7 @@ def test_bernoulli_latent_model():
 
 def test_gaussian_hmm():
     dim = 4
-    num_steps = 30
+    num_steps = 10
 
     def model(data):
         with numpyro.plate("states", dim):
