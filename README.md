@@ -66,8 +66,8 @@ Let us infer the values of the unknown parameters in our model by running MCMC u
 We can print the summary of the MCMC run, and examine if we observed any divergences during inference. Additionally, since we collected the potential energy for each of the samples, we can easily compute the expected log joint density.
 
 ```python
->>> mcmc.print_summary()
-<BLANKLINE>
+>>> mcmc.print_summary()  # doctest: +SKIP
+
                 mean       std    median      5.0%     95.0%     n_eff     r_hat
         mu      4.14      3.18      3.87     -0.76      9.50    115.42      1.01
        tau      4.12      3.58      3.12      0.51      8.56     90.64      1.02
@@ -79,11 +79,11 @@ We can print the summary of the MCMC run, and examine if we observed any diverge
   theta[5]      3.89      4.99      3.71     -3.39     12.54    206.27      1.00
   theta[6]      6.55      5.72      5.66     -1.43     15.78    124.57      1.00
   theta[7]      4.81      5.95      4.19     -3.90     13.40    299.66      1.00
-<BLANKLINE>
+
 Number of divergences: 19
 
 >>> pe = mcmc.get_extra_fields()['potential_energy']
->>> print('Expected log joint density: {:.2f}'.format(np.mean(-pe)))
+>>> print('Expected log joint density: {:.2f}'.format(np.mean(-pe)))  # doctest: +SKIP
 Expected log joint density: -54.55
 
 ```
@@ -109,8 +109,8 @@ The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates tha
 >>> mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=1000)
 >>> rng_key = random.PRNGKey(0)
 >>> mcmc.run(rng_key, J, sigma, y=y, extra_fields=('potential_energy',))
->>> mcmc.print_summary(exclude_deterministic=False)
-<BLANKLINE>
+>>> mcmc.print_summary(exclude_deterministic=False)  # doctest: +SKIP
+
                    mean       std    median      5.0%     95.0%     n_eff     r_hat
            mu      4.08      3.51      4.14     -1.69      9.71    720.43      1.00
           tau      3.96      3.31      3.09      0.01      8.34    488.63      1.00
@@ -130,12 +130,12 @@ theta_base[4]     -0.14      0.94     -0.16     -1.65      1.45    719.85      1
 theta_base[5]     -0.10      0.96     -0.14     -1.57      1.51   1128.45      1.00
 theta_base[6]      0.38      0.95      0.42     -1.32      1.82   1026.50      1.00
 theta_base[7]      0.10      0.97      0.10     -1.51      1.65   1190.98      1.00
-<BLANKLINE>
+
 Number of divergences: 0
 
 >>> pe = mcmc.get_extra_fields()['potential_energy']
 >>> # Compare with the earlier value
->>> print('Expected log joint density: {:.2f}'.format(np.mean(-pe)))
+>>> print('Expected log joint density: {:.2f}'.format(np.mean(-pe)))  # doctest: +SKIP
 Expected log joint density: -46.09
 
 ```
@@ -153,7 +153,7 @@ Now, let us assume that we have a new school for which we have not observed any 
 
 >>> predictive = Predictive(new_school, mcmc.get_samples())
 >>> samples_predictive = predictive.get_samples(random.PRNGKey(1))
->>> print(np.mean(samples_predictive['obs']))
+>>> print(np.mean(samples_predictive['obs']))  # doctest: +SKIP
 3.9886456
 
 ```

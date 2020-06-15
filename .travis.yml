@@ -34,6 +34,7 @@ jobs:
             - make lint
             - make docs
             - make doctest
+            - python -m doctest -v README.md
         - stage: unit
           name: "unit tests"
           python: 3.6
