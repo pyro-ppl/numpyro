@@ -237,6 +237,14 @@ TruncatedNormal
     :show-inheritance:
     :member-order: bysource
 
+TruncatedPolyaGamma
+-------------------
+.. autoclass:: numpyro.distributions.continuous.TruncatedPolyaGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Uniform
 -------
 .. autoclass:: numpyro.distributions.continuous.Uniform
