@@ -11,7 +11,6 @@ import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.util import partial
 
-
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple('tr_params', ['c', 'b', 'a', 'alpha', 'u_r', 'v_r', 'm', 'log_p', 'log1_p', 'log_h'])
 
@@ -63,6 +62,7 @@ def _binomial_btrs(key, p, n):
     Hormann, "The Generation of Binonmial Random Variates"
     (https://core.ac.uk/download/pdf/11007254.pdf)
     """
+
     def _btrs_body_fn(val):
         _, key, _, _ = val
         key, key_u, key_v = random.split(key, 3)
@@ -346,6 +346,77 @@ def clamp_probs(probs):
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
+def von_mises_centered(key, concentration, shape=(), dtype=jnp.float64):
+    """ Compute centered von Mises samples using rejection sampling from [1] with wrapped Cauchy proposal.
+
+        *** References ***
+        [1] Luc Devroye "Non-Uniform Random Variate Generation", Springer-Verlag, 1986;
+            Chapter 9, p. 473-476. http://www.nrbook.com/devroye/Devroye_files/chapter_nine.pdf
+
+
+        :param key: random number generator key
+        :param concentration: concentration of distribution
+        :param shape: shape of samples
+        :param dtype: float precesions for choosing correct s cutfoff
+        :return: centered samples from von Mises
+    """
+    shape = shape or jnp.shape(concentration)
+    dtype = canonicalize_dtype(dtype)
+    concentration = lax.convert_element_type(concentration, dtype)
+    concentration = jnp.broadcast_to(concentration, shape)
+    return _von_mises_centered(key, concentration, shape, dtype)
+
+
+@partial(jit, static_argnums=(2, 3))
+def _von_mises_centered(key, concentration, shape, dtype):
+    # Cutoff from TensorFlow probability
+    # (https://github.com/tensorflow/probability/blob/f051e03dd3cc847d31061803c2b31c564562a993/tensorflow_probability/python/distributions/von_mises.py#L567-L570)
+    s_cutoff_map = {jnp.dtype(jnp.float16): 1.8e-1,
+                    jnp.dtype(jnp.float32): 2e-2,
+                    jnp.dtype(jnp.float64): 1.2e-4}
+    s_cutoff = s_cutoff_map.get(dtype)
+
+    r = 1. + jnp.sqrt(1. + 4. * concentration ** 2)
+    rho = (r - jnp.sqrt(2. * r)) / (2. * concentration)
+    s_exact = (1. + rho ** 2) / (2. * rho)
+
+    s_approximate = 1. / concentration
+
+    s = jnp.where(concentration > s_cutoff, s_exact, s_approximate)
+
+    def cond_fn(*args):
+        """ check if all are done or reached max number of iterations """
+        i, _, done, _, _ = args[0]
+        return jnp.bitwise_and(i < 100, jnp.logical_not(jnp.all(done)))
+
+    def body_fn(*args):
+        i, key, done, _, w = args[0]
+        uni_ukey, uni_vkey, key = random.split(key, 3)
+
+        u = random.uniform(key=uni_ukey, shape=shape, dtype=concentration.dtype, minval=-1., maxval=1.)
+        z = jnp.cos(jnp.pi * u)
+        w = jnp.where(done, w, (1. + s * z) / (s + z))  # Update where not done
+
+        y = concentration * (s - w)
+        v = random.uniform(key=uni_vkey, shape=shape, dtype=concentration.dtype, minval=-1., maxval=1.)
+
+        accept = (y * (2. - y) >= v) | (jnp.log(y / v) + 1. >= y)
+
+        return i+1, key, accept | done, u, w
+
+    init_done = jnp.zeros(shape, dtype=bool)
+    init_u = jnp.zeros(shape)
+    init_w = jnp.zeros(shape)
+
+    _, _, done, u, w = lax.while_loop(
+        cond_fun=cond_fn,
+        body_fun=body_fn,
+        init_val=(jnp.array(0), key, init_done, init_u, init_w)
+    )
+
+    return jnp.sign(u) * jnp.arccos(w)
+
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
@@ -376,6 +447,7 @@ class lazy_property(object):
     first call; thereafter replacing the wrapped method into an instance
     attribute.
     """
+
     def __init__(self, wrapped):
         self.wrapped = wrapped
         update_wrapper(self, wrapped)

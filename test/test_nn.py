@@ -11,9 +11,9 @@ from jax import jacfwd, random, vmap
 import jax.numpy as jnp
 from jax.experimental.stax import serial
 
-from numpyro.contrib.nn import AutoregressiveNN, MaskedDense
-from numpyro.contrib.nn.auto_reg_nn import create_mask
-from numpyro.contrib.nn.block_neural_arn import BlockNeuralAutoregressiveNN
+from numpyro.nn import AutoregressiveNN, MaskedDense
+from numpyro.nn.auto_reg_nn import create_mask
+from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.distributions.util import matrix_to_tril_vec
 
 

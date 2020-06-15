@@ -35,10 +35,10 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.reparam import reparam, TransformReparam
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import MCMC, NUTS, Predictive
+from numpyro.infer.reparam import TransformReparam
 
 
 def model(dim=10):
@@ -48,7 +48,7 @@ def model(dim=10):
 
 def reparam_model(dim=10):
     y = numpyro.sample('y', dist.Normal(0, 3))
-    with reparam(config={'x': TransformReparam()}):
+    with numpyro.handlers.reparam(config={'x': TransformReparam()}):
         numpyro.sample('x', dist.TransformedDistribution(
             dist.Normal(jnp.zeros(dim - 1), 1), AffineTransform(0, jnp.exp(y / 2))))
 

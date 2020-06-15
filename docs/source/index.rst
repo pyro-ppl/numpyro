@@ -29,6 +29,7 @@ NumPyro documentation
    mcmc
    svi
    autoguide
+   reparam
    optimizers
    diagnostics
    utilities
