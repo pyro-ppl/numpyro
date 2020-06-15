@@ -49,8 +49,7 @@ __all__ = [
     'Constraint',
 ]
 
-
-import jax.numpy as np
+import jax.numpy as jnp
 
 
 class Constraint(object):
@@ -60,6 +59,7 @@ class Constraint(object):
     A constraint object represents a region over which a variable is valid,
     e.g. within which a variable can be optimized.
     """
+
     def __call__(self, x):
         raise NotImplementedError
 
@@ -78,22 +78,22 @@ class _Boolean(Constraint):
 
 class _CorrCholesky(Constraint):
     def __call__(self, x):
-        tril = np.tril(x)
-        lower_triangular = np.all(np.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
-        positive_diagonal = np.all(np.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
-        x_norm = np.linalg.norm(x, axis=-1)
-        unit_norm_row = np.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
+        tril = jnp.tril(x)
+        lower_triangular = jnp.all(jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
+        x_norm = jnp.linalg.norm(x, axis=-1)
+        unit_norm_row = jnp.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
 
 class _CorrMatrix(Constraint):
     def __call__(self, x):
         # check for symmetric
-        symmetric = np.all(np.all(x == np.swapaxes(x, -2, -1), axis=-1), axis=-1)
+        symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
         # check for the smallest eigenvalue is positive
-        positive = np.linalg.eigh(x)[0][..., 0] > 0
+        positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         # check for diagonal equal to 1
-        unit_variance = np.all(np.abs(np.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
+        unit_variance = jnp.all(jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
         return symmetric & positive & unit_variance
 
 
@@ -120,7 +120,7 @@ class _IntegerInterval(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return (x >= self.lower_bound) & (x <= self.upper_bound) & (x == np.floor(x))
+        return (x >= self.lower_bound) & (x <= self.upper_bound) & (x == jnp.floor(x))
 
 
 class _IntegerGreaterThan(Constraint):
@@ -142,9 +142,9 @@ class _Interval(Constraint):
 
 class _LowerCholesky(Constraint):
     def __call__(self, x):
-        tril = np.tril(x)
-        lower_triangular = np.all(np.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
-        positive_diagonal = np.all(np.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
+        tril = jnp.tril(x)
+        lower_triangular = jnp.all(jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         return lower_triangular & positive_diagonal
 
 
@@ -153,37 +153,37 @@ class _Multinomial(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return np.all(x >= 0, axis=-1) & (np.sum(x, -1) == self.upper_bound)
+        return jnp.all(x >= 0, axis=-1) & (jnp.sum(x, -1) == self.upper_bound)
 
 
 class _OrderedVector(Constraint):
     def __call__(self, x):
-        return np.all(x[..., 1:] > x[..., :-1], axis=-1)
+        return jnp.all(x[..., 1:] > x[..., :-1], axis=-1)
 
 
 class _PositiveDefinite(Constraint):
     def __call__(self, x):
         # check for symmetric
-        symmetric = np.all(np.all(x == np.swapaxes(x, -2, -1), axis=-1), axis=-1)
+        symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
         # check for the smallest eigenvalue is positive
-        positive = np.linalg.eigh(x)[0][..., 0] > 0
+        positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         return symmetric & positive
 
 
 class _Real(Constraint):
     def __call__(self, x):
-        return np.isfinite(x)
+        return jnp.isfinite(x)
 
 
 class _RealVector(Constraint):
     def __call__(self, x):
-        return np.all(np.isfinite(x), axis=-1)
+        return jnp.all(jnp.isfinite(x), axis=-1)
 
 
 class _Simplex(Constraint):
     def __call__(self, x):
-        x_sum = np.sum(x, axis=-1)
-        return np.all(x > 0, axis=-1) & (x_sum <= 1) & (x_sum > 1 - 1e-6)
+        x_sum = jnp.sum(x, axis=-1)
+        return jnp.all(x > 0, axis=-1) & (x_sum <= 1) & (x_sum > 1 - 1e-6)
 
 
 # TODO: Make types consistent

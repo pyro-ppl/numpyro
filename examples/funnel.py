@@ -32,7 +32,7 @@ import os
 import matplotlib.pyplot as plt
 
 from jax import random
-import jax.numpy as np
+import jax.numpy as jnp
 
 import numpyro
 from numpyro.contrib.reparam import reparam, TransformReparam
@@ -43,14 +43,14 @@ from numpyro.infer import MCMC, NUTS, Predictive
 
 def model(dim=10):
     y = numpyro.sample('y', dist.Normal(0, 3))
-    numpyro.sample('x', dist.Normal(np.zeros(dim - 1), np.exp(y / 2)))
+    numpyro.sample('x', dist.Normal(jnp.zeros(dim - 1), jnp.exp(y / 2)))
 
 
 def reparam_model(dim=10):
     y = numpyro.sample('y', dist.Normal(0, 3))
     with reparam(config={'x': TransformReparam()}):
         numpyro.sample('x', dist.TransformedDistribution(
-            dist.Normal(np.zeros(dim - 1), 1), AffineTransform(0, np.exp(y / 2))))
+            dist.Normal(jnp.zeros(dim - 1), 1), AffineTransform(0, jnp.exp(y / 2))))
 
 
 def run_inference(model, args, rng_key):

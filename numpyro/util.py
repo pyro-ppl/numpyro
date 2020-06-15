@@ -7,14 +7,14 @@ import os
 import random
 import re
 
-import numpy as onp
+import numpy as np
 import tqdm
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 _DATA_TYPES = {}
@@ -28,7 +28,7 @@ def set_rng_seed(rng_seed):
     :param int rng_seed: seed for Python and NumPy random states.
     """
     random.seed(rng_seed)
-    onp.random.seed(rng_seed)
+    np.random.seed(rng_seed)
 
 
 def enable_x64(use_x64=True):
@@ -206,11 +206,11 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     def _body_fn(i, vals):
         val, collection, lower_idx = vals
         val = body_fun(val)
-        i = np.where(i >= lower_idx, i - lower_idx, 0)
+        i = jnp.where(i >= lower_idx, i - lower_idx, 0)
         collection = ops.index_update(collection, i, ravel_pytree(transform(val))[0])
         return val, collection, lower_idx
 
-    collection = np.zeros((collection_size,) + init_val_flat.shape)
+    collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
         last_val, collection, _ = fori_loop(0, upper, _body_fn, (init_val, collection, lower))
     else:
@@ -278,15 +278,15 @@ pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype
 
 def _ravel_list(*leaves):
     leaves_metadata = tree_map(lambda l: pytree_metadata(
-        np.ravel(l), np.shape(l), np.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
-    leaves_idx = np.cumsum(np.array((0,) + tuple(d.size for d in leaves_metadata)))
+        jnp.ravel(l), jnp.shape(l), jnp.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
+    leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.size for d in leaves_metadata)))
 
     def unravel_list(arr):
-        return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
-                           m.shape).astype(m.dtype)
+        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
+                            m.shape).astype(m.dtype)
                 for i, m in enumerate(leaves_metadata)]
 
-    flat = np.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else np.array([])
+    flat = jnp.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else jnp.array([])
     return flat, unravel_list
 
 

@@ -149,6 +149,14 @@ InverseGamma
     :show-inheritance:
     :member-order: bysource
 
+Laplace
+------
+.. autoclass:: numpyro.distributions.continuous.Laplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LKJ
 ---
 .. autoclass:: numpyro.distributions.continuous.LKJ
@@ -224,6 +232,14 @@ TruncatedCauchy
 TruncatedNormal
 ---------------
 .. autoclass:: numpyro.distributions.continuous.TruncatedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TruncatedPolyaGamma
+-------------------
+.. autoclass:: numpyro.distributions.continuous.TruncatedPolyaGamma
     :members:
     :undoc-members:
     :show-inheritance:
@@ -376,6 +392,19 @@ ZeroInflatedPoisson
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+
+Directional Distributions
+=========================
+
+VonMises
+--------
+.. autoclass:: numpyro.distributions.directional.VonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 
 Constraints
 ===========

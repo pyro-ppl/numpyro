@@ -1,13 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import numpy as onp
+import numpy as np
 from numpy.testing import assert_allclose, assert_raises
 import pytest
 
-from jax import jit
-from jax import numpy as np
-from jax import random, vmap
+from jax import jit, random, vmap
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -20,7 +19,7 @@ from numpyro.util import optional
 @pytest.mark.parametrize('use_jit', [False, True])
 def test_mask(mask_last, use_jit):
     N = 10
-    mask = onp.ones(N, dtype=onp.bool)
+    mask = np.ones(N, dtype=np.bool)
     mask[-mask_last] = 0
 
     def model(data, mask):
@@ -41,7 +40,7 @@ def test_mask(mask_last, use_jit):
     log_prob_x = dist.Normal(0, 1).log_prob(x)
     log_prob_y = mask
     log_prob_z = dist.Normal(x, 1).log_prob(data)
-    expected = (log_prob_x + np.where(mask,  log_prob_y + 2 * log_prob_z, 0.)).sum()
+    expected = (log_prob_x + jnp.where(mask,  log_prob_y + 2 * log_prob_z, 0.)).sum()
     assert_allclose(log_joint, expected, atol=1e-4)
 
 
@@ -74,15 +73,15 @@ def test_seed():
     def _sample():
         x = numpyro.sample('x', dist.Normal(0., 1.))
         y = numpyro.sample('y', dist.Normal(1., 2.))
-        return np.stack([x, y])
+        return jnp.stack([x, y])
 
     xs = []
     for i in range(100):
         with handlers.seed(rng_seed=i):
             xs.append(_sample())
-    xs = np.stack(xs)
+    xs = jnp.stack(xs)
 
-    ys = vmap(lambda rng_key: handlers.seed(lambda: _sample(), rng_key)())(np.arange(100))
+    ys = vmap(lambda rng_key: handlers.seed(lambda: _sample(), rng_key)())(jnp.arange(100))
     assert_allclose(xs, ys, atol=1e-6)
 
 
@@ -94,7 +93,7 @@ def test_nested_seeding():
                 xs.append(numpyro.sample('x', dist.Normal(0., 1.)))
                 with handlers.seed(rng_seed=rng_key_3):
                     xs.append(numpyro.sample('y', dist.Normal(0., 1.)))
-        return np.stack(xs)
+        return jnp.stack(xs)
 
     s1, s2 = fn(0, 1, 2), fn(3, 1, 2)
     assert_allclose(s1, s2)
@@ -173,7 +172,7 @@ def model_nested_plates_3():
     numpyro.deterministic('z', 1.)
 
     with inner, outer:
-        xy = numpyro.sample('xy', dist.Normal(np.zeros((5, 10)), 1.))
+        xy = numpyro.sample('xy', dist.Normal(jnp.zeros((5, 10)), 1.))
         assert xy.shape == (5, 10)
 
 
@@ -181,16 +180,16 @@ def model_dist_batch_shape():
     outer = numpyro.plate('outer', 10)
     inner = numpyro.plate('inner', 5, dim=-3)
     with outer:
-        x = numpyro.sample('x', dist.Normal(np.zeros(10), 1.))
+        x = numpyro.sample('x', dist.Normal(jnp.zeros(10), 1.))
         assert x.shape == (10,)
     with inner:
-        y = numpyro.sample('y', dist.Normal(0., np.ones(10)))
+        y = numpyro.sample('y', dist.Normal(0., jnp.ones(10)))
         assert y.shape == (5, 1, 10)
         z = numpyro.deterministic('z', x ** 2)
         assert z.shape == (10,)
 
     with outer, inner:
-        xy = numpyro.sample('xy', dist.Normal(0., np.ones(10)), sample_shape=(10,))
+        xy = numpyro.sample('xy', dist.Normal(0., jnp.ones(10)), sample_shape=(10,))
         assert xy.shape == (5, 10, 10)
 
 

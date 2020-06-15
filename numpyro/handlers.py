@@ -26,7 +26,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 
 .. doctest::
 
-   >>> import jax.numpy as np
+   >>> import jax.numpy as jnp
    >>> from jax import random, vmap
    >>> from jax.scipy.special import logsumexp
    >>> import numpyro
@@ -36,14 +36,14 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 
    >>> N, D = 3000, 3
    >>> def logistic_regression(data, labels):
-   ...     coefs = numpyro.sample('coefs', dist.Normal(np.zeros(D), np.ones(D)))
+   ...     coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(D), jnp.ones(D)))
    ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
-   ...     logits = np.sum(coefs * data + intercept, axis=-1)
+   ...     logits = jnp.sum(coefs * data + intercept, axis=-1)
    ...     return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
    >>> data = random.normal(random.PRNGKey(0), (N, D))
-   >>> true_coefs = np.arange(1., D + 1.)
-   >>> logits = np.sum(true_coefs * data, axis=-1)
+   >>> true_coefs = jnp.arange(1., D + 1.)
+   >>> logits = jnp.sum(true_coefs * data, axis=-1)
    >>> labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
    >>> num_warmup, num_samples = 1000, 1000
@@ -69,7 +69,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    ...     n = list(params.values())[0].shape[0]
    ...     log_lk_fn = vmap(lambda rng_key, params: log_likelihood(rng_key, params, model, *args, **kwargs))
    ...     log_lk_vals = log_lk_fn(random.split(rng_key, n), params)
-   ...     return np.sum(logsumexp(log_lk_vals, 0) - np.log(n))
+   ...     return jnp.sum(logsumexp(log_lk_vals, 0) - jnp.log(n))
 
    >>> print(log_predictive_density(random.PRNGKey(2), mcmc.get_samples(),
    ...       logistic_regression, data, labels))  # doctest: +SKIP
@@ -82,7 +82,7 @@ from collections import OrderedDict
 import warnings
 
 from jax import lax, random
-import jax.numpy as np
+import jax.numpy as jnp
 
 from numpyro.primitives import Messenger
 from numpyro.util import not_jax_tracer
@@ -346,7 +346,7 @@ class seed(Messenger):
 
     :param fn: Python callable with NumPyro primitives.
     :param rng_seed: a random number generator seed.
-    :type rng_seed: int, np.ndarray scalar, or jax.random.PRNGKey
+    :type rng_seed: int, jnp.ndarray scalar, or jax.random.PRNGKey
 
     .. note::
 
@@ -379,9 +379,9 @@ class seed(Messenger):
         if rng is not None:
             warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', DeprecationWarning)
             rng_seed = rng
-        if isinstance(rng_seed, int) or (isinstance(rng_seed, np.ndarray) and not np.shape(rng_seed)):
+        if isinstance(rng_seed, int) or (isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)):
             rng_seed = random.PRNGKey(rng_seed)
-        if not (isinstance(rng_seed, np.ndarray) and rng_seed.dtype == np.uint32 and rng_seed.shape == (2,)):
+        if not (isinstance(rng_seed, jnp.ndarray) and rng_seed.dtype == jnp.uint32 and rng_seed.shape == (2,)):
             raise TypeError('Incorrect type for rng_seed: {}'.format(type(rng_seed)))
         self.rng_key = rng_seed
         super(seed, self).__init__(fn)
