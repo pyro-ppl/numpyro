@@ -341,6 +341,14 @@ GammaPoisson
     :show-inheritance:
     :member-order: bysource
 
+Logistic
+--------
+.. autoclass:: numpyro.distributions.discrete.Logistic
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Multinomial
 -----------
 .. autofunction:: numpyro.distributions.discrete.Multinomial
