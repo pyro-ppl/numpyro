@@ -70,14 +70,14 @@ def _subs_wrapper(subs_map, i, site):
             return value
 
 
-def scan_wrapper(fn, init_value, xs, length, rng_key=None, substitute_stack=[]):
+def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]):
 
     def body_fn(wrapped_carry, x):
         i, rng_key, carry = wrapped_carry
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
         with handlers.block():
-            seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
+            seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
             for subs_map in substitute_stack:
                 seeded_fn = handlers.substitute(seeded_fn,
                                                 substitute_fn=partial(_subs_wrapper, subs_map, i))
@@ -87,10 +87,10 @@ def scan_wrapper(fn, init_value, xs, length, rng_key=None, substitute_stack=[]):
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    return lax.scan(body_fn, (np.array(0), rng_key, init_value), xs, length=length)
+    return lax.scan(body_fn, (np.array(0), rng_key, init), xs, length=length, reverse=reverse)
 
 
-def scan(name, fn, init_value, xs, length=None, rng_key=None):
+def scan(f, init, xs, length=None, reverse=False):
     """
     This primitive scans a function over the leading array axes of
     `xs` while carrying along state. See :func:`jax.lax.scan` for more
@@ -112,7 +112,7 @@ def scan(name, fn, init_value, xs, length=None, rng_key=None):
        ...         return x_curr, (x_curr, y_curr)
        ...
        ...     x0 = numpyro.sample('x_0', dist.Normal(0, 1))
-       ...     _, (x, y) = scan('scan', transition, x0, y, length=T)
+       ...     _, (x, y) = scan(transition, x0, y, length=T)
        ...     return (x, y)
        >>>
        >>> # here we do some quick tests
@@ -125,14 +125,14 @@ def scan(name, fn, init_value, xs, length=None, rng_key=None):
        ...     x, y = gaussian_hmm()
        >>> assert x.shape == (10,) and y.shape == (10,)
 
-    :param str name: name of this primitive
-    :param callable fn: a function to be scanned.
-    :param init_value: the initial carrying state
+    :param callable f: a function to be scanned.
+    :param init: the initial carrying state
     :param xs: the values over which we scan along the leading axis. This can
         be any JAX pytree (e.g. list/dict of arrays).
-    :param init length: optional value specifying the length of `xs`
+    :param length: optional value specifying the length of `xs`
         but can be used when `xs` is an empty pytree (e.g. None)
-    :param jax.random.PRNGKey rng_key: an optional random key to seed `fn`.
+    :param bool reverse: optional boolean specifying whether to run the scan iteration
+        forward (the default) or in reverse
     :return: output of scan, quoted from :func:`jax.lax.scan` docs:
         "pair of type (c, [b]) where the first element represents the final loop
         carry value and the second element represents the stacked outputs of the
@@ -141,15 +141,14 @@ def scan(name, fn, init_value, xs, length=None, rng_key=None):
     # if there are no active Messengers, we just run and return it as expected:
     if not _PYRO_STACK:
         (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(
-            fn, init_value, xs, length, rng_key=rng_key)
+            f, init, xs, length=length, reverse=reverse)
     else:
         # Otherwise, we initialize a message...
         initial_msg = {
             'type': 'control_flow',
-            'name': name,
             'fn': scan_wrapper,
-            'args': (fn, init_value, xs, length),
-            'kwargs': {'rng_key': rng_key,
+            'args': (f, init, xs, length, reverse),
+            'kwargs': {'rng_key': None,
                        'substitute_stack': []},
             'value': None,
         }

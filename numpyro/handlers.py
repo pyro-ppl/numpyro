@@ -133,6 +133,10 @@ class trace(Messenger):
         return self.trace
 
     def postprocess_message(self, msg):
+        if 'name' not in msg:
+            # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
+            # which has no name
+            return
         assert not(msg['type'] == 'sample' and msg['name'] in self.trace), \
             'all sites must have unique names but got `{}` duplicated'.format(msg['name'])
         self.trace[msg['name']] = msg.copy()

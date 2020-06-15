@@ -26,7 +26,7 @@ def test_scan():
         mu0 = x0 = numpyro.sample('x_0', dist.Normal(0, q))
         y0 = numpyro.sample('y_0', dist.Normal(mu0, r))
 
-        _, xy = scan("scan", transition, (x0, mu0), np.arange(1, T))
+        _, xy = scan(transition, (x0, mu0), np.arange(1, T))
         x, y = xy
 
         return np.append(x0, x), np.append(y0, y)
