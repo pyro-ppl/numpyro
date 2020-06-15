@@ -9,7 +9,7 @@ import time
 
 import jax
 from jax import random
-import jax.numpy as np
+import jax.numpy as jnp
 
 import funsor
 
@@ -27,7 +27,7 @@ from numpyro.contrib.funsor.enum_messenger import plate as pyro_plate
 from numpyro.contrib.funsor.enum_messenger import markov as pyro_markov
 from numpyro.contrib.funsor.enum_messenger import trace as packed_trace
 
-logging.basicConfig(format='%(relativeCreated) 9d %(message)s', level=logging.DEBUG)
+logging.basicConfig(format='%(relativeCreated) 9d %(message)s', level=logging.INFO)
 
 # Add another handler for logging debugging events (e.g. for profiling)
 # in a separate stream that can be captured.
@@ -42,15 +42,12 @@ def model_0(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with numpyro_mask(mask_array=include_prior):
         probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
+                              dist.Dirichlet(0.9 * jnp.eye(args.hidden_dim) + 0.1)
                                   .to_event(1))
         probs_y = pyro_sample("probs_y",
-                              # the parameter expansion here is unfortunate, and
-                              # necessitated by the fact that NumPyro allows some
-                              # batch dimensions that are not plate or enum dims
-                              dist.Beta(0.1 * np.ones((args.hidden_dim, data_dim)),
-                                        0.9 * np.ones((args.hidden_dim, data_dim))
-                                        ).to_event(2))
+                              dist.Beta(0.1, 0.9)
+                                  .expand([args.hidden_dim, data_dim])
+                                  .to_event(2))
 
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     for i in pyro_plate("sequences", len(sequences)):
@@ -70,32 +67,24 @@ def model_1(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with numpyro_mask(mask_array=include_prior):
         probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
+                              dist.Dirichlet(0.9 * jnp.eye(args.hidden_dim) + 0.1)
                                   .to_event(1))
         probs_y = pyro_sample("probs_y",
-                              # the parameter expansion here is unfortunate, and
-                              # necessitated by the fact that NumPyro allows some
-                              # batch dimensions that are not plate or enum dims
-                              dist.Beta(0.1 * np.ones((args.hidden_dim, data_dim)),
-                                        0.9 * np.ones((args.hidden_dim, data_dim))
-                                        ).to_event(2))
+                              dist.Beta(0.1, 0.9)
+                                  .expand([args.hidden_dim, data_dim])
+                                  .to_event(2))
 
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         x = 0
         for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
-                probs_xx = probs_x[x]
-                probs_xx = np.broadcast_to(probs_xx, probs_xx.shape[:-3] + (num_sequences, 1) + probs_xx.shape[-1:])
-                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_xx),
+            with numpyro_mask(mask_array=(t < lengths)[..., None]):
+                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
                                 infer={"enumerate": "parallel"})
                 logging.info(f"x[{t}]: {x.shape}")
                 with tones_plate:
-                    probs_yx = probs_y[x.squeeze(-1)]
-                    probs_yx = np.broadcast_to(probs_yx, probs_yx.shape[:-2] + (num_sequences,) + probs_yx.shape[-1:])
-                    pyro_sample("y_{}".format(t),
-                                dist.Bernoulli(probs_yx),
+                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[x.squeeze(-1)]),
                                 obs=sequences[batch, t])
 
 
@@ -109,35 +98,29 @@ def model_2(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with numpyro_mask(mask_array=include_prior):
         probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(0.9 * np.eye(args.hidden_dim) + 0.1)
+                              dist.Dirichlet(0.9 * jnp.eye(args.hidden_dim) + 0.1)
                                   .to_event(1))
 
-        probs_y_shape = (args.hidden_dim, 2, data_dim)
         probs_y = pyro_sample("probs_y",
-                              dist.Beta(np.full(probs_y_shape, 0.1),
-                                        np.full(probs_y_shape, 0.9))
-                                  .to_event(len(probs_y_shape)))
+                              dist.Beta(0.1, 0.9)
+                                  .expand([args.hidden_dim, 2, data_dim])
+                                  .to_event(3))
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         x, y = 0, 0
         for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
-                probs_xx = probs_x[x]
-                probs_xx = np.broadcast_to(probs_xx, probs_xx.shape[:-3] + (num_sequences, 1) + probs_xx.shape[-1:])
-                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_xx),
+            with numpyro_mask(mask_array=(t < lengths)[..., None]):
+                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
                                 infer={"enumerate": "parallel"})
                 logging.info(f"x[{t}]: {x.shape}")
                 # Note the broadcasting tricks here: to index probs_y on tensors x and y,
                 # we also need a final tensor for the tones dimension. This is conveniently
                 # provided by the plate associated with that dimension.
                 with tones_plate as tones:
-                    probs_yx = probs_y[x, y, tones]
-                    probs_yx = np.broadcast_to(probs_yx, probs_yx.shape[:-2] + (num_sequences,) + probs_yx.shape[-1:])
                     y = pyro_sample("y_{}".format(t),
-                                    dist.Bernoulli(probs_yx),
-                                    obs=sequences[batch, t]).astype(np.int32)
-                    # dist.Bernoulli(probs_y[x, y, tones]),
+                                    dist.Bernoulli(probs_y[x, y, tones]),
+                                    obs=sequences[batch, t]).astype(jnp.int32)
 
 
 # Next consider a Factorial HMM with two hidden states.
@@ -158,40 +141,30 @@ def model_3(sequences, lengths, args, include_prior=True):
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
     with numpyro_mask(mask_array=include_prior):
         probs_w = pyro_sample("probs_w",
-                              dist.Dirichlet(0.9 * np.eye(hidden_dim) + 0.1)
+                              dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
                                   .to_event(1))
         probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(0.9 * np.eye(hidden_dim) + 0.1)
+                              dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
                                   .to_event(1))
-        probs_y_shape = (hidden_dim, hidden_dim, data_dim)
         probs_y = pyro_sample("probs_y",
-                              dist.Beta(np.full(probs_y_shape, 0.1),
-                                        np.full(probs_y_shape, 0.9))
-                                  .to_event(len(probs_y_shape)))
+                              dist.Beta(0.1, 0.9)
+                                  .expand([args.hidden_dim, 2, data_dim])
+                                  .to_event(3))
 
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
         lengths = lengths[batch]
         w, x = 0, 0
         for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
-                probs_ww = probs_w[w]
-                probs_ww = np.broadcast_to(probs_ww, probs_ww.shape[:-3] + (num_sequences, 1) + probs_ww.shape[-1:])
-                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_ww),
+            with numpyro_mask(mask_array=(t < lengths)[..., None]):
+                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
                                 infer={"enumerate": "parallel"})
                 logging.info(f"w[{t}]: {w.shape}")
-
-                probs_xx = probs_x[x]
-                probs_xx = np.broadcast_to(probs_xx, probs_xx.shape[:-3] + (num_sequences, 1) + probs_xx.shape[-1:])
-                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_xx),
+                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
                                 infer={"enumerate": "parallel"})
                 logging.info(f"x[{t}]: {x.shape}")
-
                 with tones_plate as tones:
-                    probs_ywx = probs_y[w, x, tones]
-                    probs_ywx = np.broadcast_to(
-                        probs_ywx, probs_ywx.shape[:-2] + (num_sequences,) + probs_ywx.shape[-1:])
-                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_ywx),
+                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[w, x, tones]),
                                 obs=sequences[batch, t])
 
 
@@ -212,19 +185,16 @@ def model_4(sequences, lengths, args, include_prior=True):
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
     with numpyro_mask(mask_array=include_prior):
         probs_w = pyro_sample("probs_w",
-                              dist.Dirichlet(0.9 * np.eye(hidden_dim) + 0.1)
+                              dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
                                   .to_event(1))
         probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(
-                                  np.broadcast_to(0.9 * np.eye(hidden_dim) + 0.1,
-                                                  (hidden_dim, hidden_dim, hidden_dim)))
+                              dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
+                                  .expand_by([hidden_dim])
                                   .to_event(2))
-
-        probs_y_shape = (hidden_dim, hidden_dim, data_dim)
         probs_y = pyro_sample("probs_y",
-                              dist.Beta(np.full(probs_y_shape, 0.1),
-                                        np.full(probs_y_shape, 0.9))
-                                  .to_event(len(probs_y_shape)))
+                              dist.Beta(0.1, 0.9)
+                                  .expand([hidden_dim, hidden_dim, data_dim])
+                                  .to_event(3))
 
     tones_plate = pyro_plate("tones", data_dim, dim=-1)
     with pyro_plate("sequences", num_sequences, dim=-2) as batch:
@@ -232,25 +202,16 @@ def model_4(sequences, lengths, args, include_prior=True):
         # Note the broadcasting tricks here: we declare a hidden arange and
         # ensure that w and x are always tensors so we can unsqueeze them below,
         # thus ensuring that the x sample sites have correct distribution shape.
-        w = x = np.array(0)
+        w = x = jnp.array(0)
         for t in pyro_markov(range(max_length)):
             with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
-                probs_ww = probs_w[w]
-                probs_ww = np.broadcast_to(probs_ww, probs_ww.shape[:-3] + (num_sequences, 1) + probs_ww.shape[-1:])
-                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_ww),
+                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
                                 infer={"enumerate": "parallel"})
-
-                probs_xwx = Vindex(probs_x)[w, x]
-                probs_xwx = np.broadcast_to(probs_xwx, probs_xwx.shape[:-3] + (num_sequences, 1) + probs_xwx.shape[-1:])
                 x = pyro_sample("x_{}".format(t),
-                                dist.Categorical(probs_xwx),
+                                dist.Categorical(Vindex(probs_x)[w, x]),
                                 infer={"enumerate": "parallel"})
-
                 with tones_plate as tones:
-                    probs_ywx = probs_y[w, x, tones]
-                    probs_ywx = np.broadcast_to(
-                        probs_ywx, probs_ywx.shape[:-2] + (num_sequences,) + probs_ywx.shape[-1:])
-                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_ywx),
+                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[w, x, tones]),
                                 obs=sequences[batch, t])
 
 
@@ -271,8 +232,8 @@ def main(args):
     logging.info('-' * 40)
     logging.info('Training {} on {} sequences'.format(
         model.__name__, len(data['sequences'])))
-    sequences = np.array(data['sequences'])
-    lengths = np.array(data['sequence_lengths'])
+    sequences = jnp.array(data['sequences'])
+    lengths = jnp.array(data['sequence_lengths'])
 
     # find all the notes that are present at least once in the training set
     present_notes = ((sequences == 1).sum(0).sum(0) > 0)
@@ -306,7 +267,7 @@ def main(args):
     mcmc.run(rng_key, sequences, lengths, args=args)
     mcmc.print_summary()
     # samples = mcmc.get_samples()  # TODO do something with this
-    logging.info('\nMCMC elapsed time:', time.time() - start)
+    logging.info('\nMCMC elapsed time: {}'.format(time.time() - start))
 
 
 if __name__ == '__main__':
@@ -316,7 +277,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--num-samples', nargs='?', default=1000, type=int)
 
     parser.add_argument("-d", "--hidden-dim", default=16, type=int)
-    parser.add_argument("--truncate", type=int)
+    parser.add_argument('-t', "--truncate", type=int)
     parser.add_argument("--num-sequences", default=17, type=int)
     parser.add_argument("--print-shapes", action="store_true")
     parser.add_argument("--kernel", default='nuts', type=str)

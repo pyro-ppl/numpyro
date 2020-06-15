@@ -61,4 +61,4 @@ def log_density(model, model_args, model_kwargs, params):
             funsor.ops.logaddexp, funsor.ops.add, log_factors,
             eliminate=sum_vars | prod_vars, plates=prod_vars)
     result = funsor.optimizer.apply_optimizer(lazy_result)
-    return -result.data, model_trace
+    return result.data, model_trace
