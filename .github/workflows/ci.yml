@@ -1,5 +1,6 @@
 # adapted from https://github.com/actions/starter-workflows/blob/master/ci/python-package.yml
-name: Python package
+
+name: NumPyro
 
 on:
   push:
@@ -41,5 +42,6 @@ jobs:
         JAX_ENABLE_X64=1 pytest -vs test/test_mcmc.py -k x64
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_mcmc.py -k "chain or pmap or vmap"
     - name: Test examples
+      run: |
         pytest -vs -k test_example
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example
