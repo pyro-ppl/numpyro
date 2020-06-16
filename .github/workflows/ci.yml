@@ -34,7 +34,11 @@ jobs:
     - name: Lint with flake8
       run: |
         make lint
+    - name: Build documentation
+      run: |
         make docs
+    - name: Test documentation
+      run: |
         make doctest
 
 
@@ -64,9 +68,11 @@ jobs:
     - name: Test with pytest
       run: |
         pytest -vs -k "not test_example" --deselect test/contrib/test_distributions_contrib.py --durations=100
-    - name: Test x64 and chains
+    - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/test_mcmc.py -k x64
+    - name: Test chains
+      run: |
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_mcmc.py -k "chain or pmap or vmap"
 
 
