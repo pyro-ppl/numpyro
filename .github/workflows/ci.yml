@@ -38,6 +38,7 @@ jobs:
     - name: Test documentation
       run: |
         make doctest
+        python -m doctest -v README.md
 
 
   test:
