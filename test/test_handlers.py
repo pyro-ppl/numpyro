@@ -115,6 +115,20 @@ def test_condition():
     with pytest.raises(ValueError):
         handlers.condition(model, {'y': 3.})()
 
+def test_do():
+    def model():
+        x = numpyro.sample('x', dist.Delta(0.))
+        z = numpyro.sample('z', dist.Normal(x, 0.5))
+        return z ** 2
+
+    model = handlers.do(model, data={"z": 1.})
+    model_trace = handlers.trace(model).get_trace()
+    assert model_trace['z']['value'] == 1.
+    assert model_trace['z']['is_observed']
+    assert model_trace['z']['stop']
+    # Raise ValueError when site is already observed.
+    with pytest.raises(ValueError):
+        handlers.do(model, data={'z': 3.})()
 
 def test_no_split_deterministic():
     def model():

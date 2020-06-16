@@ -437,3 +437,68 @@ class substitute(Messenger):
 
         if value is not None:
             msg['value'] = value
+
+
+class do(Messenger):
+    """
+    Given a stochastic function with some sample statements
+    and a dictionary of values at names,
+    set the return values of those sites equal to the values
+    as if they were hard-coded to those values
+    and introduce fresh sample sites with the same names
+    whose values do not propagate.
+    Composes freely with :func:`~numpyro.handlers.condition`
+    to represent counterfactual distributions over potential outcomes.
+    See Single World Intervention Graphs [1] for additional details and theory.
+
+    This is equivalent to replacing `z = numpyro.sample("z", ...)` with
+    `z = jnp.array(1.)`
+    and introducing a fresh sample site numpyro.sample("z", ...) whose value is not used elsewhere.
+    References
+    [1] `Single World Intervention Graphs: A Primer`,
+        Thomas Richardson, James Robins
+    :param fn: a stochastic function (callable containing Pyro primitive calls)
+    :param data: a ``dict`` mapping sample site names to interventions
+
+    **Example:**
+
+    .. doctest::
+
+      >>> import jax.numpy as jnp
+      >>> import numpyro
+      >>> from numpyro.handlers import do
+      >>> import numpyro.distributions as dist
+      >>> def model(x):
+      ...     s = numpyro.param("s", jnp.array(0.5))
+      ...     z = numpyro.sample("z", dist.Normal(x, s))
+      ...     return z ** 2
+      >>> intervened_model = do(model, data={"z": jnp.array(1.)})
+      >>> exec_trace = trace(intervened_model).get_trace()
+      >>> assert exec_trace['z']['value'] == 1.
+      >>> assert exec_trace['z']['is_observed']
+      >>> assert exec_trace['z']['stop']
+    """
+    def __init__(self, fn=None, data=None):
+        self.data = data
+        self._intervener_id = str(id(self))
+        super(do, self).__init__(fn)
+
+    def process_message(self, msg):
+        if msg['type'] != 'sample':
+            return
+        if msg.get('_intervener_id', None) != self._intervener_id and \
+                self.data.get(msg['name']) is not None:
+            if msg.get('_intervener_id', None) is not None:
+                warnings.warn(
+                    "Attempting to intervene on variable {} multiple times,"
+                    "this is almost certainly incorrect behavior".format(msg['name']),
+                    RuntimeWarning)
+            msg['_intervener_id'] = self._intervener_id
+        intervention = self.data.get(msg['name'])
+        msg['name'] = msg['name'] + "__CF"  # mangle old name
+        if intervention is not None:
+            msg['value'] = intervention
+            if msg['is_observed']:
+                raise ValueError("Cannot intervene an already observed site: {}.".format(msg['name']))
+            msg['is_observed'] = True
+            msg['stop'] = True
