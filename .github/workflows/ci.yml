@@ -41,6 +41,7 @@ jobs:
   test:
 
     runs-on: ubuntu-latest
+    needs: lint
     strategy:
       matrix:
         python-version: [3.6]
@@ -72,6 +73,7 @@ jobs:
   examples:
 
     runs-on: ubuntu-latest
+    needs: lint
     strategy:
       matrix:
         python-version: [3.6]
