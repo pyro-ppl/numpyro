@@ -1,6 +1,6 @@
 # adapted from https://github.com/actions/starter-workflows/blob/master/ci/python-package.yml
 
-name: NumPyro
+name: CI
 
 on:
   push:
