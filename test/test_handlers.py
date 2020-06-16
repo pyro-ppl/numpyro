@@ -115,6 +115,7 @@ def test_condition():
     with pytest.raises(ValueError):
         handlers.condition(model, {'y': 3.})()
 
+
 def test_do():
     def model():
         x = numpyro.sample('x', dist.Delta(0.))
@@ -129,6 +130,7 @@ def test_do():
     # Raise ValueError when site is already observed.
     with pytest.raises(ValueError):
         handlers.do(model, data={'z': 3.})()
+
 
 def test_no_split_deterministic():
     def model():
