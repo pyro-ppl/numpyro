@@ -1,0 +1,104 @@
+# adapted from https://github.com/actions/starter-workflows/blob/master/ci/python-package.yml
+
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  lint:
+
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.6]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install jaxlib
+        pip install jax
+        pip install .[doc,test]
+        pip freeze
+    - name: Lint with flake8
+      run: |
+        make lint
+    - name: Build documentation
+      run: |
+        make docs
+    - name: Test documentation
+      run: |
+        make doctest
+        python -m doctest -v README.md
+
+
+  test:
+
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        python-version: [3.6]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Keep track of pyro-api master branch
+        pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
+        pip install jaxlib
+        pip install jax
+        pip install .[test]
+        pip freeze
+    - name: Test with pytest
+      run: |
+        pytest -vs -k "not test_example" --deselect test/contrib/test_distributions_contrib.py --durations=100
+    - name: Test x64
+      run: |
+        JAX_ENABLE_X64=1 pytest -vs test/test_mcmc.py -k x64
+    - name: Test chains
+      run: |
+        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_mcmc.py -k "chain or pmap or vmap"
+
+
+  examples:
+
+    runs-on: ubuntu-latest
+    needs: lint
+    strategy:
+      matrix:
+        python-version: [3.6]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install jaxlib
+        pip install jax
+        pip install .[examples,test]
+        pip freeze
+    - name: Test with pytest
+      run: |
+        pytest -vs -k test_example
+    - name: Test chains
+      run: |
+        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example

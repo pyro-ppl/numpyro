@@ -518,7 +518,7 @@ def test_log_prob_LKJCholesky(dimension, concentration):
 
     actual_log_prob = d.log_prob(sample)
     expected_log_prob = beta_log_prob - affine_logdet - signed_stick_breaking_logdet
-    assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
+    assert_allclose(actual_log_prob, expected_log_prob, rtol=2e-5)
 
     assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=1e-7)
 

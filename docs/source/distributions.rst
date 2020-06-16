@@ -150,7 +150,7 @@ InverseGamma
     :member-order: bysource
 
 Laplace
-------
+-------
 .. autoclass:: numpyro.distributions.continuous.Laplace
     :members:
     :undoc-members:
@@ -176,6 +176,14 @@ LKJCholesky
 LogNormal
 ---------
 .. autoclass:: numpyro.distributions.continuous.LogNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Logistic
+--------
+.. autoclass:: numpyro.distributions.continuous.Logistic
     :members:
     :undoc-members:
     :show-inheritance:
@@ -290,7 +298,7 @@ Binomial
 .. autofunction:: numpyro.distributions.discrete.Binomial
 
 BinomialLogits
----------------
+--------------
 .. autoclass:: numpyro.distributions.discrete.BinomialLogits
     :members:
     :undoc-members:
@@ -336,14 +344,6 @@ Delta
 GammaPoisson
 ------------
 .. autoclass:: numpyro.distributions.conjugate.GammaPoisson
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-Logistic
---------
-.. autoclass:: numpyro.distributions.discrete.Logistic
     :members:
     :undoc-members:
     :show-inheritance:

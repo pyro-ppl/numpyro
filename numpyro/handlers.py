@@ -298,7 +298,7 @@ class mask(Messenger):
         if msg['type'] != 'sample':
             return
 
-        msg['mask'] = self.mask if msg['mask'] is None else self.mask & msg['mask']
+        msg['fn'] = msg['fn'].mask(self.mask)
 
 
 class reparam(Messenger):
