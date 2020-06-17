@@ -84,8 +84,9 @@ import warnings
 from jax import lax, random
 import jax.numpy as jnp
 
-from numpyro.primitives import Messenger
+from numpyro.primitives import Messenger, apply_stack
 from numpyro.util import not_jax_tracer
+
 
 __all__ = [
     'block',
@@ -454,9 +455,12 @@ class do(Messenger):
     This is equivalent to replacing `z = numpyro.sample("z", ...)` with
     `z = jnp.array(1.)`
     and introducing a fresh sample site numpyro.sample("z", ...) whose value is not used elsewhere.
+
     References
+
     [1] `Single World Intervention Graphs: A Primer`,
         Thomas Richardson, James Robins
+
     :param fn: a stochastic function (callable containing Pyro primitive calls)
     :param data: a ``dict`` mapping sample site names to interventions
 
@@ -466,17 +470,18 @@ class do(Messenger):
 
       >>> import jax.numpy as jnp
       >>> import numpyro
-      >>> from numpyro.handlers import do
+      >>> from numpyro.handlers import do, trace, seed
       >>> import numpyro.distributions as dist
       >>> def model(x):
-      ...     s = numpyro.param("s", jnp.array(0.5))
+      ...     s = numpyro.sample("s", dist.Normal(), constraint=constraints.positive)
       ...     z = numpyro.sample("z", dist.Normal(x, s))
       ...     return z ** 2
-      >>> intervened_model = do(model, data={"z": jnp.array(1.)})
-      >>> exec_trace = trace(intervened_model).get_trace()
-      >>> assert exec_trace['z']['value'] == 1.
-      >>> assert exec_trace['z']['is_observed']
-      >>> assert exec_trace['z']['stop']
+      >>> with trace() as exec_trace:
+      ...     z_square = seed(intervened_model, 0)(x)
+      >>> assert exec_trace['z']['value'] != 1.
+      >>> assert not exec_trace['z']['is_observed']
+      >>> assert not exec_trace['z'].get('stop', None)
+      >>> assert z_square == 1
     """
     def __init__(self, fn=None, data=None):
         self.data = data
@@ -494,9 +499,13 @@ class do(Messenger):
                     "this is almost certainly incorrect behavior".format(msg['name']),
                     RuntimeWarning)
             msg['_intervener_id'] = self._intervener_id
-        intervention = self.data.get(msg['name'])
-        msg['name'] = msg['name'] + "__CF"  # mangle old name
-        if intervention is not None:
+
+            # split node, avoid reapplying self recursively to new node
+            new_msg = msg.copy()
+            apply_stack(new_msg)
+
+            intervention = self.data.get(msg['name'])
+            msg['name'] = msg['name'] + "__CF"  # mangle old name
             msg['value'] = intervention
             if msg['is_observed']:
                 raise ValueError("Cannot intervene an already observed site: {}.".format(msg['name']))
