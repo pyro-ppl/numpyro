@@ -23,11 +23,12 @@ def test_counterfactual_query(intervene, observe, flip):
     interventions = {"x": None, "y": 0., "z": 2., "w": 1.}
 
     def model():
-        x = numpyro.sample("x", dist.Normal(0, 1))
-        y = numpyro.sample("y", dist.Normal(x, 1))
-        z = numpyro.sample("z", dist.Normal(y, 1))
-        w = numpyro.sample("w", dist.Normal(z, 1))
-        return dict(x=x, y=y, z=z, w=w)
+        with handlers.seed(rng_seed=0):
+            x = numpyro.sample("x", dist.Normal(0, 1))
+            y = numpyro.sample("y", dist.Normal(x, 1))
+            z = numpyro.sample("z", dist.Normal(y, 1))
+            w = numpyro.sample("w", dist.Normal(z, 1))
+            return dict(x=x, y=y, z=z, w=w)
 
     if not flip:
         if intervene:
