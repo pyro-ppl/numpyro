@@ -11,7 +11,6 @@ import jax.numpy as jnp
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
-from numpyro.distributions import constraints
 from numpyro.infer.util import log_density
 from numpyro.util import optional
 
