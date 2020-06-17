@@ -118,14 +118,14 @@ def test_condition():
 
 
 def test_do():
-    def model(x):
+    def model():
         s = numpyro.sample("s", dist.Normal(), constraint=constraints.positive)
-        z = numpyro.sample('z', dist.Normal(x, s))
+        z = numpyro.sample('z', dist.Normal(0., s))
         return z ** 2
 
     intervened_model = handlers.do(model, data={"z": 1.})
     with handlers.trace() as exec_trace:
-        z_square = handlers.seed(intervened_model, 0)(x)
+        z_square = handlers.seed(intervened_model, 0)
     assert exec_trace['z']['value'] != 1.
     assert not exec_trace['z']['is_observed']
     assert not exec_trace['z'].get('stop', None)
