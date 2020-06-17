@@ -452,8 +452,7 @@ class do(Messenger):
     to represent counterfactual distributions over potential outcomes.
     See Single World Intervention Graphs [1] for additional details and theory.
 
-    This is equivalent to replacing `z = numpyro.sample("z", ...)` with
-    `z = jnp.array(1.)`
+    This is equivalent to replacing `z = numpyro.sample("z", ...)` with `z = 1.`
     and introducing a fresh sample site numpyro.sample("z", ...) whose value is not used elsewhere.
 
     References
@@ -473,9 +472,10 @@ class do(Messenger):
       >>> from numpyro.handlers import do, trace, seed
       >>> import numpyro.distributions as dist
       >>> def model(x):
-      ...     s = numpyro.sample("s", dist.Normal(), constraint=constraints.positive)
+      ...     s = numpyro.sample("s", dist.LogNormal())
       ...     z = numpyro.sample("z", dist.Normal(x, s))
       ...     return z ** 2
+      >>> intervened_model = handlers.do(model, data={"z": 1.})
       >>> with trace() as exec_trace:
       ...     z_square = seed(intervened_model, 0)(x)
       >>> assert exec_trace['z']['value'] != 1.
@@ -507,7 +507,5 @@ class do(Messenger):
             intervention = self.data.get(msg['name'])
             msg['name'] = msg['name'] + "__CF"  # mangle old name
             msg['value'] = intervention
-            if msg['is_observed']:
-                raise ValueError("Cannot intervene an already observed site: {}.".format(msg['name']))
             msg['is_observed'] = True
             msg['stop'] = True
