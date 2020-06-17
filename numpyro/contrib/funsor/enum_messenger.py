@@ -394,7 +394,7 @@ class GlobalNamedMessenger(NamedMessenger):
 
 class BaseEnumMessenger(NamedMessenger):
     """
-    handles first_available_dim management, enum effects should inherit from this
+    Handles first_available_dim management, enum effects should inherit from this
     """
     def __init__(self, fn, first_available_dim=None):
         assert first_available_dim is None or first_available_dim < 0, first_available_dim
@@ -418,7 +418,16 @@ class BaseEnumMessenger(NamedMessenger):
 
 class plate(GlobalNamedMessenger):
     """
-    Sketch of vectorized plate implementation using to_data instead of _DIM_ALLOCATOR.
+    An alternative implementation of :class:`numpyro.primitives.plate` primitive.
+
+    :param str name: Name of the plate.
+    :param int size: Size of the plate.
+    :param int subsample_size: Optional argument denoting the size of the mini-batch.
+        This can be used to apply a scaling factor by inference algorithms. e.g.
+        when computing ELBO using a mini-batch.
+    :param int dim: Optional argument to specify which dimension in the tensor
+        is used as the plate dim. If `None` (default), the leftmost available dim
+        is allocated.
     """
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
@@ -441,10 +450,6 @@ class plate(GlobalNamedMessenger):
         # extract the dimension allocated by to_data to match plate's current behavior
         self.dim, self.indices = -len(indices.shape), indices.squeeze()
         return self.indices
-
-    def __iter__(self):
-        for i in markov(range(self.size), history=0, keep=False):
-            yield i
 
     @staticmethod
     def _get_batch_shape(cond_indep_stack):
@@ -479,8 +484,14 @@ class plate(GlobalNamedMessenger):
 
 class enum(BaseEnumMessenger):
     """
-    This version of EnumMessenger uses to_data to allocate a fresh enumeration dim
-    for each discrete sample site.
+    Enumerates in parallel over discrete sample sites marked
+    ``infer={"enumerate": "parallel"}``.
+
+    :param callable fn: Python callable with NumPyro primitives.
+    :param int first_available_dim: The first tensor dimension (counting
+        from the right) that is available for parallel enumeration. This
+        dimension and all dimensions left may be used internally by Pyro.
+        This should be a negative integer or None.
     """
     def process_message(self, msg):
         if msg["type"] != "sample" or \
@@ -508,9 +519,11 @@ class enum(BaseEnumMessenger):
 
 class trace(OrigTraceMessenger):
     """
-    This version of TraceMessenger records information necessary to do packing after execution.
+    This version of :class:`~numpyro.handlers.trace` handler records
+    information necessary to do packing after execution.
+
     Each sample site is annotated with a "dim_to_name" dictionary,
-    which can be passed directly to funsor.to_funsor.
+    which can be passed directly to :func:`to_funsor`.
     """
     def postprocess_message(self, msg):
         if msg["type"] == "sample":
@@ -524,6 +537,20 @@ class trace(OrigTraceMessenger):
 
 
 def markov(fn=None, history=1, keep=False):
+    """
+    Markov dependency declaration.
+
+    This is a statistical equivalent of a memory management arena.
+
+    :param callable fn: Python callable with NumPyro primitives.
+    :param int history: The number of previous contexts visible from the
+        current context. Defaults to 1. If zero, this is similar to
+        :class:`numpyro.primitives.plate`.
+    :param bool keep: If true, frames are replayable. This is important
+        when branching: if ``keep=True``, neighboring branches at the same
+        level can depend on each other; if ``keep=False``, neighboring branches
+        are independent (conditioned on their shared ancestors).
+    """
     if fn is not None and not callable(fn):  # Used as a generator
         return LocalNamedMessenger(fn=None, history=history, keep=keep).generator(iterable=fn)
     return LocalNamedMessenger(fn, history=history, keep=keep)
@@ -537,7 +564,6 @@ class infer_config(Messenger):
 
     :param fn: a stochastic function (callable containing Pyro primitive calls)
     :param config_fn: a callable taking a site and returning an infer dict
-    :returns: stochastic function decorated with :class:`~pyro.poutine.infer_config_messenger.InferConfigMessenger`
     """
     def __init__(self, fn, config_fn):
         super().__init__(fn)
@@ -553,6 +579,20 @@ class infer_config(Messenger):
 ####################
 
 def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
+    """
+    A primitive to convert a Python object to a :class:`~funsor.terms.Funsor`.
+
+    :param x: An object.
+    :param funsor.domains.Domain output: An optional output hint to uniquely
+        convert a data to a Funsor (e.g. when `x` is a string).
+    :param OrderedDict dim_to_name: An optional mapping from negative
+        batch dimensions to name strings.
+    :param int dim_type: Either 0, 1, or 2. This optional argument indicates
+        a dimension should be treated as 'local', 'global', or 'visible',
+        which can be used to interact with the global :class:`DimStack`.
+    :return: A Funsor equivalent to `x`.
+    :rtype: funsor.terms.Funsor
+    """
     dim_to_name = OrderedDict() if dim_to_name is None else dim_to_name
 
     initial_msg = {
@@ -569,6 +609,17 @@ def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
 
 
 def to_data(x, name_to_dim=None, dim_type=DimType.LOCAL):
+    """
+    A primitive to extract a python object from a :class:`~funsor.terms.Funsor`.
+
+    :param ~funsor.terms.Funsor x: A funsor object
+    :param OrderedDict name_to_dim: An optional inputs hint which maps
+        dimension names from `x` to dimension positions of the returned value.
+    :param int dim_type: Either 0, 1, or 2. This optional argument indicates
+        a dimension should be treated as 'local', 'global', or 'visible',
+        which can be used to interact with the global :class:`DimStack`.
+    :return: A non-funsor equivalent to `x`.
+    """
     name_to_dim = OrderedDict() if name_to_dim is None else name_to_dim
 
     initial_msg = {

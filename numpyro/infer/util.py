@@ -142,6 +142,7 @@ def potential_energy(model, model_args, model_kwargs, params, enum=False):
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
     :param dict params: unconstrained parameters of `model`.
+    :param bool enum: whether to enumerate over discrete latent sites.
     :return: potential energy given unconstrained parameters.
     """
     if enum:
@@ -179,6 +180,7 @@ def find_valid_initial_params(rng_key, model,
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param callable init_strategy: a per-site initialization function.
+    :param bool enum: whether to enumerate over discrete latent sites.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
     :param dict prototype_params: an optional prototype parameters, which is used
@@ -268,8 +270,8 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
             if v['fn'].is_discrete:
                 has_enumerate_support = True
                 if not v['fn'].has_enumerate_support:
-                    raise RuntimeError(f"MCMC only supports continuous sites or discrete sites "
-                                       "with enumerate support, but got {type(v['fn']).__name__}.")
+                    raise RuntimeError("MCMC only supports continuous sites or discrete sites "
+                                       f"with enumerate support, but got {type(v['fn']).__name__}.")
             else:
                 support = v['fn'].support
                 inv_transforms[k] = biject_to(support)
@@ -298,6 +300,7 @@ def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
 
     :param model: Python callable containing Pyro primitives.
     :param dict inv_transforms: dictionary of transforms keyed by names.
+    :param bool enum: whether to enumerate over discrete latent sites.
     :param bool replay_model: whether we need to replay model in
         `postprocess_fn` to obtain `deterministic` sites.
     :param bool dynamic_args: if `True`, the `potential_fn` and

@@ -23,6 +23,29 @@ def plate_to_enum_plate():
 
 
 def config_enumerate(fn, default='parallel'):
+    """
+    Configures enumeration for all relevant sites in a NumPyro model.
+
+    When configuring for exhaustive enumeration of discrete variables, this
+    configures all sample sites whose distribution satisfies
+    ``.has_enumerate_support == True``.
+
+    This can be used as either a function::
+
+        model = config_enumerate(model)
+
+    or as a decorator::
+
+        @config_enumerate
+        def model(*args, **kwargs):
+            ...
+
+    .. note:: Currently, only ``default='parallel'`` is supported.
+
+    :param callable fn: Python callable with NumPyro primitives.
+    :param str default: Which enumerate strategy to use, one of
+        "sequential", "parallel", or None. Defaults to "parallel".
+    """
     def config_fn(site):
         if site['type'] == 'sample' and (not site['is_observed']) \
                 and site['fn'].has_enumerate_support:
@@ -33,6 +56,26 @@ def config_enumerate(fn, default='parallel'):
 
 
 def log_density(model, model_args, model_kwargs, params):
+    """
+    Similar to :func:`numpyro.infer.util.log_density` but works for models
+    with discrete latent variables. Internally, this uses :mod:`funsor`
+    to evalutate the joint log probability.
+
+    :param model: Python callable containing NumPyro primitives. Typically,
+        the model has been enumerated by using
+        :class:`~numpyro.contrib.funsor.enum_messenger.enum` handler::
+
+            def model(*args, **kwargs):
+                ...
+
+            log_joint = log_density(enum(config_enumerate(model)), args, kwargs, params)
+
+    :param tuple model_args: args provided to the model.
+    :param dict model_kwargs: kwargs provided to the model.
+    :param dict params: dictionary of current parameter values keyed by site
+        name.
+    :return: log of joint density and a corresponding model trace
+    """
     model = substitute(model, param_map=params)
     with plate_to_enum_plate():
         model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
