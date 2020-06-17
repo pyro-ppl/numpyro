@@ -27,6 +27,14 @@ mask
     :show-inheritance:
     :member-order: bysource
 
+reparam
+-------
+.. autoclass:: numpyro.handlers.reparam
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 replay
 ------
 .. autoclass:: numpyro.handlers.replay

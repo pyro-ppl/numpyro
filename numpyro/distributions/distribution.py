@@ -433,7 +433,8 @@ class ImproperUniform(Distribution):
     or if you want to reparameterize it
 
        >>> from numpyro.distributions import TransformedDistribution, transforms
-       >>> from numpyro.contrib.reparam import reparam, TransformReparam
+       >>> from numpyro.handlers import reparam
+       >>> from numpyro.infer.reparam import TransformReparam
        >>>
        >>> def model():
        ...     a = sample('a', Normal(0, 1))
