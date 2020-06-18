@@ -308,7 +308,63 @@ class mask(Messenger):
         if msg['type'] != 'sample':
             return
 
-        msg['mask'] = self.mask if msg['mask'] is None else self.mask & msg['mask']
+        msg['fn'] = msg['fn'].mask(self.mask)
+
+
+class reparam(Messenger):
+    """
+    Reparametrizes each affected sample site into one or more auxiliary sample
+    sites followed by a deterministic transformation [1].
+
+    To specify reparameterizers, pass a ``config`` dict or callable to the
+    constructor.  See the :mod:`numpyro.infer.reparam` module for available
+    reparameterizers.
+
+    Note some reparameterizers can examine the ``*args,**kwargs`` inputs of
+    functions they affect; these reparameterizers require using
+    ``handlers.reparam`` as a decorator rather than as a context manager.
+
+    [1] Maria I. Gorinova, Dave Moore, Matthew D. Hoffman (2019)
+        "Automatic Reparameterisation of Probabilistic Programs"
+        https://arxiv.org/pdf/1906.03028.pdf
+
+    :param config: Configuration, either a dict mapping site name to
+        :class:`~numpyro.infer.reparam.Reparam` ,
+        or a function mapping site to
+        :class:`~numpyro.infer.reparam.Reparam` or None.
+    :type config: dict or callable
+    """
+    def __init__(self, fn=None, config=None):
+        assert isinstance(config, dict) or callable(config)
+        self.config = config
+        super().__init__(fn)
+
+    def process_message(self, msg):
+        if msg["type"] != "sample":
+            return
+
+        if isinstance(self.config, dict):
+            reparam = self.config.get(msg["name"])
+        else:
+            reparam = self.config(msg)
+        if reparam is None:
+            return
+
+        new_fn, value = reparam(msg["name"], msg["fn"], msg["value"])
+
+        if value is not None:
+            if new_fn is None:
+                msg['type'] = 'deterministic'
+                msg['value'] = value
+                for key in list(msg.keys()):
+                    if key not in ('type', 'name', 'value'):
+                        del msg[key]
+                return
+
+            if msg["value"] is None:
+                msg["is_observed"] = True
+            msg["value"] = value
+        msg["fn"] = new_fn
 
 
 class scale(Messenger):

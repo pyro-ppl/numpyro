@@ -346,6 +346,17 @@ def clamp_probs(probs):
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
+def is_identically_one(x):
+    """
+    Check if argument is exactly the number one. True for the number one;
+    false for other numbers; false for ndarrays.
+    """
+    if isinstance(x, (int, float)):
+        return x == 1
+    else:
+        return False
+
+
 def von_mises_centered(key, concentration, shape=(), dtype=jnp.float64):
     """ Compute centered von Mises samples using rejection sampling from [1] with wrapped Cauchy proposal.
 

@@ -98,7 +98,6 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         'args': (),
         'kwargs': {'rng_key': rng_key, 'sample_shape': sample_shape},
         'value': obs,
-        'mask': None,
         'scale': None,
         'is_observed': obs is not None,
         'intermediates': [],
