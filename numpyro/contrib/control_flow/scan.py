@@ -3,8 +3,8 @@
 
 from functools import partial
 
-from jax import lax, random
-import jax.numpy as np
+from jax import lax, random, tree_flatten
+import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
 from numpyro import handlers
@@ -51,7 +51,7 @@ class PytreeTrace:
         return cls(trace)
 
 
-def _subs_wrapper(subs_map, i, site):
+def _subs_wrapper(subs_map, i, length, site):
     value = None
     if isinstance(subs_map, dict) and site['name'] in subs_map:
         value = subs_map[site['name']]
@@ -60,14 +60,37 @@ def _subs_wrapper(subs_map, i, site):
         subs_map = handlers.seed(subs_map, rng_seed=rng_key) if rng_key is not None else subs_map
         # we only collect the output and block any new sites created in substitute_fn
         # those new sites will be addressed when we apply `apply_stack` on scanned messages.
+        # (this is needed for log_det term in uncontrained_reparam)
         with handlers.block():
             value = subs_map(site)
 
     if value is not None:
-        if np.ndim(value) > len(site['kwargs']['sample_shape']) + len(site['fn'].shape()):
-            return value[i]
-        else:
+        value_ndim = jnp.ndim(value)
+        sample_shape = site['kwargs']['sample_shape']
+        fn_ndim = len(sample_shape + site['fn'].shape())
+        if value_ndim == fn_ndim:
             return value
+        elif value_ndim == fn_ndim + 1:
+            shape = jnp.shape(value)
+            if shape[0] == length:
+                return value[i]
+            elif shape[0] < length:
+                rng_key = site['kwargs']['rng_key']
+                assert rng_key is not None
+                # we use substituted values if i < shape[0] and generate
+                # a new sample otherwise
+                return lax.cond(i < shape[0],
+                                (value, i),
+                                lambda val: val[0][val[1]],
+                                rng_key,
+                                lambda val: site['fn'](rng_key=val, sample_shape=sample_shape))
+            else:
+                raise RuntimeError(f"Substituted value for site {site['name']} "
+                                   "requires length greater than or equal to scan length."
+                                   f" Expected length >= {length}, but got {shape[0]}.")
+        else:
+            raise RuntimeError(f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim+1},"
+                               f" but got {value_ndim}. Please report the issue to us!")
 
 
 def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]):
@@ -79,15 +102,17 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
         with handlers.block():
             seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
             for subs_map in substitute_stack:
-                seeded_fn = handlers.substitute(seeded_fn,
-                                                substitute_fn=partial(_subs_wrapper, subs_map, i))
+                seeded_fn = handlers.substitute(
+                    seeded_fn, substitute_fn=partial(_subs_wrapper, subs_map, i, length))
 
             with handlers.trace() as trace:
                 carry, y = seeded_fn(carry, x)
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    return lax.scan(body_fn, (np.array(0), rng_key, init), xs, length=length, reverse=reverse)
+    if length is None:
+        length = tree_flatten(xs)[0][0].shape[0]
+    return lax.scan(body_fn, (jnp.array(0), rng_key, init), xs, length=length, reverse=reverse)
 
 
 def scan(f, init, xs, length=None, reverse=False):
@@ -100,7 +125,7 @@ def scan(f, init, xs, length=None, reverse=False):
 
     .. doctest::
 
-       >>> import jax.numpy as np
+       >>> import numpy as np
        >>> import numpyro
        >>> import numpyro.distributions as dist
        >>> from numpyro.contrib.control_flow import scan
@@ -163,7 +188,11 @@ def scan(f, init, xs, length=None, reverse=False):
         #   + use `condition` handler in scan_wrapper (currently, we use `substitute`
         #     instead of `condition` there to avoid overwriting `is_observed` field)
         #   + remove `block` handler in `subs_handler` (i.e. we also scanned those
-        #     extra sites, e.g. `log_det` sites, created in `substitute_fn`)
+        #     extra sites, e.g. `log_det` sites, created in `substitute_fn`);
+        #     this will save a bit of computation in unconstrain_reparam,
+        #     where we can avoid recomputing those log_det terms here
+        # One solution is to add a flag `done` or something to block `condition`, `substitute`
+        # from reapplying on those sites.
         apply_stack(msg)
 
     return carry, ys
