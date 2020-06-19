@@ -267,10 +267,10 @@ def test_counterfactual_query(intervene, observe, flip):
         if intervene:
             model = handlers.do(model, data=interventions)
         if observe:
-            model = handlers.condition(model, data=observations)
+            model = handlers.condition(model, param_map=observations)
     elif flip and intervene and observe:
         model = handlers.do(
-            handlers.condition(model, data=observations),
+            handlers.condition(model, param_map=observations),
             data=interventions)
 
     tr = handlers.trace(model).get_trace()
