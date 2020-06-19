@@ -218,8 +218,13 @@ class block(Messenger):
        >>> assert 'a' not in trace_block_a
        >>> assert 'b' in trace_block_a
     """
-    def __init__(self, fn=None, hide_fn=lambda msg: True):
-        self.hide_fn = hide_fn
+    def __init__(self, fn=None, hide_fn=None, hide=None):
+        if hide_fn is not None:
+            self.hide_fn = hide_fn
+        elif hide is not None:
+            self.hide_fn = lambda msg: msg.get('name') in hide
+        else:
+            self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)
 
     def process_message(self, msg):
