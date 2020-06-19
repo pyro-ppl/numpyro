@@ -19,28 +19,14 @@ class PytreeTrace:
     def tree_flatten(self):
         trace, aux_trace = {}, {}
         for name, site in self.trace.items():
-            if site['type'] == 'sample':
-                site_main, site_aux = {}, {}
+            if site['type'] in ['sample', 'deterministic']:
+                trace[name], aux_trace[name] = {}, {'_control_flow_done': True}
                 for key in site:
-                    if key in ['type', 'name', 'scale', 'is_observed', 'cond_indep_stack']:
-                        site_aux[key] = site[key]
-                    elif key == 'kwargs':
-                        # XXX: should we record a batch of rng_keys? maybe unnecessary
-                        site_aux['kwargs'] = {'rng_key': None, 'sample_shape': site['kwargs']['sample_shape']}
-                    elif key == 'mask':
-                        if isinstance(site['mask'], bool):
-                            site_aux['mask'] = site['mask']
-                        else:
-                            site_main['mask'] = site['mask']
-                    # XXX: we block the scan body_fn so those sites will have 'stop' field;
-                    # here we remove that field!
+                    if key in ['fn', 'args', 'value', 'intermediates']:
+                        trace[name][key] = site[key]
+                    # scanned sites have stop field because we trace them inside a block handler
                     elif key != 'stop':
-                        site_main[key] = site[key]
-                trace[name] = site_main
-                aux_trace[name] = site_aux
-            elif site['type'] == 'deterministic':
-                trace[name] = {'value': site['value']}
-                aux_trace[name] = {'type': 'deterministic', 'name': name}
+                        aux_trace[name][key] = site[key]
         return (trace,), aux_trace
 
     @classmethod
@@ -58,27 +44,26 @@ def _subs_wrapper(subs_map, i, length, site):
     elif callable(subs_map):
         rng_key = site['kwargs'].get('rng_key')
         subs_map = handlers.seed(subs_map, rng_seed=rng_key) if rng_key is not None else subs_map
-        # we only collect the output and block any new sites created in substitute_fn
-        # those new sites will be addressed when we apply `apply_stack` on scanned messages.
-        # (this is needed for log_det term in uncontrained_reparam)
-        with handlers.block():
-            value = subs_map(site)
+        value = subs_map(site)
 
     if value is not None:
         value_ndim = jnp.ndim(value)
         sample_shape = site['kwargs']['sample_shape']
         fn_ndim = len(sample_shape + site['fn'].shape())
         if value_ndim == fn_ndim:
+            # this branch happens when substitute_fn is init_strategy,
+            # where we apply init_strategy to each element in the scanned series
             return value
         elif value_ndim == fn_ndim + 1:
+            # this branch happens when we substitute a series of values
             shape = jnp.shape(value)
             if shape[0] == length:
                 return value[i]
             elif shape[0] < length:
                 rng_key = site['kwargs']['rng_key']
                 assert rng_key is not None
-                # we use substituted values if i < shape[0] and generate
-                # a new sample otherwise
+                # we use the substituted values if i < shape[0]
+                # and generate a new sample otherwise
                 return lax.cond(i < shape[0],
                                 (value, i),
                                 lambda val: val[0][val[1]],
@@ -101,9 +86,12 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
 
         with handlers.block():
             seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
-            for subs_map in substitute_stack:
-                seeded_fn = handlers.substitute(
-                    seeded_fn, substitute_fn=partial(_subs_wrapper, subs_map, i, length))
+            for subs_type, subs_map in substitute_stack:
+                subs_fn = partial(_subs_wrapper, subs_map, i, length)
+                if subs_type == 'condition':
+                    seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
+                elif subs_type == 'substitute':
+                    seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
             with handlers.trace() as trace:
                 carry, y = seeded_fn(carry, x)
@@ -183,16 +171,6 @@ def scan(f, init, xs, length=None, reverse=False):
         (length, rng_key, carry), (pytree_trace, ys) = msg['value']
 
     for msg in pytree_trace.trace.values():
-        # XXX: it would be best to have a mechanism to block condition, substitute
-        # handlers from processing those messages; so we can
-        #   + use `condition` handler in scan_wrapper (currently, we use `substitute`
-        #     instead of `condition` there to avoid overwriting `is_observed` field)
-        #   + remove `block` handler in `subs_handler` (i.e. we also scanned those
-        #     extra sites, e.g. `log_det` sites, created in `substitute_fn`);
-        #     this will save a bit of computation in unconstrain_reparam,
-        #     where we can avoid recomputing those log_det terms here
-        # One solution is to add a flag `done` or something to block `condition`, `substitute`
-        # from reapplying on those sites.
         apply_stack(msg)
 
     return carry, ys

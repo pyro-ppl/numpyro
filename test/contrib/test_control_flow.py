@@ -13,7 +13,7 @@ from numpyro.contrib.control_flow.scan import scan
 
 
 def test_scan():
-    def target(T=10, q=1, r=1, phi=0., beta=0.):
+    def model(T=10, q=1, r=1, phi=0., beta=0.):
 
         def transition(state, i):
             x0, mu0 = state
@@ -32,8 +32,9 @@ def test_scan():
         return jnp.append(x0, x), jnp.append(y0, y)
 
     T = 10
-    kernel = NUTS(target)
-    mcmc = MCMC(kernel, 100, 100)
+    num_samples = 100
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, 100, num_samples)
     mcmc.run(jax.random.PRNGKey(0), T=T)
     assert set(mcmc.get_samples()) == {'x', 'y', 'y2', 'x_0', 'y_0'}
     mcmc.print_summary()
@@ -43,13 +44,12 @@ def test_scan():
     # this tests for the composition of condition and substitute
     # this also tests if we can use `vmap` for predictive.
     future = 5
-    predictive = Predictive(numpyro.handlers.condition(target, {'x': x}),
+    predictive = Predictive(numpyro.handlers.condition(model, {'x': x}),
                             samples, return_sites=['x', 'y', 'y2'], parallel=True)
     result = predictive(jax.random.PRNGKey(1), T=T + future)
-    assert_allclose(result['x'], jnp.broadcast_to(x, result['x'].shape))
-    # this is a bit unfortunately when we can't collect new predictions for `y`;
-    # this can be solved by adding a mechanism to block condition_fn/substitute_fn
-    # from reapplying scan sites as mentioned in the implemenetation of `scan`
-    assert_allclose(result['y'], samples['y'])
-    # it is fine to record deterministic sites!!
-    assert result['y2'].shape[1] == T + future
+    expected_shape = (num_samples, T + future)
+    assert result['x'].shape == expected_shape
+    assert result['y'].shape == expected_shape
+    assert result['y2'].shape == expected_shape
+    assert_allclose(result['x'][:, :T], jnp.broadcast_to(x, (num_samples, T)))
+    assert_allclose(result['y'][:, :T], samples['y'])

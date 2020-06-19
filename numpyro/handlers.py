@@ -271,12 +271,12 @@ class condition(Messenger):
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] != 'sample':
+        if (msg['type'] != 'sample') or msg.get('_control_flow_done', False):
             if msg['type'] == 'control_flow':
                 if self.param_map is not None:
-                    msg['kwargs']['substitute_stack'].append(self.param_map)
+                    msg['kwargs']['substitute_stack'].append(('condition', self.param_map))
                 if self.condition_fn is not None:
-                    msg['kwargs']['substitute_stack'].append(self.condition_fn)
+                    msg['kwargs']['substitute_stack'].append(('condition', self.condition_fn))
             return
 
         if self.param_map is not None:
@@ -493,12 +493,12 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] not in ('sample', 'param'):
+        if (msg['type'] not in ('sample', 'param')) or msg.get('_control_flow_done', False):
             if msg['type'] == 'control_flow':
                 if self.param_map is not None:
-                    msg['kwargs']['substitute_stack'].append(self.param_map)
+                    msg['kwargs']['substitute_stack'].append(('substitute', self.param_map))
                 if self.substitute_fn is not None:
-                    msg['kwargs']['substitute_stack'].append(self.substitute_fn)
+                    msg['kwargs']['substitute_stack'].append(('substitute', self.substitute_fn))
             return
 
         if self.param_map is not None:
