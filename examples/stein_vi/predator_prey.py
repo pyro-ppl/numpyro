@@ -8,7 +8,7 @@
 # %env JAX_DEBUG_NANS=True
 from jax.config import config
 config.update('jax_debug_nans', True)
-config.update('jax_disable_jit', True)
+# config.update('jax_disable_jit', True)
 import jax
 import jax.numpy as np
 import numpy as onp
@@ -81,7 +81,7 @@ def model(indices, observations):
 
 # %%
 svi = numpyro.infer.SVI(model, AutoDelta(model, init_strategy=init_to_median()), 
-                        numpyro.optim.Adam(1e-5), numpyro.infer.ELBO())
+                        numpyro.optim.Adam(1.0), numpyro.infer.ELBO())
 state = svi.init(rng_key, *data)
 update_fn = jax.jit(svi.update)
 pbar = tqdm(range(100_000))

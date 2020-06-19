@@ -55,7 +55,7 @@ def _runge_kutta_4(f: Callable[[float, np.ndarray], np.ndarray],
         return ((y, rng_key, lyapunov_loss), y)
     
     s = (y0, rng_key, np.array(0.))
-    (_, _, lyapunov_loss), res = scan(body_fn, s, np.arange(num_steps))
+    (_, _, lyapunov_loss), res = jax.lax.scan(body_fn, s, np.arange(num_steps))
     return res, lyapunov_loss
 
 def runge_kutta_4(f: Callable[[float, np.ndarray], np.ndarray], step_size=0.1, num_steps=10, dampening_rate=0.9, lyapunov_scale=1e-3,
