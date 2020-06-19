@@ -240,3 +240,19 @@ def test_plate_stack(shape):
 
     x = handlers.seed(guide, 0)()
     assert x.shape == shape
+
+
+def test_scope():
+    def fn():
+        return numpyro.sample('x', dist.Normal())
+
+    with handlers.trace() as trace:
+        with handlers.seed(rng_seed=1):
+            with handlers.scope(prefix='a'):
+                fn()
+            with handlers.scope(prefix='b'):
+                with handlers.scope(prefix='a'):
+                    fn()
+
+    assert 'a/x' in trace
+    assert 'b/a/x' in trace

@@ -51,6 +51,14 @@ scale
     :show-inheritance:
     :member-order: bysource
 
+scope
+-----
+.. autoclass:: numpyro.handlers.scope
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 seed
 ----
 .. autoclass:: numpyro.handlers.seed

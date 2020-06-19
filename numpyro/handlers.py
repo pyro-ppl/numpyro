@@ -92,6 +92,7 @@ __all__ = [
     'condition',
     'replay',
     'scale',
+    'scope',
     'seed',
     'substitute',
     'trace',
@@ -177,7 +178,8 @@ class replay(Messenger):
        -0.20584235
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
-    def __init__(self, fn, guide_trace):
+    def __init__(self, fn=None, guide_trace=None):
+        assert guide_trace is not None
         self.guide_trace = guide_trace
         super(replay, self).__init__(fn)
 
@@ -378,6 +380,37 @@ class scale(Messenger):
             return
 
         msg["scale"] = self.scale if msg.get('scale') is None else self.scale * msg['scale']
+
+
+class scope(Messenger):
+    """
+    This handler prepend a prefix followed by a ``/`` to the name of sample sites.
+
+    Example::
+
+    .. doctest::
+
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.handlers import scope, seed, trace
+       >>>
+       >>> def model():
+       ...     with scope(prefix="a"):
+       ...         with scope(prefix="b"):
+       ...             return numpyro.sample("x", dist.Bernoulli(0.5))
+       ...
+       >>> assert "a/b/x" in trace(seed(model, 0)).get_trace()
+
+    :param fn: Python callable with NumPyro primitives.
+    :param str prefix: a string to prepend to sample names
+    """
+    def __init__(self, fn=None, prefix=''):
+        self.prefix = prefix
+        super().__init__(fn)
+
+    def process_message(self, msg):
+        if msg.get('name'):
+            msg['name'] = f"{self.prefix}/{msg['name']}"
 
 
 class seed(Messenger):
