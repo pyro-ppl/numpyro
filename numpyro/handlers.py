@@ -96,6 +96,7 @@ __all__ = [
     'seed',
     'substitute',
     'trace',
+    'do'
 ]
 
 
