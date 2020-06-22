@@ -312,18 +312,18 @@ def ravel_pytree(pytree, *, batch_dims=0):
 
 
 def posdef(m):
-    mlambda, mvec = np.linalg.eigh(m)
-    if np.ndim(mlambda) >= 2:
-        mlambda = jax.vmap(lambda ml: np.diag(np.maximum(ml, 1e-5)), in_axes=tuple(range(np.ndim(mlambda) - 1)))(mlambda)
+    mlambda, mvec = jnp.linalg.eigh(m)
+    if jnp.ndim(mlambda) >= 2:
+        mlambda = jax.vmap(lambda ml: jnp.diag(jnp.maximum(ml, 1e-5)), in_axes=tuple(range(jnp.ndim(mlambda) - 1)))(mlambda)
     else:
-        mlambda = np.diag(np.maximum(mlambda, 1e-5))
-    return mvec @ mlambda @ np.swapaxes(mvec, -2, -1)
+        mlambda = jnp.diag(jnp.maximum(mlambda, 1e-5))
+    return mvec @ mlambda @ jnp.swapaxes(mvec, -2, -1)
 
 def sqrth(m):
-    mlambda, mvec = np.linalg.eigh(m)
-    if np.ndim(mlambda) >= 2:
-        mlambdasqrt = jax.vmap(lambda ml: np.diag(np.maximum(ml, 1e-5) ** 0.5), in_axes=tuple(range(np.ndim(mlambda) - 1)))(mlambda)
+    mlambda, mvec = jnp.linalg.eigh(m)
+    if jnp.ndim(mlambda) >= 2:
+        mlambdasqrt = jax.vmap(lambda ml: jnp.diag(jnp.maximum(ml, 1e-5) ** 0.5), in_axes=tuple(range(jnp.ndim(mlambda) - 1)))(mlambda)
     else:
-        mlambdasqrt = np.diag(np.maximum(mlambda, 1e-5) ** 0.5)
-    msqrt = mvec @ mlambdasqrt @ np.swapaxes(mvec, -2, -1)
+        mlambdasqrt = jnp.diag(jnp.maximum(mlambda, 1e-5) ** 0.5)
+    msqrt = mvec @ mlambdasqrt @ jnp.swapaxes(mvec, -2, -1)
     return msqrt
