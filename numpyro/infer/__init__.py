@@ -12,6 +12,7 @@ from numpyro.infer.initialization import (
 )
 from numpyro.infer.mcmc import HMC, MCMC, NUTS, SA
 from numpyro.infer.svi import SVI
+from numpyro.infer.stein import SVGD
 from numpyro.infer.util import (
     Predictive,
     log_likelihood

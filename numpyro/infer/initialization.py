@@ -6,6 +6,7 @@ from functools import partial
 from jax import random
 import jax.numpy as jnp
 
+import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to
 
@@ -93,3 +94,24 @@ def init_to_value(site=None, values={}):
             return values[site['name']]
         else:  # defer to default strategy
             return init_to_uniform(site)
+
+def init_with_noise(init_strategy, site=None, noise_scale=1.0):
+    if site is None:
+        return partial(init_with_noise, init_strategy, noise_scale=noise_scale)
+    vals = init_strategy(site)
+    if isinstance(site['fn'], dist.TransformedDistribution):
+        fn = site['fn'].base_dist
+    else:
+        fn = site['fn']
+    if vals is not None:
+        if site['type'] == 'param':
+            constraint = site['kwargs'].pop('constraint', dist.constraints.real)
+            base_transform = biject_to(constraint)
+        else:
+            base_transform = biject_to(fn.support)
+        rng_key = site['kwargs'].get('rng_key')
+        sample_shape = site['kwargs'].get('sample_shape')
+        unconstrained_init = dist.Normal(loc=base_transform.inv(vals), scale=noise_scale).sample(rng_key, sample_shape)
+        return base_transform(unconstrained_init)
+    else:
+        return None

@@ -275,19 +275,24 @@ def copy_docs_from(source_class, full_text=False):
 
 pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'event_size', 'dtype'])
 
-
 def _ravel_list(*leaves, batch_dims):
     leaves_metadata = tree_map(lambda l: pytree_metadata(
-        jnp.ravel(l), jnp.shape(l), jnp.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
-    leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.size for d in leaves_metadata)))
+        jnp.reshape(l, (*jnp.shape(l)[:batch_dims], -1)), jnp.shape(l), 
+        jnp.prod(jnp.shape(l)[batch_dims:], dtype='int32'), canonicalize_dtype(lax.dtype(l))), leaves)
+    leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.event_size for d in leaves_metadata)))
 
     def unravel_list(arr):
-        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
-                            m.shape).astype(m.dtype)
+        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.event_size), 
+                            m.shape[batch_dims:]).astype(m.dtype)
                 for i, m in enumerate(leaves_metadata)]
 
-    flat = jnp.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else jnp.array([])
-    return flat, unravel_list
+    def unravel_list_batched(arr):
+        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.event_size, axis=batch_dims),
+                           m.shape).astype(m.dtype)
+                for i, m in enumerate(leaves_metadata)]
+
+    flat = jnp.concatenate([m.flat for m in leaves_metadata], axis=-1) if leaves_metadata else jnp.array([])
+    return flat, unravel_list, unravel_list_batched
 
 
 def ravel_pytree(pytree, *, batch_dims=0):
@@ -304,6 +309,7 @@ def ravel_pytree(pytree, *, batch_dims=0):
         return flat, unravel_pytree, unravel_pytree_batched
     else:
         return flat, unravel_pytree
+
 
 def posdef(m):
     mlambda, mvec = np.linalg.eigh(m)

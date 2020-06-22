@@ -16,10 +16,10 @@ from jax.tree_util import tree_map
 from numpyro import handlers
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.guides import ReinitGuide
 from numpyro.infer import NUTS, MCMC
 from numpyro.infer.kernels import SteinKernel
 from numpyro.infer.util import transform_fn
+from numpyro.infer.guide import ReinitGuide
 from numpyro.util import fori_loop, ravel_pytree
 
 # TODO
