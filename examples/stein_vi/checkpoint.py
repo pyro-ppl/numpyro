@@ -2,7 +2,7 @@ import jax
 
 from examples.stein_vi.sm_dmm import model, guide
 from numpyro.examples.datasets import load_dataset, JSBCHORALES
-from numpyro.guides import WrappedGuide
+from numpyro.infer.guide import WrappedGuide
 from numpyro.infer import ELBO
 from numpyro.infer.kernels import RBFKernel
 from numpyro.infer.stein import SVGD

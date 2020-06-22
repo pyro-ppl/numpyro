@@ -115,15 +115,20 @@ def _unconstrain_reparam(params, site):
     name = site['name']
     if name in params:
         p = params[name]
-        support = site['fn'].support
+        if site['type'] == 'sample':
+            support = site['fn'].support 
+            event_dim = len(site['fn'].event_shape)
+        elif site['type'] == 'param':
+            support = site['kwargs'].pop('constraint', real)
+            event_dim = 0
         if support in [real, real_vector]:
             return p
         t = biject_to(support)
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)
-        log_det = sum_rightmost(log_det, jnp.ndim(log_det) - jnp.ndim(value) + len(site['fn'].event_shape))
-        if site['scale'] is not None:
+        log_det = sum_rightmost(log_det, jnp.ndim(log_det) - jnp.ndim(value) + event_dim)
+        if site.get('scale') is not None:
             log_det = site['scale'] * log_det
         numpyro.factor('_{}_log_det'.format(name), log_det)
         return value
