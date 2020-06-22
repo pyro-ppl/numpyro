@@ -242,6 +242,14 @@ def test_plate_stack(shape):
     assert x.shape == shape
 
 
+def test_block():
+    with handlers.trace() as trace:
+        with handlers.block(hide=['x']):
+            with handlers.seed(rng_seed=0):
+                numpyro.sample('x', dist.Normal())
+    assert 'x' not in trace
+
+
 def test_scope():
     def fn():
         return numpyro.sample('x', dist.Normal())
