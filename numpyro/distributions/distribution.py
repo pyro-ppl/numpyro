@@ -115,11 +115,11 @@ class Distribution(object):
                                        cls.tree_unflatten)
 
     def tree_flatten(self):
-        return tuple(getattr(self, param) for param in self.arg_constraints.keys()), None
+        return tuple(getattr(self, param) for param in sorted(self.arg_constraints.keys())), None
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
-        return cls(*params)
+        return cls(**dict(zip(sorted(cls.arg_constraints.keys()), params)))
 
     @staticmethod
     def set_default_validate_args(value):

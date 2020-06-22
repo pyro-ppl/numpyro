@@ -138,6 +138,26 @@ def scan(f, init, xs, length=None, reverse=False):
        ...     x, y = gaussian_hmm()
        >>> assert x.shape == (10,) and y.shape == (10,)
 
+    .. warning:: This is an experimental utility function that allows users to use
+        JAX control flow with NumPyro's effect handlers. Currently, `sample` and
+        `deterministic` sites within the scan body `f` are supported. If you notice
+        that any effect handlers or distributions are unsupported, please file an issue.
+
+    .. note:: It is ambiguous to align `scan` dimension inside a `plate` context.
+        So the following pattern won't be supported
+
+            with numpyro.plate('N', 10):
+                last, ys = scan(f, init, xs)
+
+        All `plate` statements should be put inside `f`. For example, the corresponding
+        working code is
+
+            def g(*args, **kwargs):
+                with numpyro.plate('N', 10):
+                    return f(*arg, **kwargs)
+
+            last, ys = scan(g, init, xs)
+
     :param callable f: a function to be scanned.
     :param init: the initial carrying state
     :param xs: the values over which we scan along the leading axis. This can
