@@ -9,10 +9,25 @@
 # Copyright (c) 2003-2019 SciPy Developers.
 # All rights reserved.
 from contextlib import contextmanager
+try:
+    from scipy._lib._util import getargspec_no_self
+except ImportError:
+    from collections import namedtuple
+    from scipy._lib._util import getfullargspec_no_self
 
-from scipy._lib._util import getargspec_no_self
+    ArgSpec = namedtuple('ArgSpec', ['args', 'varargs', 'keywords', 'defaults'])
+
+    def getargspec_no_self(obj):
+        return ArgSpec(*getfullargspec_no_self(obj)[:4])
 import scipy.stats as osp_stats
-from scipy.stats._distn_infrastructure import instancemethod, rv_frozen, rv_generic
+from scipy.stats._distn_infrastructure import rv_frozen, rv_generic
+try:
+    from scipy.stats._distn_infrastructure import instancemethod
+except ImportError:
+    import types
+
+    def instancemethod(func, obj, cls):
+        return types.MethodType(func, obj)
 
 from jax import lax
 import jax.numpy as jnp
