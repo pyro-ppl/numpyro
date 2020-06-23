@@ -40,7 +40,7 @@ def kernel_approx(X, Z, eta1, eta2, c, jitter=1.0e-6, rank=0):
 
 
 #@partial(jit, static_argnums=(5,7,8))
-def lowrank_presolve(b, kX, D, eta1, eta2, c, kappa, rank1, rank2):
+def lowrank_presolve(kX, D, eta1, eta2, c, kappa, rank1, rank2):
     N, P = kX.shape
     all_ones = np.ones((N, 1))
     kappa_indices = np.argsort(kappa)
@@ -198,7 +198,7 @@ def cpcg_quad_form_log_det_jvp(eta1, eta2, diag, c, kX, kappa, probes, rank1, ra
     A_dot, b_dot = tangents
     D = b.shape[-1]
 
-    presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank1, rank2)
+    presolve = lowrank_presolve(kX, diag, eta1, eta2, c, kappa, rank1, rank2)
     mvm = lambda b: np.matmul(A, b)
 
     b_probes = np.concatenate([b[None, :], probes])
@@ -234,7 +234,7 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, 
     dkXsq = kappa_dot * Xsq
 
     mvm = lambda b: kernel_mvm_diag(b, kX, eta1, eta2, c, diag, dilation=dilation)
-    presolve = lowrank_presolve(b, kX, diag, eta1, eta2, c, kappa, rank1, rank2)
+    presolve = lowrank_presolve(kX, diag, eta1, eta2, c, kappa, rank1, rank2)
 
     b_probes = np.concatenate([b[None, :], probes])
     Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, mvm, presolve=presolve, epsilon=epsilon, max_iters=max_iters)

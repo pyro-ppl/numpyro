@@ -31,6 +31,8 @@ from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_lo
 from utils import CustomAdam, record_stats, kdot, sigmoid, sample_aux_noise, _fori_loop
 from mvm import kernel_mvm_diag, kernel_mvm
 
+from cg import kernel_mvm_diag, lowrank_presolve, pcg_batch_b
+
 
 # The kernel that corresponds to our quadratic logit function
 def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
@@ -77,7 +79,7 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
         log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    rank1, rank2 = 64, 16
+    rank1, rank2 = 32, 12
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
@@ -142,29 +144,46 @@ def compute_coefficient_mean_variance(X, Y, probe, vec, eta1, eta2, c, kappa, om
 
     return mu, var
 
-def process_singleton_svi(X, Y, samples, c, omega_chunk_size=8, probe_chunk_size=8):
+def process_singleton_svi(X, Y, samples, c, omega_chunk_size=8, probe_chunk_size=8, method="direct",
+                          rank1=64, rank2=16):
     kappa = samples['kappa'][-1]
     eta1, eta2 = samples['eta1'][-1], samples['eta2'][-1]
     P = X.shape[1]
 
     kX = kappa * X
-    k_xx = kernel(kX, kX, eta1, eta2, c)
 
-    fun = lambda omega: process_omega_singleton(k_xx, kX, kappa, omega, Y, P, eta1, eta2, c, probe_chunk_size)
+    if method == "direct":
+        k_xx = kernel(kX, kX, eta1, eta2, c)
+        fun = lambda omega: process_omega_singleton(k_xx, kX, kappa, omega, Y, P, eta1, eta2, c, probe_chunk_size)
+    elif method == "ppcg":
+        @jit
+        def fun(omega):
+            _fun = lambda dim: process_singleton_pcg(dim, P, kappa, kX, omega, Y, eta1, eta2, c, rank1, rank2)
+            return chunk_vmap(_fun, np.arange(P), chunk_size=probe_chunk_size)
+
     mu, var = chunk_vmap(fun, samples['omega'], chunk_size=omega_chunk_size)
     mu, var = gaussian_mixture_stats(mu, var)
 
     return mu, np.sqrt(var)
 
-def process_quad_svi(X, Y, samples, dim_pairs, c, omega_chunk_size=8, probe_chunk_size=8):
+def process_quad_svi(X, Y, samples, dim_pairs, c, omega_chunk_size=8, probe_chunk_size=8, method="direct",
+                     rank1=64, rank2=16):
     kappa = samples['kappa'][-1]
     eta1, eta2 = samples['eta1'][-1], samples['eta2'][-1]
     P = X.shape[1]
 
     kX = kappa * X
-    k_xx = kernel(kX, kX, eta1, eta2, c)
 
-    fun = lambda omega: process_omega_quad(dim_pairs, k_xx, kX, kappa, omega, Y, P, eta1, eta2, c, probe_chunk_size)
+    if method == "direct":
+        k_xx = kernel(kX, kX, eta1, eta2, c)
+        fun = lambda omega: process_omega_quad(dim_pairs, k_xx, kX, kappa, omega, Y, P, eta1, eta2, c, probe_chunk_size)
+    elif method == "ppcg":
+        @jit
+        def fun(omega):
+            _fun = lambda dim_pair: process_quad_pcg(dim_pair[0], dim_pair[1], P, kappa, kX, omega,
+                                                     Y, eta1, eta2, c, rank1, rank2)
+            return chunk_vmap(_fun, dim_pairs, chunk_size=probe_chunk_size)
+
     mu, var = chunk_vmap(fun, samples['omega'], chunk_size=omega_chunk_size)
     mu, var = gaussian_mixture_stats(mu, var)
 
@@ -193,12 +212,45 @@ def process_singleton(dim, P, kappa, kX, L, LL_Y, eta1, eta2, c):
     mu, var = process_probe(kappa * probe, kX, L, LL_Y, vec, eta1, eta2, c)
     return mu, var
 
+def process_singleton_pcg(dim, P, kappa, kX, omega, Y, eta1, eta2, c, rank1, rank2):
+    probe = np.zeros((2, P))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dim], np.array([1.0, -1.0]))
+    vec = np.array([0.50, -0.50])
+    mu, var = process_probe_pcg(kappa * probe, kX, kappa, omega, Y, vec, eta1, eta2, c, rank1, rank2)
+    return mu, var
+
 def process_quad(dim1, dim2, P, kappa, kX, L, LL_Y, eta1, eta2, c):
     probe = np.zeros((4, P))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dim1], np.array([1.0, 1.0, -1.0, -1.0]))
     probe = jax.ops.index_update(probe, jax.ops.index[:, dim2], np.array([1.0, -1.0, 1.0, -1.0]))
     vec = np.array([0.25, -0.25, -0.25, 0.25])
     mu, var = process_probe(kappa * probe, kX, L, LL_Y, vec, eta1, eta2, c)
+    return mu, var
+
+def process_quad_pcg(dim1, dim2, P, kappa, kX, omega, Y, eta1, eta2, c, rank1, rank2):
+    probe = np.zeros((4, P))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dim1], np.array([1.0, 1.0, -1.0, -1.0]))
+    probe = jax.ops.index_update(probe, jax.ops.index[:, dim2], np.array([1.0, -1.0, 1.0, -1.0]))
+    vec = np.array([0.25, -0.25, -0.25, 0.25])
+    mu, var = process_probe_pcg(kappa * probe, kX, kappa, omega, Y, vec, eta1, eta2, c, rank1, rank2)
+    return mu, var
+
+def process_probe_pcg(kprobe, kX, kappa, omega, Y, vec, eta1, eta2, c, rank1, rank2, dilation=4):
+    k_probeX = kernel(kprobe, kX, eta1, eta2, c)
+    k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
+    diag = 1.0 / omega
+
+    mvm = lambda b: kernel_mvm_diag(b, kX, eta1, eta2, c, diag, dilation=dilation)
+    presolve = lowrank_presolve(kX, diag, eta1, eta2, c, kappa, rank1, rank2)
+
+    Y_omega = 0.5 * Y / omega
+    Y_kprb = np.concatenate([Y_omega[None, :], k_probeX])
+    Kinv_Y_kprb, res_norm, iters = pcg_batch_b(Y_kprb, mvm, presolve=presolve, epsilon=1.0e-3, max_iters=200)
+
+    mu = np.dot(vec, np.dot(k_probeX, Kinv_Y_kprb[0]))
+
+    var = k_prbprb - np.matmul(Kinv_Y_kprb[1:], np.transpose(k_probeX))
+    var = np.dot(vec, np.matmul(var, vec))
     return mu, var
 
 def process_probe(kprobe, kX, L, LL_Y, vec, eta1, eta2, c):
@@ -248,7 +300,7 @@ def run_hmc(model, args, rng_key, X, Y, hypers):
 
     return samples, elapsed_time
 
-def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=32):
+def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=4):
     rng_key_init, rng_key_post = random.split(rng_key, 2)
     adam = CustomAdam(args['lr'])
     svi = SVI(model, guide, adam, ELBO())
@@ -386,7 +438,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [42000]:
+    for N in [800]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -405,14 +457,14 @@ def main(**args):
         print("leading lambda", onp.mean(samples['lambda'], axis=0)[:40])
         print("leading kappa", onp.mean(samples['kappa'], axis=0)[:40])
 
-        import sys; sys.exit()
-
         # compute the mean and square root variance of each coefficient theta_i
         #means, stds = chunk_vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers),
         #                         np.arange(P), chunk_size=999)
         #print("analyze_dimension time", time.time()-t0)
         t0 = time.time()
-        means, stds = process_singleton_svi(X, Y, samples, hypers['c'], omega_chunk_size=1, probe_chunk_size=256)
+        means, stds = process_singleton_svi(X, Y, samples, hypers['c'], omega_chunk_size=1, probe_chunk_size=256,
+                                            method='ppcg', rank1=64, rank2=16)
+                                            #method=args['inference'][4:])
         print("analyze_dimension time", time.time()-t0)
 
         results[N]['inf_time'] = inf_time
@@ -449,6 +501,7 @@ def main(**args):
         print("Identified a total of %d active dimensions; expected %d." % (len(active_dims),
                                                                             args['active_dimensions']))
 
+        #import sys; sys.exit()
         strictness = 5.0
 
         # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
@@ -459,7 +512,8 @@ def main(**args):
             dim_pairs = np.array(list(itertools.product(active_dims, active_dims)))
             #fun = lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers)
             #means, stds = chunk_vmap(fun, dim_pairs, chunk_size=32)
-            means, stds = process_quad_svi(X, Y, samples, dim_pairs, hypers['c'], omega_chunk_size=1, probe_chunk_size=256)
+            means, stds = process_quad_svi(X, Y, samples, dim_pairs, hypers['c'], omega_chunk_size=1, probe_chunk_size=256,
+                                           method='ppcg', rank1=64, rank2=16)
             results[N]['pairwise_coeff_means'] = onp.array(means).tolist()
             results[N]['pairwise_coeff_stds'] = onp.array(stds).tolist()
             for dim_pair, mean, std in zip(dim_pairs, means, stds):
@@ -501,20 +555,20 @@ def main(**args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
-    parser.add_argument("--inference", nargs="?", default='svi-ppcg', type=str,
+    parser.add_argument("--inference", nargs="?", default='svi-direct', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=4000, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=200, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=200, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=70, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
     parser.add_argument("--cg-tol", nargs='?', default=0.001, type=float)
     parser.add_argument("--active-dimensions", nargs='?', default=14, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
-    parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./very_large/', type=str)
     parser.add_argument("--double", action="store_true")
     args = parser.parse_args()
