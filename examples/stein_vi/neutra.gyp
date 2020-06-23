@@ -107,7 +107,7 @@ def make_iafs(num_iaf, input_dim, hidden_dims):
 # %%
 def neural_transport_guide(num_iaf=3, hidden_dims=[2,2]):
     flows = make_iafs(num_iaf, 2, hidden_dims)
-    particle = numpyro.param('particle', init_value=jnp.array([0.,0.]))
+    particle = numpyro.param('particle', jnp.array([0.,0.]))
     tparticle = ComposeTransform(flows)(particle)
     numpyro.sample('x', dist.Delta(tparticle))
 

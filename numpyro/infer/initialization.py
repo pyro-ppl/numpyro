@@ -54,7 +54,7 @@ def init_to_uniform(site=None, radius=2, reinit_param=lambda site: False):
     if (site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete) or\
           (site['type'] == 'param' and reinit_param(site)):
         rng_key = site['kwargs'].get('rng_key')
-        sample_shape = site['kwargs'].get('sample_shape')
+        sample_shape = site['kwargs'].get('sample_shape', ())
         rng_key, subkey = random.split(rng_key)
 
         # this is used to interpret the changes of event_shape in
