@@ -11,7 +11,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import biject_to
 
 
-def init_to_median(site=None, reinit_param=False, num_samples=15):
+def init_to_median(site=None, reinit_param=lambda site: False, num_samples=15):
     """
     Initialize to the prior median. For priors with no `.sample` method implemented,
     we defer to the :func:`init_to_uniform` strategy.
@@ -30,11 +30,11 @@ def init_to_median(site=None, reinit_param=False, num_samples=15):
         except NotImplementedError:
             return init_to_uniform(site)
 
-    if site['type'] == 'param' and reinit_param:
+    if site['type'] == 'param' and reinit_param(site):
         return site['value']
 
 
-def init_to_prior(site=None, reinit_param=False):
+def init_to_prior(site=None, reinit_param=lambda site: False):
     """
     Initialize to a prior sample. For priors with no `.sample` method implemented,
     we defer to the :func:`init_to_uniform` strategy.
@@ -42,7 +42,7 @@ def init_to_prior(site=None, reinit_param=False):
     return init_to_median(site, num_samples=1, reinit_param=reinit_param)
 
 
-def init_to_uniform(site=None, radius=2, reinit_param=False):
+def init_to_uniform(site=None, radius=2, reinit_param=lambda site: False):
     """
     Initialize to a random point in the area `(-radius, radius)` of unconstrained domain.
 
@@ -52,7 +52,7 @@ def init_to_uniform(site=None, radius=2, reinit_param=False):
         return partial(init_to_uniform, radius=radius, reinit_param=reinit_param)
 
     if (site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete) or\
-          (site['type'] == 'param' and reinit_param):
+          (site['type'] == 'param' and reinit_param(site)):
         rng_key = site['kwargs'].get('rng_key')
         sample_shape = site['kwargs'].get('sample_shape')
         rng_key, subkey = random.split(rng_key)
@@ -79,7 +79,7 @@ def init_to_uniform(site=None, radius=2, reinit_param=False):
         return transform(unconstrained_samples)
 
 
-def init_to_feasible(site=None, reinit_param=False):
+def init_to_feasible(site=None, reinit_param=lambda site: False):
     """
     Initialize to an arbitrary feasible point, ignoring distribution
     parameters.
@@ -87,7 +87,7 @@ def init_to_feasible(site=None, reinit_param=False):
     return init_to_uniform(site, radius=0, reinit_param=reinit_param)
 
 
-def init_to_value(site=None, values={}, reinit_param=False):
+def init_to_value(site=None, values={}, reinit_param=lambda site: False):
     """
     Initialize to the value specified in `values`. We defer to
     :func:`init_to_uniform` strategy for sites which do not appear in `values`.
@@ -97,13 +97,13 @@ def init_to_value(site=None, values={}, reinit_param=False):
     if site is None:
         return partial(init_to_value, values=values, reinit_param=reinit_param)
 
-    if (site['type'] == 'sample' and not site['is_observed']) or (site['type'] == 'param' and reinit_param):
+    if (site['type'] == 'sample' and not site['is_observed']) or (site['type'] == 'param' and reinit_param(site)):
         if site['name'] in values:
             return values[site['name']]
         else:  # defer to default strategy
             return init_to_uniform(site, reinit_param=reinit_param)
 
-def init_with_noise(init_strategy, site=None, noise_scale=1.0, reinit_param=False):
+def init_with_noise(init_strategy, site=None, noise_scale=1.0, reinit_param=lambda site: False):
     if site is None:
         return partial(init_with_noise, init_strategy, noise_scale=noise_scale, reinit_param=reinit_param)
     vals = init_strategy(site, reinit_param=reinit_param)

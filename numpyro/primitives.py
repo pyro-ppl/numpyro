@@ -6,9 +6,9 @@ from contextlib import contextmanager, ExitStack
 import functools
 
 from jax import lax
+import jax
 
 import numpyro
-from numpyro.distributions.discrete import PRNGIdentity
 from numpyro.util import identity
 
 _PYRO_STACK = []
@@ -140,6 +140,30 @@ def param(name, init_value=None, **kwargs):
     }
 
     # ...and use apply_stack to send it to the Messengers
+    msg = apply_stack(initial_msg)
+    return msg['value']
+
+
+def rng_key(name, count:int = 1, rng_key=None):
+    def new_rng_key(*, rng_key):
+        _, *keys = jax.random.split(rng_key, count + 1)
+        if count == 1:
+            return keys[0]
+        else:
+            return jax.numpy.stack(keys, axis=0)
+    
+    if not _PYRO_STACK:
+        return new_rng_key(rng_key=rng_key)
+    
+    initial_msg = {
+        'type': 'rng_key',
+        'name': name,
+        'value': None,
+        'fn': new_rng_key,
+        'args': (),
+        'kwargs': {'rng_key': rng_key}
+    }
+
     msg = apply_stack(initial_msg)
     return msg['value']
 

@@ -18,11 +18,11 @@ class ReinitGuide(ABC):
 
 
 class WrappedGuide(ReinitGuide):
-    def __init__(self, fn, reinit_hide_fn=lambda site: False, init_strategy=init_to_uniform(reinit_param=True)):
+    def __init__(self, fn, reinit_hide_fn=lambda site: site['name'].endswith('$params'), init_strategy=init_to_uniform):
         self.fn = fn
-        self.reinit_hide_fn = reinit_hide_fn
         self._init_params = None
-        self.init_strategy = init_strategy
+        self.init_strategy = init_strategy(reinit_param=lambda site: not reinit_hide_fn(site))
+        self._reinit_hide_fn = reinit_hide_fn
 
     def init_params(self):
         return self._init_params
@@ -32,7 +32,7 @@ class WrappedGuide(ReinitGuide):
 
         def _find_valid_params(rng_key):
             k1, k2 = jax.random.split(rng_key)
-            guide = handlers.seed(handlers.block(self.fn, self.reinit_hide_fn), k2)
+            guide = handlers.seed(handlers.block(self.fn, self._reinit_hide_fn), k2)
             guide_trace = handlers.trace(handlers.seed(self.fn, rng_key)).get_trace(*args, **kwargs)
             guide_params = {site['name']: site['value'] for site in guide_trace.values()
                             if (site['type'] == 'sample' and not site['is_observed']) or site['type'] == 'param'}
@@ -41,7 +41,7 @@ class WrappedGuide(ReinitGuide):
                                                                          model_kwargs=kwargs,
                                                                          prototype_params=guide_params)
             hidden_params = {name: site['value'] for name, site in guide_trace.items()
-                             if site['type'] == 'param' and self.reinit_hide_fn(site)}
+                             if site['type'] == 'param' and self._reinit_hide_fn(site)}
             res_params = {**mapped_params, **hidden_params}
             return res_params
 
