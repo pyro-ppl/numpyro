@@ -466,8 +466,8 @@ class seed(Messenger):
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if ((msg['type'] == 'sample' and not msg['is_observed']) or msg['type'] == 'rng_key')  and \
-                msg['kwargs']['rng_key'] is None:
+        if ((msg['type'] == 'sample' and not msg['is_observed']) or msg['type'] == 'rng_key' or msg['type'] == 'param')  and \
+                msg['kwargs'].get('rng_key') is None:
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg['kwargs']['rng_key'] = rng_key_sample
 

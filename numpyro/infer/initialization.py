@@ -115,10 +115,10 @@ def init_with_noise(init_strategy, site=None, noise_scale=1.0, reinit_param=lamb
         if site['type'] == 'param':
             constraint = site['kwargs'].pop('constraint', dist.constraints.real)
             base_transform = biject_to(constraint)
-        else:
+        elif site['type'] == 'sample':
             base_transform = biject_to(fn.support)
         rng_key = site['kwargs'].get('rng_key')
-        sample_shape = site['kwargs'].get('sample_shape')
+        sample_shape = site['kwargs'].get('sample_shape', ())
         unconstrained_init = dist.Normal(loc=base_transform.inv(vals), scale=noise_scale).sample(rng_key, sample_shape)
         return base_transform(unconstrained_init)
     else:

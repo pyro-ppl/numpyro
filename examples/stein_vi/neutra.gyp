@@ -93,28 +93,28 @@ sns.kdeplot(svgd.get_params(svgd_state)['auto_x'][:, 0], svgd.get_params(svgd_st
 
 # %%
 def make_iafs(num_iaf, input_dim, hidden_dims):
-    flows = []
-    for i in range(num_iaf):
-        arn = AutoregressiveNN(input_dim, hidden_dims, permutation=jnp.arange(input_dim),
-                               nonlinearity=stax.Elu)
-        arnn = numpyro.module(f'arn_{i}', arn, (input_dim,))
-        flows.append(InverseAutoregressiveTransform(arnn))
-        if i < num_iaf - 1:
-            flows.append(PermuteTransform(jnp.arange(input_dim)[::-1]))
-    return flows
+   flows = []
+   for i in range(num_iaf):
+       arn = AutoregressiveNN(input_dim, hidden_dims, permutation=jnp.arange(input_dim),
+                              nonlinearity=stax.Elu)
+       arnn = numpyro.module(f'arn_{i}', arn, (input_dim,))
+       flows.append(InverseAutoregressiveTransform(arnn))
+       if i < num_iaf - 1:
+           flows.append(PermuteTransform(jnp.arange(input_dim)[::-1]))
+   return flows
 
 
 # %%
 def neural_transport_guide(num_iaf=3, hidden_dims=[2,2]):
     flows = make_iafs(num_iaf, 2, hidden_dims)
-    particle = numpyro.param('particle', init_value=jnp.array([0,0]))
-    numpyro.sample('x', dist.TransformedDistribution(dist.Delta(particle), flows))
+    particle = numpyro.param('particle', init_value=jnp.array([0.,0.]))
+    tparticle = ComposeTransform(flows)(particle)
+    numpyro.sample('x', dist.Delta(tparticle))
 
 
 # %%
 rng_key = jax.random.PRNGKey(142)
-guide = WrappedGuide(neural_transport_guide,
-                     lambda site: site['name'].endswith("$params"))
+guide = WrappedGuide(neural_transport_guide)
 svgd = SVGD(dual_moon_model, 
             guide,
             Adam(step_size=0.01), ELBO(), RBFKernel(), num_particles=1000,
@@ -141,9 +141,9 @@ sns.kdeplot(samples['x'][:, 0], samples['x'][:, 1], n_levels=30, ax=ax)
 # %%
 def funnel_pdf(pos):
     prob = dist.Normal(0,3).log_prob(pos[:,:,1]) + dist.Normal(0, jnp.exp(pos[:,:,1]/2)).log_prob(pos[:,:,0])
-    return np.exp(prob)
-x, y = np.meshgrid(np.linspace(-20, 20, 500), np.linspace(-9, 9, 100))
-probs = funnel_pdf(np.stack([x, y], axis=-1))
+    return jnp.exp(prob)
+x, y = jnp.meshgrid(jnp.linspace(-20, 20, 500), jnp.linspace(-9, 9, 100))
+probs = funnel_pdf(jnp.stack([x, y], axis=-1))
 probs
 
 # %% [markdown]
@@ -152,13 +152,13 @@ probs
 # %%
 def funnel(dim=10):
     y = numpyro.sample('y', dist.Normal(0, 3))
-    numpyro.sample('x', dist.Normal(np.zeros(dim - 1), np.exp(y / 2)))
+    numpyro.sample('x', dist.Normal(jnp.zeros(dim - 1), jnp.exp(y / 2)))
 
 
 # %%
 dim = 10
 rng_key = jax.random.PRNGKey(142)
-guide = AutoDelta(funnel, init_strategy=init_with_noise(init_to_value({'x': np.array([0.]*(dim-1)), 'y': np.array([1.])}), noise_scale=3.0))
+guide = AutoDelta(funnel, init_strategy=init_with_noise(init_to_value(values={'x': jnp.array([0.]*(dim-1)), 'y': jnp.array(1.)}), noise_scale=3.0))
 svgd = SVGD(funnel, guide, Adam(step_size=0.01), ELBO(),
             RBFKernel(mode='vector'), num_particles=100)
 svgd_state = svgd.init(rng_key)
@@ -189,8 +189,8 @@ plt.show()
 # %%
 def neural_transport_guide(num_iaf=3, hidden_dims=[dim,dim]):
     flows = make_iafs(num_iaf, dim, hidden_dims)
-    particle = numpyro.param('particle', init_value=np.zeros(dim))
-    tparticle = dist.transforms.ComposeTransform(flows)(particle)
+    particle = numpyro.param('particle', np.zeros(dim))
+    tparticle = ComposeTransform(flows)(particle)
     numpyro.sample('y', dist.Delta(tparticle[0]))
     numpyro.sample('x', dist.Delta(tparticle[1:]))
 
@@ -199,7 +199,7 @@ def neural_transport_guide(num_iaf=3, hidden_dims=[dim,dim]):
 dim = 10
 rng_key = jax.random.PRNGKey(142)
 guide = WrappedGuide(neural_transport_guide, lambda site: site['name'].endswith("$params"),
-                     init_strategy=init_with_noise(init_to_value({'particle': np.zeros(dim)}), noise_scale=3.0))
+                     init_strategy=jax.partial(init_with_noise, jax.partial(init_to_value, values={'particle': np.zeros(dim)}), noise_scale=3.0))
 svgd = SVGD(funnel, guide, Adam(step_size=3e-4), ELBO(),
             RBFKernel(), num_particles=100,
             classic_guide_params_fn=lambda name: name.startswith("arn"))

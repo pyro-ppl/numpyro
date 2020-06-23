@@ -35,7 +35,8 @@ class WrappedGuide(ReinitGuide):
             guide = handlers.seed(handlers.block(self.fn, self._reinit_hide_fn), k2)
             guide_trace = handlers.trace(handlers.seed(self.fn, rng_key)).get_trace(*args, **kwargs)
             guide_params = {site['name']: site['value'] for site in guide_trace.values()
-                            if (site['type'] == 'sample' and not site['is_observed']) or site['type'] == 'param'}
+                            if (site['type'] == 'sample' and not site['is_observed']) or (site['type'] == 'param' and not self._reinit_hide_fn(site))}
+            print(guide_params)
             (mapped_params, _, _), _ = handlers.block(find_valid_initial_params)(k1, guide, init_strategy=self.init_strategy,
                                                                          model_args=args,
                                                                          model_kwargs=kwargs,
