@@ -92,25 +92,25 @@ def pcg_body_fun(state, mvm, presolve):
     return PCGState(x, r, p, z, r_dot_z, iteration + 1)
 
 
-def cg_cond_fun(state, epsilon=1.0e-14, max_iters=100):
-    return (np.sqrt(state.r_dot_r) > epsilon) & (state.iter < max_iters)
+def cg_cond_fun(state, cg_tol=1.0e-14, max_iters=100):
+    return (np.sqrt(state.r_dot_r) > cg_tol) & (state.iter < max_iters)
 
-def pcg_cond_fun(state, epsilon=1.0e-14, max_iters=100):
-    return (np.linalg.norm(state.r) > epsilon) & (state.iter < max_iters)
+def pcg_cond_fun(state, cg_tol=1.0e-14, max_iters=100):
+    return (np.linalg.norm(state.r) > cg_tol) & (state.iter < max_iters)
 
 
-def cg(b, A, epsilon=1.0e-4, max_iters=50):
+def cg(b, A, cg_tol=1.0e-4, max_iters=50):
     mvm = lambda rhs: np.matmul(A, rhs)
-    cond_fun = lambda state: cg_cond_fun(state, epsilon=epsilon, max_iters=max_iters)
+    cond_fun = lambda state: cg_cond_fun(state, cg_tol=cg_tol, max_iters=max_iters)
     body_fun = lambda state: cg_body_fun(state, mvm=mvm)
     init_state = CGState(np.zeros(b.shape[-1]), b, b, np.dot(b, b), 0)
     final_state = while_loop(cond_fun, body_fun, init_state)
     return final_state.x, np.sqrt(final_state.r_dot_r), final_state.iter
 
 
-def pcg(b, mvm, presolve, epsilon=1.0e-4, max_iters=4):
+def pcg(b, mvm, presolve, cg_tol=1.0e-4, max_iters=4):
     #mvm = lambda rhs: np.matmul(A, rhs)
-    cond_fun = lambda state: pcg_cond_fun(state, epsilon=epsilon, max_iters=max_iters)
+    cond_fun = lambda state: pcg_cond_fun(state, cg_tol=cg_tol, max_iters=max_iters)
     body_fun = lambda state: pcg_body_fun(state, mvm=mvm, presolve=presolve)
     z = presolve(b)
     init_state = PCGState(np.zeros(b.shape[-1]), b, z, z, np.dot(b, z), 0)
@@ -118,14 +118,14 @@ def pcg(b, mvm, presolve, epsilon=1.0e-4, max_iters=4):
     return final_state.x, np.linalg.norm(final_state.r), final_state.iter
 
 
-def cg_batch_b(b, A, epsilon=1.0e-14, max_iters=100):
-    return vmap(lambda _b: cg(_b, A, epsilon=epsilon, max_iters=max_iters))(b)
+def cg_batch_b(b, A, cg_tol=1.0e-14, max_iters=100):
+    return vmap(lambda _b: cg(_b, A, cg_tol=cg_tol, max_iters=max_iters))(b)
 
-def cg_batch_bA(b, A, epsilon=1.0e-14, max_iters=100):
-    return vmap(lambda _b, _A: cg(_b, _A, epsilon=epsilon, max_iters=max_iters))(b, A)
+def cg_batch_bA(b, A, cg_tol=1.0e-14, max_iters=100):
+    return vmap(lambda _b, _A: cg(_b, _A, cg_tol=cg_tol, max_iters=max_iters))(b, A)
 
-def pcg_batch_b(b, mvm, presolve=lambda rhs: rhs, epsilon=1.0e-14, max_iters=8):
-    return vmap(lambda _b: pcg(_b, mvm, presolve=presolve, epsilon=epsilon, max_iters=max_iters))(b)
+def pcg_batch_b(b, mvm, presolve=lambda rhs: rhs, cg_tol=1.0e-14, max_iters=8):
+    return vmap(lambda _b: pcg(_b, mvm, presolve=presolve, cg_tol=cg_tol, max_iters=max_iters))(b)
 
 
 # compute logdet A + b A^{-1} b
@@ -142,17 +142,17 @@ def direct_quad_form_log_det(A, b, include_log_det=True):
 
 # compute logdet A + b A^{-1} b
 @custom_jvp
-def cg_quad_form_log_det(A, b, probes, epsilon=1.0e-5, max_iters=100):
+def cg_quad_form_log_det(A, b, probes, cg_tol=1.0e-5, max_iters=100):
     return (np.nan, np.nan, np.nan)
 
 @cg_quad_form_log_det.defjvp
 def cg_quad_form_log_det_jvp(primals, tangents):
-    A, b, probes, epsilon, max_iters = primals
+    A, b, probes, cg_tol, max_iters = primals
     A_dot, b_dot, _, _, _ = tangents
     D = b.shape[-1]
 
     b_probes = np.concatenate([b[None, :], probes])
-    Ainv_b_probes, res_norm, iters = cg_batch_b(b_probes, A, epsilon=epsilon, max_iters=max_iters)
+    Ainv_b_probes, res_norm, iters = cg_batch_b(b_probes, A, cg_tol=cg_tol, max_iters=max_iters)
     Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
 
     quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
@@ -166,12 +166,12 @@ def cg_quad_form_log_det_jvp(primals, tangents):
 
 # compute logdet A + b A^{-1} b
 @custom_jvp
-def pcg_quad_form_log_det(A, b, probes, epsilon=1.0e-5, max_iters=20):
+def pcg_quad_form_log_det(A, b, probes, cg_tol=1.0e-5, max_iters=20):
     return np.nan
 
 @pcg_quad_form_log_det.defjvp
 def pcg_quad_form_log_det_jvp(primals, tangents):
-    A, b, probes, epsilon, max_iters = primals
+    A, b, probes, cg_tol, max_iters = primals
     A_dot, b_dot, _, _, _, _ = tangents
     D = b.shape[-1]
 
@@ -189,11 +189,11 @@ def pcg_quad_form_log_det_jvp(primals, tangents):
 
 # compute logdet A + b A^{-1} b
 @partial(custom_jvp, nondiff_argnums=(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
-def cpcg_quad_form_log_det(A, b, eta1, eta2, diag, c, kX, kappa, probes, rank1, rank2, epsilon, max_iters):
+def cpcg_quad_form_log_det(A, b, eta1, eta2, diag, c, kX, kappa, probes, rank1, rank2, cg_tol, max_iters):
     return (np.nan, np.nan, np.nan)
 
 @cpcg_quad_form_log_det.defjvp
-def cpcg_quad_form_log_det_jvp(eta1, eta2, diag, c, kX, kappa, probes, rank1, rank2, epsilon, max_iters, primals, tangents):
+def cpcg_quad_form_log_det_jvp(eta1, eta2, diag, c, kX, kappa, probes, rank1, rank2, cg_tol, max_iters, primals, tangents):
     A, b = primals
     A_dot, b_dot = tangents
     D = b.shape[-1]
@@ -202,7 +202,7 @@ def cpcg_quad_form_log_det_jvp(eta1, eta2, diag, c, kX, kappa, probes, rank1, ra
     mvm = lambda b: np.matmul(A, b)
 
     b_probes = np.concatenate([b[None, :], probes])
-    Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, mvm, presolve=presolve, epsilon=epsilon, max_iters=max_iters)
+    Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, mvm, presolve=presolve, cg_tol=cg_tol, max_iters=max_iters)
     Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
 
     quad_form_dA = -np.dot(Ainv_b, np.matmul(A_dot, Ainv_b))
@@ -215,14 +215,14 @@ def cpcg_quad_form_log_det_jvp(eta1, eta2, diag, c, kX, kappa, probes, rank1, ra
 
 
 @partial(custom_jvp, nondiff_argnums=(5, 6, 7, 8, 9, 10, 11, 12))
-def pcpcg_quad_form_log_det(kappa, b, eta1, eta2, diag, c, X, probes, rank1, rank2, epsilon, max_iters, dilation):
+def pcpcg_quad_form_log_det(kappa, b, eta1, eta2, diag, c, X, probes, rank1, rank2, cg_tol, max_iters, dilation):
     return (np.nan, np.nan, np.nan)
 
 def meansum(x):
     return np.sum(x) / x.shape[0]
 
 @pcpcg_quad_form_log_det.defjvp
-def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, dilation, primals, tangents):
+def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, dilation, primals, tangents):
     kappa, b, eta1, eta2, diag = primals
     kappa_dot, b_dot, eta1_dot, eta2_dot, diag_dot = tangents
 
@@ -237,7 +237,7 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, epsilon, max_iters, 
     presolve = lowrank_presolve(kX, diag, eta1, eta2, c, kappa, rank1, rank2)
 
     b_probes = np.concatenate([b[None, :], probes])
-    Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, mvm, presolve=presolve, epsilon=epsilon, max_iters=max_iters)
+    Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, mvm, presolve=presolve, cg_tol=cg_tol, max_iters=max_iters)
     Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
 
     eta1sq = np.square(eta1)
@@ -317,7 +317,7 @@ if __name__ == "__main__":
     def f3(_kappa, _b, _eta1, _eta2, _diag):
         kX = _kappa * X
         k = kernel(kX, kX, _eta1, _eta2, c) + np.diag(_diag)
-        return cg_quad_form_log_det(k, _b, probes, epsilon=1.0e-8, max_iters=300)[0]
+        return cg_quad_form_log_det(k, _b, probes, cg_tol=1.0e-8, max_iters=300)[0]
 
     which = 4
 
