@@ -71,8 +71,8 @@ def _subs_wrapper(subs_map, i, length, site):
                                 lambda val: site['fn'](rng_key=val, sample_shape=sample_shape))
             else:
                 raise RuntimeError(f"Substituted value for site {site['name']} "
-                                   "requires length greater than or equal to scan length."
-                                   f" Expected length >= {length}, but got {shape[0]}.")
+                                   "requires length less than or equal to scan length."
+                                   f" Expected length <= {length}, but got {shape[0]}.")
         else:
             raise RuntimeError(f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim+1},"
                                f" but got {value_ndim}. Please report the issue to us!")
