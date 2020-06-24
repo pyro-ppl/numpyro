@@ -134,7 +134,12 @@ class trace(Messenger):
         return self.trace
 
     def postprocess_message(self, msg):
-        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), 'all sites must have unique names'
+        if 'name' not in msg:
+            # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
+            # which has no name
+            return
+        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), \
+            'all sites must have unique names but got `{}` duplicated'.format(msg['name'])
         self.trace[msg['name']] = msg.copy()
 
     def get_trace(self, *args, **kwargs):
@@ -273,7 +278,12 @@ class condition(Messenger):
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] != 'sample':
+        if (msg['type'] != 'sample') or msg.get('_control_flow_done', False):
+            if msg['type'] == 'control_flow':
+                if self.param_map is not None:
+                    msg['kwargs']['substitute_stack'].append(('condition', self.param_map))
+                if self.condition_fn is not None:
+                    msg['kwargs']['substitute_stack'].append(('condition', self.condition_fn))
             return
 
         if self.param_map is not None:
@@ -471,8 +481,8 @@ class seed(Messenger):
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample' and not msg['is_observed'] and \
-                msg['kwargs']['rng_key'] is None:
+        if (msg['type'] == 'sample' and not msg['is_observed'] and
+                msg['kwargs']['rng_key'] is None) or msg['type'] == 'control_flow':
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg['kwargs']['rng_key'] = rng_key_sample
 
@@ -521,7 +531,12 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] not in ('sample', 'param'):
+        if (msg['type'] not in ('sample', 'param')) or msg.get('_control_flow_done', False):
+            if msg['type'] == 'control_flow':
+                if self.param_map is not None:
+                    msg['kwargs']['substitute_stack'].append(('substitute', self.param_map))
+                if self.substitute_fn is not None:
+                    msg['kwargs']['substitute_stack'].append(('substitute', self.substitute_fn))
             return
 
         if self.param_map is not None:

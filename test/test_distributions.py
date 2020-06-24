@@ -1125,3 +1125,28 @@ def test_mask(batch_shape, event_shape, mask_shape):
     samples = jax_dist.sample(random.PRNGKey(1))
     actual = jax_dist.mask(mask).log_prob(samples)
     assert_allclose(actual != 0, jnp.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
+def test_dist_pytree(jax_dist, sp_dist, params):
+    def f(x):
+        return jax_dist(*params)
+
+    if jax_dist is _ImproperWrapper:
+        pytest.skip('Cannot flattening ImproperUniform')
+    jax.jit(f)(0)  # this test for flatten/unflatten
+    lax.map(f, np.ones(3))  # this test for compatibility w.r.t. scan
+
+
+@pytest.mark.parametrize('method, arg', [
+    ('to_event', 1),
+    ('mask', False),
+    ('expand', [5]),
+])
+def test_special_dist_pytree(method, arg):
+    def f(x):
+        d = dist.Normal(np.zeros(1), np.ones(1))
+        return getattr(d, method)(arg)
+
+    jax.jit(f)(0)
+    lax.map(f, np.ones(3))
