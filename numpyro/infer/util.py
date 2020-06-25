@@ -210,7 +210,14 @@ def find_valid_initial_params(rng_key, model,
             model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
             constrained_values, inv_transforms = {}, {}
             for k, v in model_trace.items():
-                if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
+                if prototype_params is not None and k in prototype_params:
+                    constrained_values[k] = v['value']
+                    if v['type'] == 'sample':
+                        inv_transforms[k] = biject_to(v['fn'].support)
+                    elif v['type'] == 'param':
+                        constraint = v['kwargs'].pop('constraint', real)
+                        inv_transforms[k] = biject_to(constraint)
+                elif v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
                     constrained_values[k] = v['value']
                     inv_transforms[k] = biject_to(v['fn'].support)
             params = transform_fn(inv_transforms,

@@ -34,9 +34,13 @@ class WrappedGuide(ReinitGuide):
             k1, k2 = jax.random.split(rng_key)
             guide = handlers.seed(handlers.block(self.fn, self._reinit_hide_fn), k2)
             guide_trace = handlers.trace(handlers.seed(self.fn, rng_key)).get_trace(*args, **kwargs)
+            prototype_params = {name: site['value'] for name, site in guide_trace.items()
+                                if (site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete) 
+                                    or (site['type'] == 'param' and not self._reinit_hide_fn(site))}
             (mapped_params, _, _), _ = handlers.block(find_valid_initial_params)(k1, guide, init_strategy=self.init_strategy,
                                                                          model_args=args,
-                                                                         model_kwargs=kwargs)
+                                                                         model_kwargs=kwargs,
+                                                                         prototype_params=prototype_params)
             hidden_params = {name: site['value'] for name, site in guide_trace.items()
                              if site['type'] == 'param' and self._reinit_hide_fn(site)}
             res_params = {**mapped_params, **hidden_params}

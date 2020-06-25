@@ -31,7 +31,7 @@ def init_to_median(site=None, reinit_param=lambda site: False, num_samples=15):
             return init_to_uniform(site)
 
     if site['type'] == 'param' and reinit_param(site):
-        return site['value']
+        return site['value'] if site['value'] is not None else site['args'][0]
 
 
 def init_to_prior(site=None, reinit_param=lambda site: False):
@@ -70,7 +70,7 @@ def init_to_uniform(site=None, radius=2, reinit_param=lambda site: False):
                 prototype_value = jnp.full(site['fn'].shape(), jnp.nan)
             transform = biject_to(site['fn'].support)
         elif site['type'] == 'param':
-            prototype_value = site['value']
+            prototype_value = site['value'] if site['value'] is not None else site['args'][0]
             constraint = site['kwargs'].pop('constraint', dist.constraints.real)
             transform = biject_to(constraint)
         unconstrained_shape = jnp.shape(transform.inv(prototype_value))
