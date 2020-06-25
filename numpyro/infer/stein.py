@@ -16,7 +16,7 @@ from jax.tree_util import tree_map
 from numpyro import handlers
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.infer import NUTS, MCMC
+from numpyro.infer import NUTS, MCMC, VI
 from numpyro.infer.kernels import SteinKernel
 from numpyro.infer.util import transform_fn
 from numpyro.infer.guide import ReinitGuide
@@ -29,18 +29,17 @@ SVGDState = namedtuple('SVGDState', ['optim_state', 'rng_key'])
 
 
 # Lots of code based on SVI interface and commonalities should be refactored
-class SVGD:
+class SVGD(VI):
     STRFTIME = "%H%M%S_%d%m%Y"
     STATE_FILE = 'state.pbz2'
     TRANSFORMS_FILE = 'transforms.pbz2'
     INV_TRANSFORMS_FILE = 'inv_transforms.pbz2'
     GUIDE_PARAM_NAMES_FILE = 'guide_param_names.pbz2'
 
-    def __init__(self, model, guide: ReinitGuide, optim, loss, kernel_fn: SteinKernel,
-                 num_particles: int = 10, loss_temperature: float = 1.0, repulsion_temperature: float = 1.0,
-                 classic_guide_params_fn: Callable[[str], bool] = lambda name: False,
-                 sp_mcmc_crit='infl', sp_mode='local',
-                 num_mcmc_particles: int = 0, num_mcmc_warmup: int = 100, num_mcmc_updates: int = 10,
+    def __init__(self, model, guide: ReinitGuide, optim, loss, kernel_fn: SteinKernel, num_particles: int = 10,
+                 loss_temperature: float = 1.0, repulsion_temperature: float = 1.0,
+                 classic_guide_params_fn: Callable[[str], bool] = lambda name: False, sp_mcmc_crit='infl',
+                 sp_mode='local', num_mcmc_particles: int = 0, num_mcmc_warmup: int = 100, num_mcmc_updates: int = 10,
                  sampler_fn=NUTS, sampler_kwargs=None, mcmc_kwargs=None, checkpoint_dir_path='checkpoints',
                  **static_kwargs):
         """
@@ -69,6 +68,7 @@ class SVGD:
         :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
             that remain constant during fitting.
         """
+        super().__init__(model, guide, optim, loss, **static_kwargs)
         assert sp_mcmc_crit == 'infl' or sp_mcmc_crit == 'rand'
         assert sp_mode == 'local' or sp_mode == 'global'
         assert 0 <= num_mcmc_particles <= num_particles
@@ -374,27 +374,6 @@ class SVGD:
                                                     *args, **kwargs, **self.static_kwargs)
         optim_state = self.optim.update(grads, optim_state)
         return SVGDState(optim_state, rng_key), loss_val
-
-    def run(self, rng_key, num_steps, *args, return_last=True, progbar=True, **kwargs):
-        def bodyfn(i, info):
-            svgd_state, losses = info
-            svgd_state, loss = self.update(svgd_state, *args, **kwargs)
-            losses = ops.index_update(losses, i, loss)
-            return svgd_state, losses
-
-        svgd_state = self.init(rng_key, *args, **kwargs)
-        losses = np.empty((num_steps,))
-        if not progbar:
-            svgd_state, losses = fori_loop(0, num_steps, bodyfn, (svgd_state, losses))
-        else:
-            bodyfn = jax.jit(bodyfn)
-            with tqdm.trange(num_steps) as t:
-                for i in t:
-                    svgd_state, losses = bodyfn(i, (svgd_state, losses))
-                    t.set_description('SVGD {:.5}'.format(losses[i]), refresh=False)
-                    t.update()
-        loss_res = losses[-1] if return_last else losses
-        return svgd_state, loss_res
 
     def evaluate(self, state, *args, **kwargs):
         """

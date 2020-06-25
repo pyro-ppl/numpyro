@@ -11,6 +11,7 @@ from numpyro.infer.initialization import (
     init_with_noise,
 )
 from numpyro.infer.mcmc import HMC, MCMC, NUTS, SA
+from numpyro.infer.vi import VI
 from numpyro.infer.svi import SVI
 from numpyro.infer.stein import SVGD
 from numpyro.infer.util import (
@@ -33,6 +34,7 @@ __all__ = [
     'NUTS',
     'Predictive',
     'SA',
+    'SVGD',
     'SVI',
-    'SVGD'
+    'VI'
 ]

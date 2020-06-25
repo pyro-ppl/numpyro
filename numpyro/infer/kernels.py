@@ -6,7 +6,7 @@ import jax.numpy as np
 import jax.scipy.stats
 import jax.scipy.linalg
 import numpyro.distributions as dist
-from numpyro.util import sqrth, posdef
+from numpyro.util import sqrth, posdef, safe_norm
 
 class PrecondMatrix(ABC):
     @abstractmethod
@@ -57,17 +57,21 @@ class RBFKernel(SteinKernel):
         return self._mode == 'norm' or (self.mode == 'matrix' and self.matrix_mode == 'norm_diag')
 
     def compute(self, particles, particle_info, loss_fn):
+        diffs = np.expand_dims(particles, axis=0) - np.expand_dims(particles, axis=1) # N x N (x D)
         if self._normed() and particles.ndim >= 2:
-            particles = np.linalg.norm(particles, ord=2, axis=-1) # N x D -> N
-        dists = np.expand_dims(particles, axis=0) - np.expand_dims(particles, axis=1) # N x N (x D)
-        dists = np.reshape(dists, (dists.shape[0] * dists.shape[1], -1)) # N * N x D
+            diffs = safe_norm(diffs, ord=2, axis=-1) # N x D -> N
+        diffs = np.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1)) # N * N (x D)
         factor = self.bandwidth_factor(particles.shape[0])
-        median = np.argsort(np.linalg.norm(np.abs(dists), ord=2, axis=-1))[int(dists.shape[0] / 2)]
-        bandwidth = np.abs(dists)[median] ** 2 * factor + 1e-5
+        if diffs.ndim >= 2:
+            diff_norms = safe_norm(diffs, ord=2, axis=-1)
+        else:
+            diff_norms = diffs
+        median = np.argsort(diff_norms)[int(diffs.shape[0] / 2)]
+        bandwidth = np.abs(diffs)[median] ** 2 * factor + 1e-5
         if self._normed():
             bandwidth = bandwidth[0]
         def kernel(x, y):
-            diff = np.linalg.norm(x - y, ord=2) if self._normed() and x.ndim >= 1 else x - y
+            diff = safe_norm(x - y, ord=2) if self._normed() and x.ndim >= 1 else x - y
             kernel_res = np.exp (- diff ** 2 / bandwidth)
             if self._mode == 'matrix':
                 if self.matrix_mode == 'norm_diag':
