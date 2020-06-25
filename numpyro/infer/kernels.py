@@ -108,7 +108,7 @@ class IMQKernel(SteinKernel):
 
     def compute(self, particles, particle_info, loss_fn):
         def kernel(x, y):
-            diff = np.linalg.norm(x - y, ord=2) if self._mode == 'norm' else x - y
+            diff = safe_norm(x - y, ord=2, axis=-1) if self._mode == 'norm' else x - y
             return (np.array(self.const) ** 2 + diff ** 2) ** self.expon
         return kernel
 
@@ -156,14 +156,18 @@ class RandomFeatureKernel(SteinKernel):
             self._random_weights = np.array(onpr.randn(*particles.shape))
             self._random_biases = np.array(onpr.rand(*particles.shape) * 2 * onp.pi)
         factor = self.bandwidth_factor(particles.shape[0])
-        if particles.ndim >= 2:
-            particles = np.linalg.norm(particles, ord=2, axis=-1) # N x D -> N
         if self.bandwidth_subset is not None:
             particles = particles[onpr.choice(particles.shape[0], self.bandwidth_subset)]
-        dists = np.expand_dims(particles, axis=0) - np.expand_dims(particles, axis=1) # N x N
-        dists = np.reshape(dists, (dists.shape[0] * dists.shape[1], -1)) # N * N x 1
-        median = np.argsort(np.linalg.norm(np.abs(dists), ord=2, axis=-1))[int(dists.shape[0] / 2)]
-        bandwidth = np.abs(dists)[median] ** 2 * factor + 1e-5
+        diffs = np.expand_dims(particles, axis=0) - np.expand_dims(particles, axis=1) # N x N x D
+        if particles.ndim >= 2:
+            diffs = safe_norm(diffs, ord=2, axis=-1) # N x N x D -> N x N
+        diffs = np.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1)) # N * N x 1
+        if diffs.ndim >= 2:
+            diff_norms = safe_norm(diffs, ord=2, axis=-1)
+        else:
+            diff_norms = diffs
+        median = np.argsort(diff_norms)[int(diffs.shape[0] / 2)]
+        bandwidth = np.abs(diffs)[median] ** 2 * factor + 1e-5
         def feature(x, w, b):
             return np.sqrt(2) * np.cos((x @ w + b) / bandwidth)
         def kernel(x, y):
