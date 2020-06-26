@@ -28,7 +28,7 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 
    >>> import jax.numpy as jnp
    >>> from jax import random, vmap
-   >>> from jax.scipy.special import logsumexp
+   >>> from jax.jscipy.special import logsumexp
    >>> import numpyro
    >>> import numpyro.distributions as dist
    >>> from numpyro import handlers

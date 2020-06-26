@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Callable, List, Dict, Tuple
-import numpy as onp
-import numpy.random as onpr
-import jax.numpy as np
+import numpy as np
+import numpy.random as npr
+import jax.numpy as jnp
 import jax.scipy.stats
 import jax.scipy.linalg
 import numpyro.distributions as dist
@@ -10,7 +10,7 @@ from numpyro.util import sqrth, posdef, safe_norm
 
 class PrecondMatrix(ABC):
     @abstractmethod
-    def compute(self, particles: np.ndarray, loss_fn: Callable[[np.ndarray], float]):
+    def compute(self, particles: jnp.ndarray, loss_fn: Callable[[jnp.ndarray], float]):
         """
         Computes a preconditioning matrix for a given set of particles and a loss function
         :param particles: The Stein particles to compute the preconditioning matrix from
@@ -28,7 +28,7 @@ class SteinKernel(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def compute(self, particles: np.ndarray, particle_info: Dict[str, Tuple[int, int]], loss_fn: Callable[[np.ndarray], float]):
+    def compute(self, particles: jnp.ndarray, particle_info: Dict[str, Tuple[int, int]], loss_fn: Callable[[jnp.ndarray], float]):
         """
         Computes the kernel function given the input Stein particles
         :param particles: The Stein particles to compute the kernel from
@@ -46,7 +46,7 @@ class RBFKernel(SteinKernel):
     :param matrix_mode: Either 'norm_diag' (default) for diagonal filled with the norm kernel or 'vector_diag' for diagonal of vector-valued kernel
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
     """
-    def __init__(self, mode='norm', matrix_mode='norm_diag', bandwidth_factor: Callable[[float], float]=lambda n: 1 / np.log(n)):
+    def __init__(self, mode='norm', matrix_mode='norm_diag', bandwidth_factor: Callable[[float], float]=lambda n: 1 / jnp.log(n)):
         assert mode == 'norm' or mode == 'vector' or mode == 'matrix'
         assert matrix_mode == 'norm_diag' or matrix_mode == 'vector_diag'
         self._mode = mode
@@ -57,27 +57,27 @@ class RBFKernel(SteinKernel):
         return self._mode == 'norm' or (self.mode == 'matrix' and self.matrix_mode == 'norm_diag')
 
     def compute(self, particles, particle_info, loss_fn):
-        diffs = np.expand_dims(particles, axis=0) - np.expand_dims(particles, axis=1) # N x N (x D)
+        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1) # N x N (x D)
         if self._normed() and particles.ndim >= 2:
             diffs = safe_norm(diffs, ord=2, axis=-1) # N x D -> N
-        diffs = np.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1)) # N * N (x D)
+        diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1)) # N * N (x D)
         factor = self.bandwidth_factor(particles.shape[0])
         if diffs.ndim >= 2:
             diff_norms = safe_norm(diffs, ord=2, axis=-1)
         else:
             diff_norms = diffs
-        median = np.argsort(diff_norms)[int(diffs.shape[0] / 2)]
-        bandwidth = np.abs(diffs)[median] ** 2 * factor + 1e-5
+        median = jnp.argsort(diff_norms)[int(diffs.shape[0] / 2)]
+        bandwidth = jnp.abs(diffs)[median] ** 2 * factor + 1e-5
         if self._normed():
             bandwidth = bandwidth[0]
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2) if self._normed() and x.ndim >= 1 else x - y
-            kernel_res = np.exp (- diff ** 2 / bandwidth)
+            kernel_res = jnp.exp (- diff ** 2 / bandwidth)
             if self._mode == 'matrix':
                 if self.matrix_mode == 'norm_diag':
-                    return kernel_res * np.identity(x.shape[0])
+                    return kernel_res * jnp.identity(x.shape[0])
                 else:
-                    return np.diag(kernel_res)
+                    return jnp.diag(kernel_res)
             else:
                 return kernel_res
         return kernel
@@ -109,7 +109,7 @@ class IMQKernel(SteinKernel):
     def compute(self, particles, particle_info, loss_fn):
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2, axis=-1) if self._mode == 'norm' else x - y
-            return (np.array(self.const) ** 2 + diff ** 2) ** self.expon
+            return (jnp.array(self.const) ** 2 + diff ** 2) ** self.expon
         return kernel
 
 class LinearKernel(SteinKernel):
@@ -123,7 +123,7 @@ class LinearKernel(SteinKernel):
     def mode(self):
         return self._mode
 
-    def compute(self, particles: np.ndarray, particle_info, loss_fn):
+    def compute(self, particles: jnp.ndarray, particle_info, loss_fn):
         def kernel(x, y):
             if x.ndim >= 1:
                 return x @ y + 1
@@ -138,7 +138,7 @@ class RandomFeatureKernel(SteinKernel):
     :param random_indices: The set of indices which to do random feature expansion on. (default None, meaning all indices)
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
     """
-    def __init__(self, bandwidth_subset=None, random_indices=None, bandwidth_factor: Callable[[float], float]=lambda n: 1 / np.log(n)):
+    def __init__(self, bandwidth_subset=None, random_indices=None, bandwidth_factor: Callable[[float], float]=lambda n: 1 / jnp.log(n)):
         assert bandwidth_subset is None or bandwidth_subset > 0
         self._mode = 'norm'
         self.bandwidth_subset = bandwidth_subset
@@ -153,27 +153,27 @@ class RandomFeatureKernel(SteinKernel):
 
     def compute(self, particles, particle_info, loss_fn):
         if self._random_weights is None:
-            self._random_weights = np.array(onpr.randn(*particles.shape))
-            self._random_biases = np.array(onpr.rand(*particles.shape) * 2 * onp.pi)
+            self._random_weights = jnp.array(npr.randn(*particles.shape))
+            self._random_biases = jnp.array(npr.rand(*particles.shape) * 2 * np.pi)
         factor = self.bandwidth_factor(particles.shape[0])
         if self.bandwidth_subset is not None:
-            particles = particles[onpr.choice(particles.shape[0], self.bandwidth_subset)]
-        diffs = np.expand_dims(particles, axis=0) - np.expand_dims(particles, axis=1) # N x N x D
+            particles = particles[npr.choice(particles.shape[0], self.bandwidth_subset)]
+        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1) # N x N x D
         if particles.ndim >= 2:
             diffs = safe_norm(diffs, ord=2, axis=-1) # N x N x D -> N x N
-        diffs = np.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1)) # N * N x 1
+        diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1)) # N * N x 1
         if diffs.ndim >= 2:
             diff_norms = safe_norm(diffs, ord=2, axis=-1)
         else:
             diff_norms = diffs
-        median = np.argsort(diff_norms)[int(diffs.shape[0] / 2)]
-        bandwidth = np.abs(diffs)[median] ** 2 * factor + 1e-5
+        median = jnp.argsort(diff_norms)[int(diffs.shape[0] / 2)]
+        bandwidth = jnp.abs(diffs)[median] ** 2 * factor + 1e-5
         def feature(x, w, b):
-            return np.sqrt(2) * np.cos((x @ w + b) / bandwidth)
+            return jnp.sqrt(2) * jnp.cos((x @ w + b) / bandwidth)
         def kernel(x, y):
             ws = self._random_weights if self.random_indices is None else self._random_weights[self.random_indices]
             bs = self._random_biases if self.random_indices is None else self._random_biases[self.random_indices]
-            return np.sum(jax.vmap(lambda w, b: feature(x, w, b) * feature(y, w, b))(ws, bs))
+            return jnp.sum(jax.vmap(lambda w, b: feature(x, w, b) * feature(y, w, b))(ws, bs))
         return kernel
 
 class MixtureKernel(SteinKernel):
@@ -234,19 +234,19 @@ class PrecondMatrixKernel(SteinKernel):
     def compute(self, particles, particle_info, loss_fn):
         qs = self.precond_matrix_fn.compute(particles, loss_fn)
         if self.precond_mode == 'const':
-            qs = np.expand_dims(np.mean(qs, axis=0), axis=0)
-        qs_inv = np.linalg.inv(qs)
+            qs = jnp.expand_dims(jnp.mean(qs, axis=0), axis=0)
+        qs_inv = jnp.linalg.inv(qs)
         qs_sqrt = sqrth(qs)
         qs_inv_sqrt = sqrth(qs_inv)
         inner_kernel = self.inner_kernel_fn.compute(particles, particle_info, loss_fn)
         def kernel(x, y):
             if self.precond_mode == 'const':
-                wxs = np.array([1.])
-                wys = np.array([1.])
+                wxs = jnp.array([1.])
+                wys = jnp.array([1.])
             else:
                 wxs = jax.nn.softmax(jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, posdef(q_inv)).log_prob(x))(particles, qs_inv))
                 wys = jax.nn.softmax(jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, posdef(q_inv)).log_prob(y))(particles, qs_inv))
-            return np.sum(jax.vmap(lambda qs, qis, wx, wy: wx * wy * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose()))(qs_sqrt, qs_inv_sqrt, wxs, wys), axis=0)
+            return jnp.sum(jax.vmap(lambda qs, qis, wx, wy: wx * wy * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose()))(qs_sqrt, qs_inv_sqrt, wxs, wys), axis=0)
         return kernel
 
 class GraphicalKernel(SteinKernel):
@@ -267,7 +267,7 @@ class GraphicalKernel(SteinKernel):
         local_kernels = []
         for pk, (start_idx, end_idx) in particle_info.items():
             pk_kernel_fn = self.local_kernel_fns.get(pk, self.default_kernel_fn)
-            pk_loss_fn = lambda ps: loss_fn(np.concatenate([particles[:, :start_idx], ps, particles[:, end_idx:]], axis=-1))
+            pk_loss_fn = lambda ps: loss_fn(jnp.concatenate([particles[:, :start_idx], ps, particles[:, end_idx:]], axis=-1))
             pk_kernel = pk_kernel_fn.compute(particles[:, start_idx:end_idx], {pk: (0, end_idx - start_idx)}, pk_loss_fn)
             local_kernels.append((pk_kernel, pk_kernel_fn.mode, start_idx, end_idx))
         def kernel(x, y):
@@ -275,9 +275,9 @@ class GraphicalKernel(SteinKernel):
             for kernel, mode, start_idx, end_idx in local_kernels:
                 v = kernel(x[start_idx:end_idx], y[start_idx:end_idx])
                 if mode == 'norm':
-                    v = v * np.identity(end_idx - start_idx)
+                    v = v * jnp.identity(end_idx - start_idx)
                 elif mode == 'vector':
-                    v = np.diag(v)
+                    v = jnp.diag(v)
                 kernel_res.append(v)
             return jax.scipy.linalg.block_diag(*kernel_res)
         return kernel

@@ -8,7 +8,7 @@ import numpyro.callbacks.callback as ncallback
 
 
 class VI(ABC):
-    def __init__(self, model, guide, optim, loss, name='VI', **static_kwargs):
+    def __init__(self, model, guide, optim, loss, name, **static_kwargs):
         self.model = model
         self.guide = guide
         self.loss = loss
