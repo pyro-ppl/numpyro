@@ -25,7 +25,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-import math
+import numpy as np
 
 from jax import device_put, lax
 from jax.dtypes import canonicalize_dtype
@@ -443,7 +443,7 @@ class PRNGIdentity(Distribution):
         super(PRNGIdentity, self).__init__(event_shape=(2,))
 
     def sample(self, key, sample_shape=()):
-        return jnp.reshape(random.split(key, math.prod(sample_shape)),
+        return jnp.reshape(random.split(key, np.prod(sample_shape)),
                            sample_shape + self.event_shape)
 
 
