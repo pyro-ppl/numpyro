@@ -443,7 +443,7 @@ class PRNGIdentity(Distribution):
         super(PRNGIdentity, self).__init__(event_shape=(2,))
 
     def sample(self, key, sample_shape=()):
-        return jnp.reshape(random.split(key, np.prod(sample_shape)),
+        return jnp.reshape(random.split(key, np.prod(sample_shape).astype(np.int32)),
                            sample_shape + self.event_shape)
 
 
