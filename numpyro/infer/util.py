@@ -55,6 +55,7 @@ def log_density(model, model_args, model_kwargs, params):
                 log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)
+
             if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
 
