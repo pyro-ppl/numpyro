@@ -302,6 +302,7 @@ def test_counterfactual_query(intervene, observe, flip):
             if interventions[name] != observations[name]:
                 assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]['value'])
 
+
 def test_block():
     with handlers.trace() as trace:
         with handlers.block(hide=['x']):
