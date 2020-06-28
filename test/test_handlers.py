@@ -273,8 +273,8 @@ def test_counterfactual_query(intervene, observe, flip):
             handlers.condition(model, param_map=observations),
             data=interventions)
 
-    tr = handlers.trace(model).get_trace()
-    actual_values = tr["_RETURN"]["value"]
+    with handlers.trace() as tr:
+        actual_values = model()
     for name in sites:
         # case 1: purely observational query like handlers.condition
         if not intervene and observe:
