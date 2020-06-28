@@ -30,3 +30,7 @@ factor
 module
 ------
 .. autofunction:: numpyro.primitives.module
+
+scan
+----
+.. autofunction:: numpyro.contrib.control_flow.scan

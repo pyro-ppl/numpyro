@@ -10,9 +10,9 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.distributions.constraints import _GreaterThan, _Interval
+from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
 from numpyro.distributions.transforms import biject_to
-from numpyro.distributions.util import sum_rightmost
+from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, while_loop
@@ -50,27 +50,15 @@ def log_density(model, model_args, model_kwargs, params):
         if site['type'] == 'sample':
             value = site['value']
             intermediates = site['intermediates']
-            mask = site['mask']
             scale = site['scale']
-            # Early exit when all elements are masked
-            if not_jax_tracer(mask) and mask is not None and not jnp.any(mask):
-                continue
             if intermediates:
                 log_prob = site['fn'].log_prob(value, intermediates)
             else:
                 log_prob = site['fn'].log_prob(value)
 
-            # Minor optimizations
-            # XXX: note that this may not work correctly for dynamic masks, provide
-            # explicit jax.DeviceArray for masking.
-            if mask is not None:
-                if scale is not None:
-                    log_prob = jnp.where(mask, scale * log_prob, 0.)
-                else:
-                    log_prob = jnp.where(mask, log_prob, 0.)
-            else:
-                if scale is not None:
-                    log_prob = scale * log_prob
+            if (scale is not None) and (not is_identically_one(scale)):
+                log_prob = scale * log_prob
+
             log_prob = jnp.sum(log_prob)
             log_joint = log_joint + log_prob
     return log_joint, model_trace
@@ -112,6 +100,7 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
         sites from the model. Defaults to `False`.
     :return: `dict` of transformed params.
     """
+
     def substitute_fn(site):
         if site['name'] in params:
             return biject_to(site['fn'].support)(params[site['name']])
@@ -126,7 +115,10 @@ def _unconstrain_reparam(params, site):
     name = site['name']
     if name in params:
         p = params[name]
-        t = biject_to(site['fn'].support)
+        support = site['fn'].support
+        if support in [real, real_vector]:
+            return p
+        t = biject_to(support)
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)
@@ -436,6 +428,7 @@ class Predictive(object):
 
     :return: dict of samples from the predictive distribution.
     """
+
     def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
                  return_sites=None, parallel=False):
         if posterior_samples is None and num_samples is None:
@@ -505,6 +498,7 @@ def log_likelihood(model, posterior_samples, *args, **kwargs):
     :param kwargs: model kwargs.
     :return: dict of log likelihoods at observation sites.
     """
+
     def single_loglik(samples):
         model_trace = trace(substitute(model, samples)).get_trace(*args, **kwargs)
         return {name: site['fn'].log_prob(site['value']) for name, site in model_trace.items()

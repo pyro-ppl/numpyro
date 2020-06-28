@@ -33,7 +33,8 @@ def test_mask(mask_last, use_jit):
     data = random.normal(random.PRNGKey(0), (N,))
     x = random.normal(random.PRNGKey(1), (N,))
     if use_jit:
-        log_joint = jit(log_density, static_argnums=(0,))(model, (data, mask), {}, {'x': x, 'y': x})[0]
+        log_joint = jit(lambda *args: log_density(*args)[0], static_argnums=(0,))(
+            model, (data, mask), {}, {'x': x, 'y': x})
     else:
         log_joint = log_density(model, (data, mask), {}, {'x': x, 'y': x})[0]
     log_prob_x = dist.Normal(0, 1).log_prob(x)
@@ -300,3 +301,26 @@ def test_counterfactual_query(intervene, observe, flip):
                 assert_allclose(interventions[name], actual_values[name])
             if interventions[name] != observations[name]:
                 assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]['value'])
+
+def test_block():
+    with handlers.trace() as trace:
+        with handlers.block(hide=['x']):
+            with handlers.seed(rng_seed=0):
+                numpyro.sample('x', dist.Normal())
+    assert 'x' not in trace
+
+
+def test_scope():
+    def fn():
+        return numpyro.sample('x', dist.Normal())
+
+    with handlers.trace() as trace:
+        with handlers.seed(rng_seed=1):
+            with handlers.scope(prefix='a'):
+                fn()
+            with handlers.scope(prefix='b'):
+                with handlers.scope(prefix='a'):
+                    fn()
+
+    assert 'a/x' in trace
+    assert 'b/a/x' in trace

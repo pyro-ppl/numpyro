@@ -1,8 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import os
 import glob
+import os
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 blacklist = ["/build/", "/dist/", "/pyro_api.egg"]

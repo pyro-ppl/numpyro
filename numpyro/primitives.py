@@ -98,7 +98,6 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         'args': (),
         'kwargs': {'rng_key': rng_key, 'sample_shape': sample_shape},
         'value': obs,
-        'mask': None,
         'scale': None,
         'is_observed': obs is not None,
         'intermediates': [],
@@ -257,6 +256,10 @@ class plate(Messenger):
 
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'plate'):
+            if msg['type'] == 'control_flow':
+                raise RuntimeError('Cannot use control flow primitive under a `plate` primitive.'
+                                   ' Please move those `plate` statements into the control flow'
+                                   ' body function.')
             return
 
         cond_indep_stack = msg['cond_indep_stack']

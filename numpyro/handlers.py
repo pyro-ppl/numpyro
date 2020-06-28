@@ -93,6 +93,7 @@ __all__ = [
     'condition',
     'replay',
     'scale',
+    'scope',
     'seed',
     'substitute',
     'trace',
@@ -135,7 +136,12 @@ class trace(Messenger):
         return self.trace
 
     def postprocess_message(self, msg):
-        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), 'all sites must have unique names'
+        if 'name' not in msg:
+            # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
+            # which has no name
+            return
+        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), \
+            'all sites must have unique names but got `{}` duplicated'.format(msg['name'])
         self.trace[msg['name']] = msg.copy()
 
     def get_trace(self, *args, **kwargs):
@@ -179,7 +185,8 @@ class replay(Messenger):
        -0.20584235
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
-    def __init__(self, fn, guide_trace):
+    def __init__(self, fn=None, guide_trace=None):
+        assert guide_trace is not None
         self.guide_trace = guide_trace
         super(replay, self).__init__(fn)
 
@@ -220,8 +227,13 @@ class block(Messenger):
        >>> assert 'a' not in trace_block_a
        >>> assert 'b' in trace_block_a
     """
-    def __init__(self, fn=None, hide_fn=lambda msg: True):
-        self.hide_fn = hide_fn
+    def __init__(self, fn=None, hide_fn=None, hide=None):
+        if hide_fn is not None:
+            self.hide_fn = hide_fn
+        elif hide is not None:
+            self.hide_fn = lambda msg: msg.get('name') in hide
+        else:
+            self.hide_fn = lambda msg: True
         super(block, self).__init__(fn)
 
     def process_message(self, msg):
@@ -268,7 +280,12 @@ class condition(Messenger):
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] != 'sample':
+        if (msg['type'] != 'sample') or msg.get('_control_flow_done', False):
+            if msg['type'] == 'control_flow':
+                if self.param_map is not None:
+                    msg['kwargs']['substitute_stack'].append(('condition', self.param_map))
+                if self.condition_fn is not None:
+                    msg['kwargs']['substitute_stack'].append(('condition', self.condition_fn))
             return
 
         if self.param_map is not None:
@@ -300,7 +317,63 @@ class mask(Messenger):
         if msg['type'] != 'sample':
             return
 
-        msg['mask'] = self.mask if msg['mask'] is None else self.mask & msg['mask']
+        msg['fn'] = msg['fn'].mask(self.mask)
+
+
+class reparam(Messenger):
+    """
+    Reparametrizes each affected sample site into one or more auxiliary sample
+    sites followed by a deterministic transformation [1].
+
+    To specify reparameterizers, pass a ``config`` dict or callable to the
+    constructor.  See the :mod:`numpyro.infer.reparam` module for available
+    reparameterizers.
+
+    Note some reparameterizers can examine the ``*args,**kwargs`` inputs of
+    functions they affect; these reparameterizers require using
+    ``handlers.reparam`` as a decorator rather than as a context manager.
+
+    [1] Maria I. Gorinova, Dave Moore, Matthew D. Hoffman (2019)
+        "Automatic Reparameterisation of Probabilistic Programs"
+        https://arxiv.org/pdf/1906.03028.pdf
+
+    :param config: Configuration, either a dict mapping site name to
+        :class:`~numpyro.infer.reparam.Reparam` ,
+        or a function mapping site to
+        :class:`~numpyro.infer.reparam.Reparam` or None.
+    :type config: dict or callable
+    """
+    def __init__(self, fn=None, config=None):
+        assert isinstance(config, dict) or callable(config)
+        self.config = config
+        super().__init__(fn)
+
+    def process_message(self, msg):
+        if msg["type"] != "sample":
+            return
+
+        if isinstance(self.config, dict):
+            reparam = self.config.get(msg["name"])
+        else:
+            reparam = self.config(msg)
+        if reparam is None:
+            return
+
+        new_fn, value = reparam(msg["name"], msg["fn"], msg["value"])
+
+        if value is not None:
+            if new_fn is None:
+                msg['type'] = 'deterministic'
+                msg['value'] = value
+                for key in list(msg.keys()):
+                    if key not in ('type', 'name', 'value'):
+                        del msg[key]
+                return
+
+            if msg["value"] is None:
+                msg["is_observed"] = True
+            msg["value"] = value
+        msg["fn"] = new_fn
 
 
 class scale(Messenger):
@@ -324,6 +397,37 @@ class scale(Messenger):
             return
 
         msg["scale"] = self.scale if msg.get('scale') is None else self.scale * msg['scale']
+
+
+class scope(Messenger):
+    """
+    This handler prepend a prefix followed by a ``/`` to the name of sample sites.
+
+    Example::
+
+    .. doctest::
+
+       >>> import numpyro
+       >>> import numpyro.distributions as dist
+       >>> from numpyro.handlers import scope, seed, trace
+       >>>
+       >>> def model():
+       ...     with scope(prefix="a"):
+       ...         with scope(prefix="b"):
+       ...             return numpyro.sample("x", dist.Bernoulli(0.5))
+       ...
+       >>> assert "a/b/x" in trace(seed(model, 0)).get_trace()
+
+    :param fn: Python callable with NumPyro primitives.
+    :param str prefix: a string to prepend to sample names
+    """
+    def __init__(self, fn=None, prefix=''):
+        self.prefix = prefix
+        super().__init__(fn)
+
+    def process_message(self, msg):
+        if msg.get('name'):
+            msg['name'] = f"{self.prefix}/{msg['name']}"
 
 
 class seed(Messenger):
@@ -379,8 +483,8 @@ class seed(Messenger):
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] == 'sample' and not msg['is_observed'] and \
-                msg['kwargs']['rng_key'] is None:
+        if (msg['type'] == 'sample' and not msg['is_observed'] and
+                msg['kwargs']['rng_key'] is None) or msg['type'] == 'control_flow':
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg['kwargs']['rng_key'] = rng_key_sample
 
@@ -429,7 +533,12 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] not in ('sample', 'param'):
+        if (msg['type'] not in ('sample', 'param')) or msg.get('_control_flow_done', False):
+            if msg['type'] == 'control_flow':
+                if self.param_map is not None:
+                    msg['kwargs']['substitute_stack'].append(('substitute', self.param_map))
+                if self.substitute_fn is not None:
+                    msg['kwargs']['substitute_stack'].append(('substitute', self.substitute_fn))
             return
 
         if self.param_map is not None:

@@ -78,11 +78,12 @@ _DIST_MAP = {
     dist.Chi2: lambda df: osp.chi2(df),
     dist.Dirichlet: lambda conc: osp.dirichlet(conc),
     dist.Exponential: lambda rate: osp.expon(scale=jnp.reciprocal(rate)),
-    dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1./rate),
+    dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1. / rate),
     dist.Gumbel: lambda loc, scale: osp.gumbel_r(loc=loc, scale=scale),
     dist.HalfCauchy: lambda scale: osp.halfcauchy(scale=scale),
     dist.HalfNormal: lambda scale: osp.halfnorm(scale=scale),
     dist.InverseGamma: lambda conc, rate: osp.invgamma(conc, scale=rate),
+    dist.Laplace: lambda loc, scale: osp.laplace(loc=loc, scale=scale),
     dist.LogNormal: lambda loc, scale: osp.lognorm(s=scale, scale=jnp.exp(loc)),
     dist.MultinomialProbs: lambda probs, total_count: osp.multinomial(n=total_count, p=probs),
     dist.MultinomialLogits: lambda logits, total_count: osp.multinomial(n=total_count,
@@ -96,7 +97,6 @@ _DIST_MAP = {
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
     dist.Logistic: lambda loc, scale: osp.logistic(loc=loc, scale=scale)
 }
-
 
 CONTINUOUS = [
     T(dist.Beta, 1., 2.),
@@ -126,6 +126,9 @@ CONTINUOUS = [
     T(_ImproperWrapper, constraints.positive, (), (3,)),
     T(dist.InverseGamma, jnp.array([1.7]), jnp.array([[2.], [3.]])),
     T(dist.InverseGamma, jnp.array([0.5, 1.3]), jnp.array([[1.], [3.]])),
+    T(dist.Laplace, 0., 1.),
+    T(dist.Laplace, 0.5, jnp.array([1., 2.5])),
+    T(dist.Laplace, jnp.array([1., -0.5]), jnp.array([2.3, 3.])),
     T(dist.LKJ, 2, 0.5, "onion"),
     T(dist.LKJ, 5, jnp.array([0.5, 1., 2.]), "cvine"),
     T(dist.LKJCholesky, 2, 0.5, "onion"),
@@ -172,6 +175,11 @@ CONTINUOUS = [
     T(dist.Uniform, jnp.array([0., 0.]), jnp.array([[2.], [3.]])),
 ]
 
+DIRECTIONAL = [
+    T(dist.VonMises, 2., 10.),
+    T(dist.VonMises, 2., jnp.array([150., 10.])),
+    T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.]), jnp.array([20., 30.])),
+]
 
 DISCRETE = [
     T(dist.BetaBinomial, 2., 5., 10),
@@ -291,7 +299,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 @pytest.mark.parametrize('prepend_shape', [
     (),
     (2,),
@@ -383,7 +391,7 @@ def test_pathwise_gradient(jax_dist, sp_dist, params):
         assert_allclose(actual_grad[i], expected_grad, rtol=0.005)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 @pytest.mark.parametrize('prepend_shape', [
     (),
     (2,),
@@ -510,7 +518,7 @@ def test_log_prob_LKJCholesky(dimension, concentration):
 
     actual_log_prob = d.log_prob(sample)
     expected_log_prob = beta_log_prob - affine_logdet - signed_stick_breaking_logdet
-    assert_allclose(actual_log_prob, expected_log_prob, rtol=1e-5)
+    assert_allclose(actual_log_prob, expected_log_prob, rtol=2e-5)
 
     assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=1e-7)
 
@@ -564,7 +572,7 @@ def test_gamma_poisson_log_prob(shape):
     assert_allclose(actual, expected, rtol=0.05)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_log_prob_gradient(jax_dist, sp_dist, params):
     if jax_dist in [dist.LKJ, dist.LKJCholesky]:
         pytest.skip('we have separated tests for LKJCholesky distribution')
@@ -596,7 +604,7 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
         assert_allclose(jnp.sum(actual_grad), expected_grad, rtol=0.01, atol=0.01)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("Improper distribution does not has mean/var implemented")
@@ -650,6 +658,15 @@ def test_mean_var(jax_dist, sp_dist, params):
 
         assert_allclose(jnp.mean(corr_samples, axis=0), expected_mean, atol=0.01)
         assert_allclose(jnp.std(corr_samples, axis=0), expected_std, atol=0.01)
+    elif jax_dist in [dist.VonMises]:
+        # circular mean = sample mean
+        assert_allclose(d_jax.mean, jnp.mean(samples, 0), rtol=0.05, atol=1e-2)
+
+        # circular variance
+        x, y = jnp.mean(jnp.cos(samples), 0), jnp.mean(jnp.sin(samples), 0)
+
+        expected_variance = 1 - jnp.sqrt(x ** 2 + y ** 2)
+        assert_allclose(d_jax.variance, expected_variance, rtol=0.05, atol=1e-2)
     else:
         if jnp.all(jnp.isfinite(d_jax.mean)):
             assert_allclose(jnp.mean(samples, 0), d_jax.mean, rtol=0.05, atol=1e-2)
@@ -657,7 +674,7 @@ def test_mean_var(jax_dist, sp_dist, params):
             assert_allclose(jnp.std(samples, 0), jnp.sqrt(d_jax.variance), rtol=0.05, atol=1e-2)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 @pytest.mark.parametrize('prepend_shape', [
     (),
     (2,),
@@ -1108,3 +1125,28 @@ def test_mask(batch_shape, event_shape, mask_shape):
     samples = jax_dist.sample(random.PRNGKey(1))
     actual = jax_dist.mask(mask).log_prob(samples)
     assert_allclose(actual != 0, jnp.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
+def test_dist_pytree(jax_dist, sp_dist, params):
+    def f(x):
+        return jax_dist(*params)
+
+    if jax_dist is _ImproperWrapper:
+        pytest.skip('Cannot flattening ImproperUniform')
+    jax.jit(f)(0)  # this test for flatten/unflatten
+    lax.map(f, np.ones(3))  # this test for compatibility w.r.t. scan
+
+
+@pytest.mark.parametrize('method, arg', [
+    ('to_event', 1),
+    ('mask', False),
+    ('expand', [5]),
+])
+def test_special_dist_pytree(method, arg):
+    def f(x):
+        d = dist.Normal(np.zeros(1), np.ones(1))
+        return getattr(d, method)(arg)
+
+    jax.jit(f)(0)
+    lax.map(f, np.ones(3))

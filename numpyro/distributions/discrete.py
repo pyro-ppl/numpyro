@@ -148,8 +148,8 @@ def Bernoulli(probs=None, logits=None, validate_args=None):
 
 @copy_docs_from(Distribution)
 class BinomialProbs(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'probs': constraints.unit_interval}
+    arg_constraints = {'probs': constraints.unit_interval,
+                       'total_count': constraints.nonnegative_integer}
     has_enumerate_support = True
     is_discrete = True
 
@@ -196,8 +196,8 @@ class BinomialProbs(Distribution):
 
 @copy_docs_from(Distribution)
 class BinomialLogits(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'logits': constraints.real}
+    arg_constraints = {'logits': constraints.real,
+                       'total_count': constraints.nonnegative_integer}
     has_enumerate_support = True
     is_discrete = True
 
@@ -394,6 +394,13 @@ class Delta(Distribution):
     def variance(self):
         return jnp.zeros(self.batch_shape + self.event_shape)
 
+    def tree_flatten(self):
+        return (self.value, self.log_density), self.event_dim
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params, event_dim=aux_data)
+
 
 class OrderedLogistic(CategoricalProbs):
     """
@@ -440,8 +447,8 @@ class PRNGIdentity(Distribution):
 
 @copy_docs_from(Distribution)
 class MultinomialProbs(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'probs': constraints.simplex}
+    arg_constraints = {'probs': constraints.simplex,
+                       'total_count': constraints.nonnegative_integer}
     is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
@@ -479,8 +486,8 @@ class MultinomialProbs(Distribution):
 
 @copy_docs_from(Distribution)
 class MultinomialLogits(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'logits': constraints.real_vector}
+    arg_constraints = {'logits': constraints.real_vector,
+                       'total_count': constraints.nonnegative_integer}
     is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):

@@ -16,6 +16,7 @@ from numpyro.distributions.continuous import (
     HalfCauchy,
     HalfNormal,
     InverseGamma,
+    Laplace,
     LKJCholesky,
     Logistic,
     LogNormal,
@@ -48,6 +49,7 @@ from numpyro.distributions.discrete import (
     PRNGIdentity,
     ZeroInflatedPoisson
 )
+from numpyro.distributions.directional import VonMises
 from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
@@ -91,6 +93,7 @@ __all__ = [
     'ImproperUniform',
     'Independent',
     'InverseGamma',
+    'Laplace',
     'LKJ',
     'LKJCholesky',
     'Logistic',
@@ -113,6 +116,7 @@ __all__ = [
     'TruncatedPolyaGamma',
     'Uniform',
     'Unit',
+    'VonMises',
     'ZeroInflatedPoisson',
 
 ]

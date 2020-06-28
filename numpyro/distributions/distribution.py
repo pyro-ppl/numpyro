@@ -30,7 +30,7 @@ from contextlib import contextmanager
 import warnings
 
 import jax.numpy as jnp
-from jax import lax
+from jax import lax, tree_util
 
 from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform
@@ -105,6 +105,21 @@ class Distribution(object):
     is_discrete = False
     reparametrized_params = []
     _validate_args = False
+
+    # register Distribution as a pytree
+    # ref: https://github.com/google/jax/issues/2916
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        tree_util.register_pytree_node(cls,
+                                       cls.tree_flatten,
+                                       cls.tree_unflatten)
+
+    def tree_flatten(self):
+        return tuple(getattr(self, param) for param in sorted(self.arg_constraints.keys())), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(**dict(zip(sorted(cls.arg_constraints.keys()), params)))
 
     @staticmethod
     def set_default_validate_args(value):
@@ -397,6 +412,43 @@ class ExpandedDistribution(Distribution):
     def variance(self):
         return jnp.broadcast_to(self.base_dist.variance, self.batch_shape + self.event_shape)
 
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_dist.tree_flatten()
+        # XXX: assume base_dist batch_shape = (3,), expand shape = (10, 3)
+        # when we vmap/scan base_dist, we get batch_shape = (n, 3), which is incompatible
+        # with (10, 3). One way is to return an expand dist with shape = (10, n, 3).
+        # However, this will complicate 'substitute' job because
+        # vmap/scan applies over the first dimension.
+        # So we want to get expand shape (n, 10, 3).
+        # For that, we need to find a way to convert base_dist batch_shape to (1, 3);
+        # but currently, we don't have a mechanism to do such job in NumPyro.
+        # Either way is a bit ambiguous... depending on which is time dimension
+        # we want to collect. So we raise an error here.
+        if len(self.batch_shape) != len(self.base_dist.batch_shape):
+            # NB: the following program will fail
+            #   def f(x):
+            #     return dist.Normal(x, np.ones(10)).expand([10])
+            #   vmap(f)(np.ones(3))
+            # because, for some reason, under vmap, base_dist.batch_shape is (), rather than (10,).
+            # This issue does not happen with other JAX transformations such as `jit` or `lax.map`.
+            # NB: vmap does not work for all distributions due to the issue
+            #   https://github.com/google/jax/issues/3265
+            # Anyway, it is fine to vmap a trace having scan(f) (see the discussions in the above
+            # issue). So we don't have to worry about it.
+            raise ValueError("base_dist's batch_shape and expand shape have different lengths."
+                             " This will lead to ambiguous results when unflattening a"
+                             " scanned/vmapped version of this distribution."
+                             " To avoid this issue, make sure that your base_dist's"
+                             " parameters have the same batch_shape as this expand distribution.")
+        return base_flatten, (type(self.base_dist), base_aux, self.batch_shape)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        base_cls, base_aux, batch_shape = aux_data
+        base_dist = base_cls.tree_unflatten(base_aux, params)
+        prepend_shape = base_dist.batch_shape[:len(base_dist.batch_shape) - len(batch_shape)]
+        return cls(base_dist, batch_shape=prepend_shape + batch_shape)
+
 
 class ImproperUniform(Distribution):
     """
@@ -433,7 +485,8 @@ class ImproperUniform(Distribution):
     or if you want to reparameterize it
 
        >>> from numpyro.distributions import TransformedDistribution, transforms
-       >>> from numpyro.contrib.reparam import reparam, TransformReparam
+       >>> from numpyro.handlers import reparam
+       >>> from numpyro.infer.reparam import TransformReparam
        >>>
        >>> def model():
        ...     a = sample('a', Normal(0, 1))
@@ -465,6 +518,14 @@ class ImproperUniform(Distribution):
         if batch_dim < jnp.ndim(mask):
             mask = jnp.all(jnp.reshape(mask, jnp.shape(mask)[:batch_dim] + (-1,)), -1)
         return mask
+
+    def tree_flatten(self):
+        raise NotImplementedError(
+            "Cannot flattening ImproperPrior distribution for general supports. "
+            "Please raising a feature request for your specific `support`. "
+            "Alternatively, you can use '.mask(False)' pattern. "
+            "For example, to define an improper prior over positive domain, "
+            "we can use the distribution `dist.LogNormal(0, 1).mask(False)`.")
 
 
 class Independent(Distribution):
@@ -535,6 +596,16 @@ class Independent(Distribution):
         log_prob = self.base_dist.log_prob(value)
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_dist.tree_flatten()
+        return base_flatten, (type(self.base_dist), base_aux, self.reinterpreted_batch_ndims)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        base_cls, base_aux, reinterpreted_batch_ndims = aux_data
+        base_dist = base_cls.tree_unflatten(base_aux, params)
+        return cls(base_dist, reinterpreted_batch_ndims)
+
 
 class MaskedDistribution(Distribution):
     """
@@ -595,6 +666,24 @@ class MaskedDistribution(Distribution):
     @property
     def variance(self):
         return self.base_dist.variance
+
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_dist.tree_flatten()
+        if isinstance(self._mask, bool):
+            return base_flatten, (type(self.base_dist), base_aux, self._mask)
+        else:
+            return (base_flatten, self._mask), (type(self.base_dist), base_aux)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        if len(aux_data) == 2:
+            base_flatten, mask = params
+            base_cls, base_aux = aux_data
+        else:
+            base_flatten = params
+            base_cls, base_aux, mask = aux_data
+        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
+        return cls(base_dist, mask)
 
 
 class TransformedDistribution(Distribution):
@@ -692,6 +781,13 @@ class TransformedDistribution(Distribution):
     @property
     def variance(self):
         raise NotImplementedError
+
+    def tree_flatten(self):
+        raise NotImplementedError(
+            "Flatenning TransformedDistribution is only supported for some specific cases."
+            " Consider using `TransformReparam` to convert this distribution to the base_dist,"
+            " which is supported in most situtations. In addition, please reach out to us with"
+            " your usage cases.")
 
 
 class Unit(Distribution):

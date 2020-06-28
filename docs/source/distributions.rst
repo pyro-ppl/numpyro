@@ -149,6 +149,14 @@ InverseGamma
     :show-inheritance:
     :member-order: bysource
 
+Laplace
+-------
+.. autoclass:: numpyro.distributions.continuous.Laplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LKJ
 ---
 .. autoclass:: numpyro.distributions.continuous.LKJ
@@ -168,6 +176,14 @@ LKJCholesky
 LogNormal
 ---------
 .. autoclass:: numpyro.distributions.continuous.LogNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+Logistic
+--------
+.. autoclass:: numpyro.distributions.continuous.Logistic
     :members:
     :undoc-members:
     :show-inheritance:
@@ -229,6 +245,14 @@ TruncatedNormal
     :show-inheritance:
     :member-order: bysource
 
+TruncatedPolyaGamma
+-------------------
+.. autoclass:: numpyro.distributions.continuous.TruncatedPolyaGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Uniform
 -------
 .. autoclass:: numpyro.distributions.continuous.Uniform
@@ -274,7 +298,7 @@ Binomial
 .. autofunction:: numpyro.distributions.discrete.Binomial
 
 BinomialLogits
----------------
+--------------
 .. autoclass:: numpyro.distributions.discrete.BinomialLogits
     :members:
     :undoc-members:
@@ -376,6 +400,19 @@ ZeroInflatedPoisson
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+
+Directional Distributions
+=========================
+
+VonMises
+--------
+.. autoclass:: numpyro.distributions.directional.VonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 
 Constraints
 ===========

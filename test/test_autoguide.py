@@ -6,7 +6,7 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import lax, random
 import jax.numpy as jnp
 from jax.test_util import check_eq
 
@@ -21,13 +21,13 @@ from numpyro.infer.autoguide import (
     AutoMultivariateNormal
 )
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
-from numpyro.contrib.reparam import TransformReparam, reparam
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.infer import ELBO, SVI
 from numpyro.infer.initialization import init_to_median
+from numpyro.infer.reparam import TransformReparam
 from numpyro.util import fori_loop
 
 init_strategy = init_to_median(num_samples=2)
@@ -163,7 +163,7 @@ def test_uniform_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        with reparam(config={'loc': TransformReparam()}):
+        with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
             loc = numpyro.sample('loc', dist.Uniform(0, alpha))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
@@ -231,7 +231,7 @@ def test_dynamic_supports():
 
     def actual_model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        with reparam(config={'loc': TransformReparam()}):
+        with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
             loc = numpyro.sample('loc', dist.Uniform(0, alpha))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
@@ -284,3 +284,19 @@ def test_laplace_approximation_warning():
     params = svi.get_params(svi_state)
     with pytest.warns(UserWarning, match="Hessian of log posterior"):
         guide.sample_posterior(random.PRNGKey(1), params)
+
+
+def test_improper():
+    y = random.normal(random.PRNGKey(0), (100,))
+
+    def model(y):
+        lambda1 = numpyro.sample('lambda1', dist.ImproperUniform(dist.constraints.real, (), ()))
+        lambda2 = numpyro.sample('lambda2', dist.ImproperUniform(dist.constraints.real, (), ()))
+        sigma = numpyro.sample('sigma', dist.ImproperUniform(dist.constraints.positive, (), ()))
+        mu = numpyro.deterministic('mu', lambda1 + lambda2)
+        numpyro.sample('y', dist.Normal(mu, sigma), obs=y)
+
+    guide = AutoDiagonalNormal(model)
+    svi = SVI(model, guide, optim.Adam(0.003), ELBO(), y=y)
+    svi_state = svi.init(random.PRNGKey(2))
+    lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(10000))

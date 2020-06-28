@@ -9,11 +9,11 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.contrib.reparam import NeuTraReparam, TransformReparam, reparam
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
 from numpyro.infer.autoguide import AutoIAFNormal
+from numpyro.infer.reparam import NeuTraReparam, TransformReparam
 from numpyro.infer.util import initialize_model
 from numpyro.infer import MCMC, NUTS, SVI, ELBO
 from numpyro.optim import Adam
@@ -53,7 +53,7 @@ def test_log_normal(shape):
         value = handlers.seed(model, 0)()
     expected_moments = get_moments(value)
 
-    with reparam(config={"x": TransformReparam()}):
+    with numpyro.handlers.reparam(config={"x": TransformReparam()}):
         with handlers.trace() as tr:
             value = handlers.seed(model, 0)()
     assert tr["x"]["type"] == "deterministic"
