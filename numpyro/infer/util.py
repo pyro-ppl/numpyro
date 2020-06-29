@@ -10,6 +10,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -47,7 +48,7 @@ def log_density(model, model_args, model_kwargs, params):
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
     for site in model_trace.values():
-        if site['type'] == 'sample':
+        if site['type'] == 'sample' and not isinstance(site['fn'], dist.PRNGIdentity):
             value = site['value']
             intermediates = site['intermediates']
             scale = site['scale']
