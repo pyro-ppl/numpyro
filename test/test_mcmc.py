@@ -41,8 +41,8 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     mcmc.print_summary()
     hmc_states = mcmc.get_samples()
-    assert_allclose(jnp.mean(hmc_states), true_mean, rtol=0.05)
-    assert_allclose(jnp.std(hmc_states), true_std, rtol=0.05)
+    assert_allclose(jnp.mean(hmc_states), true_mean, rtol=0.07)
+    assert_allclose(jnp.std(hmc_states), true_std, rtol=0.07)
 
     if 'JAX_ENABLE_X64' in os.environ:
         assert hmc_states.dtype == jnp.float64
