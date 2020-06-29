@@ -217,6 +217,9 @@ def test_initialize_model_change_point(init_strategy):
     init_params, _, _, _ = initialize_model(rng_keys, model,
                                             init_strategy=init_strategy,
                                             model_args=(count_data,))
+    if isinstance(init_strategy, partial) and init_strategy.func is init_to_value:
+        expected = biject_to(constraints.unit_interval).inv(init_strategy.keywords.get('values')['tau'])
+        assert_allclose(init_params[0]['tau'], jnp.repeat(expected, 2))
     for i in range(2):
         init_params_i, _, _, _ = initialize_model(rng_keys[i], model,
                                                   init_strategy=init_strategy,
