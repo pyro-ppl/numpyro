@@ -21,7 +21,7 @@ def ones(*sizes, **kwargs):
     elif len(sizes) == 1:
         if isinstance(sizes[0], (tuple, list)):
             sizes = sizes[0]
-    if not all([isinstance(s, int) for s in sizes]):
+    if not np.all([isinstance(s, int) for s in sizes]):
         raise ValueError('Invalid data type for `size` provided.')
     return jnp.ones(sizes, **kwargs)
 
@@ -32,6 +32,6 @@ def zeros(*sizes, **kwargs):
     elif len(sizes) == 1:
         if isinstance(sizes[0], (tuple, list)):
             sizes = sizes[0]
-    if not all([isinstance(s, int) for s in sizes]):
+    if not np.all([isinstance(s, int) for s in sizes]):
         raise ValueError('Invalid data type for `size` provided.')
     return jnp.ones(sizes, **kwargs)

@@ -365,10 +365,10 @@ def initialize_model(rng_key, model,
                                                     model_kwargs=model_kwargs)
 
     init_strategy = init_strategy if isinstance(init_strategy, partial) else init_strategy()
-    if init_strategy.func is init_to_value:
+    if (init_strategy.func is init_to_value) and not replay_model:
         init_values = init_strategy.keywords.get("values")
         unconstrained_values = transform_fn(inv_transforms, init_values, invert=True)
-        init_strategy = _init_to_unconstrained_value(values=unconstrained_values)
+        init_strategy = partial(_init_to_unconstrained_value, values=unconstrained_values)
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
     (init_params, pe, grad), is_valid = find_valid_initial_params(rng_key, model,
                                                                   init_strategy=init_strategy,
