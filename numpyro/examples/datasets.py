@@ -12,6 +12,7 @@ from urllib.request import urlretrieve
 
 import numpy as np
 
+import jax.numpy as jnp
 from jax import device_put, lax
 from jax.interpreters.xla import DeviceArray
 
@@ -226,7 +227,7 @@ def iter_dataset(dset, batch_size=None, split='train', shuffle=True):
         yield tuple(a[idxs[start_idx:end_idx]] for a in arrays)
 
 
-def load_dataset(dset, batch_size=None, split='train', shuffle=True):
+def load_dataset(dset, batch_size=None, split='train', shuffle=True, convert_to_jax=False):
     arrays = _load(dset)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
@@ -234,7 +235,12 @@ def load_dataset(dset, batch_size=None, split='train', shuffle=True):
         batch_size = num_records
 
     def init():
-        return num_records // batch_size, np.random.permutation(idxs) if shuffle else idxs
+        perm_idxs = np.random.permutation(idxs)
+        return num_records // batch_size, jnp.array(perm_idxs if shuffle else idxs)
+
+    if convert_to_jax:
+        idxs = jnp.array(idxs)
+        arrays = [jnp.array(a) for a in arrays]
 
     def get_batch(i=0, idxs=idxs):
         ret_idx = lax.dynamic_slice_in_dim(idxs, i * batch_size, batch_size)

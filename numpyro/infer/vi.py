@@ -42,13 +42,13 @@ class VI(ABC):
         def bodyfn(_i, info, *args, **kwargs):
             body_state, _ = info
             return self.update(body_state, *args, **kwargs)
-
-        state = self.init(rng_key, *args, **kwargs)
         if batch_fun is not None:
             batch_args, batch_kwargs, _, _ = batch_fun(0)
         else:
             batch_args = ()
             batch_kwargs = {}
+
+        state = self.init(rng_key, *args, *batch_args, **kwargs, **batch_kwargs)
         loss = self.evaluate(state, *args, *batch_args, **kwargs, **batch_kwargs)
         if not callbacks:
             state, loss = fori_loop(0, num_steps, lambda i, info: bodyfn(i, info, *args, **kwargs), (state, loss))
