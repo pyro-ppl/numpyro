@@ -3,11 +3,14 @@
 
 from functools import namedtuple, partial
 
+import jax
 from jax import random, value_and_grad
 
+from numpyro import handlers
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import seed, trace
+from numpyro.infer import VI
 from numpyro.infer.util import transform_fn
 
 SVIState = namedtuple('SVIState', ['optim_state', 'rng_key'])
@@ -18,7 +21,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 """
 
 
-class SVI(object):
+class SVI(VI):
     """
     Stochastic Variational Inference given an ELBO loss objective.
 
@@ -31,7 +34,9 @@ class SVI(object):
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
+
     def __init__(self, model, guide, optim, loss, **static_kwargs):
+        super().__init__(model, guide, optim, loss, **static_kwargs, name='SVI')
         self.model = model
         self.guide = guide
         self.loss = loss
@@ -114,3 +119,12 @@ class SVI(object):
         params = self.get_params(svi_state)
         return self.loss.loss(rng_key_eval, params, self.model, self.guide,
                               *args, **kwargs, **self.static_kwargs)
+
+    def predict(self, state, *args, num_samples=1, **kwargs):
+        _, rng_key_predict = jax.random.split(state.rng_key)
+        params = self.get_params(state)
+        if num_samples == 1:
+            return self._predict_model(rng_key_predict, params, *args, **kwargs)
+        else:
+            return jax.vmap(lambda rk: self._predict_model(rk, params)
+                            )(jax.random.split(rng_key_predict, num_samples))

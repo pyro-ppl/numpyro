@@ -111,7 +111,7 @@ class Stein(VI):
             return jax.vmap(lambda i: jax.grad(lambda xi: kernel(xi, y[i])[i])(x[i]))(jnp.arange(x.shape[0]))
         else:
             return jax.vmap(lambda l: jnp.sum(jax.vmap(lambda m: jax.grad(lambda x: kernel(x, y)[l, m])(x)[m])
-                                             (jnp.arange(x.shape[0]))))(jnp.arange(x.shape[0]))
+                                              (jnp.arange(x.shape[0]))))(jnp.arange(x.shape[0]))
 
     def _param_size(self, param):
         if isinstance(param, tuple) or isinstance(param, list):
@@ -391,21 +391,14 @@ class Stein(VI):
         return loss_val
 
     def predict(self, state, *args, num_samples=1, **kwargs):
-        def predict_model(rng_key, params):
-            guide_trace = handlers.trace(handlers.substitute(handlers.seed(self.guide, rng_key), params)
-                                         ).get_trace(*args, **kwargs)
-            model_trace = handlers.trace(handlers.replay(
-                handlers.substitute(handlers.seed(self.model, rng_key), params), guide_trace)
-            ).get_trace(*args, **kwargs)
-            return {name: site['value'] for name, site in model_trace.items() if ('is_observed' not in site) or not site['is_observed']}
-
         _, rng_key_predict = jax.random.split(state.rng_key)
         params = self.get_params(state)
         classic_params = {p: v for p, v in params.items() if
                           p not in self.guide_param_names or self.classic_guide_params_fn(p)}
         stein_params = {p: v for p, v in params.items() if p not in classic_params}
         if num_samples == 1:
-            return jax.vmap(lambda sp: predict_model(rng_key_predict, {**sp, **classic_params}))(stein_params)
+            return jax.vmap(lambda sp: self._predict_model(rng_key_predict, {**sp, **classic_params}), *args, **kwargs
+                            )(stein_params)
         else:
-            return jax.vmap(lambda rk: jax.vmap(lambda sp: predict_model(rk, {**sp, **classic_params}))(stein_params))(
-                jax.random.split(rng_key_predict))
+            return jax.vmap(lambda rk: jax.vmap(lambda sp: self._predict_model(rk, {**sp, **classic_params})
+                                                )(stein_params))(jax.random.split(rng_key_predict, num_samples))

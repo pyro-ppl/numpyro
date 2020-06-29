@@ -5,6 +5,7 @@ import jax
 from jax.lax import fori_loop
 
 import numpyro.callbacks.callback as ncallback
+from numpyro import handlers
 
 
 class VI(ABC):
@@ -67,3 +68,12 @@ class VI(ABC):
                 callback.on_train_end(train_info)
                 callback.vi = None
         return state, loss
+
+    def _predict_model(self, rng_key, params, *args, **kwargs):
+        guide_trace = handlers.trace(handlers.substitute(handlers.seed(self.guide, rng_key), params)
+                                     ).get_trace(*args, **kwargs)
+        model_trace = handlers.trace(handlers.replay(
+            handlers.substitute(handlers.seed(self.model, rng_key), params), guide_trace)
+        ).get_trace(*args, **kwargs)
+        return {name: site['value'] for name, site in model_trace.items()
+                if ('is_observed' not in site) or not site['is_observed']}
