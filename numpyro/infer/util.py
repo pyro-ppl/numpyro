@@ -47,7 +47,7 @@ def log_density(model, model_args, model_kwargs, params):
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
     for site in model_trace.values():
-        if site['type'] == 'sample':
+        if site['type'] == 'sample' and not isinstance(site['fn'], dist.PRNGIdentity):
             value = site['value']
             intermediates = site['intermediates']
             scale = site['scale']
