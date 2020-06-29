@@ -21,3 +21,15 @@ class Callback(ABC):
 
     def on_train_step_end(self, step, train_info):
         pass
+
+    def on_train_epoch_begin(self, epoch, train_info):
+        pass
+
+    def on_train_epoch_end(self, epoch, train_info):
+        pass
+
+    def on_validation_begin(self, val_step, val_info):
+        pass
+
+    def on_validation_end(self, val_step, val_info):
+        pass

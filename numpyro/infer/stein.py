@@ -134,7 +134,8 @@ class Stein(VI):
         classic_uparams = {p: v for p, v in unconstr_params.items() if
                            p not in self.guide_param_names or self.classic_guide_params_fn(p)}
         stein_uparams = {p: v for p, v in unconstr_params.items() if p not in classic_uparams}
-        # 1. Collect each guide parameter into monolithic particles that capture correlations between parameter values across each individual particle
+        # 1. Collect each guide parameter into monolithic particles that capture correlations
+        # between parameter values across each individual particle
         stein_particles, unravel_pytree, unravel_pytree_batched = ravel_pytree(stein_uparams, batch_dims=1)
         particle_info = self._calc_particle_info(stein_uparams, stein_particles.shape[0])
 
