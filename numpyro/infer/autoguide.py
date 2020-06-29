@@ -183,7 +183,7 @@ class AutoContinuous(AutoGuide):
             unpacked_samples = self._unpack_latent(latent)
             # add param sites in model
             unpacked_samples.update({k: v for k, v in params.items() if k in self.prototype_trace
-                                     and v['type'] == 'param'})
+                                     and self.prototype_trace[k]['type'] == 'param'})
             return self._postprocess_fn(unpacked_samples)
 
         sample_shape = jnp.shape(latent_sample)[:-1]
