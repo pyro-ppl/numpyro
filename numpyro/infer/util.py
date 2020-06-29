@@ -43,7 +43,7 @@ def log_density(model, model_args, model_kwargs, params):
         name.
     :return: log of joint density and a corresponding model trace
     """
-    model = substitute(model, param_map=params)
+    model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
     for site in model_trace.values():
