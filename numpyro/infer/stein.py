@@ -3,7 +3,7 @@ import bz2
 import pathlib
 import time
 from datetime import datetime
-from functools import namedtuple
+from functools import namedtuple, partial
 from typing import Callable
 
 import jax
@@ -152,7 +152,7 @@ class Stein(VI):
                                                            scaled_loss(rng_key, self.constrain_fn(cps),
                                                                        self.constrain_fn(unravel_pytree(ps))))(
             classic_uparams))(stein_particles)
-        classic_param_grads = tree_map(jax.partial(jnp.mean, axis=0), classic_param_grads)
+        classic_param_grads = tree_map(partial(jnp.mean, axis=0), classic_param_grads)
 
         # 3. Calculate kernel on monolithic particle
         kernel = self.kernel_fn.compute(stein_particles, particle_info, kernel_particle_loss_fn)
@@ -283,8 +283,8 @@ class Stein(VI):
         self.guide_param_names = guide_param_names
         self.transforms = transforms
         self.inv_transforms = inv_transforms
-        self.constrain_fn = jax.partial(transform_fn, inv_transforms)
-        self.uconstrain_fn = jax.partial(transform_fn, transforms)
+        self.constrain_fn = partial(transform_fn, inv_transforms)
+        self.uconstrain_fn = partial(transform_fn, transforms)
 
     def get_params(self, state):
         """

@@ -91,7 +91,7 @@ class MCMC(object):
 
     def run(self, *args, rng_key=None, **kwargs):
         if rng_key is None:
-            rng_key = numpyro.sample('mcmc.run', dist.PRNGIdentity())
+            rng_key = numpyro.rng_key('mcmc.run')
         self._mcmc.run(rng_key, *args, init_params=self._initial_params, **kwargs)
 
     def get_samples(self, num_samples=None, group_by_chain=False):
@@ -125,7 +125,7 @@ class SVI(svi.SVI):
     def step(self, *args, rng_key=None, **kwargs):
         if self.svi_state is None:
             if rng_key is None:
-                rng_key = numpyro.sample('svi.init', dist.PRNGIdentity())
+                rng_key = numpyro.rng_key('svi.init')
             self.svi_state = self.init(rng_key, *args, **kwargs)
         try:
             self.svi_state, loss = jit(self.update)(self.svi_state, *args, **kwargs)

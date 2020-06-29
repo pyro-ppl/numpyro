@@ -46,7 +46,6 @@ from numpyro.distributions.discrete import (
     MultinomialProbs,
     OrderedLogistic,
     Poisson,
-    PRNGIdentity,
     ZeroInflatedPoisson
 )
 from numpyro.distributions.directional import VonMises
@@ -110,7 +109,6 @@ __all__ = [
     'OrderedLogistic',
     'Pareto',
     'Poisson',
-    'PRNGIdentity',
     'StudentT',
     'TransformedDistribution',
     'TruncatedCauchy',
@@ -119,6 +117,5 @@ __all__ = [
     'Uniform',
     'Unit',
     'VonMises',
-    'ZeroInflatedPoisson',
-
+    'ZeroInflatedPoisson'
 ]

@@ -422,22 +422,6 @@ class OrderedLogistic(CategoricalProbs):
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
 
-class PRNGIdentity(Distribution):
-    """
-    Distribution over :func:`~jax.random.PRNGKey`. This can be used to
-    draw a batch of :func:`~jax.random.PRNGKey` using the :class:`~numpyro.handlers.seed`
-    handler. Only `sample` method is supported.
-    """
-    is_discrete = True
-
-    def __init__(self):
-        super(PRNGIdentity, self).__init__(event_shape=(2,))
-
-    def sample(self, key, sample_shape=()):
-        return jnp.reshape(random.split(key, jnp.product(sample_shape).astype(jnp.int32)),
-                           sample_shape + self.event_shape)
-
-
 @copy_docs_from(Distribution)
 class MultinomialProbs(Distribution):
     arg_constraints = {'total_count': constraints.nonnegative_integer,

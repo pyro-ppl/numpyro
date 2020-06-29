@@ -58,5 +58,5 @@ def _runge_kutta_4(f: Callable[[float, jnp.ndarray], jnp.ndarray],
 
 def runge_kutta_4(f: Callable[[float, jnp.ndarray], jnp.ndarray], step_size=0.1, num_steps=10, dampening_rate=0.9, lyapunov_scale=1e-3,
                   clip=lambda x: x, unconstrain_fn=lambda k, v: v, constrain_fn=lambda k, v: v):
-    return jax.partial(_runge_kutta_4, f, step_size, num_steps, dampening_rate,
-                       lyapunov_scale, clip, unconstrain_fn, constrain_fn)
+    return functools.partial(_runge_kutta_4, f, step_size, num_steps, dampening_rate,
+                             lyapunov_scale, clip, unconstrain_fn, constrain_fn)

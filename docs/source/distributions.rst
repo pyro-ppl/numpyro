@@ -385,14 +385,6 @@ Poisson
     :show-inheritance:
     :member-order: bysource
 
-PRNGIdentity
-------------
-.. autoclass:: numpyro.distributions.discrete.PRNGIdentity
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 ZeroInflatedPoisson
 -------------------
 .. autoclass:: numpyro.distributions.discrete.ZeroInflatedPoisson
