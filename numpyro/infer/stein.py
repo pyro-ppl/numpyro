@@ -48,14 +48,14 @@ class Stein(VI):
         :param repulsion_temperature: scaling of repulsive forces (Non-linear Stein)
         :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically without Stein
                 (E.g., parameters for large normal networks or other transformation)
-        :param sp_mcmc_crit: Stein Point MCMC update selection criterion, either 'infl' for most influential or 'rand' for random
-        :param sp_mode: Stein Point MCMC mode for calculating Kernelized Stein Discrepancy. Either 'local' for only the updated MCMC particles or 'global' for all particles.
-        :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC (should be a subset of number of Stein particles)
-        :param num_mcmc_warmup: Number of warmup steps for the MCMC sampler
-        :param num_mcmc_updates: Number of MCMC update steps at each iteration
-        :param sampler_fn: The MCMC sampling kernel used for the Stein Point MCMC updates
-        :param sampler_kwargs: Keyword arguments provided to the MCMC sampling kernel
-        :param mcmc_kwargs: Keyword arguments provided to the MCMC interface
+        :param sp_mcmc_crit: Stein Point MCMC update selection criterion, either 'infl' for most influential or 'rand' for random (EXPERIMENTAL)
+        :param sp_mode: Stein Point MCMC mode for calculating Kernelized Stein Discrepancy. Either 'local' for only the updated MCMC particles or 'global' for all particles. (EXPERIMENTAL)
+        :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC (should be a subset of number of Stein particles) (EXPERIMENTAL)
+        :param num_mcmc_warmup: Number of warmup steps for the MCMC sampler (EXPERIMENTAL)
+        :param num_mcmc_updates: Number of MCMC update steps at each iteration (EXPERIMENTAL)
+        :param sampler_fn: The MCMC sampling kernel used for the Stein Point MCMC updates (EXPERIMENTAL)
+        :param sampler_kwargs: Keyword arguments provided to the MCMC sampling kernel (EXPERIMENTAL)
+        :param mcmc_kwargs: Keyword arguments provided to the MCMC interface (EXPERIMENTAL)
         :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
             that remain constant during fitting.
         """
