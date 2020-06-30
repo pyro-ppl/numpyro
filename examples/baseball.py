@@ -103,7 +103,7 @@ def partially_pooled(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     m = numpyro.sample("m", dist.Uniform(0, 1))
-    kappa = numpyro.sample("kappa", dist.Pareto(1.5))
+    kappa = numpyro.sample("kappa", dist.Pareto(1, 1.5))
     num_players = at_bats.shape[0]
     with numpyro.plate("num_players", num_players):
         phi_prior = dist.Beta(m * kappa, (1 - m) * kappa)
