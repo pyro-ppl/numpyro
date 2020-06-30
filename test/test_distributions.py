@@ -17,18 +17,13 @@ import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
 
-from numpyro.nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.transforms import LowerCholeskyAffine, PermuteTransform, PowerTransform, biject_to
-from numpyro.distributions.util import (
-    matrix_to_tril_vec,
-    multinomial,
-    signed_stick_breaking_tril,
-    vec_to_tril_matrix
-)
+from numpyro.distributions.util import matrix_to_tril_vec, multinomial, signed_stick_breaking_tril, vec_to_tril_matrix
+from numpyro.nn import AutoregressiveNN
 
 
 def _identity(x): return x

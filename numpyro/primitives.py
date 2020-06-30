@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from contextlib import contextmanager, ExitStack
+from contextlib import ExitStack, contextmanager
 import functools
 
 from jax import lax

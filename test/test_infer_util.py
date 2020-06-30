@@ -20,7 +20,7 @@ from numpyro.infer.initialization import (
     init_to_median,
     init_to_sample,
     init_to_uniform,
-    init_to_value,
+    init_to_value
 )
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import (
@@ -29,7 +29,7 @@ from numpyro.infer.util import (
     initialize_model,
     log_likelihood,
     potential_energy,
-    transform_fn,
+    transform_fn
 )
 import numpyro.optim as optim
 

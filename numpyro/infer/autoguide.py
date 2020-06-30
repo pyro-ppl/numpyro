@@ -12,8 +12,6 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
-from numpyro.nn.auto_reg_nn import AutoregressiveNN
-from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
@@ -27,7 +25,9 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
 from numpyro.infer.elbo import ELBO
-from numpyro.infer.util import initialize_model, init_to_uniform
+from numpyro.infer.util import init_to_uniform, initialize_model
+from numpyro.nn.auto_reg_nn import AutoregressiveNN
+from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 from numpyro.util import not_jax_tracer
 
 __all__ = [

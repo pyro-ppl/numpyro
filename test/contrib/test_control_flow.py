@@ -7,9 +7,9 @@ import jax
 import jax.numpy as jnp
 
 import numpyro
+from numpyro.contrib.control_flow.scan import scan
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, Predictive
-from numpyro.contrib.control_flow.scan import scan
 
 
 def test_scan():

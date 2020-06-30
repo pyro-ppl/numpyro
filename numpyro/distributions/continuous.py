@@ -27,11 +27,11 @@
 
 
 from jax import lax, ops
+import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
-import jax.nn as nn
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri, logsumexp
+from jax.scipy.special import gammaln, log_ndtr, logsumexp, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -46,7 +46,6 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix
 )
 from numpyro.util import copy_docs_from
-
 
 EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
 

@@ -13,11 +13,12 @@ from jax.scipy.special import expit, xlog1py, xlogy
 
 from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
+    binomial,
     categorical,
     cholesky_update,
     multinomial,
-    vec_to_tril_matrix,
-    binomial)
+    vec_to_tril_matrix
+)
 
 
 @pytest.mark.parametrize('x, y', [

@@ -12,7 +12,6 @@ from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.autoguide import AutoDiagonalNormal
 import numpyro.optim as optim
 
-
 GLOBAL = {"count": 0}
 
 
