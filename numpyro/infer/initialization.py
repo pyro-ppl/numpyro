@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import warnings
 
 from jax import random
 import jax.numpy as jnp
@@ -28,6 +29,12 @@ def init_to_median(site=None, num_samples=15):
             return jnp.median(samples, axis=0)
         except NotImplementedError:
             return init_to_uniform(site)
+
+
+def init_to_prior(site=None):
+    warnings.warn(DeprecationWarning,
+                  "`init_to_prior` strategy is renamed to `init_to_sample`.")
+    return init_to_sample(site=site)
 
 
 def init_to_sample(site=None):
