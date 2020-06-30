@@ -953,9 +953,9 @@ class Normal(Distribution):
 
 @copy_docs_from(Distribution)
 class Pareto(TransformedDistribution):
-    arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
+    arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
 
-    def __init__(self, alpha, scale=1., validate_args=None):
+    def __init__(self, scale, alpha, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
         self.scale, self.alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(alpha, batch_shape)
         base_dist = Exponential(self.alpha)

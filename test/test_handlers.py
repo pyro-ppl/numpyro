@@ -27,7 +27,7 @@ def test_mask(mask_last, use_jit):
             x = numpyro.sample('x', dist.Normal(0, 1))
             with handlers.mask(mask_array=mask):
                 numpyro.sample('y', dist.Delta(x, log_density=1.))
-                with handlers.scale(scale_factor=2):
+                with handlers.scale(scale=2):
                     numpyro.sample('obs', dist.Normal(x, 1), obs=data)
 
     data = random.normal(random.PRNGKey(0), (N,))
@@ -48,7 +48,7 @@ def test_mask(mask_last, use_jit):
 def test_scale(use_context_manager):
     def model(data):
         x = numpyro.sample('x', dist.Normal(0, 1))
-        with optional(use_context_manager, handlers.scale(scale_factor=10)):
+        with optional(use_context_manager, handlers.scale(scale=10)):
             numpyro.sample('obs', dist.Normal(x, 1), obs=data)
 
     model = model if use_context_manager else handlers.scale(model, 10.)

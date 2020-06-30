@@ -18,7 +18,7 @@ from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
-    init_to_prior,
+    init_to_sample,
     init_to_uniform,
     init_to_value,
 )
@@ -186,12 +186,12 @@ def test_model_with_mask_false():
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible(),
     init_to_median(num_samples=2),
-    init_to_prior(),
+    init_to_sample(),
     init_to_uniform(radius=3),
     init_to_value(values={'tau': 0.7}),
     init_to_feasible,
     init_to_median,
-    init_to_prior,
+    init_to_sample,
     init_to_uniform,
     init_to_value,
 ])
@@ -232,7 +232,7 @@ def test_initialize_model_change_point(init_strategy):
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible(),
     init_to_median(num_samples=2),
-    init_to_prior(),
+    init_to_sample(),
     init_to_uniform(),
 ])
 def test_initialize_model_dirichlet_categorical(init_strategy):

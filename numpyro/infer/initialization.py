@@ -30,7 +30,7 @@ def init_to_median(site=None, num_samples=15):
             return init_to_uniform(site)
 
 
-def init_to_prior(site=None):
+def init_to_sample(site=None):
     """
     Initialize to a prior sample. For priors with no `.sample` method implemented,
     we defer to the :func:`init_to_uniform` strategy.
