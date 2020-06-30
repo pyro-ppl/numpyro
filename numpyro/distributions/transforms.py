@@ -31,7 +31,7 @@ __all__ = [
     'IdentityTransform',
     'InvCholeskyTransform',
     'LowerCholeskyTransform',
-    'MultivariateAffineTransform',
+    'LowerCholeskyAffine',
     'PermuteTransform',
     'PowerTransform',
     'SigmoidTransform',
@@ -335,7 +335,7 @@ class LowerCholeskyTransform(Transform):
         return x[..., -n:].sum(-1)
 
 
-class MultivariateAffineTransform(Transform):
+class LowerCholeskyAffine(Transform):
     r"""
     Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`.
 

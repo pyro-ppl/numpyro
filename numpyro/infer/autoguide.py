@@ -20,7 +20,7 @@ from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, Inve
 from numpyro.distributions.transforms import (
     AffineTransform,
     ComposeTransform,
-    MultivariateAffineTransform,
+    LowerCholeskyAffine,
     PermuteTransform,
     UnpackTransform,
     biject_to
@@ -357,7 +357,7 @@ class AutoMultivariateNormal(AutoContinuous):
     def get_transform(self, params):
         loc = params['{}_loc'.format(self.prefix)]
         scale_tril = params['{}_scale_tril'.format(self.prefix)]
-        return MultivariateAffineTransform(loc, scale_tril)
+        return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):
         """
@@ -412,7 +412,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
 
     def get_transform(self, params):
         posterior = self.get_posterior(params)
-        return MultivariateAffineTransform(posterior.loc, posterior.scale_tril)
+        return LowerCholeskyAffine(posterior.loc, posterior.scale_tril)
 
     def get_posterior(self, params):
         """
@@ -482,7 +482,7 @@ class AutoLaplaceApproximation(AutoContinuous):
                               " samples from AutoLaplaceApproxmiation will be constant (equal to"
                               " the MAP point).")
         scale_tril = jnp.where(jnp.isnan(scale_tril), 0., scale_tril)
-        return MultivariateAffineTransform(loc, scale_tril)
+        return LowerCholeskyAffine(loc, scale_tril)
 
     def get_posterior(self, params):
         """

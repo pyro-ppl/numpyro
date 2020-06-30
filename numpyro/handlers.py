@@ -90,6 +90,8 @@ from numpyro.util import not_jax_tracer
 __all__ = [
     'block',
     'condition',
+    'mask',
+    'reparam',
     'replay',
     'scale',
     'scope',
