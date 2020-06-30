@@ -146,7 +146,7 @@ def test_elbo_dynamic_support():
 
     adam = optim.Adam(0.01)
     x = 2.
-    guide = substitute(guide, param_map={'x': x})
+    guide = substitute(guide, data={'x': x})
     svi = SVI(model, guide, adam, ELBO())
     svi_state = svi.init(random.PRNGKey(0))
     actual_loss = svi.evaluate(svi_state)
