@@ -5,7 +5,7 @@ from numpyro.infer.elbo import ELBO, RenyiELBO
 from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
-    init_to_prior,
+    init_to_sample,
     init_to_uniform,
     init_to_value,
 )
@@ -19,7 +19,7 @@ from numpyro.infer.util import (
 __all__ = [
     'init_to_feasible',
     'init_to_median',
-    'init_to_prior',
+    'init_to_sample',
     'init_to_uniform',
     'init_to_value',
     'log_likelihood',
