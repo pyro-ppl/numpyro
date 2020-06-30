@@ -29,18 +29,11 @@ SteinState = namedtuple('SteinState', ['optim_state', 'rng_key'])
 
 # Lots of code based on SVI interface and commonalities should be refactored
 class Stein(VI):
-    STRFTIME = "%H%M%S_%d%m%Y"
-    STATE_FILE = 'state.pbz2'
-    TRANSFORMS_FILE = 'transforms.pbz2'
-    INV_TRANSFORMS_FILE = 'inv_transforms.pbz2'
-    GUIDE_PARAM_NAMES_FILE = 'guide_param_names.pbz2'
-
     def __init__(self, model, guide: ReinitGuide, optim, loss, kernel_fn: SteinKernel, num_particles: int = 10,
                  loss_temperature: float = 1.0, repulsion_temperature: float = 1.0,
                  classic_guide_params_fn: Callable[[str], bool] = lambda name: False, sp_mcmc_crit='infl',
                  sp_mode='local', num_mcmc_particles: int = 0, num_mcmc_warmup: int = 100, num_mcmc_updates: int = 10,
-                 sampler_fn=NUTS, sampler_kwargs=None, mcmc_kwargs=None, checkpoint_dir_path='checkpoints',
-                 **static_kwargs):
+                 sampler_fn=NUTS, sampler_kwargs=None, mcmc_kwargs=None, **static_kwargs):
         """
         Stein Variational Gradient Descent for Non-parametric Inference.
         :param model: Python callable with Pyro primitives for the model.
@@ -63,7 +56,6 @@ class Stein(VI):
         :param sampler_fn: The MCMC sampling kernel used for the Stein Point MCMC updates
         :param sampler_kwargs: Keyword arguments provided to the MCMC sampling kernel
         :param mcmc_kwargs: Keyword arguments provided to the MCMC interface
-        :param checkpoint_dir_path: path to checkout directory
         :param static_kwargs: Static keyword arguments for the model / guide, i.e. arguments
             that remain constant during fitting.
         """
@@ -90,7 +82,6 @@ class Stein(VI):
         self.sampler_fn = sampler_fn
         self.sampler_kwargs = sampler_kwargs or dict()
         self.mcmc_kwargs = mcmc_kwargs or dict()
-        self.checkpoint_dir_path = pathlib.Path(pathlib.Path(checkpoint_dir_path).absolute())
         self.mcmc: MCMC = None
         self.guide_param_names = None
         self.constrain_fn = None
@@ -294,60 +285,6 @@ class Stein(VI):
         """
         params = self.constrain_fn(self.optim.get_params(state.optim_state))
         return params
-
-    def store_checkout(self, state):
-        """
-        Create checkpoint with current state of optimizer.
-
-        :param state: current state of the optimizer.
-        """
-        ch_dir = self.checkpoint_dir_path
-        ch_dir.mkdir(exist_ok=True)
-
-        ts = datetime.utcnow().strftime(Stein.STRFTIME)
-        (ch_dir / ts).mkdir()
-
-        with bz2.open(ch_dir / ts / Stein.STATE_FILE, 'w') as f:
-            c_pickle.dump(self.get_params(state), f)
-        with bz2.open(ch_dir / ts / Stein.TRANSFORMS_FILE, 'w') as f:
-            c_pickle.dump(self.transforms, f)
-        with bz2.open(ch_dir / ts / Stein.INV_TRANSFORMS_FILE, 'w') as f:
-            c_pickle.dump(self.inv_transforms, f)
-        with bz2.open(ch_dir / ts / Stein.GUIDE_PARAM_NAMES_FILE, 'w') as f:
-            c_pickle.dump(self.guide_param_names, f)
-
-        print(f"Checkpoint at {ts} created!")
-
-    def load_latest_checkout(self, rng_key):
-        """
-        Restore current state of optimization for latest checkpoint.
-
-        :param rng_key: current state of the optimizer.
-        """
-        checkpoints = list(self.checkpoint_dir_path.iterdir())
-        assert checkpoints, 'No checkpoints available!'
-
-        checkpoints.sort(key=lambda ts: time.mktime(time.strptime(ts.name, Stein.STRFTIME)), reverse=True)
-        latest = checkpoints[0]
-
-        with bz2.BZ2File(latest / Stein.STATE_FILE) as f:
-            raw_state = c_pickle.load(f)
-            state = SteinState(self.optim.init(raw_state), rng_key)
-
-        with bz2.BZ2File(latest / Stein.TRANSFORMS_FILE) as f:
-            transforms = c_pickle.load(f)
-
-        with bz2.BZ2File(latest / Stein.INV_TRANSFORMS_FILE) as f:
-            inv_transforms = c_pickle.load(f)
-
-        with bz2.BZ2File(latest / Stein.GUIDE_PARAM_NAMES_FILE) as f:
-            guide_param_names = c_pickle.load(f)
-
-        print(f"Loaded checkpoint from {latest.name}!")
-
-        self._set_model_guide_attrs(guide_param_names, transforms, inv_transforms)
-
-        return state
 
     def update(self, state, *args, **kwargs):
         """
