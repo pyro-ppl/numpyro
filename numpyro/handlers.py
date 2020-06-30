@@ -269,7 +269,12 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
-    def __init__(self, fn=None, data=None, condition_fn=None):
+    def __init__(self, fn=None, data=None, condition_fn=None, param_map=None):
+        if param_map is not None:
+            data = param_map
+            warnings.warn(FutureWarning,
+                          "'param_map' argument is renamed to 'data'. We will remove"
+                          " 'param_map' in a future release.")
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
@@ -522,7 +527,12 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, data=None, substitute_fn=None):
+    def __init__(self, fn=None, data=None, substitute_fn=None, param_map=None):
+        if param_map is not None:
+            data = param_map
+            warnings.warn(FutureWarning,
+                          "'param_map' argument is renamed to 'data'. We will remove"
+                          " 'param_map' in a future release.")
         self.substitute_fn = substitute_fn
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:
