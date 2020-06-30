@@ -3,10 +3,9 @@
 
 from functools import partial
 
-from jax import random
 import jax.numpy as jnp
+from jax import random
 
-import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to
 
@@ -51,8 +50,8 @@ def init_to_uniform(site=None, radius=2, reinit_param=lambda site: False):
     if site is None:
         return partial(init_to_uniform, radius=radius, reinit_param=reinit_param)
 
-    if (site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete) or\
-          (site['type'] == 'param' and reinit_param(site)):
+    if (site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete) or \
+            (site['type'] == 'param' and reinit_param(site)):
         rng_key = site['kwargs'].get('rng_key')
         sample_shape = site['kwargs'].get('sample_shape', ())
         rng_key, subkey = random.split(rng_key)
@@ -102,6 +101,7 @@ def init_to_value(site=None, values={}, reinit_param=lambda site: False):
             return values[site['name']]
         else:  # defer to default strategy
             return init_to_uniform(site, reinit_param=reinit_param)
+
 
 def init_with_noise(init_strategy, site=None, noise_scale=1.0, reinit_param=lambda site: False):
     if site is None:

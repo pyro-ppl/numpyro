@@ -147,6 +147,7 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
+
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform):
         self.init_strategy = init_strategy
         super(AutoContinuous, self).__init__(model, prefix=prefix)
@@ -319,6 +320,7 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
+
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
@@ -368,6 +370,7 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
+
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
@@ -418,6 +421,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
+
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1, rank=None):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
@@ -480,6 +484,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         guide = AutoLaplaceApproximation(model, ...)
         svi = SVI(model, guide, ...)
     """
+
     def _setup_prototype(self, *args, **kwargs):
         super(AutoLaplaceApproximation, self)._setup_prototype(*args, **kwargs)
 
@@ -560,6 +565,7 @@ class AutoIAFNormal(AutoContinuous):
     :param callable nonlinearity: the nonlinearity to use in the feedforward network.
         Defaults to :func:`jax.experimental.stax.Elu`.
     """
+
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform,
                  num_flows=3, hidden_dims=None, skip_connections=False, nonlinearity=stax.Elu):
         self.num_flows = num_flows
@@ -617,6 +623,7 @@ class AutoBNAFNormal(AutoContinuous):
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
     """
+
     def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, num_flows=1,
                  hidden_factors=[8, 8]):
         self.num_flows = num_flows
@@ -638,6 +645,7 @@ class AutoBNAFNormal(AutoContinuous):
 
     def get_base_dist(self):
         return dist.Normal(jnp.zeros(self.latent_dim), 1).to_event(1)
+
 
 class AutoDelta(AutoGuide, ReinitGuide):
     def __init__(self, model, *, prefix='auto', init_strategy=init_to_uniform(), create_plates=None):
@@ -677,12 +685,12 @@ class AutoDelta(AutoGuide, ReinitGuide):
 
     def find_params(self, rng_keys, *args, **kwargs):
         params = {site['name']: site['value'] for site in self.prototype_trace.values()
-                 if site['type'] == 'sample' and not site['is_observed']}
+                  if site['type'] == 'sample' and not site['is_observed']}
         (init_params, _, _), _ = handlers.block(find_valid_initial_params)(rng_keys, self.model,
-                                                                   init_strategy=self.init_strategy,
-                                                                   model_args=args,
-                                                                   model_kwargs=kwargs,
-                                                                   prototype_params=params)
+                                                                           init_strategy=self.init_strategy,
+                                                                           model_args=args,
+                                                                           model_kwargs=kwargs,
+                                                                           prototype_params=params)
         for name, site in self.prototype_trace.items():
             if site['type'] == 'sample' and not site['is_observed']:
                 param_name = "{}_{}".format(self.prefix, name)
