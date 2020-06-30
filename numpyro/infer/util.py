@@ -10,7 +10,6 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -116,15 +115,20 @@ def _unconstrain_reparam(params, site):
     name = site['name']
     if name in params:
         p = params[name]
-        support = site['fn'].support
+        if site['type'] == 'sample':
+            support = site['fn'].support 
+            event_dim = len(site['fn'].event_shape)
+        elif site['type'] == 'param':
+            support = site['kwargs'].pop('constraint', real)
+            event_dim = 0
         if support in [real, real_vector]:
             return p
         t = biject_to(support)
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)
-        log_det = sum_rightmost(log_det, jnp.ndim(log_det) - jnp.ndim(value) + len(site['fn'].event_shape))
-        if site['scale'] is not None:
+        log_det = sum_rightmost(log_det, jnp.ndim(log_det) - jnp.ndim(value) + event_dim)
+        if site.get('scale') is not None:
             log_det = site['scale'] * log_det
         numpyro.factor('_{}_log_det'.format(name), log_det)
         return value
@@ -206,7 +210,14 @@ def find_valid_initial_params(rng_key, model,
             model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
             constrained_values, inv_transforms = {}, {}
             for k, v in model_trace.items():
-                if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
+                if prototype_params is not None and k in prototype_params:
+                    constrained_values[k] = v['value']
+                    if v['type'] == 'sample':
+                        inv_transforms[k] = biject_to(v['fn'].support)
+                    elif v['type'] == 'param':
+                        constraint = v['kwargs'].pop('constraint', real)
+                        inv_transforms[k] = biject_to(constraint)
+                elif v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
                     constrained_values[k] = v['value']
                     inv_transforms[k] = biject_to(v['fn'].support)
             params = transform_fn(inv_transforms,
