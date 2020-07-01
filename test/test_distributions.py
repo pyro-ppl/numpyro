@@ -17,18 +17,13 @@ import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import logsumexp
 
-from numpyro.nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
-from numpyro.distributions.transforms import MultivariateAffineTransform, PermuteTransform, PowerTransform, biject_to
-from numpyro.distributions.util import (
-    matrix_to_tril_vec,
-    multinomial,
-    signed_stick_breaking_tril,
-    vec_to_tril_matrix
-)
+from numpyro.distributions.transforms import LowerCholeskyAffine, PermuteTransform, PowerTransform, biject_to
+from numpyro.distributions.util import matrix_to_tril_vec, multinomial, signed_stick_breaking_tril, vec_to_tril_matrix
+from numpyro.nn import AutoregressiveNN
 
 
 def _identity(x): return x
@@ -91,7 +86,7 @@ _DIST_MAP = {
     dist.MultivariateNormal: _mvn_to_scipy,
     dist.LowRankMultivariateNormal: _lowrank_mvn_to_scipy,
     dist.Normal: lambda loc, scale: osp.norm(loc=loc, scale=scale),
-    dist.Pareto: lambda alpha, scale: osp.pareto(alpha, scale=scale),
+    dist.Pareto: lambda scale, alpha: osp.pareto(alpha, scale=scale),
     dist.Poisson: lambda rate: osp.poisson(rate),
     dist.StudentT: lambda df, loc, scale: osp.t(df=df, loc=loc, scale=scale),
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
@@ -158,9 +153,9 @@ CONTINUOUS = [
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., jnp.array([1., 2.])),
     T(dist.Normal, jnp.array([0., 1.]), jnp.array([[1.], [2.]])),
-    T(dist.Pareto, 2., 1.),
-    T(dist.Pareto, jnp.array([0.3, 2.]), jnp.array([1., 0.5])),
-    T(dist.Pareto, jnp.array([1., 0.5]), jnp.array([[1.], [3.]])),
+    T(dist.Pareto, 1., 2.),
+    T(dist.Pareto, jnp.array([1., 0.5]), jnp.array([0.3, 2.])),
+    T(dist.Pareto, jnp.array([[1.], [3.]]), jnp.array([1., 0.5])),
     T(dist.StudentT, 1., 1., 0.5),
     T(dist.StudentT, 2., jnp.array([1., 2.]), 2.),
     T(dist.StudentT, jnp.array([3, 5]), jnp.array([[1.], [2.]]), 2.),
@@ -889,7 +884,7 @@ def test_biject_to(constraint, shape):
 @pytest.mark.parametrize('transform, event_shape', [
     (PermuteTransform(jnp.array([3, 0, 4, 1, 2])), (5,)),
     (PowerTransform(2.), ()),
-    (MultivariateAffineTransform(jnp.array([1., 2.]), jnp.array([[0.6, 0.], [1.5, 0.4]])), (2,))
+    (LowerCholeskyAffine(jnp.array([1., 2.]), jnp.array([[0.6, 0.], [1.5, 0.4]])), (2,))
 ])
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_bijective_transforms(transform, event_shape, batch_shape):

@@ -46,7 +46,7 @@ from numpyro.distributions.util import (
     multinomial,
     promote_shapes,
     sum_rightmost,
-    validate_sample,
+    validate_sample
 )
 from numpyro.util import copy_docs_from, not_jax_tracer
 

@@ -27,11 +27,11 @@
 
 
 from jax import lax, ops
+import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
-import jax.nn as nn
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri, logsumexp
+from jax.scipy.special import gammaln, log_ndtr, logsumexp, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -46,7 +46,6 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix
 )
 from numpyro.util import copy_docs_from
-
 
 EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
 
@@ -953,9 +952,9 @@ class Normal(Distribution):
 
 @copy_docs_from(Distribution)
 class Pareto(TransformedDistribution):
-    arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
+    arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
 
-    def __init__(self, alpha, scale=1., validate_args=None):
+    def __init__(self, scale, alpha, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
         self.scale, self.alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(alpha, batch_shape)
         base_dist = Exponential(self.alpha)

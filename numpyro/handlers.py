@@ -90,6 +90,8 @@ from numpyro.util import not_jax_tracer
 __all__ = [
     'block',
     'condition',
+    'mask',
+    'reparam',
     'replay',
     'scale',
     'scope',
@@ -386,14 +388,14 @@ class scale(Messenger):
     This is typically used for data subsampling or for stratified sampling of data
     (e.g. in fraud detection where negatives vastly outnumber positives).
 
-    :param float scale_factor: a positive scaling factor
+    :param float scale: a positive scaling factor
     """
-    def __init__(self, fn=None, scale_factor=1.):
-        if not_jax_tracer(scale_factor):
-            if scale_factor <= 0:
-                raise ValueError("scale factor should be a positive number.")
-        self.scale = scale_factor
-        super(scale, self).__init__(fn)
+    def __init__(self, fn=None, scale=1.):
+        if not_jax_tracer(scale):
+            if scale <= 0:
+                raise ValueError("'scale' argument should be a positive number.")
+        self.scale = scale
+        super().__init__(fn)
 
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'plate'):

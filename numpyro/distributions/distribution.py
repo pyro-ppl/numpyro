@@ -29,8 +29,8 @@ from collections import OrderedDict
 from contextlib import contextmanager
 import warnings
 
-import jax.numpy as jnp
 from jax import lax, tree_util
+import jax.numpy as jnp
 
 from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform

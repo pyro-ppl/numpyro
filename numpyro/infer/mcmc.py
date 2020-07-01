@@ -9,7 +9,7 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import jit, lax, partial, pmap, random, vmap, device_put
+from jax import device_put, jit, lax, partial, pmap, random, vmap
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
@@ -31,7 +31,7 @@ from numpyro.infer.hmc_util import (
     warmup_adapter
 )
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
-from numpyro.util import cond, copy_docs_from, fori_collect, fori_loop, identity, cached_by
+from numpyro.util import cached_by, cond, copy_docs_from, fori_collect, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])

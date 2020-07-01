@@ -1,13 +1,14 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import os
 import glob
+import os
 import shutil
+
+import sphinx_rtd_theme
 
 from sphinx_gallery.scrapers import figure_rst
 from sphinx_gallery.sorting import FileNameSortKey
-import sphinx_rtd_theme
 
 # -*- coding: utf-8 -*-
 #
