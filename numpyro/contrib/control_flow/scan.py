@@ -109,7 +109,7 @@ def scan(f, init, xs, length=None, reverse=False):
     `xs` while carrying along state. See :func:`jax.lax.scan` for more
     information.
 
-    **Usage**::
+    **Usage**:
 
     .. doctest::
 
@@ -146,11 +146,15 @@ def scan(f, init, xs, length=None, reverse=False):
     .. note:: It is ambiguous to align `scan` dimension inside a `plate` context.
         So the following pattern won't be supported
 
+        .. code-block:: python
+
             with numpyro.plate('N', 10):
                 last, ys = scan(f, init, xs)
 
         All `plate` statements should be put inside `f`. For example, the corresponding
         working code is
+
+        .. code-block:: python
 
             def g(*args, **kwargs):
                 with numpyro.plate('N', 10):
