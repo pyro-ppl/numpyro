@@ -12,22 +12,22 @@ from jax.test_util import check_eq
 
 import numpyro
 from numpyro import optim
-from numpyro.infer.autoguide import (
-    AutoDiagonalNormal,
-    AutoIAFNormal,
-    AutoBNAFNormal,
-    AutoLaplaceApproximation,
-    AutoLowRankMultivariateNormal,
-    AutoMultivariateNormal
-)
-from numpyro.nn.auto_reg_nn import AutoregressiveNN
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.infer import ELBO, SVI
+from numpyro.infer.autoguide import (
+    AutoBNAFNormal,
+    AutoDiagonalNormal,
+    AutoIAFNormal,
+    AutoLaplaceApproximation,
+    AutoLowRankMultivariateNormal,
+    AutoMultivariateNormal
+)
 from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import TransformReparam
+from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.util import fori_loop
 
 init_strategy = init_to_median(num_samples=2)

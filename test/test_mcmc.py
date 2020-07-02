@@ -4,7 +4,6 @@
 import os
 
 import numpy as np
-from jax.test_util import check_close
 from numpy.testing import assert_allclose
 import pytest
 
@@ -12,12 +11,13 @@ from jax import jit, pmap, random, vmap
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.special import logit
+from jax.test_util import check_close
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import HMC, MCMC, NUTS, SA
-from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
+from numpyro.infer.mcmc import _get_proposal_loc_and_scale, _numpy_delete, hmc
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect

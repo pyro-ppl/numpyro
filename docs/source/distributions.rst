@@ -573,17 +573,17 @@ InvCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
-LowerCholeskyTransform
-----------------------
-.. autoclass:: numpyro.distributions.transforms.LowerCholeskyTransform
+LowerCholeskyAffine
+-------------------
+.. autoclass:: numpyro.distributions.transforms.LowerCholeskyAffine
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-MultivariateAffineTransform
----------------------------
-.. autoclass:: numpyro.distributions.transforms.MultivariateAffineTransform
+LowerCholeskyTransform
+----------------------
+.. autoclass:: numpyro.distributions.transforms.LowerCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:

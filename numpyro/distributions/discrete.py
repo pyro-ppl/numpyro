@@ -46,7 +46,7 @@ from numpyro.distributions.util import (
     multinomial,
     promote_shapes,
     sum_rightmost,
-    validate_sample,
+    validate_sample
 )
 from numpyro.util import copy_docs_from, not_jax_tracer
 
@@ -550,7 +550,7 @@ class Poisson(Distribution):
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return random.poisson(key, device_put(self.rate), shape=sample_shape + self.batch_shape)
+        return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):

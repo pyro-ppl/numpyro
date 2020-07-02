@@ -10,9 +10,9 @@ import pytest
 from jax import jacfwd, random
 from jax.experimental import stax
 
-from numpyro.nn import AutoregressiveNN, BlockNeuralAutoregressiveNN
 from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, InverseAutoregressiveTransform
 from numpyro.distributions.util import matrix_to_tril_vec
+from numpyro.nn import AutoregressiveNN, BlockNeuralAutoregressiveNN
 
 
 def _make_iaf_args(input_dim, hidden_dims):
