@@ -298,3 +298,29 @@ def ravel_pytree(pytree):
         return tree_unflatten(treedef, unravel_list(arr))
 
     return flat, unravel_pytree
+
+
+def soft_vmap(fn, xs, batch_shape, chunk_size=None):
+    batch_ndims = len(batch_shape)
+    for x in tree_flatten(xs)[0]:
+        assert np.shape(x)[:batch_ndims] == batch_shape
+
+    # we'll do map(vmap(fn), xs) and make xs.shape = (num_chunks, chunk_size, ...)
+    num_chunks = batch_size = int(np.prod(batch_shape))
+    prepend_shape = (-1,) if batch_size > 1 else ()
+    xs = tree_map(lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs)
+    # XXX: probably for the default behavior with chunk_size=None,
+    # it is better to catch OOM error and reduce chunk_size by half until OOM disappears.
+    chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
+    if chunk_size > 1:
+        pad = chunk_size - (batch_size % chunk_size)
+        xs = tree_map(lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs)
+        num_chunks = batch_size // chunk_size + int(pad > 0)
+        prepend_shape = (-1,) if num_chunks > 1 else ()
+        xs = tree_map(lambda x: jnp.reshape(x, prepend_shape + (chunk_size,) + jnp.shape(x)[1:]), xs)
+        fn = vmap(fn)
+
+    ys = lax.map(fn, xs) if num_chunks > 1 else fn(xs)
+    map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
+    ys = tree_map(lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys)
+    return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)

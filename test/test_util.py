@@ -10,7 +10,7 @@ import jax.numpy as jnp
 from jax.test_util import check_eq
 from jax.tree_util import tree_flatten, tree_multimap
 
-from numpyro.util import fori_collect, ravel_pytree
+from numpyro.util import fori_collect, ravel_pytree, soft_vmap
 
 
 def test_fori_collect():
@@ -54,3 +54,21 @@ def test_ravel_pytree(pytree):
     assert all(tree_flatten(tree_multimap(lambda x, y:
                                           canonicalize_dtype(lax.dtype(x)) == canonicalize_dtype(lax.dtype(y)),
                                           unravel, pytree))[0])
+
+
+@pytest.mark.parametrize('batch_shape', [
+    (), (1,), (10,), (3, 4)
+])
+@pytest.mark.parametrize('chunk_size', [
+    None, 1, 5, 16
+])
+def test_soft_vmap(batch_shape, chunk_size):
+
+    def f(x):
+        return {k: ((v[..., None] * jnp.ones(4)) if k == 'a' else ~v) for k, v in x.items()}
+
+    xs = {'a': jnp.ones(batch_shape + (4,)), 'b': jnp.zeros(batch_shape).astype(bool)}
+    ys = soft_vmap(f, xs, batch_shape, chunk_size)
+    assert set(ys.keys()) == {'a', 'b'}
+    assert_allclose(ys['a'], xs['a'][..., None] * jnp.ones(4))
+    assert_allclose(ys['b'], ~xs['b'])

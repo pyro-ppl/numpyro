@@ -3,6 +3,7 @@
 
 from functools import partial
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -130,14 +131,21 @@ def test_prior_predictive():
     assert predictive_samples["obs"].shape == (100,) + data.shape
 
 
-def test_log_likelihood():
+@pytest.mark.parametrize('batch_shape', [(), (100,), (2, 50)])
+def test_log_likelihood(batch_shape):
     model, data, _ = beta_bernoulli()
-    samples = Predictive(model, return_sites=["beta"], num_samples=100)(random.PRNGKey(1))
-    loglik = log_likelihood(model, samples, data)
+    samples = Predictive(model, return_sites=["beta"], num_samples=200)(random.PRNGKey(1))
+    batch_size = int(np.prod(batch_shape))
+    samples = {'beta': samples['beta'][:batch_size].reshape(batch_shape + (1, -1))}
+
+    preds = Predictive(model, samples, batch_ndims=len(batch_shape))(random.PRNGKey(2))
+    loglik = log_likelihood(model, samples, data, batch_ndims=len(batch_shape))
+    assert preds.keys() == {"beta_sq", "obs"}
     assert loglik.keys() == {"obs"}
     # check shapes
-    assert loglik["obs"].shape == (100,) + data.shape
-    assert_allclose(loglik["obs"], dist.Bernoulli(samples["beta"].reshape((100, 1, -1))).log_prob(data))
+    assert preds["obs"].shape == batch_shape + data.shape
+    assert loglik["obs"].shape == batch_shape + data.shape
+    assert_allclose(loglik["obs"], dist.Bernoulli(samples["beta"]).log_prob(data))
 
 
 def test_model_with_transformed_distribution():
