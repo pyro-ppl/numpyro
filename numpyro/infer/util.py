@@ -429,6 +429,16 @@ class Predictive(object):
         in `posterior_samples` are returned.
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
         Defaults to False.
+    :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
+
+        + set `batch_ndims=0` to get prediction for 1 single sample
+
+        + set `batch_ndims=1` to get prediction for `posterior_samples`
+          with shapes `(num_samples x ...)`
+
+        + set `batch_ndims=2` to get prediction for `posterior_samples`
+          with shapes `(num_chains x N x ...)`. Note that if `num_samples`
+          argument is not None, its value should be equal to `num_chains x N`.
 
     :return: dict of samples from the predictive distribution.
     """
@@ -512,7 +522,16 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
     :param args: model arguments.
-    :param batch_ndims: the number of batch dimensions in posterior samples.
+    :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
+
+        + set `batch_ndims=0` to get prediction for 1 single sample
+
+        + set `batch_ndims=1` to get prediction for `posterior_samples`
+          with shapes `(num_samples x ...)`
+
+        + set `batch_ndims=2` to get prediction for `posterior_samples`
+          with shapes `(num_chains x N x ...)`
+
     :param kwargs: model kwargs.
     :return: dict of log likelihoods at observation sites.
     """
