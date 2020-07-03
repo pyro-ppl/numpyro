@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from contextlib import contextmanager, ExitStack
+from contextlib import ExitStack, contextmanager
 import functools
 
 from jax import lax
@@ -261,6 +261,10 @@ class plate(Messenger):
 
     def process_message(self, msg):
         if msg['type'] not in ('sample', 'plate'):
+            if msg['type'] == 'control_flow':
+                raise RuntimeError('Cannot use control flow primitive under a `plate` primitive.'
+                                   ' Please move those `plate` statements into the control flow'
+                                   ' body function.')
             return
 
         cond_indep_stack = msg['cond_indep_stack']

@@ -18,9 +18,9 @@ from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
-    init_to_prior,
+    init_to_sample,
     init_to_uniform,
-    init_to_value,
+    init_to_value
 )
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import (
@@ -29,7 +29,7 @@ from numpyro.infer.util import (
     initialize_model,
     log_likelihood,
     potential_energy,
-    transform_fn,
+    transform_fn
 )
 import numpyro.optim as optim
 
@@ -186,12 +186,12 @@ def test_model_with_mask_false():
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible(),
     init_to_median(num_samples=2),
-    init_to_prior(),
+    init_to_sample(),
     init_to_uniform(radius=3),
     init_to_value(values={'tau': 0.7}),
     init_to_feasible,
     init_to_median,
-    init_to_prior,
+    init_to_sample,
     init_to_uniform,
     init_to_value,
 ])
@@ -217,6 +217,9 @@ def test_initialize_model_change_point(init_strategy):
     init_params, _, _, _ = initialize_model(rng_keys, model,
                                             init_strategy=init_strategy,
                                             model_args=(count_data,))
+    if isinstance(init_strategy, partial) and init_strategy.func is init_to_value:
+        expected = biject_to(constraints.unit_interval).inv(init_strategy.keywords.get('values')['tau'])
+        assert_allclose(init_params[0]['tau'], jnp.repeat(expected, 2))
     for i in range(2):
         init_params_i, _, _, _ = initialize_model(rng_keys[i], model,
                                                   init_strategy=init_strategy,
@@ -229,7 +232,7 @@ def test_initialize_model_change_point(init_strategy):
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible(),
     init_to_median(num_samples=2),
-    init_to_prior(),
+    init_to_sample(),
     init_to_uniform(),
 ])
 def test_initialize_model_dirichlet_categorical(init_strategy):

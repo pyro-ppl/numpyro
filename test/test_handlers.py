@@ -27,13 +27,14 @@ def test_mask(mask_last, use_jit):
             x = numpyro.sample('x', dist.Normal(0, 1))
             with handlers.mask(mask_array=mask):
                 numpyro.sample('y', dist.Delta(x, log_density=1.))
-                with handlers.scale(scale_factor=2):
+                with handlers.scale(scale=2):
                     numpyro.sample('obs', dist.Normal(x, 1), obs=data)
 
     data = random.normal(random.PRNGKey(0), (N,))
     x = random.normal(random.PRNGKey(1), (N,))
     if use_jit:
-        log_joint = jit(log_density, static_argnums=(0,))(model, (data, mask), {}, {'x': x, 'y': x})[0]
+        log_joint = jit(lambda *args: log_density(*args)[0], static_argnums=(0,))(
+            model, (data, mask), {}, {'x': x, 'y': x})
     else:
         log_joint = log_density(model, (data, mask), {}, {'x': x, 'y': x})[0]
     log_prob_x = dist.Normal(0, 1).log_prob(x)
@@ -47,7 +48,7 @@ def test_mask(mask_last, use_jit):
 def test_scale(use_context_manager):
     def model(data):
         x = numpyro.sample('x', dist.Normal(0, 1))
-        with optional(use_context_manager, handlers.scale(scale_factor=10)):
+        with optional(use_context_manager, handlers.scale(scale=10)):
             numpyro.sample('obs', dist.Normal(x, 1), obs=data)
 
     model = model if use_context_manager else handlers.scale(model, 10.)
@@ -240,3 +241,27 @@ def test_plate_stack(shape):
 
     x = handlers.seed(guide, 0)()
     assert x.shape == shape
+
+
+def test_block():
+    with handlers.trace() as trace:
+        with handlers.block(hide=['x']):
+            with handlers.seed(rng_seed=0):
+                numpyro.sample('x', dist.Normal())
+    assert 'x' not in trace
+
+
+def test_scope():
+    def fn():
+        return numpyro.sample('x', dist.Normal())
+
+    with handlers.trace() as trace:
+        with handlers.seed(rng_seed=1):
+            with handlers.scope(prefix='a'):
+                fn()
+            with handlers.scope(prefix='b'):
+                with handlers.scope(prefix='a'):
+                    fn()
+
+    assert 'a/x' in trace
+    assert 'b/a/x' in trace

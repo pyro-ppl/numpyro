@@ -10,6 +10,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -44,11 +45,11 @@ def log_density(model, model_args, model_kwargs, params):
         name.
     :return: log of joint density and a corresponding model trace
     """
-    model = substitute(model, param_map=params)
+    model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
     for site in model_trace.values():
-        if site['type'] == 'sample':
+        if site['type'] == 'sample' and not isinstance(site['fn'], dist.PRNGIdentity):
             value = site['value']
             intermediates = site['intermediates']
             scale = site['scale']
@@ -158,7 +159,7 @@ def potential_energy(model, model_args, model_kwargs, params, enum=False):
 
 def _init_to_unconstrained_value(site=None, values={}):
     if site is None:
-        return partial(init_to_value, values=values)
+        return partial(_init_to_unconstrained_value, values=values)
 
 
 def find_valid_initial_params(rng_key, model,
@@ -411,7 +412,7 @@ def initialize_model(rng_key, model,
                                                     model_kwargs=model_kwargs)
 
     init_strategy = init_strategy if isinstance(init_strategy, partial) else init_strategy()
-    if init_strategy.func is init_to_value:
+    if (init_strategy.func is init_to_value) and not replay_model:
         init_values = init_strategy.keywords.get("values")
         unconstrained_values = transform_fn(inv_transforms, init_values, invert=True)
         init_strategy = _init_to_unconstrained_value(values=unconstrained_values)

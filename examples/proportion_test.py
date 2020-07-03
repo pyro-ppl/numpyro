@@ -18,12 +18,13 @@ import argparse
 import os
 from typing import Tuple
 
-import jax.numpy as jnp
-import numpyro
-import numpyro.distributions as dist
 from jax import random
+import jax.numpy as jnp
 from jax.scipy.special import expit
+
+import numpyro
 from numpyro.diagnostics import hpdi
+import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 

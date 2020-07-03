@@ -3,14 +3,15 @@
 
 import itertools
 
-import jax.lax as lax
-import jax.numpy as jnp
-import jax.random as random
 import numpy as np
 import pytest
 
-import numpyro.distributions as dist
+import jax.lax as lax
+import jax.numpy as jnp
+import jax.random as random
+
 from numpyro.contrib.indexing import Vindex
+import numpyro.distributions as dist
 
 
 def z(*shape):

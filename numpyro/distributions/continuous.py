@@ -27,11 +27,11 @@
 
 
 from jax import lax, ops
+import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
-import jax.nn as nn
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import gammaln, log_ndtr, multigammaln, ndtr, ndtri, logsumexp
+from jax.scipy.special import gammaln, log_ndtr, logsumexp, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -46,7 +46,6 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix
 )
 from numpyro.util import copy_docs_from
-
 
 EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
 
@@ -214,7 +213,7 @@ class Chi2(Gamma):
 
 @copy_docs_from(Distribution)
 class GaussianRandomWalk(Distribution):
-    arg_constraints = {'num_steps': constraints.positive_integer, 'scale': constraints.positive}
+    arg_constraints = {'scale': constraints.positive, 'num_steps': constraints.positive_integer}
     support = constraints.real_vector
     reparametrized_params = ['scale']
 
@@ -245,6 +244,13 @@ class GaussianRandomWalk(Distribution):
     def variance(self):
         return jnp.broadcast_to(jnp.expand_dims(self.scale, -1) ** 2 * jnp.arange(1, self.num_steps + 1),
                                 self.batch_shape + self.event_shape)
+
+    def tree_flatten(self):
+        return (self.scale,), self.num_steps
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params, num_steps=aux_data)
 
 
 @copy_docs_from(Distribution)
@@ -312,8 +318,8 @@ class InverseGamma(TransformedDistribution):
         # it plays the role of scale parameter of InverseGamma in literatures
         # (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
         base_dist = Gamma(concentration, rate)
-        self.concentration = concentration
-        self.rate = rate
+        self.concentration = base_dist.concentration
+        self.rate = base_dist.rate
         super(InverseGamma, self).__init__(base_dist, PowerTransform(-1.0),
                                            validate_args=validate_args)
 
@@ -328,6 +334,9 @@ class InverseGamma(TransformedDistribution):
         # var is inf for alpha <= 2
         a = (self.rate / (self.concentration - 1)) ** 2 / (self.concentration - 2)
         return jnp.where(self.concentration <= 2, jnp.inf, a)
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
 
 
 @copy_docs_from(Distribution)
@@ -432,6 +441,14 @@ class LKJ(TransformedDistribution):
     @property
     def mean(self):
         return jnp.broadcast_to(jnp.identity(self.dimension), self.batch_shape + (self.dimension, self.dimension))
+
+    def tree_flatten(self):
+        return (self.concentration,), (self.dimension, self.sample_method)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        dimension, sample_method = aux_data
+        return cls(dimension, *params, sample_method=sample_method)
 
 
 @copy_docs_from(Distribution)
@@ -599,6 +616,14 @@ class LKJCholesky(Distribution):
         normalize_term = pi_constant + numerator - denominator
         return unnormalized - normalize_term
 
+    def tree_flatten(self):
+        return (self.concentration,), (self.dimension, self.sample_method)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        dimension, sample_method = aux_data
+        return cls(dimension, *params, sample_method=sample_method)
+
 
 @copy_docs_from(Distribution)
 class LogNormal(TransformedDistribution):
@@ -617,6 +642,9 @@ class LogNormal(TransformedDistribution):
     @property
     def variance(self):
         return (jnp.exp(self.scale ** 2) - 1) * jnp.exp(2 * self.loc + self.scale ** 2)
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
 
 
 def _batch_mahalanobis(bL, bx):
@@ -724,6 +752,14 @@ class MultivariateNormal(Distribution):
     def variance(self):
         return jnp.broadcast_to(jnp.sum(self.scale_tril ** 2, axis=-1),
                                 self.batch_shape + self.event_shape)
+
+    def tree_flatten(self):
+        return (self.loc, self.scale_tril), None
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        loc, scale_tril = params
+        return cls(loc, scale_tril=scale_tril)
 
 
 def _batch_mv(bmat, bvec):
@@ -916,9 +952,9 @@ class Normal(Distribution):
 
 @copy_docs_from(Distribution)
 class Pareto(TransformedDistribution):
-    arg_constraints = {'alpha': constraints.positive, 'scale': constraints.positive}
+    arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
 
-    def __init__(self, alpha, scale=1., validate_args=None):
+    def __init__(self, scale, alpha, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
         self.scale, self.alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(alpha, batch_shape)
         base_dist = Exponential(self.alpha)
@@ -941,6 +977,9 @@ class Pareto(TransformedDistribution):
     @property
     def support(self):
         return constraints.greater_than(self.scale)
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
 
 
 @copy_docs_from(Distribution)
@@ -1034,6 +1073,20 @@ class TruncatedCauchy(TransformedDistribution):
     def variance(self):
         return jnp.full(self.batch_shape, jnp.nan)
 
+    def tree_flatten(self):
+        if isinstance(self._support.lower_bound, (int, float)):
+            aux_data = self._support.lower_bound
+        else:
+            aux_data = None
+        return (self.low, self.loc, self.scale), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = cls(*params)
+        if aux_data is not None:
+            d._support = constraints.greater_than(aux_data)
+        return d
+
 
 class _BaseTruncatedNormal(Distribution):
     # NB: this is a truncated normal with low=0, scale=1
@@ -1089,6 +1142,20 @@ class TruncatedNormal(TransformedDistribution):
         low_prob_scaled = jnp.exp(self.base_dist.log_prob(0.))
         return (self.scale ** 2) * (1 - self.base_dist.base_loc * low_prob_scaled - low_prob_scaled ** 2)
 
+    def tree_flatten(self):
+        if isinstance(self._support.lower_bound, (int, float)):
+            aux_data = self._support.lower_bound
+        else:
+            aux_data = None
+        return (self.low, self.loc, self.scale), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = cls(*params)
+        if aux_data is not None:
+            d._support = constraints.greater_than(aux_data)
+        return d
+
 
 class _BaseUniform(Distribution):
     support = constraints.unit_interval
@@ -1129,6 +1196,21 @@ class Uniform(TransformedDistribution):
     @property
     def variance(self):
         return (self.high - self.low) ** 2 / 12.
+
+    def tree_flatten(self):
+        if isinstance(self._support.lower_bound, (int, float)) and \
+                isinstance(self._support.upper_bound, (int, float)):
+            aux_data = (self._support.lower_bound, self._support.upper_bound)
+        else:
+            aux_data = None
+        return (self.low, self.high), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = cls(*params)
+        if aux_data is not None:
+            d._support = constraints.interval(*aux_data)
+        return d
 
 
 @copy_docs_from(Distribution)
@@ -1192,3 +1274,10 @@ class TruncatedPolyaGamma(Distribution):
         sum_even = jnp.exp(logsumexp(even_terms, axis=-1))
         sum_odd = jnp.exp(logsumexp(odd_terms, axis=-1))
         return jnp.log(sum_even - sum_odd) - 0.5 * jnp.log(2.0 * jnp.pi)
+
+    def tree_flatten(self):
+        return (), self.batch_shape
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(batch_shape=aux_data)
