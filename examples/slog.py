@@ -75,7 +75,7 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
         log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
-    rank1, rank2 = 32, 12
+    rank1, rank2 = 16, 12
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
@@ -209,7 +209,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [2000]:
+    for N in [10000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -234,8 +234,8 @@ def main(**args):
         #                         np.arange(P), chunk_size=999)
         #print("analyze_dimension time", time.time()-t0)
         t0 = time.time()
-        means, stds = process_singleton_svi(X, Y, samples, hypers['c'], omega_chunk_size=1, probe_chunk_size=256,
-                                            method='ppcg', rank1=64, rank2=16)
+        means, stds = process_singleton_svi(X, Y, samples, hypers['c'], omega_chunk_size=1, probe_chunk_size=1,
+                                            method='ppcg', rank1=16, rank2=16)
                                             #method=args['inference'][4:])
         print("analyze_dimension time", time.time()-t0)
 
@@ -284,8 +284,8 @@ def main(**args):
             dim_pairs = np.array(list(itertools.product(active_dims, active_dims)))
             #fun = lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers)
             #means, stds = chunk_vmap(fun, dim_pairs, chunk_size=32)
-            means, stds = process_quad_svi(X, Y, samples, dim_pairs, hypers['c'], omega_chunk_size=1, probe_chunk_size=256,
-                                           method='ppcg', rank1=64, rank2=16)
+            means, stds = process_quad_svi(X, Y, samples, dim_pairs, hypers['c'], omega_chunk_size=1, probe_chunk_size=1,
+                                           method='ppcg', rank1=16, rank2=16)
             results[N]['pairwise_coeff_means'] = onp.array(means).tolist()
             results[N]['pairwise_coeff_stds'] = onp.array(stds).tolist()
             for dim_pair, mean, std in zip(dim_pairs, means, stds):
@@ -327,20 +327,20 @@ def main(**args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
-    parser.add_argument("--inference", nargs="?", default='svi-direct', type=str,
+    parser.add_argument("--inference", nargs="?", default='svi-ppcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
     parser.add_argument("-n", "--num-samples", nargs="?", default=800, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=70, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=16, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
     parser.add_argument("--cg-tol", nargs='?', default=0.001, type=float)
     parser.add_argument("--active-dimensions", nargs='?', default=14, type=int)
     parser.add_argument("--thinning", nargs='?', default=10, type=int)
-    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--log-dir", default='./very_large/', type=str)
     parser.add_argument("--double", action="store_true")
     args = parser.parse_args()
