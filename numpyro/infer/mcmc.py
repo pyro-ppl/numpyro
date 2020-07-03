@@ -18,6 +18,14 @@ from numpyro.diagnostics import print_summary
 from numpyro.util import cached_by, fori_collect, identity
 
 
+def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
+    from numpyro.infer.hmc import hmc
+
+    warnings.warn("The functional interface `hmc` has been moved to `numpyro.infer.hmc` module.",
+                  DeprecationWarning)
+    return hmc(potential_fn, potential_fn_gen, kinetic_fn, algo)
+
+
 def get_diagnostics_str(mcmc_state):
     if type(mcmc_state).__name__ == 'HMCState':
         return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(mcmc_state.num_steps,
