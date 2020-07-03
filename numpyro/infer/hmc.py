@@ -117,7 +117,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         >>> import jax.numpy as jnp
         >>> import numpyro
         >>> import numpyro.distributions as dist
-        >>> from numpyro.infer.mcmc import hmc
+        >>> from numpyro.infer.hmc import hmc
         >>> from numpyro.infer.util import initialize_model
         >>> from numpyro.util import fori_collect
 
