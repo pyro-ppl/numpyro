@@ -17,7 +17,8 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import HMC, MCMC, NUTS, SA
-from numpyro.infer.mcmc import _get_proposal_loc_and_scale, _numpy_delete, hmc
+from numpyro.infer.hmc import hmc
+from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect

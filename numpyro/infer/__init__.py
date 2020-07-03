@@ -9,7 +9,9 @@ from numpyro.infer.initialization import (
     init_to_uniform,
     init_to_value
 )
-from numpyro.infer.mcmc import HMC, MCMC, NUTS, SA
+from numpyro.infer.hmc import HMC, NUTS
+from numpyro.infer.mcmc import MCMC
+from numpyro.infer.sa import SA
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import Predictive, log_likelihood
 
