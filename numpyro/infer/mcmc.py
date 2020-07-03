@@ -770,7 +770,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             if cov.shape == ():  # JAX returns scalar for 1D input
                 cov = cov.reshape((1, 1))
             cholesky = jnp.linalg.cholesky(cov)
-            scale = jnp.where(jnp.isnan(cholesky), scale, cholesky)
+            scale = jnp.where(jnp.any(jnp.isnan(cholesky)), scale, cholesky)
         else:
             scale = jnp.std(zs, 0)
 
