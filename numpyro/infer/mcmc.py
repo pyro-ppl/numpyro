@@ -762,7 +762,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
         zs, pes, loc, scale = sa_state.adapt_state
         # we recompute loc/scale after each iteration to avoid precision loss
-        # XXX: consider to expose a setting to do this job pediodically
+        # XXX: consider to expose a setting to do this job periodically
         # to save some computations
         loc = jnp.mean(zs, 0)
         if scale.ndim == 2:
