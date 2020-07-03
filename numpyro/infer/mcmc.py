@@ -746,7 +746,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
                 cov = cov.reshape((1, 1))
             cholesky = jnp.linalg.cholesky(cov)
             # if cholesky is NaN, we use the scale from `sample_proposal` here
-            inv_mass_matrix_sqrt = jnp.where(jnp.isnan(cholesky), inv_mass_matrix_sqrt, cholesky)
+            inv_mass_matrix_sqrt = jnp.where(jnp.any(jnp.isnan(cholesky)), inv_mass_matrix_sqrt, cholesky)
         else:
             inv_mass_matrix_sqrt = jnp.std(zs, 0)
         adapt_state = SAAdaptState(zs, pes, jnp.mean(zs, 0), inv_mass_matrix_sqrt)
