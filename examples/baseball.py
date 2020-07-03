@@ -34,7 +34,8 @@ the No U-Turn Sampler, which provides an efficient and automated way (i.e. limit
 hyper-parameters) of running HMC on different problems.
 
 Note that the Sample Adaptive (SA) kernel, which is implemented based on [5],
-requires large `num_warmup` and `num_samples` (e.g. 15,000 and 300,000).
+requires large `num_warmup` and `num_samples` (e.g. 15,000 and 300,000). So
+it is better to disable progress bar to avoid dispatching overhead.
 
 **References:**
 
