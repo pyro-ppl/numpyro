@@ -300,8 +300,6 @@ class condition(Messenger):
 
         if value is not None:
             msg['value'] = value
-            if msg['is_observed']:
-                raise ValueError("Cannot condition an already observed site: {}.".format(msg['name']))
             msg['is_observed'] = True
 
 
