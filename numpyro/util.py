@@ -300,9 +300,22 @@ def ravel_pytree(pytree):
     return flat, unravel_pytree
 
 
-def soft_vmap(fn, xs, batch_shape, chunk_size=None):
-    batch_ndims = len(batch_shape)
-    for x in tree_flatten(xs)[0]:
+def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
+    """
+    Vectorizing map a function `fn` over `batch_ndims` leading axes of `xs`.
+    The job is splitted into chunks to reduce memory usages.
+
+    :param callable fn: The function to map over.
+    :param xs: JAX pytree (e.g. an array, a list/tuple/dict of arrays,...)
+    :param int batch_ndims: The number of leading dimensions of `xs`
+        to apply `fn` element-wise over them.
+    :param int chunk_size: Size of each chunk of `xs`.
+        Defaults to the size of batch dimensions.
+    :returns: output of `fn(xs)`.
+    """
+    flatten_xs = tree_flatten(xs)[0]
+    batch_shape = np.shape(flatten_xs[0])[:batch_ndims]
+    for x in flatten_xs[1:]:
         assert np.shape(x)[:batch_ndims] == batch_shape
 
     # we'll do map(vmap(fn), xs) and make xs.shape = (num_chunks, chunk_size, ...)

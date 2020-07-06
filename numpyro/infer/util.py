@@ -407,7 +407,7 @@ def _predictive(rng_key, model, posterior_samples, batch_shape, return_sites=Non
         rng_key = random.split(rng_key, num_samples)
     rng_key = rng_key.reshape(batch_shape + (2,))
     chunk_size = num_samples if parallel else 1
-    return soft_vmap(single_prediction, (rng_key, posterior_samples), batch_shape, chunk_size)
+    return soft_vmap(single_prediction, (rng_key, posterior_samples), len(batch_shape), chunk_size)
 
 
 class Predictive(object):
@@ -558,4 +558,4 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
 
     batch_size = int(np.prod(batch_shape))
     chunk_size = batch_size if parallel else 1
-    return soft_vmap(single_loglik, posterior_samples, batch_shape, chunk_size)
+    return soft_vmap(single_loglik, posterior_samples, batch_ndims, chunk_size)

@@ -68,7 +68,7 @@ def test_soft_vmap(batch_shape, chunk_size):
         return {k: ((v[..., None] * jnp.ones(4)) if k == 'a' else ~v) for k, v in x.items()}
 
     xs = {'a': jnp.ones(batch_shape + (4,)), 'b': jnp.zeros(batch_shape).astype(bool)}
-    ys = soft_vmap(f, xs, batch_shape, chunk_size)
+    ys = soft_vmap(f, xs, len(batch_shape), chunk_size)
     assert set(ys.keys()) == {'a', 'b'}
     assert_allclose(ys['a'], xs['a'][..., None] * jnp.ones(4))
     assert_allclose(ys['b'], ~xs['b'])
