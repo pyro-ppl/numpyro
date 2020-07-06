@@ -1,3 +1,4 @@
+import jax.numpy as np
 import numpy as onp
 from utils import sigmoid
 import itertools
@@ -31,4 +32,4 @@ def get_data(N=20, S=2, P=10, Q=8, seed=0):
     assert X.shape == (N, P)
     assert Y.shape == (N,)
 
-    return X, Y, W, WW, dim_pairs
+    return np.array(X), np.array(Y), W, WW, dim_pairs

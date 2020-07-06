@@ -296,7 +296,7 @@ if __name__ == "__main__":
     P = 5
     b = onp.random.randn(N)
     X = onp.random.randn(N * P).reshape((N, P))
-    kappa = np.exp(0.2 * onp.random.randn(P))
+    kappa = 2.0 * np.exp(0.2 * onp.random.randn(P))
 
     eta1 = np.array(0.5)
     eta2 = np.array(0.33)

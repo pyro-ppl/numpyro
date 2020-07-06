@@ -23,6 +23,22 @@ def _chunk_vmap(fun, array, chunk_size=10):
     results = [vmap(fun)(array[chunk]) for chunk in chunks]
     return np.concatenate(results)
 
+def fori_loop(lower, upper, body_fun, init_val):
+    val = init_val
+    for i in range(lower, upper):
+        val = body_fun(i, val)
+    return val
+
+def _fori_vmap(fun, array, chunk_size=10):
+    L = array.shape[0]
+    if chunk_size >= L:
+        return vmap(fun)(array)
+
+
+
+   #diag = jax.ops.index_update(diag, iteration, 1.0 / alpha + prev_beta / prev_alpha)
+
+
 # do a matrix vector after first materializing the matrix M
 def vanilla_mvm(row):
     def do_mvm(rhs):
@@ -39,13 +55,54 @@ def partitioned_mvm(row, dilation):
         return _chunk_vmap(compute_element, np.arange(rhs.shape[-1]), rhs.shape[-1] // dilation)
     return do_mvm
 
+def partitioned_mvm2(row, size, dilation):
+    def do_mvm(rhs):
+        @jit
+        def compute_element(i):
+            return np.dot(rhs, row(i))
+        return _chunk_vmap(compute_element, np.arange(size), size // dilation)
+    return do_mvm
+
+# do a matrix vector multiply chunk-by-chunk
+def partitioned_mvm3(row, dilation):
+    def do_mvm(rhs):
+        def compute_element(i):
+            return np.dot(rhs, row(i))
+        return _chunk_vmap(compute_element, np.arange(rhs.shape[-1]), rhs.shape[-1] // dilation)
+    return do_mvm
+
 
 # np.square(1.0 + kdot(kX, kX))
 def kXkXsq_row(i, kX):
     return np.square(1.0 + np.matmul(kX, kX[i]))
+#def kXkXsq_row(i, kX):
+#    row_i = partitioned_mvm2(lambda j: kX[j], kX.shape[0], 2)(kX[i])
+#    return np.square(1.0 + row_i)
+#def kXkXsq_row(i, kX):
+#    row_i = partitioned_mvm2(lambda j: kX[j], kX.shape[0], 2)(kX[i])
+#    return np.square(1.0 + row_i)
 
 def kXkXsq_mvm(b, kX, dilation=2):
     return partitioned_mvm(lambda i: kXkXsq_row(i, kX), dilation)(b)
+
+def kXkXkXX_qf(b, X, kX, dilation=2):
+    bkX = kX * b[:, None]
+    @jit
+    def compute_element(i):
+        kXkX_i = np.matmul(kX, kX[i])
+        kXkXbkX_i = np.sum(kXkX_i[:, None] * bkX, axis=0)
+        return X[i] * b[i] * kXkXbkX_i
+    return np.sum(_chunk_vmap(compute_element, np.arange(b.shape[-1]), b.shape[-1] // dilation), axis=0)
+
+def kXkXkXX_qf2(p1, p2, X, kX, dilation=2):
+    bkX = kX * p1[:, :, None]  # NP N P
+    @jit
+    def compute_element(i):
+        kXkX_i = np.matmul(kX, kX[i])
+        kXkXbkX_i = np.sum(kXkX_i[:, None] * bkX, axis=-2)  # NP P
+        return X[i] * p2[:, None, i] * kXkXbkX_i
+    return np.mean(np.sum(_chunk_vmap(compute_element, np.arange(p1.shape[-1]), p1.shape[-1] // dilation), axis=0), axis=0)
+
 
 # kdot(kX, kX) * kdot(kX, dkX)
 def kXdkXsq_row(i, kX, dkX):
@@ -73,6 +130,17 @@ def kX_mvm2(b, kX, dilation=2):
 
 def quad_mvm(b, X):
     return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
+
+def quad_mvm_dil3(b, X, dilation=2):
+    N, P = X.shape
+    @jit
+    def compute_element1(i):
+        return np.dot(b, X[:, i])
+    partial = _chunk_vmap(compute_element1, np.arange(P), P // dilation)
+    @jit
+    def compute_element2(i):
+        return np.dot(np.transpose(partial), X[i])
+    return _chunk_vmap(compute_element2, np.arange(N), N // dilation)
 
 def quad_mvm_dil(b, X, dilation=2):
     N, P = X.shape
@@ -105,10 +173,10 @@ def kernel(X, Z, eta1, eta2, c):
     k4 = np.square(c) - 0.5 * eta2sq
     return k1 + k2 + k3 + k4
 
-def kernel_mvm_diag(b, kX, eta1, eta2, c, diag, dilation=2):
+def kernel_mvm_diag(b, kX, eta1, eta2, c, diag, dilation=2,dilation2=2):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
-    k1b = 0.5 * eta2sq * kXkXsq_mvm(b, kX, dilation=dilation)
+    k1b = 0.5 * eta2sq * kXkXsq_mvm(b, kX, dilation=dilation2)
     k2b = -0.5 * eta2sq * quad_mvm_dil(b, np.square(kX), dilation=dilation)
     k3b = (eta1sq - eta2sq) * quad_mvm_dil(b, kX, dilation=dilation)
     k4b = (np.square(c) - 0.5 * eta2sq) * np.sum(b) * np.ones(b.shape)
@@ -159,8 +227,8 @@ if __name__ == "__main__":
 
     onp.random.seed(0)
 
-    N = 9 * 10 ** 2
-    P = 100
+    N = 7
+    P = 4
     b = np.sin(np.ones(N)) / N
     a = np.cos(np.ones(N)) / N
 
@@ -170,8 +238,26 @@ if __name__ == "__main__":
 
     kappa = np.array(onp.random.rand(P))
 
-    dkX = np.array(onp.random.randn(N * P).reshape((N, P)))
+    kX = np.array(onp.random.randn(N * P).reshape((N, P)))
     X = np.array(onp.random.randn(N * P).reshape((N, P)))
+
+    b = np.sin(np.ones(N) / N)
+
+    kXt = np.transpose(kX)
+    Xt = np.transpose(X)
+    kXkX = np.matmul(kX, kXt)
+    kXkX_j = kXkX * kXt[:, None, :] * Xt[:, :, None]
+    res1 = np.sum(np.sum(kXkX_j * b * b[:, None], axis=-1), axis=-1)
+    print("res1", res1.shape, res1)
+    res2 = kXkXkXX_qf(b, X, kX, dilation=2)
+    print("res2", res2.shape, res2)
+    import sys;sys.exit()
+
+    res1 = np.matmul(np.transpose(X), np.transpose(b))  # N
+    res2 = quad_mvm_dil(b, kX, dilation=2)
+    assert_allclose(res1, res2, atol=1.0e-5, rtol=1.0e-8)
+
+    import sys;sys.exit()
 
     def f(kappa, eta1, eta2):
         kX = kappa * X
