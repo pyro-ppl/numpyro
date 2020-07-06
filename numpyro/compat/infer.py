@@ -8,10 +8,10 @@ from jax import jit
 import numpyro
 from numpyro.compat.pyro import get_param_store
 import numpyro.distributions as dist
-from numpyro.infer import elbo, mcmc, svi
+from numpyro.infer import elbo, hmc, mcmc, svi
 
 
-class HMC(mcmc.HMC):
+class HMC(hmc.HMC):
     def __init__(self,
                  model=None,
                  potential_fn=None,
@@ -37,7 +37,7 @@ class HMC(mcmc.HMC):
                                   trajectory_length=trajectory_length)
 
 
-class NUTS(mcmc.NUTS):
+class NUTS(hmc.NUTS):
     def __init__(self,
                  model=None,
                  potential_fn=None,
