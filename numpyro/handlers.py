@@ -315,6 +315,10 @@ class lift(Messenger):
 
     Consider the following NumPyro program:
 
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.handlers import lift
+
         >>> def model(x):
         ...     s = numpyro.param("s", 0.5)
         ...     z = numpyro.sample("z", dist.Normal(x, s))
