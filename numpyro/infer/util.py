@@ -18,7 +18,6 @@ from numpyro.handlers import seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
 from numpyro.util import not_jax_tracer, while_loop
 
-
 __all__ = [
     'find_valid_initial_params',
     'get_potential_fn',

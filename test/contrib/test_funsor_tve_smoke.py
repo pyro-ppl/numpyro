@@ -4,13 +4,13 @@
 import functools
 
 import pytest
+
 import jax
 import jax.numpy as jnp
 
 import funsor
 from funsor.einsum import einsum
 from funsor.testing import make_einsum_example, make_hmm_einsum, make_plated_hmm_einsum
-
 from numpyro.contrib.indexing import Vindex
 
 funsor.set_backend("jax")

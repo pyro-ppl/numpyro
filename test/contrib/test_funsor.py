@@ -8,9 +8,9 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
+from numpyro.contrib.funsor import markov
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
-from numpyro.contrib.funsor import markov
 
 
 def test_gaussian_mixture_model():

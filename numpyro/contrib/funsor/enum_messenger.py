@@ -9,7 +9,6 @@ from jax import lax
 import jax.numpy as np
 
 import funsor
-
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
 
