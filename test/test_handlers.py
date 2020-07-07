@@ -112,9 +112,7 @@ def test_condition():
     model_trace = handlers.trace(model).get_trace()
     assert model_trace['y']['value'] == 2.
     assert model_trace['y']['is_observed']
-    # Raise ValueError when site is already observed.
-    with pytest.raises(ValueError):
-        handlers.condition(model, {'y': 3.})()
+    assert handlers.condition(model, {'y': 3.})() == 3.
 
 
 def test_no_split_deterministic():
