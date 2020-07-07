@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import functools
+import os
 
 import pytest
 
@@ -14,6 +15,7 @@ from funsor.testing import make_einsum_example, make_hmm_einsum, make_plated_hmm
 from numpyro.contrib.indexing import Vindex
 
 funsor.set_backend("jax")
+pytestmark = pytest.mark.skipif('CI' in os.environ, reason="those tests are slow in CI")
 
 
 def raw_einsum(operands, equation=None, plates=None, backend='funsor.einsum.numpy_log'):

@@ -77,7 +77,7 @@ def log_density(model, model_args, model_kwargs, params):
         name.
     :return: log of joint density and a corresponding model trace
     """
-    model = substitute(model, param_map=params)
+    model = substitute(model, data=params)
     with plate_to_enum_plate():
         model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
     log_factors = []
