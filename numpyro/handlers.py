@@ -76,8 +76,6 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    -874.89813
 """
 
-from __future__ import absolute_import, division, print_function
-
 from collections import OrderedDict
 import warnings
 
@@ -274,9 +272,8 @@ class condition(Messenger):
     def __init__(self, fn=None, data=None, condition_fn=None, param_map=None):
         if param_map is not None:
             data = param_map
-            warnings.warn(FutureWarning,
-                          "'param_map' argument is renamed to 'data'. We will remove"
-                          " 'param_map' in a future release.")
+            warnings.warn("'param_map' argument is renamed to 'data'. We will remove"
+                          " 'param_map' in a future release.", FutureWarning)
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
@@ -532,9 +529,8 @@ class substitute(Messenger):
     def __init__(self, fn=None, data=None, substitute_fn=None, param_map=None):
         if param_map is not None:
             data = param_map
-            warnings.warn(FutureWarning,
-                          "'param_map' argument is renamed to 'data'. We will remove"
-                          " 'param_map' in a future release.")
+            warnings.warn("'param_map' argument is renamed to 'data'. We will remove"
+                          " 'param_map' in a future release.", FutureWarning)
         self.substitute_fn = substitute_fn
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:

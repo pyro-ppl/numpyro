@@ -121,14 +121,17 @@ def test_predictive_with_improper():
     assert_allclose(jnp.mean(obs_pred), true_coef, atol=0.05)
 
 
-def test_prior_predictive():
+@pytest.mark.parametrize('batch_ndims', [0, 1, 2])
+def test_prior_predictive(batch_ndims):
     model, data, true_probs = beta_bernoulli()
-    predictive_samples = Predictive(model, num_samples=100)(random.PRNGKey(1))
+    predictive = Predictive(model, num_samples=100, batch_ndims=batch_ndims)
+    predictive_samples = predictive(random.PRNGKey(1))
     assert predictive_samples.keys() == {"beta", "beta_sq", "obs"}
 
     # check shapes
-    assert predictive_samples["beta"].shape == (100,) + true_probs.shape
-    assert predictive_samples["obs"].shape == (100,) + data.shape
+    batch_shape = (1,) * (batch_ndims - 1) + (100,)
+    assert predictive_samples["beta"].shape == batch_shape + true_probs.shape
+    assert predictive_samples["obs"].shape == batch_shape + data.shape
 
 
 @pytest.mark.parametrize('batch_shape', [(), (100,), (2, 50)])

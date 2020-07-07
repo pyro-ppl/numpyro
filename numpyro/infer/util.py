@@ -453,8 +453,8 @@ class Predictive(object):
         prototype_site = batch_shape = batch_size = None
         for name, sample in posterior_samples.items():
             if batch_shape is not None and sample.shape[:batch_ndims] != batch_shape:
-                raise ValueError(f"Batch shapes at site {name} and {prototype_site}"
-                                 f"should be the same, but got"
+                raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
+                                 f"should be the same, but got "
                                  f"{sample.shape[:batch_ndims]} and {batch_shape}")
             else:
                 prototype_site = name
@@ -545,8 +545,8 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
     prototype_site = batch_shape = None
     for name, sample in posterior_samples.items():
         if batch_shape is not None and sample.shape[:batch_ndims] != batch_shape:
-            raise ValueError(f"Batch shapes at site {name} and {prototype_site}"
-                             f"should be the same, but got"
+            raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
+                             f"should be the same, but got "
                              f"{sample.shape[:batch_ndims]} and {batch_shape}")
         else:
             prototype_site = name
@@ -558,4 +558,4 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
 
     batch_size = int(np.prod(batch_shape))
     chunk_size = batch_size if parallel else 1
-    return soft_vmap(single_loglik, posterior_samples, batch_ndims, chunk_size)
+    return soft_vmap(single_loglik, posterior_samples, len(batch_shape), chunk_size)

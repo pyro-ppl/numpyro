@@ -302,8 +302,9 @@ def ravel_pytree(pytree):
 
 def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     """
-    Vectorizing map a function `fn` over `batch_ndims` leading axes of `xs`.
-    The job is splitted into chunks to reduce memory usages.
+    Vectorizing map that maps a function `fn` over `batch_ndims` leading axes
+    of `xs`. This uses jax.vmap over smaller chunks of the batch dimensions
+    to keep memory usage constant.
 
     :param callable fn: The function to map over.
     :param xs: JAX pytree (e.g. an array, a list/tuple/dict of arrays,...)
