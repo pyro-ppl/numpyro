@@ -136,6 +136,7 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
+        'scale': None,
         'cond_indep_stack': [],
     }
 
@@ -255,7 +256,7 @@ class plate(Messenger):
         return tuple(batch_shape)
 
     def process_message(self, msg):
-        if msg['type'] not in ('sample', 'plate'):
+        if msg['type'] not in ('param', 'sample', 'plate'):
             if msg['type'] == 'control_flow':
                 raise RuntimeError('Cannot use control flow primitive under a `plate` primitive.'
                                    ' Please move those `plate` statements into the control flow'
@@ -265,8 +266,8 @@ class plate(Messenger):
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
-        expected_shape = self._get_batch_shape(cond_indep_stack)
         if msg['type'] == 'sample':
+            expected_shape = self._get_batch_shape(cond_indep_stack)
             dist_batch_shape = msg['fn'].batch_shape
             if 'sample_shape' in msg['kwargs']:
                 dist_batch_shape = msg['kwargs']['sample_shape'] + dist_batch_shape
