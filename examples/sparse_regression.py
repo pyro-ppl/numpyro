@@ -185,7 +185,6 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
 
     k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
     L = cho_factor(k_xx, lower=True)[0]
-    k_xx_inv = jnp.linalg.inv(k_xx)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
 
