@@ -5,7 +5,9 @@ from collections import namedtuple
 from functools import partial
 import warnings
 
-from jax import device_get, lax, random, value_and_grad, vmap
+import numpy as np
+
+from jax import device_get, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -16,7 +18,7 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer.initialization import init_to_uniform, init_to_value
-from numpyro.util import not_jax_tracer, while_loop
+from numpyro.util import not_jax_tracer, soft_vmap, while_loop
 
 __all__ = [
     'find_valid_initial_params',
@@ -383,9 +385,8 @@ def initialize_model(rng_key, model,
     return ModelInfo(ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace)
 
 
-def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=None,
+def _predictive(rng_key, model, posterior_samples, batch_shape, return_sites=None,
                 parallel=True, model_args=(), model_kwargs={}):
-    rng_keys = random.split(rng_key, num_samples)
 
     def single_prediction(val):
         rng_key, samples = val
@@ -401,10 +402,12 @@ def _predictive(rng_key, model, posterior_samples, num_samples, return_sites=Non
                      if (site['type'] == 'sample' and k not in samples) or (site['type'] == 'deterministic')}
         return {name: site['value'] for name, site in model_trace.items() if name in sites}
 
-    if parallel:
-        return vmap(single_prediction)((rng_keys, posterior_samples))
-    else:
-        return lax.map(single_prediction, (rng_keys, posterior_samples))
+    num_samples = int(np.prod(batch_shape))
+    if num_samples > 1:
+        rng_key = random.split(rng_key, num_samples)
+    rng_key = rng_key.reshape(batch_shape + (2,))
+    chunk_size = num_samples if parallel else 1
+    return soft_vmap(single_prediction, (rng_key, posterior_samples), len(batch_shape), chunk_size)
 
 
 class Predictive(object):
@@ -426,27 +429,48 @@ class Predictive(object):
         in `posterior_samples` are returned.
     :param bool parallel: whether to predict in parallel using JAX vectorized map :func:`jax.vmap`.
         Defaults to False.
+    :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
+
+        + set `batch_ndims=0` to get prediction for 1 single sample
+
+        + set `batch_ndims=1` to get prediction for `posterior_samples`
+          with shapes `(num_samples x ...)`
+
+        + set `batch_ndims=2` to get prediction for `posterior_samples`
+          with shapes `(num_chains x N x ...)`. Note that if `num_samples`
+          argument is not None, its value should be equal to `num_chains x N`.
 
     :return: dict of samples from the predictive distribution.
     """
 
     def __init__(self, model, posterior_samples=None, guide=None, params=None, num_samples=None,
-                 return_sites=None, parallel=False):
+                 return_sites=None, parallel=False, batch_ndims=1):
         if posterior_samples is None and num_samples is None:
             raise ValueError("Either posterior_samples or num_samples must be specified.")
 
         posterior_samples = {} if posterior_samples is None else posterior_samples
 
+        prototype_site = batch_shape = batch_size = None
         for name, sample in posterior_samples.items():
-            batch_size = sample.shape[0]
-            if (num_samples is not None) and (num_samples != batch_size):
-                warnings.warn("Sample's leading dimension size {} is different from the "
-                              "provided {} num_samples argument. Defaulting to {}."
-                              .format(batch_size, num_samples, batch_size), UserWarning)
-            num_samples = batch_size
+            if batch_shape is not None and sample.shape[:batch_ndims] != batch_shape:
+                raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
+                                 f"should be the same, but got "
+                                 f"{sample.shape[:batch_ndims]} and {batch_shape}")
+            else:
+                prototype_site = name
+                batch_shape = sample.shape[:batch_ndims]
+                batch_size = int(np.prod(batch_shape))
+                if (num_samples is not None) and (num_samples != batch_size):
+                    warnings.warn("Sample's batch dimension size {} is different from the "
+                                  "provided {} num_samples argument. Defaulting to {}."
+                                  .format(batch_size, num_samples, batch_size), UserWarning)
+                num_samples = batch_size
 
         if num_samples is None:
             raise ValueError("No sample sites in posterior samples to infer `num_samples`.")
+
+        if batch_shape is None:
+            batch_shape = (1,) * (batch_ndims - 1) + (num_samples,)
 
         if return_sites is not None:
             assert isinstance(return_sites, (list, tuple, set))
@@ -458,6 +482,8 @@ class Predictive(object):
         self.params = {} if params is None else params
         self.return_sites = return_sites
         self.parallel = parallel
+        self.batch_ndims = batch_ndims
+        self._batch_shape = batch_shape
 
     def __call__(self, rng_key, *args, **kwargs):
         """
@@ -475,20 +501,20 @@ class Predictive(object):
             # use return_sites='' as a special signal to return all sites
             guide = substitute(self.guide, self.params)
             posterior_samples = _predictive(guide_rng_key, guide, posterior_samples,
-                                            self.num_samples, return_sites='', parallel=self.parallel,
+                                            self._batch_shape, return_sites='', parallel=self.parallel,
                                             model_args=args, model_kwargs=kwargs)
         model = substitute(self.model, self.params)
-        return _predictive(rng_key, model, posterior_samples, self.num_samples,
+        return _predictive(rng_key, model, posterior_samples, self._batch_shape,
                            return_sites=self.return_sites, parallel=self.parallel,
                            model_args=args, model_kwargs=kwargs)
 
     def get_samples(self, rng_key, *args, **kwargs):
         warnings.warn("The method `.get_samples` has been deprecated in favor of `.__call__`.",
-                      DeprecationWarning)
+                      FutureWarning)
         return self.__call__(rng_key, *args, **kwargs)
 
 
-def log_likelihood(model, posterior_samples, *args, **kwargs):
+def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=1, **kwargs):
     """
     (EXPERIMENTAL INTERFACE) Returns log likelihood at observation nodes of model,
     given samples of all latent variables.
@@ -496,13 +522,40 @@ def log_likelihood(model, posterior_samples, *args, **kwargs):
     :param model: Python callable containing Pyro primitives.
     :param dict posterior_samples: dictionary of samples from the posterior.
     :param args: model arguments.
+    :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
+
+        + set `batch_ndims=0` to get prediction for 1 single sample
+
+        + set `batch_ndims=1` to get prediction for `posterior_samples`
+          with shapes `(num_samples x ...)`
+
+        + set `batch_ndims=2` to get prediction for `posterior_samples`
+          with shapes `(num_chains x N x ...)`
+
     :param kwargs: model kwargs.
     :return: dict of log likelihoods at observation sites.
     """
 
     def single_loglik(samples):
-        model_trace = trace(substitute(model, samples)).get_trace(*args, **kwargs)
+        substituted_model = substitute(model, samples) if isinstance(samples, dict) else model
+        model_trace = trace(substituted_model).get_trace(*args, **kwargs)
         return {name: site['fn'].log_prob(site['value']) for name, site in model_trace.items()
                 if site['type'] == 'sample' and site['is_observed']}
 
-    return vmap(single_loglik)(posterior_samples)
+    prototype_site = batch_shape = None
+    for name, sample in posterior_samples.items():
+        if batch_shape is not None and sample.shape[:batch_ndims] != batch_shape:
+            raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
+                             f"should be the same, but got "
+                             f"{sample.shape[:batch_ndims]} and {batch_shape}")
+        else:
+            prototype_site = name
+            batch_shape = sample.shape[:batch_ndims]
+
+    if batch_shape is None:  # posterior_samples is an empty dict
+        batch_shape = (1,) * batch_ndims
+        posterior_samples = np.zeros(batch_shape)
+
+    batch_size = int(np.prod(batch_shape))
+    chunk_size = batch_size if parallel else 1
+    return soft_vmap(single_loglik, posterior_samples, len(batch_shape), chunk_size)
