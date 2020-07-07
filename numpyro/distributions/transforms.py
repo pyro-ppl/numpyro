@@ -372,7 +372,7 @@ class LowerCholeskyTransform(Transform):
 class MultivariateAffineTransform(LowerCholeskyAffine):
     def __init__(self, loc, scale_tril):
         warnings.warn("MultivariateAffineTransform is renamed to LowerCholeskyAffine.",
-                      DeprecationWarning)
+                      FutureWarning)
         super().__init__(loc, scale_tril)
 
 

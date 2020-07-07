@@ -510,7 +510,7 @@ class Predictive(object):
 
     def get_samples(self, rng_key, *args, **kwargs):
         warnings.warn("The method `.get_samples` has been deprecated in favor of `.__call__`.",
-                      DeprecationWarning)
+                      FutureWarning)
         return self.__call__(rng_key, *args, **kwargs)
 
 

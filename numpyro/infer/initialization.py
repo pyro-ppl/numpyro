@@ -33,7 +33,7 @@ def init_to_median(site=None, num_samples=15):
 
 def init_to_prior(site=None):
     warnings.warn("`init_to_prior` strategy is renamed to `init_to_sample`.",
-                  DeprecationWarning)
+                  FutureWarning)
     return init_to_sample(site=site)
 
 
