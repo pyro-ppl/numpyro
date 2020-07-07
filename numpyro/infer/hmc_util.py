@@ -213,7 +213,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
 
 
 def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
-                              init_step_size, inverse_mass_matrix, position, rng_key):
+                              init_step_size, inverse_mass_matrix, z_info, rng_key):
     """
     Finds a reasonable step size by tuning `init_step_size`. This function is used
     to avoid working with a too large or too small step size in HMC.
@@ -228,7 +228,8 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
     :param momentum_generator: A generator to get a random momentum variable.
     :param float init_step_size: Initial step size to be tuned.
     :param inverse_mass_matrix: Inverse of mass matrix.
-    :param position: Current position of the particle.
+    :param tuple z_info: A tuple containing current position of the particle,
+        its potential energy, and the corresponding gradients.
     :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
     :return: a reasonable value for step size.
     :rtype: float
@@ -239,8 +240,9 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
     target_accept_prob = jnp.log(0.8)
 
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
-    z = position
-    potential_energy, z_grad = value_and_grad(potential_fn)(z)
+    z, potential_energy, z_grad = z_info
+    if potential_energy is None or z_grad is None:
+        potential_energy, z_grad = value_and_grad(potential_fn)(z)
     finfo = jnp.finfo(get_dtype(init_step_size))
 
     def _body_fn(state):
@@ -252,7 +254,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
-        r = momentum_generator(position, inverse_mass_matrix, rng_key_momentum)
+        r = momentum_generator(z, inverse_mass_matrix, rng_key_momentum)
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
                                                       (z, r, potential_energy, z_grad))
@@ -355,9 +357,10 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
     adaptation_schedule = jnp.array(build_adaptation_schedule(num_adapt_steps))
     num_windows = len(adaptation_schedule)
 
-    def init_fn(z, rng_key, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
+    def init_fn(z_info, rng_key, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
         """
-        :param z: Initial position of the integrator.
+        :param tuple z_info: A tuple containing the initial position of the integrator, its
+            potential energy, and the corresponding gradients.
         :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
         :param float step_size: Initial step size.
         :param inverse_mass_matrix: Inverse of the initial mass matrix. If ``None``,
@@ -381,7 +384,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                 mass_matrix_sqrt = jnp.sqrt(jnp.reciprocal(inverse_mass_matrix))
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
         ss_state = ss_init(jnp.log(10 * step_size))
 
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
@@ -390,7 +393,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
                              ss_state, mm_state, window_idx, rng_key)
 
-    def _update_at_window_end(z, rng_key_ss, state):
+    def _update_at_window_end(z_info, rng_key_ss, state):
         step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
 
         if adapt_mass_matrix:
@@ -398,17 +401,18 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
             ss_state = ss_init(jnp.log(10 * step_size))
 
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
                              ss_state, mm_state, window_idx, rng_key)
 
-    def update_fn(t, accept_prob, z, state):
+    def update_fn(t, accept_prob, z_info, state):
         """
         :param int t: The current time step.
         :param float accept_prob: Acceptance probability of the current trajectory.
-        :param z: New position drawn at the end of the current trajectory.
+        :param z_info: A tuple contains new position drawn at the end of the current trajectory,
+            its potential energy, and the corresponding gradients.
         :param state: Current state of the adapt scheme.
         :return: new state of the adapt scheme.
         """
@@ -430,6 +434,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
         if adapt_mass_matrix:
+            z, _, _ = z_info
             z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
                             (z_flat, mm_state), lambda args: mm_update(*args),
@@ -440,7 +445,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         state = HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
                               ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
-                     (z, rng_key_ss, state), lambda args: _update_at_window_end(*args),
+                     (z_info, rng_key_ss, state), lambda args: _update_at_window_end(*args),
                      state, identity)
         return state
 

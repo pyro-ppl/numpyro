@@ -277,7 +277,7 @@ def test_warmup_adapter(jitted):
 
     rng_key = random.PRNGKey(0)
     z = jnp.ones(3)
-    wa_state = wa_init(z, rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
+    wa_state = wa_init((z, None, None), rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
     step_size, inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
     assert step_size == find_reasonable_step_size(init_step_size, inverse_mass_matrix, z, rng_key)
     assert_allclose(inverse_mass_matrix, jnp.ones(mass_matrix_size))
