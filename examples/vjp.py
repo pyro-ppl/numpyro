@@ -9,7 +9,8 @@ import numpy as onp
 import math
 from utils import dotdot
 
-from mvm import kernel_mvm_diag, kXkXsq_mvm, quad_mvm_dil, quad_mvm_dil3, kX_mvm, kXdkXsq_mvm, kXkXkXX_qf, kXkXkXX_qf2, kernel_mvm
+from mvm import kernel_mvm_diag, kXkXsq_mvm, quad_mvm_dil, quad_mvm_dil3, kX_mvm, kXdkXsq_mvm, kernel_mvm
+from mvm import kXkXsq_mvm_sub, kXdkXsq_mvm_sub
 from cg import lowrank_presolve, pcg_batch_b, kernel, pcg
 
 numpyro.set_platform('gpu')
@@ -159,15 +160,16 @@ def pcpcg_quad_form_log_det_bwd(c, X, probes, rank1, rank2, cg_tol, max_iters, d
 pcpcg_quad_form_log_det.defvjp(pcpcg_quad_form_log_det_fwd, pcpcg_quad_form_log_det_bwd)
 
 
-@partial(custom_jvp, nondiff_argnums=(5, 6, 7, 8, 9, 10, 11, 12))
-def pcpcg_quad_form_log_det2(kappa, b, eta1, eta2, diag, c, X, probes, rank1, rank2, cg_tol, max_iters, dilation):
+@partial(custom_jvp, nondiff_argnums=(5, 6, 7, 8, 9, 10, 11, 12, 13))
+def pcpcg_quad_form_log_det2(kappa, b, eta1, eta2, diag, c, X, probes, rank1, rank2, cg_tol, max_iters, dilation, subsample):
     return (np.nan, np.nan, np.nan)
 
 def meansum(x):
     return np.sum(x) / x.shape[0]
 
 @pcpcg_quad_form_log_det2.defjvp
-def pcpcg_quad_form_log_det2_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, dilation, primals, tangents):
+def pcpcg_quad_form_log_det2_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, dilation, subsample,
+                                 primals, tangents):
     kappa, b, eta1, eta2, diag = primals
     kappa_dot, b_dot, eta1_dot, eta2_dot, diag_dot = tangents
 
@@ -206,24 +208,31 @@ def pcpcg_quad_form_log_det2_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, 
 
     Ainv_b_kX_normsq = dotdot(Ainv_b_kX)
 
-    kXdkXsq_Ainv_b, kXdkXsq_Ainv_probes = split(np.transpose(kXdkXsq_mvm(Ainv_b_probes, kX, dkX, dilation=dilation)))
-    #kXdkXsq_Ainv_b = np.zeros(b.shape)
-    #kXdkXsq_Ainv_probes = np.zeros(probes.shape)
-    kXkXsq_Ainv_b, kXkXsq_Ainv_probes = split(np.transpose(kXkXsq_mvm(Ainv_b_probes, kX, dilation=dilation)))
+    kX_sub, dkX_sub = kX[subsample], dkX[subsample]
+    kXdkXsq_Ainv_b, kXdkXsq_Ainv_probes = split(np.transpose(kXdkXsq_mvm_sub(Ainv_b_probes, kX_sub, dkX_sub,
+                                                                             kX, dkX, dilation=dilation)))
+    kXkXsq_Ainv_b, kXkXsq_Ainv_probes = split(np.transpose(kXkXsq_mvm_sub(Ainv_b_probes, kX_sub, kX, dilation=dilation)))
+    ssfac = float(kX.shape[0] / kX_sub.shape[0])
+    print("ssfac",ssfac)
+
+    #kXdkXsq_Ainv_b, kXdkXsq_Ainv_probes = split(np.transpose(kXdkXsq_mvm(Ainv_b_probes, kX, dkX, dilation=dilation)))
+    #kXkXsq_Ainv_b, kXkXsq_Ainv_probes = split(np.transpose(kXkXsq_mvm(Ainv_b_probes, kX, dilation=dilation)))
 
     quad_form_dk = - 2.0 * eta1sq * np.dot(Ainv_b_kX, Ainv_b_dkX) \
-                   + 2.0 * eta2sq * (np.dot(Ainv_b_k3Xsq, Ainv_b_dkXsq) - np.dot(Ainv_b, kXdkXsq_Ainv_b))
+                   + 2.0 * eta2sq * (np.dot(Ainv_b_k3Xsq, Ainv_b_dkXsq) \
+                                     - ssfac * np.dot(Ainv_b[subsample], kXdkXsq_Ainv_b))
     quad_form_db = 2.0 * np.dot(KAinv_b, b_dot)
     quad_form_deta1 = - 2.0 * eta1 * eta1_dot * Ainv_b_kX_normsq
-    quad_form_deta2 = -eta2 * eta2_dot * (np.dot(Ainv_b, kXkXsq_Ainv_b) - 2.0 * Ainv_b_kX_normsq
+    quad_form_deta2 = -eta2 * eta2_dot * (ssfac * np.dot(Ainv_b[subsample], kXkXsq_Ainv_b) - 2.0 * Ainv_b_kX_normsq
                                           - dotdot(Ainv_b_ksqXsq) - np.square(np.sum(Ainv_b)))
     quad_form_ddiag = -np.dot(np.square(KAinv_b / diag), diag_dot)
 
     log_det_dk = 2.0 * eta1sq * meansum(probes_kX * Ainv_probes_dkX) \
                  - 2.0 * eta2sq * meansum(probes_k3Xsq * Ainv_probes_dkXsq) \
-                 + 2.0 * eta2sq * meansum(probes * kXdkXsq_Ainv_probes)
+                 + 2.0 * eta2sq * ssfac * meansum(probes[:, subsample] * kXdkXsq_Ainv_probes)
     log_det_deta1 = 2.0 * eta1 * eta1_dot * meansum(probes_kX * Ainv_probes_kX)
-    log_det_deta2 = eta2 * eta2_dot * (meansum(probes * kXkXsq_Ainv_probes) - 2.0 * meansum(probes_kX * Ainv_probes_kX) \
+    log_det_deta2 = eta2 * eta2_dot * (ssfac * meansum(probes[:, subsample] * kXkXsq_Ainv_probes) \
+                                       - 2.0 * meansum(probes_kX * Ainv_probes_kX) \
                                        - meansum(probes_ksqXsq * Ainv_probes_ksqXsq) \
                                        - np.mean(np.sum(probes, axis=-1) * np.sum(Ainv_probes, axis=-1)))
     log_det_ddiag = meansum(probes * diag_dot * Ainv_probes)

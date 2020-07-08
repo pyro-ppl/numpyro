@@ -23,7 +23,7 @@ from numpyro.util import enable_x64
 
 import pickle
 from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det, pcpcg_quad_form_log_det
-from utils import CustomAdam, record_stats, kdot, sample_aux_noise, _fori_loop
+from utils import CustomAdam, record_stats, kdot, sample_aux_noise, _fori_loop, sample_permutation
 from mvm import kernel_mvm
 
 from data import get_data
@@ -91,12 +91,13 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
             0.5 * kY, eta1, eta2, 1.0 / omega, hypers['c'], kX, kappa, probe, rank1, rank2, cg_tol, max_iters)
     elif method == "ppcg":
         probe = sample_aux_noise(shape=(num_probes, N))
+        subsample = sample_permutation(N)[:N // 10]
         #qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
         #    0.5 * kY, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
         #qfld, res_norm, cg_iters = pcpcg_quad_form_log_det2(kappa,
         #     Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
         qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det2, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
-             Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
+             Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation, subsample)
 
         #qfld, res_norm, cg_iters = pcpcg_quad_form_log_det(kappa, Y, eta1, eta2, 1.0 / omega, hypers['c'],
         #                     X, probe, rank1, rank2, cg_tol, max_iters, 1, 1)
@@ -156,7 +157,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=4):
     svi_state = svi.init(rng_key_init, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
 
     num_steps = args['num_samples']
-    report_frequency = 50
+    report_frequency = 20
     beta = 0.95
     bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
@@ -169,7 +170,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=4):
         return (svi_state, loss, stats)
 
     def do_chunk(svi_state):
-        return _fori_loop(0, report_frequency, body_fn, (svi_state, 0.0, np.zeros(2)))
+        return _fori_loop(np.array(0), np.array(report_frequency), body_fn, (svi_state, np.array(0.0), np.zeros(2)))
 
     ts = [time.time()]
     res_norm_history = []
@@ -221,7 +222,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [33000]:
+    for N in [3000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -240,6 +241,7 @@ def main(**args):
 
         print("leading lambda", onp.mean(samples['lambda'], axis=0)[:40])
         print("leading kappa", onp.mean(samples['kappa'], axis=0)[:40])
+        import sys;sys.exit()
 
         # compute the mean and square root variance of each coefficient theta_i
         #means, stds = chunk_vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers),
@@ -341,7 +343,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-ppcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=200, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)

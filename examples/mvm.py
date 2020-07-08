@@ -33,9 +33,6 @@ def _fori_vmap(fun, array, chunk_size=10):
     L = array.shape[0]
     if chunk_size >= L:
         return vmap(fun)(array)
-
-
-
    #diag = jax.ops.index_update(diag, iteration, 1.0 / alpha + prev_beta / prev_alpha)
 
 
@@ -55,7 +52,9 @@ def partitioned_mvm(row, dilation):
         return _chunk_vmap(compute_element, np.arange(rhs.shape[-1]), rhs.shape[-1] // dilation)
     return do_mvm
 
-def partitioned_mvm2(row, size, dilation):
+
+# do a matrix vector multiply chunk-by-chunk
+def partitioned_mvm_size(row, size, dilation):
     def do_mvm(rhs):
         @jit
         def compute_element(i):
@@ -63,41 +62,11 @@ def partitioned_mvm2(row, size, dilation):
         return _chunk_vmap(compute_element, np.arange(size), size // dilation)
     return do_mvm
 
-# do a matrix vector multiply chunk-by-chunk
-def partitioned_mvm3(row, dilation):
-    def do_mvm(rhs):
-        def compute_element(i):
-            return np.dot(rhs, row(i))
-        return _chunk_vmap(compute_element, np.arange(rhs.shape[-1]), rhs.shape[-1] // dilation)
-    return do_mvm
-
-
-def kXkXkXX_qf(b, X, kX, dilation=2):
-    bkX = kX * b[:, None]
-    @jit
-    def compute_element(i):
-        kXkX_i = np.matmul(kX, kX[i])
-        kXkXbkX_i = np.sum(kXkX_i[:, None] * bkX, axis=0)
-        return X[i] * b[i] * kXkXbkX_i
-    return np.sum(_chunk_vmap(compute_element, np.arange(b.shape[-1]), b.shape[-1] // dilation), axis=0)
-
-def kXkXkXX_qf2(p1, p2, X, kX, dilation=2):
-    bkX = kX * p1[:, :, None]  # NP N P
-    @jit
-    def compute_element(i):
-        kXkX_i = np.matmul(kX, kX[i])
-        kXkXbkX_i = np.sum(kXkX_i[:, None] * bkX, axis=-2)  # NP P
-        return X[i] * p2[:, None, i] * kXkXbkX_i
-    return np.mean(np.sum(_chunk_vmap(compute_element, np.arange(p1.shape[-1]), p1.shape[-1] // dilation), axis=0), axis=0)
-
-def kXkXkXX_qf3(p1, p2, X, kX, dilation=2):
-    bkX = kX * p1[:, :, None]  # NP N P
-    @jit
-    def compute_element(i):
-        kXkX_i = np.matmul(kX, kX[i])
-        kXkXbkX_i = np.sum(kXkX_i[:, None] * bkX, axis=-2)  # NP P
-        return X[i] * p2[:, None, i] * kXkXbkX_i  # P    NP 1    NP P
-    return np.mean(np.sum(_chunk_vmap(compute_element, np.arange(p1.shape[-1]), p1.shape[-1] // dilation), axis=0), axis=0)
+# np.square(1.0 + kdot(kX, kX))
+def kXkXsq_row_sub(i, kX_sub, kX):
+    return np.square(1.0 + np.matmul(kX, kX_sub[i]))
+def kXkXsq_mvm_sub(b, kX_sub, kX, dilation=2):
+    return partitioned_mvm_size(lambda i: kXkXsq_row_sub(i, kX_sub, kX), kX_sub.shape[0], dilation)(b)
 
 # np.square(1.0 + kdot(kX, kX))
 def kXkXsq_row(i, kX):
@@ -108,9 +77,13 @@ def kXkXsq_mvm(b, kX, dilation=2):
 # kdot(kX, kX) * kdot(kX, dkX)
 def kXdkXsq_row(i, kX, dkX):
     return np.matmul(kX, kX[i]) * np.matmul(kX, dkX[i])
-
 def kXdkXsq_mvm(b, kX, dkX, dilation=2):
     return partitioned_mvm(lambda i: kXdkXsq_row(i, kX, dkX), dilation)(b)
+
+def kXdkXsq_row_sub(i, kX_sub, dkX_sub, kX, dkX):
+    return np.matmul(kX, kX_sub[i]) * np.matmul(kX, dkX_sub[i])
+def kXdkXsq_mvm_sub(b, kX_sub, dkX_sub, kX, dkX, dilation=2):
+    return partitioned_mvm_size(lambda i: kXdkXsq_row_sub(i, kX_sub, dkX_sub, kX, dkX), kX_sub.shape[0], dilation)(b)
 
 def partitioned_mvm2(row, P, dilation):
     def do_mvm(rhs):

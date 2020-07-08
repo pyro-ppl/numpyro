@@ -36,9 +36,14 @@ def cho_tri_solve(A, b):
     return L, Linv_b
 
 def sample_aux_noise(shape):
-    key = numpyro.sample('rng_key', numpyro.distributions.PRNGIdentity())
+    key = numpyro.sample('rng_key_aux', numpyro.distributions.PRNGIdentity())
     with numpyro.handlers.block():
         return jax.random.normal(key, shape=shape)
+
+def sample_permutation(N):
+    key = numpyro.sample('rng_key_perm', numpyro.distributions.PRNGIdentity())
+    with numpyro.handlers.block():
+        return jax.random.permutation(key, N)
 
 
 def _fori_loop(lower, upper, body_fun, init_val):
