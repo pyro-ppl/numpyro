@@ -76,21 +76,23 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    -874.89813
 """
 
-from __future__ import absolute_import, division, print_function
-
 from collections import OrderedDict
 import warnings
 
 from jax import lax, random
 import jax.numpy as jnp
 
-from numpyro.primitives import Messenger, apply_stack
+import numpyro
+from numpyro.primitives import Messenger
 from numpyro.util import not_jax_tracer
 
 
 __all__ = [
     'block',
     'condition',
+    'lift',
+    'mask',
+    'reparam',
     'replay',
     'scale',
     'scope',
@@ -243,12 +245,12 @@ class block(Messenger):
 
 class condition(Messenger):
     """
-    Conditions unobserved sample sites to values from `param_map` or `condition_fn`.
+    Conditions unobserved sample sites to values from `data` or `condition_fn`.
     Similar to :class:`~numpyro.handlers.substitute` except that it only affects
     `sample` sites and changes the `is_observed` property to `True`.
 
     :param fn: Python callable with NumPyro primitives.
-    :param dict param_map: dictionary of `numpy.ndarray` values keyed by
+    :param dict data: dictionary of `numpy.ndarray` values keyed by
        site names.
     :param condition_fn: callable that takes in a site dict and returns
        a numpy array or `None` (in which case the handler has no side
@@ -271,33 +273,102 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
-    def __init__(self, fn=None, param_map=None, condition_fn=None):
+    def __init__(self, fn=None, data=None, condition_fn=None, param_map=None):
+        if param_map is not None:
+            data = param_map
+            warnings.warn("'param_map' argument is renamed to 'data'. We will remove"
+                          " 'param_map' in a future release.", FutureWarning)
         self.condition_fn = condition_fn
-        self.param_map = param_map
-        if sum((x is not None for x in (param_map, condition_fn))) != 1:
-            raise ValueError('Only one of `param_map` or `condition_fn` '
+        self.data = data
+        if sum((x is not None for x in (data, condition_fn))) != 1:
+            raise ValueError('Only one of `data` or `condition_fn` '
                              'should be provided.')
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
         if (msg['type'] != 'sample') or msg.get('_control_flow_done', False):
             if msg['type'] == 'control_flow':
-                if self.param_map is not None:
-                    msg['kwargs']['substitute_stack'].append(('condition', self.param_map))
+                if self.data is not None:
+                    msg['kwargs']['substitute_stack'].append(('condition', self.data))
                 if self.condition_fn is not None:
                     msg['kwargs']['substitute_stack'].append(('condition', self.condition_fn))
             return
 
-        if self.param_map is not None:
-            value = self.param_map.get(msg['name'])
+        if self.data is not None:
+            value = self.data.get(msg['name'])
         else:
             value = self.condition_fn(msg)
 
         if value is not None:
             msg['value'] = value
-            if msg['is_observed']:
-                raise ValueError("Cannot condition an already observed site: {}.".format(msg['name']))
             msg['is_observed'] = True
+
+
+class lift(Messenger):
+    """
+    Given a stochastic function with ``param`` calls and a prior distribution,
+    create a stochastic function where all param calls are replaced by sampling from prior.
+    Prior should be a distribution or a dict of names to distributions.
+
+    Consider the following NumPyro program:
+
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.handlers import lift
+        >>>
+        >>> def model(x):
+        ...     s = numpyro.param("s", 0.5)
+        ...     z = numpyro.sample("z", dist.Normal(x, s))
+        ...     return z ** 2
+        >>> lifted_model = lift(model, prior={"s": dist.Exponential(0.3)})
+
+    ``lift`` makes ``param`` statements behave like ``sample`` statements
+    using the distributions in ``prior``.  In this example, site `s` will now behave
+    as if it was replaced with ``s = numpyro.sample("s", dist.Exponential(0.3))``.
+
+    :param fn: function whose parameters will be lifted to random values
+    :param prior: prior function in the form of a Distribution or a dict of Distributions
+    """
+
+    def __init__(self, fn=None, prior=None):
+        super().__init__(fn)
+        self.prior = prior
+        self._samples_cache = {}
+
+    def __enter__(self):
+        self._samples_cache = {}
+        return super().__enter__()
+
+    def __exit__(self, *args, **kwargs):
+        self._samples_cache = {}
+        return super().__exit__(*args, **kwargs)
+
+    def process_message(self, msg):
+        if msg["type"] != "param":
+            return
+
+        name = msg["name"]
+        fn = self.prior.get(name) if isinstance(self.prior, dict) else self.prior
+        if isinstance(fn, numpyro.distributions.Distribution):
+            msg["type"] = "sample"
+            msg["fn"] = fn
+            msg["args"] = ()
+            msg["kwargs"] = {"rng_key": msg["kwargs"].get("rng_key", None),
+                             "sample_shape": msg["kwargs"].get("sample_shape", ())}
+            msg["intermediates"] = []
+        else:
+            # otherwise leave as is
+            return
+
+        if name in self._samples_cache:
+            # Multiple pyro.param statements with the same
+            # name. Block the site and fix the value.
+            msg["value"] = self._samples_cache[name]["value"]
+            msg["is_observed"] = True
+            msg["stop"] = True
+        else:
+            self._samples_cache[name] = msg
+            msg["is_observed"] = False
 
 
 class mask(Messenger):
@@ -383,17 +454,17 @@ class scale(Messenger):
     This is typically used for data subsampling or for stratified sampling of data
     (e.g. in fraud detection where negatives vastly outnumber positives).
 
-    :param float scale_factor: a positive scaling factor
+    :param float scale: a positive scaling factor
     """
-    def __init__(self, fn=None, scale_factor=1.):
-        if not_jax_tracer(scale_factor):
-            if scale_factor <= 0:
-                raise ValueError("scale factor should be a positive number.")
-        self.scale = scale_factor
-        super(scale, self).__init__(fn)
+    def __init__(self, fn=None, scale=1.):
+        if not_jax_tracer(scale):
+            if scale <= 0:
+                raise ValueError("'scale' argument should be a positive number.")
+        self.scale = scale
+        super().__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] not in ('sample', 'plate'):
+        if msg['type'] not in ('param', 'sample', 'plate'):
             return
 
         msg["scale"] = self.scale if msg.get('scale') is None else self.scale * msg['scale']
@@ -473,7 +544,7 @@ class seed(Messenger):
     """
     def __init__(self, fn=None, rng_seed=None, rng=None):
         if rng is not None:
-            warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', DeprecationWarning)
+            warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', FutureWarning)
             rng_seed = rng
         if isinstance(rng_seed, int) or (isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)):
             rng_seed = random.PRNGKey(rng_seed)
@@ -491,18 +562,18 @@ class seed(Messenger):
 
 class substitute(Messenger):
     """
-    Given a callable `fn` and a dict `param_map` keyed by site names
+    Given a callable `fn` and a dict `data` keyed by site names
     (alternatively, a callable `substitute_fn`), return a callable
     which substitutes all primitive calls in `fn` with values from
-    `param_map` whose key matches the site name. If the site name
-    is not present in `param_map`, there is no side effect.
+    `data` whose key matches the site name. If the site name
+    is not present in `data`, there is no side effect.
 
     If a `substitute_fn` is provided, then the value at the site is
     replaced by the value returned from the call to `substitute_fn`
     for the given site.
 
     :param fn: Python callable with NumPyro primitives.
-    :param dict param_map: dictionary of `numpy.ndarray` values keyed by
+    :param dict data: dictionary of `numpy.ndarray` values keyed by
         site names.
     :param substitute_fn: callable that takes in a site dict and returns
         a numpy array or `None` (in which case the handler has no side
@@ -524,25 +595,29 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, param_map=None, substitute_fn=None):
+    def __init__(self, fn=None, data=None, substitute_fn=None, param_map=None):
+        if param_map is not None:
+            data = param_map
+            warnings.warn("'param_map' argument is renamed to 'data'. We will remove"
+                          " 'param_map' in a future release.", FutureWarning)
         self.substitute_fn = substitute_fn
-        self.param_map = param_map
-        if sum((x is not None for x in (param_map, substitute_fn))) != 1:
-            raise ValueError('Only one of `param_map` or `substitute_fn` '
+        self.data = data
+        if sum((x is not None for x in (data, substitute_fn))) != 1:
+            raise ValueError('Only one of `data` or `substitute_fn` '
                              'should be provided.')
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
         if (msg['type'] not in ('sample', 'param')) or msg.get('_control_flow_done', False):
             if msg['type'] == 'control_flow':
-                if self.param_map is not None:
-                    msg['kwargs']['substitute_stack'].append(('substitute', self.param_map))
+                if self.data is not None:
+                    msg['kwargs']['substitute_stack'].append(('substitute', self.data))
                 if self.substitute_fn is not None:
                     msg['kwargs']['substitute_stack'].append(('substitute', self.substitute_fn))
             return
 
-        if self.param_map is not None:
-            value = self.param_map.get(msg['name'])
+        if self.data is not None:
+            value = self.data.get(msg['name'])
         else:
             value = self.substitute_fn(msg)
 

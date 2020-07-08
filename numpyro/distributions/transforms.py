@@ -31,7 +31,7 @@ __all__ = [
     'IdentityTransform',
     'InvCholeskyTransform',
     'LowerCholeskyTransform',
-    'MultivariateAffineTransform',
+    'LowerCholeskyAffine',
     'PermuteTransform',
     'PowerTransform',
     'SigmoidTransform',
@@ -314,28 +314,7 @@ class InvCholeskyTransform(Transform):
             return jnp.sum(order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
 
 
-class LowerCholeskyTransform(Transform):
-    domain = constraints.real_vector
-    codomain = constraints.lower_cholesky
-    event_dim = 2
-
-    def __call__(self, x):
-        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
-        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
-        diag = jnp.exp(x[..., -n:])
-        return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
-
-    def inv(self, y):
-        z = matrix_to_tril_vec(y, diagonal=-1)
-        return jnp.concatenate([z, jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
-
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
-        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
-        return x[..., -n:].sum(-1)
-
-
-class MultivariateAffineTransform(Transform):
+class LowerCholeskyAffine(Transform):
     r"""
     Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`.
 
@@ -367,6 +346,34 @@ class MultivariateAffineTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.broadcast_to(jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
                                 jnp.shape(x)[:-1])
+
+
+class LowerCholeskyTransform(Transform):
+    domain = constraints.real_vector
+    codomain = constraints.lower_cholesky
+    event_dim = 2
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = jnp.exp(x[..., -n:])
+        return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
+
+    def inv(self, y):
+        z = matrix_to_tril_vec(y, diagonal=-1)
+        return jnp.concatenate([z, jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        return x[..., -n:].sum(-1)
+
+
+class MultivariateAffineTransform(LowerCholeskyAffine):
+    def __init__(self, loc, scale_tril):
+        warnings.warn("MultivariateAffineTransform is renamed to LowerCholeskyAffine.",
+                      FutureWarning)
+        super().__init__(loc, scale_tril)
 
 
 class OrderedTransform(Transform):

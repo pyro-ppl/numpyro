@@ -4,7 +4,6 @@
 import os
 
 import numpy as np
-from jax.test_util import check_close
 from numpy.testing import assert_allclose
 import pytest
 
@@ -12,12 +11,14 @@ from jax import jit, pmap, random, vmap
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.special import logit
+from jax.test_util import check_close
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import HMC, MCMC, NUTS, SA
-from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
+from numpyro.infer.hmc import hmc
+from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
@@ -41,8 +42,8 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     mcmc.print_summary()
     hmc_states = mcmc.get_samples()
-    assert_allclose(jnp.mean(hmc_states), true_mean, rtol=0.05)
-    assert_allclose(jnp.std(hmc_states), true_std, rtol=0.05)
+    assert_allclose(jnp.mean(hmc_states), true_mean, rtol=0.07)
+    assert_allclose(jnp.std(hmc_states), true_std, rtol=0.07)
 
     if 'JAX_ENABLE_X64' in os.environ:
         assert hmc_states.dtype == jnp.float64

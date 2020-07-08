@@ -3,6 +3,7 @@
 
 from functools import partial
 
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
@@ -18,9 +19,9 @@ from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
-    init_to_prior,
+    init_to_sample,
     init_to_uniform,
-    init_to_value,
+    init_to_value
 )
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.util import (
@@ -29,7 +30,7 @@ from numpyro.infer.util import (
     initialize_model,
     log_likelihood,
     potential_energy,
-    transform_fn,
+    transform_fn
 )
 import numpyro.optim as optim
 
@@ -120,24 +121,34 @@ def test_predictive_with_improper():
     assert_allclose(jnp.mean(obs_pred), true_coef, atol=0.05)
 
 
-def test_prior_predictive():
+@pytest.mark.parametrize('batch_ndims', [0, 1, 2])
+def test_prior_predictive(batch_ndims):
     model, data, true_probs = beta_bernoulli()
-    predictive_samples = Predictive(model, num_samples=100)(random.PRNGKey(1))
+    predictive = Predictive(model, num_samples=100, batch_ndims=batch_ndims)
+    predictive_samples = predictive(random.PRNGKey(1))
     assert predictive_samples.keys() == {"beta", "beta_sq", "obs"}
 
     # check shapes
-    assert predictive_samples["beta"].shape == (100,) + true_probs.shape
-    assert predictive_samples["obs"].shape == (100,) + data.shape
+    batch_shape = (1,) * (batch_ndims - 1) + (100,)
+    assert predictive_samples["beta"].shape == batch_shape + true_probs.shape
+    assert predictive_samples["obs"].shape == batch_shape + data.shape
 
 
-def test_log_likelihood():
+@pytest.mark.parametrize('batch_shape', [(), (100,), (2, 50)])
+def test_log_likelihood(batch_shape):
     model, data, _ = beta_bernoulli()
-    samples = Predictive(model, return_sites=["beta"], num_samples=100)(random.PRNGKey(1))
-    loglik = log_likelihood(model, samples, data)
+    samples = Predictive(model, return_sites=["beta"], num_samples=200)(random.PRNGKey(1))
+    batch_size = int(np.prod(batch_shape))
+    samples = {'beta': samples['beta'][:batch_size].reshape(batch_shape + (1, -1))}
+
+    preds = Predictive(model, samples, batch_ndims=len(batch_shape))(random.PRNGKey(2))
+    loglik = log_likelihood(model, samples, data, batch_ndims=len(batch_shape))
+    assert preds.keys() == {"beta_sq", "obs"}
     assert loglik.keys() == {"obs"}
     # check shapes
-    assert loglik["obs"].shape == (100,) + data.shape
-    assert_allclose(loglik["obs"], dist.Bernoulli(samples["beta"].reshape((100, 1, -1))).log_prob(data))
+    assert preds["obs"].shape == batch_shape + data.shape
+    assert loglik["obs"].shape == batch_shape + data.shape
+    assert_allclose(loglik["obs"], dist.Bernoulli(samples["beta"]).log_prob(data))
 
 
 def test_model_with_transformed_distribution():
@@ -186,12 +197,12 @@ def test_model_with_mask_false():
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible(),
     init_to_median(num_samples=2),
-    init_to_prior(),
+    init_to_sample(),
     init_to_uniform(radius=3),
     init_to_value(values={'tau': 0.7}),
     init_to_feasible,
     init_to_median,
-    init_to_prior,
+    init_to_sample,
     init_to_uniform,
     init_to_value,
 ])
@@ -217,6 +228,9 @@ def test_initialize_model_change_point(init_strategy):
     init_params, _, _, _ = initialize_model(rng_keys, model,
                                             init_strategy=init_strategy,
                                             model_args=(count_data,))
+    if isinstance(init_strategy, partial) and init_strategy.func is init_to_value:
+        expected = biject_to(constraints.unit_interval).inv(init_strategy.keywords.get('values')['tau'])
+        assert_allclose(init_params[0]['tau'], jnp.repeat(expected, 2))
     for i in range(2):
         init_params_i, _, _, _ = initialize_model(rng_keys[i], model,
                                                   init_strategy=init_strategy,
@@ -229,7 +243,7 @@ def test_initialize_model_change_point(init_strategy):
 @pytest.mark.parametrize('init_strategy', [
     init_to_feasible(),
     init_to_median(num_samples=2),
-    init_to_prior(),
+    init_to_sample(),
     init_to_uniform(),
 ])
 def test_initialize_model_dirichlet_categorical(init_strategy):

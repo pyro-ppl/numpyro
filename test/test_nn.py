@@ -8,13 +8,13 @@ from numpy.testing import assert_allclose, assert_array_equal
 import pytest
 
 from jax import jacfwd, random, vmap
-import jax.numpy as jnp
 from jax.experimental.stax import serial
+import jax.numpy as jnp
 
+from numpyro.distributions.util import matrix_to_tril_vec
 from numpyro.nn import AutoregressiveNN, MaskedDense
 from numpyro.nn.auto_reg_nn import create_mask
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
-from numpyro.distributions.util import matrix_to_tril_vec
 
 
 @pytest.mark.parametrize('input_dim', [5])

@@ -25,6 +25,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
+
 from jax import device_put, lax
 from jax.dtypes import canonicalize_dtype
 from jax.nn import softmax
@@ -44,7 +46,7 @@ from numpyro.distributions.util import (
     multinomial,
     promote_shapes,
     sum_rightmost,
-    validate_sample,
+    validate_sample
 )
 from numpyro.util import copy_docs_from, not_jax_tracer
 
@@ -441,7 +443,7 @@ class PRNGIdentity(Distribution):
         super(PRNGIdentity, self).__init__(event_shape=(2,))
 
     def sample(self, key, sample_shape=()):
-        return jnp.reshape(random.split(key, jnp.product(sample_shape).astype(jnp.int32)),
+        return jnp.reshape(random.split(key, np.prod(sample_shape).astype(np.int32)),
                            sample_shape + self.event_shape)
 
 
@@ -548,7 +550,7 @@ class Poisson(Distribution):
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return random.poisson(key, device_put(self.rate), shape=sample_shape + self.batch_shape)
+        return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):

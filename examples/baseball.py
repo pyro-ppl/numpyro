@@ -9,7 +9,7 @@ Original example from Pyro:
 https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py
 
 Example has been adapted from [1]. It demonstrates how to do Bayesian inference using
-NUTS (or, HMC) in Pyro, and use of some common inference utilities.
+various MCMC kernels in Pyro (HMC, NUTS, SA), and use of some common inference utilities.
 
 As in the Stan tutorial, this uses the small baseball dataset of Efron and Morris [2]
 to estimate players' batting average which is the fraction of times a player got a
@@ -33,6 +33,10 @@ more comprehensive understanding of HMC and its variants, and to [4] for details
 the No U-Turn Sampler, which provides an efficient and automated way (i.e. limited
 hyper-parameters) of running HMC on different problems.
 
+Note that the Sample Adaptive (SA) kernel, which is implemented based on [5],
+requires large `num_warmup` and `num_samples` (e.g. 15,000 and 300,000). So
+it is better to disable progress bar to avoid dispatching overhead.
+
 **References:**
 
     1. Carpenter B. (2016), `"Hierarchical Partial Pooling for Repeated Binary Trials"
@@ -43,6 +47,9 @@ hyper-parameters) of running HMC on different problems.
        (https://arxiv.org/pdf/1206.1901.pdf)
     4. Hoffman, M. D. and Gelman, A. (2014), "The No-U-turn sampler: Adaptively setting
        path lengths in Hamiltonian Monte Carlo", (https://arxiv.org/abs/1111.4246)
+    5. Michael Zhu (2019), "Sample Adaptive MCMC",
+       (https://papers.nips.cc/paper/9107-sample-adaptive-mcmc)
+
 """
 
 import argparse
@@ -55,7 +62,7 @@ from jax.scipy.special import logsumexp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.infer import MCMC, NUTS, Predictive, log_likelihood
+from numpyro.infer import HMC, MCMC, NUTS, Predictive, SA, log_likelihood
 
 
 def fully_pooled(at_bats, hits=None):
@@ -103,7 +110,7 @@ def partially_pooled(at_bats, hits=None):
     :return: Number of hits predicted by the model.
     """
     m = numpyro.sample("m", dist.Uniform(0, 1))
-    kappa = numpyro.sample("kappa", dist.Pareto(1.5))
+    kappa = numpyro.sample("kappa", dist.Pareto(1, 1.5))
     num_players = at_bats.shape[0]
     with numpyro.plate("num_players", num_players):
         phi_prior = dist.Beta(m * kappa, (1 - m) * kappa)
@@ -130,9 +137,15 @@ def partially_pooled_with_logit(at_bats, hits=None):
 
 
 def run_inference(model, at_bats, hits, rng_key, args):
-    kernel = NUTS(model)
+    if args.algo == "NUTS":
+        kernel = NUTS(model)
+    elif args.algo == "HMC":
+        kernel = HMC(model)
+    elif args.algo == "SA":
+        kernel = SA(model)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
-                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+                progress_bar=False if (
+                    "NUMPYRO_SPHINXBUILD" in os.environ or args.disable_progbar) else True)
     mcmc.run(rng_key, at_bats, hits)
     return mcmc.get_samples()
 
@@ -188,6 +201,10 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
+    parser.add_argument('--algo', default='NUTS', type=str,
+                        help='whether to run "HMC", "NUTS", or "SA"')
+    parser.add_argument('-dp', '--disable-progbar', action="store_true", default=False,
+                        help="whether to disable progress bar")
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 

@@ -10,33 +10,33 @@ Hamiltonian Monte Carlo
     :show-inheritance:
     :member-order: bysource
 
-.. autoclass:: numpyro.infer.mcmc.HMC
+.. autoclass:: numpyro.infer.hmc.HMC
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-.. autoclass:: numpyro.infer.mcmc.NUTS
+.. autoclass:: numpyro.infer.hmc.NUTS
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-.. autoclass:: numpyro.infer.mcmc.SA
+.. autoclass:: numpyro.infer.sa.SA
     :members:
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
 
-.. autofunction:: numpyro.infer.mcmc.hmc
+.. autofunction:: numpyro.infer.hmc.hmc
 
-.. autofunction:: numpyro.infer.mcmc.hmc.init_kernel
+.. autofunction:: numpyro.infer.hmc.hmc.init_kernel
 
-.. autofunction:: numpyro.infer.mcmc.hmc.sample_kernel
+.. autofunction:: numpyro.infer.hmc.hmc.sample_kernel
 
-.. autodata:: numpyro.infer.mcmc.HMCState
+.. autodata:: numpyro.infer.hmc.HMCState
 
-.. autodata:: numpyro.infer.mcmc.SAState
+.. autodata:: numpyro.infer.sa.SAState
 
 
 MCMC Utilities
