@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import absolute_import, division, print_function
 
 import os
@@ -24,35 +27,37 @@ except Exception as e:
 setup(
     name='numpyro',
     version=version,
-    description='Pyro PPL on Numpy',
+    description='Pyro PPL on NumPy',
     packages=find_packages(include=['numpyro', 'numpyro.*']),
     url='https://github.com/pyro-ppl/numpyro',
     author='Uber AI Labs',
     author_email='npradhan@uber.com',
     install_requires=[
-        # TODO: pin to a specific version for the release (unless JAX's API becomes stable)
-        'jax==0.1.49',
-        'jaxlib==0.1.32',
+        # TODO: pin to a specific version for the release (until JAX's API becomes stable)
+        'jax>=0.1.70',
+        # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L20
+        'jaxlib>=0.1.47',
         'tqdm',
     ],
     extras_require={
-        'doc': ['sphinx', 'sphinx_rtd_theme'],
+        'doc': ['sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
         'test': [
             'flake8',
             'pytest>=4.1',
             'pyro-api>=0.1.1'
         ],
-        'dev': ['ipython'],
-        'examples': ['matplotlib'],
+        'dev': ['ipython', 'isort'],
+        'examples': ['matplotlib', 'seaborn'],
     },
     long_description=long_description,
     long_description_content_type='text/markdown',
     keywords='probabilistic machine learning bayesian statistics',
+    license='Apache License 2.0',
     classifiers=[
         'Intended Audience :: Developers',
         'Intended Audience :: Education',
         'Intended Audience :: Science/Research',
-        'License :: OSI Approved :: MIT License',
+        'License :: OSI Approved :: Apache Software License',
         'Operating System :: POSIX :: Linux',
         'Operating System :: MacOS :: MacOS X',
         'Programming Language :: Python :: 3.6',

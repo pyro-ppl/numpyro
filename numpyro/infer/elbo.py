@@ -1,6 +1,9 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from jax import random, vmap
 from jax.lax import stop_gradient
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
 from numpyro.handlers import replay, seed
@@ -54,10 +57,8 @@ class ELBO(object):
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
             guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
-            # NB: we only want to substitute params not available in guide_trace
-            model_param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
             seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, _ = log_density(seeded_model, args, kwargs, model_param_map)
+            model_log_density, _ = log_density(seeded_model, args, kwargs, param_map)
 
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
@@ -69,7 +70,7 @@ class ELBO(object):
             return - single_particle_elbo(rng_key)
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            return - np.mean(vmap(single_particle_elbo)(rng_keys))
+            return - jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
 class RenyiELBO(ELBO):
@@ -133,8 +134,8 @@ class RenyiELBO(ELBO):
         rng_keys = random.split(rng_key, self.num_particles)
         elbos = vmap(single_particle_elbo)(rng_keys)
         scaled_elbos = (1. - self.alpha) * elbos
-        avg_log_exp = logsumexp(scaled_elbos) - np.log(self.num_particles)
-        weights = np.exp(scaled_elbos - avg_log_exp)
+        avg_log_exp = logsumexp(scaled_elbos) - jnp.log(self.num_particles)
+        weights = jnp.exp(scaled_elbos - avg_log_exp)
         renyi_elbo = avg_log_exp / (1. - self.alpha)
-        weighted_elbo = np.dot(stop_gradient(weights), elbos) / self.num_particles
+        weighted_elbo = jnp.dot(stop_gradient(weights), elbos) / self.num_particles
         return - (stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)

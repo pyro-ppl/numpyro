@@ -1,11 +1,13 @@
-from functools import namedtuple
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
 
-import jax
+from functools import namedtuple, partial
+
 from jax import random, value_and_grad
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.handlers import seed, trace
+from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import transform_fn
 
 SVIState = namedtuple('SVIState', ['optim_state', 'rng_key'])
@@ -53,7 +55,7 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(model_init).get_trace(*args, **kwargs, **self.static_kwargs)
+        model_trace = trace(replay(model_init, guide_trace)).get_trace(*args, **kwargs, **self.static_kwargs)
         params = {}
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
@@ -64,7 +66,7 @@ class SVI(object):
                 inv_transforms[site['name']] = transform
                 params[site['name']] = transform.inv(site['value'])
 
-        self.constrain_fn = jax.partial(transform_fn, inv_transforms)
+        self.constrain_fn = partial(transform_fn, inv_transforms)
         return SVIState(self.optim.init(params), rng_key)
 
     def get_params(self, svi_state):

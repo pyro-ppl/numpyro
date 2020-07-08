@@ -1,13 +1,25 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Gaussian Process
+================
+
+In this example we show how to use NUTS to sample from the posterior
+over the hyperparameters of a gaussian process.
+"""
+
 import argparse
+import os
 import time
 
 import matplotlib
 import matplotlib.pyplot as plt
-import numpy as onp
+import numpy as np
 
 import jax
 from jax import vmap
-import jax.numpy as np
+import jax.numpy as jnp
 import jax.random as random
 
 import numpyro
@@ -16,18 +28,13 @@ from numpyro.infer import MCMC, NUTS
 
 matplotlib.use('Agg')  # noqa: E402
 
-"""
-In this example we show how to use NUTS to sample from the posterior
-over the hyperparameters of a gaussian process.
-"""
-
 
 # squared exponential kernel with diagonal noise term
 def kernel(X, Z, var, length, noise, jitter=1.0e-6, include_noise=True):
-    deltaXsq = np.power((X[:, None] - Z) / length, 2.0)
-    k = var * np.exp(-0.5 * deltaXsq)
+    deltaXsq = jnp.power((X[:, None] - Z) / length, 2.0)
+    k = var * jnp.exp(-0.5 * deltaXsq)
     if include_noise:
-        k += (noise + jitter) * np.eye(X.shape[0])
+        k += (noise + jitter) * jnp.eye(X.shape[0])
     return k
 
 
@@ -41,7 +48,7 @@ def model(X, Y):
     k = kernel(X, X, var, length, noise)
 
     # sample Y according to the standard gaussian process formula
-    numpyro.sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k),
+    numpyro.sample("Y", dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k),
                    obs=Y)
 
 
@@ -49,7 +56,8 @@ def model(X, Y):
 def run_inference(model, args, rng_key, X, Y):
     start = time.time()
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y)
     mcmc.print_summary()
     print('\nMCMC elapsed time:', time.time() - start)
@@ -63,10 +71,10 @@ def predict(rng_key, X, Y, X_test, var, length, noise):
     k_pp = kernel(X_test, X_test, var, length, noise, include_noise=True)
     k_pX = kernel(X_test, X, var, length, noise, include_noise=False)
     k_XX = kernel(X, X, var, length, noise, include_noise=True)
-    K_xx_inv = np.linalg.inv(k_XX)
-    K = k_pp - np.matmul(k_pX, np.matmul(K_xx_inv, np.transpose(k_pX)))
-    sigma_noise = np.sqrt(np.clip(np.diag(K), a_min=0.)) * jax.random.normal(rng_key, X_test.shape[:1])
-    mean = np.matmul(k_pX, np.matmul(K_xx_inv, Y))
+    K_xx_inv = jnp.linalg.inv(k_XX)
+    K = k_pp - jnp.matmul(k_pX, jnp.matmul(K_xx_inv, jnp.transpose(k_pX)))
+    sigma_noise = jnp.sqrt(jnp.clip(jnp.diag(K), a_min=0.)) * jax.random.normal(rng_key, X_test.shape[:1])
+    mean = jnp.matmul(k_pX, jnp.matmul(K_xx_inv, Y))
     # we return both the mean function and a sample from the posterior predictive for the
     # given set of hyperparameters
     return mean, mean + sigma_noise
@@ -74,17 +82,17 @@ def predict(rng_key, X, Y, X_test, var, length, noise):
 
 # create artificial regression dataset
 def get_data(N=30, sigma_obs=0.15, N_test=400):
-    onp.random.seed(0)
-    X = np.linspace(-1, 1, N)
-    Y = X + 0.2 * np.power(X, 3.0) + 0.5 * np.power(0.5 + X, 2.0) * np.sin(4.0 * X)
-    Y += sigma_obs * onp.random.randn(N)
-    Y -= np.mean(Y)
-    Y /= np.std(Y)
+    np.random.seed(0)
+    X = jnp.linspace(-1, 1, N)
+    Y = X + 0.2 * jnp.power(X, 3.0) + 0.5 * jnp.power(0.5 + X, 2.0) * jnp.sin(4.0 * X)
+    Y += sigma_obs * np.random.randn(N)
+    Y -= jnp.mean(Y)
+    Y /= jnp.std(Y)
 
     assert X.shape == (N,)
     assert Y.shape == (N,)
 
-    X_test = np.linspace(-1.3, 1.3, N_test)
+    X_test = jnp.linspace(-1.3, 1.3, N_test)
 
     return X, Y, X_test
 
@@ -102,8 +110,8 @@ def main(args):
     means, predictions = vmap(lambda rng_key, var, length, noise:
                               predict(rng_key, X, Y, X_test, var, length, noise))(*vmap_args)
 
-    mean_prediction = onp.mean(means, axis=0)
-    percentiles = onp.percentile(predictions, [5.0, 95.0], axis=0)
+    mean_prediction = np.mean(means, axis=0)
+    percentiles = np.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
     fig, ax = plt.subplots(1, 1)
@@ -117,11 +125,11 @@ def main(args):
     ax.set(xlabel="X", ylabel="Y", title="Mean predictions with 90% CI")
 
     plt.savefig("gp_plot.pdf")
-    plt.close()
+    plt.tight_layout()
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.2.1')
+    assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)

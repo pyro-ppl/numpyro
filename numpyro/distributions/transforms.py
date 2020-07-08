@@ -1,17 +1,19 @@
-import math
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
 
-from jax import ops
+import math
+import warnings
+
+from jax import ops, tree_flatten, tree_map, vmap
+from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
-from jax.lib.xla_bridge import canonicalize_dtype
 from jax.nn import softplus
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
-    cumprod,
-    cumsum,
     get_dtype,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
@@ -29,7 +31,7 @@ __all__ = [
     'IdentityTransform',
     'InvCholeskyTransform',
     'LowerCholeskyTransform',
-    'MultivariateAffineTransform',
+    'LowerCholeskyAffine',
     'PermuteTransform',
     'PowerTransform',
     'SigmoidTransform',
@@ -40,8 +42,8 @@ __all__ = [
 
 
 def _clipped_expit(x):
-    finfo = np.finfo(get_dtype(x))
-    return np.clip(expit(x), a_min=finfo.tiny, a_max=1. - finfo.eps)
+    finfo = jnp.finfo(get_dtype(x))
+    return jnp.clip(expit(x), a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
 class Transform(object):
@@ -70,7 +72,7 @@ class AbsTransform(Transform):
         return isinstance(other, AbsTransform)
 
     def __call__(self, x):
-        return np.abs(x)
+        return jnp.abs(x)
 
     def inv(self, y):
         return y
@@ -108,7 +110,7 @@ class AffineTransform(Transform):
         return (y - self.loc) / self.scale
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return sum_rightmost(np.broadcast_to(np.log(np.abs(self.scale)), np.shape(x)), self.event_dim)
+        return sum_rightmost(jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x)), self.event_dim)
 
 
 class ComposeTransform(Transform):
@@ -199,20 +201,20 @@ class CorrCholeskyTransform(Transform):
 
     def __call__(self, x):
         # we interchange step 1 and step 2.a for a better performance
-        t = np.tanh(x)
+        t = jnp.tanh(x)
         return signed_stick_breaking_tril(t)
 
     def inv(self, y):
         # inverse stick-breaking
-        z1m_cumprod = 1 - cumsum(y * y)
+        z1m_cumprod = 1 - jnp.cumsum(y * y, axis=-1)
         pad_width = [(0, 0)] * y.ndim
         pad_width[-1] = (1, 0)
-        z1m_cumprod_shifted = np.pad(z1m_cumprod[..., :-1], pad_width,
-                                     mode="constant", constant_values=1.)
-        t = matrix_to_tril_vec(y, diagonal=-1) / np.sqrt(
+        z1m_cumprod_shifted = jnp.pad(z1m_cumprod[..., :-1], pad_width,
+                                      mode="constant", constant_values=1.)
+        t = matrix_to_tril_vec(y, diagonal=-1) / jnp.sqrt(
             matrix_to_tril_vec(z1m_cumprod_shifted, diagonal=-1))
         # inverse of tanh
-        x = np.log((1 + t) / (1 - t)) / 2
+        x = jnp.log((1 + t) / (1 - t)) / 2
         return x
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -221,13 +223,13 @@ class CorrCholeskyTransform(Transform):
         # flatten lower triangular part of `y`.
 
         # stick_breaking_logdet = log(y / r) = log(z_cumprod)  (modulo right shifted)
-        z1m_cumprod = 1 - cumsum(y * y)
+        z1m_cumprod = 1 - jnp.cumsum(y * y, axis=-1)
         # by taking diagonal=-2, we don't need to shift z_cumprod to the right
         # NB: diagonal=-2 works fine for (2 x 2) matrix, where we get an empty array
         z1m_cumprod_tril = matrix_to_tril_vec(z1m_cumprod, diagonal=-2)
-        stick_breaking_logdet = 0.5 * np.sum(np.log(z1m_cumprod_tril), axis=-1)
+        stick_breaking_logdet = 0.5 * jnp.sum(jnp.log(z1m_cumprod_tril), axis=-1)
 
-        tanh_logdet = -2 * np.sum(x + softplus(-2 * x) - np.log(2.), axis=-1)
+        tanh_logdet = -2 * jnp.sum(x + softplus(-2 * x) - jnp.log(2.), axis=-1)
         return stick_breaking_logdet + tanh_logdet
 
 
@@ -251,10 +253,10 @@ class ExpTransform(Transform):
 
     def __call__(self, x):
         # XXX consider to clamp from below for stability if necessary
-        return np.exp(x)
+        return jnp.exp(x)
 
     def inv(self, y):
-        return np.log(y)
+        return jnp.log(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return x
@@ -272,7 +274,7 @@ class IdentityTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return np.full(np.shape(x) if self.event_dim == 0 else np.shape(x)[:-1], 0.)
+        return jnp.full(jnp.shape(x) if self.event_dim == 0 else jnp.shape(x)[:-1], 0.)
 
 
 class InvCholeskyTransform(Transform):
@@ -294,46 +296,25 @@ class InvCholeskyTransform(Transform):
             return constraints.corr_matrix
 
     def __call__(self, x):
-        return np.matmul(x, np.swapaxes(x, -2, -1))
+        return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
 
     def inv(self, y):
-        return np.linalg.cholesky(y)
+        return jnp.linalg.cholesky(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         if self.domain is constraints.lower_cholesky:
             # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
-            n = np.shape(x)[-1]
-            order = np.arange(n, 0, -1)
-            return n * np.log(2) + np.sum(order * np.log(np.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
+            n = jnp.shape(x)[-1]
+            order = jnp.arange(n, 0, -1)
+            return n * jnp.log(2) + jnp.sum(order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
         else:
             # NB: see derivation in LKJCholesky implementation
-            n = np.shape(x)[-1]
-            order = np.arange(n - 1, -1, -1)
-            return np.sum(order * np.log(np.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
+            n = jnp.shape(x)[-1]
+            order = jnp.arange(n - 1, -1, -1)
+            return jnp.sum(order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
 
 
-class LowerCholeskyTransform(Transform):
-    domain = constraints.real_vector
-    codomain = constraints.lower_cholesky
-    event_dim = 2
-
-    def __call__(self, x):
-        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
-        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
-        diag = np.exp(x[..., -n:])
-        return z + np.expand_dims(diag, axis=-1) * np.identity(n)
-
-    def inv(self, y):
-        z = matrix_to_tril_vec(y, diagonal=-1)
-        return np.concatenate([z, np.log(np.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
-
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
-        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
-        return x[..., -n:].sum(-1)
-
-
-class MultivariateAffineTransform(Transform):
+class LowerCholeskyAffine(Transform):
     r"""
     Transform via the mapping :math:`y = loc + scale\_tril\ @\ x`.
 
@@ -345,25 +326,54 @@ class MultivariateAffineTransform(Transform):
     event_dim = 1
 
     def __init__(self, loc, scale_tril):
-        # TODO: relax this condition per user request
-        if np.ndim(scale_tril) != 2:
-            raise ValueError("Only support 2-dimensional scale_tril matrix.")
+        if jnp.ndim(scale_tril) != 2:
+            raise ValueError("Only support 2-dimensional scale_tril matrix. "
+                             "Please make a feature request if you need to "
+                             "use this transform with batched scale_tril.")
         self.loc = loc
         self.scale_tril = scale_tril
 
     def __call__(self, x):
-        return self.loc + np.squeeze(np.matmul(self.scale_tril, x[..., np.newaxis]), axis=-1)
+        return self.loc + jnp.squeeze(jnp.matmul(self.scale_tril, x[..., jnp.newaxis]), axis=-1)
 
     def inv(self, y):
         y = y - self.loc
-        original_shape = np.shape(y)
-        yt = np.reshape(y, (-1, original_shape[-1])).T
+        original_shape = jnp.shape(y)
+        yt = jnp.reshape(y, (-1, original_shape[-1])).T
         xt = solve_triangular(self.scale_tril, yt, lower=True)
-        return np.reshape(xt.T, original_shape)
+        return jnp.reshape(xt.T, original_shape)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return np.broadcast_to(np.log(np.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
-                               np.shape(x)[:-1])
+        return jnp.broadcast_to(jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
+                                jnp.shape(x)[:-1])
+
+
+class LowerCholeskyTransform(Transform):
+    domain = constraints.real_vector
+    codomain = constraints.lower_cholesky
+    event_dim = 2
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = jnp.exp(x[..., -n:])
+        return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
+
+    def inv(self, y):
+        z = matrix_to_tril_vec(y, diagonal=-1)
+        return jnp.concatenate([z, jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        return x[..., -n:].sum(-1)
+
+
+class MultivariateAffineTransform(LowerCholeskyAffine):
+    def __init__(self, loc, scale_tril):
+        warnings.warn("MultivariateAffineTransform is renamed to LowerCholeskyAffine.",
+                      FutureWarning)
+        super().__init__(loc, scale_tril)
 
 
 class OrderedTransform(Transform):
@@ -380,15 +390,15 @@ class OrderedTransform(Transform):
     event_dim = 1
 
     def __call__(self, x):
-        z = np.concatenate([x[..., :1], np.exp(x[..., 1:])], axis=-1)
-        return cumsum(z)
+        z = jnp.concatenate([x[..., :1], jnp.exp(x[..., 1:])], axis=-1)
+        return jnp.cumsum(z, axis=-1)
 
     def inv(self, y):
-        x = np.log(y[..., 1:] - y[..., :-1])
-        return np.concatenate([y[..., :1], x], axis=-1)
+        x = jnp.log(y[..., 1:] - y[..., :-1])
+        return jnp.concatenate([y[..., :1], x], axis=-1)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return np.sum(x[..., 1:], -1)
+        return jnp.sum(x[..., 1:], -1)
 
 
 class PermuteTransform(Transform):
@@ -404,13 +414,13 @@ class PermuteTransform(Transform):
 
     def inv(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(np.zeros(size, dtype=canonicalize_dtype(np.int64)),
+        permutation_inv = ops.index_update(jnp.zeros(size, dtype=canonicalize_dtype(jnp.int64)),
                                            self.permutation,
-                                           np.arange(size))
+                                           jnp.arange(size))
         return y[..., permutation_inv]
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return np.full(np.shape(x)[:-1], 0.)
+        return jnp.full(jnp.shape(x)[:-1], 0.)
 
 
 class PowerTransform(Transform):
@@ -421,13 +431,13 @@ class PowerTransform(Transform):
         self.exponent = exponent
 
     def __call__(self, x):
-        return np.power(x, self.exponent)
+        return jnp.power(x, self.exponent)
 
     def inv(self, y):
-        return np.power(y, 1 / self.exponent)
+        return jnp.power(y, 1 / self.exponent)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return np.log(np.abs(self.exponent * y / x))
+        return jnp.log(jnp.abs(self.exponent * y / x))
 
 
 class SigmoidTransform(Transform):
@@ -440,8 +450,8 @@ class SigmoidTransform(Transform):
         return logit(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        x_abs = np.abs(x)
-        return -x_abs - 2 * np.log1p(np.exp(-x_abs))
+        x_abs = jnp.abs(x)
+        return -x_abs - 2 * jnp.log1p(jnp.exp(-x_abs))
 
 
 class StickBreakingTransform(Transform):
@@ -451,33 +461,33 @@ class StickBreakingTransform(Transform):
 
     def __call__(self, x):
         # we shift x to obtain a balanced mapping (0, 0, ..., 0) -> (1/K, 1/K, ..., 1/K)
-        x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
+        x = x - jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
         # convert to probabilities (relative to the remaining) of each fraction of the stick
         z = _clipped_expit(x)
-        z1m_cumprod = cumprod(1 - z)
+        z1m_cumprod = jnp.cumprod(1 - z, axis=-1)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (0, 1)
-        z_padded = np.pad(z, pad_width, mode="constant", constant_values=1.)
+        z_padded = jnp.pad(z, pad_width, mode="constant", constant_values=1.)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (1, 0)
-        z1m_cumprod_shifted = np.pad(z1m_cumprod, pad_width, mode="constant", constant_values=1.)
+        z1m_cumprod_shifted = jnp.pad(z1m_cumprod, pad_width, mode="constant", constant_values=1.)
         return z_padded * z1m_cumprod_shifted
 
     def inv(self, y):
         y_crop = y[..., :-1]
-        z1m_cumprod = np.clip(1 - cumsum(y_crop), a_min=np.finfo(y.dtype).tiny)
+        z1m_cumprod = jnp.clip(1 - jnp.cumsum(y_crop, axis=-1), a_min=jnp.finfo(y.dtype).tiny)
         # hence x = logit(z) = log(z / (1 - z)) = y[::-1] / z1m_cumprod
-        x = np.log(y_crop / z1m_cumprod)
-        return x + np.log(x.shape[-1] - np.arange(x.shape[-1]))
+        x = jnp.log(y_crop / z1m_cumprod)
+        return x + jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # Ref: https://mc-stan.org/docs/2_19/reference-manual/simplex-transform-section.html
         # |det|(J) = Product(y * (1 - z))
-        x = x - np.log(x.shape[-1] - np.arange(x.shape[-1]))
-        z = np.clip(expit(x), a_min=np.finfo(x.dtype).tiny)
+        x = x - jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
+        z = jnp.clip(expit(x), a_min=jnp.finfo(x.dtype).tiny)
         # XXX we use the identity 1 - z = z * exp(-x) to not worry about
         # the case z ~ 1
-        return np.sum(np.log(y[..., :-1] * z) - x, axis=-1)
+        return jnp.sum(jnp.log(y[..., :-1] * z) - x, axis=-1)
 
 
 class UnpackTransform(Transform):
@@ -493,13 +503,25 @@ class UnpackTransform(Transform):
         self.unpack_fn = unpack_fn
 
     def __call__(self, x):
-        return self.unpack_fn(x)
+        batch_shape = x.shape[:-1]
+        if batch_shape:
+            unpacked = vmap(self.unpack_fn)(x.reshape((-1,) + x.shape[-1:]))
+            return tree_map(lambda z: jnp.reshape(z, batch_shape + z.shape[1:]), unpacked)
+        else:
+            return self.unpack_fn(x)
 
     def inv(self, y):
+        leading_dims = [v.shape[0] if jnp.ndim(v) > 0 else 0
+                        for v in tree_flatten(y)[0]]
+        d0 = leading_dims[0]
+        not_scalar = d0 > 0 or len(leading_dims) > 1
+        if not_scalar and all(d == d0 for d in leading_dims[1:]):
+            warnings.warn("UnpackTransform.inv might lead to an unexpected behavior because it"
+                          " cannot transform a batch of unpacked arrays.")
         return ravel_pytree(y)[0]
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return np.zeros(np.shape(x)[:-1])
+        return jnp.zeros(jnp.shape(x)[:-1])
 
 
 ##########################################################

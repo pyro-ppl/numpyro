@@ -1,4 +1,13 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+"""
+Variational Autoencoder
+=======================
+"""
+
 import argparse
+import inspect
 import os
 import time
 
@@ -6,7 +15,7 @@ import matplotlib.pyplot as plt
 
 from jax import jit, lax, random
 from jax.experimental import stax
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.random import PRNGKey
 
 import numpyro
@@ -15,7 +24,7 @@ import numpyro.distributions as dist
 from numpyro.examples.datasets import MNIST, load_dataset
 from numpyro.infer import ELBO, SVI
 
-RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__),
+RESULTS_DIR = os.path.abspath(os.path.join(os.path.dirname(inspect.getfile(lambda: None)),
                               '.results'))
 os.makedirs(RESULTS_DIR, exist_ok=True)
 
@@ -37,17 +46,17 @@ def decoder(hidden_dim, out_dim):
 
 
 def model(batch, hidden_dim=400, z_dim=100):
-    batch = np.reshape(batch, (batch.shape[0], -1))
-    batch_dim, out_dim = np.shape(batch)
+    batch = jnp.reshape(batch, (batch.shape[0], -1))
+    batch_dim, out_dim = jnp.shape(batch)
     decode = numpyro.module('decoder', decoder(hidden_dim, out_dim), (batch_dim, z_dim))
-    z = numpyro.sample('z', dist.Normal(np.zeros((z_dim,)), np.ones((z_dim,))))
+    z = numpyro.sample('z', dist.Normal(jnp.zeros((z_dim,)), jnp.ones((z_dim,))))
     img_loc = decode(z)
     return numpyro.sample('obs', dist.Bernoulli(img_loc), obs=batch)
 
 
 def guide(batch, hidden_dim=400, z_dim=100):
-    batch = np.reshape(batch, (batch.shape[0], -1))
-    batch_dim, out_dim = np.shape(batch)
+    batch = jnp.reshape(batch, (batch.shape[0], -1))
+    batch_dim, out_dim = jnp.shape(batch)
     encode = numpyro.module('encoder', encoder(hidden_dim, z_dim), (batch_dim, out_dim))
     z_loc, z_std = encode(batch)
     z = numpyro.sample('z', dist.Normal(z_loc, z_std))
@@ -122,9 +131,9 @@ def main(args):
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.2.1')
+    assert numpyro.__version__.startswith('0.2.4')
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('-n', '--num-epochs', default=20, type=int, help='number of training epochs')
+    parser.add_argument('-n', '--num-epochs', default=15, type=int, help='number of training epochs')
     parser.add_argument('-lr', '--learning-rate', default=1.0e-3, type=float, help='learning rate')
     parser.add_argument('-batch-size', default=128, type=int, help='batch size')
     parser.add_argument('-z-dim', default=50, type=int, help='size of latent')

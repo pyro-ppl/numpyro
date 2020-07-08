@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import os
 from subprocess import check_call
 import sys
@@ -10,12 +13,14 @@ EXAMPLES_DIR = os.path.join(os.path.dirname(TESTS_DIR), 'examples')
 
 EXAMPLES = [
     'baseball.py --num-samples 100 --num-warmup 100 --num-chains 2',
-    'covtype.py --algo HMC --num-samples 10',
-    'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'bnn.py --num-samples 10 --num-warmup 10 --num-data 7 --num-chains 2',
-    'sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10',
+    'covtype.py --algo HMC --num-samples 10',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
+    'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'minipyro.py',
+    'neutra.py --num-samples 100 --num-warmup 100',
+    'ode.py --num-samples 100 --num-warmup 100 --num-chains 1',
+    'sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10',
     'stochastic_volatility.py --num-samples 100 --num-warmup 100',
     'ucbadmit.py --num-chains 2',
     'vae.py -n 1',

@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
 import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.continuous import (
@@ -9,10 +12,13 @@ from numpyro.distributions.continuous import (
     Exponential,
     Gamma,
     GaussianRandomWalk,
+    Gumbel,
     HalfCauchy,
     HalfNormal,
     InverseGamma,
+    Laplace,
     LKJCholesky,
+    Logistic,
     LogNormal,
     LowRankMultivariateNormal,
     MultivariateNormal,
@@ -21,8 +27,10 @@ from numpyro.distributions.continuous import (
     StudentT,
     TruncatedCauchy,
     TruncatedNormal,
+    TruncatedPolyaGamma,
     Uniform
 )
+from numpyro.distributions.directional import VonMises
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -42,7 +50,15 @@ from numpyro.distributions.discrete import (
     PRNGIdentity,
     ZeroInflatedPoisson
 )
-from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
+from numpyro.distributions.distribution import (
+    Distribution,
+    ExpandedDistribution,
+    ImproperUniform,
+    Independent,
+    MaskedDistribution,
+    TransformedDistribution,
+    Unit
+)
 import numpyro.distributions.transforms  # noqa: F401
 from numpyro.distributions.transforms import biject_to
 
@@ -67,16 +83,22 @@ __all__ = [
     'Dirichlet',
     'Distribution',
     'Exponential',
+    'ExpandedDistribution',
     'Gamma',
     'GammaPoisson',
     'GaussianRandomWalk',
+    'Gumbel',
     'HalfCauchy',
     'HalfNormal',
+    'ImproperUniform',
     'Independent',
     'InverseGamma',
+    'Laplace',
     'LKJ',
     'LKJCholesky',
+    'Logistic',
     'LogNormal',
+    'MaskedDistribution',
     'Multinomial',
     'MultinomialLogits',
     'MultinomialProbs',
@@ -91,6 +113,10 @@ __all__ = [
     'TransformedDistribution',
     'TruncatedCauchy',
     'TruncatedNormal',
+    'TruncatedPolyaGamma',
     'Uniform',
+    'Unit',
+    'VonMises',
     'ZeroInflatedPoisson',
+
 ]

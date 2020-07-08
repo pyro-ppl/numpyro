@@ -1,19 +1,22 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 
 from jax import grad, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.ops import index_update
 from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
-from numpyro.distributions.util import cholesky_inverse, get_dtype
-from numpyro.util import cond, while_loop
+from numpyro.distributions.util import cholesky_of_inverse, get_dtype
+from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
-AdaptState = namedtuple('AdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
-                                       'ss_state', 'mm_state', 'window_idx', 'rng_key'])
+HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                             'ss_state', 'mm_state', 'window_idx', 'rng_key'])
 IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
 
 TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
@@ -115,11 +118,11 @@ def welford_covariance(diagonal=True):
         :param int size: size of each sample.
         :return: initial state for the scheme.
         """
-        mean = np.zeros(size)
+        mean = jnp.zeros(size)
         if diagonal:
-            m2 = np.zeros(size)
+            m2 = jnp.zeros(size)
         else:
-            m2 = np.zeros((size, size))
+            m2 = jnp.zeros((size, size))
         n = 0
         return mean, m2, n
 
@@ -137,7 +140,7 @@ def welford_covariance(diagonal=True):
         if diagonal:
             m2 = m2 + delta_pre * delta_post
         else:
-            m2 = m2 + np.outer(delta_post, delta_pre)
+            m2 = m2 + jnp.outer(delta_post, delta_pre)
         return mean, m2, n
 
     def final_fn(state, regularize=False):
@@ -156,11 +159,11 @@ def welford_covariance(diagonal=True):
             if diagonal:
                 cov = scaled_cov + shrinkage
             else:
-                cov = scaled_cov + shrinkage * np.identity(mean.shape[0])
-        if np.ndim(cov) == 2:
-            cov_inv_sqrt = cholesky_inverse(cov)
+                cov = scaled_cov + shrinkage * jnp.identity(mean.shape[0])
+        if jnp.ndim(cov) == 2:
+            cov_inv_sqrt = cholesky_of_inverse(cov)
         else:
-            cov_inv_sqrt = np.sqrt(np.reciprocal(cov))
+            cov_inv_sqrt = jnp.sqrt(jnp.reciprocal(cov))
         return cov, cov_inv_sqrt
 
     return init_fn, update_fn, final_fn
@@ -178,13 +181,16 @@ def velocity_verlet(potential_fn, kinetic_fn):
         inverse mass matrix and momentum.
     :return: a pair of (`init_fn`, `update_fn`).
     """
-    def init_fn(z, r):
+    def init_fn(z, r, potential_energy=None, z_grad=None):
         """
         :param z: Position of the particle.
         :param r: Momentum of the particle.
+        :param potential_energy: Potential energy at `z`.
+        :param z_grad: gradient of potential energy at `z`.
         :return: initial state for the integrator.
         """
-        potential_energy, z_grad = value_and_grad(potential_fn)(z)
+        if potential_energy is None or z_grad is None:
+            potential_energy, z_grad = value_and_grad(potential_fn)(z)
         return IntegratorState(z, r, potential_energy, z_grad)
 
     def update_fn(step_size, inverse_mass_matrix, state):
@@ -206,8 +212,8 @@ def velocity_verlet(potential_fn, kinetic_fn):
     return init_fn, update_fn
 
 
-def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inverse_mass_matrix,
-                              position, rng_key, init_step_size):
+def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
+                              init_step_size, inverse_mass_matrix, position, rng_key):
     """
     Finds a reasonable step size by tuning `init_step_size`. This function is used
     to avoid working with a too large or too small step size in HMC.
@@ -220,22 +226,22 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
     :param potential_fn: A callable to compute potential energy.
     :param kinetic_fn: A callable to compute kinetic energy.
     :param momentum_generator: A generator to get a random momentum variable.
+    :param float init_step_size: Initial step size to be tuned.
     :param inverse_mass_matrix: Inverse of mass matrix.
     :param position: Current position of the particle.
     :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
-    :param float init_step_size: Initial step size to be tuned.
     :return: a reasonable value for step size.
     :rtype: float
     """
     # We are going to find a step_size which make accept_prob (Metropolis correction)
     # near the target_accept_prob. If accept_prob:=exp(-delta_energy) is small,
     # then we have to decrease step_size; otherwise, increase step_size.
-    target_accept_prob = np.log(0.8)
+    target_accept_prob = jnp.log(0.8)
 
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
     z = position
     potential_energy, z_grad = value_and_grad(potential_fn)(z)
-    finfo = np.finfo(get_dtype(init_step_size))
+    finfo = jnp.finfo(get_dtype(init_step_size))
 
     def _body_fn(state):
         step_size, _, direction, rng_key = state
@@ -246,14 +252,14 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator, inve
         # case for a diverging trajectory (e.g. in the case of evaluating log prob
         # of a value simulated using a large step size for a constrained sample site).
         step_size = (2.0 ** direction) * step_size
-        r = momentum_generator(inverse_mass_matrix, rng_key_momentum)
+        r = momentum_generator(position, inverse_mass_matrix, rng_key_momentum)
         _, r_new, potential_energy_new, _ = vv_update(step_size,
                                                       inverse_mass_matrix,
                                                       (z, r, potential_energy, z_grad))
         energy_current = kinetic_fn(inverse_mass_matrix, r) + potential_energy
         energy_new = kinetic_fn(inverse_mass_matrix, r_new) + potential_energy_new
         delta_energy = energy_new - energy_current
-        direction_new = np.where(target_accept_prob < -delta_energy, 1, -1)
+        direction_new = jnp.where(target_accept_prob < -delta_energy, 1, -1)
         return step_size, direction, direction_new, rng_key
 
     def _cond_fn(state):
@@ -321,11 +327,7 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
-def _identity_step_size(inverse_mass_matrix, z, rng_key, step_size):
-    return step_size
-
-
-def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_size,
+def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    dense_mass=False, target_accept_prob=0.8):
     """
@@ -346,9 +348,11 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         step size, hence the sampling will be slower but more robust. Default to 0.8.
     :return: a pair of (`init_fn`, `update_fn`).
     """
+    if find_reasonable_step_size is None:
+        find_reasonable_step_size = identity
     ss_init, ss_update = dual_averaging()
     mm_init, mm_update, mm_final = welford_covariance(diagonal=not dense_mass)
-    adaptation_schedule = np.array(build_adaptation_schedule(num_adapt_steps))
+    adaptation_schedule = jnp.array(build_adaptation_schedule(num_adapt_steps))
     num_windows = len(adaptation_schedule)
 
     def init_fn(z, rng_key, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
@@ -366,25 +370,25 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
         if inverse_mass_matrix is None:
             assert mass_matrix_size is not None
             if dense_mass:
-                inverse_mass_matrix = np.identity(mass_matrix_size)
+                inverse_mass_matrix = jnp.identity(mass_matrix_size)
             else:
-                inverse_mass_matrix = np.ones(mass_matrix_size)
+                inverse_mass_matrix = jnp.ones(mass_matrix_size)
             mass_matrix_sqrt = inverse_mass_matrix
         else:
             if dense_mass:
-                mass_matrix_sqrt = cholesky_inverse(inverse_mass_matrix)
+                mass_matrix_sqrt = cholesky_of_inverse(inverse_mass_matrix)
             else:
-                mass_matrix_sqrt = np.sqrt(np.reciprocal(inverse_mass_matrix))
+                mass_matrix_sqrt = jnp.sqrt(jnp.reciprocal(inverse_mass_matrix))
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
-        ss_state = ss_init(np.log(10 * step_size))
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
+        ss_state = ss_init(jnp.log(10 * step_size))
 
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         window_idx = 0
-        return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                          ss_state, mm_state, window_idx, rng_key)
+        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                             ss_state, mm_state, window_idx, rng_key)
 
     def _update_at_window_end(z, rng_key_ss, state):
         step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
@@ -394,11 +398,11 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
-            step_size = find_reasonable_step_size(inverse_mass_matrix, z, rng_key_ss, step_size)
-            ss_state = ss_init(np.log(10 * step_size))
+            step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z, rng_key_ss)
+            ss_state = ss_init(jnp.log(10 * step_size))
 
-        return AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                          ss_state, mm_state, window_idx, rng_key)
+        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                             ss_state, mm_state, window_idx, rng_key)
 
     def update_fn(t, accept_prob, z, state):
         """
@@ -416,12 +420,12 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             ss_state = ss_update(target_accept_prob - accept_prob, ss_state)
             # note: at the end of warmup phase, use average of log step_size
             log_step_size, log_step_size_avg, *_ = ss_state
-            step_size = np.where(t == (num_adapt_steps - 1),
-                                 np.exp(log_step_size_avg),
-                                 np.exp(log_step_size))
+            step_size = jnp.where(t == (num_adapt_steps - 1),
+                                  jnp.exp(log_step_size_avg),
+                                  jnp.exp(log_step_size))
             # account the the case log_step_size is an extreme number
-            finfo = np.finfo(get_dtype(step_size))
-            step_size = np.clip(step_size, a_min=finfo.tiny, a_max=finfo.max)
+            finfo = jnp.finfo(get_dtype(step_size))
+            step_size = jnp.clip(step_size, a_min=finfo.tiny, a_max=finfo.max)
 
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
@@ -429,15 +433,15 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=_identity_step_siz
             z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
                             (z_flat, mm_state), lambda args: mm_update(*args),
-                            mm_state, lambda x: x)
+                            mm_state, identity)
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
-        window_idx = np.where(t_at_window_end, window_idx + 1, window_idx)
-        state = AdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
-                           ss_state, mm_state, window_idx, rng_key)
+        window_idx = jnp.where(t_at_window_end, window_idx + 1, window_idx)
+        state = HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+                              ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
                      (z, rng_key_ss, state), lambda args: _update_at_window_end(*args),
-                     state, lambda x: x)
+                     state, identity)
         return state
 
     return init_fn, update_fn
@@ -449,16 +453,16 @@ def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
     r_sum, _ = ravel_pytree(r_sum)
 
     if inverse_mass_matrix.ndim == 2:
-        v_left = np.matmul(inverse_mass_matrix, r_left)
-        v_right = np.matmul(inverse_mass_matrix, r_right)
+        v_left = jnp.matmul(inverse_mass_matrix, r_left)
+        v_right = jnp.matmul(inverse_mass_matrix, r_right)
     elif inverse_mass_matrix.ndim == 1:
-        v_left = np.multiply(inverse_mass_matrix, r_left)
-        v_right = np.multiply(inverse_mass_matrix, r_right)
+        v_left = jnp.multiply(inverse_mass_matrix, r_left)
+        v_right = jnp.multiply(inverse_mass_matrix, r_right)
 
     # This implements dynamic termination criterion (ref [2], section A.4.2).
     r_sum = r_sum - (r_left + r_right) / 2
-    turning_at_left = np.dot(v_left, r_sum) <= 0
-    turning_at_right = np.dot(v_right, r_sum) <= 0
+    turning_at_left = jnp.dot(v_left, r_sum) <= 0
+    turning_at_right = jnp.dot(v_right, r_sum) <= 0
     return turning_at_left | turning_at_right
 
 
@@ -471,11 +475,11 @@ def _uniform_transition_kernel(current_tree, new_tree):
 
 def _biased_transition_kernel(current_tree, new_tree):
     # This function computes transition prob for main trees (ref [2], section A.3.2).
-    transition_prob = np.exp(new_tree.weight - current_tree.weight)
+    transition_prob = jnp.exp(new_tree.weight - current_tree.weight)
     # If new tree is turning or diverging, we won't move the proposal
     # to the new tree.
-    transition_prob = np.where(new_tree.turning | new_tree.diverging,
-                               0.0, np.clip(transition_prob, a_max=1.0))
+    transition_prob = jnp.where(new_tree.turning | new_tree.diverging,
+                                0.0, jnp.clip(transition_prob, a_max=1.0))
     return transition_prob
 
 
@@ -493,7 +497,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng_
                        trees[0].z_left_grad, trees[1].z_right,
                        trees[1].r_right, trees[1].z_right_grad)
     )
-    r_sum = tree_multimap(np.add, current_tree.r_sum, new_tree.r_sum)
+    r_sum = tree_multimap(jnp.add, current_tree.r_sum, new_tree.r_sum)
 
     if biased_transition:
         transition_prob = _biased_transition_kernel(current_tree, new_tree)
@@ -510,7 +514,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng_
     )
 
     tree_depth = current_tree.depth + 1
-    tree_weight = np.logaddexp(current_tree.weight, new_tree.weight)
+    tree_weight = jnp.logaddexp(current_tree.weight, new_tree.weight)
     diverging = new_tree.diverging
 
     sum_accept_probs = current_tree.sum_accept_probs + new_tree.sum_accept_probs
@@ -524,7 +528,7 @@ def _combine_tree(current_tree, new_tree, inverse_mass_matrix, going_right, rng_
 
 def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size, going_right,
                     energy_current, max_delta_energy):
-    step_size = np.where(going_right, step_size, -step_size)
+    step_size = jnp.where(going_right, step_size, -step_size)
     z_new, r_new, potential_energy_new, z_new_grad = vv_update(
         step_size,
         inverse_mass_matrix,
@@ -534,11 +538,11 @@ def _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, st
     energy_new = potential_energy_new + kinetic_fn(inverse_mass_matrix, r_new)
     delta_energy = energy_new - energy_current
     # Handles the NaN case.
-    delta_energy = np.where(np.isnan(delta_energy), np.inf, delta_energy)
+    delta_energy = jnp.where(jnp.isnan(delta_energy), jnp.inf, delta_energy)
     tree_weight = -delta_energy
 
     diverging = delta_energy > max_delta_energy
-    accept_prob = np.clip(np.exp(-delta_energy), a_max=1.0)
+    accept_prob = jnp.clip(jnp.exp(-delta_energy), a_max=1.0)
     return TreeInfo(z_new, r_new, z_new_grad, z_new, r_new, z_new_grad,
                     z_new, potential_energy_new, z_new_grad, energy_new,
                     depth=0, weight=tree_weight, r_sum=r_new, turning=False,
@@ -556,11 +560,9 @@ def _get_leaf(tree, going_right):
 def _double_tree(current_tree, vv_update, kinetic_fn, inverse_mass_matrix, step_size,
                  going_right, rng_key, energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
     key, transition_key = random.split(rng_key)
-    # If we are going to the right, start from the right leaf of the current tree.
-    z, r, z_grad = _get_leaf(current_tree, going_right)
 
-    new_tree = _iterative_build_subtree(current_tree.depth, vv_update, kinetic_fn,
-                                        z, r, z_grad, inverse_mass_matrix, step_size,
+    new_tree = _iterative_build_subtree(current_tree, vv_update, kinetic_fn,
+                                        inverse_mass_matrix, step_size,
                                         going_right, key, energy_current, max_delta_energy,
                                         r_ckpts, r_sum_ckpts)
 
@@ -604,10 +606,10 @@ def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, i
     return turning
 
 
-def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
+def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                              inverse_mass_matrix, step_size, going_right, rng_key,
                              energy_current, max_delta_energy, r_ckpts, r_sum_ckpts):
-    max_num_proposals = 2 ** depth
+    max_num_proposals = 2 ** prototype_tree.depth
 
     def _cond_fn(state):
         tree, turning, _, _, _ = state
@@ -616,13 +618,19 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     def _body_fn(state):
         current_tree, _, r_ckpts, r_sum_ckpts, rng_key = state
         rng_key, transition_rng_key = random.split(rng_key)
+        # If we are going to the right, start from the right leaf of the current tree.
         z, r, z_grad = _get_leaf(current_tree, going_right)
         new_leaf = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
                                    going_right, energy_current, max_delta_energy)
-        new_tree = _combine_tree(current_tree, new_leaf, inverse_mass_matrix, going_right,
-                                 transition_rng_key, False)
+        new_tree = cond(current_tree.num_proposals == 0,
+                        new_leaf,
+                        identity,
+                        (current_tree, new_leaf, inverse_mass_matrix, going_right, transition_rng_key),
+                        lambda x: _combine_tree(*x, False))
 
         leaf_idx = current_tree.num_proposals
+        # NB: in the special case leaf_idx=0, ckpt_idx_min=1 and ckpt_idx_max=0,
+        # the following logic is still valid for that case
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
         r, _ = ravel_pytree(new_leaf.r_right)
         r_sum, _ = ravel_pytree(new_tree.r_sum)
@@ -632,17 +640,13 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
                                     lambda x: (index_update(x[0], ckpt_idx_max, r),
                                                index_update(x[1], ckpt_idx_max, r_sum)),
                                     (r_ckpts, r_sum_ckpts),
-                                    lambda x: x)
+                                    identity)
 
         turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
                                         ckpt_idx_min, ckpt_idx_max)
         return new_tree, turning, r_ckpts, r_sum_ckpts, rng_key
 
-    basetree = _build_basetree(vv_update, kinetic_fn, z, r, z_grad, inverse_mass_matrix, step_size,
-                               going_right, energy_current, max_delta_energy)
-    r_init, _ = ravel_pytree(basetree.r_left)
-    r_ckpts = index_update(r_ckpts, 0, r_init)
-    r_sum_ckpts = index_update(r_sum_ckpts, 0, r_init)
+    basetree = prototype_tree._replace(num_proposals=0)
 
     tree, turning, _, _, _ = while_loop(
         _cond_fn,
@@ -653,7 +657,7 @@ def _iterative_build_subtree(depth, vv_update, kinetic_fn, z, r, z_grad,
     return TreeInfo(tree.z_left, tree.r_left, tree.z_left_grad,
                     tree.z_right, tree.r_right, tree.z_right_grad,
                     tree.z_proposal, tree.z_proposal_pe, tree.z_proposal_grad, tree.z_proposal_energy,
-                    depth, tree.weight, tree.r_sum, turning, tree.diverging,
+                    prototype_tree.depth, tree.weight, tree.r_sum, turning, tree.diverging,
                     tree.sum_accept_probs, tree.num_proposals)
 
 
@@ -684,8 +688,8 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     """
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
-    r_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
-    r_sum_ckpts = np.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
+    r_ckpts = jnp.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
+    r_sum_ckpts = jnp.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
 
     tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad, energy_current,
                     depth=0, weight=0., r_sum=r, turning=False, diverging=False,
@@ -713,11 +717,11 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     r, _ = ravel_pytree(r)
 
     if inverse_mass_matrix.ndim == 2:
-        v = np.matmul(inverse_mass_matrix, r)
+        v = jnp.matmul(inverse_mass_matrix, r)
     elif inverse_mass_matrix.ndim == 1:
-        v = np.multiply(inverse_mass_matrix, r)
+        v = jnp.multiply(inverse_mass_matrix, r)
 
-    return 0.5 * np.dot(v, r)
+    return 0.5 * jnp.dot(v, r)
 
 
 def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
@@ -739,7 +743,7 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
         a collection of `num_draws` samples with the same data structure as each subposterior.
     """
     # stack subposteriors
-    joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
+    joined_subposteriors = tree_multimap(lambda *args: jnp.stack(args), *subposteriors)
     # shape of joined_subposteriors: n_subs x n_samples x sample_shape
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
 
@@ -754,14 +758,14 @@ def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
 
     if diagonal:
         # compute weights for each subposterior (ref: Section 3.1 of [1])
-        weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
-        normalized_weights = weights / np.sum(weights, axis=0)
+        weights = vmap(lambda x: 1 / jnp.var(x, ddof=1, axis=0))(joined_subposteriors)
+        normalized_weights = weights / jnp.sum(weights, axis=0)
         # get weighted samples
-        samples_flat = np.einsum('ij,ikj->kj', normalized_weights, joined_subposteriors)
+        samples_flat = jnp.einsum('ij,ikj->kj', normalized_weights, joined_subposteriors)
     else:
-        weights = vmap(lambda x: np.linalg.inv(np.cov(x.T)))(joined_subposteriors)
-        normalized_weights = np.matmul(np.linalg.inv(np.sum(weights, axis=0)), weights)
-        samples_flat = np.einsum('ijk,ilk->lj', normalized_weights, joined_subposteriors)
+        weights = vmap(lambda x: jnp.linalg.inv(jnp.cov(x.T)))(joined_subposteriors)
+        normalized_weights = jnp.matmul(jnp.linalg.inv(jnp.sum(weights, axis=0)), weights)
+        samples_flat = jnp.einsum('ijk,ilk->lj', normalized_weights, joined_subposteriors)
 
     # unravel_fn acts on 1 sample of a subposterior
     _, unravel_fn = ravel_pytree(tree_map(lambda x: x[0], subposteriors[0]))
@@ -782,25 +786,25 @@ def parametric(subposteriors, diagonal=False):
         `False` (using covariance).
     :return: the estimated mean and variance/covariance parameters of the joined posterior
     """
-    joined_subposteriors = tree_multimap(lambda *args: np.stack(args), *subposteriors)
+    joined_subposteriors = tree_multimap(lambda *args: jnp.stack(args), *subposteriors)
     joined_subposteriors = vmap(vmap(lambda sample: ravel_pytree(sample)[0]))(joined_subposteriors)
 
-    submeans = np.mean(joined_subposteriors, axis=1)
+    submeans = jnp.mean(joined_subposteriors, axis=1)
     if diagonal:
-        weights = vmap(lambda x: 1 / np.var(x, ddof=1, axis=0))(joined_subposteriors)
-        var = 1 / np.sum(weights, axis=0)
+        weights = vmap(lambda x: 1 / jnp.var(x, ddof=1, axis=0))(joined_subposteriors)
+        var = 1 / jnp.sum(weights, axis=0)
         normalized_weights = var * weights
 
         # comparing to consensus implementation, we compute weighted mean here
-        mean = np.einsum('ij,ij->j', normalized_weights, submeans)
+        mean = jnp.einsum('ij,ij->j', normalized_weights, submeans)
         return mean, var
     else:
-        weights = vmap(lambda x: np.linalg.inv(np.cov(x.T)))(joined_subposteriors)
-        cov = np.linalg.inv(np.sum(weights, axis=0))
-        normalized_weights = np.matmul(cov, weights)
+        weights = vmap(lambda x: jnp.linalg.inv(jnp.cov(x.T)))(joined_subposteriors)
+        cov = jnp.linalg.inv(jnp.sum(weights, axis=0))
+        normalized_weights = jnp.matmul(cov, weights)
 
         # comparing to consensus implementation, we compute weighted mean here
-        mean = np.einsum('ijk,ik->j', normalized_weights, submeans)
+        mean = jnp.einsum('ijk,ik->j', normalized_weights, submeans)
         return mean, cov
 
 
@@ -823,7 +827,7 @@ def parametric_draws(subposteriors, num_draws, diagonal=False, rng_key=None):
     rng_key = random.PRNGKey(0) if rng_key is None else rng_key
     if diagonal:
         mean, var = parametric(subposteriors, diagonal=True)
-        samples_flat = dist.Normal(mean, np.sqrt(var)).sample(rng_key, (num_draws,))
+        samples_flat = dist.Normal(mean, jnp.sqrt(var)).sample(rng_key, (num_draws,))
     else:
         mean, cov = parametric(subposteriors, diagonal=False)
         samples_flat = dist.MultivariateNormal(mean, cov).sample(rng_key, (num_draws,))

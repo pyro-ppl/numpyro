@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Optimizer classes defined here are light wrappers over the corresponding optimizers
 sourced from :mod:`jax.experimental.optimizers` with an interface that is better
@@ -7,7 +10,7 @@ suited for working with NumPyro inference algorithms.
 from typing import Callable, Tuple, TypeVar
 
 from jax.experimental import optimizers
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.tree_util import tree_map
 
 __all__ = [
@@ -38,7 +41,7 @@ class _NumpyroOptim(object):
         :return: initial optimizer state.
         """
         opt_state = self.init_fn(params)
-        return 0, opt_state
+        return jnp.array(0), opt_state
 
     def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
         """
@@ -97,7 +100,7 @@ class ClippedAdam(_NumpyroOptim):
     def update(self, g, state):
         i, opt_state = state
         # clip norm
-        g = tree_map(lambda g_: np.clip(g_, a_min=-self.clip_norm, a_max=self.clip_norm), g)
+        g = tree_map(lambda g_: jnp.clip(g_, a_min=-self.clip_norm, a_max=self.clip_norm), g)
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
