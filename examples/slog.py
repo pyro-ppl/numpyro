@@ -22,9 +22,8 @@ from numpyro.diagnostics import print_summary
 from numpyro.util import enable_x64
 
 import pickle
-from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det, pcpcg_quad_form_log_det
+from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_log_det
 from utils import CustomAdam, record_stats, kdot, sample_aux_noise, _fori_loop, sample_permutation
-from mvm import kernel_mvm
 
 from data import get_data
 from analysis import process_singleton_svi, process_quad_svi
@@ -71,9 +70,6 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
         kY = np.matmul(k, Y)
         log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
     else:
-        #kY = kernel_mvm_diag(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=dilation)
-        #kY = kernel_mvm(Y, kappa, X, np.broadcast_to(eta1, Y.shape), np.broadcast_to(eta2, Y.shape), hypers['c'], dilation)
-        #log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
         log_factor = - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
@@ -98,11 +94,6 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
         #     Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
         qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det2, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
              Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation, subsample)
-
-        #qfld, res_norm, cg_iters = pcpcg_quad_form_log_det(kappa, Y, eta1, eta2, 1.0 / omega, hypers['c'],
-        #                     X, probe, rank1, rank2, cg_tol, max_iters, 1, 1)
-        #qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(1, 5, 6, 7, 8, 9, 10, 11, 12, 13))(kappa, Y, eta1, eta2, 1.0 / omega, hypers['c'],
-        #                     X, probe, rank1, rank2, cg_tol, max_iters, 1, 1)
 
     record_stats(np.array([res_norm, cg_iters]))
 

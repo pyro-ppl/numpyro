@@ -23,19 +23,6 @@ def _chunk_vmap(fun, array, chunk_size=10):
     results = [vmap(fun)(array[chunk]) for chunk in chunks]
     return np.concatenate(results)
 
-def fori_loop(lower, upper, body_fun, init_val):
-    val = init_val
-    for i in range(lower, upper):
-        val = body_fun(i, val)
-    return val
-
-def _fori_vmap(fun, array, chunk_size=10):
-    L = array.shape[0]
-    if chunk_size >= L:
-        return vmap(fun)(array)
-   #diag = jax.ops.index_update(diag, iteration, 1.0 / alpha + prev_beta / prev_alpha)
-
-
 # do a matrix vector after first materializing the matrix M
 def vanilla_mvm(row):
     def do_mvm(rhs):
@@ -51,7 +38,6 @@ def partitioned_mvm(row, dilation):
             return np.dot(rhs, row(i))
         return _chunk_vmap(compute_element, np.arange(rhs.shape[-1]), rhs.shape[-1] // dilation)
     return do_mvm
-
 
 # do a matrix vector multiply chunk-by-chunk
 def partitioned_mvm_size(row, size, dilation):
@@ -96,25 +82,8 @@ def partitioned_mvm2(row, P, dilation):
 def kX_mvm(b, kX, dilation=2):
     return np.transpose(partitioned_mvm2(lambda i: kX[:, i], kX.shape[-1], dilation)(b))
 
-def kX_mvm2(b, kX, dilation=2):
-    @jit
-    def compute_element(i):
-        return np.dot(b, kX[i, :])
-    return _chunk_vmap(compute_element, np.arange(kX.shape[0]), kX.shape[0] // dilation)
-
 def quad_mvm(b, X):
     return np.einsum('np,p->n', X, np.einsum('np,n->p', X, b))
-
-def quad_mvm_dil3(b, X, dilation=2):
-    N, P = X.shape
-    @jit
-    def compute_element1(i):
-        return np.dot(b, X[:, i])
-    partial = _chunk_vmap(compute_element1, np.arange(P), P // dilation)
-    @jit
-    def compute_element2(i):
-        return np.dot(np.transpose(partial), X[i])
-    return _chunk_vmap(compute_element2, np.arange(N), N // dilation)
 
 def quad_mvm_dil(b, X, dilation=2):
     N, P = X.shape
@@ -125,17 +94,6 @@ def quad_mvm_dil(b, X, dilation=2):
     @jit
     def compute_element2(i):
         return np.dot(X[i], partial)
-    return _chunk_vmap(compute_element2, np.arange(N), N // dilation)
-
-def quad_mvm_dil2(b, kX, dkX, dilation=2):
-    N, P = kX.shape
-    @jit
-    def compute_element1(i):
-        return np.dot(kX[:, i], b)
-    partial = _chunk_vmap(compute_element1, np.arange(P), P // dilation)
-    @jit
-    def compute_element2(i):
-        return np.dot(dkX[i], partial)
     return _chunk_vmap(compute_element2, np.arange(N), N // dilation)
 
 def kernel(X, Z, eta1, eta2, c):
@@ -156,44 +114,15 @@ def kernel_mvm_diag(b, kX, eta1, eta2, c, diag, dilation=2,dilation2=2):
     k4b = (np.square(c) - 0.5 * eta2sq) * np.sum(b) * np.ones(b.shape)
     return k1b + k2b + k3b + k4b + diag * b
 
-@custom_jvp
-@partial(custom_jvp, nondiff_argnums=(0, 2, 5, 6))
-def kernel_mvm(b, kappa, X, eta1, eta2, c, dilation):
-    return np.nan
-
-@kernel_mvm.defjvp
-def kernel_mvm_jvp(b, X, c, dilation, primals, tangents):
-    kappa, eta1, eta2 = primals
-    kappa_dot, eta1_dot, eta2_dot = tangents
-
+def kernel_mvm(b, kX, eta1, eta2, c, dilation=2,dilation2=2):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
+    k1b = 0.5 * eta2sq * kXkXsq_mvm(b, kX, dilation=dilation2)
+    k2b = -0.5 * eta2sq * quad_mvm_dil(b, np.square(kX), dilation=dilation)
+    k3b = (eta1sq - eta2sq) * quad_mvm_dil(b, kX, dilation=dilation)
+    k4b = (np.square(c) - 0.5 * eta2sq) * np.sum(b) * np.ones(b.shape)
+    return k1b + k2b + k3b + k4b
 
-    kX = kappa * X
-    Xsq = np.square(X)
-    dkX = kappa_dot * X
-    dkXsq = kappa_dot * Xsq
-    k3Xsq = kappa ** 3 * Xsq
-
-    k1b = kXkXsq_mvm(b, kX, dilation=dilation)
-    k2b = quad_mvm_dil(b, np.square(kX), dilation=dilation)
-    k3b = quad_mvm_dil(b, kX, dilation=dilation)
-    k4b = np.sum(b) * np.ones(b.shape)
-
-    primal_out = 0.5 * eta2sq * k1b - 0.5 * eta2sq * k2b + (eta1sq - eta2sq) * k3b + \
-                 (np.square(c) - 0.5 * eta2sq) * k4b
-
-    kXdkXsq_b = np.transpose(kXdkXsq_mvm(b, kX, dkX, dilation=dilation))
-    k3Xsq_b_dkXsq = quad_mvm_dil2(b, dkXsq, k3Xsq)
-    kX_b_dkX = quad_mvm_dil2(b, kX, dkX, dilation=dilation)
-
-    tangent_out_dkappa = 2.0 * eta1sq * kX_b_dkX - 2.0 * eta2sq * (k3Xsq_b_dkXsq - kXdkXsq_b)
-    tangent_out_deta1 = 2.0 * eta1 * eta1_dot * k3b
-    tangent_out_deta2 = eta2 * eta2_dot * (k1b - k2b - 2.0 * k3b - k4b)
-
-    tangent_out = tangent_out_dkappa + tangent_out_deta1 + tangent_out_deta2
-
-    return primal_out, tangent_out
 
 
 if __name__ == "__main__":

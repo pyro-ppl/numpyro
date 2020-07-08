@@ -9,7 +9,7 @@ import numpy as onp
 import math
 from utils import dotdot
 
-from mvm import kernel_mvm_diag, kXkXsq_mvm, quad_mvm_dil, quad_mvm_dil3, kX_mvm, kXdkXsq_mvm, kernel_mvm
+from mvm import kernel_mvm_diag, kXkXsq_mvm, quad_mvm_dil, kX_mvm, kXdkXsq_mvm, kernel_mvm
 from mvm import kXkXsq_mvm_sub, kXdkXsq_mvm_sub
 from cg import lowrank_presolve, pcg_batch_b, kernel, pcg
 
@@ -98,7 +98,7 @@ def pcpcg_quad_form_log_det_fwd(kappa, b, eta1, eta2, diag, c, X, probes, rank1,
     Ainv_om_b_probes, res_norm, iters = pcg_batch_b(om_b_probes, mvm, presolve=presolve,
                                                     cg_tol=cg_tol, max_iters=max_iters)
     Ainv_om_b, Ainv_probes = Ainv_om_b_probes[0], Ainv_om_b_probes[1:]
-    K_Ainv_om_b = kernel_mvm_diag(Ainv_om_b, kX, eta1, eta2, c, 0.0, dilation=dilation, dilation2=dilation2)
+    K_Ainv_om_b = kernel_mvm(Ainv_om_b, kX, eta1, eta2, c, dilation=dilation, dilation2=dilation2)
     quad_form = 0.125 * np.dot(b, K_Ainv_om_b)
 
     residuals = (kX, kappa, eta1, eta2, K_Ainv_om_b, Ainv_om_b, diag, Ainv_probes, probes)
@@ -189,8 +189,8 @@ def pcpcg_quad_form_log_det2_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, 
     Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, mvm, presolve=presolve, cg_tol=cg_tol, max_iters=max_iters)
     Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
 
-    Kb = kernel_mvm_diag(b, kX, eta1, eta2, c, 0.0, dilation=dilation)
-    KAinv_b = kernel_mvm_diag(Ainv_b, kX, eta1, eta2, c, 0.0, dilation=dilation)
+    Kb = kernel_mvm(b, kX, eta1, eta2, c, dilation=dilation)
+    KAinv_b = kernel_mvm(Ainv_b, kX, eta1, eta2, c, dilation=dilation)
 
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
@@ -213,7 +213,6 @@ def pcpcg_quad_form_log_det2_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, 
                                                                              kX, dkX, dilation=dilation)))
     kXkXsq_Ainv_b, kXkXsq_Ainv_probes = split(np.transpose(kXkXsq_mvm_sub(Ainv_b_probes, kX_sub, kX, dilation=dilation)))
     ssfac = float(kX.shape[0] / kX_sub.shape[0])
-    print("ssfac",ssfac)
 
     #kXdkXsq_Ainv_b, kXdkXsq_Ainv_probes = split(np.transpose(kXdkXsq_mvm(Ainv_b_probes, kX, dkX, dilation=dilation)))
     #kXkXsq_Ainv_b, kXkXsq_Ainv_probes = split(np.transpose(kXkXsq_mvm(Ainv_b_probes, kX, dilation=dilation)))
@@ -244,19 +243,6 @@ def pcpcg_quad_form_log_det2_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, 
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
 
-def qfs(Ainv_b_probes, probes, kX, dkX):
-    split = lambda x: (x[0], x[1:])
-    kXdkXsq_Ainv_b, kXdkXsq_Ainv_probes = split(np.transpose(kXdkXsq_mvm(Ainv_b_probes, kX, dkX, dilation=32)))
-    kXkXsq_Ainv_b, kXkXsq_Ainv_probes = split(np.transpose(kXkXsq_mvm(Ainv_b_probes, kX, dilation=32)))
-    Ainv_b = Ainv_b_probes[0]
-    qf1 = np.dot(Ainv_b, kXkXsq_Ainv_b)
-    qf2 = np.dot(Ainv_b, kXdkXsq_Ainv_b)
-    qf3 = meansum(probes * kXkXsq_Ainv_probes)
-    qf4 = meansum(probes * kXdkXsq_Ainv_probes)
-
-    return qf1, qf2, qf3, qf4
-
-
 if __name__ == '__main__':
     N = 5
     P = 4
@@ -273,8 +259,6 @@ if __name__ == '__main__':
     #num_probes = 1
     #probes = np.array(onp.random.randn(N * num_probes).reshape((num_probes, N)))
     probes = math.sqrt(N) * np.eye(N)
-    #q1, q2, q3, q4 = qfs(Ainv_b_probes, probes, kX, dkX)
-    #import sys;sys.exit()
 
     def direct(_kappa, _b, _eta1, _eta2, _diag, include_log_det):
         kX = _kappa * X
