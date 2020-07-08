@@ -72,19 +72,6 @@ def partitioned_mvm3(row, dilation):
     return do_mvm
 
 
-# np.square(1.0 + kdot(kX, kX))
-def kXkXsq_row(i, kX):
-    return np.square(1.0 + np.matmul(kX, kX[i]))
-#def kXkXsq_row(i, kX):
-#    row_i = partitioned_mvm2(lambda j: kX[j], kX.shape[0], 2)(kX[i])
-#    return np.square(1.0 + row_i)
-#def kXkXsq_row(i, kX):
-#    row_i = partitioned_mvm2(lambda j: kX[j], kX.shape[0], 2)(kX[i])
-#    return np.square(1.0 + row_i)
-
-def kXkXsq_mvm(b, kX, dilation=2):
-    return partitioned_mvm(lambda i: kXkXsq_row(i, kX), dilation)(b)
-
 def kXkXkXX_qf(b, X, kX, dilation=2):
     bkX = kX * b[:, None]
     @jit
@@ -103,6 +90,20 @@ def kXkXkXX_qf2(p1, p2, X, kX, dilation=2):
         return X[i] * p2[:, None, i] * kXkXbkX_i
     return np.mean(np.sum(_chunk_vmap(compute_element, np.arange(p1.shape[-1]), p1.shape[-1] // dilation), axis=0), axis=0)
 
+def kXkXkXX_qf3(p1, p2, X, kX, dilation=2):
+    bkX = kX * p1[:, :, None]  # NP N P
+    @jit
+    def compute_element(i):
+        kXkX_i = np.matmul(kX, kX[i])
+        kXkXbkX_i = np.sum(kXkX_i[:, None] * bkX, axis=-2)  # NP P
+        return X[i] * p2[:, None, i] * kXkXbkX_i  # P    NP 1    NP P
+    return np.mean(np.sum(_chunk_vmap(compute_element, np.arange(p1.shape[-1]), p1.shape[-1] // dilation), axis=0), axis=0)
+
+# np.square(1.0 + kdot(kX, kX))
+def kXkXsq_row(i, kX):
+    return np.square(1.0 + np.matmul(kX, kX[i]))
+def kXkXsq_mvm(b, kX, dilation=2):
+    return partitioned_mvm(lambda i: kXkXsq_row(i, kX), dilation)(b)
 
 # kdot(kX, kX) * kdot(kX, dkX)
 def kXdkXsq_row(i, kX, dkX):
@@ -232,14 +233,23 @@ if __name__ == "__main__":
     b = np.sin(np.ones(N)) / N
     a = np.cos(np.ones(N)) / N
 
+    kX = np.array(onp.random.randn(N * P).reshape((N, P)))
+    X = np.array(onp.random.randn(N * P).reshape((N, P)))
+
+    #p1 = np.array(onp.random.rand(N*N+N).reshape((N+1,N)))
+    #p2 = np.array(onp.random.rand(N*N+N).reshape((N+1,N)))
+    #res1 = kXkXkXX_qf2(p1, p2, X, kX, dilation=2)
+    #res2 = kXkXkXX_qf3(p1, p2, X, kX, dilation=2)
+    #print("res1",res1)
+    #print("res2",res1)
+    #assert_allclose(res1, res2, atol=1.0e-5, rtol=1.0e-5)
+    #import sys; sys.exit()
+
     eta1 = np.array(0.55)
     eta2 = np.array(0.22)
     c = 0.9
 
     kappa = np.array(onp.random.rand(P))
-
-    kX = np.array(onp.random.randn(N * P).reshape((N, P)))
-    X = np.array(onp.random.randn(N * P).reshape((N, P)))
 
     b = np.sin(np.ones(N) / N)
 

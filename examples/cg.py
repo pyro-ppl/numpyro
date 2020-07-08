@@ -1,4 +1,5 @@
 from functools import namedtuple, partial
+import numpyro
 import numpy as onp
 import jax
 from jax import vmap, jit, custom_jvp, value_and_grad, grad
@@ -282,18 +283,18 @@ def pcpcg_quad_form_log_det_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, d
 
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
-
 def symmetrize(x):
     return 0.5 * (x + np.transpose(x))
 
 
 if __name__ == "__main__":
     from numpyro.util import enable_x64
-    enable_x64()
+    #enable_x64()
+    numpyro.set_platform("gpu")
 
     onp.random.seed(0)
-    N = 7
-    P = 5
+    N = 40 * 1000
+    P = 500
     b = onp.random.randn(N)
     X = onp.random.randn(N * P).reshape((N, P))
     kappa = 2.0 * np.exp(0.2 * onp.random.randn(P))
@@ -302,12 +303,12 @@ if __name__ == "__main__":
     eta2 = np.array(0.33)
     c = 1.0
     diag = np.exp(0.2 * onp.random.randn(N))
-    num_probes = 10 ** 5
+    num_probes = 1#10 ** 5
     probes = onp.random.randn(num_probes * N).reshape((num_probes, N))
 
     def f1(_kappa, _b, _eta1, _eta2, _diag):
         return pcpcg_quad_form_log_det(_kappa, _b, _eta1, _eta2, _diag, c, X, probes, 3, 2,
-                                       1.0e-8, 300, 1)[0]
+                                       1.0e-8, 10, 16)[0]
 
     def f2(_kappa, _b, _eta1, _eta2, _diag):
         kX = _kappa * X
@@ -319,9 +320,14 @@ if __name__ == "__main__":
         k = kernel(kX, kX, _eta1, _eta2, c) + np.diag(_diag)
         return cg_quad_form_log_det(k, _b, probes, cg_tol=1.0e-8, max_iters=300)[0]
 
-    which = 4
+    which = 0
 
+    t0 = time.time()
     g1 = grad(f1, which)(kappa, b, eta1, eta2, diag)
+    print("ELAPSED", time.time()-t0)
+    import sys;sys.exit()
+
+
     g2 = grad(f2, which)(kappa, b, eta1, eta2, diag)
     g3 = grad(f3, which)(kappa, b, eta1, eta2, diag)
 

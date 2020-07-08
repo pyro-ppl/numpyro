@@ -28,7 +28,7 @@ from mvm import kernel_mvm
 
 from data import get_data
 from analysis import process_singleton_svi, process_quad_svi
-#from vjp import pcpcg_quad_form_log_det
+from vjp import pcpcg_quad_form_log_det2
 
 
 # The kernel that corresponds to our quadratic logit function
@@ -63,7 +63,7 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     kX = kappa * X
 
-    dilation = 8
+    dilation = 1
 
     if method != 'ppcg':
         k = kernel(kX, kX, eta1, eta2, hypers['c'])
@@ -72,9 +72,9 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
         log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
     else:
         #kY = kernel_mvm_diag(Y, kX, eta1, eta2, hypers['c'], 0.0, dilation=dilation)
-        kY = kernel_mvm(Y, kappa, X, np.broadcast_to(eta1, Y.shape), np.broadcast_to(eta2, Y.shape), hypers['c'], dilation)
-        log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
-        #log_factor = - 0.5 * np.sum(np.log(omega))
+        #kY = kernel_mvm(Y, kappa, X, np.broadcast_to(eta1, Y.shape), np.broadcast_to(eta2, Y.shape), hypers['c'], dilation)
+        #log_factor = 0.125 * np.dot(Y, kY) - 0.5 * np.sum(np.log(omega))
+        log_factor = - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
     rank1, rank2 = 16, 12
@@ -91,15 +91,22 @@ def model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
             0.5 * kY, eta1, eta2, 1.0 / omega, hypers['c'], kX, kappa, probe, rank1, rank2, cg_tol, max_iters)
     elif method == "ppcg":
         probe = sample_aux_noise(shape=(num_probes, N))
-        qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
-            0.5 * kY, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
+        #qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
+        #    0.5 * kY, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
+        #qfld, res_norm, cg_iters = pcpcg_quad_form_log_det2(kappa,
+        #     Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
+        qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det2, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
+             Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
+
         #qfld, res_norm, cg_iters = pcpcg_quad_form_log_det(kappa, Y, eta1, eta2, 1.0 / omega, hypers['c'],
+        #                     X, probe, rank1, rank2, cg_tol, max_iters, 1, 1)
+        #qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(1, 5, 6, 7, 8, 9, 10, 11, 12, 13))(kappa, Y, eta1, eta2, 1.0 / omega, hypers['c'],
         #                     X, probe, rank1, rank2, cg_tol, max_iters, 1, 1)
 
     record_stats(np.array([res_norm, cg_iters]))
 
-    #numpyro.factor("obs", log_factor + qfld)
-    numpyro.factor("obs", log_factor - 0.5 * qfld)
+    numpyro.factor("obs", log_factor + qfld)
+    #numpyro.factor("obs", log_factor - 0.5 * qfld)
 
 
 def guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
@@ -214,7 +221,7 @@ def main(**args):
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
-    for N in [30000]:
+    for N in [33000]:
     #for N in [500]: #800, 1600, 2400, 3600]:
         results[N] = {}
 
@@ -239,7 +246,7 @@ def main(**args):
         #                         np.arange(P), chunk_size=999)
         #print("analyze_dimension time", time.time()-t0)
         t0 = time.time()
-        means, stds = process_singleton_svi(X, Y, samples, hypers['c'], omega_chunk_size=1, probe_chunk_size=1,
+        means, stds = process_singleton_svi(X, Y, samples, hypers['c'], omega_chunk_size=1, probe_chunk_size=200,
                                             method='direct', rank1=16, rank2=16)
                                             #method=args['inference'][4:])
         print("analyze_dimension time", time.time()-t0)
@@ -289,7 +296,7 @@ def main(**args):
             dim_pairs = np.array(list(itertools.product(active_dims, active_dims)))
             #fun = lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers)
             #means, stds = chunk_vmap(fun, dim_pairs, chunk_size=32)
-            means, stds = process_quad_svi(X, Y, samples, dim_pairs, hypers['c'], omega_chunk_size=1, probe_chunk_size=1,
+            means, stds = process_quad_svi(X, Y, samples, dim_pairs, hypers['c'], omega_chunk_size=1, probe_chunk_size=200,
                                            method='ppcg', rank1=16, rank2=16)
             results[N]['pairwise_coeff_means'] = onp.array(means).tolist()
             results[N]['pairwise_coeff_stds'] = onp.array(stds).tolist()
@@ -334,12 +341,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
     parser.add_argument("--inference", nargs="?", default='svi-ppcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=300, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--mtd", nargs='?', default=5, type=int)
     parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=100, type=int)
+    parser.add_argument("--num-dimensions", nargs='?', default=500, type=int)
     parser.add_argument("--seed", nargs='?', default=0, type=int)
     parser.add_argument("--lr", nargs='?', default=0.005, type=float)
     parser.add_argument("--cg-tol", nargs='?', default=0.001, type=float)
