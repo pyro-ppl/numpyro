@@ -32,6 +32,7 @@ import jax
 from jax import vmap
 import jax.numpy as jnp
 import jax.random as random
+from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 
 import numpyro
 import numpyro.distributions as dist
@@ -43,7 +44,7 @@ def dot(X, Z):
 
 
 # The kernel that corresponds to our quadratic regressor.
-def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
+def kernel(X, Z, eta1, eta2, c, jitter=1.0e-4):
     eta1sq = jnp.square(eta1)
     eta2sq = jnp.square(eta2)
     k1 = 0.5 * eta2sq * jnp.square(1.0 + dot(X, Z))
@@ -71,12 +72,9 @@ def model(X, Y, hypers):
     lam = numpyro.sample("lambda", dist.HalfCauchy(jnp.ones(P)))
     kappa = jnp.sqrt(msq) * lam / jnp.sqrt(msq + jnp.square(eta1 * lam))
 
-    # sample observation noise
-    var_obs = numpyro.sample("var_obs", dist.InverseGamma(hypers['alpha_obs'], hypers['beta_obs']))
-
     # compute kernel
     kX = kappa * X
-    k = kernel(kX, kX, eta1, eta2, hypers['c']) + var_obs * jnp.eye(N)
+    k = kernel(kX, kX, eta1, eta2, hypers['c']) + sigma ** 2 * jnp.eye(N)
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
@@ -87,7 +85,7 @@ def model(X, Y, hypers):
 # Compute the mean and variance of coefficient theta_i (where i = dimension) for a
 # MCMC sample of the kernel hyperparameters (eta1, xisq, ...).
 # Compare to theorem 5.1 in reference [1].
-def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, var_obs):
+def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, sigma):
     P, N = X.shape[1], X.shape[0]
 
     probe = jnp.zeros((2, P))
@@ -99,7 +97,7 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, va
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + var_obs * jnp.eye(N)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
     k_xx_inv = jnp.linalg.inv(k_xx)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -117,7 +115,7 @@ def compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, c, va
 
 # Compute the mean and variance of coefficient theta_ij for a MCMC sample of the
 # kernel hyperparameters (eta1, xisq, ...). Compare to theorem 5.1 in reference [1].
-def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, var_obs):
+def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, sigma):
     P, N = X.shape[1], X.shape[0]
 
     probe = jnp.zeros((4, P))
@@ -130,7 +128,7 @@ def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, va
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + var_obs * jnp.eye(N)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
     k_xx_inv = jnp.linalg.inv(k_xx)
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
@@ -150,7 +148,7 @@ def compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, c, va
 # The first P returned values are {theta_1, theta_2, ...., theta_P}, while
 # the remaining values are {theta_ij} for i,j in the list `active_dims`,
 # sorted so that i < j.
-def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, var_obs):
+def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
     P, N, M = X.shape[1], X.shape[0], len(active_dims)
     # the total number of coefficients we return
     num_coefficients = P + M * (M - 1) // 2
@@ -185,19 +183,20 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, var_obs):
     kX = kappa * X
     kprobe = kappa * probe
 
-    k_xx = kernel(kX, kX, eta1, eta2, c) + var_obs * jnp.eye(N)
-    k_xx_inv = jnp.linalg.inv(k_xx)
+    k_xx = kernel(kX, kX, eta1, eta2, c) + sigma ** 2 * jnp.eye(N)
+    L = cho_factor(k_xx, lower=True)[0]
     k_probeX = kernel(kprobe, kX, eta1, eta2, c)
     k_prbprb = kernel(kprobe, kprobe, eta1, eta2, c)
 
-    mu = jnp.matmul(k_probeX, jnp.matmul(k_xx_inv, Y))
+    mu = jnp.matmul(k_probeX, cho_solve((L, True), Y))
     mu = jnp.sum(mu * vec, axis=-1)
 
-    covar = k_prbprb - jnp.matmul(k_probeX, jnp.matmul(k_xx_inv, jnp.transpose(k_probeX)))
+    Linv_k_probeX = solve_triangular(L, jnp.transpose(k_probeX), lower=True)
+    covar = k_prbprb - jnp.matmul(jnp.transpose(Linv_k_probeX), Linv_k_probeX)
     covar = jnp.matmul(vec, jnp.matmul(covar, jnp.transpose(vec)))
-    L = jnp.linalg.cholesky(covar)
 
     # sample from N(mu, covar)
+    L = jnp.linalg.cholesky(covar)
     sample = mu + jnp.matmul(L, np.random.randn(num_coefficients))
 
     return sample
@@ -245,10 +244,10 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
 def analyze_dimension(samples, X, Y, dimension, hypers):
-    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['var_obs'])
-    mus, variances = vmap(lambda msq, lam, eta1, xisq, var_obs:
+    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['sigma'])
+    mus, variances = vmap(lambda msq, lam, eta1, xisq, sigma:
                           compute_singleton_mean_variance(X, Y, dimension, msq, lam,
-                                                          eta1, xisq, hypers['c'], var_obs))(*vmap_args)
+                                                          eta1, xisq, hypers['c'], sigma))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = jnp.sqrt(variance)
     return mean, std
@@ -256,10 +255,10 @@ def analyze_dimension(samples, X, Y, dimension, hypers):
 
 # Helper function for analyzing the posterior statistics for coefficient theta_ij
 def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
-    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['var_obs'])
-    mus, variances = vmap(lambda msq, lam, eta1, xisq, var_obs:
+    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['sigma'])
+    mus, variances = vmap(lambda msq, lam, eta1, xisq, sigma:
                           compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam,
-                                                         eta1, xisq, hypers['c'], var_obs))(*vmap_args)
+                                                         eta1, xisq, hypers['c'], sigma))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = jnp.sqrt(variance)
     return mean, std
@@ -273,8 +272,7 @@ def main(args):
     hypers = {'expected_sparsity': max(1.0, args.num_dimensions / 10),
               'alpha1': 3.0, 'beta1': 1.0,
               'alpha2': 3.0, 'beta2': 1.0,
-              'alpha3': 1.0, 'c': 1.0,
-              'alpha_obs': 3.0, 'beta_obs': 1.0}
+              'alpha3': 1.0, 'c': 1.0}
 
     # do inference
     rng_key = random.PRNGKey(0)
@@ -317,7 +315,7 @@ def main(args):
         # coefficients theta_i and pairwise coefficients theta_ij for i, j active dimensions. We use the
         # final MCMC sample obtained from the HMC sampler.
         thetas = sample_theta_space(X, Y, active_dimensions, samples['msq'][-1], samples['lambda'][-1],
-                                    samples['eta1'][-1], samples['xisq'][-1], hypers['c'], samples['var_obs'][-1])
+                                    samples['eta1'][-1], samples['xisq'][-1], hypers['c'], samples['sigma'][-1])
         print("Single posterior sample theta:\n", thetas)
 
 
