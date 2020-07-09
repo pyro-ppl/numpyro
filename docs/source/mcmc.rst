@@ -10,6 +10,12 @@ Hamiltonian Monte Carlo
     :show-inheritance:
     :member-order: bysource
 
+.. autoclass:: numpyro.infer.mcmc.MCMCKernel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 .. autoclass:: numpyro.infer.hmc.HMC
     :members:
     :undoc-members:
