@@ -191,7 +191,7 @@ class ReentrantMessenger(Messenger):
 
 class DimStackCleanupMessenger(ReentrantMessenger):
 
-    def __init__(self, fn):
+    def __init__(self, fn=None):
         self._saved_dims = ()
         return super().__init__(fn)
 

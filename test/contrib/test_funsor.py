@@ -1,14 +1,17 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import OrderedDict
+
 import numpy as np
 from numpy.testing import assert_allclose
 
 from jax import random
 import jax.numpy as jnp
 
+from funsor import Tensor, bint, reals
 import numpyro
-from numpyro.contrib.funsor import markov
+from numpyro.contrib.funsor.enum_messenger import NamedMessenger, markov, to_data, to_funsor
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
@@ -119,3 +122,69 @@ def test_gaussian_hmm():
     nuts_kernel = NUTS(model)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
     mcmc.run(random.PRNGKey(0), data)
+
+
+def test_iteration():
+
+    def testing():
+        for i in markov(range(5)):
+            v1 = to_data(Tensor(jnp.ones(2), OrderedDict([(str(i), bint(2))]), 'real'))
+            v2 = to_data(Tensor(jnp.zeros(2), OrderedDict([('a', bint(2))]), 'real'))
+            fv1 = to_funsor(v1, reals())
+            fv2 = to_funsor(v2, reals())
+            print(i, v1.shape)  # shapes should alternate
+            if i % 2 == 0:
+                assert v1.shape == (2,)
+            else:
+                assert v1.shape == (2, 1, 1)
+            assert v2.shape == (2, 1)
+            print(i, fv1.inputs)
+            print('a', v2.shape)  # shapes should stay the same
+            print('a', fv2.inputs)
+
+    with NamedMessenger():
+        testing()
+
+
+def test_nesting():
+
+    def testing():
+
+        with markov():
+            v1 = to_data(Tensor(jnp.ones(2), OrderedDict([("1", bint(2))]), 'real'))
+            print(1, v1.shape)  # shapes should alternate
+            assert v1.shape == (2,)
+
+            with markov():
+                v2 = to_data(Tensor(jnp.ones(2), OrderedDict([("2", bint(2))]), 'real'))
+                print(2, v2.shape)  # shapes should alternate
+                assert v2.shape == (2, 1)
+
+                with markov():
+                    v3 = to_data(Tensor(jnp.ones(2), OrderedDict([("3", bint(2))]), 'real'))
+                    print(3, v3.shape)  # shapes should alternate
+                    assert v3.shape == (2,)
+
+                    with markov():
+                        v4 = to_data(Tensor(jnp.ones(2), OrderedDict([("4", bint(2))]), 'real'))
+                        print(4, v4.shape)  # shapes should alternate
+
+                        assert v4.shape == (2, 1)
+
+    with NamedMessenger():
+        testing()
+
+
+def test_staggered():
+
+    def testing():
+        for i in markov(range(12)):
+            if i % 4 == 0:
+                v2 = to_data(Tensor(jnp.zeros(2), OrderedDict([('a', bint(2))]), 'real'))
+                fv2 = to_funsor(v2, reals())
+                assert v2.shape == (2,)
+                print('a', v2.shape)
+                print('a', fv2.inputs)
+
+    with NamedMessenger():
+        testing()
