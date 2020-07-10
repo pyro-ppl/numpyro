@@ -396,13 +396,6 @@ class ExpandedDistribution(Distribution):
         log_prob = self.base_dist.log_prob(value)
         return jnp.broadcast_to(log_prob, shape)
 
-    def to_event(self, reinterpreted_batch_ndims=None):
-        if reinterpreted_batch_ndims is None:
-            reinterpreted_batch_ndims = len(self.batch_shape)
-        elif reinterpreted_batch_ndims == 0:
-            return self
-        return Independent(self.base_dist, reinterpreted_batch_ndims)
-
     def enumerate_support(self, expand=True):
         samples = self.base_dist.enumerate_support(expand=False)
         enum_shape = samples.shape[:1]
