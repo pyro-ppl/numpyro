@@ -36,9 +36,8 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import MCMC, NUTS, Predictive
-from numpyro.infer.reparam import TransformReparam
+from numpyro.infer.reparam import LocScaleReparam
 
 
 def model(dim=10):
@@ -48,9 +47,8 @@ def model(dim=10):
 
 def reparam_model(dim=10):
     y = numpyro.sample('y', dist.Normal(0, 3))
-    with numpyro.handlers.reparam(config={'x': TransformReparam()}):
-        numpyro.sample('x', dist.TransformedDistribution(
-            dist.Normal(jnp.zeros(dim - 1), 1), AffineTransform(0, jnp.exp(y / 2))))
+    with numpyro.handlers.reparam(config={'x': LocScaleReparam(0)}):
+        numpyro.sample('x', dist.Normal(jnp.zeros(dim - 1), jnp.exp(y / 2)))
 
 
 def run_inference(model, args, rng_key):
