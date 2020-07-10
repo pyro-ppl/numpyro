@@ -417,7 +417,12 @@ class BaseEnumMessenger(NamedMessenger):
 
 class plate(GlobalNamedMessenger):
     """
-    An alternative implementation of :class:`numpyro.primitives.plate` primitive.
+    An alternative implementation of :class:`numpyro.primitives.plate` primitive. Note
+    that only this version is compatible with enumeration.
+
+    There is also a context manager
+    :func:`~numpyro.contrib.funsor.infer_util.plate_to_enum_plate`
+    which converts `numpyro.plate` statements to this version.
 
     :param str name: Name of the plate.
     :param int size: Size of the plate.
