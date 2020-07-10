@@ -16,6 +16,15 @@ shaped. These can be used with a variety of inference algorithms, e.g.
     :member-order: bysource
     :special-members: __call___
 
+Loc-Scale Decentering
+---------------------
+.. autoclass:: numpyro.infer.reparam.LocScaleReparam
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    :special-members: __call__
+
 Neural Transport
 ----------------
 .. autoclass:: numpyro.infer.reparam.NeuTraReparam
