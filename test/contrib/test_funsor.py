@@ -60,7 +60,7 @@ def test_bernoulli_latent_model():
     samples = mcmc.get_samples()
     assert_allclose(samples["y_prob"].mean(0), y_prob, atol=0.05)
 
-    
+
 def test_change_point():
     def model(count_data):
         n_count_data = count_data.shape[0]
@@ -77,7 +77,7 @@ def test_change_point():
     count_data = jnp.array([
         13, 24, 8, 24,  7, 35, 14, 11, 15, 11, 22, 22, 11, 57, 11,
         19, 29, 6, 19, 12, 22, 12, 18, 72, 32,  9,  7, 13, 19, 23,
-        27, 20, 6, 17, 13, 10, 14,  6, 16, 15,  7,  2, 15, 15, 19, 
+        27, 20, 6, 17, 13, 10, 14,  6, 16, 15,  7,  2, 15, 15, 19,
         70, 49, 7, 53, 22, 21, 31, 19, 11,  1, 20, 12, 35, 17, 23,
         17,  4, 2, 31, 30, 13, 27,  0, 39, 37,  5, 14, 13, 22,
     ])
