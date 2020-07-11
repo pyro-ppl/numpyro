@@ -36,6 +36,7 @@ __all__ = [
     'integer_greater_than',
     'interval',
     'is_dependent',
+    'less_than',
     'lower_cholesky',
     'multinomial',
     'nonnegative_integer',
@@ -112,6 +113,14 @@ class _GreaterThan(Constraint):
 
     def __call__(self, x):
         return x > self.lower_bound
+
+
+class _LessThan(Constraint):
+    def __init__(self, upper_bound):
+        self.upper_bound = upper_bound
+
+    def __call__(self, x):
+        return x < self.upper_bound
 
 
 class _IntegerInterval(Constraint):
@@ -193,6 +202,7 @@ corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
 greater_than = _GreaterThan
+less_than = _LessThan
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
