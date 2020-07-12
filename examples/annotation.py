@@ -17,10 +17,14 @@ The interested readers can also refer to [3] for more explanation about enumerat
 
 The data is taken from Table 1 of reference [2].
 
+Currently, this example does not include postprocessing steps to deal with "Label
+Switching" issue (mentioned in section 6.2 of [1]).
+
 **References:**
 
     1. Paun, S., Carpenter, B., Chamberlain, J., Hovy, D., Kruschwitz, U.,
        and Poesio, M. (2018). "Comparing bayesian models of annotation"
+       (https://www.aclweb.org/anthology/Q18-1040/)
     2. Dawid, A. P., and Skene, A. M. (1979).
        "Maximum likelihood estimation of observer error‐rates using the EM algorithm"
     3. "Inference with Discrete Latent Variables"
@@ -38,9 +42,8 @@ import numpyro
 from numpyro import handlers
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
-from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import MCMC, NUTS
-from numpyro.infer.reparam import TransformReparam
+from numpyro.infer.reparam import LocScaleReparam
 
 
 def get_data():
@@ -81,7 +84,7 @@ def get_data():
 
 def multinomial(annotations):
     """
-    This model corresponses to the plate diagram in Figure 1 of reference [1].
+    This model corresponds to the plate diagram in Figure 1 of reference [1].
     """
     num_classes = int(jnp.max(annotations)) + 1
     num_items, num_positions = annotations.shape
@@ -100,7 +103,7 @@ def multinomial(annotations):
 
 def dawid_skene(positions, annotations):
     """
-    This model corresponses to the plate diagram in Figure 2 of reference [1].
+    This model corresponds to the plate diagram in Figure 2 of reference [1].
     """
     num_annotators = int(jnp.max(positions)) + 1
     num_classes = int(jnp.max(annotations)) + 1
@@ -118,14 +121,12 @@ def dawid_skene(positions, annotations):
         # here we use Vindex to allow broadcasting for the second index `c`
         # ref: http://num.pyro.ai/en/latest/utilities.html#numpyro.contrib.indexing.vindex
         with numpyro.plate("position", num_positions):
-            numpyro.sample(
-                "y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations
-            )
+            numpyro.sample("y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations)
 
 
 def mace(positions, annotations):
     """
-    This model corresponses to the plate diagram in Figure 3 of reference [1].
+    This model corresponds to the plate diagram in Figure 3 of reference [1].
     """
     num_annotators = int(jnp.max(positions)) + 1
     num_classes = int(jnp.max(annotations)) + 1
@@ -142,15 +143,13 @@ def mace(positions, annotations):
 
         with numpyro.plate("position", num_positions):
             s = numpyro.sample("s", dist.Bernoulli(1 - theta[positions]))
-            probs = jnp.where(
-                s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions]
-            )
+            probs = jnp.where(s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions])
             numpyro.sample("y", dist.Categorical(probs), obs=annotations)
 
 
 def hierarchical_dawid_skene(positions, annotations):
     """
-    This model corresponses to the plate diagram in Figure 4 of reference [1].
+    This model corresponds to the plate diagram in Figure 4 of reference [1].
     """
     num_annotators = int(jnp.max(positions)) + 1
     num_classes = int(jnp.max(annotations)) + 1
@@ -160,24 +159,14 @@ def hierarchical_dawid_skene(positions, annotations):
         # NB: we define `beta` as the `logits` of `y` likelihood; but `logits` is
         # invariant up to a constant, so we'll follow [1]: fix the last term of `beta`
         # to 0 and only define hyperpriors for the first `num_classes - 1` terms.
-        zeta = numpyro.sample(
-            "zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
-        )
-        omega = numpyro.sample(
-            "Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
-        )
+        zeta = numpyro.sample("zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1))
+        omega = numpyro.sample("Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1))
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
             # non-centered parameterization
-            with handlers.reparam(config={"beta": TransformReparam()}):
-                base_dist = dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
-                beta = numpyro.sample(
-                    "beta",
-                    dist.TransformedDistribution(
-                        base_dist, AffineTransform(zeta, omega)
-                    ),
-                )
+            with handlers.reparam(config={"beta": LocScaleReparam(0)}):
+                beta = numpyro.sample("beta", dist.Normal(zeta, omega).to_event(1))
             # pad 0 to the last item
             beta = jnp.pad(beta, [(0, 0)] * (jnp.ndim(beta) - 1) + [(0, 1)])
 
@@ -187,27 +176,20 @@ def hierarchical_dawid_skene(positions, annotations):
         c = numpyro.sample("c", dist.Categorical(pi))
 
         with numpyro.plate("position", num_positions):
-            numpyro.sample(
-                "y",
-                dist.Categorical(logits=Vindex(beta)[positions, c, :]),
-                obs=annotations,
-            )
+            logits = Vindex(beta)[positions, c, :]
+            numpyro.sample("y", dist.Categorical(logits=logits), obs=annotations)
 
 
 def item_difficulty(annotations):
     """
-    This model corresponses to the plate diagram in Figure 5 of reference [1].
+    This model corresponds to the plate diagram in Figure 5 of reference [1].
     """
     num_classes = int(jnp.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("class", num_classes):
-        eta = numpyro.sample(
-            "eta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
-        )
-        chi = numpyro.sample(
-            "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
-        )
+        eta = numpyro.sample("eta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1))
+        chi = numpyro.sample("Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1))
 
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
@@ -215,14 +197,8 @@ def item_difficulty(annotations):
         c = numpyro.sample("c", dist.Categorical(pi))
 
         # non-centered parameterization
-        with handlers.reparam(config={"theta": TransformReparam()}):
-            base_dist = dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
-            theta = numpyro.sample(
-                "theta",
-                dist.TransformedDistribution(
-                    base_dist, AffineTransform(eta[c], chi[c])
-                ),
-            )
+        with handlers.reparam(config={"theta": LocScaleReparam(0)}):
+            theta = numpyro.sample("theta", dist.Normal(eta[c], chi[c]).to_event(1))
             # pad 0 to the last item
             theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
 
@@ -232,34 +208,22 @@ def item_difficulty(annotations):
 
 def logistic_random_effects(positions, annotations):
     """
-    This model corresponses to the plate diagram in Figure 5 of reference [1].
+    This model corresponds to the plate diagram in Figure 5 of reference [1].
     """
     num_annotators = int(jnp.max(positions)) + 1
     num_classes = int(jnp.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("class", num_classes):
-        zeta = numpyro.sample(
-            "zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
-        )
-        omega = numpyro.sample(
-            "Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
-        )
-        chi = numpyro.sample(
-            "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
-        )
+        zeta = numpyro.sample("zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1))
+        omega = numpyro.sample("Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1))
+        chi = numpyro.sample("Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1))
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
             # non-centered parameterization
-            with handlers.reparam(config={"beta": TransformReparam()}):
-                base_dist = dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
-                beta = numpyro.sample(
-                    "beta",
-                    dist.TransformedDistribution(
-                        base_dist, AffineTransform(zeta, omega)
-                    ),
-                )
+            with handlers.reparam(config={"beta": LocScaleReparam(0)}):
+                beta = numpyro.sample("beta", dist.Normal(zeta, omega).to_event(1))
                 # pad 0 to the last item
                 beta = jnp.pad(beta, [(0, 0)] * (jnp.ndim(beta) - 1) + [(0, 1)])
 
@@ -269,21 +233,14 @@ def logistic_random_effects(positions, annotations):
         c = numpyro.sample("c", dist.Categorical(pi))
 
         # non-centered parameterization
-        with handlers.reparam(config={"theta": TransformReparam()}):
-            base_dist = dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
-            theta = numpyro.sample(
-                "theta",
-                dist.TransformedDistribution(base_dist, AffineTransform(0, chi[c])),
-            )
+        with handlers.reparam(config={"theta": LocScaleReparam(0)}):
+            theta = numpyro.sample("theta", dist.Normal(0, chi[c]).to_event(1))
             # pad 0 to the last item
             theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
 
         with numpyro.plate("position", num_positions):
-            numpyro.sample(
-                "y",
-                dist.Categorical(logits=Vindex(beta)[positions, c, :] - theta),
-                obs=annotations,
-            )
+            logits = Vindex(beta)[positions, c, :] - theta
+            numpyro.sample("y", dist.Categorical(logits=logits), obs=annotations)
 
 
 NAME_TO_MODEL = {
@@ -299,11 +256,7 @@ NAME_TO_MODEL = {
 def main(args):
     annotators, annotations = get_data()
     model = NAME_TO_MODEL[args.model]
-    data = (
-        (annotations,)
-        if model in [multinomial, item_difficulty]
-        else (annotators, annotations)
-    )
+    data = (annotations,) if model in [multinomial, item_difficulty] else (annotators, annotations)
 
     mcmc = MCMC(
         NUTS(model),
