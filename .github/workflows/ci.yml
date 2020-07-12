@@ -25,6 +25,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
         pip install jax
         pip install .[doc,test]
@@ -60,6 +61,7 @@ jobs:
         python -m pip install --upgrade pip
         # Keep track of pyro-api master branch
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
+        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
         pip install jax
         pip install .[test]
@@ -92,6 +94,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
         pip install jax
         pip install .[examples,test]

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro.infer.elbo import ELBO, RenyiELBO
+from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
@@ -9,7 +10,6 @@ from numpyro.infer.initialization import (
     init_to_uniform,
     init_to_value
 )
-from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.mcmc import MCMC
 from numpyro.infer.sa import SA
 from numpyro.infer.svi import SVI

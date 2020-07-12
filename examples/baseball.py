@@ -62,7 +62,7 @@ from jax.scipy.special import logsumexp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.infer import HMC, MCMC, NUTS, Predictive, SA, log_likelihood
+from numpyro.infer import HMC, MCMC, NUTS, SA, Predictive, log_likelihood
 
 
 def fully_pooled(at_bats, hits=None):

@@ -67,7 +67,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
+def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -84,6 +84,10 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
     :param numpy.ndarray obs: observed value
     :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
+    :param dict infer: an optional dictionary containing additional information
+        for inference algorithms. For example, if `fn` is a discrete distribution,
+        setting `infer={'enumerate': 'parallel'}` will tell MCMC marginalize
+        this discrete latent site.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
@@ -102,6 +106,7 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         'is_observed': obs is not None,
         'intermediates': [],
         'cond_indep_stack': [],
+        'infer': {} if infer is None else infer,
     }
 
     # ...and use apply_stack to send it to the Messengers
