@@ -32,7 +32,7 @@ import jax
 from jax import vmap
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
+from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
 
 import numpyro
 import numpyro.distributions as dist
