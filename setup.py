@@ -45,8 +45,6 @@ setup(
         'doc': ['sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
         'test': [
             'flake8',
-            # TODO: make sure that we release funsor before releasing numpyro
-            'funsor',
             'pytest>=4.1',
             'pyro-api>=0.1.1'
         ],

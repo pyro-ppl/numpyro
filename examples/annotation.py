@@ -196,10 +196,8 @@ def item_difficulty(annotations):
     with numpyro.plate("item", num_items, dim=-2):
         c = numpyro.sample("c", dist.Categorical(pi))
 
-        # non-centered parameterization
         with handlers.reparam(config={"theta": LocScaleReparam(0)}):
             theta = numpyro.sample("theta", dist.Normal(eta[c], chi[c]).to_event(1))
-            # pad 0 to the last item
             theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
 
         with numpyro.plate("position", annotations.shape[-1]):
@@ -221,10 +219,8 @@ def logistic_random_effects(positions, annotations):
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
-            # non-centered parameterization
             with handlers.reparam(config={"beta": LocScaleReparam(0)}):
                 beta = numpyro.sample("beta", dist.Normal(zeta, omega).to_event(1))
-                # pad 0 to the last item
                 beta = jnp.pad(beta, [(0, 0)] * (jnp.ndim(beta) - 1) + [(0, 1)])
 
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
@@ -232,10 +228,8 @@ def logistic_random_effects(positions, annotations):
     with numpyro.plate("item", num_items, dim=-2):
         c = numpyro.sample("c", dist.Categorical(pi))
 
-        # non-centered parameterization
         with handlers.reparam(config={"theta": LocScaleReparam(0)}):
             theta = numpyro.sample("theta", dist.Normal(0, chi[c]).to_event(1))
-            # pad 0 to the last item
             theta = jnp.pad(theta, [(0, 0)] * (jnp.ndim(theta) - 1) + [(0, 1)])
 
         with numpyro.plate("position", num_positions):
