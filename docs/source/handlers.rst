@@ -19,6 +19,14 @@ condition
     :show-inheritance:
     :member-order: bysource
 
+lift
+----
+.. autoclass:: numpyro.handlers.lift
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 mask
 ----
 .. autoclass:: numpyro.handlers.mask

@@ -5,7 +5,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import lax, random
+from jax import jacobian, lax, random
 import jax.numpy as jnp
 
 import numpyro
@@ -14,15 +14,13 @@ from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
 from numpyro.infer import ELBO, MCMC, NUTS, SVI
 from numpyro.infer.autoguide import AutoIAFNormal
-from numpyro.infer.reparam import NeuTraReparam, TransformReparam
+from numpyro.infer.reparam import LocScaleReparam, NeuTraReparam, TransformReparam
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
 
 
-# Test helper to extract a few log central moments from samples.
+# Test helper to extract a few central moments from samples.
 def get_moments(x):
-    assert (x > 0).all()
-    x = jnp.log(x)
     m1 = jnp.mean(x, axis=0)
     x = x - m1
     xx = x * x
@@ -51,13 +49,13 @@ def test_log_normal(shape):
 
     with handlers.trace() as tr:
         value = handlers.seed(model, 0)()
-    expected_moments = get_moments(value)
+    expected_moments = get_moments(jnp.log(value))
 
     with numpyro.handlers.reparam(config={"x": TransformReparam()}):
         with handlers.trace() as tr:
             value = handlers.seed(model, 0)()
     assert tr["x"]["type"] == "deterministic"
-    actual_moments = get_moments(value)
+    actual_moments = get_moments(jnp.log(value))
     assert_allclose(actual_moments, expected_moments, atol=0.05)
 
 
@@ -119,3 +117,48 @@ def test_reparam_log_joint(model, kwargs):
     log_det_jacobian = neutra.transform.log_abs_det_jacobian(latent_x, latent_y)
     pe = pe_fn(guide._unpack_latent(latent_y))
     assert_allclose(pe_transformed, pe - log_det_jacobian)
+
+
+@pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
+@pytest.mark.parametrize("centered", [0., 0.6, 1., None])
+@pytest.mark.parametrize("dist_type", ["Normal", "StudentT"])
+@pytest.mark.parametrize("event_dim", [0, 1])
+def test_loc_scale(dist_type, centered, shape, event_dim):
+    loc = np.random.uniform(-1., 1., shape)
+    scale = np.random.uniform(0.5, 1.5, shape)
+    event_dim = min(event_dim, len(shape))
+
+    def model(loc, scale):
+        with numpyro.plate_stack("plates", shape[:len(shape) - event_dim]):
+            with numpyro.plate("particles", 10000):
+                if "dist_type" == "Normal":
+                    numpyro.sample("x", dist.Normal(loc, scale).to_event(event_dim))
+                else:
+                    numpyro.sample("x", dist.StudentT(10.0, loc, scale).to_event(event_dim))
+
+    def get_expected_probe(loc, scale):
+        with numpyro.handlers.trace() as trace:
+            with numpyro.handlers.seed(rng_seed=0):
+                model(loc, scale)
+        return get_moments(trace["x"]["value"])
+
+    if "dist_type" == "Normal":
+        reparam = LocScaleReparam()
+    else:
+        reparam = LocScaleReparam(shape_params=["df"])
+
+    def get_actual_probe(loc, scale):
+        with numpyro.handlers.trace() as trace:
+            with numpyro.handlers.seed(rng_seed=0):
+                with numpyro.handlers.reparam(config={"x": reparam}):
+                    model(loc, scale)
+        return get_moments(trace["x"]["value"])
+
+    expected_probe = get_expected_probe(loc, scale)
+    actual_probe = get_actual_probe(loc, scale)
+    assert_allclose(actual_probe, expected_probe, atol=0.1)
+
+    expected_grad = jacobian(get_expected_probe, argnums=(0, 1))(loc, scale)
+    actual_grad = jacobian(get_actual_probe, argnums=(0, 1))(loc, scale)
+    assert_allclose(actual_grad[0], expected_grad[0], atol=0.05)  # loc grad
+    assert_allclose(actual_grad[1], expected_grad[1], atol=0.05)  # scale grad

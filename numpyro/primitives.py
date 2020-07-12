@@ -67,7 +67,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
+def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -84,6 +84,10 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
     :param numpy.ndarray obs: observed value
     :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
+    :param dict infer: an optional dictionary containing additional information
+        for inference algorithms. For example, if `fn` is a discrete distribution,
+        setting `infer={'enumerate': 'parallel'}` will tell MCMC marginalize
+        this discrete latent site.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
@@ -102,6 +106,7 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         'is_observed': obs is not None,
         'intermediates': [],
         'cond_indep_stack': [],
+        'infer': {} if infer is None else infer,
     }
 
     # ...and use apply_stack to send it to the Messengers
@@ -136,6 +141,7 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
+        'scale': None,
         'cond_indep_stack': [],
     }
 
@@ -255,7 +261,7 @@ class plate(Messenger):
         return tuple(batch_shape)
 
     def process_message(self, msg):
-        if msg['type'] not in ('sample', 'plate'):
+        if msg['type'] not in ('param', 'sample', 'plate'):
             if msg['type'] == 'control_flow':
                 raise RuntimeError('Cannot use control flow primitive under a `plate` primitive.'
                                    ' Please move those `plate` statements into the control flow'
@@ -265,8 +271,8 @@ class plate(Messenger):
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
-        expected_shape = self._get_batch_shape(cond_indep_stack)
         if msg['type'] == 'sample':
+            expected_shape = self._get_batch_shape(cond_indep_stack)
             dist_batch_shape = msg['fn'].batch_shape
             if 'sample_shape' in msg['kwargs']:
                 dist_batch_shape = msg['kwargs']['sample_shape'] + dist_batch_shape

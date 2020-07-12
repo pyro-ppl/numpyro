@@ -764,6 +764,8 @@ def test_categorical_log_prob_grad():
     (constraints.interval(-3, 5), 0, True),
     (constraints.interval(-3, 5), jnp.array([-5, -3, 0, 5, 7]),
      jnp.array([False, False, True, False, False])),
+    (constraints.less_than(1), -2, True),
+    (constraints.less_than(1), jnp.array([-1, 1, 5]), jnp.array([True, False, False])),
     (constraints.lower_cholesky, jnp.array([[1., 0.], [-2., 0.1]]), True),
     (constraints.lower_cholesky, jnp.array([[[1., 0.], [-2., -0.1]], [[1., 0.1], [2., 0.2]]]),
      jnp.array([False, False])),
@@ -795,6 +797,7 @@ def test_constraints(constraint, x, expected):
     constraints.corr_matrix,
     constraints.greater_than(2),
     constraints.interval(-3, 5),
+    constraints.less_than(1),
     constraints.lower_cholesky,
     constraints.ordered_vector,
     constraints.positive,
@@ -815,6 +818,8 @@ def test_biject_to(constraint, shape):
         assert transform.codomain.lower_bound == constraint.lower_bound
     elif isinstance(constraint, constraints._GreaterThan):
         assert transform.codomain.lower_bound == constraint.lower_bound
+    elif isinstance(constraint, constraints._LessThan):
+        assert transform.codomain.upper_bound == constraint.upper_bound
     if len(shape) < event_dim:
         return
     rng_key = random.PRNGKey(0)

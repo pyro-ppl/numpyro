@@ -33,6 +33,8 @@ setup(
     author='Uber AI Labs',
     author_email='npradhan@uber.com',
     install_requires=[
+        # TODO: use the release version of funsor for the release
+        'funsor @ git+https://github.com/pyro-ppl/funsor.git@b4db46acc5ab615abd2e1297f65ff5e70e961876#egg=funsor'
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
         'jax>=0.1.70',
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L20

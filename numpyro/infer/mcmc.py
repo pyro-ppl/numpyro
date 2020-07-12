@@ -17,6 +17,12 @@ from jax.tree_util import tree_flatten, tree_map, tree_multimap
 from numpyro.diagnostics import print_summary
 from numpyro.util import cached_by, fori_collect, identity
 
+__all__ = [
+    'MCMCKernel',
+    'MCMC',
+    'hmc',
+]
+
 
 def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
     from numpyro.infer.hmc import hmc
@@ -71,6 +77,8 @@ class MCMCKernel(ABC):
             be consistent with the input type to `potential_fn`.
         :param model_args: Arguments provided to the model.
         :param model_kwargs: Keyword arguments provided to the model.
+        :return: The initial state, which has arbitrary data structure representing the
+            state of the kernel.
         """
         raise NotImplementedError
 
@@ -81,7 +89,7 @@ class MCMCKernel(ABC):
         transition kernel.
 
         :param state: Arbitrary data structure representing the state for the
-            kernel. For HMC, this is given by :data:`~numpyro.infer.mcmc.HMCState`.
+            kernel. For HMC, this is given by :data:`~numpyro.infer.hmc.HMCState`.
         :param model_args: Arguments provided to the model.
         :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state`.
