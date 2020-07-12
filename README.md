@@ -88,18 +88,21 @@ Expected log joint density: -54.55
 
 ```
 
-The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates that the chain has not fully converged. The low value for the effective sample size (`n_eff`), particularly for `tau`, and the number of divergent transitions looks problematic. Fortunately, this is a common pathology that can be rectified by using a [non-centered paramaterization](https://mc-stan.org/docs/2_18/stan-users-guide/reparameterization-section.html) for `tau` in our model. This is straightforward to do in NumPyro by using a [TransformedDistribution](http://num.pyro.ai/en/latest/distributions.html#transformeddistribution) instance together with a [reparameterization](http://num.pyro.ai/en/latest/handlers.html#reparam) effect handler. Let us rewrite the same model but instead of sampling `theta` from a `Normal(mu, tau)`, we will instead sample it from a base `Normal(0, 1)` distribution that is transformed using an [AffineTransform](http://num.pyro.ai/en/latest/distributions.html#affinetransform). Note that by doing so, NumPyro runs HMC by generating samples `theta_base` for the base `Normal(0, 1)` distribution instead. We see that the resulting chain does not suffer from the same pathology — the Gelman Rubin diagnostic is 1 for all the parameters and the effective sample size looks quite good!
+The values above 1 for the split Gelman Rubin diagnostic (`r_hat`) indicates that the chain has not fully converged. The low value for the effective sample size (`n_eff`), particularly for `tau`, and the number of divergent transitions looks problematic. Fortunately, this is a common pathology that can be rectified by using a [non-centered paramaterization](https://mc-stan.org/docs/2_18/stan-users-guide/reparameterization-section.html) for `tau` in our model. This is straightforward to do in NumPyro by using a [reparameterization](http://num.pyro.ai/en/latest/handlers.html#reparam) effect handler. Let us rewrite the same model but instead of sampling `theta` from a `Normal(mu, tau)`, we will instead sample it from a base `Normal(0, 1)` distribution that is transformed using an [AffineTransform](http://num.pyro.ai/en/latest/distributions.html#affinetransform). Note that by doing so, NumPyro runs HMC by generating samples `theta_base` for the base `Normal(0, 1)` distribution instead. We see that the resulting chain does not suffer from the same pathology — the Gelman Rubin diagnostic is 1 for all the parameters and the effective sample size looks quite good!
 
 ```python
->>> from numpyro.infer.reparam import LocScaleReparam
+>>> from numpyro.infer.reparam import TransformReparam
 
 >>> # Eight Schools example - Non-centered Reparametrization
 ... def eight_schools_noncentered(J, sigma, y=None):
 ...     mu = numpyro.sample('mu', dist.Normal(0, 5))
 ...     tau = numpyro.sample('tau', dist.HalfCauchy(5))
 ...     with numpyro.plate('J', J):
-...         with numpyro.handlers.reparam(config={'theta': LocScaleReparam(0)}):
-...             theta = numpyro.sample('theta', dist.Normal(mu, tau))
+...         with numpyro.handlers.reparam(config={'theta': TransformReparam()}):
+...             theta = numpyro.sample(
+...                 'theta',
+...                 dist.TransformedDistribution(dist.Normal(0., 1.),
+...                                              dist.transforms.AffineTransform(mu, tau)))
 ...         numpyro.sample('obs', dist.Normal(theta, sigma), obs=y)
 
 >>> nuts_kernel = NUTS(eight_schools_noncentered)
@@ -136,6 +139,11 @@ Number of divergences: 0
 Expected log joint density: -46.09
 
 ```
+
+Note that for the class of distributions with `loc,scale` paramaters such as `Normal`, `Cauchy`, `StudentT`, we also provide a [LocScaleReparam](http://num.pyro.ai/en/latest/reparam.html#loc-scale-decentering) reparameterizer to achieve the same purpose. The corresponding code will be
+
+    with numpyro.handlers.reparam(config={'theta': LocScaleReparam(centered=0)}):
+        theta = numpyro.sample('theta', dist.Normal(mu, tau))
 
 Now, let us assume that we have a new school for which we have not observed any test scores, but we would like to generate predictions. NumPyro provides a [Predictive](http://num.pyro.ai/en/latest/utilities.html#numpyro.infer.util.Predictive) class for such a purpose. Note that in the absence of any observed data, we simply use the population-level parameters to generate predictions. The `Predictive` utility conditions the unobserved `mu` and `tau` sites to values drawn from the posterior distribution from our last MCMC run, and runs the model forward to generate predictions. 
 
