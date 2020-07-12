@@ -232,7 +232,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                                             find_reasonable_step_size=find_reasonable_ss)
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
-        wa_state = wa_init(z, rng_key_wa, step_size,
+        z_info = IntegratorState(z=z, potential_energy=pe, z_grad=z_grad)
+        wa_state = wa_init(z_info, rng_key_wa, step_size,
                            inverse_mass_matrix=inverse_mass_matrix,
                            mass_matrix_size=jnp.size(ravel_pytree(z)[0]))
         r = momentum_generator(z, wa_state.mass_matrix_sqrt, rng_key_momentum)
@@ -311,7 +312,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                                                                     rng_key_transition)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
-                           (hmc_state.i, accept_prob, vv_state.z, hmc_state.adapt_state),
+                           (hmc_state.i, accept_prob, vv_state, hmc_state.adapt_state),
                            lambda args: wa_update(*args),
                            hmc_state.adapt_state,
                            identity)

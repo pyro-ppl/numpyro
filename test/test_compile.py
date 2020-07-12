@@ -23,16 +23,18 @@ def model(deterministic=True):
 
 
 @pytest.mark.parametrize('deterministic', [True, False])
-def test_mcmc_one_chain(deterministic):
+@pytest.mark.parametrize('find_heuristic_step_size', [True, False])
+def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
     GLOBAL["count"] = 0
-    mcmc = MCMC(NUTS(model), 100, 100)
+    mcmc = MCMC(NUTS(model, find_heuristic_step_size=find_heuristic_step_size), 100, 100)
     mcmc.run(random.PRNGKey(0), deterministic=deterministic)
     mcmc.get_samples()
 
+    num_traces_for_heuristic = 2 if find_heuristic_step_size else 0
     if deterministic:
-        assert GLOBAL["count"] == 4
+        assert GLOBAL["count"] == 4 + num_traces_for_heuristic
     else:
-        assert GLOBAL["count"] == 3
+        assert GLOBAL["count"] == 3 + num_traces_for_heuristic
 
 
 @pytest.mark.parametrize('deterministic', [True, False])
