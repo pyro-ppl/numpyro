@@ -596,6 +596,10 @@ class Independent(Distribution):
         log_prob = self.base_dist.log_prob(value)
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
+    def expand(self, batch_shape):
+        base_batch_shape = batch_shape + self.event_shape[:self.reinterpreted_batch_ndims]
+        return self.base_dist.expand(base_batch_shape).to_event(self.reinterpreted_batch_ndims)
+
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
         return base_flatten, (type(self.base_dist), base_aux, self.reinterpreted_batch_ndims)

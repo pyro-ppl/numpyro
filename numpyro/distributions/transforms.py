@@ -20,6 +20,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     vec_to_tril_matrix
 )
+from numpyro.util import not_jax_tracer
 
 __all__ = [
     'biject_to',
@@ -79,7 +80,10 @@ class AbsTransform(Transform):
 
 
 class AffineTransform(Transform):
-    # TODO: currently, just support scale > 0
+    """
+    .. note:: When `scale` is a JAX tracer, we always assume that `scale > 0`
+        when calculating `codomain`.
+    """
     def __init__(self, loc, scale, domain=constraints.real):
         self.loc = loc
         self.scale = scale
@@ -92,10 +96,24 @@ class AffineTransform(Transform):
         elif self.domain is constraints.real_vector:
             return constraints.real_vector
         elif isinstance(self.domain, constraints.greater_than):
-            return constraints.greater_than(self.__call__(self.domain.lower_bound))
+            if not_jax_tracer(self.scale) and jnp.all(self.scale < 0):
+                return constraints.less_than(self(self.domain.lower_bound))
+            # we suppose scale > 0 for any tracer
+            else:
+                return constraints.greater_than(self(self.domain.lower_bound))
+        elif isinstance(self.domain, constraints.less_than):
+            if not_jax_tracer(self.scale) and jnp.all(self.scale < 0):
+                return constraints.greater_than(self(self.domain.upper_bound))
+            # we suppose scale > 0 for any tracer
+            else:
+                return constraints.less_than(self(self.domain.upper_bound))
         elif isinstance(self.domain, constraints.interval):
-            return constraints.interval(self.__call__(self.domain.lower_bound),
-                                        self.__call__(self.domain.upper_bound))
+            if not_jax_tracer(self.scale) and jnp.all(self.scale < 0):
+                return constraints.interval(self(self.domain.upper_bound),
+                                            self(self.domain.lower_bound))
+            else:
+                return constraints.interval(self(self.domain.lower_bound),
+                                            self(self.domain.upper_bound))
         else:
             raise NotImplementedError
 
@@ -371,8 +389,8 @@ class LowerCholeskyTransform(Transform):
 
 class MultivariateAffineTransform(LowerCholeskyAffine):
     def __init__(self, loc, scale_tril):
-        warnings.warn(DeprecationWarning,
-                      "MultivariateAffineTransform is renamed to LowerCholeskyAffine.")
+        warnings.warn("MultivariateAffineTransform is renamed to LowerCholeskyAffine.",
+                      FutureWarning)
         super().__init__(loc, scale_tril)
 
 
@@ -569,6 +587,13 @@ def _transform_to_greater_than(constraint):
         return ExpTransform()
     return ComposeTransform([ExpTransform(),
                              AffineTransform(constraint.lower_bound, 1,
+                                             domain=constraints.positive)])
+
+
+@biject_to.register(constraints.less_than)
+def _transform_to_less_than(constraint):
+    return ComposeTransform([ExpTransform(),
+                             AffineTransform(constraint.upper_bound, -1,
                                              domain=constraints.positive)])
 
 

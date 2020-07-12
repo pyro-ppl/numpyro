@@ -478,8 +478,8 @@ class HMC(MCMCKernel):
 
     def sample(self, state, model_args, model_kwargs):
         """
-        Run HMC from the given :data:`~numpyro.infer.mcmc.HMCState` and return the resulting
-        :data:`~numpyro.infer.mcmc.HMCState`.
+        Run HMC from the given :data:`~numpyro.infer.hmc.HMCState` and return the resulting
+        :data:`~numpyro.infer.hmc.HMCState`.
 
         :param HMCState state: Represents the current state.
         :param model_args: Arguments provided to the model.

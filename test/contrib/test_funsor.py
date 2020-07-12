@@ -1,14 +1,17 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import OrderedDict
+
 import numpy as np
 from numpy.testing import assert_allclose
 
 from jax import random
 import jax.numpy as jnp
 
+from funsor import Tensor, bint, reals
 import numpyro
-from numpyro.contrib.funsor import markov
+from numpyro.contrib.funsor.enum_messenger import NamedMessenger, markov, to_data, to_funsor
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
@@ -58,6 +61,35 @@ def test_bernoulli_latent_model():
     assert_allclose(samples["y_prob"].mean(0), y_prob, atol=0.05)
 
 
+def test_change_point():
+    def model(count_data):
+        n_count_data = count_data.shape[0]
+        alpha = 1 / jnp.mean(count_data)
+        lambda_1 = numpyro.sample('lambda_1', dist.Exponential(alpha))
+        lambda_2 = numpyro.sample('lambda_2', dist.Exponential(alpha))
+        # this is the same as DiscreteUniform(0, 69)
+        tau = numpyro.sample('tau', dist.Categorical(logits=jnp.zeros(70)))
+        idx = jnp.arange(n_count_data)
+        lambda_ = jnp.where(tau > idx, lambda_1, lambda_2)
+        with numpyro.plate("data", n_count_data):
+            numpyro.sample('obs', dist.Poisson(lambda_), obs=count_data)
+
+    count_data = jnp.array([
+        13, 24, 8, 24,  7, 35, 14, 11, 15, 11, 22, 22, 11, 57, 11,
+        19, 29, 6, 19, 12, 22, 12, 18, 72, 32,  9,  7, 13, 19, 23,
+        27, 20, 6, 17, 13, 10, 14,  6, 16, 15,  7,  2, 15, 15, 19,
+        70, 49, 7, 53, 22, 21, 31, 19, 11,  1, 20, 12, 35, 17, 23,
+        17,  4, 2, 31, 30, 13, 27,  0, 39, 37,  5, 14, 13, 22,
+    ])
+
+    kernel = NUTS(model)
+    mcmc = MCMC(kernel, num_warmup=500, num_samples=500)
+    mcmc.run(random.PRNGKey(0), count_data)
+    samples = mcmc.get_samples()
+    assert_allclose(samples["lambda_1"].mean(0), 18., atol=1.)
+    assert_allclose(samples["lambda_2"].mean(0), 23., atol=1.)
+
+
 def test_gaussian_hmm():
     dim = 4
     num_steps = 10
@@ -90,3 +122,69 @@ def test_gaussian_hmm():
     nuts_kernel = NUTS(model)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
     mcmc.run(random.PRNGKey(0), data)
+
+
+def test_iteration():
+
+    def testing():
+        for i in markov(range(5)):
+            v1 = to_data(Tensor(jnp.ones(2), OrderedDict([(str(i), bint(2))]), 'real'))
+            v2 = to_data(Tensor(jnp.zeros(2), OrderedDict([('a', bint(2))]), 'real'))
+            fv1 = to_funsor(v1, reals())
+            fv2 = to_funsor(v2, reals())
+            print(i, v1.shape)  # shapes should alternate
+            if i % 2 == 0:
+                assert v1.shape == (2,)
+            else:
+                assert v1.shape == (2, 1, 1)
+            assert v2.shape == (2, 1)
+            print(i, fv1.inputs)
+            print('a', v2.shape)  # shapes should stay the same
+            print('a', fv2.inputs)
+
+    with NamedMessenger():
+        testing()
+
+
+def test_nesting():
+
+    def testing():
+
+        with markov():
+            v1 = to_data(Tensor(jnp.ones(2), OrderedDict([("1", bint(2))]), 'real'))
+            print(1, v1.shape)  # shapes should alternate
+            assert v1.shape == (2,)
+
+            with markov():
+                v2 = to_data(Tensor(jnp.ones(2), OrderedDict([("2", bint(2))]), 'real'))
+                print(2, v2.shape)  # shapes should alternate
+                assert v2.shape == (2, 1)
+
+                with markov():
+                    v3 = to_data(Tensor(jnp.ones(2), OrderedDict([("3", bint(2))]), 'real'))
+                    print(3, v3.shape)  # shapes should alternate
+                    assert v3.shape == (2,)
+
+                    with markov():
+                        v4 = to_data(Tensor(jnp.ones(2), OrderedDict([("4", bint(2))]), 'real'))
+                        print(4, v4.shape)  # shapes should alternate
+
+                        assert v4.shape == (2, 1)
+
+    with NamedMessenger():
+        testing()
+
+
+def test_staggered():
+
+    def testing():
+        for i in markov(range(12)):
+            if i % 4 == 0:
+                v2 = to_data(Tensor(jnp.zeros(2), OrderedDict([('a', bint(2))]), 'real'))
+                fv2 = to_funsor(v2, reals())
+                assert v2.shape == (2,)
+                print('a', v2.shape)
+                print('a', fv2.inputs)
+
+    with NamedMessenger():
+        testing()

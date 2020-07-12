@@ -457,6 +457,10 @@ interval
 --------
 .. autofunction:: numpyro.distributions.constraints.interval
 
+less_than
+---------
+.. autofunction:: numpyro.distributions.constraints.less_than
+
 lower_cholesky
 --------------
 .. autodata:: numpyro.distributions.constraints.lower_cholesky

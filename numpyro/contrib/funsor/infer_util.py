@@ -16,6 +16,20 @@ funsor.set_backend("jax")
 
 @contextmanager
 def plate_to_enum_plate():
+    """
+    A context manager to replace `numpyro.plate` statement by a funsor-based
+    :class:`~numpyro.contrib.funsor.enum_messenger.plate`.
+
+    This is useful when doing inference for the usual NumPyro programs with
+    `numpyro.plate` statements. For example, to get trace of a `model` whose discrete
+    latent sites are enumerated, we can use
+
+        enum_model = numpyro.contrib.funsor.enum(model)
+        with plate_to_enum_plate():
+            model_trace = numpyro.contrib.funsor.trace(enum_model).get_trace(
+                *model_args, **model_kwargs)
+
+    """
     try:
         numpyro.plate.__new__ = lambda cls, *args, **kwargs: enum_plate(*args, **kwargs)
         yield
@@ -60,7 +74,7 @@ def log_density(model, model_args, model_kwargs, params):
     """
     Similar to :func:`numpyro.infer.util.log_density` but works for models
     with discrete latent variables. Internally, this uses :mod:`funsor`
-    to evalutate the joint log probability.
+    to marginalize discrete latent sites and evalutate the joint log probability.
 
     :param model: Python callable containing NumPyro primitives. Typically,
         the model has been enumerated by using

@@ -76,20 +76,20 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    -874.89813
 """
 
-from __future__ import absolute_import, division, print_function
-
 from collections import OrderedDict
 import warnings
 
 from jax import lax, random
 import jax.numpy as jnp
 
+import numpyro
 from numpyro.primitives import Messenger
 from numpyro.util import not_jax_tracer
 
 __all__ = [
     'block',
     'condition',
+    'lift',
     'mask',
     'reparam',
     'replay',
@@ -274,9 +274,8 @@ class condition(Messenger):
     def __init__(self, fn=None, data=None, condition_fn=None, param_map=None):
         if param_map is not None:
             data = param_map
-            warnings.warn(FutureWarning,
-                          "'param_map' argument is renamed to 'data'. We will remove"
-                          " 'param_map' in a future release.")
+            warnings.warn("'param_map' argument is renamed to 'data'. We will remove"
+                          " 'param_map' in a future release.", FutureWarning)
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
@@ -301,6 +300,73 @@ class condition(Messenger):
         if value is not None:
             msg['value'] = value
             msg['is_observed'] = True
+
+
+class lift(Messenger):
+    """
+    Given a stochastic function with ``param`` calls and a prior distribution,
+    create a stochastic function where all param calls are replaced by sampling from prior.
+    Prior should be a distribution or a dict of names to distributions.
+
+    Consider the following NumPyro program:
+
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.handlers import lift
+        >>>
+        >>> def model(x):
+        ...     s = numpyro.param("s", 0.5)
+        ...     z = numpyro.sample("z", dist.Normal(x, s))
+        ...     return z ** 2
+        >>> lifted_model = lift(model, prior={"s": dist.Exponential(0.3)})
+
+    ``lift`` makes ``param`` statements behave like ``sample`` statements
+    using the distributions in ``prior``.  In this example, site `s` will now behave
+    as if it was replaced with ``s = numpyro.sample("s", dist.Exponential(0.3))``.
+
+    :param fn: function whose parameters will be lifted to random values
+    :param prior: prior function in the form of a Distribution or a dict of Distributions
+    """
+
+    def __init__(self, fn=None, prior=None):
+        super().__init__(fn)
+        self.prior = prior
+        self._samples_cache = {}
+
+    def __enter__(self):
+        self._samples_cache = {}
+        return super().__enter__()
+
+    def __exit__(self, *args, **kwargs):
+        self._samples_cache = {}
+        return super().__exit__(*args, **kwargs)
+
+    def process_message(self, msg):
+        if msg["type"] != "param":
+            return
+
+        name = msg["name"]
+        fn = self.prior.get(name) if isinstance(self.prior, dict) else self.prior
+        if isinstance(fn, numpyro.distributions.Distribution):
+            msg["type"] = "sample"
+            msg["fn"] = fn
+            msg["args"] = ()
+            msg["kwargs"] = {"rng_key": msg["kwargs"].get("rng_key", None),
+                             "sample_shape": msg["kwargs"].get("sample_shape", ())}
+            msg["intermediates"] = []
+        else:
+            # otherwise leave as is
+            return
+
+        if name in self._samples_cache:
+            # Multiple pyro.param statements with the same
+            # name. Block the site and fix the value.
+            msg["value"] = self._samples_cache[name]["value"]
+            msg["is_observed"] = True
+            msg["stop"] = True
+        else:
+            self._samples_cache[name] = msg
+            msg["is_observed"] = False
 
 
 class mask(Messenger):
@@ -396,7 +462,7 @@ class scale(Messenger):
         super().__init__(fn)
 
     def process_message(self, msg):
-        if msg['type'] not in ('sample', 'plate'):
+        if msg['type'] not in ('param', 'sample', 'plate'):
             return
 
         msg["scale"] = self.scale if msg.get('scale') is None else self.scale * msg['scale']
@@ -476,7 +542,7 @@ class seed(Messenger):
     """
     def __init__(self, fn=None, rng_seed=None, rng=None):
         if rng is not None:
-            warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', DeprecationWarning)
+            warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', FutureWarning)
             rng_seed = rng
         if isinstance(rng_seed, int) or (isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)):
             rng_seed = random.PRNGKey(rng_seed)
@@ -530,9 +596,8 @@ class substitute(Messenger):
     def __init__(self, fn=None, data=None, substitute_fn=None, param_map=None):
         if param_map is not None:
             data = param_map
-            warnings.warn(FutureWarning,
-                          "'param_map' argument is renamed to 'data'. We will remove"
-                          " 'param_map' in a future release.")
+            warnings.warn("'param_map' argument is renamed to 'data'. We will remove"
+                          " 'param_map' in a future release.", FutureWarning)
         self.substitute_fn = substitute_fn
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:
