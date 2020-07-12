@@ -18,6 +18,7 @@ AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
                                              'ss_state', 'mm_state', 'window_idx', 'rng_key'])
 IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
+IntegratorState.__new__.__defaults__ = (None,) * len(IntegratorState._fields)
 
 TreeInfo = namedtuple('TreeInfo', ['z_left', 'r_left', 'z_left_grad',
                                    'z_right', 'r_right', 'z_right_grad',
@@ -228,8 +229,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
     :param momentum_generator: A generator to get a random momentum variable.
     :param float init_step_size: Initial step size to be tuned.
     :param inverse_mass_matrix: Inverse of mass matrix.
-    :param tuple z_info: A tuple containing current position of the particle,
-        its potential energy, and the corresponding gradients.
+    :param IntegratorState z_info: The current integrator state.
     :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
     :return: a reasonable value for step size.
     :rtype: float
@@ -240,7 +240,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
     target_accept_prob = jnp.log(0.8)
 
     _, vv_update = velocity_verlet(potential_fn, kinetic_fn)
-    z, potential_energy, z_grad = z_info
+    z, _, potential_energy, z_grad = z_info
     if potential_energy is None or z_grad is None:
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
     finfo = jnp.finfo(get_dtype(init_step_size))
@@ -359,8 +359,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
     def init_fn(z_info, rng_key, step_size=1.0, inverse_mass_matrix=None, mass_matrix_size=None):
         """
-        :param tuple z_info: A tuple containing the initial position of the integrator, its
-            potential energy, and the corresponding gradients.
+        :param IntegratorState z_info: The initial integrator state.
         :param jax.random.PRNGKey rng_key: Random key to be used as the source of randomness.
         :param float step_size: Initial step size.
         :param inverse_mass_matrix: Inverse of the initial mass matrix. If ``None``,
@@ -411,8 +410,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         """
         :param int t: The current time step.
         :param float accept_prob: Acceptance probability of the current trajectory.
-        :param z_info: A tuple contains new position drawn at the end of the current trajectory,
-            its potential energy, and the corresponding gradients.
+        :param IntegratorState z_info: The new integrator state.
         :param state: Current state of the adapt scheme.
         :return: new state of the adapt scheme.
         """
@@ -434,7 +432,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         # update mass matrix state
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
         if adapt_mass_matrix:
-            z, _, _ = z_info
+            z = z_info[0]
             z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
                             (z_flat, mm_state), lambda args: mm_update(*args),
