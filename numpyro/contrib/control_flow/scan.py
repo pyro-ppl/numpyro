@@ -8,6 +8,7 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
 from numpyro import handlers
+from numpyro.contrib.funsor import trace as packed_trace
 from numpyro.primitives import _PYRO_STACK, apply_stack
 
 
@@ -93,7 +94,7 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
                 elif subs_type == 'substitute':
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
-            with handlers.trace() as trace:
+            with packed_trace() as trace:
                 carry, y = seeded_fn(carry, x)
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
@@ -195,6 +196,7 @@ def scan(f, init, xs, length=None, reverse=False):
         (length, rng_key, carry), (pytree_trace, ys) = msg['value']
 
     for msg in pytree_trace.trace.values():
-        apply_stack(msg)
+        pass
+        # apply_stack(msg)
 
-    return carry, ys
+    return carry, ys, pytree_trace.trace

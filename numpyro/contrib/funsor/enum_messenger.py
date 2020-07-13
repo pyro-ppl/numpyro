@@ -170,7 +170,7 @@ _DIM_STACK = DimStack()  # only one global instance
 #################################################
 
 class ReentrantMessenger(Messenger):
-    def __init__(self, fn):
+    def __init__(self, fn=None):
         self._ref_count = 0
         super().__init__(fn)
 
@@ -357,7 +357,7 @@ class LocalNamedMessenger(NamedMessenger):
 
 class GlobalNamedMessenger(NamedMessenger):
 
-    def __init__(self, fn):
+    def __init__(self, fn=None):
         self._saved_globals = ()
         super().__init__(fn)
 
@@ -395,7 +395,7 @@ class BaseEnumMessenger(NamedMessenger):
     """
     Handles first_available_dim management, enum effects should inherit from this
     """
-    def __init__(self, fn, first_available_dim=None):
+    def __init__(self, fn=None, first_available_dim=None):
         assert first_available_dim is None or first_available_dim < 0, first_available_dim
         self.first_available_dim = first_available_dim
         super().__init__(fn)
