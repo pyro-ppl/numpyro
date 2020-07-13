@@ -4,8 +4,9 @@ from utils import sigmoid
 import itertools
 
 
-def get_data(N=20, S=2, P=10, Q=8, seed=0):
-    assert S < P and P > 1 and S > 0 and Q > 0
+def get_data(N=20, S=2, P=10, Q=8, seed=0, likelihood="gaussian", sigma_obs=0.20):
+    assert likelihood in ["gaussian", "bernoulli"]
+    assert S < P and P > 1 and S > 0 and Q > 0 and Q <= (S * (S - 1)) // 2
     onp.random.seed(seed)
 
     # generate S coefficients with non-negligible magnitude
@@ -26,8 +27,14 @@ def get_data(N=20, S=2, P=10, Q=8, seed=0):
     Y = onp.sum(X[:, 0:S] * W, axis=-1)
     for (i, j), coeff in zip(dim_pairs, WW):
         Y += coeff * X[:, i] * X[:, j]
-    Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
-    print("number of 1s: {}  number of -1s: {}".format(onp.sum(Y == 1.0), onp.sum(Y == -1.0)))
+
+    if likelihood=="bernoulli":
+        Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
+        print("[Generated bernoulli data] number of 1s: {}  number of -1s: {}".format(onp.sum(Y == 1.0),
+              onp.sum(Y == -1.0)))
+    elif likelihood=="gaussian":
+        Y += sigma_obs * onp.random.randn(N)
+        print("[Generated gaussian data] sigma_obs: {:.2f}".format(sigma_obs))
 
     assert X.shape == (N, P)
     assert Y.shape == (N,)
