@@ -22,6 +22,42 @@ class SVI(object):
     """
     Stochastic Variational Inference given an ELBO loss objective.
 
+    **References**
+
+    1. *SVI Part I: An Introduction to Stochastic Variational Inference in Pyro*,
+       (http://pyro.ai/examples/svi_part_i.html)
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import lax, random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.distributions import constraints
+        >>> from numpyro.infer import SVI, ELBO
+
+        >>> def model(data):
+        ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
+        ...     with numpyro.plate("N", data.shape[0]):
+        ...         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+        >>> def guide(data):
+        ...     alpha_q = numpyro.param("alpha_q", 15., constraint=constraints.positive)
+        ...     beta_q = numpyro.param("beta_q", 15., constraint=constraints.positive)
+        ...     numpyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
+
+        >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
+        >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
+        >>> svi = SVI(model, guide, optimizer, loss=ELBO())
+        >>> init_state = svi.init(random.PRNGKey(0), data)
+        >>> state = lax.fori_loop(0, 2000, lambda i, state: svi.update(state, data)[0], init_state)
+        >>> # or to collect losses during the loop
+        >>> # state, losses = lax.scan(lambda state, i: svi.update(state, data), init_state, jnp.arange(2000))
+        >>> params = svi.get_params(state)
+        >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
+
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
