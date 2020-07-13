@@ -299,10 +299,14 @@ class MCMC(object):
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
         # filter out fields not available in init_state
-        fields = getattr(init_state, "_fields", ())
-        collect_fields = tuple(f for f in collect_fields if f in fields)
-        if 'z' not in collect_fields:
-            collect_fields = ()  # collect the whole state
+        avail_fields = []
+        for field in collect_fields:
+            try:
+                attrgetter(field)(init_state)
+                avail_fields.append(field)
+            except AttributeError:
+                pass
+        collect_fields = tuple(avail_fields) if 'z' in avail_fields else ()
 
         collect_vals = fori_collect(lower_idx,
                                     upper_idx,
