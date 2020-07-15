@@ -501,6 +501,8 @@ class enum(BaseEnumMessenger):
         if msg["type"] != "sample" or \
                 msg.get("done", False) or msg["is_observed"] or msg["infer"].get("expand", False) or \
                 msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
+            if msg["type"] == "control_flow":
+                msg["kwargs"]["enum"] = True
             return super().process_message(msg)
 
         if msg["infer"].get("num_samples", None) is not None:
