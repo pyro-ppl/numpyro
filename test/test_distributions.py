@@ -1150,3 +1150,11 @@ def test_special_dist_pytree(method, arg):
 
     jax.jit(f)(0)
     lax.map(f, np.ones(3))
+
+
+def test_expand_pytree():
+    def g(x):
+        return dist.Normal(x, 1).expand([10, 3])
+
+    assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
+    assert jax.tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)

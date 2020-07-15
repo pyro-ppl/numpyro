@@ -34,7 +34,7 @@ import jax.numpy as jnp
 
 from numpyro.distributions.constraints import is_dependent, real
 from numpyro.distributions.transforms import Transform
-from numpyro.distributions.util import lazy_property, sum_rightmost, validate_sample
+from numpyro.distributions.util import lazy_property, promote_shapes, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
 
 _VALIDATION_ENABLED = False
@@ -413,33 +413,11 @@ class ExpandedDistribution(Distribution):
         return jnp.broadcast_to(self.base_dist.variance, self.batch_shape + self.event_shape)
 
     def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.tree_flatten()
-        # XXX: assume base_dist batch_shape = (3,), expand shape = (10, 3)
-        # when we vmap/scan base_dist, we get batch_shape = (n, 3), which is incompatible
-        # with (10, 3). One way is to return an expand dist with shape = (10, n, 3).
-        # However, this will complicate 'substitute' job because
-        # vmap/scan applies over the first dimension.
-        # So we want to get expand shape (n, 10, 3).
-        # For that, we need to find a way to convert base_dist batch_shape to (1, 3);
-        # but currently, we don't have a mechanism to do such job in NumPyro.
-        # Either way is a bit ambiguous... depending on which is time dimension
-        # we want to collect. So we raise an error here.
-        if len(self.batch_shape) != len(self.base_dist.batch_shape):
-            # NB: the following program will fail
-            #   def f(x):
-            #     return dist.Normal(x, np.ones(10)).expand([10])
-            #   vmap(f)(np.ones(3))
-            # because, for some reason, under vmap, base_dist.batch_shape is (), rather than (10,).
-            # This issue does not happen with other JAX transformations such as `jit` or `lax.map`.
-            # NB: vmap does not work for all distributions due to the issue
-            #   https://github.com/google/jax/issues/3265
-            # Anyway, it is fine to vmap a trace having scan(f) (see the discussions in the above
-            # issue). So we don't have to worry about it.
-            raise ValueError("base_dist's batch_shape and expand shape have different lengths."
-                             " This will lead to ambiguous results when unflattening a"
-                             " scanned/vmapped version of this distribution."
-                             " To avoid this issue, make sure that your base_dist's"
-                             " parameters have the same batch_shape as this expand distribution.")
+        prepend_ndim = len(self.batch_shape) - len(self.base_dist.batch_shape)
+        base_dist = tree_util.tree_map(
+            lambda x: promote_shapes(x, shape=(1,) * prepend_ndim + jnp.shape(x))[0],
+            self.base_dist)
+        base_flatten, base_aux = base_dist.tree_flatten()
         return base_flatten, (type(self.base_dist), base_aux, self.batch_shape)
 
     @classmethod
