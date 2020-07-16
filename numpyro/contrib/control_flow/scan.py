@@ -87,7 +87,7 @@ class promote_shapes(Messenger):
             fn, value = msg["fn"], msg["value"]
             value_batch_ndims = jnp.ndim(value) - fn.event_dim
             fn_batch_ndim = len(fn.batch_shape)
-            prepend_shapes = (-1,) * abs(fn_batch_ndim - value_batch_ndims)
+            prepend_shapes = (1,) * abs(fn_batch_ndim - value_batch_ndims)
             if fn_batch_ndim > value_batch_ndims:
                 msg["value"] = jnp.reshape(value, prepend_shapes + jnp.shape(value))
             elif fn_batch_ndim < value_batch_ndims:
@@ -117,11 +117,13 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
                 seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
         if init:
-            seeded_fn = handlers.scope(seeded_fn, prefix="init")
-        with handlers.block(), packed_trace() as trace, promote_shapes(), enum(), markov():
-            new_carry, y = config_enumerate(seeded_fn)(carry, x)
+            with handlers.scope(prefix="init"):
+                new_carry, y = seeded_fn(carry, x)
+                trace = {}
+        else:
+            with handlers.block(), packed_trace() as trace, promote_shapes(), enum(), markov():
+                new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
-        if not init:
             # make new_carry have the same shape as carry
             # XXX: how to make this more rigorous?
             new_carry = tree_multimap(lambda a, b: jnp.reshape(a, jnp.shape(b)),
@@ -130,19 +132,15 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
 
     with markov():
         carry = (0, rng_key, init)
-        carry, (pytree_init_trace, y0) = body_fn(carry, x0)
+        carry, (_, y0) = body_fn(carry, x0)
         carry, (pytree_trace, ys) = lax.scan(body_fn, carry, xs, length, reverse)
 
     for name, site in pytree_trace.trace.items():
         # add `time` dimension
         leftmost_dim = min(site['infer']['dim_to_name'])
         site['infer']['dim_to_name'][leftmost_dim - 1] = '_time'
-    # filter out unnecessary msgs in init_trace
-    # (we don't need to do this if we don't block the init step)
-    init_trace = PytreeTrace.tree_unflatten(*pytree_init_trace.tree_flatten()[::-1]).trace
-    # update the returned pytree_trace
-    pytree_trace.trace.update(init_trace)
 
+    # similar to carry, we need to reshape due to shape alternating in markov
     ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)), y0, ys)
     return carry, (pytree_trace, ys)
 
@@ -267,7 +265,7 @@ def scan(f, init, xs, length=None, reverse=False):
         (length, rng_key, carry), (pytree_trace, ys) = msg['value']
 
     for msg in pytree_trace.trace.values():
-        print(msg)
+        print("At site " + msg["name"] + ", we have dim_to_name:", msg["infer"]["dim_to_name"])
         apply_stack(msg)
 
     return carry, ys
