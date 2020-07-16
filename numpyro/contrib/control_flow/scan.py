@@ -3,13 +3,14 @@
 
 from functools import partial
 
-from jax import lax, random, tree_flatten, tree_multimap
+from jax import lax, random, tree_flatten, tree_map, tree_multimap
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
 from numpyro import handlers
-from numpyro.contrib.funsor import trace as packed_trace
-from numpyro.primitives import _PYRO_STACK, apply_stack
+from numpyro.contrib.funsor import enum, config_enumerate, markov, trace as packed_trace
+from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
+from numpyro.util import not_jax_tracer
 
 
 @register_pytree_node_class
@@ -79,71 +80,77 @@ def _subs_wrapper(subs_map, i, length, site):
                                f" but got {value_ndim}. Please report the issue to us!")
 
 
-def _prefix_subs(subs_fn, prefix, site):
-    site = site.copy()
-    if site["type"] == "sample":
-        
+class promote_shapes(Messenger):
+    # a helper messenger to promote shapes of `fn` and `value`
+    def process_message(self, msg):
+        if msg["type"] == "sample" and msg["value"] is not None:
+            fn, value = msg["fn"], msg["value"]
+            value_batch_ndims = jnp.ndim(value) - fn.event_dim
+            fn_batch_ndim = len(fn.batch_shape)
+            prepend_shapes = (-1,) * abs(fn_batch_ndim - value_batch_ndims)
+            if fn_batch_ndim > value_batch_ndims:
+                msg["value"] = jnp.reshape(value, prepend_shapes + jnp.shape(value))
+            elif fn_batch_ndim < value_batch_ndims:
+                msg["fn"] = tree_map(lambda x: jnp.reshape(x, prepend_shapes + jnp.shape(x)), fn)
 
 
-def scan_enum(f, init, xs, length, rng_key=None, substitute_stack=None):
+def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None):
+    # this implementation only works for history size=1.
     if xs is not None:
-        assert xs.shape[0] % 2 == 1
-        xs_reshape = jnp.reshape(xs[1:], (-1, 2) + xs.shape[1:])
+        if reverse:
+            x0, xs = tree_map(lambda x: (x[-1], x[:-1]), xs)
+        else:
+            x0, xs = tree_map(lambda x: (x[0], x[1:]), xs)
+        length = tree_flatten(xs)[0][0].shape[0]
 
-    def f_f(carry, x):
-        with markov():
-            with numpyro.handlers.scope(prefix=f"_odd"):
-                carry, y_odd = f(carry, x[0])
-            with markov():
-                with numpyro.handlers.scope(prefix=f"_even"):
-                    carry, y_even = f(carry, x[1])
-        return carry, tree_multimap(jnp.stack, y)
-
-    def body_fn(wrapped_carry, x):
+    def body_fn(wrapped_carry, x, prefix=None):
         i, rng_key, carry = wrapped_carry
+        init = True if (not_jax_tracer(i) and i == 0) else False
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
-        with handlers.block():
-            seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
-            for subs_type, subs_map in substitute_stack:
-                subs_fn = partial(_subs_wrapper, subs_map, i, length)
-                if subs_type == 'condition':
-                    seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
-                elif subs_type == 'substitute':
-                    seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
+        seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
+        for subs_type, subs_map in substitute_stack:
+            subs_fn = partial(_subs_wrapper, subs_map, i, length)
+            if subs_type == 'condition':
+                seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
+            elif subs_type == 'substitute':
+                seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
-            with packed_trace() as trace:
-                carry, y = seeded_fn(carry, x)
+        if init:
+            seeded_fn = handlers.scope(seeded_fn, prefix="init")
+        with handlers.block(), packed_trace() as trace, promote_shapes(), enum(), markov():
+            new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
-        return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
+        if not init:
+            # make new_carry have the same shape as carry
+            # XXX: how to make this more rigorous?
+            new_carry = tree_multimap(lambda a, b: jnp.reshape(a, jnp.shape(b)),
+                                      new_carry, carry)
+        return (i + jnp.array(1), rng_key, new_carry), (PytreeTrace(trace), y)
 
     with markov():
-        carry, y0 = f(init, xs[0])
-        carry, (pytree_trace, ys) = scan(enum(f_f), carry, xs_reshape)
+        carry = (0, rng_key, init)
+        carry, (pytree_init_trace, y0) = body_fn(carry, x0)
+        carry, (pytree_trace, ys) = lax.scan(body_fn, carry, xs, length, reverse)
 
-    # change (odd, even) to (x, curr/x)
-    trace = pytree_trace.trace
-    for name, site in trace.items():
-        if site["type"] != "sample":
-            continue
+    for name, site in pytree_trace.trace.items():
+        # add `time` dimension
+        leftmost_dim = min(site['infer']['dim_to_name'])
+        site['infer']['dim_to_name'][leftmost_dim - 1] = '_time'
+    # filter out unnecessary msgs in init_trace
+    # (we don't need to do this if we don't block the init step)
+    init_trace = PytreeTrace.tree_unflatten(*pytree_init_trace.tree_flatten()[::-1]).trace
+    # update the returned pytree_trace
+    pytree_trace.trace.update(init_trace)
 
-        prefix = name.split("/")[0] + "/"
-        for dim, name in site["infer"]["dim_to_name"].items():
-            if name.startswith(prefix):
-                site["infer"]["dim_to_name"][dim] = "_curr/" + name[len(prefix):]
-            else:
-                for s in ["_odd/", "_even/"]:
-                    if name.startswith(s):
-                        site["infer"]["dim_to_name"][dim] = name[len(s):]
-        site["infer"]["dim_to_name"][-jnp.ndim(site["value"])] = "_time"
-
-    return carry, ys, pytree_trace.trace
+    ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)), y0, ys)
+    return carry, (pytree_trace, ys)
 
 
 def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False):
     if enum:
         assert reverse is False, "`reverse=True` does not support enumeration"
-        return scan_enum(f, init, xs, length, rng_key, substitute_stack)
+        return scan_enum(f, init, xs, length, reverse, rng_key, substitute_stack)
 
     def body_fn(wrapped_carry, x):
         i, rng_key, carry = wrapped_carry
@@ -158,7 +165,7 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
                 elif subs_type == 'substitute':
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
-            with packed_trace() as trace:
+            with handlers.trace() as trace:
                 carry, y = seeded_fn(carry, x)
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
@@ -260,6 +267,7 @@ def scan(f, init, xs, length=None, reverse=False):
         (length, rng_key, carry), (pytree_trace, ys) = msg['value']
 
     for msg in pytree_trace.trace.values():
+        print(msg)
         apply_stack(msg)
 
-    return carry, ys, pytree_trace.trace
+    return carry, ys
