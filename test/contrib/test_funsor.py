@@ -243,7 +243,8 @@ def test_scan_enum_two_latents():
             x = numpyro.sample("x", dist.Categorical(probs_x[x]))
             w = numpyro.sample("w", dist.Categorical(probs_w[w]))
             numpyro.sample("y", dist.Normal(locs[w, x], 1), obs=y)
-            return (x, w), None
+            # also test if scan's `ys` are recorded corrected
+            return (x, w), x
 
         scan(transition_fn, (0, 0), data)
 
