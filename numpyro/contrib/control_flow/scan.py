@@ -153,7 +153,6 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
 
 def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False):
     if enum:
-        assert reverse is False, "`reverse=True` does not support enumeration"
         return scan_enum(f, init, xs, length, reverse, rng_key, substitute_stack)
 
     def body_fn(wrapped_carry, x):
