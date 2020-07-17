@@ -97,7 +97,7 @@ def log_density(model, model_args, model_kwargs, params):
     """
     Similar to :func:`numpyro.infer.util.log_density` but works for models
     with discrete latent variables. Internally, this uses :mod:`funsor`
-    to marginalize discrete latent sites and evalutate the joint log probability.
+    to marginalize discrete latent sites and evaluate the joint log probability.
 
     :param model: Python callable containing NumPyro primitives. Typically,
         the model has been enumerated by using
