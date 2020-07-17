@@ -86,7 +86,7 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None):
     :param sample_shape: Shape of samples to be drawn.
     :param dict infer: an optional dictionary containing additional information
         for inference algorithms. For example, if `fn` is a discrete distribution,
-        setting `infer={'enumerate': 'parallel'}` will tell MCMC marginalize
+        setting `infer={'enumerate': 'parallel'}` to tell MCMC marginalize
         this discrete latent site.
     :return: sample from the stochastic `fn`.
     """
