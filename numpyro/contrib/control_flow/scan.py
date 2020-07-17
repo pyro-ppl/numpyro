@@ -4,7 +4,7 @@
 from collections import OrderedDict
 from functools import partial
 
-from jax import lax, random, tree_flatten, tree_map, tree_multimap
+from jax import lax, random, tree_flatten, tree_map, tree_multimap, tree_unflatten
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
@@ -98,7 +98,10 @@ class promote_shapes(Messenger):
 
 
 def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None):
-    # this implementation only works for history size=1.
+    # XXX: This implementation only works for history size=1 but can be
+    # extended to history size > 1 by running `f` `history_size` times
+    # for initialization. However, `sequential_sum_product` does not
+    # support history size > 1, so we skip supporting it here.
     if xs is not None:
         if reverse:
             x0, xs = tree_map(lambda x: (x[-1], x[:-1]), xs)
@@ -107,6 +110,8 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
         length = tree_flatten(xs)[0][0].shape[0]
     else:
         length = length - 1
+
+    carry_shape_at_t1 = None
 
     def body_fn(wrapped_carry, x, prefix=None):
         i, rng_key, carry = wrapped_carry
@@ -129,6 +134,9 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
             with handlers.block(), packed_trace() as trace, promote_shapes(), enum(), markov():
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
+            # store shape of new_carry at a global variable
+            nonlocal carry_shape_at_t1
+            carry_shape_at_t1 = [jnp.shape(x) for x in tree_flatten(new_carry)[0]]
             # make new_carry have the same shape as carry
             # FIXME: is this rigorous?
             new_carry = tree_multimap(lambda a, b: jnp.reshape(a, jnp.shape(b)),
@@ -136,12 +144,12 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
         return (i + jnp.array(1), rng_key, new_carry), (PytreeTrace(trace), y)
 
     with markov():
-        carry = (0, rng_key, init)
-        carry, (_, y0) = body_fn(carry, x0)
+        wrapped_carry = (0, rng_key, init)
+        wrapped_carry, (_, y0) = body_fn(wrapped_carry, x0)
         if length == 0:
             ys = tree_map(lambda x: jnp.expand_dims(x, 0), y0)
-            return carry, (PytreeTrace({}), y0)
-        carry, (pytree_trace, ys) = lax.scan(body_fn, carry, xs, length, reverse)
+            return wrapped_carry, (PytreeTrace({}), y0)
+        wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs, length, reverse)
 
     first_var = None
     for name, site in pytree_trace.trace.items():
@@ -153,7 +161,15 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
 
     # similar to carry, we need to reshape due to shape alternating in markov
     ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)), y0, ys)
-    return carry, (pytree_trace, ys)
+    # we also need to reshape `carry` to match sequential behavior
+    if length % 2 == 1:
+        t, rng_key, carry = wrapped_carry
+        flatten_carry, treedef = tree_flatten(carry)
+        flatten_carry = [jnp.reshape(x, t1_shape)
+                         for x, t1_shape in zip(flatten_carry, carry_shape_at_t1)]
+        carry = tree_unflatten(treedef, flatten_carry)
+        wrapped_carry = (t, rng_key, carry)
+    return wrapped_carry, (pytree_trace, ys)
 
 
 def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False):
@@ -241,6 +257,28 @@ def scan(f, init, xs, length=None, reverse=False):
                     return f(*arg, **kwargs)
 
             last, ys = scan(g, init, xs)
+
+    .. note:: We can scan over discrete latent variables in `f`. The joint density is
+        evaluated using parallel-scan (reference [1]) over time dimension, which
+        reduces parallel complexity to `O(log(length))`.
+
+        Currently, only the equivalence to
+        :class:`~numpyro.contrib.funsor.enum_messenger.markov(history_size=1)`
+        is supported. A :class:`~numpyro.handlers.trace` of `scan` with discrete latent
+        variables will contain the following sites:
+
+            + init sites: those sites belong to the first trace of `f`. Each of
+                them will have name prefixed with `_init/`.
+            + scanned sites: those sites collect the values of the remaining scan
+                loop over `f`. An addition time dimension `_time_foo` will be
+                added to those sites, where `foo` is the name of the first site
+                appeared in `f`.
+
+    ** References **
+
+    1. *Temporal Parallelization of Bayesian Smoothers*,
+       Simo Sarkka, Angel F. Garcia-Fernandez
+       (https://arxiv.org/abs/1905.13002)
 
     :param callable f: a function to be scanned.
     :param init: the initial carrying state

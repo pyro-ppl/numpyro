@@ -254,6 +254,8 @@ class NamedMessenger(DimStackCleanupMessenger):
         # interpret all names/dims as requests since we only run this function once
         for dim in range(-batch_dim, 0):
             name = dim_to_name.get(dim, None)
+            # the time dimension on the left sometimes necessitates empty dimensions appearing
+            # before they have been assigned a name
             if batch_shape[dim] == 1 and name is None:
                 continue
             dim_to_name[dim] = name if isinstance(name, NameRequest) else NameRequest(name, dim_type)

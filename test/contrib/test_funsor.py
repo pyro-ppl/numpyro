@@ -195,7 +195,7 @@ def test_staggered():
         testing()
 
 
-@pytest.mark.parametrize('num_steps', [1, 10])
+@pytest.mark.parametrize('num_steps', [1, 10, 11])
 def test_scan_enum_one_latent(num_steps):
     data = random.normal(random.PRNGKey(0), (num_steps,))
     init_probs = jnp.array([0.6, 0.4])
@@ -208,6 +208,7 @@ def test_scan_enum_one_latent(num_steps):
             probs = init_probs if x is None else transition_probs[x]
             x = numpyro.sample(f"x_{i}", dist.Categorical(probs))
             numpyro.sample(f"y_{i}", dist.Normal(locs[x], 1), obs=y)
+        return x
 
     def fun_model(data):
         def transition_fn(x, y):
@@ -216,11 +217,21 @@ def test_scan_enum_one_latent(num_steps):
             numpyro.sample("y", dist.Normal(locs[x], 1), obs=y)
             return x, None
 
-        scan(transition_fn, None, data)
+        x, collections = scan(transition_fn, None, data)
+        assert collections is None
+        return x
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
     expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
+
+    actual_last_x = enum(config_enumerate(fun_model))(data)
+    expected_last_x = enum(config_enumerate(model))(data)
+    assert_allclose(actual_last_x, expected_last_x)
+
+
+def test_scan_enum_plate():
+    pass
 
 
 def test_scan_enum_two_latents():
