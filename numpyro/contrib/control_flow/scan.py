@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import OrderedDict
 from functools import partial
 
 from jax import lax, random, tree_flatten, tree_map, tree_multimap
@@ -8,7 +9,9 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
 from numpyro import handlers
-from numpyro.contrib.funsor import enum, config_enumerate, markov, trace as packed_trace
+from numpyro.contrib.funsor import (enum, config_enumerate, markov, to_funsor,
+                                    trace as packed_trace)
+from numpyro.contrib.funsor.enum_messenger import LocalNamedMessenger
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
 
@@ -117,7 +120,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
                 seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
         if init:
-            with handlers.scope(prefix="init"):
+            with handlers.scope(prefix="_init"):
                 new_carry, y = seeded_fn(carry, x)
                 trace = {}
         else:
@@ -125,7 +128,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
             # make new_carry have the same shape as carry
-            # XXX: how to make this more rigorous?
+            # FIXME: is this rigorous?
             new_carry = tree_multimap(lambda a, b: jnp.reshape(a, jnp.shape(b)),
                                       new_carry, carry)
         return (i + jnp.array(1), rng_key, new_carry), (PytreeTrace(trace), y)
@@ -135,10 +138,13 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
         carry, (_, y0) = body_fn(carry, x0)
         carry, (pytree_trace, ys) = lax.scan(body_fn, carry, xs, length, reverse)
 
+    first_var = None
     for name, site in pytree_trace.trace.items():
-        # add `time` dimension
+        # add `time` dimension, the name will be '_time_{first variable in the trace}'
+        if first_var is None:
+            first_var = name
         leftmost_dim = min(site['infer']['dim_to_name'])
-        site['infer']['dim_to_name'][leftmost_dim - 1] = '_time'
+        site['infer']['dim_to_name'][leftmost_dim - 1] = '_time_{}'.format(first_var)
 
     # similar to carry, we need to reshape due to shape alternating in markov
     ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)), y0, ys)
@@ -264,8 +270,14 @@ def scan(f, init, xs, length=None, reverse=False):
         msg = apply_stack(initial_msg)
         (length, rng_key, carry), (pytree_trace, ys) = msg['value']
 
-    for msg in pytree_trace.trace.values():
-        print("At site " + msg["name"] + ", we have dim_to_name:", msg["infer"]["dim_to_name"])
-        apply_stack(msg)
+    if not msg["kwargs"].get("enum", False):
+        for msg in pytree_trace.trace.values():
+            apply_stack(msg)
+    else:
+        for msg in pytree_trace.trace.values():
+            with LocalNamedMessenger():
+                dim_to_name = msg["infer"].get("dim_to_name")
+                to_funsor(msg["value"], dim_to_name=OrderedDict([(k, dim_to_name[k]) for k in sorted(dim_to_name)]))
+                apply_stack(msg)
 
     return carry, ys

@@ -253,9 +253,9 @@ class NamedMessenger(DimStackCleanupMessenger):
 
         # interpret all names/dims as requests since we only run this function once
         for dim in range(-batch_dim, 0):
-            if batch_shape[dim] == 1:
-                continue
             name = dim_to_name.get(dim, None)
+            if batch_shape[dim] == 1 and name is None:
+                continue
             dim_to_name[dim] = name if isinstance(name, NameRequest) else NameRequest(name, dim_type)
 
         for dim, name_request in dim_to_name.items():
