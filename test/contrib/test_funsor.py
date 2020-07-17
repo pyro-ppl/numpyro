@@ -193,7 +193,7 @@ def test_staggered():
         testing()
 
 
-def test_scan_enum_smoke():
+def test_scan_enum_one_latent():
     num_steps = 11
     data = random.normal(random.PRNGKey(0), (num_steps,))
     init_probs = jnp.array([0.6, 0.4])
@@ -219,3 +219,36 @@ def test_scan_enum_smoke():
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
     expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
+
+
+def test_scan_enum_two_latents():
+    num_steps = 11
+    data = random.normal(random.PRNGKey(0), (num_steps,))
+    probs_x = jnp.array([[0.8, 0.2], [0.1, 0.9]])
+    probs_w = jnp.array([[0.7, 0.3], [0.6, 0.4]])
+    locs = jnp.array([[-1.0, 1.0], [2.0, 3.0]])
+
+    def model(data):
+        x = w = 0
+        for i, y in markov(enumerate(data)):
+            x = numpyro.sample(f"x_{i}", dist.Categorical(probs_x[x]))
+            w = numpyro.sample(f"w_{i}", dist.Categorical(probs_w[w]))
+            numpyro.sample(f"y_{i}", dist.Normal(locs[w, x], 1), obs=y)
+
+    def fun_model(data):
+        def transition_fn(carry, y):
+            x, w = carry
+            x = numpyro.sample("x", dist.Categorical(probs_x[x]))
+            w = numpyro.sample("w", dist.Categorical(probs_w[w]))
+            numpyro.sample("y", dist.Normal(locs[w, x], 1), obs=y)
+            return (x, w), None
+
+        scan(transition_fn, (0, 0), data)
+
+    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    assert_allclose(actual_log_joint, expected_log_joint)
+
+
+def test_double_markov():
+    pass
