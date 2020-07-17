@@ -222,7 +222,7 @@ def test_scan_enum_one_latent(num_steps):
         return x
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
     actual_last_x = enum(config_enumerate(fun_model))(data)
@@ -239,24 +239,25 @@ def test_scan_enum_plate():
 
     def model(data):
         x = None
+        D_plate = numpyro.plate("D", D, dim=-1)
         for i, y in markov(enumerate(data)):
-            probs = init_probs if x is None else transition_probs[x]
-            with numpyro.plate("D", D):
+            with D_plate:
+                probs = init_probs if x is None else transition_probs[x]
                 x = numpyro.sample(f"x_{i}", dist.Categorical(probs))
                 numpyro.sample(f"y_{i}", dist.Normal(locs[x], 1), obs=y)
 
     def fun_model(data):
         def transition_fn(x, y):
             probs = init_probs if x is None else transition_probs[x]
-            with numpyro.plate("D", D):
+            with numpyro.plate("D", D, dim=-1):
                 x = numpyro.sample("x", dist.Categorical(probs))
                 numpyro.sample("y", dist.Normal(locs[x], 1), obs=y)
             return x, None
 
         scan(transition_fn, None, data)
 
-    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
+    actual_log_joint = log_density(enum(config_enumerate(fun_model), -2), (data,), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(model), -2), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -286,7 +287,7 @@ def test_scan_enum_two_latents():
         scan(transition_fn, (0, 0), data)
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -319,5 +320,5 @@ def test_scan_enum_double():
         scan(partial(transition_fn, "w", probs_w, locs_w), 0, data_w)
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(model)), (data_x, data_w), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
