@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import OrderedDict
+from functools import partial
 
 import numpy as np
 from numpy.testing import assert_allclose
+import pytest
 
 from jax import random
 import jax.numpy as jnp
@@ -193,8 +195,8 @@ def test_staggered():
         testing()
 
 
-def test_scan_enum_one_latent():
-    num_steps = 11
+@pytest.mark.parametrize('num_steps', [1, 10])
+def test_scan_enum_one_latent(num_steps):
     data = random.normal(random.PRNGKey(0), (num_steps,))
     init_probs = jnp.array([0.6, 0.4])
     transition_probs = jnp.array([[0.8, 0.2], [0.1, 0.9]])
@@ -250,5 +252,34 @@ def test_scan_enum_two_latents():
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
-def test_double_markov():
-    pass
+def test_scan_enum_double():
+    num_steps = 11
+    data_x = random.normal(random.PRNGKey(0), (num_steps,))
+    data_w = data_x[:-1] + 1
+    probs_x = jnp.array([[0.8, 0.2], [0.1, 0.9]])
+    probs_w = jnp.array([[0.7, 0.3], [0.6, 0.4]])
+    locs_x = jnp.array([-1.0, 1.0])
+    locs_w = jnp.array([2.0, 3.0])
+
+    def model(data_x, data_w):
+        x = w = 0
+        for i, y in markov(enumerate(data_x)):
+            x = numpyro.sample(f"x_{i}", dist.Categorical(probs_x[x]))
+            numpyro.sample(f"y_x_{i}", dist.Normal(locs_x[x], 1), obs=y)
+
+        for i, y in markov(enumerate(data_w)):
+            w = numpyro.sample(f"w{i}", dist.Categorical(probs_w[w]))
+            numpyro.sample(f"y_w_{i}", dist.Normal(locs_w[w], 1), obs=y)
+
+    def fun_model(data_x, data_w):
+        def transition_fn(name, probs, locs, x, y):
+            x = numpyro.sample(name, dist.Categorical(probs[x]))
+            numpyro.sample("y_" + name, dist.Normal(locs[x], 1), obs=y)
+            return x, None
+
+        scan(partial(transition_fn, "x", probs_x, locs_x), 0, data_x)
+        scan(partial(transition_fn, "w", probs_w, locs_w), 0, data_w)
+
+    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
+    assert_allclose(actual_log_joint, expected_log_joint)

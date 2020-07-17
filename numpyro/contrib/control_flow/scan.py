@@ -105,6 +105,8 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
         else:
             x0, xs = tree_map(lambda x: (x[0], x[1:]), xs)
         length = tree_flatten(xs)[0][0].shape[0]
+    else:
+        length = length - 1
 
     def body_fn(wrapped_carry, x, prefix=None):
         i, rng_key, carry = wrapped_carry
@@ -136,6 +138,9 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
     with markov():
         carry = (0, rng_key, init)
         carry, (_, y0) = body_fn(carry, x0)
+        if length == 0:
+            ys = tree_map(lambda x: jnp.expand_dims(x, 0), y0)
+            return carry, (PytreeTrace({}), y0)
         carry, (pytree_trace, ys) = lax.scan(body_fn, carry, xs, length, reverse)
 
     first_var = None
