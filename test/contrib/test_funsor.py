@@ -11,7 +11,10 @@ import jax.numpy as jnp
 
 from funsor import Tensor, bint, reals
 import numpyro
-from numpyro.contrib.funsor.enum_messenger import NamedMessenger, markov, to_data, to_funsor
+from numpyro.contrib.control_flow import scan
+from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor
+from numpyro.contrib.funsor.enum_messenger import NamedMessenger
+from numpyro.contrib.funsor.infer_util import log_density
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
@@ -188,3 +191,31 @@ def test_staggered():
 
     with NamedMessenger():
         testing()
+
+
+def test_scan_enum_smoke():
+    num_steps = 11
+    data = random.normal(random.PRNGKey(0), (num_steps,))
+    init_probs = jnp.array([0.6, 0.4])
+    transition_probs = jnp.array([[0.8, 0.2], [0.1, 0.9]])
+    locs = jnp.array([-1.0, 1.0])
+
+    def model(data):
+        x = None
+        for i, y in markov(enumerate(data)):
+            probs = init_probs if x is None else transition_probs[x]
+            x = numpyro.sample(f"x_{i}", dist.Categorical(probs))
+            numpyro.sample(f"y_{i}", dist.Normal(locs[x], 1), obs=y)
+
+    def fun_model(data):
+        def transition_fn(x, y):
+            probs = init_probs if x is None else transition_probs[x]
+            x = numpyro.sample("x", dist.Categorical(probs))
+            numpyro.sample("y", dist.Normal(locs[x], 1), obs=y)
+            return x, None
+
+        scan(transition_fn, None, data)
+
+    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    assert_allclose(actual_log_joint, expected_log_joint)
