@@ -77,11 +77,7 @@ def compute_markov_factors(time_to_factors, init_vars, prod_vars):
         prev_vars = init_vars[time_var]
         # remove `_init/` prefix to convert prev to curr
         prev_to_curr = {k: "/".join(k.split("/")[1:]) for k in prev_vars}
-        with funsor.interpreter.interpretation(funsor.terms.lazy):
-            lazy_result = funsor.sum_product.sum_product(
-                funsor.ops.logaddexp, funsor.ops.add, log_factors,
-                eliminate=frozenset(), plates=prod_vars)
-        trans = funsor.optimizer.apply_optimizer(lazy_result)
+        trans = sum(log_factors)
         markov_factors.append(funsor.sum_product.sequential_sum_product(
             funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr))
     return markov_factors

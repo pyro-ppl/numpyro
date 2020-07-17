@@ -103,13 +103,13 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
     # for initialization. However, `sequential_sum_product` does not
     # support history size > 1, so we skip supporting it here.
     if xs is not None:
-        if reverse:
-            x0, xs = tree_map(lambda x: (x[-1], x[:-1]), xs)
-        else:
-            x0, xs = tree_map(lambda x: (x[0], x[1:]), xs)
         length = tree_flatten(xs)[0][0].shape[0]
-    else:
-        length = length - 1
+        if reverse:
+            x0 = tree_map(lambda x: x[-1], xs)
+            xs_ = tree_map(lambda x: x[:-1], xs)
+        else:
+            x0 = tree_map(lambda x: x[0], xs)
+            xs_ = tree_map(lambda x: x[1:], xs)
 
     carry_shape_at_t1 = None
 
@@ -146,10 +146,10 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
     with markov():
         wrapped_carry = (0, rng_key, init)
         wrapped_carry, (_, y0) = body_fn(wrapped_carry, x0)
-        if length == 0:
+        if length == 1:
             ys = tree_map(lambda x: jnp.expand_dims(x, 0), y0)
-            return wrapped_carry, (PytreeTrace({}), y0)
-        wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs, length, reverse)
+            return wrapped_carry, (PytreeTrace({}), ys)
+        wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs_, length - 1, reverse)
 
     first_var = None
     for name, site in pytree_trace.trace.items():
@@ -162,7 +162,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
     # similar to carry, we need to reshape due to shape alternating in markov
     ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)), y0, ys)
     # we also need to reshape `carry` to match sequential behavior
-    if length % 2 == 1:
+    if length % 2 == 0:
         t, rng_key, carry = wrapped_carry
         flatten_carry, treedef = tree_flatten(carry)
         flatten_carry = [jnp.reshape(x, t1_shape)
