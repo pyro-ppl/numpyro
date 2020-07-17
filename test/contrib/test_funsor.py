@@ -17,6 +17,7 @@ from numpyro.contrib.control_flow import scan
 from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor
 from numpyro.contrib.funsor.enum_messenger import NamedMessenger
 from numpyro.contrib.funsor.infer_util import log_density
+from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
@@ -261,7 +262,7 @@ def test_scan_enum_plate():
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
-def test_scan_enum_plates_same_dim():
+def test_scan_enum_separated_plates_same_dim():
     N, D1, D2 = 10, 3, 4
     data = random.normal(random.PRNGKey(0), (N, D1 + D2))
     data1, data2 = data[:, :D1], data[:, D1:]
@@ -299,7 +300,39 @@ def test_scan_enum_plates_same_dim():
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
-def test_scan_enum_discrete_dependency():
+def test_scan_enum_separated_plate_discrete():
+    N, D = 10, 3
+    data = random.normal(random.PRNGKey(0), (N, D))
+    transition_probs = jnp.array([[0.8, 0.2], [0.1, 0.9]])
+    locs = jnp.array([[-1.0, 1.0], [2.0, 3.0]])
+
+    def model(data):
+        x = 0
+        D_plate = numpyro.plate("D", D, dim=-1)
+        for i, y in markov(enumerate(data)):
+            probs = transition_probs[x]
+            x = numpyro.sample(f"x_{i}", dist.Categorical(probs))
+            with D_plate:
+                w = numpyro.sample(f"w_{i}", dist.Bernoulli(0.6))
+                numpyro.sample(f"y_{i}", dist.Normal(Vindex(locs)[x, w], 1), obs=y)
+
+    def fun_model(data):
+        def transition_fn(x, y):
+            probs = transition_probs[x]
+            x = numpyro.sample("x", dist.Categorical(probs))
+            with numpyro.plate("D", D, dim=-1):
+                w = numpyro.sample("w", dist.Bernoulli(0.6))
+                numpyro.sample("y", dist.Normal(Vindex(locs)[x, w], 1), obs=y)
+            return x, None
+
+        scan(transition_fn, 0, data)
+
+    actual_log_joint = log_density(enum(config_enumerate(fun_model), -2), (data,), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(model), -2), (data,), {}, {})[0]
+    assert_allclose(actual_log_joint, expected_log_joint)
+
+
+def test_scan_enum_discrete_outside():
     data = random.normal(random.PRNGKey(0), (10,))
     probs = jnp.array([[[0.8, 0.2], [0.1, 0.9]],
                        [[0.7, 0.3], [0.6, 0.4]]])
@@ -357,7 +390,7 @@ def test_scan_enum_two_latents():
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
-def test_scan_enum_double():
+def test_scan_enum_scan_enum():
     num_steps = 11
     data_x = random.normal(random.PRNGKey(0), (num_steps,))
     data_w = data_x[:-1] + 1
