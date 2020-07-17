@@ -219,7 +219,7 @@ def test_scan_enum_one_latent(num_steps):
         scan(transition_fn, None, data)
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -249,7 +249,7 @@ def test_scan_enum_two_latents():
         scan(transition_fn, (0, 0), data)
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -282,5 +282,5 @@ def test_scan_enum_double():
         scan(partial(transition_fn, "w", probs_w, locs_w), 0, data_w)
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
+    expected_log_joint = log_density(enum(config_enumerate(model)), (data_x, data_w), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
