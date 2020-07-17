@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
-import itertools
 import os
 import time
 
@@ -26,7 +25,6 @@ from cg import cg_quad_form_log_det, direct_quad_form_log_det, cpcg_quad_form_lo
 from utils import CustomAdam, record_stats, kdot, sample_aux_noise, _fori_loop, sample_permutation
 
 from data import get_data
-from analysis import process_singleton_svi, process_quad_svi
 from vjp import pcpcg_quad_form_log_det2
 
 
@@ -246,6 +244,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=4):
 
 def main(args):
     results = {'args': args}
+    N = args.num_data
     P = args.num_dimensions
     print(args)
 
@@ -253,144 +252,65 @@ def main(args):
     hypers = {'expected_sparsity': args.active_dimensions,
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0, 'alpha3': 1.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
+    results['hypers'] = hypers
 
-    for N in [2000]:
-    #for N in [500]: #800, 1600, 2400, 3600]:
-        results[N] = {}
+    X, Y, expected_thetas, _, expected_quad_dims = get_data(N=N, P=P, Q=12,
+                                                            S=args.active_dimensions, seed=args.seed,
+                                                            likelihood=args.likelihood)
+    print("X, Y", X.shape, Y.shape)
+    results['X'] = X
+    results['Y'] = Y
+    results['expected_thetas'] = expected_thetas
+    results['expected_quad_dims'] = expected_quad_dims
 
-        X, Y, expected_thetas, _, expected_quad_dims = get_data(N=N, P=P, Q=12,
-                                                                S=args.active_dimensions, seed=args.seed,
-                                                                likelihood=args.likelihood)
-        print("X, Y", X.shape, Y.shape)
+    rng_key = random.PRNGKey(args.seed)
 
-        rng_key = random.PRNGKey(args.seed)
+    print("starting {} inference...".format(args.inference))
+    model = bernoulli_model if args.likelihood == 'bernoulli' else gaussian_model
+    if 'svi' in args.inference:
+        samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48)
+    elif args.inference == 'hmc':
+        samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
+    results['samples'] = samples
+    print("done with inference! [took {:.2f} seconds]".format(inf_time))
 
-        print("starting {} inference...".format(args.inference))
-        model = bernoulli_model if args.likelihood == 'bernoulli' else gaussian_model
-        if 'svi' in args.inference:
-            samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48)
-        elif args.inference == 'hmc':
-            samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
-        print("done with inference! [took {:.2f} seconds]".format(inf_time))
-
-        print("leading lambda", onp.mean(samples['lambda'], axis=0)[:40])
-        print("leading kappa", onp.mean(samples['kappa'], axis=0)[:40])
-        #import sys;sys.exit()
-
-        # compute the mean and square root variance of each coefficient theta_i
-        #means, stds = chunk_vmap(lambda dim: analyze_dimension(samples, X, Y, dim, hypers),
-        #                         np.arange(P), chunk_size=999)
-        #print("analyze_dimension time", time.time()-t0)
-        t0 = time.time()
-        means, stds = process_singleton_svi(X, Y, samples, hypers['c'], omega_chunk_size=1, probe_chunk_size=200,
-                                            method='direct', rank1=16, rank2=16)
-                                            #method=args['inference'][4:])
-        print("analyze_dimension time", time.time()-t0)
-
-        results[N]['inf_time'] = inf_time
-        results[N]['expected_thetas'] = onp.array(expected_thetas).tolist()
-        results[N]['singleton_coeff_means'] = onp.array(means).tolist()
-        results[N]['singleton_coeff_stds'] = onp.array(stds).tolist()
-
-        print("Coefficients theta_1 to theta_%d used to generate the data:" % args.active_dimensions, expected_thetas)
-        active_dims = []
-        expected_active_dims = onp.arange(args.active_dimensions).tolist()
-
-        strictness = 3.0
-
-        for dim, (mean, std) in enumerate(zip(means, stds)):
-            # we mark the dimension as inactive if the interval [mean - 2 * std, mean + 2 * std] contains zero
-            lower, upper = mean - strictness * std, mean + strictness * std
-            inactive = "inactive" if lower < 0.0 and upper > 0.0 else "active"
-            if inactive == "active":
-                active_dims.append(dim)
-            if dim < args.active_dimensions or inactive == "active":
-                print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, P, inactive, mean, std))
-
-        correct_singletons = len(set(active_dims) & set(expected_active_dims))
-        false_singletons = len(set(active_dims) - set(expected_active_dims))
-        missed_singletons = len(set(expected_active_dims) - set(active_dims))
-
-        results[N]['correct_singletons'] = correct_singletons
-        results[N]['false_singletons'] = false_singletons
-        results[N]['missed_singletons'] = missed_singletons
-
-        print("correct_singletons: ", correct_singletons, "  false_singletons: ", false_singletons,
-              "  missed_singletons: ", missed_singletons)
-
-        print("Identified a total of %d active dimensions; expected %d." % (len(active_dims),
-                                                                            args.active_dimensions))
-
-        #import sys; sys.exit()
-        strictness = 5.0
-
-        # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
-        # Note that the resulting numbers are only meaningful for i != j.
-        active_quad_dims = []
-        t0 = time.time()
-        if len(active_dims) > 0:
-            dim_pairs = np.array(list(itertools.product(active_dims, active_dims)))
-            #fun = lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers)
-            #means, stds = chunk_vmap(fun, dim_pairs, chunk_size=32)
-            means, stds = process_quad_svi(X, Y, samples, dim_pairs, hypers['c'], omega_chunk_size=1, probe_chunk_size=200,
-                                           method='ppcg', rank1=16, rank2=16)
-            results[N]['pairwise_coeff_means'] = onp.array(means).tolist()
-            results[N]['pairwise_coeff_stds'] = onp.array(stds).tolist()
-            for dim_pair, mean, std in zip(dim_pairs, means, stds):
-                dim1, dim2 = dim_pair
-                if dim1 >= dim2:
-                    continue
-                lower, upper = mean - strictness * std, mean + strictness * std
-                if not (lower < 0.0 and upper > 0.0):
-                    format_str = "Identified pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
-                    print(format_str % (dim1 + 1, dim2 + 1, mean, std))
-                    active_quad_dims.append((dim1, dim2))
-                #elif dim1 < args['active_dimensions'] and dim2 < args['active_dimensions']:
-                #    format_str = "No pairwise interaction between dimensions %d and %d: %.2e +- %.2e"
-                #    print(format_str % (dim1 + 1, dim2 + 1, mean, std))
-
-        print("analyze_pair_dimension time", time.time()-t0)
-
-        correct_quads = len(set(active_quad_dims) & set(expected_quad_dims))
-        false_quads = len(set(active_quad_dims) - set(expected_quad_dims))
-        missed_quads = len(set(expected_quad_dims) - set(active_quad_dims))
-
-        results[N]['correct_quads'] = correct_quads
-        results[N]['false_quads'] = false_quads
-        results[N]['missed_quads'] = missed_quads
-
-        print("correct_quads: ", correct_quads, "  false_quads: ", false_quads,
-              "  missed_quads: ", missed_quads)
+    print("leading lambda", onp.mean(samples['lambda'], axis=0)[:40])
+    print("leading kappa", onp.mean(samples['kappa'], axis=0)[:40])
 
     #print("RESULTS\n", results)
-    log_file = 'slog.{}.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
-    log_file = log_file.format(args.inference, P, args.active_dimensions, args.seed,
-                               args.num_warmup, args.num_samples, args.mtd)
+    #log_file = 'slog.{}.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
+    #log_file = log_file.format(args.inference, P, args.active_dimensions, args.seed,
+    #                           args.num_warmup, args.num_samples, args.mtd)
 
     #with open(args.log_dir + log_file + '.pkl', 'wb') as f:
     #    pickle.dump(results, f, protocol=2)
     #print("saved results to {}".format(args.log_dir + log_file + '.pkl'))
 
+    with open(args.log_dir + args.results_file, 'wb') as f:
+        pickle.dump(results, f, protocol=2)
+    print("saved results to {}".format(args.log_dir + args.results_file))
+
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.2.4')
-    parser = argparse.ArgumentParser(description="Sparse Logistic Regression example")
+    parser = argparse.ArgumentParser(description="Pairwise Interaction Discovery")
     parser.add_argument("--inference", nargs="?", default='svi-ppcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
     parser.add_argument("-n", "--num-samples", nargs="?", default=800, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=0, type=int)
-    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
-    parser.add_argument("--mtd", nargs='?', default=5, type=int)
-    parser.add_argument("--num-data", nargs='?', default=0, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=100, type=int)
-    parser.add_argument("--seed", nargs='?', default=0, type=int)
-    parser.add_argument("--lr", nargs='?', default=0.005, type=float)
-    parser.add_argument("--cg-tol", nargs='?', default=0.001, type=float)
-    parser.add_argument("--active-dimensions", nargs='?', default=14, type=int)
-    parser.add_argument("--thinning", nargs='?', default=10, type=int)
+    parser.add_argument("--num-data", default=2000, type=int)
+    parser.add_argument("--num-warmup", default=0, type=int)
+    parser.add_argument("--num-chains", default=1, type=int)
+    parser.add_argument("--mtd", default=5, type=int)
+    parser.add_argument("--num-dimensions", default=100, type=int)
+    parser.add_argument("--seed", default=0, type=int)
+    parser.add_argument("--lr", default=0.005, type=float)
+    parser.add_argument("--cg-tol", default=0.001, type=float)
+    parser.add_argument("--active-dimensions", default=14, type=int)
+    parser.add_argument("--thinning", default=10, type=int)
     parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--likelihood", default='bernoulli', type=str)
-    parser.add_argument("--log-dir", default='./very_large/', type=str)
+    parser.add_argument("--log-dir", default='./', type=str)
+    parser.add_argument("--results-file", default='results.out', type=str)
     parser.add_argument("--double", action="store_true")
     args = parser.parse_args()
 
