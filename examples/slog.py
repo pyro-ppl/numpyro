@@ -90,10 +90,10 @@ def bernoulli_model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
         subsample = sample_permutation(N)[:N // 10]
         #qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
         #    0.5 * kY, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation)
-        qfld, res_norm, cg_iters = pcpcg_quad_form_log_det2(kappa,
-             Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation, subsample)
-        #qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det2, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
+        #qfld, res_norm, cg_iters = pcpcg_quad_form_log_det2(kappa,
         #     Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation, subsample)
+        qfld, res_norm, cg_iters = jit(pcpcg_quad_form_log_det2, static_argnums=(5, 6, 7, 8, 9, 10, 11, 12))(kappa,
+             Y, eta1, eta2, 1.0 / omega, hypers['c'], X, probe, rank1, rank2, cg_tol, max_iters, dilation, subsample)
 
     record_stats(np.array([res_norm, cg_iters]))
 
@@ -168,8 +168,8 @@ def guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
 # Helper function for doing HMC inference
 def run_hmc(model, args, rng_key, X, Y, hypers):
     start = time.time()
-    kernel = NUTS(model, max_tree_depth=args['mtd'])
-    mcmc = MCMC(kernel, args['num_warmup'], args['num_samples'], num_chains=args['num_chains'],
+    kernel = NUTS(model, max_tree_depth=args.mtd)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y, hypers)
     mcmc.print_summary()
@@ -178,24 +178,25 @@ def run_hmc(model, args, rng_key, X, Y, hypers):
     samples = mcmc.get_samples()
     # thin samples
     for k, v in samples.items():
-        samples[k] = v[::args['thinning']]
+        samples[k] = v[::args.thinning]
 
     return samples, elapsed_time
 
 def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=4):
     rng_key_init, rng_key_post = random.split(rng_key, 2)
-    adam = CustomAdam(args['lr'])
+    adam = CustomAdam(args.lr)
     svi = SVI(model, guide, adam, ELBO())
-    svi_state = svi.init(rng_key_init, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
+    svi_state = svi.init(rng_key_init, X, Y, hypers, method=args.inference[4:], cg_tol=args.cg_tol)
 
-    num_steps = args['num_samples']
+    num_steps = args.num_samples
     report_frequency = 50
     beta = 0.95
     bias_correction = 1.0 / (1.0 - beta ** report_frequency)
 
+    @jit
     def body_fn(i, init_val):
         svi_state, old_loss, old_stats = init_val
-        svi_state, loss = svi.update(svi_state, X, Y, hypers, method=args['inference'][4:], cg_tol=args['cg_tol'])
+        svi_state, loss = svi.update(svi_state, X, Y, hypers, method=args.inference[4:], cg_tol=args.cg_tol)
         loss = (1.0 - beta) * loss + beta * old_loss
         stats = (1.0 - beta) * svi_state.optim_state[1] + beta * old_stats
         return (svi_state, loss, stats)
@@ -214,7 +215,7 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=4):
         cg_iters *= bias_correction
         ts.append(time.time())
         dt = (ts[-1] - ts[-2]) / float(report_frequency)
-        if "direct" not in args['inference']:
+        if "direct" not in args.inference:
             print("[iter %03d]  %.3f \t\t  res_norm: %.2e  cg_iters: %.1f \t\t [dt: %.3f]" % (step_chunk * report_frequency,
                   loss, res_norm, cg_iters, dt))
             res_norm_history.append(res_norm)
@@ -243,13 +244,13 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=4):
     return samples, elapsed_time
 
 
-def main(**args):
+def main(args):
     results = {'args': args}
-    P = args['num_dimensions']
+    P = args.num_dimensions
     print(args)
 
     # setup hyperparameters
-    hypers = {'expected_sparsity': args['active_dimensions'],
+    hypers = {'expected_sparsity': args.active_dimensions,
               'alpha1': 2.0, 'beta1': 1.0, 'sigma': 2.0, 'alpha3': 1.0,
               'alpha2': 2.0, 'beta2': 1.0, 'c': 1.0}
 
@@ -258,17 +259,17 @@ def main(**args):
         results[N] = {}
 
         X, Y, expected_thetas, _, expected_quad_dims = get_data(N=N, P=P, Q=12,
-                                                                S=args['active_dimensions'], seed=args['seed'],
-                                                                likelihood=args['likelihood'])
+                                                                S=args.active_dimensions, seed=args.seed,
+                                                                likelihood=args.likelihood)
         print("X, Y", X.shape, Y.shape)
 
-        rng_key = random.PRNGKey(args['seed'])
+        rng_key = random.PRNGKey(args.seed)
 
-        print("starting {} inference...".format(args['inference']))
-        model = bernoulli_model if args['likelihood'] == 'bernoulli' else gaussian_model
-        if 'svi' in args['inference']:
+        print("starting {} inference...".format(args.inference))
+        model = bernoulli_model if args.likelihood == 'bernoulli' else gaussian_model
+        if 'svi' in args.inference:
             samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48)
-        elif args['inference'] == 'hmc':
+        elif args.inference == 'hmc':
             samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
         print("done with inference! [took {:.2f} seconds]".format(inf_time))
 
@@ -291,9 +292,9 @@ def main(**args):
         results[N]['singleton_coeff_means'] = onp.array(means).tolist()
         results[N]['singleton_coeff_stds'] = onp.array(stds).tolist()
 
-        print("Coefficients theta_1 to theta_%d used to generate the data:" % args['active_dimensions'], expected_thetas)
+        print("Coefficients theta_1 to theta_%d used to generate the data:" % args.active_dimensions, expected_thetas)
         active_dims = []
-        expected_active_dims = onp.arange(args['active_dimensions']).tolist()
+        expected_active_dims = onp.arange(args.active_dimensions).tolist()
 
         strictness = 3.0
 
@@ -303,7 +304,7 @@ def main(**args):
             inactive = "inactive" if lower < 0.0 and upper > 0.0 else "active"
             if inactive == "active":
                 active_dims.append(dim)
-            if dim < args['active_dimensions'] or inactive == "active":
+            if dim < args.active_dimensions or inactive == "active":
                 print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, P, inactive, mean, std))
 
         correct_singletons = len(set(active_dims) & set(expected_active_dims))
@@ -318,7 +319,7 @@ def main(**args):
               "  missed_singletons: ", missed_singletons)
 
         print("Identified a total of %d active dimensions; expected %d." % (len(active_dims),
-                                                                            args['active_dimensions']))
+                                                                            args.active_dimensions))
 
         #import sys; sys.exit()
         strictness = 5.0
@@ -363,12 +364,12 @@ def main(**args):
 
     #print("RESULTS\n", results)
     log_file = 'slog.{}.P_{}.S_{}.seed_{}.ns_{}_{}.mtd_{}'
-    log_file = log_file.format(args['inference'], P, args['active_dimensions'], args['seed'],
-                               args['num_warmup'], args['num_samples'], args['mtd'])
+    log_file = log_file.format(args.inference, P, args.active_dimensions, args.seed,
+                               args.num_warmup, args.num_samples, args.mtd)
 
-    #with open(args['log_dir'] + log_file + '.pkl', 'wb') as f:
+    #with open(args.log_dir + log_file + '.pkl', 'wb') as f:
     #    pickle.dump(results, f, protocol=2)
-    #print("saved results to {}".format(args['log_dir'] + log_file + '.pkl'))
+    #print("saved results to {}".format(args.log_dir + log_file + '.pkl'))
 
 
 if __name__ == "__main__":
@@ -399,4 +400,4 @@ if __name__ == "__main__":
     if args.double:
         enable_x64()
 
-    main(**vars(args))
+    main(args)
