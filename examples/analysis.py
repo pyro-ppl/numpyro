@@ -10,19 +10,7 @@ from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
 from chunk_vmap import chunk_vmap
 from utils import kdot
 from cg import kernel_mvm_diag, lowrank_presolve, pcg_batch_b
-
-
-def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
-    eta1sq = np.square(eta1)
-    eta2sq = np.square(eta2)
-    k1 = 0.5 * eta2sq * np.square(1.0 + kdot(X, Z))
-    k2 = -0.5 * eta2sq * kdot(np.square(X), np.square(Z))
-    k3 = (eta1sq - eta2sq) * kdot(X, Z)
-    k4 = np.square(c) - 0.5 * eta2sq
-    if X.shape == Z.shape:
-        k4 += jitter * np.eye(X.shape[0])
-    return k1 + k2 + k3 + k4
-
+from pairwise import kernel
 
 
 # helper for computing the posterior marginal N(theta_i) or N(theta_ij)

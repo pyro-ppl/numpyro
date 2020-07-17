@@ -28,15 +28,13 @@ from data import get_data
 from vjp import pcpcg_quad_form_log_det2
 
 
-def kernel(X, Z, eta1, eta2, c, jitter=1.0e-6):
+def kernel(X, Z, eta1, eta2, c):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
     k1 = 0.5 * eta2sq * np.square(1.0 + kdot(X, Z))
     k2 = -0.5 * eta2sq * kdot(np.square(X), np.square(Z))
     k3 = (eta1sq - eta2sq) * kdot(X, Z)
     k4 = np.square(c) - 0.5 * eta2sq
-    if X.shape == Z.shape:
-        k4 += jitter * np.eye(X.shape[0])
     return k1 + k2 + k3 + k4
 
 def sample_hypers(sigma, S, N, P, hypers):
@@ -75,7 +73,7 @@ def bernoulli_model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
-        qfld = jit(direct_quad_form_log_det)(k_omega, 0.5 * kY)
+        qfld = -0.5 * jit(direct_quad_form_log_det)(k_omega, 0.5 * kY)
     elif method == "cg":
         probe = sample_aux_noise(shape=(num_probes, N))
         qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=cg_tol, max_iters=max_iters)
@@ -95,16 +93,12 @@ def bernoulli_model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     record_stats(np.array([res_norm, cg_iters]))
 
-    if method == "ppcg":
-        numpyro.factor("obs", log_factor + qfld)
-    else:
-        numpyro.factor("obs", log_factor - 0.5 * qfld)
+    numpyro.factor("obs", log_factor + qfld)
 
 def gaussian_model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
     S, P, N = hypers['expected_sparsity'], X.shape[1], X.shape[0]
 
     sigma = numpyro.sample("sigma", dist.HalfNormal(hypers['alpha3']))
-
     eta1, eta2, kappa = sample_hypers(sigma, S, N, P, hypers)
 
     kX = kappa * X
@@ -113,15 +107,14 @@ def gaussian_model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     if method != 'ppcg':
         k_sigma = kernel(kX, kX, eta1, eta2, hypers['c']) + sigma ** 2 * np.eye(N)
-    else:
-        log_factor = - 0.5 * np.sum(np.log(omega))
 
     max_iters = 200
     rank1, rank2 = 16, 12
     res_norm, cg_iters, qfld = 0.0, 0.0, 0.0
 
     if method == "direct":
-        qfld = jit(direct_quad_form_log_det)(k_sigma, Y)
+        numpyro.sample("Y", dist.MultivariateNormal(loc=np.zeros(X.shape[0]), covariance_matrix=k_sigma),
+                       obs=Y)
     elif method == "cg":
         probe = sample_aux_noise(shape=(num_probes, N))
         qfld, res_norm, cg_iters = cg_quad_form_log_det(k_omega, 0.5 * kY, probe, epsilon=cg_tol, max_iters=max_iters)
@@ -137,12 +130,39 @@ def gaussian_model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
 
     record_stats(np.array([res_norm, cg_iters]))
 
-    numpyro.factor("obs", - 0.5 * qfld)
+    if method != "direct":
+        numpyro.factor("obs", - 0.5 * qfld)
 
 
-def guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
+def bernoulli_guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
     S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
 
+    phi = sigma * (S / np.sqrt(N)) / (P - S)
+
+    eta1_loc = numpyro.param("eta1_loc", 0.25, constraint=constraints.positive)
+    numpyro.sample("eta1", dist.Delta(eta1_loc))
+
+    msq_loc = numpyro.param("msq_loc", 1.0, constraint=constraints.positive)
+    numpyro.sample("msq", dist.Delta(msq_loc))
+
+    xisq_loc = numpyro.param("xisq_loc", 1.0, constraint=constraints.positive)
+    numpyro.sample("xisq", dist.Delta(xisq_loc))
+
+    lam_loc = numpyro.param("lam_loc", 0.5 * np.ones(P), constraint=constraints.positive)
+    numpyro.sample("lambda", dist.Delta(lam_loc))
+
+    omega_loc = numpyro.param('omega_loc', -2.0 * np.ones(N))
+    omega_scale = numpyro.param('omega_scale', 0.8 * np.ones(N), constraint=constraints.positive)
+    base_dist = dist.Normal(omega_loc, omega_scale)
+    omega_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform(), AffineTransform(0, 2.5)])
+    omega = numpyro.sample("omega", omega_dist)
+
+
+def gaussian_guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
+    S, P, N = hypers['expected_sparsity'], X.shape[1], X.shape[0]
+
+    sigma_loc = numpyro.param("sigma_loc", 0.25, constraint=constraints.positive)
+    sigma = numpyro.sample("sigma", dist.Delta(sigma_loc))
     phi = sigma * (S / np.sqrt(N)) / (P - S)
 
     eta1_loc = numpyro.param("eta1_loc", 0.25, constraint=constraints.positive)
@@ -155,15 +175,9 @@ def guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
     xisq = numpyro.sample("xisq", dist.Delta(xisq_loc))
 
     lam_loc = numpyro.param("lam_loc", 0.5 * np.ones(P), constraint=constraints.positive)
-    lam = numpyro.sample("lambda", dist.Delta(lam_loc))
+    numpyro.sample("lambda", dist.Delta(lam_loc))
 
-    omega_loc = numpyro.param('omega_loc', -2.0 * np.ones(N))
-    omega_scale = numpyro.param('omega_scale', 0.8 * np.ones(N), constraint=constraints.positive)
-    base_dist = dist.Normal(omega_loc, omega_scale)
-    omega_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform(), AffineTransform(0, 2.5)])
-    omega = numpyro.sample("omega", omega_dist)
 
-# Helper function for doing HMC inference
 def run_hmc(model, args, rng_key, X, Y, hypers):
     start = time.time()
     kernel = NUTS(model, max_tree_depth=args.mtd)
@@ -228,7 +242,6 @@ def do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=4):
 
     params = svi.get_params(svi_state)
     return_sites = ['eta1', 'eta2', 'kappa', 'omega', 'lambda']
-    ## TODO drop obs in model?
     samples = Predictive(model, guide=guide, num_samples=num_samples, params=params,
                          return_sites=return_sites)(rng_key_post, X, Y, hypers, 0, 0.0)
 
@@ -268,6 +281,7 @@ def main(args):
     print("starting {} inference...".format(args.inference))
     model = bernoulli_model if args.likelihood == 'bernoulli' else gaussian_model
     if 'svi' in args.inference:
+        guide = bernoulli_guide if args.likelihood == 'bernoulli' else gaussian_guide
         samples, inf_time = do_svi(model, guide, args, rng_key, X, Y, hypers, num_samples=48)
     elif args.inference == 'hmc':
         samples, inf_time = run_hmc(model, args, rng_key, X, Y, hypers)
