@@ -71,22 +71,16 @@ def config_enumerate(fn, default='parallel'):
     return infer_config(fn, config_fn)
 
 
-def compute_markov_factors(time_to_factors, markov_vars, sum_vars, prod_vars):
+def compute_markov_factors(time_to_factors, init_vars, prod_vars):
     markov_factors = []
     for time_var, log_factors in time_to_factors.items():
-        prev_vars = markov_vars[time_var]
-        prev_to_curr = {}
-        curr_vars = []
-        for k in prev_vars:
-            curr_var = "/".join(k.split("/")[1:])
-            curr_vars.append(curr_var)
-            prev_to_curr[k] = curr_var
-        prev_and_curr = prev_vars | frozenset(curr_vars)
+        prev_vars = init_vars[time_var]
+        # remove `_init/` prefix to convert prev to curr
+        prev_to_curr = {k: "/".join(k.split("/")[1:]) for k in prev_vars}
         with funsor.interpreter.interpretation(funsor.terms.lazy):
-            eliminate = (sum_vars | prod_vars) - prev_and_curr
             lazy_result = funsor.sum_product.sum_product(
                 funsor.ops.logaddexp, funsor.ops.add, log_factors,
-                eliminate=eliminate, plates=prod_vars)
+                eliminate=frozenset(), plates=prod_vars)
         trans = funsor.optimizer.apply_optimizer(lazy_result)
         markov_factors.append(funsor.sum_product.sequential_sum_product(
             funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr))
@@ -119,7 +113,7 @@ def log_density(model, model_args, model_kwargs, params):
         model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
     log_factors = []
     time_to_factors = defaultdict(list)
-    markov_vars = defaultdict(frozenset)
+    init_vars = defaultdict(frozenset)
     sum_vars, prod_vars = frozenset(), frozenset()
     for site in model_trace.values():
         if site['type'] == 'sample':
@@ -142,7 +136,7 @@ def log_density(model, model_args, model_kwargs, params):
                 if name.startswith("_time"):
                     time_dim = funsor.Variable(name, funsor.domains.bint(site["value"].shape[dim]))
                     time_to_factors[time_dim].append(log_prob)
-                    markov_vars[time_dim] |= frozenset(
+                    init_vars[time_dim] |= frozenset(
                         s for s in dim_to_name.values() if s.startswith("_init/"))
                     break
             if time_dim is None:
@@ -151,7 +145,7 @@ def log_density(model, model_args, model_kwargs, params):
             prod_vars |= frozenset(f.name for f in site['cond_indep_stack'] if f.dim is not None)
 
     if len(time_to_factors) > 0:
-        markov_factors = compute_markov_factors(time_to_factors, markov_vars, sum_vars, prod_vars)
+        markov_factors = compute_markov_factors(time_to_factors, init_vars, prod_vars)
         log_factors = log_factors + markov_factors
 
     with funsor.interpreter.interpretation(funsor.terms.lazy):
