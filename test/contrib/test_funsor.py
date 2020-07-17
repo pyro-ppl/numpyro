@@ -306,14 +306,14 @@ def test_scan_enum_discrete_dependency():
     locs = jnp.array([-1.0, 1.0])
 
     def model(data):
-        w = numpyro.sample("w", dist.Bernoulli(0.5))
+        w = numpyro.sample("w", dist.Bernoulli(0.6))
         x = 0
         for i, y in markov(enumerate(data)):
             x = numpyro.sample(f"x_{i}", dist.Categorical(probs[w, x]))
             numpyro.sample(f"y_{i}", dist.Normal(locs[x], 1), obs=y)
 
     def fun_model(data):
-        w = numpyro.sample("w", dist.Bernoulli(0.5))
+        w = numpyro.sample("w", dist.Bernoulli(0.6))
 
         def transition_fn(x, y):
             x = numpyro.sample("x", dist.Categorical(probs[w, x]))
@@ -324,7 +324,7 @@ def test_scan_enum_discrete_dependency():
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
     expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
-    assert_allclose(actual_log_joint, expected_log_joint, atol=1e-6)
+    assert_allclose(actual_log_joint, expected_log_joint)
 
 
 def test_scan_enum_two_latents():

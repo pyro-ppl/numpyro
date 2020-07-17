@@ -71,13 +71,26 @@ def config_enumerate(fn, default='parallel'):
     return infer_config(fn, config_fn)
 
 
-def compute_markov_factors(time_to_factors, init_vars, prod_vars):
+def compute_markov_factors(time_to_factors, time_to_init_vars, enum_plate_vars, prod_vars):
+    """
+    :param dict time_to_factors: a map from time variable to the log prob factors.
+    :param dict time_to_init_vars: a map from time variable to init discrete sites.
+    :param dict enum_plate_vars: a map from time variable to plate dimension at discrete sites.
+    :param frozenset prod_vars: all plate dimensions in the trace.
+    :returns: a list of factors after eliminate time dimensions
+    """
     markov_factors = []
     for time_var, log_factors in time_to_factors.items():
-        prev_vars = init_vars[time_var]
+        prev_vars = time_to_init_vars[time_var]
         # remove `_init/` prefix to convert prev to curr
         prev_to_curr = {k: "/".join(k.split("/")[1:]) for k in prev_vars}
-        trans = sum(log_factors)
+        # we eliminate all plate dimensions not available at discrete sites.
+        eliminate_vars = prod_vars - enum_plate_vars[time_var]
+        with funsor.interpreter.interpretation(funsor.terms.lazy):
+            lazy_result = funsor.sum_product.sum_product(
+                funsor.ops.logaddexp, funsor.ops.add, log_factors,
+                eliminate=eliminate_vars, plates=prod_vars)
+        trans = funsor.optimizer.apply_optimizer(lazy_result)
         markov_factors.append(funsor.sum_product.sequential_sum_product(
             funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr))
     return markov_factors
@@ -108,8 +121,9 @@ def log_density(model, model_args, model_kwargs, params):
     with plate_to_enum_plate():
         model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
     log_factors = []
-    time_to_factors = defaultdict(list)
-    init_vars = defaultdict(frozenset)
+    time_to_factors = defaultdict(list)  # log prob factors
+    time_to_init_vars = defaultdict(frozenset)  # _init/... variables
+    enum_plate_vars = defaultdict(frozenset)  # plate dimensions at discrete sites
     sum_vars, prod_vars = frozenset(), frozenset()
     for site in model_trace.values():
         if site['type'] == 'sample':
@@ -132,16 +146,23 @@ def log_density(model, model_args, model_kwargs, params):
                 if name.startswith("_time"):
                     time_dim = funsor.Variable(name, funsor.domains.bint(site["value"].shape[dim]))
                     time_to_factors[time_dim].append(log_prob)
-                    init_vars[time_dim] |= frozenset(
+                    time_to_init_vars[time_dim] |= frozenset(
                         s for s in dim_to_name.values() if s.startswith("_init/"))
                     break
             if time_dim is None:
                 log_factors.append(log_prob)
+
             sum_vars |= frozenset({site['name']})
             prod_vars |= frozenset(f.name for f in site['cond_indep_stack'] if f.dim is not None)
 
+    for time_dim, init_vars in time_to_init_vars.items():
+        for var in init_vars:
+            curr_var = "/".join(var.split("/")[1:])
+            enum_plate_vars[time_dim] |= frozenset(f.name for f in model_trace[curr_var]['cond_indep_stack']
+                                                   if f.dim is not None)
+
     if len(time_to_factors) > 0:
-        markov_factors = compute_markov_factors(time_to_factors, init_vars, prod_vars)
+        markov_factors = compute_markov_factors(time_to_factors, time_to_init_vars, enum_plate_vars, prod_vars)
         log_factors = log_factors + markov_factors
 
     with funsor.interpreter.interpretation(funsor.terms.lazy):
