@@ -7,6 +7,7 @@ import math
 from jax import jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
+from jax.nn import softmax
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.util import partial
@@ -213,6 +214,10 @@ def _multinomial(key, p, n, n_max, shape=()):
 def multinomial(key, p, n, shape=()):
     n_max = int(jnp.max(n))
     return _multinomial(key, p, n, n_max, shape)
+
+
+def _to_probs_multinom(logits):
+    return softmax(logits, axis=-1)
 
 
 def cholesky_of_inverse(matrix):

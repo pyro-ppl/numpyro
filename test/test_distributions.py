@@ -113,7 +113,9 @@ CONTINUOUS = [
     T(dist.GaussianRandomWalk, jnp.array([0.1, 0.3, 0.25]), 10),
     T(dist.Gumbel, 0., 1.),
     T(dist.Gumbel, 0.5, 2.),
-    T(dist.Gumbel, jnp.array([0., 0.5]), jnp.array([1., 2.])),
+    T(dist.Gumbel, np.array([0., 0.5]), np.array([1., 2.])),
+    T(dist.GumbelSoftmaxProbs, np.array([0.1, 0.2, 0.3, 0.4]), 0.0001),
+    T(dist.GumbelSoftmaxProbs, np.array([0.1, 0.2, 0.3, 0.4]), 100),
     T(dist.HalfCauchy, 1.),
     T(dist.HalfCauchy, jnp.array([1., 2.])),
     T(dist.HalfNormal, 1.),
@@ -697,7 +699,6 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         valid_params[i] = gen_values_within_bounds(constraint, jnp.shape(params[i]), key_gen)
 
     assert jax_dist(*oob_params)
-
     # Invalid parameter values throw ValueError
     if not dependent_constraint and jax_dist is not _ImproperWrapper:
         with pytest.raises(ValueError):
@@ -1011,6 +1012,38 @@ def test_generated_sample_distribution(jax_dist, sp_dist, params,
         assert ks_result.pvalue > 0.05
 
 
+@pytest.mark.parametrize('temperature', [0.0001, 0.00001])
+@pytest.mark.parametrize('N_sample', [10_000, 100_000])
+def test_relaxations_low(temperature, N_sample, key=jax.random.PRNGKey(52)):
+    """ Test that samples from low temperatures are close to samples from a
+    Categorical distribution (and consequently that the GumbelSoftmax
+    distribution samples correctly).
+    """
+
+    probs = np.array([0.1, 0.1, 0.8])
+    GS1 = dist.GumbelSoftmaxProbs(probs, temperature=temperature)
+    gs_samples = GS1.sample(key, (N_sample,), one_hot=False)
+    categorical_samples = dist.CategoricalProbs(probs).sample(key, (N_sample, ))
+    ks_result = osp.ks_2samp(gs_samples, categorical_samples)
+    assert ks_result.pvalue > 0.05
+
+
+@pytest.mark.parametrize('temperature', [100, 1000])
+@pytest.mark.parametrize('N_sample', [10_000, 100_000])
+def test_relaxations_high(temperature, N_sample, key=jax.random.PRNGKey(52)):
+    """ Test that samples from high temperatures are close to samples
+    from a Categorical distribution with equal probabilities for the classes.
+    """
+    probs = np.array([0.1, 0.1, 0.8])
+
+    GS1 = dist.GumbelSoftmaxProbs(probs, temperature=temperature)
+    gs_samples = GS1.sample(key, (N_sample,), one_hot=False)
+    uniform_samples = dist.Categorical(np.array([1./3, 1./3, 1./3])).sample(key, (N_sample, ))
+
+    ks_result = osp.ks_2samp(gs_samples, uniform_samples)
+    error_message = """failed KS betwen Gumbel Softmax and categorical with
+    equal probabilities for temperature {}""".format(temperature)
+    assert ks_result.pvalue > 0.05, error_message
 @pytest.mark.parametrize('jax_dist, params, support', [
     (dist.BernoulliLogits, (5.,), jnp.arange(2)),
     (dist.BernoulliProbs, (0.5,), jnp.arange(2)),

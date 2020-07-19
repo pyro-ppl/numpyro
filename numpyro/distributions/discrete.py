@@ -46,7 +46,8 @@ from numpyro.distributions.util import (
     multinomial,
     promote_shapes,
     sum_rightmost,
-    validate_sample
+    _to_probs_multinom,
+    validate_sample,
 )
 from numpyro.util import copy_docs_from, not_jax_tracer
 
@@ -58,10 +59,6 @@ def _to_probs_bernoulli(logits):
 def _to_logits_bernoulli(probs):
     ps_clamped = clamp_probs(probs)
     return jnp.log(ps_clamped) - jnp.log1p(-ps_clamped)
-
-
-def _to_probs_multinom(logits):
-    return softmax(logits, axis=-1)
 
 
 def _to_logits_multinom(probs):
