@@ -97,7 +97,7 @@ class promote_shapes(Messenger):
                 msg["fn"] = tree_map(lambda x: jnp.reshape(x, prepend_shapes + jnp.shape(x)), fn)
 
 
-def scan_enum(f, init, xs, length, reverse, unroll_len, rng_key=None, substitute_stack=None):
+def scan_enum(f, init, xs, length, reverse, history_size, rng_key=None, substitute_stack=None):
     # XXX: This implementation only works for history size=1 but can be
     # extended to history size > 1 by running `f` `history_size` times
     # for initialization. However, `sequential_sum_product` does not
