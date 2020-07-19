@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
+from contextlib import ExitStack, contextmanager
 import functools
 
-import jax
 from jax import lax
 
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
+from numpyro.util import identity
 
 _PYRO_STACK = []
 
@@ -66,7 +67,7 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
+def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -83,6 +84,10 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
     :param numpy.ndarray obs: observed value
     :param jax.random.PRNGKey rng_key: an optional random key for `fn`.
     :param sample_shape: Shape of samples to be drawn.
+    :param dict infer: an optional dictionary containing additional information
+        for inference algorithms. For example, if `fn` is a discrete distribution,
+        setting `infer={'enumerate': 'parallel'}` to tell MCMC marginalize
+        this discrete latent site.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
@@ -97,20 +102,16 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=()):
         'args': (),
         'kwargs': {'rng_key': rng_key, 'sample_shape': sample_shape},
         'value': obs,
-        'mask': None,
         'scale': None,
         'is_observed': obs is not None,
         'intermediates': [],
         'cond_indep_stack': [],
+        'infer': {} if infer is None else infer,
     }
 
     # ...and use apply_stack to send it to the Messengers
     msg = apply_stack(initial_msg)
     return msg['value']
-
-
-def identity(x, *args, **kwargs):
-    return x
 
 
 def param(name, init_value=None, **kwargs):
@@ -140,7 +141,6 @@ def param(name, init_value=None, **kwargs):
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
-        'mask': None,
         'scale': None,
         'cond_indep_stack': [],
     }
@@ -199,7 +199,7 @@ def module(name, nn, input_shape=None):
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
         _, nn_params = nn_init(rng_key, input_shape)
         param(module_key, nn_params)
-    return jax.partial(nn_apply, nn_params)
+    return functools.partial(nn_apply, nn_params)
 
 
 class plate(Messenger):
@@ -261,28 +261,49 @@ class plate(Messenger):
         return tuple(batch_shape)
 
     def process_message(self, msg):
-        if msg['type'] not in ('sample', 'plate'):
+        if msg['type'] not in ('param', 'sample', 'plate'):
+            if msg['type'] == 'control_flow':
+                raise RuntimeError('Cannot use control flow primitive under a `plate` primitive.'
+                                   ' Please move those `plate` statements into the control flow'
+                                   ' body function.')
             return
+
         cond_indep_stack = msg['cond_indep_stack']
         frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
         cond_indep_stack.append(frame)
-        expected_shape = self._get_batch_shape(cond_indep_stack)
-        dist_batch_shape = msg['fn'].batch_shape if msg['type'] == 'sample' else ()
-        overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
-        trailing_shape = expected_shape[overlap_idx:]
-        # e.g. distribution with batch shape (1, 5) cannot be broadcast to (5, 5)
-        broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
-        if broadcast_shape != dist_batch_shape:
-            raise ValueError('Distribution batch shape = {} cannot be broadcast up to {}. '
-                             'Consider using unbatched distributions.'
-                             .format(dist_batch_shape, broadcast_shape))
-        batch_shape = expected_shape[:overlap_idx]
-        if 'sample_shape' in msg['kwargs']:
-            batch_shape = lax.broadcast_shapes(msg['kwargs']['sample_shape'], batch_shape)
-        msg['kwargs']['sample_shape'] = batch_shape
+        if msg['type'] == 'sample':
+            expected_shape = self._get_batch_shape(cond_indep_stack)
+            dist_batch_shape = msg['fn'].batch_shape
+            if 'sample_shape' in msg['kwargs']:
+                dist_batch_shape = msg['kwargs']['sample_shape'] + dist_batch_shape
+                msg['kwargs']['sample_shape'] = ()
+            overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
+            trailing_shape = expected_shape[overlap_idx:]
+            broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+            batch_shape = expected_shape[:overlap_idx] + broadcast_shape
+            msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
             msg['scale'] = scale * self.size / self.subsample_size
+
+
+@contextmanager
+def plate_stack(prefix, sizes, rightmost_dim=-1):
+    """
+    Create a contiguous stack of :class:`plate` s with dimensions::
+
+        rightmost_dim - len(sizes), ..., rightmost_dim
+
+    :param str prefix: Name prefix for plates.
+    :param iterable sizes: An iterable of plate sizes.
+    :param int rightmost_dim: The rightmost dim, counting from the right.
+    """
+    assert rightmost_dim < 0
+    with ExitStack() as stack:
+        for i, size in enumerate(reversed(sizes)):
+            plate_i = plate("{}_{}".format(prefix, i), size, dim=rightmost_dim - i)
+            stack.enter_context(plate_i)
+        yield
 
 
 def factor(name, log_factor):

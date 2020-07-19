@@ -1,11 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import jax.numpy as np
+import jax.numpy as jnp
 
 
 def _is_batched(arg):
-    return np.ndim(arg) > 0
+    return jnp.ndim(arg) > 0
 
 
 def vindex(tensor, args):
@@ -62,7 +62,7 @@ def vindex(tensor, args):
     Note that if none of the args is a tensor with ``len(shape) > 0``, then this
     function behaves like standard indexing::
 
-        if not any(isinstance(a, np.ndarray) and len(a.shape) > 0 for a in args):
+        if not any(isinstance(a, jnp.ndarray) and len(a.shape) > 0 for a in args):
             assert Vindex(x)[args] == x[args]
 
     **References**
@@ -72,34 +72,34 @@ def vindex(tensor, args):
         This implementation is similar to the proposed notation
         ``x.vindex[]`` except for slightly different handling of ``Ellipsis``.
 
-    :param np.ndarray tensor: A tensor to be indexed.
+    :param jnp.ndarray tensor: A tensor to be indexed.
     :param tuple args: An index, as args to ``__getitem__``.
     :returns: A nonstandard interpetation of ``tensor[args]``.
-    :rtype: np.ndarray
+    :rtype: jnp.ndarray
     """
     if not isinstance(args, tuple):
         return tensor[args]
     if not args:
         return tensor
 
-    assert np.ndim(tensor) > 0
+    assert jnp.ndim(tensor) > 0
     # Compute event dim before and after indexing.
     if args[0] is Ellipsis:
         args = args[1:]
         if not args:
             return tensor
         old_event_dim = len(args)
-        args = (slice(None),) * (np.ndim(tensor) - len(args)) + args
+        args = (slice(None),) * (jnp.ndim(tensor) - len(args)) + args
     else:
-        args = args + (slice(None),) * (np.ndim(tensor) - len(args))
+        args = args + (slice(None),) * (jnp.ndim(tensor) - len(args))
         old_event_dim = len(args)
-    assert len(args) == np.ndim(tensor)
+    assert len(args) == jnp.ndim(tensor)
     if any(a is Ellipsis for a in args):
         raise NotImplementedError("Non-leading Ellipsis is not supported")
 
     # In simple cases, standard advanced indexing broadcasts correctly.
     is_standard = True
-    if np.ndim(tensor) > old_event_dim and _is_batched(args[0]):
+    if jnp.ndim(tensor) > old_event_dim and _is_batched(args[0]):
         is_standard = False
     elif any(_is_batched(a) for a in args[1:]):
         is_standard = False
@@ -115,7 +115,7 @@ def vindex(tensor, args):
             # Convert slices to arange()s.
             if arg != slice(None):
                 raise NotImplementedError("Nontrivial slices are not supported")
-            arg = np.arange(tensor.shape[i], dtype=np.int32)
+            arg = jnp.arange(tensor.shape[i], dtype=jnp.int32)
             arg = arg.reshape((-1,) + (1,) * new_dim)
             new_dim += 1
         elif _is_batched(arg):
@@ -136,7 +136,7 @@ class Vindex:
         Vindex(x)[..., i, j, :]
         vindex(x, (Ellipsis, i, j, slice(None)))
 
-    :param np.ndarray tensor: A tensor to be indexed.
+    :param jnp.ndarray tensor: A tensor to be indexed.
     :return: An object with a special :meth:`__getitem__` method.
     """
     def __init__(self, tensor):

@@ -25,9 +25,12 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
+
 from jax import device_put, lax
 from jax.dtypes import canonicalize_dtype
-import jax.numpy as np
+from jax.nn import softmax
+import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
 
@@ -37,12 +40,10 @@ from numpyro.distributions.util import (
     binary_cross_entropy_with_logits,
     binomial,
     categorical,
-    categorical_logits,
     clamp_probs,
     get_dtype,
     lazy_property,
     multinomial,
-    poisson,
     promote_shapes,
     sum_rightmost,
     _to_probs_multinom,
@@ -52,17 +53,17 @@ from numpyro.util import copy_docs_from, not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):
-    return 1 / (1 + np.exp(-logits))
+    return 1 / (1 + jnp.exp(-logits))
 
 
 def _to_logits_bernoulli(probs):
     ps_clamped = clamp_probs(probs)
-    return np.log(ps_clamped) - np.log1p(-ps_clamped)
+    return jnp.log(ps_clamped) - jnp.log1p(-ps_clamped)
 
 
 def _to_logits_multinom(probs):
-    minval = np.finfo(get_dtype(probs)).min
-    return np.clip(np.log(probs), a_min=minval)
+    minval = jnp.finfo(get_dtype(probs)).min
+    return jnp.clip(jnp.log(probs), a_min=minval)
 
 
 @copy_docs_from(Distribution)
@@ -74,7 +75,7 @@ class BernoulliProbs(Distribution):
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
-        super(BernoulliProbs, self).__init__(batch_shape=np.shape(self.probs), validate_args=validate_args)
+        super(BernoulliProbs, self).__init__(batch_shape=jnp.shape(self.probs), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         return random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
@@ -92,9 +93,9 @@ class BernoulliProbs(Distribution):
         return self.probs * (1 - self.probs)
 
     def enumerate_support(self, expand=True):
-        values = np.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
+        values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
-            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
 
@@ -107,7 +108,7 @@ class BernoulliLogits(Distribution):
 
     def __init__(self, logits=None, validate_args=None):
         self.logits = logits
-        super(BernoulliLogits, self).__init__(batch_shape=np.shape(self.logits), validate_args=validate_args)
+        super(BernoulliLogits, self).__init__(batch_shape=jnp.shape(self.logits), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         return random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
@@ -129,9 +130,9 @@ class BernoulliLogits(Distribution):
         return self.probs * (1 - self.probs)
 
     def enumerate_support(self, expand=True):
-        values = np.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
+        values = jnp.arange(2).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
-            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
 
@@ -146,14 +147,14 @@ def Bernoulli(probs=None, logits=None, validate_args=None):
 
 @copy_docs_from(Distribution)
 class BinomialProbs(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'probs': constraints.unit_interval}
+    arg_constraints = {'probs': constraints.unit_interval,
+                       'total_count': constraints.nonnegative_integer}
     has_enumerate_support = True
     is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
-        batch_shape = lax.broadcast_shapes(np.shape(probs), np.shape(total_count))
+        batch_shape = lax.broadcast_shapes(jnp.shape(probs), jnp.shape(total_count))
         super(BinomialProbs, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -169,39 +170,39 @@ class BinomialProbs(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.total_count * self.probs, self.batch_shape)
+        return jnp.broadcast_to(self.total_count * self.probs, self.batch_shape)
 
     @property
     def variance(self):
-        return np.broadcast_to(self.total_count * self.probs * (1 - self.probs), self.batch_shape)
+        return jnp.broadcast_to(self.total_count * self.probs * (1 - self.probs), self.batch_shape)
 
     @property
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
     def enumerate_support(self, expand=True):
-        total_count = np.amax(self.total_count)
+        total_count = jnp.amax(self.total_count)
         if not_jax_tracer(total_count):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
-            if np.amin(self.total_count) != total_count:
+            if jnp.amin(self.total_count) != total_count:
                 raise NotImplementedError("Inhomogeneous total count not supported"
                                           " by `enumerate_support`.")
-        values = np.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
+        values = jnp.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
-            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
 
 @copy_docs_from(Distribution)
 class BinomialLogits(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'logits': constraints.real}
+    arg_constraints = {'logits': constraints.real,
+                       'total_count': constraints.nonnegative_integer}
     has_enumerate_support = True
     is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
         self.logits, self.total_count = promote_shapes(logits, total_count)
-        batch_shape = lax.broadcast_shapes(np.shape(logits), np.shape(total_count))
+        batch_shape = lax.broadcast_shapes(jnp.shape(logits), jnp.shape(total_count))
         super(BinomialLogits, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -212,8 +213,8 @@ class BinomialLogits(Distribution):
         log_factorial_n = gammaln(self.total_count + 1)
         log_factorial_k = gammaln(value + 1)
         log_factorial_nmk = gammaln(self.total_count - value + 1)
-        normalize_term = (self.total_count * np.clip(self.logits, 0) +
-                          xlog1py(self.total_count, np.exp(-np.abs(self.logits))) -
+        normalize_term = (self.total_count * jnp.clip(self.logits, 0) +
+                          xlog1py(self.total_count, jnp.exp(-jnp.abs(self.logits))) -
                           log_factorial_n)
         return value * self.logits - log_factorial_k - log_factorial_nmk - normalize_term
 
@@ -223,26 +224,26 @@ class BinomialLogits(Distribution):
 
     @property
     def mean(self):
-        return np.broadcast_to(self.total_count * self.probs, self.batch_shape)
+        return jnp.broadcast_to(self.total_count * self.probs, self.batch_shape)
 
     @property
     def variance(self):
-        return np.broadcast_to(self.total_count * self.probs * (1 - self.probs), self.batch_shape)
+        return jnp.broadcast_to(self.total_count * self.probs * (1 - self.probs), self.batch_shape)
 
     @property
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
     def enumerate_support(self, expand=True):
-        total_count = np.amax(self.total_count)
+        total_count = jnp.amax(self.total_count)
         if not_jax_tracer(total_count):
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
-            if np.amin(self.total_count) != total_count:
+            if jnp.amin(self.total_count) != total_count:
                 raise NotImplementedError("Inhomogeneous total count not supported"
                                           " by `enumerate_support`.")
-        values = np.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
+        values = jnp.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
-            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
 
@@ -262,10 +263,10 @@ class CategoricalProbs(Distribution):
     is_discrete = True
 
     def __init__(self, probs, validate_args=None):
-        if np.ndim(probs) < 1:
+        if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
         self.probs = probs
-        super(CategoricalProbs, self).__init__(batch_shape=np.shape(self.probs)[:-1],
+        super(CategoricalProbs, self).__init__(batch_shape=jnp.shape(self.probs)[:-1],
                                                validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -273,56 +274,56 @@ class CategoricalProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
-        value = np.expand_dims(value, axis=-1)
-        value = np.broadcast_to(value, batch_shape + (1,))
+        batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
+        value = jnp.expand_dims(value, axis=-1)
+        value = jnp.broadcast_to(value, batch_shape + (1,))
         logits = _to_logits_multinom(self.probs)
-        log_pmf = np.broadcast_to(logits, batch_shape + np.shape(logits)[-1:])
-        return np.take_along_axis(log_pmf, value, axis=-1)[..., 0]
+        log_pmf = jnp.broadcast_to(logits, batch_shape + jnp.shape(logits)[-1:])
+        return jnp.take_along_axis(log_pmf, value, axis=-1)[..., 0]
 
     @property
     def mean(self):
-        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
+        return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.probs))
 
     @property
     def variance(self):
-        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.probs))
+        return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.probs))
 
     @property
     def support(self):
-        return constraints.integer_interval(0, np.shape(self.probs)[-1])
+        return constraints.integer_interval(0, jnp.shape(self.probs)[-1] - 1)
 
     def enumerate_support(self, expand=True):
-        values = np.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
+        values = jnp.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
-            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
 
 @copy_docs_from(Distribution)
 class CategoricalLogits(Distribution):
-    arg_constraints = {'logits': constraints.real}
+    arg_constraints = {'logits': constraints.real_vector}
     has_enumerate_support = True
     is_discrete = True
 
     def __init__(self, logits, validate_args=None):
-        if np.ndim(logits) < 1:
+        if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
         self.logits = logits
-        super(CategoricalLogits, self).__init__(batch_shape=np.shape(logits)[:-1],
+        super(CategoricalLogits, self).__init__(batch_shape=jnp.shape(logits)[:-1],
                                                 validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return categorical_logits(key, self.logits, shape=sample_shape + self.batch_shape)
+        return random.categorical(key, self.logits, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):
-        batch_shape = lax.broadcast_shapes(np.shape(value), self.batch_shape)
-        value = np.expand_dims(value, -1)
-        value = np.broadcast_to(value, batch_shape + (1,))
+        batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
+        value = jnp.expand_dims(value, -1)
+        value = jnp.broadcast_to(value, batch_shape + (1,))
         log_pmf = self.logits - logsumexp(self.logits, axis=-1, keepdims=True)
-        log_pmf = np.broadcast_to(log_pmf, batch_shape + np.shape(log_pmf)[-1:])
-        return np.take_along_axis(log_pmf, value, -1)[..., 0]
+        log_pmf = jnp.broadcast_to(log_pmf, batch_shape + jnp.shape(log_pmf)[-1:])
+        return jnp.take_along_axis(log_pmf, value, -1)[..., 0]
 
     @lazy_property
     def probs(self):
@@ -330,20 +331,20 @@ class CategoricalLogits(Distribution):
 
     @property
     def mean(self):
-        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.logits))
+        return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.logits))
 
     @property
     def variance(self):
-        return np.full(self.batch_shape, np.nan, dtype=get_dtype(self.logits))
+        return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.logits))
 
     @property
     def support(self):
-        return constraints.integer_interval(0, np.shape(self.logits)[-1])
+        return constraints.integer_interval(0, jnp.shape(self.logits)[-1] - 1)
 
     def enumerate_support(self, expand=True):
-        values = np.arange(self.probs.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
+        values = jnp.arange(self.logits.shape[-1]).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
-            values = np.broadcast_to(values, values.shape[:1] + self.batch_shape)
+            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
 
 
@@ -362,25 +363,25 @@ class Delta(Distribution):
     support = constraints.real
     is_discrete = True
 
-    def __init__(self, value=0., log_density=0., event_ndim=0, validate_args=None):
-        if event_ndim > np.ndim(value):
+    def __init__(self, value=0., log_density=0., event_dim=0, validate_args=None):
+        if event_dim > jnp.ndim(value):
             raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
-                             .format(event_ndim, np.ndim(value)))
-        batch_dim = np.ndim(value) - event_ndim
-        batch_shape = np.shape(value)[:batch_dim]
-        event_shape = np.shape(value)[batch_dim:]
-        self.value = lax.convert_element_type(value, canonicalize_dtype(np.float64))
+                             .format(event_dim, jnp.ndim(value)))
+        batch_dim = jnp.ndim(value) - event_dim
+        batch_shape = jnp.shape(value)[:batch_dim]
+        event_shape = jnp.shape(value)[batch_dim:]
+        self.value = lax.convert_element_type(value, canonicalize_dtype(jnp.float64))
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
-        return np.broadcast_to(device_put(self.value), shape)
+        return jnp.broadcast_to(device_put(self.value), shape)
 
     @validate_sample
     def log_prob(self, value):
-        log_prob = np.log(value == self.value)
+        log_prob = jnp.log(value == self.value)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
 
@@ -390,7 +391,14 @@ class Delta(Distribution):
 
     @property
     def variance(self):
-        return np.zeros(self.batch_shape + self.event_shape)
+        return jnp.zeros(self.batch_shape + self.event_shape)
+
+    def tree_flatten(self):
+        return (self.value, self.log_density), self.event_dim
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params, event_dim=aux_data)
 
 
 class OrderedLogistic(CategoricalProbs):
@@ -410,12 +418,12 @@ class OrderedLogistic(CategoricalProbs):
                        'cutpoints': constraints.ordered_vector}
 
     def __init__(self, predictor, cutpoints, validate_args=None):
-        predictor, self.cutpoints = promote_shapes(np.expand_dims(predictor, -1), cutpoints)
+        predictor, self.cutpoints = promote_shapes(jnp.expand_dims(predictor, -1), cutpoints)
         self.predictor = predictor[..., 0]
         cumulative_probs = expit(cutpoints - predictor)
         # add two boundary points 0 and 1
-        pad_width = [(0, 0)] * (np.ndim(cumulative_probs) - 1) + [(1, 1)]
-        cumulative_probs = np.pad(cumulative_probs, pad_width, constant_values=(0, 1))
+        pad_width = [(0, 0)] * (jnp.ndim(cumulative_probs) - 1) + [(1, 1)]
+        cumulative_probs = jnp.pad(cumulative_probs, pad_width, constant_values=(0, 1))
         probs = cumulative_probs[..., 1:] - cumulative_probs[..., :-1]
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
@@ -432,24 +440,24 @@ class PRNGIdentity(Distribution):
         super(PRNGIdentity, self).__init__(event_shape=(2,))
 
     def sample(self, key, sample_shape=()):
-        return np.reshape(random.split(key, np.product(sample_shape).astype(np.int32)),
-                          sample_shape + self.event_shape)
+        return jnp.reshape(random.split(key, np.prod(sample_shape).astype(np.int32)),
+                           sample_shape + self.event_shape)
 
 
 @copy_docs_from(Distribution)
 class MultinomialProbs(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'probs': constraints.simplex}
+    arg_constraints = {'probs': constraints.simplex,
+                       'total_count': constraints.nonnegative_integer}
     is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
-        if np.ndim(probs) < 1:
+        if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
-        batch_shape = lax.broadcast_shapes(np.shape(probs)[:-1], np.shape(total_count))
-        self.probs = promote_shapes(probs, shape=batch_shape + np.shape(probs)[-1:])[0]
+        batch_shape = lax.broadcast_shapes(jnp.shape(probs)[:-1], jnp.shape(total_count))
+        self.probs = promote_shapes(probs, shape=batch_shape + jnp.shape(probs)[-1:])[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
         super(MultinomialProbs, self).__init__(batch_shape=batch_shape,
-                                               event_shape=np.shape(self.probs)[-1:],
+                                               event_shape=jnp.shape(self.probs)[-1:],
                                                validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -460,15 +468,15 @@ class MultinomialProbs(Distribution):
         if self._validate_args:
             self._validate_sample(value)
         return gammaln(self.total_count + 1) \
-            + np.sum(xlogy(value, self.probs) - gammaln(value + 1), axis=-1)
+            + jnp.sum(xlogy(value, self.probs) - gammaln(value + 1), axis=-1)
 
     @property
     def mean(self):
-        return self.probs * np.expand_dims(self.total_count, -1)
+        return self.probs * jnp.expand_dims(self.total_count, -1)
 
     @property
     def variance(self):
-        return np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
+        return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @property
     def support(self):
@@ -477,18 +485,18 @@ class MultinomialProbs(Distribution):
 
 @copy_docs_from(Distribution)
 class MultinomialLogits(Distribution):
-    arg_constraints = {'total_count': constraints.nonnegative_integer,
-                       'logits': constraints.real}
+    arg_constraints = {'logits': constraints.real_vector,
+                       'total_count': constraints.nonnegative_integer}
     is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
-        if np.ndim(logits) < 1:
+        if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
-        batch_shape = lax.broadcast_shapes(np.shape(logits)[:-1], np.shape(total_count))
-        self.logits = promote_shapes(logits, shape=batch_shape + np.shape(logits)[-1:])[0]
+        batch_shape = lax.broadcast_shapes(jnp.shape(logits)[:-1], jnp.shape(total_count))
+        self.logits = promote_shapes(logits, shape=batch_shape + jnp.shape(logits)[-1:])[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
         super(MultinomialLogits, self).__init__(batch_shape=batch_shape,
-                                                event_shape=np.shape(self.logits)[-1:],
+                                                event_shape=jnp.shape(self.logits)[-1:],
                                                 validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -500,7 +508,7 @@ class MultinomialLogits(Distribution):
             self._validate_sample(value)
         normalize_term = self.total_count * logsumexp(self.logits, axis=-1) \
             - gammaln(self.total_count + 1)
-        return np.sum(value * self.logits - gammaln(value + 1), axis=-1) - normalize_term
+        return jnp.sum(value * self.logits - gammaln(value + 1), axis=-1) - normalize_term
 
     @lazy_property
     def probs(self):
@@ -508,11 +516,11 @@ class MultinomialLogits(Distribution):
 
     @property
     def mean(self):
-        return np.expand_dims(self.total_count, -1) * self.probs
+        return jnp.expand_dims(self.total_count, -1) * self.probs
 
     @property
     def variance(self):
-        return np.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
+        return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
     @property
     def support(self):
@@ -536,16 +544,16 @@ class Poisson(Distribution):
 
     def __init__(self, rate, validate_args=None):
         self.rate = rate
-        super(Poisson, self).__init__(np.shape(rate), validate_args=validate_args)
+        super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return poisson(key, self.rate, shape=sample_shape + self.batch_shape)
+        return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        return (np.log(self.rate) * value) - gammaln(value + 1) - self.rate
+        return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
     def mean(self):
@@ -568,7 +576,7 @@ class ZeroInflatedPoisson(Distribution):
     is_discrete = True
 
     def __init__(self, gate, rate=1., validate_args=None):
-        batch_shape = lax.broadcast_shapes(np.shape(gate), np.shape(rate))
+        batch_shape = lax.broadcast_shapes(jnp.shape(gate), jnp.shape(rate))
         self.gate, self.rate = promote_shapes(gate, rate)
         super(ZeroInflatedPoisson, self).__init__(batch_shape, validate_args=validate_args)
 
@@ -576,13 +584,13 @@ class ZeroInflatedPoisson(Distribution):
         key_bern, key_poisson = random.split(key)
         shape = sample_shape + self.batch_shape
         mask = random.bernoulli(key_bern, self.gate, shape)
-        samples = poisson(key_poisson, self.rate, shape)
-        return np.where(mask, 0, samples)
+        samples = random.poisson(key_poisson, device_put(self.rate), shape)
+        return jnp.where(mask, 0, samples)
 
     @validate_sample
     def log_prob(self, value):
-        log_prob = np.log(self.rate) * value - gammaln(value + 1) + (np.log1p(-self.gate) - self.rate)
-        return np.where(value == 0, np.logaddexp(np.log(self.gate), log_prob), log_prob)
+        log_prob = jnp.log(self.rate) * value - gammaln(value + 1) + (jnp.log1p(-self.gate) - self.rate)
+        return jnp.where(value == 0, jnp.logaddexp(jnp.log(self.gate), log_prob), log_prob)
 
     @lazy_property
     def mean(self):

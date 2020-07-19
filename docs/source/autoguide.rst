@@ -1,11 +1,11 @@
 Automatic Guide Generation
 ==========================
 
-.. automodule:: numpyro.contrib.autoguide
+.. automodule:: numpyro.infer.autoguide
 
 AutoContinuous
 --------------
-.. autoclass:: numpyro.contrib.autoguide.AutoContinuous
+.. autoclass:: numpyro.infer.autoguide.AutoContinuous
     :members:
     :undoc-members:
     :show-inheritance:
@@ -13,7 +13,7 @@ AutoContinuous
 
 AutoBNAFNormal
 --------------
-.. autoclass:: numpyro.contrib.autoguide.AutoBNAFNormal
+.. autoclass:: numpyro.infer.autoguide.AutoBNAFNormal
     :members:
     :undoc-members:
     :show-inheritance:
@@ -21,7 +21,7 @@ AutoBNAFNormal
 
 AutoDiagonalNormal
 ------------------
-.. autoclass:: numpyro.contrib.autoguide.AutoDiagonalNormal
+.. autoclass:: numpyro.infer.autoguide.AutoDiagonalNormal
     :members:
     :undoc-members:
     :show-inheritance:
@@ -29,7 +29,7 @@ AutoDiagonalNormal
 
 AutoMultivariateNormal
 ----------------------
-.. autoclass:: numpyro.contrib.autoguide.AutoMultivariateNormal
+.. autoclass:: numpyro.infer.autoguide.AutoMultivariateNormal
     :members:
     :undoc-members:
     :show-inheritance:
@@ -37,7 +37,7 @@ AutoMultivariateNormal
 
 AutoIAFNormal
 -------------
-.. autoclass:: numpyro.contrib.autoguide.AutoIAFNormal
+.. autoclass:: numpyro.infer.autoguide.AutoIAFNormal
     :members:
     :undoc-members:
     :show-inheritance:
@@ -45,7 +45,7 @@ AutoIAFNormal
 
 AutoLaplaceApproximation
 ------------------------
-.. autoclass:: numpyro.contrib.autoguide.AutoLaplaceApproximation
+.. autoclass:: numpyro.infer.autoguide.AutoLaplaceApproximation
     :members:
     :undoc-members:
     :show-inheritance:
@@ -53,15 +53,7 @@ AutoLaplaceApproximation
 
 AutoLowRankMultivariateNormal
 -----------------------------
-.. autoclass:: numpyro.contrib.autoguide.AutoLowRankMultivariateNormal
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-AutoContinuousELBO
-------------------
-.. autoclass:: numpyro.contrib.autoguide.AutoContinuousELBO
+.. autoclass:: numpyro.infer.autoguide.AutoLowRankMultivariateNormal
     :members:
     :undoc-members:
     :show-inheritance:

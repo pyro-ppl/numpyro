@@ -17,6 +17,7 @@ from numpyro.distributions.continuous import (
     HalfCauchy,
     HalfNormal,
     InverseGamma,
+    Laplace,
     LKJCholesky,
     Logistic,
     LogNormal,
@@ -27,8 +28,10 @@ from numpyro.distributions.continuous import (
     StudentT,
     TruncatedCauchy,
     TruncatedNormal,
+    TruncatedPolyaGamma,
     Uniform
 )
+from numpyro.distributions.directional import VonMises
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -51,7 +54,9 @@ from numpyro.distributions.discrete import (
 from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
+    ImproperUniform,
     Independent,
+    MaskedDistribution,
     TransformedDistribution,
     Unit
 )
@@ -87,12 +92,15 @@ __all__ = [
     'GumbelSoftmaxProbs',
     'HalfCauchy',
     'HalfNormal',
+    'ImproperUniform',
     'Independent',
     'InverseGamma',
+    'Laplace',
     'LKJ',
     'LKJCholesky',
     'Logistic',
     'LogNormal',
+    'MaskedDistribution',
     'Multinomial',
     'MultinomialLogits',
     'MultinomialProbs',
@@ -107,8 +115,10 @@ __all__ = [
     'TransformedDistribution',
     'TruncatedCauchy',
     'TruncatedNormal',
+    'TruncatedPolyaGamma',
     'Uniform',
     'Unit',
+    'VonMises',
     'ZeroInflatedPoisson',
 
 ]

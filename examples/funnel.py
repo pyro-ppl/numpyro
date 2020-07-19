@@ -32,23 +32,23 @@ import os
 import matplotlib.pyplot as plt
 
 from jax import random
-import jax.numpy as np
+import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, Predictive
+from numpyro.infer.reparam import LocScaleReparam
 
 
 def model(dim=10):
     y = numpyro.sample('y', dist.Normal(0, 3))
-    numpyro.sample('x', dist.Normal(np.zeros(dim - 1), np.exp(y / 2)))
+    numpyro.sample('x', dist.Normal(jnp.zeros(dim - 1), jnp.exp(y / 2)))
 
 
 def reparam_model(dim=10):
     y = numpyro.sample('y', dist.Normal(0, 3))
-    numpyro.sample('x', dist.TransformedDistribution(
-        dist.Normal(np.zeros(dim - 1), 1), AffineTransform(0, np.exp(y / 2))))
+    with numpyro.handlers.reparam(config={'x': LocScaleReparam(0)}):
+        numpyro.sample('x', dist.Normal(jnp.zeros(dim - 1), jnp.exp(y / 2)))
 
 
 def run_inference(model, args, rng_key):
@@ -70,6 +70,9 @@ def main(args):
     # do inference with non-centered parameterization
     print("\n=========================== Non-centered Parameterization ============================")
     reparam_samples = run_inference(reparam_model, args, rng_key)
+    # collect deterministic sites
+    reparam_samples = Predictive(reparam_model, reparam_samples, return_sites=['x', 'y'])(
+        random.PRNGKey(1))
 
     # make plots
     fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 8))

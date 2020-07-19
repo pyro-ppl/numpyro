@@ -1,14 +1,13 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from functools import namedtuple
+from functools import namedtuple, partial
 
-import jax
 from jax import random, value_and_grad
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
-from numpyro.handlers import seed, trace
+from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import transform_fn
 
 SVIState = namedtuple('SVIState', ['optim_state', 'rng_key'])
@@ -22,6 +21,42 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 class SVI(object):
     """
     Stochastic Variational Inference given an ELBO loss objective.
+
+    **References**
+
+    1. *SVI Part I: An Introduction to Stochastic Variational Inference in Pyro*,
+       (http://pyro.ai/examples/svi_part_i.html)
+
+    **Example:**
+
+    .. doctest::
+
+        >>> from jax import lax, random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.distributions import constraints
+        >>> from numpyro.infer import SVI, ELBO
+
+        >>> def model(data):
+        ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
+        ...     with numpyro.plate("N", data.shape[0]):
+        ...         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+        >>> def guide(data):
+        ...     alpha_q = numpyro.param("alpha_q", 15., constraint=constraints.positive)
+        ...     beta_q = numpyro.param("beta_q", 15., constraint=constraints.positive)
+        ...     numpyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
+
+        >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
+        >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
+        >>> svi = SVI(model, guide, optimizer, loss=ELBO())
+        >>> init_state = svi.init(random.PRNGKey(0), data)
+        >>> state = lax.fori_loop(0, 2000, lambda i, state: svi.update(state, data)[0], init_state)
+        >>> # or to collect losses during the loop
+        >>> # state, losses = lax.scan(lambda state, i: svi.update(state, data), init_state, jnp.arange(2000))
+        >>> params = svi.get_params(state)
+        >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
 
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
@@ -56,7 +91,7 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(model_init).get_trace(*args, **kwargs, **self.static_kwargs)
+        model_trace = trace(replay(model_init, guide_trace)).get_trace(*args, **kwargs, **self.static_kwargs)
         params = {}
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
@@ -67,7 +102,7 @@ class SVI(object):
                 inv_transforms[site['name']] = transform
                 params[site['name']] = transform.inv(site['value'])
 
-        self.constrain_fn = jax.partial(transform_fn, inv_transforms)
+        self.constrain_fn = partial(transform_fn, inv_transforms)
         return SVIState(self.optim.init(params), rng_key)
 
     def get_params(self, svi_state):

@@ -12,6 +12,12 @@ EXAMPLES_DIR = os.path.join(os.path.dirname(TESTS_DIR), 'examples')
 
 
 EXAMPLES = [
+    'annotation.py --model mn',
+    'annotation.py --model ds',
+    'annotation.py --model mace',
+    'annotation.py --model hds',
+    'annotation.py --model id',
+    'annotation.py --model lre',
     'baseball.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'bnn.py --num-samples 10 --num-warmup 10 --num-data 7 --num-chains 2',
     'covtype.py --algo HMC --num-samples 10',

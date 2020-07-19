@@ -1,20 +1,20 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
 import os
 import random
 import re
 
-import numpy as onp
+import numpy as np
 import tqdm
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
 
 _DATA_TYPES = {}
@@ -28,7 +28,7 @@ def set_rng_seed(rng_seed):
     :param int rng_seed: seed for Python and NumPy random states.
     """
     random.seed(rng_seed)
-    onp.random.seed(rng_seed)
+    np.random.seed(rng_seed)
 
 
 def enable_x64(use_x64=True):
@@ -140,7 +140,7 @@ def not_jax_tracer(x):
     return not isinstance(x, Tracer)
 
 
-def identity(x):
+def identity(x, *args, **kwargs):
     return x
 
 
@@ -206,11 +206,11 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     def _body_fn(i, vals):
         val, collection, lower_idx = vals
         val = body_fun(val)
-        i = np.where(i >= lower_idx, i - lower_idx, 0)
+        i = jnp.where(i >= lower_idx, i - lower_idx, 0)
         collection = ops.index_update(collection, i, ravel_pytree(transform(val))[0])
         return val, collection, lower_idx
 
-    collection = np.zeros((collection_size,) + init_val_flat.shape)
+    collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
         last_val, collection, _ = fori_loop(0, upper, _body_fn, (init_val, collection, lower))
     else:
@@ -278,15 +278,15 @@ pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype
 
 def _ravel_list(*leaves):
     leaves_metadata = tree_map(lambda l: pytree_metadata(
-        np.ravel(l), np.shape(l), np.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
-    leaves_idx = np.cumsum(np.array((0,) + tuple(d.size for d in leaves_metadata)))
+        jnp.ravel(l), jnp.shape(l), jnp.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
+    leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.size for d in leaves_metadata)))
 
     def unravel_list(arr):
-        return [np.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
-                           m.shape).astype(m.dtype)
+        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
+                            m.shape).astype(m.dtype)
                 for i, m in enumerate(leaves_metadata)]
 
-    flat = np.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else np.array([])
+    flat = jnp.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else jnp.array([])
     return flat, unravel_list
 
 
@@ -298,3 +298,43 @@ def ravel_pytree(pytree):
         return tree_unflatten(treedef, unravel_list(arr))
 
     return flat, unravel_pytree
+
+
+def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
+    """
+    Vectorizing map that maps a function `fn` over `batch_ndims` leading axes
+    of `xs`. This uses jax.vmap over smaller chunks of the batch dimensions
+    to keep memory usage constant.
+
+    :param callable fn: The function to map over.
+    :param xs: JAX pytree (e.g. an array, a list/tuple/dict of arrays,...)
+    :param int batch_ndims: The number of leading dimensions of `xs`
+        to apply `fn` element-wise over them.
+    :param int chunk_size: Size of each chunk of `xs`.
+        Defaults to the size of batch dimensions.
+    :returns: output of `fn(xs)`.
+    """
+    flatten_xs = tree_flatten(xs)[0]
+    batch_shape = np.shape(flatten_xs[0])[:batch_ndims]
+    for x in flatten_xs[1:]:
+        assert np.shape(x)[:batch_ndims] == batch_shape
+
+    # we'll do map(vmap(fn), xs) and make xs.shape = (num_chunks, chunk_size, ...)
+    num_chunks = batch_size = int(np.prod(batch_shape))
+    prepend_shape = (-1,) if batch_size > 1 else ()
+    xs = tree_map(lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs)
+    # XXX: probably for the default behavior with chunk_size=None,
+    # it is better to catch OOM error and reduce chunk_size by half until OOM disappears.
+    chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
+    if chunk_size > 1:
+        pad = chunk_size - (batch_size % chunk_size)
+        xs = tree_map(lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs)
+        num_chunks = batch_size // chunk_size + int(pad > 0)
+        prepend_shape = (-1,) if num_chunks > 1 else ()
+        xs = tree_map(lambda x: jnp.reshape(x, prepend_shape + (chunk_size,) + jnp.shape(x)[1:]), xs)
+        fn = vmap(fn)
+
+    ys = lax.map(fn, xs) if num_chunks > 1 else fn(xs)
+    map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
+    ys = tree_map(lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys)
+    return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)

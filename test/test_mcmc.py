@@ -3,21 +3,23 @@
 
 import os
 
-import numpy as onp
-from jax.test_util import check_close
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
 from jax import jit, pmap, random, vmap
 from jax.lib import xla_bridge
-import jax.numpy as np
+import jax.numpy as jnp
 from jax.scipy.special import logit
+from jax.test_util import check_close
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions import constraints
+from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import HMC, MCMC, NUTS, SA
-from numpyro.infer.mcmc import hmc, _get_proposal_loc_and_scale, _numpy_delete
+from numpyro.infer.hmc import hmc
+from numpyro.infer.reparam import TransformReparam
+from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
 from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
@@ -29,9 +31,9 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
 
     def potential_fn(z):
-        return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
+        return 0.5 * jnp.sum(((z - true_mean) / true_std) ** 2)
 
-    init_params = np.array(0.)
+    init_params = jnp.array(0.)
     if kernel_cls is SA:
         kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
     else:
@@ -40,11 +42,11 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     mcmc.print_summary()
     hmc_states = mcmc.get_samples()
-    assert_allclose(np.mean(hmc_states), true_mean, rtol=0.05)
-    assert_allclose(np.std(hmc_states), true_std, rtol=0.05)
+    assert_allclose(jnp.mean(hmc_states), true_mean, rtol=0.07)
+    assert_allclose(jnp.std(hmc_states), true_std, rtol=0.07)
 
     if 'JAX_ENABLE_X64' in os.environ:
-        assert hmc_states.dtype == np.float64
+        assert hmc_states.dtype == jnp.float64
 
 
 def test_correlated_mvn():
@@ -54,20 +56,20 @@ def test_correlated_mvn():
     warmup_steps, num_samples = 5000, 8000
 
     true_mean = 0.
-    a = np.tril(0.5 * np.fliplr(np.eye(D)) + 0.1 * np.exp(random.normal(random.PRNGKey(0), shape=(D, D))))
-    true_cov = np.dot(a, a.T)
-    true_prec = np.linalg.inv(true_cov)
+    a = jnp.tril(0.5 * jnp.fliplr(jnp.eye(D)) + 0.1 * jnp.exp(random.normal(random.PRNGKey(0), shape=(D, D))))
+    true_cov = jnp.dot(a, a.T)
+    true_prec = jnp.linalg.inv(true_cov)
 
     def potential_fn(z):
-        return 0.5 * np.dot(z.T, np.dot(true_prec, z))
+        return 0.5 * jnp.dot(z.T, jnp.dot(true_prec, z))
 
-    init_params = np.zeros(D)
+    init_params = jnp.zeros(D)
     kernel = NUTS(potential_fn=potential_fn, dense_mass=True)
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples), true_mean, atol=0.02)
-    assert onp.sum(onp.abs(onp.cov(samples.T) - true_cov)) / D**2 < 0.02
+    assert_allclose(jnp.mean(samples), true_mean, atol=0.02)
+    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
@@ -75,13 +77,13 @@ def test_logistic_regression_x64(kernel_cls):
     N, dim = 3000, 3
     warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
     data = random.normal(random.PRNGKey(0), (N, dim))
-    true_coefs = np.arange(1., dim + 1.)
-    logits = np.sum(true_coefs * data, axis=-1)
+    true_coefs = jnp.arange(1., dim + 1.)
+    logits = jnp.sum(true_coefs * data, axis=-1)
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(labels):
-        coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
-        logits = numpyro.deterministic('logits', np.sum(coefs * data, axis=-1))
+        coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
+        logits = numpyro.deterministic('logits', jnp.sum(coefs * data, axis=-1))
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     if kernel_cls is SA:
@@ -93,10 +95,10 @@ def test_logistic_regression_x64(kernel_cls):
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert samples['logits'].shape == (num_samples, N)
-    assert_allclose(np.mean(samples['coefs'], 0), true_coefs, atol=0.22)
+    assert_allclose(jnp.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
     if 'JAX_ENABLE_X64' in os.environ:
-        assert samples['coefs'].dtype == np.float64
+        assert samples['coefs'].dtype == jnp.float64
 
 
 def test_uniform_normal():
@@ -105,7 +107,8 @@ def test_uniform_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+        with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
+            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
@@ -117,7 +120,7 @@ def test_uniform_normal():
     samples = mcmc.get_samples()
     assert len(warmup_samples['loc']) == num_warmup
     assert len(samples['loc']) == num_samples
-    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
+    assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
 def test_improper_normal():
@@ -125,7 +128,10 @@ def test_improper_normal():
 
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
-        loc = numpyro.param('loc', 0., constraint=constraints.interval(0., alpha))
+        with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
+            loc = numpyro.sample('loc', dist.TransformedDistribution(
+                dist.Uniform(0, 1).mask(False),
+                AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
@@ -133,7 +139,7 @@ def test_improper_normal():
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['loc'], 0), true_coef, atol=0.05)
+    assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
@@ -141,26 +147,26 @@ def test_beta_bernoulli_x64(kernel_cls):
     warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (500, 20000)
 
     def model(data):
-        alpha = np.array([1.1, 1.1])
-        beta = np.array([1.1, 1.1])
+        alpha = jnp.array([1.1, 1.1])
+        beta = jnp.array([1.1, 1.1])
         p_latent = numpyro.sample('p_latent', dist.Beta(alpha, beta))
         numpyro.sample('obs', dist.Bernoulli(p_latent), obs=data)
         return p_latent
 
-    true_probs = np.array([0.9, 0.1])
+    true_probs = jnp.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
     if kernel_cls is SA:
         kernel = SA(model=model)
     else:
-        kernel = kernel_cls(model=model, trajectory_length=1.)
+        kernel = kernel_cls(model=model, trajectory_length=0.1)
     mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
     mcmc.print_summary()
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
+    assert_allclose(jnp.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
     if 'JAX_ENABLE_X64' in os.environ:
-        assert samples['p_latent'].dtype == np.float64
+        assert samples['p_latent'].dtype == jnp.float64
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -169,21 +175,21 @@ def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
     warmup_steps, num_samples = 100, 20000
 
     def model(data):
-        concentration = np.array([1.0, 1.0, 1.0])
+        concentration = jnp.array([1.0, 1.0, 1.0])
         p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
         numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
         return p_latent
 
-    true_probs = np.array([0.1, 0.6, 0.3])
+    true_probs = jnp.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     kernel = kernel_cls(model, trajectory_length=1., dense_mass=dense_mass)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
+    assert_allclose(jnp.mean(samples['p_latent'], 0), true_probs, atol=0.02)
 
     if 'JAX_ENABLE_X64' in os.environ:
-        assert samples['p_latent'].dtype == np.float64
+        assert samples['p_latent'].dtype == jnp.float64
 
 
 def test_change_point_x64():
@@ -191,14 +197,14 @@ def test_change_point_x64():
     warmup_steps, num_samples = 500, 3000
 
     def model(data):
-        alpha = 1 / np.mean(data)
+        alpha = 1 / jnp.mean(data)
         lambda1 = numpyro.sample('lambda1', dist.Exponential(alpha))
         lambda2 = numpyro.sample('lambda2', dist.Exponential(alpha))
         tau = numpyro.sample('tau', dist.Uniform(0, 1))
-        lambda12 = np.where(np.arange(len(data)) < tau * len(data), lambda1, lambda2)
+        lambda12 = jnp.where(jnp.arange(len(data)) < tau * len(data), lambda1, lambda2)
         numpyro.sample('obs', dist.Poisson(lambda12), obs=data)
 
-    count_data = np.array([
+    count_data = jnp.array([
         13,  24,   8,  24,   7,  35,  14,  11,  15,  11,  22,  22,  11,  57,
         11,  19,  29,   6,  19,  12,  22,  12,  18,  72,  32,   9,   7,  13,
         19,  23,  27,  20,   6,  17,  13,  10,  14,   6,  16,  15,   7,   2,
@@ -210,16 +216,16 @@ def test_change_point_x64():
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(4), count_data)
     samples = mcmc.get_samples()
-    tau_posterior = (samples['tau'] * len(count_data)).astype(np.int32)
-    tau_values, counts = onp.unique(tau_posterior, return_counts=True)
-    mode_ind = np.argmax(counts)
+    tau_posterior = (samples['tau'] * len(count_data)).astype(jnp.int32)
+    tau_values, counts = np.unique(tau_posterior, return_counts=True)
+    mode_ind = jnp.argmax(counts)
     mode = tau_values[mode_ind]
     assert mode == 44
 
     if 'JAX_ENABLE_X64' in os.environ:
-        assert samples['lambda1'].dtype == np.float64
-        assert samples['lambda2'].dtype == np.float64
-        assert samples['tau'].dtype == np.float64
+        assert samples['lambda1'].dtype == jnp.float64
+        assert samples['lambda2'].dtype == jnp.float64
+        assert samples['tau'].dtype == jnp.float64
 
 
 @pytest.mark.parametrize('with_logits', ['True', 'False'])
@@ -240,10 +246,10 @@ def test_binomial_stable_x64(with_logits):
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(2), data)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['p'], 0), data['x'] / data['n'], rtol=0.05)
+    assert_allclose(jnp.mean(samples['p'], 0), data['x'] / data['n'], rtol=0.05)
 
     if 'JAX_ENABLE_X64' in os.environ:
-        assert samples['p'].dtype == np.float64
+        assert samples['p'].dtype == jnp.float64
 
 
 def test_improper_prior():
@@ -251,8 +257,8 @@ def test_improper_prior():
     num_warmup, num_samples = 1000, 8000
 
     def model(data):
-        mean = numpyro.param('mean', 0.)
-        std = numpyro.param('std', 1., constraint=constraints.positive)
+        mean = numpyro.sample('mean', dist.Normal(0, 1).mask(False))
+        std = numpyro.sample('std', dist.ImproperUniform(dist.constraints.positive, (), ()))
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
@@ -261,8 +267,8 @@ def test_improper_prior():
     mcmc.warmup(random.PRNGKey(2), data)
     mcmc.run(random.PRNGKey(2), data)
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(samples['mean']), true_mean, rtol=0.05)
-    assert_allclose(np.mean(samples['std']), true_std, rtol=0.05)
+    assert_allclose(jnp.mean(samples['mean']), true_mean, rtol=0.05)
+    assert_allclose(jnp.mean(samples['std']), true_std, rtol=0.05)
 
 
 def test_mcmc_progbar():
@@ -270,8 +276,8 @@ def test_mcmc_progbar():
     num_warmup, num_samples = 10, 10
 
     def model(data):
-        mean = numpyro.param('mean', 0.)
-        std = numpyro.param('std', 1., constraint=constraints.positive)
+        mean = numpyro.sample('mean', dist.Normal(0, 1).mask(False))
+        std = numpyro.sample('std', dist.LogNormal(0, 1).mask(False))
         return numpyro.sample('obs', dist.Normal(mean, std), obs=data)
 
     data = dist.Normal(true_mean, true_std).sample(random.PRNGKey(1), (2000,))
@@ -315,8 +321,8 @@ def test_diverging(kernel_cls, adapt_step_size):
 def test_prior_with_sample_shape():
     data = {
         "J": 8,
-        "y": np.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0]),
-        "sigma": np.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0]),
+        "y": jnp.array([28.0, 8.0, -3.0, 7.0, -1.0, 1.0, 18.0, 12.0]),
+        "sigma": jnp.array([15.0, 10.0, 16.0, 11.0, 9.0, 11.0, 10.0, 18.0]),
     }
 
     def schools_model():
@@ -353,26 +359,26 @@ def test_chain(use_init_params, chain_method):
     num_chains = 2
     num_warmup, num_samples = 5000, 5000
     data = random.normal(random.PRNGKey(0), (N, dim))
-    true_coefs = np.arange(1., dim + 1.)
-    logits = np.sum(true_coefs * data, axis=-1)
+    true_coefs = jnp.arange(1., dim + 1.)
+    logits = jnp.sum(true_coefs * data, axis=-1)
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     def model(labels):
-        coefs = numpyro.sample('coefs', dist.Normal(np.zeros(dim), np.ones(dim)))
-        logits = np.sum(coefs * data, axis=-1)
+        coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
+        logits = jnp.sum(coefs * data, axis=-1)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup, num_samples, num_chains=num_chains)
     mcmc.chain_method = chain_method
     init_params = None if not use_init_params else \
-        {'coefs': np.tile(np.ones(dim), num_chains).reshape(num_chains, dim)}
+        {'coefs': jnp.tile(jnp.ones(dim), num_chains).reshape(num_chains, dim)}
     mcmc.run(random.PRNGKey(2), labels, init_params=init_params)
     samples_flat = mcmc.get_samples()
     assert samples_flat['coefs'].shape[0] == num_chains * num_samples
     samples = mcmc.get_samples(group_by_chain=True)
     assert samples['coefs'].shape[:2] == (num_chains, num_samples)
-    assert_allclose(np.mean(samples_flat['coefs'], 0), true_coefs, atol=0.21)
+    assert_allclose(jnp.mean(samples_flat['coefs'], 0), true_coefs, atol=0.21)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -402,7 +408,7 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     #   + num_samples
 
     def model(data):
-        concentration = np.array([1.0, 1.0, 1.0])
+        concentration = jnp.array([1.0, 1.0, 1.0])
         p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
         numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
         return p_latent
@@ -416,10 +422,10 @@ def test_chain_inside_jit(kernel_cls, chain_method):
         mcmc.run(rng_key, data)
         return mcmc.get_samples()
 
-    true_probs = np.array([0.1, 0.6, 0.3])
+    true_probs = jnp.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     samples = get_samples(rng_key, data, step_size, trajectory_length, target_accept_prob)
-    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.02)
+    assert_allclose(jnp.mean(samples['p_latent'], 0), true_probs, atol=0.02)
 
 
 @pytest.mark.parametrize('chain_method', [
@@ -434,12 +440,12 @@ def test_chain_inside_jit(kernel_cls, chain_method):
 @pytest.mark.skipif('CI' in os.environ, reason="Compiling time the whole sampling process is slow.")
 def test_chain_smoke(chain_method, compile_args):
     def model(data):
-        concentration = np.array([1.0, 1.0, 1.0])
+        concentration = jnp.array([1.0, 1.0, 1.0])
         p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
         numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
         return p_latent
 
-    data = dist.Categorical(np.array([0.1, 0.6, 0.3])).sample(random.PRNGKey(1), (2000,))
+    data = dist.Categorical(jnp.array([0.1, 0.6, 0.3])).sample(random.PRNGKey(1), (2000,))
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 2, 5, num_chains=2, chain_method=chain_method, jit_model_args=compile_args)
     mcmc.warmup(random.PRNGKey(0), data)
@@ -466,25 +472,25 @@ def test_functional_beta_bernoulli_x64(algo):
     warmup_steps, num_samples = 500, 20000
 
     def model(data):
-        alpha = np.array([1.1, 1.1])
-        beta = np.array([1.1, 1.1])
+        alpha = jnp.array([1.1, 1.1])
+        beta = jnp.array([1.1, 1.1])
         p_latent = numpyro.sample('p_latent', dist.Beta(alpha, beta))
         numpyro.sample('obs', dist.Bernoulli(p_latent), obs=data)
         return p_latent
 
-    true_probs = np.array([0.9, 0.1])
+    true_probs = jnp.array([0.9, 0.1])
     data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
-    init_params, potential_fn, constrain_fn = initialize_model(random.PRNGKey(2), model, model_args=(data,))
+    init_params, potential_fn, constrain_fn, _ = initialize_model(random.PRNGKey(2), model, model_args=(data,))
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
     hmc_state = init_kernel(init_params,
                             trajectory_length=1.,
                             num_warmup=warmup_steps)
     samples = fori_collect(0, num_samples, sample_kernel, hmc_state,
                            transform=lambda x: constrain_fn(x.z))
-    assert_allclose(np.mean(samples['p_latent'], 0), true_probs, atol=0.05)
+    assert_allclose(jnp.mean(samples['p_latent'], 0), true_probs, atol=0.05)
 
     if 'JAX_ENABLE_X64' in os.environ:
-        assert samples['p_latent'].dtype == np.float64
+        assert samples['p_latent'].dtype == jnp.float64
 
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
@@ -498,10 +504,10 @@ def test_functional_map(algo, map_fn):
     warmup_steps, num_samples = 1000, 8000
 
     def potential_fn(z):
-        return 0.5 * np.sum(((z - true_mean) / true_std) ** 2)
+        return 0.5 * jnp.sum(((z - true_mean) / true_std) ** 2)
 
     init_kernel, sample_kernel = hmc(potential_fn, algo=algo)
-    init_params = np.array([0., -1.])
+    init_params = jnp.array([0., -1.])
     rng_keys = random.split(random.PRNGKey(0), 2)
 
     init_kernel_map = map_fn(lambda init_param, rng_key: init_kernel(
@@ -512,15 +518,15 @@ def test_functional_map(algo, map_fn):
                                                              transform=lambda x: x.z, progbar=False))
     chain_samples = fori_collect_map(init_states)
 
-    assert_allclose(np.mean(chain_samples, axis=1), np.repeat(true_mean, 2), rtol=0.06)
-    assert_allclose(np.std(chain_samples, axis=1), np.repeat(true_std, 2), rtol=0.06)
+    assert_allclose(jnp.mean(chain_samples, axis=1), jnp.repeat(true_mean, 2), rtol=0.06)
+    assert_allclose(jnp.std(chain_samples, axis=1), jnp.repeat(true_std, 2), rtol=0.06)
 
 
 @pytest.mark.parametrize('jit_args', [False, True])
 @pytest.mark.parametrize('shape', [50, 100])
 def test_reuse_mcmc_run(jit_args, shape):
-    y1 = onp.random.normal(3, 0.1, (100,))
-    y2 = onp.random.normal(-3, 0.1, (shape,))
+    y1 = np.random.normal(3, 0.1, (100,))
+    y2 = np.random.normal(-3, 0.1, (shape,))
 
     def model(y_obs):
         mu = numpyro.sample('mu', dist.Normal(0., 1.))
@@ -552,16 +558,19 @@ def test_model_with_multiple_exec_paths(jit_args):
         mu = int_term + x_term + y_term
         numpyro.sample('obs', dist.Normal(mu, sigma), obs=z)
 
-    a = np.exp(onp.random.randn(10))
-    b = np.exp(onp.random.randn(10))
-    z = onp.random.randn(10)
+    a = jnp.exp(np.random.randn(10))
+    b = jnp.exp(np.random.randn(10))
+    z = np.random.randn(10)
 
     # Run MCMC on zero observations.
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 20, 10, jit_model_args=jit_args)
     mcmc.run(random.PRNGKey(1), a, b=None, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'x', 'sigma'}
     mcmc.run(random.PRNGKey(2), a=None, b=b, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'y', 'sigma'}
     mcmc.run(random.PRNGKey(3), a=a, b=b, z=z)
+    assert set(mcmc.get_samples()) == {'a', 'x', 'y', 'sigma'}
 
 
 @pytest.mark.parametrize('num_chains', [1, 2])
@@ -606,22 +615,22 @@ def test_get_proposal_loc_and_scale(dense_mass):
     N = 10
     dim = 3
     samples = random.normal(random.PRNGKey(0), (N, dim))
-    loc = np.mean(samples[:-1], 0)
+    loc = jnp.mean(samples[:-1], 0)
     if dense_mass:
-        scale = np.linalg.cholesky(np.cov(samples[:-1], rowvar=False, bias=True))
+        scale = jnp.linalg.cholesky(jnp.cov(samples[:-1], rowvar=False, bias=True))
     else:
-        scale = np.std(samples[:-1], 0)
+        scale = jnp.std(samples[:-1], 0)
     actual_loc, actual_scale = _get_proposal_loc_and_scale(samples[:-1], loc, scale, samples[-1])
     expected_loc, expected_scale = [], []
     for i in range(N - 1):
-        samples_i = onp.delete(samples, i, axis=0)
-        expected_loc.append(np.mean(samples_i, 0))
+        samples_i = np.delete(samples, i, axis=0)
+        expected_loc.append(jnp.mean(samples_i, 0))
         if dense_mass:
-            expected_scale.append(np.linalg.cholesky(np.cov(samples_i, rowvar=False, bias=True)))
+            expected_scale.append(jnp.linalg.cholesky(jnp.cov(samples_i, rowvar=False, bias=True)))
         else:
-            expected_scale.append(np.std(samples_i, 0))
-    expected_loc = np.stack(expected_loc)
-    expected_scale = np.stack(expected_scale)
+            expected_scale.append(jnp.std(samples_i, 0))
+    expected_loc = jnp.stack(expected_loc)
+    expected_scale = jnp.stack(expected_scale)
     assert_allclose(actual_loc, expected_loc, rtol=1e-4)
     assert_allclose(actual_scale, expected_scale, atol=1e-6, rtol=0.05)
 
@@ -630,6 +639,6 @@ def test_get_proposal_loc_and_scale(dense_mass):
 @pytest.mark.parametrize('idx', [0, 1, 2])
 def test_numpy_delete(shape, idx):
     x = random.normal(random.PRNGKey(0), shape)
-    expected = onp.delete(x, idx, axis=0)
+    expected = np.delete(x, idx, axis=0)
     actual = _numpy_delete(x, idx)
     assert_allclose(actual, expected)
