@@ -97,7 +97,7 @@ class promote_shapes(Messenger):
                 msg["fn"] = tree_map(lambda x: jnp.reshape(x, prepend_shapes + jnp.shape(x)), fn)
 
 
-def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None):
+def scan_enum(f, init, xs, length, reverse, unroll_len, rng_key=None, substitute_stack=None):
     # XXX: This implementation only works for history size=1 but can be
     # extended to history size > 1 by running `f` `history_size` times
     # for initialization. However, `sequential_sum_product` does not
@@ -172,7 +172,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
     return wrapped_carry, (pytree_trace, ys)
 
 
-def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False):
+def scan_wrapper(f, init, xs, length, reverse, unroll_len=None, rng_key=None, substitute_stack=[], enum=False):
     if enum:
         return scan_enum(f, init, xs, length, reverse, rng_key, substitute_stack)
 
@@ -199,7 +199,7 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
     return lax.scan(body_fn, (jnp.array(0), rng_key, init), xs, length=length, reverse=reverse)
 
 
-def scan(f, init, xs, length=None, reverse=False):
+def scan(f, init, xs, length=None, reverse=False, rolling_idx=0):
     """
     This primitive scans a function over the leading array axes of
     `xs` while carrying along state. See :func:`jax.lax.scan` for more
@@ -288,6 +288,8 @@ def scan(f, init, xs, length=None, reverse=False):
         but can be used when `xs` is an empty pytree (e.g. None)
     :param bool reverse: optional boolean specifying whether to run the scan iteration
         forward (the default) or in reverse
+    :param init rolling_idx: indicates how many steps to perform the unrolling
+        Python loops before the actual rolling loop.
     :return: output of scan, quoted from :func:`jax.lax.scan` docs:
         "pair of type (c, [b]) where the first element represents the final loop
         carry value and the second element represents the stacked outputs of the
@@ -296,13 +298,13 @@ def scan(f, init, xs, length=None, reverse=False):
     # if there are no active Messengers, we just run and return it as expected:
     if not _PYRO_STACK:
         (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(
-            f, init, xs, length=length, reverse=reverse)
+            f, init, xs, length=length, reverse=reverse, rolling_idx=rolling_idx)
     else:
         # Otherwise, we initialize a message...
         initial_msg = {
             'type': 'control_flow',
             'fn': scan_wrapper,
-            'args': (f, init, xs, length, reverse),
+            'args': (f, init, xs, length, reverse, delay),
             'kwargs': {'rng_key': None,
                        'substitute_stack': []},
             'value': None,
