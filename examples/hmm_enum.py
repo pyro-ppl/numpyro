@@ -1,6 +1,43 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Enumerate Hidden Markov Model
+=============================
+
+This example is ported from [1], which shows how to marginalize out
+discrete model variables in Pyro.
+
+This combines MCMC with a variable elimination algorithm, where we
+use enumeration to exactly marginalize out some variables from the
+joint density.
+
+To marginalize out discrete variables ``x``:
+
+1. Verify that the variable dependency structure in your model
+    admits tractable inference, i.e. the dependency graph among
+    enumerated variables should have narrow treewidth.
+2. Ensure your model can handle broadcasting of the sample values
+    of those variables
+
+Note that difference from [1], which uses Python loop, here we use
+:func:`~numpryo.contrib.control_flow.scan` to reduce compilation
+times (only one step needs to be compiled) of the model. Under the
+hood, `scan` stacks all the priors' parameters and values into
+an additional time dimension. This allows us computing the joint
+density in parallel. In addition, the stacked form allows us
+to use the parallel-scan algorithm in [2], which reduces parallel
+complexity from O(length) to O(log(length)).
+
+**References:**
+
+    1. *Pyro's Hidden Markov Model example*,
+       (https://pyro.ai/examples/hmm.html)
+    2. *Temporal Parallelization of Bayesian Smoothers*,
+       Simo Sarkka, Angel F. Garcia-Fernandez
+       (https://arxiv.org/abs/1905.13002)
+"""
+
 import argparse
 import logging
 import pickle
@@ -9,16 +46,24 @@ import time
 from jax import random
 import jax.numpy as jnp
 
-import funsor
-
 import numpyro
 from numpyro.contrib.control_flow import scan
-import numpyro.distributions as dist
-from numpyro.handlers import mask, seed
-from numpyro.infer import HMC, MCMC, NUTS
 from numpyro.contrib.indexing import Vindex
+import numpyro.distributions as dist
+from numpyro.handlers import mask
+from numpyro.infer import HMC, MCMC, NUTS
 
 
+# Let's start with a simple Hidden Markov Model.
+#
+#     x[t-1] --> x[t] --> x[t+1]
+#        |        |         |
+#        V        V         V
+#     y[t-1]     y[t]     y[t+1]
+#
+# This model includes a plate for the data_dim = 44 keys on the piano. This
+# model has two "style" parameters probs_x and probs_y that we'll draw from a
+# prior. The latent state is x, and the observed state is y.
 def model_1(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with mask(mask_array=include_prior):
@@ -31,16 +76,17 @@ def model_1(sequences, lengths, args, include_prior=True):
                                      .to_event(2))
 
     def transition_fn(carry, y):
-        x, t = carry
+        x_prev, t = carry
         with numpyro.plate("sequences", num_sequences, dim=-2):
             with mask(mask_array=(t < lengths)[..., None]):
-                x = numpyro.sample("x", dist.Categorical(probs_x[x]))
+                x = numpyro.sample("x", dist.Categorical(probs_x[x_prev]))
                 with numpyro.plate("tones", data_dim, dim=-1):
                     numpyro.sample("y", dist.Bernoulli(probs_y[x.squeeze(-1)]), obs=y)
         return (x, t + 1), None
 
-    scan(transition_fn, (jnp.zeros((num_sequences, 1), dtype=jnp.int32), 0),
-         jnp.swapaxes(sequences, 0, 1))
+    x_init = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
+    # NB swapaxes: we move time dimension of `sequences` to the front to scan over it
+    scan(transition_fn, (x_init, 0), jnp.swapaxes(sequences, 0, 1))
 
 
 # Next let's add a dependency of y[t] on y[t-1].
@@ -49,34 +95,35 @@ def model_1(sequences, lengths, args, include_prior=True):
 #        |        |         |
 #        V        V         V
 #     y[t-1] --> y[t] --> y[t+1]
-"""
 def model_2(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
-    with numpyro_mask(mask_array=include_prior):
-        probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(0.9 * jnp.eye(args.hidden_dim) + 0.1)
-                                  .to_event(1))
+    with mask(mask_array=include_prior):
+        probs_x = numpyro.sample("probs_x",
+                                 dist.Dirichlet(0.9 * jnp.eye(args.hidden_dim) + 0.1)
+                                     .to_event(1))
 
-        probs_y = pyro_sample("probs_y",
-                              dist.Beta(0.1, 0.9)
-                                  .expand([args.hidden_dim, 2, data_dim])
-                                  .to_event(3))
-    tones_plate = pyro_plate("tones", data_dim, dim=-1)
-    with pyro_plate("sequences", num_sequences, dim=-2) as batch:
-        lengths = lengths[batch]
-        x, y = 0, 0
-        for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths)[..., None]):
-                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
-                                infer={"enumerate": "parallel"})
-                logging.info(f"x[{t}]: {x.shape}")
+        probs_y = numpyro.sample("probs_y",
+                                 dist.Beta(0.1, 0.9)
+                                     .expand([args.hidden_dim, 2, data_dim])
+                                     .to_event(3))
+
+    def transition_fn(carry, y):
+        x_prev, y_prev, t = carry
+        with numpyro.plate("sequences", num_sequences, dim=-2):
+            with mask(mask_array=(t < lengths)[..., None]):
+                x = numpyro.sample("x", dist.Categorical(probs_x[x_prev]))
                 # Note the broadcasting tricks here: to index probs_y on tensors x and y,
                 # we also need a final tensor for the tones dimension. This is conveniently
                 # provided by the plate associated with that dimension.
-                with tones_plate as tones:
-                    y = pyro_sample("y_{}".format(t),
-                                    dist.Bernoulli(probs_y[x, y, tones]),
-                                    obs=sequences[batch, t]).astype(jnp.int32)
+                with numpyro.plate("tones", data_dim, dim=-1) as tones:
+                    y = numpyro.sample("y",
+                                       dist.Bernoulli(probs_y[x, y_prev, tones]),
+                                       obs=y)
+        return (x, y, t + 1), None
+
+    x_init = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
+    y_init = jnp.zeros((num_sequences, data_dim), dtype=jnp.int32)
+    scan(transition_fn, (x_init, y_init, 0), jnp.swapaxes(sequences, 0, 1))
 
 
 # Next consider a Factorial HMM with two hidden states.
@@ -95,33 +142,36 @@ def model_2(sequences, lengths, args, include_prior=True):
 def model_3(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
-    with numpyro_mask(mask_array=include_prior):
-        probs_w = pyro_sample("probs_w",
-                              dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
-                                  .to_event(1))
-        probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
-                                  .to_event(1))
-        probs_y = pyro_sample("probs_y",
-                              dist.Beta(0.1, 0.9)
-                                  .expand([args.hidden_dim, 2, data_dim])
-                                  .to_event(3))
+    with mask(mask_array=include_prior):
+        probs_w = numpyro.sample("probs_w",
+                                 dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
+                                     .to_event(1))
+        probs_x = numpyro.sample("probs_x",
+                                 dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
+                                     .to_event(1))
+        probs_y = numpyro.sample("probs_y",
+                                 dist.Beta(0.1, 0.9)
+                                     .expand([args.hidden_dim, 2, data_dim])
+                                     .to_event(3))
 
-    tones_plate = pyro_plate("tones", data_dim, dim=-1)
-    with pyro_plate("sequences", num_sequences, dim=-2) as batch:
-        lengths = lengths[batch]
-        w, x = 0, 0
-        for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths)[..., None]):
-                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
-                                infer={"enumerate": "parallel"})
-                logging.info(f"w[{t}]: {w.shape}")
-                x = pyro_sample("x_{}".format(t), dist.Categorical(probs_x[x]),
-                                infer={"enumerate": "parallel"})
-                logging.info(f"x[{t}]: {x.shape}")
-                with tones_plate as tones:
-                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[w, x, tones]),
-                                obs=sequences[batch, t])
+    def transition_fn(carry, y):
+        w_prev, x_prev, t = carry
+        with numpyro.plate("sequences", num_sequences, dim=-2):
+            with mask(mask_array=(t < lengths)[..., None]):
+                w = numpyro.sample("w", dist.Categorical(probs_w[w_prev]))
+                x = numpyro.sample("x", dist.Categorical(probs_x[x_prev]))
+                # Note the broadcasting tricks here: to index probs_y on tensors x and y,
+                # we also need a final tensor for the tones dimension. This is conveniently
+                # provided by the plate associated with that dimension.
+                with numpyro.plate("tones", data_dim, dim=-1) as tones:
+                    numpyro.sample("y",
+                                   dist.Bernoulli(probs_y[w, x, tones]),
+                                   obs=y)
+        return (w, x, t + 1), None
+
+    w_init = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
+    x_init = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
+    scan(transition_fn, (w_init, x_init, 0), jnp.swapaxes(sequences, 0, 1))
 
 
 # By adding a dependency of x on w, we generalize to a
@@ -139,37 +189,34 @@ def model_3(sequences, lengths, args, include_prior=True):
 def model_4(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
-    with numpyro_mask(mask_array=include_prior):
-        probs_w = pyro_sample("probs_w",
-                              dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
-                                  .to_event(1))
-        probs_x = pyro_sample("probs_x",
-                              dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
-                                  .expand_by([hidden_dim])
-                                  .to_event(2))
-        probs_y = pyro_sample("probs_y",
-                              dist.Beta(0.1, 0.9)
-                                  .expand([hidden_dim, hidden_dim, data_dim])
-                                  .to_event(3))
+    with mask(mask_array=include_prior):
+        probs_w = numpyro.sample("probs_w",
+                                 dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
+                                     .to_event(1))
+        probs_x = numpyro.sample("probs_x",
+                                 dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
+                                     .expand_by([hidden_dim])
+                                     .to_event(2))
+        probs_y = numpyro.sample("probs_y",
+                                 dist.Beta(0.1, 0.9)
+                                     .expand([hidden_dim, hidden_dim, data_dim])
+                                     .to_event(3))
 
-    tones_plate = pyro_plate("tones", data_dim, dim=-1)
-    with pyro_plate("sequences", num_sequences, dim=-2) as batch:
-        lengths = lengths[batch]
-        # Note the broadcasting tricks here: we declare a hidden arange and
-        # ensure that w and x are always tensors so we can unsqueeze them below,
-        # thus ensuring that the x sample sites have correct distribution shape.
-        w = x = jnp.array(0)
-        for t in pyro_markov(range(max_length)):
-            with numpyro_mask(mask_array=(t < lengths).reshape(lengths.shape + (1,))):
-                w = pyro_sample("w_{}".format(t), dist.Categorical(probs_w[w]),
-                                infer={"enumerate": "parallel"})
-                x = pyro_sample("x_{}".format(t),
-                                dist.Categorical(Vindex(probs_x)[w, x]),
-                                infer={"enumerate": "parallel"})
-                with tones_plate as tones:
-                    pyro_sample("y_{}".format(t), dist.Bernoulli(probs_y[w, x, tones]),
-                                obs=sequences[batch, t])
-"""
+    def transition_fn(carry, y):
+        w_prev, x_prev, t = carry
+        with numpyro.plate("sequences", num_sequences, dim=-2):
+            with mask(mask_array=(t < lengths)[..., None]):
+                w = numpyro.sample("w", dist.Categorical(probs_w[w_prev]))
+                x = numpyro.sample("x", dist.Categorical(Vindex(probs_x)[w, x_prev]))
+                with numpyro.plate("tones", data_dim, dim=-1) as tones:
+                    numpyro.sample("y",
+                                   dist.Bernoulli(probs_y[w, x, tones]),
+                                   obs=y)
+        return (w, x, t + 1), None
+
+    w_init = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
+    x_init = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
+    scan(transition_fn, (w_init, x_init, 0), jnp.swapaxes(sequences, 0, 1))
 
 
 models = {name[len('model_'):]: model
@@ -189,7 +236,7 @@ def main(args):
     logging.info('-' * 40)
     logging.info('Training {} on {} sequences'.format(
         model.__name__, len(data['sequences'])))
-    sequences = jnp.array(data['sequences'])
+    sequences = jnp.array(data['sequences'], dtype=jnp.int32)
     lengths = jnp.array(data['sequence_lengths'])
 
     # find all the notes that are present at least once in the training set
@@ -219,7 +266,6 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--hidden-dim", default=16, type=int)
     parser.add_argument('-t', "--truncate", type=int)
     parser.add_argument("--num-sequences", default=17, type=int)
-    parser.add_argument("--print-shapes", action="store_true")
     parser.add_argument("--kernel", default='nuts', type=str)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
