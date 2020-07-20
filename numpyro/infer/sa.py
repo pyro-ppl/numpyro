@@ -298,6 +298,14 @@ class SA(MCMCKernel):
             self._sample_fn = sample_fn
         return init_state
 
+    @property
+    def sample_field(self):
+        return 'z'
+
+    @property
+    def default_fields(self):
+        return ('z', 'diverging')
+
     @copy_docs_from(MCMCKernel.postprocess_fn)
     def postprocess_fn(self, args, kwargs):
         if self._postprocess_fn is None:
