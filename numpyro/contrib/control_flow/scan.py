@@ -102,14 +102,12 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
     # extended to history size > 1 by running `f` `history_size` times
     # for initialization. However, `sequential_sum_product` does not
     # support history size > 1, so we skip supporting it here.
-    if xs is not None:
-        length = tree_flatten(xs)[0][0].shape[0]
-        if reverse:
-            x0 = tree_map(lambda x: x[-1], xs)
-            xs_ = tree_map(lambda x: x[:-1], xs)
-        else:
-            x0 = tree_map(lambda x: x[0], xs)
-            xs_ = tree_map(lambda x: x[1:], xs)
+    if reverse:
+        x0 = tree_map(lambda x: x[-1], xs)
+        xs_ = tree_map(lambda x: x[:-1], xs)
+    else:
+        x0 = tree_map(lambda x: x[0], xs)
+        xs_ = tree_map(lambda x: x[1:], xs)
 
     carry_shape_at_t1 = None
 
@@ -173,6 +171,9 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
 
 
 def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False):
+    if length is None:
+        length = tree_flatten(xs)[0][0].shape[0]
+
     if enum:
         return scan_enum(f, init, xs, length, reverse, rng_key, substitute_stack)
 
@@ -194,7 +195,7 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    return lax.scan(body_fn, (jnp.array(0), rng_key, init), xs, length, reverse)
+    return lax.scan(body_fn, (jnp.array(0), rng_key, init), xs, length=length, reverse=reverse)
 
 
 def scan(f, init, xs, length=None, reverse=False):
