@@ -374,8 +374,8 @@ class MCMC(object):
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param extra_fields: Extra fields (aside from the sampler's `default_fields`) from
-            the state tuple (e.g. :data:`numpyro.infer.mcmc.HMCState` for HMC) to collect during
+        :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.MCMCKernel.default_fields`)
+            from the state object (e.g. :data:`numpyro.infer.mcmc.HMCState` for HMC) to collect during
             the MCMC run.
         :type extra_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults

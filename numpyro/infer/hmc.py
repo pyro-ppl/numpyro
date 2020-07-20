@@ -433,10 +433,12 @@ class HMC(MCMCKernel):
         return self._model
 
     @property
+    @copy_docs_from(MCMCKernel.sample_field)
     def sample_field(self):
         return 'z'
 
     @property
+    @copy_docs_from(MCMCKernel.default_fields)
     def default_fields(self):
         return ('z', 'diverging')
 
