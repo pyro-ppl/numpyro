@@ -68,6 +68,8 @@ class MCMCKernel(ABC):
         >>> MHState = namedtuple("MHState", ["z", "rng_key"])
 
         >>> class MetropolisHastings(numpyro.infer.mcmc.MCMCKernel):
+        ...     sample_field = "z"
+        ...
         ...     def __init__(self, potential_fn, step_size=0.1):
         ...         self.potential_fn = potential_fn
         ...         self.step_size = step_size
@@ -129,8 +131,7 @@ class MCMCKernel(ABC):
 
         :param state: Arbitrary data structure representing the state for the
             kernel. For HMC, this is given by :data:`~numpyro.infer.hmc.HMCState`.
-            In general, this could be any class or a `namedtuple` that supports
-            `getattr`.
+            In general, this could be any class that supports `getattr`.
         :param model_args: Arguments provided to the model.
         :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state`.
@@ -138,24 +139,22 @@ class MCMCKernel(ABC):
         raise NotImplementedError
 
     @property
-    @abstractmethod
     def sample_field(self):
         """
-        The attribute of the `state` object passed to :meth:`sample`that denotes
+        The attribute of the `state` object passed to :meth:`sample` that denotes
         the MCMC sample. This is used by :meth:`postprocess_fn` and for reporting
-        results in :meth:`~numpyro.infer.MCMC.print_summary`.
+        results in :meth:`MCMC.print_summary()
+        <numpyro.infer.mcmc.MCMC.print_summary>`.
         """
         raise NotImplementedError
 
     @property
-    @abstractmethod
     def default_fields(self):
         """
-        The attributes of the `state` object to be collected during the MCMC run.
-        These attributes are collected by default by :meth:`~numpyro.infer.MCMC.run`
-        and can be retrieved from :meth:`~numpyro.infer.MCMC.get_samples`.
+        The attributes of the `state` object to be collected by default during
+        the MCMC run (when :meth:`MCMC.run() <numpyro.infer.MCMC.run>` is called).
         """
-        raise NotImplementedError
+        return (self.sample_field,)
 
 
 def _get_value_from_index(xs, i):

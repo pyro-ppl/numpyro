@@ -30,7 +30,6 @@ NumPyro documentation
    svi
    autoguide
    reparam
-   funsor
    optimizers
    diagnostics
    utilities
