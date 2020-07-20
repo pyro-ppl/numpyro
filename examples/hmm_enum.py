@@ -39,7 +39,8 @@ def model_1(sequences, lengths, args, include_prior=True):
                     numpyro.sample("y", dist.Bernoulli(probs_y[x.squeeze(-1)]), obs=y)
         return (x, t + 1), None
 
-    scan(transition_fn, (0, 0), jnp.swapaxes(sequences, 0, 1))
+    scan(transition_fn, (jnp.zeros((num_sequences, 1), dtype=jnp.int32), 0),
+         jnp.swapaxes(sequences, 0, 1))
 
 
 # Next let's add a dependency of y[t] on y[t-1].
