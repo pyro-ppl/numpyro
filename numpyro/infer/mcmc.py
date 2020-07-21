@@ -118,8 +118,9 @@ class MCMCKernel(ABC):
             be consistent with the input type to `potential_fn`.
         :param model_args: Arguments provided to the model.
         :param model_kwargs: Keyword arguments provided to the model.
-        :return: The initial state, which has arbitrary data structure representing the
-            state of the kernel.
+        :return: The initial state representing the state of the kernel. This can be
+            any class that is registered as a
+            `pytree <https://jax.readthedocs.io/en/latest/pytrees.html>`_.
         """
         raise NotImplementedError
 
@@ -129,9 +130,10 @@ class MCMCKernel(ABC):
         Given the current `state`, return the next `state` using the given
         transition kernel.
 
-        :param state: Arbitrary data structure representing the state for the
-            kernel. For HMC, this is given by :data:`~numpyro.infer.hmc.HMCState`.
-            In general, this could be any class that supports `getattr`.
+        :param state: A `pytree <https://jax.readthedocs.io/en/latest/pytrees.html>`_
+            class representing the state for the kernel. For HMC, this is given
+            by :data:`~numpyro.infer.hmc.HMCState`. In general, this could be any
+            class that supports `getattr`.
         :param model_args: Arguments provided to the model.
         :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state`.
@@ -246,8 +248,8 @@ class MCMC(object):
                  progress_bar=True,
                  jit_model_args=False):
         self.sampler = sampler
-        self.sample_field = sampler.sample_field
-        self.default_fields = sampler.default_fields
+        self._sample_field = sampler.sample_field
+        self._default_fields = sampler.default_fields
         self.num_warmup = num_warmup
         self.num_samples = num_samples
         self.num_chains = num_chains
@@ -335,16 +337,16 @@ class MCMC(object):
             states = (states,)
         states = dict(zip(collect_fields, states))
         # Apply constraints if number of samples is non-zero
-        site_values = tree_flatten(states[self.sample_field])[0]
+        site_values = tree_flatten(states[self._sample_field])[0]
         if len(site_values) > 0 and site_values[0].size > 0:
-            states[self.sample_field] = lax.map(postprocess_fn, states[self.sample_field])
+            states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
         return states, last_state
 
     def _single_chain_jit_args(self, init, collect_fields):
-        return self._single_chain_mcmc(*init, collect_fields=collect_fields)
+        return self._single_chain_mcmc(*init, collect_fields)
 
     def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields):
-        return self._single_chain_mcmc(*init, model_args, model_kwargs, collect_fields=collect_fields)
+        return self._single_chain_mcmc(*init, model_args, model_kwargs, collect_fields)
 
     def _set_collection_params(self, lower=None, upper=None, collection_size=None):
         self._collection_params["lower"] = self.num_warmup if lower is None else lower
@@ -439,7 +441,7 @@ class MCMC(object):
                 raise ValueError('`init_params` must have the same leading dimension'
                                  ' as `num_chains`.')
         assert isinstance(extra_fields, (tuple, list))
-        collect_fields = tuple(set((self.sampler.sample_field,) + tuple(self.sampler.default_fields) +
+        collect_fields = tuple(set((self.sampler._sample_field,) + tuple(self.sampler.default_fields) +
                                    tuple(extra_fields)))
         if self.num_chains == 1:
             states_flat, last_state = self._single_chain_mcmc(rng_key, init_state, init_params,
@@ -490,8 +492,8 @@ class MCMC(object):
             but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
             `potential_fn` for HMC that takes `list` args).
         """
-        return self._states[self.sample_field] if group_by_chain \
-            else self._states_flat[self.sample_field]
+        return self._states[self._sample_field] if group_by_chain \
+            else self._states_flat[self._sample_field]
 
     def get_extra_fields(self, group_by_chain=False):
         """
@@ -503,13 +505,13 @@ class MCMC(object):
             `extra_fields` keyword of :meth:`run`.
         """
         states = self._states if group_by_chain else self._states_flat
-        return {k: v for k, v in states.items() if k != self.sample_field}
+        return {k: v for k, v in states.items() if k != self._sample_field}
 
     def print_summary(self, prob=0.9, exclude_deterministic=True):
         # Exclude deterministic sites by default
-        sites = self._states[self.sample_field]
+        sites = self._states[self._sample_field]
         if isinstance(sites, dict) and exclude_deterministic:
-            sites = {k: v for k, v in self._states[self.sample_field].items()
+            sites = {k: v for k, v in self._states[self._sample_field].items()
                      if k in self._last_state.z}
         print_summary(sites, prob=prob)
         extra_fields = self.get_extra_fields()
