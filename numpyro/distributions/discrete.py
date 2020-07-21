@@ -48,7 +48,7 @@ from numpyro.distributions.util import (
     sum_rightmost,
     validate_sample
 )
-from numpyro.util import copy_docs_from, not_jax_tracer
+from numpyro.util import not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):
@@ -69,7 +69,6 @@ def _to_logits_multinom(probs):
     return jnp.clip(jnp.log(probs), a_min=minval)
 
 
-@copy_docs_from(Distribution)
 class BernoulliProbs(Distribution):
     arg_constraints = {'probs': constraints.unit_interval}
     support = constraints.boolean
@@ -102,7 +101,6 @@ class BernoulliProbs(Distribution):
         return values
 
 
-@copy_docs_from(Distribution)
 class BernoulliLogits(Distribution):
     arg_constraints = {'logits': constraints.real}
     support = constraints.boolean
@@ -148,7 +146,6 @@ def Bernoulli(probs=None, logits=None, validate_args=None):
         raise ValueError('One of `probs` or `logits` must be specified.')
 
 
-@copy_docs_from(Distribution)
 class BinomialProbs(Distribution):
     arg_constraints = {'probs': constraints.unit_interval,
                        'total_count': constraints.nonnegative_integer}
@@ -196,7 +193,6 @@ class BinomialProbs(Distribution):
         return values
 
 
-@copy_docs_from(Distribution)
 class BinomialLogits(Distribution):
     arg_constraints = {'logits': constraints.real,
                        'total_count': constraints.nonnegative_integer}
@@ -259,7 +255,6 @@ def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
         raise ValueError('One of `probs` or `logits` must be specified.')
 
 
-@copy_docs_from(Distribution)
 class CategoricalProbs(Distribution):
     arg_constraints = {'probs': constraints.simplex}
     has_enumerate_support = True
@@ -303,7 +298,6 @@ class CategoricalProbs(Distribution):
         return values
 
 
-@copy_docs_from(Distribution)
 class CategoricalLogits(Distribution):
     arg_constraints = {'logits': constraints.real_vector}
     has_enumerate_support = True
@@ -360,7 +354,6 @@ def Categorical(probs=None, logits=None, validate_args=None):
         raise ValueError('One of `probs` or `logits` must be specified.')
 
 
-@copy_docs_from(Distribution)
 class Delta(Distribution):
     arg_constraints = {'value': constraints.real, 'log_density': constraints.real}
     support = constraints.real
@@ -447,7 +440,6 @@ class PRNGIdentity(Distribution):
                            sample_shape + self.event_shape)
 
 
-@copy_docs_from(Distribution)
 class MultinomialProbs(Distribution):
     arg_constraints = {'probs': constraints.simplex,
                        'total_count': constraints.nonnegative_integer}
@@ -486,7 +478,6 @@ class MultinomialProbs(Distribution):
         return constraints.multinomial(self.total_count)
 
 
-@copy_docs_from(Distribution)
 class MultinomialLogits(Distribution):
     arg_constraints = {'logits': constraints.real_vector,
                        'total_count': constraints.nonnegative_integer}
@@ -539,7 +530,6 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
         raise ValueError('One of `probs` or `logits` must be specified.')
 
 
-@copy_docs_from(Distribution)
 class Poisson(Distribution):
     arg_constraints = {'rate': constraints.positive}
     support = constraints.nonnegative_integer

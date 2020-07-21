@@ -18,7 +18,7 @@ from numpyro.infer.hmc_util import (
 )
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
-from numpyro.util import cond, copy_docs_from, fori_loop, identity
+from numpyro.util import cond, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
@@ -432,7 +432,6 @@ class HMC(MCMCKernel):
     def model(self):
         return self._model
 
-    @copy_docs_from(MCMCKernel.init)
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         # non-vectorized
         if rng_key.ndim == 1:
@@ -471,7 +470,6 @@ class HMC(MCMCKernel):
             self._sample_fn = sample_fn
         return init_state
 
-    @copy_docs_from(MCMCKernel.postprocess_fn)
     def postprocess_fn(self, args, kwargs):
         if self._postprocess_fn is None:
             return identity
