@@ -432,6 +432,14 @@ class HMC(MCMCKernel):
     def model(self):
         return self._model
 
+    @property
+    def sample_field(self):
+        return 'z'
+
+    @property
+    def default_fields(self):
+        return ('z', 'diverging')
+
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         # non-vectorized
         if rng_key.ndim == 1:
