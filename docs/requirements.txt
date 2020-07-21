@@ -1,3 +1,4 @@
 jax>=0.1.65
 jaxlib>=0.1.45
+funsor>=0.1.2
 tqdm
