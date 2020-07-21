@@ -441,7 +441,7 @@ class MCMC(object):
                 raise ValueError('`init_params` must have the same leading dimension'
                                  ' as `num_chains`.')
         assert isinstance(extra_fields, (tuple, list))
-        collect_fields = tuple(set((self.sampler._sample_field,) + tuple(self.sampler.default_fields) +
+        collect_fields = tuple(set((self._sample_field,) + tuple(self._default_fields) +
                                    tuple(extra_fields)))
         if self.num_chains == 1:
             states_flat, last_state = self._single_chain_mcmc(rng_key, init_state, init_params,
