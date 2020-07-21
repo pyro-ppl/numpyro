@@ -8,10 +8,8 @@ import jax.numpy as jnp
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import promote_shapes, validate_sample, von_mises_centered
-from numpyro.util import copy_docs_from
 
 
-@copy_docs_from(Distribution)
 class VonMises(Distribution):
     arg_constraints = {'loc': constraints.real, 'concentration': constraints.positive}
 

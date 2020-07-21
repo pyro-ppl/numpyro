@@ -66,11 +66,9 @@ extensions = [
     'sphinx.ext.viewcode',
 ]
 
-# Disable documentation inheritance so as to avoid inheriting
-# docstrings in a different format, e.g. when the parent class
-# is a PyTorch class.
+# Enable documentation inheritance
 
-autodoc_inherit_docstrings = False
+autodoc_inherit_docstrings = True
 
 # autodoc_default_options = {
 #     'member-order': 'bysource',
