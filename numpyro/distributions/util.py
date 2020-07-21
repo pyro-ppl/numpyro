@@ -463,6 +463,10 @@ class lazy_property(object):
         self.wrapped = wrapped
         update_wrapper(self, wrapped)
 
+    # This is to prevent warnings from sphinx
+    def __call__(self, *args, **kwargs):
+        return self.wrapped(*args, **kwargs)
+
     def __get__(self, instance, obj_type=None):
         if instance is None:
             return self

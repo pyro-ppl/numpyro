@@ -45,12 +45,10 @@ from numpyro.distributions.util import (
     validate_sample,
     vec_to_tril_matrix
 )
-from numpyro.util import copy_docs_from
 
 EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
 
 
-@copy_docs_from(Distribution)
 class Beta(Distribution):
     arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive}
     support = constraints.unit_interval
@@ -80,7 +78,6 @@ class Beta(Distribution):
         return self.concentration1 * self.concentration0 / (total ** 2 * (total + 1))
 
 
-@copy_docs_from(Distribution)
 class Cauchy(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -108,7 +105,6 @@ class Cauchy(Distribution):
         return jnp.full(self.batch_shape, jnp.nan)
 
 
-@copy_docs_from(Distribution)
 class Dirichlet(Distribution):
     arg_constraints = {'concentration': constraints.positive}
     support = constraints.simplex
@@ -144,7 +140,6 @@ class Dirichlet(Distribution):
         return self.concentration * (con0 - self.concentration) / (con0 ** 2 * (con0 + 1))
 
 
-@copy_docs_from(Distribution)
 class Exponential(Distribution):
     reparametrized_params = ['rate']
     arg_constraints = {'rate': constraints.positive}
@@ -170,7 +165,6 @@ class Exponential(Distribution):
         return jnp.reciprocal(self.rate ** 2)
 
 
-@copy_docs_from(Distribution)
 class Gamma(Distribution):
     arg_constraints = {'concentration': constraints.positive,
                        'rate': constraints.positive}
@@ -202,7 +196,6 @@ class Gamma(Distribution):
         return self.concentration / jnp.power(self.rate, 2)
 
 
-@copy_docs_from(Distribution)
 class Chi2(Gamma):
     arg_constraints = {'df': constraints.positive}
 
@@ -211,7 +204,6 @@ class Chi2(Gamma):
         super(Chi2, self).__init__(0.5 * df, 0.5, validate_args=validate_args)
 
 
-@copy_docs_from(Distribution)
 class GaussianRandomWalk(Distribution):
     arg_constraints = {'scale': constraints.positive, 'num_steps': constraints.positive_integer}
     support = constraints.real_vector
@@ -253,7 +245,6 @@ class GaussianRandomWalk(Distribution):
         return cls(*params, num_steps=aux_data)
 
 
-@copy_docs_from(Distribution)
 class HalfCauchy(Distribution):
     reparametrized_params = ['scale']
     support = constraints.positive
@@ -280,7 +271,6 @@ class HalfCauchy(Distribution):
         return jnp.full(self.batch_shape, jnp.inf)
 
 
-@copy_docs_from(Distribution)
 class HalfNormal(Distribution):
     reparametrized_params = ['scale']
     support = constraints.positive
@@ -307,7 +297,6 @@ class HalfNormal(Distribution):
         return (1 - 2 / jnp.pi) * self.scale ** 2
 
 
-@copy_docs_from(Distribution)
 class InverseGamma(TransformedDistribution):
     arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
     support = constraints.positive
@@ -339,7 +328,6 @@ class InverseGamma(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
 
-@copy_docs_from(Distribution)
 class Gumbel(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -372,7 +360,6 @@ class Gumbel(Distribution):
                                 self.batch_shape)
 
 
-@copy_docs_from(Distribution)
 class Laplace(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -402,7 +389,6 @@ class Laplace(Distribution):
         return jnp.broadcast_to(2 * self.scale ** 2, self.batch_shape)
 
 
-@copy_docs_from(Distribution)
 class LKJ(TransformedDistribution):
     r"""
     LKJ distribution for correlation matrices. The distribution is controlled by ``concentration``
@@ -451,7 +437,6 @@ class LKJ(TransformedDistribution):
         return cls(dimension, *params, sample_method=sample_method)
 
 
-@copy_docs_from(Distribution)
 class LKJCholesky(Distribution):
     r"""
     LKJ distribution for lower Cholesky factors of correlation matrices. The distribution is
@@ -625,7 +610,6 @@ class LKJCholesky(Distribution):
         return cls(dimension, *params, sample_method=sample_method)
 
 
-@copy_docs_from(Distribution)
 class LogNormal(TransformedDistribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     reparametrized_params = ['loc', 'scale']
@@ -691,7 +675,6 @@ def _batch_mahalanobis(bL, bx):
     return jnp.reshape(M, out_shape)
 
 
-@copy_docs_from(Distribution)
 class MultivariateNormal(Distribution):
     arg_constraints = {'loc': constraints.real_vector,
                        'covariance_matrix': constraints.positive_definite,
@@ -809,7 +792,6 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
     return mahalanobis_term1 - mahalanobis_term2
 
 
-@copy_docs_from(Distribution)
 class LowRankMultivariateNormal(Distribution):
     arg_constraints = {
         "loc": constraints.real_vector,
@@ -917,7 +899,6 @@ class LowRankMultivariateNormal(Distribution):
         return jnp.broadcast_to(H, self.batch_shape)
 
 
-@copy_docs_from(Distribution)
 class Normal(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -950,7 +931,6 @@ class Normal(Distribution):
         return jnp.broadcast_to(self.scale ** 2, self.batch_shape)
 
 
-@copy_docs_from(Distribution)
 class Pareto(TransformedDistribution):
     arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
 
@@ -982,7 +962,6 @@ class Pareto(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
 
-@copy_docs_from(Distribution)
 class StudentT(Distribution):
     arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -1046,7 +1025,6 @@ class _BaseTruncatedCauchy(Distribution):
         return - jnp.log1p((value - self.base_loc) ** 2) - normalize_term
 
 
-@copy_docs_from(Distribution)
 class TruncatedCauchy(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
@@ -1113,7 +1091,6 @@ class _BaseTruncatedNormal(Distribution):
         return self._normal.log_prob(value) - log_ndtr(self.base_loc)
 
 
-@copy_docs_from(Distribution)
 class TruncatedNormal(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
@@ -1173,7 +1150,6 @@ class _BaseUniform(Distribution):
         return - jnp.zeros(batch_shape)
 
 
-@copy_docs_from(Distribution)
 class Uniform(TransformedDistribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
     reparametrized_params = ['low', 'high']
@@ -1213,7 +1189,6 @@ class Uniform(TransformedDistribution):
         return d
 
 
-@copy_docs_from(Distribution)
 class Logistic(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
@@ -1244,7 +1219,6 @@ class Logistic(Distribution):
         return jnp.broadcast_to(var, self.batch_shape)
 
 
-@copy_docs_from(Distribution)
 class TruncatedPolyaGamma(Distribution):
     truncation_point = 2.5
     num_log_prob_terms = 7
