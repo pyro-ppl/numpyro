@@ -384,7 +384,7 @@ class mask(Messenger):
         if lax.dtype(mask) != 'bool':
             raise ValueError("`mask` should be a bool array.")
         self.mask = mask
-        super(mask, self).__init__(fn)
+        super().__init__(fn)
 
     def process_message(self, msg):
         if msg['type'] != 'sample':
