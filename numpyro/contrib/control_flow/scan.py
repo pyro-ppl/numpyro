@@ -80,11 +80,16 @@ def _subs_wrapper(subs_map, i, length, site):
                                    f" Expected length <= {length}, but got {shape[0]}.")
         else:
             raise RuntimeError(f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim+1},"
-                               f" but got {value_ndim}. Please report the issue to us!")
+                               f" but got {value_ndim}. This might happen when you use nested scan,"
+                               " which is currently not supported. Please report the issue to us!")
 
 
 class promote_shapes(Messenger):
     # a helper messenger to promote shapes of `fn` and `value`
+    #   + msg: fn.batch_shape = (2, 3), value.shape = (3,) + fn.event_shape
+    #     process_message(msg): promote value so that value.shape = (1, 3) + fn.event_shape
+    #   + msg: fn.batch_shape = (3,), value.shape = (2, 3) + fn.event_shape
+    #     process_message(msg): promote fn so that fn.batch_shape = (1, 3).
     def process_message(self, msg):
         if msg["type"] == "sample" and msg["value"] is not None:
             fn, value = msg["fn"], msg["value"]
@@ -102,6 +107,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
     # extended to history size > 1 by running `f` `history_size` times
     # for initialization. However, `sequential_sum_product` does not
     # support history size > 1, so we skip supporting it here.
+    # Note that `funsor.sum_product.sarkka_bilmes_product` does support history > 1.
     if reverse:
         x0 = tree_map(lambda x: x[-1], xs)
         xs_ = tree_map(lambda x: x[:-1], xs)
@@ -130,6 +136,12 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
                 trace = {}
         else:
             with handlers.block(), packed_trace() as trace, promote_shapes(), enum(), markov():
+                # Like scan_wrapper, we collect the trace of scan's transition function
+                # `seeded_fn` here. To put time dimension to the correct position, we need to
+                # promote shapes to make `fn` and `value`
+                # at each site have the same batch dims (e.g. if `fn.batch_shape = (2, 3)`,
+                # and value's batch_shape is (3,), then we promote shape of
+                # value so that its batch shape is (1, 3)).
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
             # store shape of new_carry at a global variable
@@ -273,11 +285,19 @@ def scan(f, init, xs, length=None, reverse=False):
                 added to those sites, where `foo` is the name of the first site
                 appeared in `f`.
 
+        Not all transition functions `f` are supported. All of the restrictions from
+        Pyro's enumeration tutorial [2] still apply here. In addition, there should
+        not have any site outside of `scan` depend on the first output of `scan`
+        (the last carry value).
+
     ** References **
 
     1. *Temporal Parallelization of Bayesian Smoothers*,
        Simo Sarkka, Angel F. Garcia-Fernandez
        (https://arxiv.org/abs/1905.13002)
+
+    2. *Inference with Discrete Latent Variables*
+       (http://pyro.ai/examples/enumeration.html#Dependencies-among-plates)
 
     :param callable f: a function to be scanned.
     :param init: the initial carrying state

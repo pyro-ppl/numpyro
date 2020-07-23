@@ -86,7 +86,7 @@ def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_di
         prev_vars = time_to_init_vars[time_var]
         # remove `_init/` prefix to convert prev to curr
         prev_to_curr = {k: "/".join(k.split("/")[1:]) for k in prev_vars}
-        # we eliminate all plate dimensions not available at discrete sites.
+        # we eliminate all plate and enum dimensions not available at markov sites.
         eliminate_vars = (sum_vars | prod_vars) - time_to_markov_dims[time_var]
         with funsor.interpreter.interpretation(funsor.terms.lazy):
             lazy_result = funsor.sum_product.sum_product(
@@ -149,7 +149,7 @@ def log_density(model, model_args, model_kwargs, params):
                     time_dim = funsor.Variable(name, funsor.domains.bint(site["value"].shape[dim]))
                     time_to_factors[time_dim].append(log_prob)
                     time_to_init_vars[time_dim] |= frozenset(
-                        s for s in dim_to_name.values() if s.startswith("_init/"))
+                        s for s in dim_to_name.values() if s.startswith("_init"))
                     break
             if time_dim is None:
                 log_factors.append(log_prob)

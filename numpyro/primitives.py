@@ -265,7 +265,7 @@ class plate(Messenger):
             if msg['type'] == 'control_flow':
                 raise RuntimeError('Cannot use control flow primitive under a `plate` primitive.'
                                    ' Please move those `plate` statements into the control flow'
-                                   ' body function.')
+                                   ' body function. See `scan` documentation for more information.')
             return
 
         cond_indep_stack = msg['cond_indep_stack']
