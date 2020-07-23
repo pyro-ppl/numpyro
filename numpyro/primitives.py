@@ -263,9 +263,9 @@ class plate(Messenger):
     def process_message(self, msg):
         if msg['type'] not in ('param', 'sample', 'plate'):
             if msg['type'] == 'control_flow':
-                raise RuntimeError('Cannot use control flow primitive under a `plate` primitive.'
-                                   ' Please move those `plate` statements into the control flow'
-                                   ' body function. See `scan` documentation for more information.')
+                raise NotImplementedError('Cannot use control flow primitive under a `plate` primitive.'
+                                          ' Please move those `plate` statements into the control flow'
+                                          ' body function. See `scan` documentation for more information.')
             return
 
         cond_indep_stack = msg['cond_indep_stack']

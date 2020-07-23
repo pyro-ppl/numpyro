@@ -269,6 +269,8 @@ def scan(f, init, xs, length=None, reverse=False):
 
             last, ys = scan(g, init, xs)
 
+    .. note:: Nested scan is currently not supported.
+
     .. note:: We can scan over discrete latent variables in `f`. The joint density is
         evaluated using parallel-scan (reference [1]) over time dimension, which
         reduces parallel complexity to `O(log(length))`.
