@@ -32,17 +32,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
     return hmc(potential_fn, potential_fn_gen, kinetic_fn, algo)
 
 
-def get_diagnostics_str(mcmc_state):
-    if type(mcmc_state).__name__ == 'HMCState':
-        return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(mcmc_state.num_steps,
-                                                                  mcmc_state.adapt_state.step_size,
-                                                                  mcmc_state.mean_accept_prob)
-    elif hasattr(mcmc_state, "mean_accept_prob"):
-        return 'acc. prob={:.2f}'.format(mcmc_state.mean_accept_prob)
-    else:
-        return ''
-
-
 def get_progbar_desc_str(num_warmup, i):
     if i < num_warmup:
         return 'warmup'
@@ -157,6 +146,13 @@ class MCMCKernel(ABC):
         the MCMC run (when :meth:`MCMC.run() <numpyro.infer.MCMC.run>` is called).
         """
         return (self.sample_field,)
+
+    def get_diagnostics_str(self, state):
+        """
+        Given the current `state`, returns the diagnostics string to
+        be added to progress bar for diagnostics purpose.
+        """
+        return ''
 
 
 def _get_value_from_index(xs, i):
@@ -315,7 +311,7 @@ class MCMC(object):
             postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
         else:
             postprocess_fn = self.postprocess_fn
-        diagnostics = lambda x: get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
+        diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
