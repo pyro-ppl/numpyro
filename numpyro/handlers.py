@@ -373,13 +373,17 @@ class mask(Messenger):
     """
     This messenger masks out some of the sample statements elementwise.
 
-    :param mask_array: a DeviceArray with `bool` dtype for masking elementwise masking
+    :param mask: a DeviceArray with `bool` dtype for masking elementwise masking
         of sample sites.
     """
-    def __init__(self, fn=None, mask_array=True):
-        if lax.dtype(mask_array) != 'bool':
+    def __init__(self, fn=None, mask=True, mask_array=None):
+        if mask_array is not None:
+            mask = mask_array
+            warnings.warn("'mask_array' argument is renamed to 'mask'. We will remove"
+                          " 'mask_array' in a future release.", FutureWarning)
+        if lax.dtype(mask) != 'bool':
             raise ValueError("`mask` should be a bool array.")
-        self.mask = mask_array
+        self.mask = mask
         super(mask, self).__init__(fn)
 
     def process_message(self, msg):
