@@ -3,7 +3,7 @@
 
 import jax.numpy as jnp
 
-from numpyro.examples.datasets import BASEBALL, COVTYPE, MNIST, SP500, load_dataset
+from numpyro.examples.datasets import BASEBALL, COVTYPE, JSB_CHORALES, MNIST, SP500, load_dataset
 from numpyro.util import fori_loop
 
 
@@ -36,3 +36,10 @@ def test_sp500_data_load():
     _, fetch = load_dataset(SP500, split='train', shuffle=False)
     date, value = fetch()
     assert jnp.shape(date) == jnp.shape(date) == (2427,)
+
+
+def test_jsb_chorales():
+    _, fetch = load_dataset(JSB_CHORALES, split='train', shuffle=False)
+    lengths, sequences = fetch()
+    assert jnp.shape(lengths) == (229,)
+    assert jnp.shape(sequences) == (229, 129, 88)

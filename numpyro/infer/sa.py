@@ -9,7 +9,7 @@ import numpyro.distributions as dist
 from numpyro.distributions.util import cholesky_update
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import init_to_uniform, initialize_model
-from numpyro.util import copy_docs_from, identity
+from numpyro.util import identity
 
 
 def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
@@ -265,7 +265,6 @@ class SA(MCMCKernel):
             self._sample_fn = sample_fn
         return init_params
 
-    @copy_docs_from(MCMCKernel.init)
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         # non-vectorized
         if rng_key.ndim == 1:
@@ -298,7 +297,14 @@ class SA(MCMCKernel):
             self._sample_fn = sample_fn
         return init_state
 
-    @copy_docs_from(MCMCKernel.postprocess_fn)
+    @property
+    def sample_field(self):
+        return 'z'
+
+    @property
+    def default_fields(self):
+        return ('z', 'diverging')
+
     def postprocess_fn(self, args, kwargs):
         if self._postprocess_fn is None:
             return identity
