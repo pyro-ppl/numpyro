@@ -29,6 +29,10 @@ density in parallel. In addition, the stacked form allows us
 to use the parallel-scan algorithm in [2], which reduces parallel
 complexity from O(length) to O(log(length)).
 
+Data are taken from [3]. However, the original source of the data
+seems to be the Institut fuer Algorithmen
+und Kognitive Systeme at Universitaet Karlsruhe.
+
 **References:**
 
     1. *Pyro's Hidden Markov Model example*,
@@ -36,11 +40,14 @@ complexity from O(length) to O(log(length)).
     2. *Temporal Parallelization of Bayesian Smoothers*,
        Simo Sarkka, Angel F. Garcia-Fernandez
        (https://arxiv.org/abs/1905.13002)
+    3. *Modeling Temporal Dependencies in High-Dimensional Sequences:
+       Application to Polyphonic Music Generation and Transcription*,
+       Boulanger-Lewandowski, N., Bengio, Y. and Vincent, P.
 """
 
 import argparse
 import logging
-import pickle
+import os
 import time
 
 from jax import random
@@ -50,8 +57,12 @@ import numpyro
 from numpyro.contrib.control_flow import scan
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
+from numpyro.examples.datasets import JSB_CHORALES, load_dataset
 from numpyro.handlers import mask
 from numpyro.infer import HMC, MCMC, NUTS
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 # Let's start with a simple Hidden Markov Model.
@@ -228,34 +239,34 @@ def main(args):
 
     model = models[args.model]
 
-    with open('./hmm_enum_data.pkl', 'rb') as f:
-        data = pickle.load(f)
-    data['sequences'] = data['sequences'][0:args.num_sequences]
-    data['sequence_lengths'] = data['sequence_lengths'][0:args.num_sequences]
+    _, fetch = load_dataset(JSB_CHORALES, split='train', shuffle=False)
+    lengths, sequences = fetch()
+    sequences = sequences[0:args.num_sequences].astype("int32")
+    lengths = lengths[0:args.num_sequences]
 
-    logging.info('-' * 40)
-    logging.info('Training {} on {} sequences'.format(
-        model.__name__, len(data['sequences'])))
-    sequences = jnp.array(data['sequences'], dtype=jnp.int32)
-    lengths = jnp.array(data['sequence_lengths'])
+    logger.info('-' * 40)
+    logger.info('Training {} on {} sequences'.format(
+        model.__name__, len(sequences)))
 
     # find all the notes that are present at least once in the training set
     present_notes = ((sequences == 1).sum(0).sum(0) > 0)
-    # remove notes that are never played (we remove 37/88 notes)
+    # remove notes that are never played (we remove 44/88 notes with default args)
     sequences = sequences[..., present_notes]
 
     if args.truncate:
         lengths = lengths.clip(0, args.truncate)
         sequences = sequences[:, :args.truncate]
 
-    logging.info('Starting inference...')
+    logger.info('Each sequence has shape {}'.format(sequences[0].shape))
+    logger.info('Starting inference...')
     rng_key = random.PRNGKey(2)
     start = time.time()
     kernel = {'nuts': NUTS, 'hmc': HMC}[args.kernel](model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains,
+                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, sequences, lengths, args=args)
     mcmc.print_summary()
-    logging.info('\nMCMC elapsed time: {}'.format(time.time() - start))
+    logger.info('\nMCMC elapsed time: {}'.format(time.time() - start))
 
 
 if __name__ == '__main__':
