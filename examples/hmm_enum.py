@@ -241,8 +241,9 @@ def main(args):
 
     _, fetch = load_dataset(JSB_CHORALES, split='train', shuffle=False)
     lengths, sequences = fetch()
-    sequences = sequences[0:args.num_sequences].astype("int32")
-    lengths = lengths[0:args.num_sequences]
+    if args.num_sequences:
+        sequences = sequences[0:args.num_sequences]
+        lengths = lengths[0:args.num_sequences]
 
     logger.info('-' * 40)
     logger.info('Training {} on {} sequences'.format(
@@ -250,7 +251,7 @@ def main(args):
 
     # find all the notes that are present at least once in the training set
     present_notes = ((sequences == 1).sum(0).sum(0) > 0)
-    # remove notes that are never played (we remove 44/88 notes with default args)
+    # remove notes that are never played (we remove 37/88 notes with default args)
     sequences = sequences[..., present_notes]
 
     if args.truncate:
@@ -276,7 +277,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', '--num-samples', nargs='?', default=1000, type=int)
     parser.add_argument("-d", "--hidden-dim", default=16, type=int)
     parser.add_argument('-t', "--truncate", type=int)
-    parser.add_argument("--num-sequences", default=17, type=int)
+    parser.add_argument("--num-sequences", type=int)
     parser.add_argument("--kernel", default='nuts', type=str)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)

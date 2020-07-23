@@ -213,7 +213,7 @@ def _load_jsb_chorales():
     for k, v in processed_dataset.items():
         lengths = v["sequence_lengths"]
         sequences = v["sequences"]
-        processed_dataset[k] = (lengths, _pad_sequence(sequences))
+        processed_dataset[k] = (lengths, _pad_sequence(sequences).astype("int32"))
     return processed_dataset
 
 
