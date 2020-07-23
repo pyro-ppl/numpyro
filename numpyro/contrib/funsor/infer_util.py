@@ -154,7 +154,8 @@ def log_density(model, model_args, model_kwargs, params):
             if time_dim is None:
                 log_factors.append(log_prob)
 
-            sum_vars |= frozenset({site['name']})
+            if not site['is_observed']:
+                sum_vars |= frozenset({site['name']})
             prod_vars |= frozenset(f.name for f in site['cond_indep_stack'] if f.dim is not None)
 
     for time_dim, init_vars in time_to_init_vars.items():
