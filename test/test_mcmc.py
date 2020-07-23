@@ -435,7 +435,7 @@ def test_chain_inside_jit(kernel_cls, chain_method):
 ])
 @pytest.mark.parametrize('compile_args', [
     False,
-    True
+    True,
 ])
 @pytest.mark.skipif('CI' in os.environ, reason="Compiling time the whole sampling process is slow.")
 def test_chain_jit_args_smoke(chain_method, compile_args):

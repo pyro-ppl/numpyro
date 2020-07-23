@@ -447,6 +447,8 @@ class MCMC(object):
             states = tree_map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
             if self._jit_model_args and chain_method == 'parallel':
+                # XXX: it is not clear that this branch is useful
+                # we might remove this branch eventually to clean up the code
                 partial_map_fn = partial(self._single_chain_mcmc,
                                          collect_fields=collect_fields)
                 map_args = ((rng_key, init_state, init_params), args, kwargs)
