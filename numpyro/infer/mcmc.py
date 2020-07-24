@@ -250,6 +250,9 @@ class MCMC(object):
         self.num_samples = num_samples
         self.num_chains = num_chains
         self.postprocess_fn = postprocess_fn
+        if chain_method not in ['parallel', 'vectorized', 'sequential']:
+            raise ValueError('Only supporting the following methods to draw chains:'
+                             ' "sequential", "parallel", or "vectorized"')
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
@@ -303,7 +306,8 @@ class MCMC(object):
         except TypeError:
             return None
 
-    def _single_chain_mcmc(self, rng_key, init_state, init_params, args, kwargs, collect_fields):
+    def _single_chain_mcmc(self, init, args, kwargs, collect_fields):
+        rng_key, init_state, init_params = init
         if init_state is None:
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
@@ -311,7 +315,7 @@ class MCMC(object):
             postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
         else:
             postprocess_fn = self.postprocess_fn
-        diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else None   # noqa: E731
+        diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else ''   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
@@ -337,12 +341,6 @@ class MCMC(object):
         if len(site_values) > 0 and site_values[0].size > 0:
             states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
         return states, last_state
-
-    def _single_chain_jit_args(self, init, collect_fields):
-        return self._single_chain_mcmc(*init, collect_fields)
-
-    def _single_chain_nojit_args(self, init, model_args, model_kwargs, collect_fields):
-        return self._single_chain_mcmc(*init, model_args, model_kwargs, collect_fields)
 
     def _set_collection_params(self, lower=None, upper=None, collection_size=None):
         self._collection_params["lower"] = self.num_warmup if lower is None else lower
@@ -439,36 +437,25 @@ class MCMC(object):
         assert isinstance(extra_fields, (tuple, list))
         collect_fields = tuple(set((self._sample_field,) + tuple(self._default_fields) +
                                    tuple(extra_fields)))
+        partial_map_fn = partial(self._single_chain_mcmc,
+                                 args=args,
+                                 kwargs=kwargs,
+                                 collect_fields=collect_fields)
+        map_args = (rng_key, init_state, init_params)
         if self.num_chains == 1:
-            states_flat, last_state = self._single_chain_mcmc(rng_key, init_state, init_params,
-                                                              args, kwargs, collect_fields)
+            states_flat, last_state = partial_map_fn(map_args)
             states = tree_map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
-            if self._jit_model_args:
-                partial_map_fn = partial(self._single_chain_jit_args,
-                                         collect_fields=collect_fields)
-            else:
-                partial_map_fn = partial(self._single_chain_nojit_args,
-                                         model_args=args,
-                                         model_kwargs=kwargs,
-                                         collect_fields=collect_fields)
             if chain_method == 'sequential':
                 if self.progress_bar:
-                    map_fn = partial(_laxmap, partial_map_fn)
+                    states, last_state = _laxmap(partial_map_fn, map_args)
                 else:
-                    map_fn = partial(lax.map, partial_map_fn)
+                    states, last_state = lax.map(partial_map_fn, map_args)
             elif chain_method == 'parallel':
-                map_fn = pmap(partial_map_fn)
-            elif chain_method == 'vectorized':
-                map_fn = partial_map_fn
+                states, last_state = pmap(partial_map_fn)(map_args)
             else:
-                raise ValueError('Only supporting the following methods to draw chains:'
-                                 ' "sequential", "parallel", or "vectorized"')
-            if self._jit_model_args:
-                states, last_state = map_fn((rng_key, init_state, init_params, args, kwargs))
-            else:
-                states, last_state = map_fn((rng_key, init_state, init_params))
-            if chain_method == 'vectorized':
+                assert chain_method == 'vectorized'
+                states, last_state = partial_map_fn(map_args)
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
             states_flat = tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), states)

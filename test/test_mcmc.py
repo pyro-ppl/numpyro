@@ -435,21 +435,24 @@ def test_chain_inside_jit(kernel_cls, chain_method):
 ])
 @pytest.mark.parametrize('compile_args', [
     False,
-    True
+    True,
 ])
 @pytest.mark.skipif('CI' in os.environ, reason="Compiling time the whole sampling process is slow.")
-def test_chain_smoke(chain_method, compile_args):
+def test_chain_jit_args_smoke(chain_method, compile_args):
     def model(data):
         concentration = jnp.array([1.0, 1.0, 1.0])
         p_latent = numpyro.sample('p_latent', dist.Dirichlet(concentration))
         numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
         return p_latent
 
-    data = dist.Categorical(jnp.array([0.1, 0.6, 0.3])).sample(random.PRNGKey(1), (2000,))
+    data1 = dist.Categorical(jnp.array([0.1, 0.6, 0.3])).sample(random.PRNGKey(1), (50,))
+    data2 = dist.Categorical(jnp.array([0.2, 0.4, 0.4])).sample(random.PRNGKey(1), (50,))
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 2, 5, num_chains=2, chain_method=chain_method, jit_model_args=compile_args)
-    mcmc.warmup(random.PRNGKey(0), data)
-    mcmc.run(random.PRNGKey(1), data)
+    mcmc.warmup(random.PRNGKey(0), data1)
+    mcmc.run(random.PRNGKey(1), data1)
+    # this should be fast if jit_model_args=True
+    mcmc.run(random.PRNGKey(2), data2)
 
 
 def test_extra_fields():
