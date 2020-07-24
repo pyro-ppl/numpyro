@@ -441,37 +441,27 @@ class MCMC(object):
         assert isinstance(extra_fields, (tuple, list))
         collect_fields = tuple(set((self._sample_field,) + tuple(self._default_fields) +
                                    tuple(extra_fields)))
+        partial_map_fn = partial(self._single_chain_mcmc,
+                                 args=args,
+                                 kwargs=kwargs,
+                                 collect_fields=collect_fields)
+        map_args = (rng_key, init_state, init_params)
         if self.num_chains == 1:
-            states_flat, last_state = self._single_chain_mcmc((rng_key, init_state, init_params),
-                                                              args, kwargs, collect_fields)
+            states_flat, last_state = partial_map_fn(map_args)
             states = tree_map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
-            if self._jit_model_args and chain_method == 'parallel':
-                # XXX: it is not clear that this branch is useful
-                # we might remove this branch eventually to clean up the code
-                partial_map_fn = partial(self._single_chain_mcmc,
-                                         collect_fields=collect_fields)
-                map_args = ((rng_key, init_state, init_params), args, kwargs)
-                in_axes = (0, None, None)
-                states, last_state = pmap(partial_map_fn, in_axes=in_axes)(*map_args)
-            else:
-                partial_map_fn = partial(self._single_chain_mcmc,
-                                         args=args,
-                                         kwargs=kwargs,
-                                         collect_fields=collect_fields)
-                map_args = (rng_key, init_state, init_params)
-                if chain_method == 'sequential':
-                    if self.progress_bar:
-                        states, last_state = _laxmap(partial_map_fn, map_args)
-                    else:
-                        states, last_state = lax.map(partial_map_fn, map_args)
-                elif chain_method == 'parallel':
-                    states, last_state = pmap(partial_map_fn)(map_args)
+            if chain_method == 'sequential':
+                if self.progress_bar:
+                    states, last_state = _laxmap(partial_map_fn, map_args)
                 else:
-                    assert chain_method == 'vectorized'
-                    states, last_state = partial_map_fn(map_args)
-                    # swap num_samples x num_chains to num_chains x num_samples
-                    states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
+                    states, last_state = lax.map(partial_map_fn, map_args)
+            elif chain_method == 'parallel':
+                states, last_state = pmap(partial_map_fn)(map_args)
+            else:
+                assert chain_method == 'vectorized'
+                states, last_state = partial_map_fn(map_args)
+                # swap num_samples x num_chains to num_chains x num_samples
+                states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
             states_flat = tree_map(lambda x: jnp.reshape(x, (-1,) + x.shape[2:]), states)
         self._last_state = last_state
         self._states = states
