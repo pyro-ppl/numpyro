@@ -305,6 +305,9 @@ class SA(MCMCKernel):
     def default_fields(self):
         return ('z', 'diverging')
 
+    def get_diagnostics_str(self, state):
+        return 'acc. prob={:.2f}'.format(state.mean_accept_prob)
+
     def postprocess_fn(self, args, kwargs):
         if self._postprocess_fn is None:
             return identity

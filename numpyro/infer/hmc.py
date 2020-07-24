@@ -440,6 +440,11 @@ class HMC(MCMCKernel):
     def default_fields(self):
         return ('z', 'diverging')
 
+    def get_diagnostics_str(self, state):
+        return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(state.num_steps,
+                                                                  state.adapt_state.step_size,
+                                                                  state.mean_accept_prob)
+
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         # non-vectorized
         if rng_key.ndim == 1:
