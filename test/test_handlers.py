@@ -26,7 +26,7 @@ def test_mask(mask_last, use_jit):
     def model(data, mask):
         with numpyro.plate('N', N):
             x = numpyro.sample('x', dist.Normal(0, 1))
-            with handlers.mask(mask_array=mask):
+            with handlers.mask(mask=mask):
                 numpyro.sample('y', dist.Delta(x, log_density=1.))
                 with handlers.scale(scale=2):
                     numpyro.sample('obs', dist.Normal(x, 1), obs=data)

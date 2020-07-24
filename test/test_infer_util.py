@@ -185,7 +185,7 @@ def test_model_with_transformed_distribution():
 def test_model_with_mask_false():
     def model():
         x = numpyro.sample("x", dist.Normal())
-        with numpyro.handlers.mask(mask_array=False):
+        with numpyro.handlers.mask(mask=False):
             numpyro.sample("y", dist.Normal(x), obs=1)
 
     kernel = NUTS(model)
