@@ -77,7 +77,7 @@ logger.setLevel(logging.INFO)
 # prior. The latent state is x, and the observed state is y.
 def model_1(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
-    with mask(mask_array=include_prior):
+    with mask(mask=include_prior):
         probs_x = numpyro.sample("probs_x",
                                  dist.Dirichlet(0.9 * jnp.eye(args.hidden_dim) + 0.1)
                                      .to_event(1))
@@ -89,7 +89,7 @@ def model_1(sequences, lengths, args, include_prior=True):
     def transition_fn(carry, y):
         x_prev, t = carry
         with numpyro.plate("sequences", num_sequences, dim=-2):
-            with mask(mask_array=(t < lengths)[..., None]):
+            with mask(mask=(t < lengths)[..., None]):
                 x = numpyro.sample("x", dist.Categorical(probs_x[x_prev]))
                 with numpyro.plate("tones", data_dim, dim=-1):
                     numpyro.sample("y", dist.Bernoulli(probs_y[x.squeeze(-1)]), obs=y)
@@ -108,7 +108,7 @@ def model_1(sequences, lengths, args, include_prior=True):
 #     y[t-1] --> y[t] --> y[t+1]
 def model_2(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
-    with mask(mask_array=include_prior):
+    with mask(mask=include_prior):
         probs_x = numpyro.sample("probs_x",
                                  dist.Dirichlet(0.9 * jnp.eye(args.hidden_dim) + 0.1)
                                      .to_event(1))
@@ -121,7 +121,7 @@ def model_2(sequences, lengths, args, include_prior=True):
     def transition_fn(carry, y):
         x_prev, y_prev, t = carry
         with numpyro.plate("sequences", num_sequences, dim=-2):
-            with mask(mask_array=(t < lengths)[..., None]):
+            with mask(mask=(t < lengths)[..., None]):
                 x = numpyro.sample("x", dist.Categorical(probs_x[x_prev]))
                 # Note the broadcasting tricks here: to index probs_y on tensors x and y,
                 # we also need a final tensor for the tones dimension. This is conveniently
@@ -153,7 +153,7 @@ def model_2(sequences, lengths, args, include_prior=True):
 def model_3(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
-    with mask(mask_array=include_prior):
+    with mask(mask=include_prior):
         probs_w = numpyro.sample("probs_w",
                                  dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
                                      .to_event(1))
@@ -168,7 +168,7 @@ def model_3(sequences, lengths, args, include_prior=True):
     def transition_fn(carry, y):
         w_prev, x_prev, t = carry
         with numpyro.plate("sequences", num_sequences, dim=-2):
-            with mask(mask_array=(t < lengths)[..., None]):
+            with mask(mask=(t < lengths)[..., None]):
                 w = numpyro.sample("w", dist.Categorical(probs_w[w_prev]))
                 x = numpyro.sample("x", dist.Categorical(probs_x[x_prev]))
                 # Note the broadcasting tricks here: to index probs_y on tensors x and y,
@@ -200,7 +200,7 @@ def model_3(sequences, lengths, args, include_prior=True):
 def model_4(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
-    with mask(mask_array=include_prior):
+    with mask(mask=include_prior):
         probs_w = numpyro.sample("probs_w",
                                  dist.Dirichlet(0.9 * jnp.eye(hidden_dim) + 0.1)
                                      .to_event(1))
@@ -216,7 +216,7 @@ def model_4(sequences, lengths, args, include_prior=True):
     def transition_fn(carry, y):
         w_prev, x_prev, t = carry
         with numpyro.plate("sequences", num_sequences, dim=-2):
-            with mask(mask_array=(t < lengths)[..., None]):
+            with mask(mask=(t < lengths)[..., None]):
                 w = numpyro.sample("w", dist.Categorical(probs_w[w_prev]))
                 x = numpyro.sample("x", dist.Categorical(Vindex(probs_x)[w, x_prev]))
                 with numpyro.plate("tones", data_dim, dim=-1) as tones:
