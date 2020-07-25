@@ -7,7 +7,7 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import jit, lax, pmap, random
+from jax import device_put, jit, lax, pmap, random
 from jax.core import Tracer
 from jax.interpreters.xla import DeviceArray
 from jax.lib import xla_bridge
@@ -453,6 +453,8 @@ class MCMC(object):
                     states, last_state = lax.map(partial_map_fn, map_args)
             elif chain_method == 'parallel':
                 states, last_state = pmap(partial_map_fn)(map_args)
+                # TODO: remove when https://github.com/google/jax/issues/3597 is resolved
+                states = device_put(states)
             else:
                 assert chain_method == 'vectorized'
                 states, last_state = partial_map_fn(map_args)
