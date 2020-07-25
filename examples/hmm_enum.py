@@ -30,8 +30,8 @@ to use the parallel-scan algorithm in [2], which reduces parallel
 complexity from O(length) to O(log(length)).
 
 Data are taken from [3]. However, the original source of the data
-seems to be the Institut fuer Algorithmen
-und Kognitive Systeme at Universitaet Karlsruhe.
+seems to be the Institut fuer Algorithmen und Kognitive Systeme
+at Universitaet Karlsruhe.
 
 **References:**
 

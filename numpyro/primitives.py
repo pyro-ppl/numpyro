@@ -252,6 +252,11 @@ class plate(Messenger):
         else:
             assert self.dim not in occupied_dims
 
+    def __enter__(self):
+        super().__enter__()
+        # XXX: JAX doesn't like slice index, so we cast to list
+        return list(range(self.subsample_size))
+
     @staticmethod
     def _get_batch_shape(cond_indep_stack):
         n_dims = max(-f.dim for f in cond_indep_stack)
