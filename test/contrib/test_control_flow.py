@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpy.testing import assert_allclose
+import pytest
 
 import jax
 import jax.numpy as jnp
@@ -9,6 +10,7 @@ import jax.numpy as jnp
 import numpyro
 from numpyro.contrib.control_flow.scan import scan
 import numpyro.distributions as dist
+from numpyro.handlers import seed, substitute, trace
 from numpyro.infer import MCMC, NUTS, Predictive
 
 
@@ -53,3 +55,26 @@ def test_scan():
     assert result['y2'].shape == expected_shape
     assert_allclose(result['x'][:, :T], jnp.broadcast_to(x, (num_samples, T)))
     assert_allclose(result['y'][:, :T], samples['y'])
+
+
+@pytest.mark.xfail(raises=RuntimeError)
+def test_nested_scan_smoke():
+    def model():
+        def outer_fn(y, val):
+            def body_fn(z, val):
+                z = numpyro.sample("z", dist.Normal(z, 1))
+                return z, z
+
+            y = numpyro.sample("y", dist.Normal(y, 1))
+            _, zs = scan(body_fn, y, None, 4)
+            return y, zs
+
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        _, zs = scan(outer_fn, x, None, 3)
+        return zs
+
+    data = jnp.arange(12).reshape((3, 4))
+    # we can scan but can't substitute values through multiple levels of scan
+    with trace(), seed(rng_seed=0), substitute(data={"z": data}):
+        zs = model()
+    assert_allclose(zs, data)

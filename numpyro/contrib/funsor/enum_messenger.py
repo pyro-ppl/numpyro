@@ -253,9 +253,11 @@ class NamedMessenger(DimStackCleanupMessenger):
 
         # interpret all names/dims as requests since we only run this function once
         for dim in range(-batch_dim, 0):
-            if batch_shape[dim] == 1:
-                continue
             name = dim_to_name.get(dim, None)
+            # the time dimension on the left sometimes necessitates empty dimensions appearing
+            # before they have been assigned a name
+            if batch_shape[dim] == 1 and name is None:
+                continue
             dim_to_name[dim] = name if isinstance(name, NameRequest) else NameRequest(name, dim_type)
 
         for dim, name_request in dim_to_name.items():
@@ -501,6 +503,8 @@ class enum(BaseEnumMessenger):
         if msg["type"] != "sample" or \
                 msg.get("done", False) or msg["is_observed"] or msg["infer"].get("expand", False) or \
                 msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
+            if msg["type"] == "control_flow":
+                msg["kwargs"]["enum"] = True
             return super().process_message(msg)
 
         if msg["infer"].get("num_samples", None) is not None:

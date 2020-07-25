@@ -252,6 +252,11 @@ class plate(Messenger):
         else:
             assert self.dim not in occupied_dims
 
+    def __enter__(self):
+        super().__enter__()
+        # XXX: JAX doesn't like slice index, so we cast to list
+        return list(range(self.subsample_size))
+
     @staticmethod
     def _get_batch_shape(cond_indep_stack):
         n_dims = max(-f.dim for f in cond_indep_stack)
@@ -263,9 +268,9 @@ class plate(Messenger):
     def process_message(self, msg):
         if msg['type'] not in ('param', 'sample', 'plate'):
             if msg['type'] == 'control_flow':
-                raise RuntimeError('Cannot use control flow primitive under a `plate` primitive.'
-                                   ' Please move those `plate` statements into the control flow'
-                                   ' body function.')
+                raise NotImplementedError('Cannot use control flow primitive under a `plate` primitive.'
+                                          ' Please move those `plate` statements into the control flow'
+                                          ' body function. See `scan` documentation for more information.')
             return
 
         cond_indep_stack = msg['cond_indep_stack']
