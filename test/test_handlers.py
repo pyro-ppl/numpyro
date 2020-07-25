@@ -45,6 +45,15 @@ def test_mask(mask_last, use_jit):
     assert_allclose(log_joint, expected, atol=1e-4)
 
 
+def test_mask_inf():
+    def model():
+        with handlers.mask(mask=jnp.zeros(10, dtype=bool)):
+            numpyro.factor('inf', -jnp.inf)
+
+    log_joint = log_density(model, (), {}, {})[0]
+    assert_allclose(log_joint, 0.)
+
+
 @pytest.mark.parametrize('use_context_manager', [True, False])
 def test_scale(use_context_manager):
     def model(data):

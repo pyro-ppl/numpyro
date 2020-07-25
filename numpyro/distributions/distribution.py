@@ -311,7 +311,8 @@ class Distribution(object):
         broadcastable to the distributions
         :attr:`Distribution.batch_shape` .
 
-        :param mask: A boolean or boolean valued array.
+        :param mask: A boolean or boolean valued array (`True` includes
+            a site, `False` excludes a site).
         :type mask: bool or jnp.ndarray
         :return: A masked copy of this distribution.
         :rtype: :class:`MaskedDistribution`
@@ -636,7 +637,7 @@ class MaskedDistribution(Distribution):
             return jnp.zeros(shape)
         if self._mask is True:
             return self.base_dist.log_prob(value)
-        return self.base_dist.log_prob(value) * self._mask
+        return jnp.where(self._mask, self.base_dist.log_prob(value), 0.)
 
     def enumerate_support(self, expand=True):
         return self.base_dist.enumerate_support(expand=expand)
