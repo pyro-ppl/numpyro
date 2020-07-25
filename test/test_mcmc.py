@@ -355,7 +355,6 @@ def test_empty_model(num_chains, chain_method, progress_bar):
 @pytest.mark.parametrize('chain_method', ['parallel', 'sequential', 'vectorized'])
 @pytest.mark.skipif('XLA_FLAGS' not in os.environ, reason='without this mark, we have duplicated tests in Travis')
 def test_chain(use_init_params, chain_method):
-    numpyro.set_host_device_count(2)
     N, dim = 3000, 3
     num_chains = 2
     num_warmup, num_samples = 5000, 5000
