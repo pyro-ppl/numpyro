@@ -9,9 +9,6 @@ import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
 from numpyro import handlers
-from numpyro.contrib.funsor import (enum, config_enumerate, markov, to_funsor,
-                                    trace as packed_trace)
-from numpyro.contrib.funsor.enum_messenger import LocalNamedMessenger
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack
 from numpyro.util import not_jax_tracer
 
@@ -103,6 +100,8 @@ class promote_shapes(Messenger):
 
 
 def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None):
+    from numpyro.contrib.funsor import enum, config_enumerate, markov, trace as packed_trace
+
     # XXX: This implementation only works for history size=1 but can be
     # extended to history size > 1 by running `f` `history_size` times
     # for initialization. However, `sequential_sum_product` does not
@@ -337,6 +336,9 @@ def scan(f, init, xs, length=None, reverse=False):
         for msg in pytree_trace.trace.values():
             apply_stack(msg)
     else:
+        from numpyro.contrib.funsor import to_funsor
+        from numpyro.contrib.funsor.enum_messenger import LocalNamedMessenger
+
         for msg in pytree_trace.trace.values():
             with LocalNamedMessenger():
                 dim_to_name = msg["infer"].get("dim_to_name")
