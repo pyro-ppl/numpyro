@@ -373,8 +373,8 @@ class mask(Messenger):
     """
     This messenger masks out some of the sample statements elementwise.
 
-    :param mask: a DeviceArray with `bool` dtype for masking elementwise masking
-        of sample sites.
+    :param mask: a boolean or a boolean-valued array for masking elementwise log
+        probability of sample sites (`True` includes a site, `False` excludes a site).
     """
     def __init__(self, fn=None, mask=True, mask_array=None):
         if mask_array is not None:

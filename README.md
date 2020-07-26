@@ -182,18 +182,13 @@ Pyro users will note that the API for model specification and inference is large
 
 ## Installation
 
-> **Limited Windows Support:** Note that NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) as use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) if you want to use GPUs on Windows.
+> **Limited Windows Support:** Note that NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) and use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) if you want to use GPUs on Windows.
 
 To install NumPyro with a CPU version of JAX, you can use pip:
 
 ```
 pip install numpyro
 ```
-or
-```
-pip install numpyro[funsor]
-```
-if you want to do inference for models with discrete latent variables.
 
 To use NumPyro on the GPU, you will need to first [install](https://github.com/google/jax#installation) `jax` and `jaxlib` with CUDA support.
 
@@ -204,8 +199,7 @@ You can also install NumPyro from source:
 ```
 git clone https://github.com/pyro-ppl/numpyro.git
 # install jax/jaxlib first for CUDA support
-pip install -e .
-# or `pip install -e .[funsor]
+pip install -e .[dev]  # contains additional dependencies for NumPyro development
 ```
 
 ## Frequently Asked Questions

@@ -4,7 +4,10 @@
 try:
     import funsor
 except ImportError:
-    raise ImportError("`funsor` package is missing. You can install it with `pip install funsor`.")
+    raise ImportError("Looking like you want to do inference for models with "
+                      "discrete latent variables. This is an experimental feature. "
+                      "For that you need to install `funsor` first. "
+                      "You can install it with `pip install funsor`.")
 
 from numpyro.contrib.funsor.enum_messenger import enum, infer_config, markov, plate, to_data, to_funsor, trace
 from numpyro.contrib.funsor.infer_util import config_enumerate, log_density, plate_to_enum_plate

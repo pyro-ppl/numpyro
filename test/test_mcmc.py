@@ -7,7 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import jit, pmap, random, vmap
+from jax import device_get, jit, pmap, random, vmap
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.special import logit
@@ -379,6 +379,9 @@ def test_chain(use_init_params, chain_method):
     samples = mcmc.get_samples(group_by_chain=True)
     assert samples['coefs'].shape[:2] == (num_chains, num_samples)
     assert_allclose(jnp.mean(samples_flat['coefs'], 0), true_coefs, atol=0.21)
+
+    # test if reshape works
+    device_get(samples_flat['coefs'].reshape(-1))
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])

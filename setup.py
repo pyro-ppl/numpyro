@@ -36,13 +36,10 @@ setup(
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
         'jax==0.1.73',
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L20
-        'jaxlib==0.1.52',
+        'jaxlib==0.1.51',
         'tqdm',
     ],
     extras_require={
-        'funsor': [
-            'funsor @ git+https://github.com/pyro-ppl/funsor.git@b4db46acc5ab615abd2e1297f65ff5e70e961876#egg=funsor',
-        ],
         'doc': ['sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
         'test': [
             'flake8',
@@ -52,7 +49,7 @@ setup(
         'dev': [
             'funsor @ git+https://github.com/pyro-ppl/funsor.git@b4db46acc5ab615abd2e1297f65ff5e70e961876#egg=funsor',
             'ipython',
-            'isort'
+            'isort',
         ],
         'examples': ['matplotlib', 'seaborn'],
     },
