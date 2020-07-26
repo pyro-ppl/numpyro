@@ -12,6 +12,7 @@ Welcome to NumPyro Examples and Tutorials!
 
    bayesian_regression
    time_series_forecasting
+   bayesian_imputation
 
 .. toctree::
    :maxdepth: 2
