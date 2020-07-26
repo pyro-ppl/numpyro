@@ -100,9 +100,7 @@ class promote_shapes(Messenger):
 
 
 def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None):
-    from numpyro.contrib.funsor import (enum, config_enumerate, markov, to_funsor,
-                                        trace as packed_trace)
-    from numpyro.contrib.funsor.enum_messenger import LocalNamedMessenger
+    from numpyro.contrib.funsor import enum, config_enumerate, markov, trace as packed_trace
 
     # XXX: This implementation only works for history size=1 but can be
     # extended to history size > 1 by running `f` `history_size` times
@@ -338,6 +336,9 @@ def scan(f, init, xs, length=None, reverse=False):
         for msg in pytree_trace.trace.values():
             apply_stack(msg)
     else:
+        from numpyro.contrib.funsor import to_funsor
+        from numpyro.contrib.funsor.enum_messenger import LocalNamedMessenger
+
         for msg in pytree_trace.trace.values():
             with LocalNamedMessenger():
                 dim_to_name = msg["infer"].get("dim_to_name")
