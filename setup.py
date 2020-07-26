@@ -33,22 +33,25 @@ setup(
     author='Uber AI Labs',
     author_email='npradhan@uber.com',
     install_requires=[
-        # TODO: use the release version of funsor for the release
-        'funsor @ git+https://github.com/pyro-ppl/funsor.git@b4db46acc5ab615abd2e1297f65ff5e70e961876#egg=funsor',
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
-        'jax>=0.1.70',
+        'jax==0.1.73',
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L20
-        'jaxlib>=0.1.47',
+        'jaxlib==0.1.52',
         'tqdm',
     ],
     extras_require={
+        'funsor': ['funsor @ git+https://github.com/pyro-ppl/funsor.git@b4db46acc5ab615abd2e1297f65ff5e70e961876#egg=funsor'],
         'doc': ['sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
         'test': [
             'flake8',
             'pytest>=4.1',
             'pyro-api>=0.1.1'
         ],
-        'dev': ['ipython', 'isort'],
+        'dev': [
+            'funsor @ git+https://github.com/pyro-ppl/funsor.git@b4db46acc5ab615abd2e1297f65ff5e70e961876#egg=funsor',
+            'ipython',
+            'isort'
+        ],
         'examples': ['matplotlib', 'seaborn'],
     },
     long_description=long_description,
