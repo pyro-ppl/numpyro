@@ -34,9 +34,9 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
-        'jax>=0.1.70',
+        'jax==0.1.73',
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L20
-        'jaxlib>=0.1.47',
+        'jaxlib==0.1.51',
         'tqdm',
     ],
     extras_require={
@@ -47,7 +47,7 @@ setup(
             'pyro-api>=0.1.1'
         ],
         'dev': [
-            'funsor @ git+https://github.com/pyro-ppl/funsor.git@b4db46acc5ab615abd2e1297f65ff5e70e961876#egg=funsor',
+            'funsor',
             'ipython',
             'isort',
         ],
