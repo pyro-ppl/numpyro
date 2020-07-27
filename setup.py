@@ -47,7 +47,7 @@ setup(
             'pyro-api>=0.1.1'
         ],
         'dev': [
-            'funsor @ git+https://github.com/pyro-ppl/funsor.git@b4db46acc5ab615abd2e1297f65ff5e70e961876#egg=funsor',
+            'funsor',
             'ipython',
             'isort',
         ],
