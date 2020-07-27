@@ -181,7 +181,7 @@ sphinx_gallery_conf = {
     'examples_dirs': ['../../examples'],
     'gallery_dirs': ['examples'],
     # slow examples can be added to here to avoid execution
-    'filename_pattern': r'(?!hmm_enum)\b\w+.py\b' ,
+    'filename_pattern': r'(?!hmm_enum)\b\w+.py\b',
     'ignore_pattern': '(minipyro|covtype|__init__)',
     'within_subsection_order': GalleryFileNameSortKey,
     'image_scrapers': ('matplotlib', PNGScraper()),
