@@ -106,7 +106,8 @@ def gaussian_model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
     dilation = 1
 
     if method != 'ppcg':
-        k_sigma = kernel(kX, kX, eta1, eta2, hypers['c']) + sigma ** 2 * np.eye(N)
+        jitter = 1.0e-4
+        k_sigma = kernel(kX, kX, eta1, eta2, hypers['c']) + (jitter + sigma ** 2) * np.eye(N)
 
     max_iters = 200
     rank1, rank2 = 16, 12
@@ -134,9 +135,7 @@ def gaussian_model(X, Y, hypers, method="direct", num_probes=1, cg_tol=0.001):
         numpyro.factor("obs", - 0.5 * qfld)
 
 
-def bernoulli_guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
-    S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
-
+def hypers_guide(S, sigma, P, N):
     phi = sigma * (S / np.sqrt(N)) / (P - S)
 
     eta1_loc = numpyro.param("eta1_loc", 0.25, constraint=constraints.positive)
@@ -151,11 +150,17 @@ def bernoulli_guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
     lam_loc = numpyro.param("lam_loc", 0.5 * np.ones(P), constraint=constraints.positive)
     numpyro.sample("lambda", dist.Delta(lam_loc))
 
+
+def bernoulli_guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
+    S, sigma, P, N = hypers['expected_sparsity'], hypers['sigma'], X.shape[1], X.shape[0]
+
+    hypers_guide(S, sigma, P, N)
+
     omega_loc = numpyro.param('omega_loc', -2.0 * np.ones(N))
     omega_scale = numpyro.param('omega_scale', 0.8 * np.ones(N), constraint=constraints.positive)
     base_dist = dist.Normal(omega_loc, omega_scale)
     omega_dist = dist.TransformedDistribution(base_dist, [SigmoidTransform(), AffineTransform(0, 2.5)])
-    omega = numpyro.sample("omega", omega_dist)
+    numpyro.sample("omega", omega_dist)
 
 
 def gaussian_guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
@@ -163,19 +168,8 @@ def gaussian_guide(X, Y, hypers, method="direct", num_probes=4, cg_tol=0.001):
 
     sigma_loc = numpyro.param("sigma_loc", 0.25, constraint=constraints.positive)
     sigma = numpyro.sample("sigma", dist.Delta(sigma_loc))
-    phi = sigma * (S / np.sqrt(N)) / (P - S)
 
-    eta1_loc = numpyro.param("eta1_loc", 0.25, constraint=constraints.positive)
-    eta1 = numpyro.sample("eta1", dist.Delta(eta1_loc))
-
-    msq_loc = numpyro.param("msq_loc", 1.0, constraint=constraints.positive)
-    msq = numpyro.sample("msq", dist.Delta(msq_loc))
-
-    xisq_loc = numpyro.param("xisq_loc", 1.0, constraint=constraints.positive)
-    xisq = numpyro.sample("xisq", dist.Delta(xisq_loc))
-
-    lam_loc = numpyro.param("lam_loc", 0.5 * np.ones(P), constraint=constraints.positive)
-    numpyro.sample("lambda", dist.Delta(lam_loc))
+    hypers_guide(S, sigma, P, N)
 
 
 def run_hmc(model, args, rng_key, X, Y, hypers):
@@ -183,7 +177,7 @@ def run_hmc(model, args, rng_key, X, Y, hypers):
     kernel = NUTS(model, max_tree_depth=args.mtd)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
-    mcmc.run(rng_key, X, Y, hypers)
+    mcmc.run(rng_key, X, Y, hypers, method="direct")
     mcmc.print_summary()
     elapsed_time = time.time() - start
 
@@ -310,12 +304,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pairwise Interaction Discovery")
     parser.add_argument("--inference", nargs="?", default='svi-ppcg', type=str,
                         choices=['hmc','svi-direct','svi-cg','svi-pcg', 'svi-ppcg'])
-    parser.add_argument("-n", "--num-samples", nargs="?", default=800, type=int)
-    parser.add_argument("--num-data", default=2000, type=int)
-    parser.add_argument("--num-warmup", default=0, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=200, type=int)
+    parser.add_argument("--num-data", default=500, type=int)
+    parser.add_argument("--num-warmup", default=200, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
     parser.add_argument("--mtd", default=5, type=int)
-    parser.add_argument("--num-dimensions", default=100, type=int)
+    parser.add_argument("--num-dimensions", default=20, type=int)
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--lr", default=0.005, type=float)
     parser.add_argument("--cg-tol", default=0.001, type=float)
@@ -327,6 +321,9 @@ if __name__ == "__main__":
     parser.add_argument("--results-file", default='results.out', type=str)
     parser.add_argument("--double", action="store_true")
     args = parser.parse_args()
+
+    if args.inference == 'hmc':
+        assert args.double, "HMC requires double precision"
 
     numpyro.set_platform(args.device)
     numpyro.set_host_device_count(args.num_chains)
