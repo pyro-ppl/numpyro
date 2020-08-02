@@ -15,10 +15,10 @@ joint density.
 To marginalize out discrete variables ``x``:
 
 1. Verify that the variable dependency structure in your model
-    admits tractable inference, i.e. the dependency graph among
-    enumerated variables should have narrow treewidth.
+   admits tractable inference, i.e. the dependency graph among
+   enumerated variables should have narrow treewidth.
 2. Ensure your model can handle broadcasting of the sample values
-    of those variables
+   of those variables.
 
 Note that difference from [1], which uses Python loop, here we use
 :func:`~numpryo.contrib.control_flow.scan` to reduce compilation
