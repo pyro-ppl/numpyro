@@ -23,7 +23,7 @@ def plate_to_enum_plate():
 
     This is useful when doing inference for the usual NumPyro programs with
     `numpyro.plate` statements. For example, to get trace of a `model` whose discrete
-    latent sites are enumerated, we can use
+    latent sites are enumerated, we can use::
 
         enum_model = numpyro.contrib.funsor.enum(model)
         with plate_to_enum_plate():
