@@ -29,7 +29,7 @@ import numpy as np
 
 from jax import device_put, lax
 from jax.dtypes import canonicalize_dtype
-from jax.nn import softmax
+from jax.nn import softmax, softplus
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
@@ -600,7 +600,7 @@ class GeometricProbs(Distribution):
     support = constraints.nonnegative_integer
     is_discrete = True
 
-    def __init__(self, probs=None, validate_args=None):
+    def __init__(self, probs, validate_args=None):
         self.probs = probs
         super(GeometricProbs, self).__init__(batch_shape=jnp.shape(self.probs),
                                              validate_args=validate_args)
@@ -610,10 +610,7 @@ class GeometricProbs(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        value, probs = promote_shapes(value, self.probs)
-        probs = jnp.where((probs == 1) & (value == 0), 0, probs)
+        probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
         return value * jnp.log1p(-probs) + jnp.log(probs)
 
     @property
@@ -630,7 +627,7 @@ class GeometricLogits(Distribution):
     support = constraints.nonnegative_integer
     is_discrete = True
 
-    def __init__(self, logits=None, validate_args=None):
+    def __init__(self, logits, validate_args=None):
         self.logits = logits
         super(GeometricLogits, self).__init__(batch_shape=jnp.shape(self.logits),
                                               validate_args=validate_args)
@@ -644,11 +641,7 @@ class GeometricLogits(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        if self._validate_args:
-            self._validate_sample(value)
-        value, probs = promote_shapes(value, self.probs)
-        probs = jnp.where((probs == 1) & (value == 0), 0, probs)
-        return value * jnp.log1p(-probs) + jnp.log(probs)
+        return (-value - 1) * softplus(self.logits) + self.logits
 
     @property
     def mean(self):
