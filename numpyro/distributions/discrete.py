@@ -606,7 +606,11 @@ class GeometricProbs(Distribution):
                                              validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return geometric(key, self.probs, sample_shape + self.batch_shape)
+        probs = self.probs
+        dtype = get_dtype(probs)
+        shape = sample_shape + self.batch_shape
+        u = random.uniform(key, shape, dtype)
+        return jnp.floor(jnp.log1p(-u) / jnp.log1p(-probs))
 
     @validate_sample
     def log_prob(self, value):
@@ -637,7 +641,11 @@ class GeometricLogits(Distribution):
         return _to_probs_bernoulli(self.logits)
 
     def sample(self, key, sample_shape=()):
-        return geometric(key, self.probs, sample_shape + self.batch_shape)
+        logits = self.logits
+        dtype = get_dtype(logits)
+        shape = sample_shape + self.batch_shape
+        u = random.uniform(key, shape, dtype)
+        return jnp.floor(jnp.log1p(-u) / -softplus(logits))
 
     @validate_sample
     def log_prob(self, value):

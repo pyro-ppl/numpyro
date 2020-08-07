@@ -16,7 +16,6 @@ from numpyro.distributions.util import (
     binomial,
     categorical,
     cholesky_update,
-    geometric,
     multinomial,
     vec_to_tril_matrix
 )
@@ -106,29 +105,6 @@ def test_multinomial_stats(p, n):
     n = float(n) if isinstance(n, Number) else jnp.expand_dims(n.astype(p.dtype), -1)
     p = jnp.broadcast_to(p, z.shape)
     assert_allclose(z / n, p, atol=0.01)
-
-
-@pytest.mark.parametrize('p, shape', [
-    (jnp.array([0.1, 0.9]), (2,)),
-    (jnp.array([0.2, 0.8]), (2, 2)),
-    (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (2, 2)),
-    (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2, 2)),
-])
-def test_geometric_shape(p, shape):
-    rng_key = random.PRNGKey(0)
-    expected_shape = lax.broadcast_shapes(p.shape, shape)
-    assert jnp.shape(geometric(rng_key, p, shape)) == expected_shape
-
-
-@pytest.mark.parametrize("p", [
-    jnp.array([0.2, 0.3, 0.5]),
-    jnp.array([0.8, 0.1, 0.1]),
-])
-def test_geometric_stats(p):
-    rng_key = random.PRNGKey(0)
-    n = 100000
-    z = geometric(rng_key, p, shape=(n,) + p.shape)
-    assert_allclose(z.mean(0), (1 - p) / p, rtol=0.01, atol=0.01)
 
 
 @pytest.mark.parametrize("shape", [

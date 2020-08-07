@@ -215,20 +215,6 @@ def multinomial(key, p, n, shape=()):
     return _multinomial(key, p, n, n_max, shape)
 
 
-@partial(jit, static_argnums=(2,))
-def _geometric(key, p, shape):
-    if shape is None:
-        shape = jnp.shape(p)
-    dtype = get_dtype(p)
-    tiny = jnp.finfo(dtype).eps
-    u = random.uniform(key, shape, dtype, tiny)
-    return jnp.floor(jnp.log(u) / jnp.log1p(-p))
-
-
-def geometric(key, p, shape=None):
-    return _geometric(key, p, shape)
-
-
 def cholesky_of_inverse(matrix):
     # This formulation only takes the inverse of a triangular matrix
     # which is more numerically stable.
