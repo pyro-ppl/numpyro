@@ -48,7 +48,10 @@ from numpyro.distributions.discrete import (
     OrderedLogistic,
     Poisson,
     PRNGIdentity,
-    ZeroInflatedPoisson
+    ZeroInflatedPoisson,
+    Geometric,
+    GeometricLogits,
+    GeometricProbs
 )
 from numpyro.distributions.distribution import (
     Distribution,
@@ -87,6 +90,9 @@ __all__ = [
     'Gamma',
     'GammaPoisson',
     'GaussianRandomWalk',
+    'Geometric',
+    'GeometricLogits',
+    'GeometricProbs',
     'Gumbel',
     'HalfCauchy',
     'HalfNormal',

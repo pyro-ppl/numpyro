@@ -29,7 +29,7 @@ import numpy as np
 
 from jax import device_put, lax
 from jax.dtypes import canonicalize_dtype
-from jax.nn import softmax
+from jax.nn import softmax, softplus
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
@@ -592,3 +592,77 @@ class ZeroInflatedPoisson(Distribution):
     @lazy_property
     def variance(self):
         return (1 - self.gate) * self.rate * (1 + self.rate * self.gate)
+
+
+class GeometricProbs(Distribution):
+    arg_constraints = {'probs': constraints.unit_interval}
+    support = constraints.nonnegative_integer
+    is_discrete = True
+
+    def __init__(self, probs, validate_args=None):
+        self.probs = probs
+        super(GeometricProbs, self).__init__(batch_shape=jnp.shape(self.probs),
+                                             validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        probs = self.probs
+        dtype = get_dtype(probs)
+        shape = sample_shape + self.batch_shape
+        u = random.uniform(key, shape, dtype)
+        return jnp.floor(jnp.log1p(-u) / jnp.log1p(-probs))
+
+    @validate_sample
+    def log_prob(self, value):
+        probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
+        return value * jnp.log1p(-probs) + jnp.log(probs)
+
+    @property
+    def mean(self):
+        return 1. / self.probs - 1.
+
+    @property
+    def variance(self):
+        return (1. / self.probs - 1.) / self.probs
+
+
+class GeometricLogits(Distribution):
+    arg_constraints = {'logits': constraints.real}
+    support = constraints.nonnegative_integer
+    is_discrete = True
+
+    def __init__(self, logits, validate_args=None):
+        self.logits = logits
+        super(GeometricLogits, self).__init__(batch_shape=jnp.shape(self.logits),
+                                              validate_args=validate_args)
+
+    @lazy_property
+    def probs(self):
+        return _to_probs_bernoulli(self.logits)
+
+    def sample(self, key, sample_shape=()):
+        logits = self.logits
+        dtype = get_dtype(logits)
+        shape = sample_shape + self.batch_shape
+        u = random.uniform(key, shape, dtype)
+        return jnp.floor(jnp.log1p(-u) / -softplus(logits))
+
+    @validate_sample
+    def log_prob(self, value):
+        return (-value - 1) * softplus(self.logits) + self.logits
+
+    @property
+    def mean(self):
+        return 1. / self.probs - 1.
+
+    @property
+    def variance(self):
+        return (1. / self.probs - 1.) / self.probs
+
+
+def Geometric(probs=None, logits=None, validate_args=None):
+    if probs is not None:
+        return GeometricProbs(probs, validate_args=validate_args)
+    elif logits is not None:
+        return GeometricLogits(logits, validate_args=validate_args)
+    else:
+        raise ValueError('One of `probs` or `logits` must be specified.')

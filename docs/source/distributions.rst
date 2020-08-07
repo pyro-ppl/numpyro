@@ -349,6 +349,26 @@ GammaPoisson
     :show-inheritance:
     :member-order: bysource
 
+Geometric
+---------
+.. autofunction:: numpyro.distributions.discrete.Geometric
+
+GeometricLogits
+---------------
+.. autoclass:: numpyro.distributions.discrete.GeometricLogits
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+GeometricProbs
+--------------
+.. autoclass:: numpyro.distributions.discrete.GeometricProbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Multinomial
 -----------
 .. autofunction:: numpyro.distributions.discrete.Multinomial
