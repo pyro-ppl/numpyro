@@ -352,10 +352,6 @@ GammaPoisson
 Geometric
 ---------
 .. autofunction:: numpyro.distributions.discrete.Geometric
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
 
 GeometricLogits
 ---------------
