@@ -292,14 +292,17 @@ def test_counterfactual_query(intervene, observe, flip):
                 assert_allclose(observations[name], actual_values[name])
                 assert_allclose(observations[name], tr[name]['value'])
             if interventions[name] != observations[name]:
-                assert_raises(AssertionError, assert_allclose, interventions[name], actual_values[name])
+                if interventions[name] is not None:
+                    assert_raises(AssertionError, assert_allclose, interventions[name], actual_values[name])
         # case 2: purely interventional query like old handlers.do
         elif intervene and not observe:
             assert not tr[name]['is_observed']
             if interventions[name] is not None:
                 assert_allclose(interventions[name], actual_values[name])
-            assert_raises(AssertionError, assert_allclose, observations[name], tr[name]['value'])
-            assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]['value'])
+            if observations[name] is not None:
+                assert_raises(AssertionError, assert_allclose, observations[name], tr[name]['value'])
+            if interventions[name] is not None:
+                assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]['value'])
         # case 3: counterfactual query mixing intervention and observation
         elif intervene and observe:
             if observations[name] is not None:
@@ -308,7 +311,8 @@ def test_counterfactual_query(intervene, observe, flip):
             if interventions[name] is not None:
                 assert_allclose(interventions[name], actual_values[name])
             if interventions[name] != observations[name]:
-                assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]['value'])
+                if interventions[name] is not None:
+                    assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]['value'])
 
 
 def test_block():
