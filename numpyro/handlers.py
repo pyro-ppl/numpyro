@@ -83,8 +83,9 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.primitives import Messenger
+from numpyro.primitives import Messenger, apply_stack
 from numpyro.util import not_jax_tracer
+
 
 __all__ = [
     'block',
@@ -98,6 +99,7 @@ __all__ = [
     'seed',
     'substitute',
     'trace',
+    'do'
 ]
 
 
@@ -625,3 +627,74 @@ class substitute(Messenger):
 
         if value is not None:
             msg['value'] = value
+
+
+class do(Messenger):
+    """
+    Given a stochastic function with some sample statements
+    and a dictionary of values at names,
+    set the return values of those sites equal to the values
+    as if they were hard-coded to those values
+    and introduce fresh sample sites with the same names
+    whose values do not propagate.
+    Composes freely with :func:`~numpyro.handlers.condition`
+    to represent counterfactual distributions over potential outcomes.
+    See Single World Intervention Graphs [1] for additional details and theory.
+
+    This is equivalent to replacing `z = numpyro.sample("z", ...)` with `z = 1.`
+    and introducing a fresh sample site `numpyro.sample("z", ...)` whose value is not used elsewhere.
+
+    References
+
+    [1] `Single World Intervention Graphs: A Primer`,
+        Thomas Richardson, James Robins
+
+    :param fn: a stochastic function (callable containing Pyro primitive calls)
+    :param data: a ``dict`` mapping sample site names to interventions
+
+    **Example:**
+
+    .. doctest::
+
+      >>> import jax.numpy as jnp
+      >>> import numpyro
+      >>> from numpyro.handlers import do, trace, seed
+      >>> import numpyro.distributions as dist
+      >>> def model(x):
+      ...     s = numpyro.sample("s", dist.LogNormal())
+      ...     z = numpyro.sample("z", dist.Normal(x, s))
+      ...     return z ** 2
+      >>> intervened_model = handlers.do(model, data={"z": 1.})
+      >>> with trace() as exec_trace:
+      ...     z_square = seed(intervened_model, 0)(1)
+      >>> assert exec_trace['z']['value'] != 1.
+      >>> assert not exec_trace['z']['is_observed']
+      >>> assert not exec_trace['z'].get('stop', None)
+      >>> assert z_square == 1
+    """
+    def __init__(self, fn=None, data=None):
+        self.data = data
+        self._intervener_id = str(id(self))
+        super(do, self).__init__(fn)
+
+    def process_message(self, msg):
+        if msg['type'] != 'sample':
+            return
+        if msg.get('_intervener_id', None) != self._intervener_id and \
+                self.data.get(msg['name']) is not None:
+            if msg.get('_intervener_id', None) is not None:
+                warnings.warn(
+                    "Attempting to intervene on variable {} multiple times,"
+                    "this is almost certainly incorrect behavior".format(msg['name']),
+                    RuntimeWarning)
+            msg['_intervener_id'] = self._intervener_id
+
+            # split node, avoid reapplying self recursively to new node
+            new_msg = msg.copy()
+            apply_stack(new_msg)
+
+            intervention = self.data.get(msg['name'])
+            msg['name'] = msg['name'] + "__CF"  # mangle old name
+            msg['value'] = intervention
+            msg['is_observed'] = True
+            msg['stop'] = True

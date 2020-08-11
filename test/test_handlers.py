@@ -251,6 +251,70 @@ def test_plate_stack(shape):
     assert x.shape == shape
 
 
+@pytest.mark.parametrize('intervene,observe,flip', [
+    (True, False, False),
+    (False, True, False),
+    (True, True, False),
+    (True, True, True),
+])
+def test_counterfactual_query(intervene, observe, flip):
+    # x -> y -> z -> w
+
+    sites = ["x", "y", "z", "w"]
+    observations = {"x": 1., "y": None, "z": 1., "w": 1.}
+    interventions = {"x": None, "y": 0., "z": 2., "w": 1.}
+
+    def model():
+        with handlers.seed(rng_seed=0):
+            x = numpyro.sample("x", dist.Normal(0, 1))
+            y = numpyro.sample("y", dist.Normal(x, 1))
+            z = numpyro.sample("z", dist.Normal(y, 1))
+            w = numpyro.sample("w", dist.Normal(z, 1))
+            return dict(x=x, y=y, z=z, w=w)
+
+    if not flip:
+        if intervene:
+            model = handlers.do(model, data=interventions)
+        if observe:
+            model = handlers.condition(model, data=observations)
+    elif flip and intervene and observe:
+        model = handlers.do(
+            handlers.condition(model, data=observations),
+            data=interventions)
+
+    with handlers.trace() as tr:
+        actual_values = model()
+    for name in sites:
+        # case 1: purely observational query like handlers.condition
+        if not intervene and observe:
+            if observations[name] is not None:
+                assert tr[name]['is_observed']
+                assert_allclose(observations[name], actual_values[name])
+                assert_allclose(observations[name], tr[name]['value'])
+            if interventions[name] != observations[name]:
+                if interventions[name] is not None:
+                    assert_raises(AssertionError, assert_allclose, interventions[name], actual_values[name])
+        # case 2: purely interventional query like old handlers.do
+        elif intervene and not observe:
+            assert not tr[name]['is_observed']
+            if interventions[name] is not None:
+                assert_allclose(interventions[name], actual_values[name])
+            if observations[name] is not None:
+                assert_raises(AssertionError, assert_allclose, observations[name], tr[name]['value'])
+            if interventions[name] is not None:
+                assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]['value'])
+        # case 3: counterfactual query mixing intervention and observation
+        elif intervene and observe:
+            if observations[name] is not None:
+                assert tr[name]['is_observed']
+                assert_allclose(observations[name], tr[name]['value'])
+            if interventions[name] is not None:
+                assert_allclose(interventions[name], actual_values[name])
+            if interventions[name] != observations[name]:
+                if interventions[name] is not None:
+                    assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]['value'])
+
+
 def test_block():
     with handlers.trace() as trace:
         with handlers.block(hide=['x']):
