@@ -642,7 +642,7 @@ class do(Messenger):
     See Single World Intervention Graphs [1] for additional details and theory.
 
     This is equivalent to replacing `z = numpyro.sample("z", ...)` with `z = 1.`
-    and introducing a fresh sample site numpyro.sample("z", ...) whose value is not used elsewhere.
+    and introducing a fresh sample site `numpyro.sample("z", ...)` whose value is not used elsewhere.
 
     References
 
@@ -666,7 +666,7 @@ class do(Messenger):
       ...     return z ** 2
       >>> intervened_model = handlers.do(model, data={"z": 1.})
       >>> with trace() as exec_trace:
-      ...     z_square = seed(intervened_model, 0)(x)
+      ...     z_square = seed(intervened_model, 0)(1)
       >>> assert exec_trace['z']['value'] != 1.
       >>> assert not exec_trace['z']['is_observed']
       >>> assert not exec_trace['z'].get('stop', None)
