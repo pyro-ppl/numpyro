@@ -226,7 +226,8 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     fn = (jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
           if jitted else find_reasonable_step_size)
     rng_key = random.PRNGKey(0)
-    step_size = fn(potential_fn, kinetic_fn, p_generator, init_step_size, m_inv, q, rng_key)
+    step_size = fn(potential_fn, kinetic_fn, p_generator, init_step_size, m_inv,
+                   (q, None, None, None), rng_key)
 
     # Apply 1 velocity verlet step with step_size=eps, we have
     # z_new = eps, r_new = 1 - eps^2 / 2, hence energy_new = 0.5 + eps^4 / 8,
@@ -277,7 +278,7 @@ def test_warmup_adapter(jitted):
 
     rng_key = random.PRNGKey(0)
     z = jnp.ones(3)
-    wa_state = wa_init(z, rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
+    wa_state = wa_init((z, None, None, None), rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
     step_size, inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
     assert step_size == find_reasonable_step_size(init_step_size, inverse_mass_matrix, z, rng_key)
     assert_allclose(inverse_mass_matrix, jnp.ones(mass_matrix_size))

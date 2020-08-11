@@ -132,7 +132,7 @@ def _unconstrain_reparam(params, site):
         return value
 
 
-def potential_energy(model, model_args, model_kwargs, params):
+def potential_energy(model, model_args, model_kwargs, params, enum=False):
     """
     (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
     The `inv_transforms` is used to transform these unconstrained parameters to base values
@@ -144,11 +144,17 @@ def potential_energy(model, model_args, model_kwargs, params):
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
     :param dict params: unconstrained parameters of `model`.
+    :param bool enum: whether to enumerate over discrete latent sites.
     :return: potential energy given unconstrained parameters.
     """
+    if enum:
+        from numpyro.contrib.funsor import log_density as log_density_
+    else:
+        log_density_ = log_density
+
     substituted_model = substitute(model, substitute_fn=partial(_unconstrain_reparam, params))
     # no param is needed for log_density computation because we already substitute
-    log_joint, model_trace = log_density(substituted_model, model_args, model_kwargs, {})
+    log_joint, model_trace = log_density_(substituted_model, model_args, model_kwargs, {})
     return - log_joint
 
 
@@ -159,6 +165,7 @@ def _init_to_unconstrained_value(site=None, values={}):
 
 def find_valid_initial_params(rng_key, model,
                               init_strategy=init_to_uniform,
+                              enum=False,
                               model_args=(),
                               model_kwargs=None,
                               prototype_params=None):
@@ -175,6 +182,7 @@ def find_valid_initial_params(rng_key, model,
         batch shape ``rng_key.shape[:-1]``.
     :param model: Python callable containing Pyro primitives.
     :param callable init_strategy: a per-site initialization function.
+    :param bool enum: whether to enumerate over discrete latent sites.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
     :param dict prototype_params: an optional prototype parameters, which is used
@@ -223,7 +231,7 @@ def find_valid_initial_params(rng_key, model,
                     params[k] = random.uniform(subkey, jnp.shape(v), minval=-radius, maxval=radius)
                     key, subkey = random.split(key)
 
-        potential_fn = partial(potential_energy, model, model_args, model_kwargs)
+        potential_fn = partial(potential_energy, model, model_args, model_kwargs, enum=enum)
         pe, z_grad = value_and_grad(potential_fn)(params)
         z_grad_flat = ravel_pytree(z_grad)[0]
         is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
@@ -258,25 +266,33 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     inv_transforms = {}
     # model code may need to be replayed in the presence of deterministic sites
     replay_model = False
+    has_enumerate_support = False
     for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed'] and not v['fn'].is_discrete:
-            support = v['fn'].support
-            inv_transforms[k] = biject_to(support)
-            # XXX: the following code filters out most situations with dynamic supports
-            args = ()
-            if isinstance(support, _GreaterThan):
-                args = ('lower_bound',)
-            elif isinstance(support, _Interval):
-                args = ('lower_bound', 'upper_bound')
-            for arg in args:
-                if not isinstance(getattr(support, arg), (int, float)):
-                    replay_model = True
+        if v['type'] == 'sample' and not v['is_observed']:
+            if v['fn'].is_discrete:
+                has_enumerate_support = True
+                if not v['fn'].has_enumerate_support:
+                    raise RuntimeError("MCMC only supports continuous sites or discrete sites "
+                                       f"with enumerate support, but got {type(v['fn']).__name__}.")
+            else:
+                support = v['fn'].support
+                inv_transforms[k] = biject_to(support)
+                # XXX: the following code filters out most situations with dynamic supports
+                args = ()
+                if isinstance(support, _GreaterThan):
+                    args = ('lower_bound',)
+                elif isinstance(support, _Interval):
+                    args = ('lower_bound', 'upper_bound')
+                for arg in args:
+                    if not isinstance(getattr(support, arg), (int, float)):
+                        replay_model = True
         elif v['type'] == 'deterministic':
             replay_model = True
-    return inv_transforms, replay_model, model_trace
+    return inv_transforms, replay_model, has_enumerate_support, model_trace
 
 
-def get_potential_fn(model, inv_transforms, replay_model=False, dynamic_args=False, model_args=(), model_kwargs=None):
+def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
+                     dynamic_args=False, model_args=(), model_kwargs=None):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns a
     function which, given unconstrained parameters, evaluates the potential
@@ -286,6 +302,7 @@ def get_potential_fn(model, inv_transforms, replay_model=False, dynamic_args=Fal
 
     :param model: Python callable containing Pyro primitives.
     :param dict inv_transforms: dictionary of transforms keyed by names.
+    :param bool enum: whether to enumerate over discrete latent sites.
     :param bool replay_model: whether we need to replay model in
         `postprocess_fn` to obtain `deterministic` sites.
     :param bool dynamic_args: if `True`, the `potential_fn` and
@@ -301,23 +318,43 @@ def get_potential_fn(model, inv_transforms, replay_model=False, dynamic_args=Fal
     """
     if dynamic_args:
         def potential_fn(*args, **kwargs):
-            return partial(potential_energy, model, args, kwargs)
+            return partial(potential_energy, model, args, kwargs, enum=enum)
 
         def postprocess_fn(*args, **kwargs):
             if replay_model:
-                return partial(constrain_fn, model, args, kwargs, return_deterministic=True)
+                # XXX: we seed to sample discrete sites (but not collect them)
+                model_ = seed(model.fn, 0) if enum else model
+                return partial(constrain_fn, model_, args, kwargs, return_deterministic=True)
             else:
                 return partial(transform_fn, inv_transforms)
     else:
         model_kwargs = {} if model_kwargs is None else model_kwargs
-        potential_fn = partial(potential_energy, model, model_args, model_kwargs)
+        potential_fn = partial(potential_energy, model, model_args, model_kwargs, enum=enum)
         if replay_model:
-            postprocess_fn = partial(constrain_fn, model, model_args, model_kwargs,
+            model_ = seed(model.fn, 0) if enum else model
+            postprocess_fn = partial(constrain_fn, model_, model_args, model_kwargs,
                                      return_deterministic=True)
         else:
             postprocess_fn = partial(transform_fn, inv_transforms)
 
     return potential_fn, postprocess_fn
+
+
+def _guess_max_plate_nesting(model_trace):
+    """
+    Guesses max_plate_nesting by using model trace.
+    This optimistically assumes static model
+    structure.
+    """
+    sites = [site for site in model_trace.values()
+             if site["type"] == "sample"]
+
+    dims = [frame.dim
+            for site in sites
+            for frame in site["cond_indep_stack"]
+            if frame.dim is not None]
+    max_plate_nesting = -min(dims) if dims else 0
+    return max_plate_nesting
 
 
 def initialize_model(rng_key, model,
@@ -354,15 +391,23 @@ def initialize_model(rng_key, model,
     model_kwargs = {} if model_kwargs is None else model_kwargs
     substituted_model = substitute(seed(model, rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]),
                                    substitute_fn=init_strategy)
-    inv_transforms, replay_model, model_trace = _get_model_transforms(
+    inv_transforms, replay_model, has_enumerate_support, model_trace = _get_model_transforms(
         substituted_model, model_args, model_kwargs)
     constrained_values = {k: v['value'] for k, v in model_trace.items()
                           if v['type'] == 'sample' and not v['is_observed']
                           and not v['fn'].is_discrete}
 
+    if has_enumerate_support:
+        from numpyro.contrib.funsor import config_enumerate, enum
+
+        if not isinstance(model, enum):
+            max_plate_nesting = _guess_max_plate_nesting(model_trace)
+            model = enum(config_enumerate(model), -max_plate_nesting - 1)
+
     potential_fn, postprocess_fn = get_potential_fn(model,
                                                     inv_transforms,
                                                     replay_model=replay_model,
+                                                    enum=has_enumerate_support,
                                                     dynamic_args=dynamic_args,
                                                     model_args=model_args,
                                                     model_kwargs=model_kwargs)
@@ -375,6 +420,7 @@ def initialize_model(rng_key, model,
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
     (init_params, pe, grad), is_valid = find_valid_initial_params(rng_key, model,
                                                                   init_strategy=init_strategy,
+                                                                  enum=has_enumerate_support,
                                                                   model_args=model_args,
                                                                   model_kwargs=model_kwargs,
                                                                   prototype_params=prototype_params)

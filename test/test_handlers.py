@@ -26,7 +26,7 @@ def test_mask(mask_last, use_jit):
     def model(data, mask):
         with numpyro.plate('N', N):
             x = numpyro.sample('x', dist.Normal(0, 1))
-            with handlers.mask(mask_array=mask):
+            with handlers.mask(mask=mask):
                 numpyro.sample('y', dist.Delta(x, log_density=1.))
                 with handlers.scale(scale=2):
                     numpyro.sample('obs', dist.Normal(x, 1), obs=data)
@@ -43,6 +43,15 @@ def test_mask(mask_last, use_jit):
     log_prob_z = dist.Normal(x, 1).log_prob(data)
     expected = (log_prob_x + jnp.where(mask,  log_prob_y + 2 * log_prob_z, 0.)).sum()
     assert_allclose(log_joint, expected, atol=1e-4)
+
+
+def test_mask_inf():
+    def model():
+        with handlers.mask(mask=jnp.zeros(10, dtype=bool)):
+            numpyro.factor('inf', -jnp.inf)
+
+    log_joint = log_density(model, (), {}, {})[0]
+    assert_allclose(log_joint, 0.)
 
 
 @pytest.mark.parametrize('use_context_manager', [True, False])

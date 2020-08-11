@@ -62,7 +62,7 @@ from jax.scipy.special import logsumexp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import BASEBALL, load_dataset
-from numpyro.infer import HMC, MCMC, NUTS, Predictive, SA, log_likelihood
+from numpyro.infer import HMC, MCMC, NUTS, SA, Predictive, log_likelihood
 
 
 def fully_pooled(at_bats, hits=None):
@@ -196,7 +196,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.2.4')
+    assert numpyro.__version__.startswith('0.3.0')
     parser = argparse.ArgumentParser(description="Baseball batting average using HMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1500, type=int)

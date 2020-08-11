@@ -74,6 +74,8 @@ _DIST_MAP = {
     dist.Dirichlet: lambda conc: osp.dirichlet(conc),
     dist.Exponential: lambda rate: osp.expon(scale=jnp.reciprocal(rate)),
     dist.Gamma: lambda conc, rate: osp.gamma(conc, scale=1. / rate),
+    dist.GeometricProbs: lambda probs: osp.geom(p=probs, loc=-1),
+    dist.GeometricLogits: lambda logits: osp.geom(p=_to_probs_bernoulli(logits), loc=-1),
     dist.Gumbel: lambda loc, scale: osp.gumbel_r(loc=loc, scale=scale),
     dist.HalfCauchy: lambda scale: osp.halfcauchy(scale=scale),
     dist.HalfNormal: lambda scale: osp.halfnorm(scale=scale),
@@ -196,6 +198,9 @@ DISCRETE = [
     T(dist.CategoricalLogits, jnp.array([[-1, 2., 3.], [3., -4., -2.]])),
     T(dist.GammaPoisson, 2., 2.),
     T(dist.GammaPoisson, jnp.array([6., 2]), jnp.array([2., 8.])),
+    T(dist.GeometricProbs, 0.2),
+    T(dist.GeometricProbs, jnp.array([0.2, 0.7])),
+    T(dist.GeometricLogits, jnp.array([-1., 3.])),
     T(dist.MultinomialProbs, jnp.array([0.2, 0.7, 0.1]), 10),
     T(dist.MultinomialProbs, jnp.array([0.2, 0.7, 0.1]), jnp.array([5, 8])),
     T(dist.MultinomialLogits, jnp.array([-1., 3.]), jnp.array([[5], [8]])),
@@ -764,6 +769,8 @@ def test_categorical_log_prob_grad():
     (constraints.interval(-3, 5), 0, True),
     (constraints.interval(-3, 5), jnp.array([-5, -3, 0, 5, 7]),
      jnp.array([False, False, True, False, False])),
+    (constraints.less_than(1), -2, True),
+    (constraints.less_than(1), jnp.array([-1, 1, 5]), jnp.array([True, False, False])),
     (constraints.lower_cholesky, jnp.array([[1., 0.], [-2., 0.1]]), True),
     (constraints.lower_cholesky, jnp.array([[[1., 0.], [-2., -0.1]], [[1., 0.1], [2., 0.2]]]),
      jnp.array([False, False])),
@@ -795,6 +802,7 @@ def test_constraints(constraint, x, expected):
     constraints.corr_matrix,
     constraints.greater_than(2),
     constraints.interval(-3, 5),
+    constraints.less_than(1),
     constraints.lower_cholesky,
     constraints.ordered_vector,
     constraints.positive,
@@ -815,6 +823,8 @@ def test_biject_to(constraint, shape):
         assert transform.codomain.lower_bound == constraint.lower_bound
     elif isinstance(constraint, constraints._GreaterThan):
         assert transform.codomain.lower_bound == constraint.lower_bound
+    elif isinstance(constraint, constraints._LessThan):
+        assert transform.codomain.upper_bound == constraint.upper_bound
     if len(shape) < event_dim:
         return
     rng_key = random.PRNGKey(0)
@@ -1145,3 +1155,11 @@ def test_special_dist_pytree(method, arg):
 
     jax.jit(f)(0)
     lax.map(f, np.ones(3))
+
+
+def test_expand_pytree():
+    def g(x):
+        return dist.Normal(x, 1).expand([10, 3])
+
+    assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
+    assert jax.tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)

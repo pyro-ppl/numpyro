@@ -32,7 +32,7 @@ import jax
 from jax import vmap
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.linalg import cho_factor, solve_triangular, cho_solve
+from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
 
 import numpyro
 import numpyro.distributions as dist
@@ -320,7 +320,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.2.4')
+    assert numpyro.__version__.startswith('0.3.0')
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=500, type=int)

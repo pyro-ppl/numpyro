@@ -18,8 +18,7 @@ from numpyro.infer.hmc_util import (
 )
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
-from numpyro.util import cond, copy_docs_from, fori_loop, identity
-
+from numpyro.util import cond, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
@@ -233,7 +232,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                                             find_reasonable_step_size=find_reasonable_ss)
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
-        wa_state = wa_init(z, rng_key_wa, step_size,
+        z_info = IntegratorState(z=z, potential_energy=pe, z_grad=z_grad)
+        wa_state = wa_init(z_info, rng_key_wa, step_size,
                            inverse_mass_matrix=inverse_mass_matrix,
                            mass_matrix_size=jnp.size(ravel_pytree(z)[0]))
         r = momentum_generator(z, wa_state.mass_matrix_sqrt, rng_key_momentum)
@@ -312,7 +312,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                                                                     rng_key_transition)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
-                           (hmc_state.i, accept_prob, vv_state.z, hmc_state.adapt_state),
+                           (hmc_state.i, accept_prob, vv_state, hmc_state.adapt_state),
                            lambda args: wa_update(*args),
                            hmc_state.adapt_state,
                            identity)
@@ -432,7 +432,19 @@ class HMC(MCMCKernel):
     def model(self):
         return self._model
 
-    @copy_docs_from(MCMCKernel.init)
+    @property
+    def sample_field(self):
+        return 'z'
+
+    @property
+    def default_fields(self):
+        return ('z', 'diverging')
+
+    def get_diagnostics_str(self, state):
+        return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(state.num_steps,
+                                                                  state.adapt_state.step_size,
+                                                                  state.mean_accept_prob)
+
     def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         # non-vectorized
         if rng_key.ndim == 1:
@@ -471,7 +483,6 @@ class HMC(MCMCKernel):
             self._sample_fn = sample_fn
         return init_state
 
-    @copy_docs_from(MCMCKernel.postprocess_fn)
     def postprocess_fn(self, args, kwargs):
         if self._postprocess_fn is None:
             return identity
@@ -479,8 +490,8 @@ class HMC(MCMCKernel):
 
     def sample(self, state, model_args, model_kwargs):
         """
-        Run HMC from the given :data:`~numpyro.infer.mcmc.HMCState` and return the resulting
-        :data:`~numpyro.infer.mcmc.HMCState`.
+        Run HMC from the given :data:`~numpyro.infer.hmc.HMCState` and return the resulting
+        :data:`~numpyro.infer.hmc.HMCState`.
 
         :param HMCState state: Represents the current state.
         :param model_args: Arguments provided to the model.

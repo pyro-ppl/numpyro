@@ -1,10 +1,16 @@
 Markov Chain Monte Carlo (MCMC)
 ===============================
 
-Hamiltonian Monte Carlo
------------------------
-
 .. autoclass:: numpyro.infer.mcmc.MCMC
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+MCMC Kernels
+------------
+
+.. autoclass:: numpyro.infer.mcmc.MCMCKernel
     :members:
     :undoc-members:
     :show-inheritance:

@@ -140,6 +140,11 @@ Expected log joint density: -46.09
 
 ```
 
+Note that for the class of distributions with `loc,scale` paramaters such as `Normal`, `Cauchy`, `StudentT`, we also provide a [LocScaleReparam](http://num.pyro.ai/en/latest/reparam.html#loc-scale-decentering) reparameterizer to achieve the same purpose. The corresponding code will be
+
+    with numpyro.handlers.reparam(config={'theta': LocScaleReparam(centered=0)}):
+        theta = numpyro.sample('theta', dist.Normal(mu, tau))
+
 Now, let us assume that we have a new school for which we have not observed any test scores, but we would like to generate predictions. NumPyro provides a [Predictive](http://num.pyro.ai/en/latest/utilities.html#numpyro.infer.util.Predictive) class for such a purpose. Note that in the absence of any observed data, we simply use the population-level parameters to generate predictions. The `Predictive` utility conditions the unobserved `mu` and `tau` sites to values drawn from the posterior distribution from our last MCMC run, and runs the model forward to generate predictions. 
 
 ```python
@@ -152,7 +157,7 @@ Now, let us assume that we have a new school for which we have not observed any 
 ...     return numpyro.sample('obs', dist.Normal(mu, tau))
 
 >>> predictive = Predictive(new_school, mcmc.get_samples())
->>> samples_predictive = predictive.get_samples(random.PRNGKey(1))
+>>> samples_predictive = predictive(random.PRNGKey(1))
 >>> print(np.mean(samples_predictive['obs']))  # doctest: +SKIP
 3.9886456
 
@@ -177,7 +182,7 @@ Pyro users will note that the API for model specification and inference is large
 
 ## Installation
 
-> **Limited Windows Support:** Note that NumPyro is untested on Windows, and will require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details.
+> **Limited Windows Support:** Note that NumPyro is untested on Windows, and might require building jaxlib from source. See this [JAX issue](https://github.com/google/jax/issues/438) for more details. Alternatively, you can install [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/) and use NumPyro on it as on a Linux system. See also [CUDA on Windows Subsystem for Linux](https://developer.nvidia.com/cuda/wsl) if you want to use GPUs on Windows.
 
 To install NumPyro with a CPU version of JAX, you can use pip:
 
@@ -194,7 +199,7 @@ You can also install NumPyro from source:
 ```
 git clone https://github.com/pyro-ppl/numpyro.git
 # install jax/jaxlib first for CUDA support
-pip install -e .[dev]
+pip install -e .[dev]  # contains additional dependencies for NumPyro development
 ```
 
 ## Frequently Asked Questions
