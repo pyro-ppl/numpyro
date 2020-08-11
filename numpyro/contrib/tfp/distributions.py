@@ -1,7 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from numpy.testing import assert_allclose
 from tensorflow_probability.substrates.jax import distributions as tfd
 
 import numpyro.distributions as numpyro_dist
