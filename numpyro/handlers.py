@@ -77,7 +77,6 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 """
 
 from collections import OrderedDict
-import warnings
 
 from jax import lax, random
 import jax.numpy as jnp
@@ -271,11 +270,7 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
-    def __init__(self, fn=None, data=None, condition_fn=None, param_map=None):
-        if param_map is not None:
-            data = param_map
-            warnings.warn("'param_map' argument is renamed to 'data'. We will remove"
-                          " 'param_map' in a future release.", FutureWarning)
+    def __init__(self, fn=None, data=None, condition_fn=None):
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
@@ -376,11 +371,7 @@ class mask(Messenger):
     :param mask: a boolean or a boolean-valued array for masking elementwise log
         probability of sample sites (`True` includes a site, `False` excludes a site).
     """
-    def __init__(self, fn=None, mask=True, mask_array=None):
-        if mask_array is not None:
-            mask = mask_array
-            warnings.warn("'mask_array' argument is renamed to 'mask'. We will remove"
-                          " 'mask_array' in a future release.", FutureWarning)
+    def __init__(self, fn=None, mask=True):
         if lax.dtype(mask) != 'bool':
             raise ValueError("`mask` should be a bool array.")
         self.mask = mask
@@ -544,10 +535,7 @@ class seed(Messenger):
        >>> y = handlers.seed(model, rng_seed=1)()
        >>> assert x == y
     """
-    def __init__(self, fn=None, rng_seed=None, rng=None):
-        if rng is not None:
-            warnings.warn('`rng` argument is deprecated and renamed to `rng_seed` instead.', FutureWarning)
-            rng_seed = rng
+    def __init__(self, fn=None, rng_seed=None):
         if isinstance(rng_seed, int) or (isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)):
             rng_seed = random.PRNGKey(rng_seed)
         if not (isinstance(rng_seed, jnp.ndarray) and rng_seed.dtype == jnp.uint32 and rng_seed.shape == (2,)):
@@ -597,11 +585,7 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
-    def __init__(self, fn=None, data=None, substitute_fn=None, param_map=None):
-        if param_map is not None:
-            data = param_map
-            warnings.warn("'param_map' argument is renamed to 'data'. We will remove"
-                          " 'param_map' in a future release.", FutureWarning)
+    def __init__(self, fn=None, data=None, substitute_fn=None):
         self.substitute_fn = substitute_fn
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:
