@@ -100,7 +100,8 @@ class promote_shapes(Messenger):
 
 
 def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None):
-    from numpyro.contrib.funsor import enum, config_enumerate, markov, trace as packed_trace
+    from numpyro.contrib.funsor import config_enumerate, enum, markov
+    from numpyro.contrib.funsor import trace as packed_trace
 
     # XXX: This implementation only works for history size=1 but can be
     # extended to history size > 1 by running `f` `history_size` times
