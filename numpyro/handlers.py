@@ -77,7 +77,6 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 """
 
 from collections import OrderedDict
-import warnings
 
 from jax import lax, random
 import jax.numpy as jnp
