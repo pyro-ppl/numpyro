@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
-import warnings
 
 from jax import random
 import jax.numpy as jnp
@@ -25,16 +24,10 @@ def init_to_median(site=None, num_samples=15):
         rng_key = site['kwargs'].get('rng_key')
         sample_shape = site['kwargs'].get('sample_shape')
         try:
-            samples = site['fn'].sample(rng_key, sample_shape=(num_samples,) + sample_shape)
+            samples = site['fn'](sample_shape=(num_samples,) + sample_shape, rng_key=rng_key)
             return jnp.median(samples, axis=0)
         except NotImplementedError:
             return init_to_uniform(site)
-
-
-def init_to_prior(site=None):
-    warnings.warn("`init_to_prior` strategy is renamed to `init_to_sample`.",
-                  FutureWarning)
-    return init_to_sample(site=site)
 
 
 def init_to_sample(site=None):
@@ -62,7 +55,7 @@ def init_to_uniform(site=None, radius=2):
         # this is used to interpret the changes of event_shape in
         # domain and codomain spaces
         try:
-            prototype_value = site['fn'].sample(subkey, sample_shape=())
+            prototype_value = site['fn'](rng_key=subkey, sample_shape=())
         except NotImplementedError:
             # XXX: this works for ImproperUniform prior,
             # we can't use this logic for general priors
@@ -72,8 +65,8 @@ def init_to_uniform(site=None, radius=2):
 
         transform = biject_to(site['fn'].support)
         unconstrained_shape = jnp.shape(transform.inv(prototype_value))
-        unconstrained_samples = dist.Uniform(-radius, radius).sample(
-            rng_key, sample_shape=sample_shape + unconstrained_shape)
+        unconstrained_samples = dist.Uniform(-radius, radius)(
+            rng_key=rng_key, sample_shape=sample_shape + unconstrained_shape)
         return transform(unconstrained_samples)
 
 

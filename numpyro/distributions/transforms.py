@@ -387,13 +387,6 @@ class LowerCholeskyTransform(Transform):
         return x[..., -n:].sum(-1)
 
 
-class MultivariateAffineTransform(LowerCholeskyAffine):
-    def __init__(self, loc, scale_tril):
-        warnings.warn("MultivariateAffineTransform is renamed to LowerCholeskyAffine.",
-                      FutureWarning)
-        super().__init__(loc, scale_tril)
-
-
 class OrderedTransform(Transform):
     """
     Transform a real vector to an ordered vector.

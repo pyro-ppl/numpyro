@@ -554,11 +554,6 @@ class Predictive(object):
                            return_sites=self.return_sites, parallel=self.parallel,
                            model_args=args, model_kwargs=kwargs)
 
-    def get_samples(self, rng_key, *args, **kwargs):
-        warnings.warn("The method `.get_samples` has been deprecated in favor of `.__call__`.",
-                      FutureWarning)
-        return self.__call__(rng_key, *args, **kwargs)
-
 
 def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=1, **kwargs):
     """
