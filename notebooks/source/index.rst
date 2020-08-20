@@ -13,6 +13,7 @@ Welcome to NumPyro Examples and Tutorials!
    bayesian_regression
    time_series_forecasting
    bayesian_imputation
+   ordinal_regression
 
 .. toctree::
    :maxdepth: 2
