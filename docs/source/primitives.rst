@@ -31,6 +31,14 @@ module
 ------
 .. autofunction:: numpyro.primitives.module
 
+haiku_module
+------------
+.. autofunction:: numpyro.contrib.haiku_module
+
+flax_module
+------------
+.. autofunction:: numpyro.contrib.flax_module
+
 scan
 ----
 .. autofunction:: numpyro.contrib.control_flow.scan

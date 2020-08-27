@@ -50,6 +50,8 @@ setup(
             'funsor',
             'ipython',
             'isort',
+            'flax',
+            'haiku'
         ],
         'examples': ['matplotlib', 'seaborn'],
     },
