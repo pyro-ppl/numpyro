@@ -37,6 +37,7 @@ def test_model(model):
     assert nn_params['value']['bias'].shape == (100,)
     assert nn_params['value']['kernel'].shape == (100, 100)
 
+
 # TODO: fix this since haiku and flax have different params structure
 test_model(haiku_model(X, Y))
 test_model(flax_model(X, Y))
