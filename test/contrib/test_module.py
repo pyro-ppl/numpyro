@@ -9,35 +9,33 @@ from numpyro import handlers
 import numpyro
 
 
-X = np.array(list(range(100)))
-Y = np.array([x*2 + 2.0 for x in list(range(100))])
-param_keys = ['type', 'name', 'fn', 'args', 'kwargs', 'value', 'scale', 'cond_indep_stack']
+X = np.arange(100)
+Y = 2 * X + 2
 
 
 def haiku_model(x, y):
-    linear_module = hk.transform(lambda x: hk.Linear(1)(x))
-    nn = haiku_module("nn", linear_module, 1)
-    assert nn.args[0]
+    linear_module = hk.transform(lambda x: hk.Linear(100)(x))
+    nn = haiku_module("nn", linear_module, (100,))
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
 def flax_model(x, y):
-    linear_module = flax.nn.Dense.partial(features=1)
-    nn = flax_module("nn", linear_module, 1)
+    linear_module = flax.nn.Dense.partial(features=100)
+    nn = flax_module("nn", linear_module, (100,))
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
-def test_module():
+def test_flax_module():
     with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
         flax_model(X, Y)
-    flax_params = flax_tr["nn$params"]
-    assert flax_params['args'][0]['kernel'].shape == (100, 100)
-    assert flax_params['args'][0]['bias'].shape == (100,)
+    assert flax_tr["nn$params"]['value']['kernel'].shape == (100, 100)
+    assert flax_tr["nn$params"]['value']['bias'].shape == (100,)
 
+
+def test_haiku_module():
     with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
         haiku_model(X, Y)
-    haiku_params = haiku_tr["nn$params"]
-    assert haiku_params['args'][0]['linear']['w'].shape == (100, 100)
-    assert haiku_params['args'][0]['linear']['b'].shape == (100,)
+    assert haiku_tr["nn$params"]['value']['linear']['w'].shape == (100, 100)
+    assert haiku_tr["nn$params"]['value']['linear']['b'].shape == (100,)
