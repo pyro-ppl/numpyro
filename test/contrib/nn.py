@@ -29,15 +29,14 @@ def flax_model(x, y):
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
-def test_model(model):
-    with handlers.trace() as tr, handlers.seed(rng_seed=1):
-        model(X, Y)
-    nn_params = tr["nn$params"]
-    assert nn_params['args'][0] == nn_params['value']
-    assert nn_params['value']['bias'].shape == (100,)
-    assert nn_params['value']['kernel'].shape == (100, 100)
+with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
+    flax_model(X, Y)
+flax_params = flax_tr["nn$params"]
+assert flax_params['args'][0]['kernel'].shape == (100, 100)
+assert flax_params['args'][0]['bias'].shape == (100,)
 
-
-# TODO: fix this since haiku and flax have different params structure
-test_model(haiku_model(X, Y))
-test_model(flax_model(X, Y))
+with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
+    haiku_model(X, Y)
+haiku_params = haiku_tr["nn$params"]
+assert haiku_params['args'][0]['linear']['w'].shape == (100, 100)
+assert haiku_params['args'][0]['linear']['b'].shape == (100,)

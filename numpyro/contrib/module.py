@@ -24,10 +24,10 @@ def flax_module(name, nn, input_shape=None):
     try:
         import flax  # noqa: F401
     except ImportError:
-        raise ImportError("Looking like you want to use flax and/or haiku to declare "
+        raise ImportError("Looking like you want to use flax to declare "
                           "nn modules. This is an experimental feature. "
-                          "You need to install `haiku` to be able to use this feature. "
-                          "It can be installed with `pip install git+https://github.com/deepmind/dm-haiku`.")
+                          "You need to install `flax` to be able to use this feature. "
+                          "It can be installed with `pip install flax`.")
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)
     if nn_params is None:

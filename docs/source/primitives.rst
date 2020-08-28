@@ -33,11 +33,11 @@ module
 
 haiku_module
 ------------
-.. autofunction:: numpyro.contrib.haiku_module
+.. autofunction:: numpyro.contrib.module.haiku_module
 
 flax_module
 ------------
-.. autofunction:: numpyro.contrib.flax_module
+.. autofunction:: numpyro.contrib.module.flax_module
 
 scan
 ----
