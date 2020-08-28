@@ -4,6 +4,8 @@
 from numpyro.distributions.discrete import PRNGIdentity
 import flax
 import numpyro
+from jax import numpy as jnp
+
 
 def flax_module(name, nn, input_shape=None):
     """

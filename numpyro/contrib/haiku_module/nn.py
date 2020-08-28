@@ -3,6 +3,8 @@
 
 from numpyro.distributions.discrete import PRNGIdentity
 import numpyro
+from jax import numpy as jnp
+
 
 def haiku_module(name, nn, input_shape=None):
     """
