@@ -28,6 +28,7 @@ def flax_model(x, y):
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
+
 def test_module():
     with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
         flax_model(X, Y)
