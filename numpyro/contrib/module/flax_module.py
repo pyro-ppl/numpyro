@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro.distributions.discrete import PRNGIdentity
-import flax
 import numpyro
 from jax import numpy as jnp
+from functools import partial
 
 
 def flax_module(name, nn, input_shape=None):
@@ -21,6 +21,13 @@ def flax_module(name, nn, input_shape=None):
         as an input and returns the neural network transformed output
         array.
     """
+    try:
+        import flax  # noqa: F401
+    except ImportError:
+        raise ImportError("Looking like you want to use flax and/or haiku to declare "
+                          "nn modules. This is an experimental feature. "
+                          "You need to install `haiku` to be able to use this feature. "
+                          "It can be installed with `pip install git+https://github.com/deepmind/dm-haiku`.")
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)
     if nn_params is None:
@@ -30,4 +37,4 @@ def flax_module(name, nn, input_shape=None):
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
         _, nn_params = nn.init(rng_key, jnp.ones(input_shape))
         numpyro.param(module_key, nn_params)
-    return flax.nn.Model(nn, nn_params)
+    return partial(nn.call, nn_params)
