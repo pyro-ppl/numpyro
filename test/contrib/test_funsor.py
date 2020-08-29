@@ -4,7 +4,6 @@
 from collections import OrderedDict
 from functools import partial
 
-from funsor import Tensor, bint, reals
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
@@ -12,6 +11,7 @@ import pytest
 from jax import random
 import jax.numpy as jnp
 
+from funsor import Tensor, bint, reals
 import numpyro
 from numpyro.contrib.control_flow import scan
 from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor

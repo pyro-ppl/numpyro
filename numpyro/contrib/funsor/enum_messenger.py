@@ -5,11 +5,10 @@ from collections import OrderedDict, namedtuple
 from contextlib import ExitStack  # python 3
 from enum import Enum
 
-import funsor
-
 from jax import lax
 import jax.numpy as np
 
+import funsor
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
 

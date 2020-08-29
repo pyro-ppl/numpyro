@@ -5,7 +5,6 @@ from collections import defaultdict
 from contextlib import contextmanager
 
 import funsor
-
 import numpyro
 from numpyro.contrib.funsor.enum_messenger import infer_config
 from numpyro.contrib.funsor.enum_messenger import plate as enum_plate
