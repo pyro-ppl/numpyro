@@ -262,7 +262,7 @@ class Distribution(object):
         :param reinterpreted_batch_ndims: Number of rightmost batch dims to
             interpret as event dims.
         :return: An instance of `Independent` distribution.
-        :rtype: Independent
+        :rtype: numpyro.distributions.distribution.Independent
         """
         if reinterpreted_batch_ndims is None:
             reinterpreted_batch_ndims = len(self.batch_shape)
