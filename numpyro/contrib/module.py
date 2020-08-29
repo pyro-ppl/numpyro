@@ -1,10 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from numpyro.distributions.discrete import PRNGIdentity
-import numpyro
-from jax import numpy as jnp
 from functools import partial
+
+from jax import numpy as jnp
+
+import numpyro
+from numpyro.distributions.discrete import PRNGIdentity
 
 
 def flax_module(name, nn, input_shape=None):

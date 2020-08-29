@@ -1,13 +1,13 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import haiku as hk
 import flax
-from numpyro.contrib.module import haiku_module, flax_module
+import haiku as hk
 import numpy as np
-from numpyro import handlers
-import numpyro
 
+import numpyro
+from numpyro import handlers
+from numpyro.contrib.module import flax_module, haiku_module
 
 X = np.arange(100)
 Y = 2 * X + 2
