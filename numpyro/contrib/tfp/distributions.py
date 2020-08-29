@@ -1,10 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from tensorflow_probability.substrates.jax import distributions as tfd
-
 from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
+from tensorflow_probability.substrates.jax import distributions as tfd
 
 import numpyro.distributions as numpyro_dist
 from numpyro.distributions import Distribution as NumPyroDistribution
