@@ -3,6 +3,7 @@
 
 from tensorflow_probability.substrates.jax import distributions as tfd
 
+from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
 
 import numpyro.distributions as numpyro_dist
@@ -10,14 +11,6 @@ from numpyro.distributions import Distribution as NumPyroDistribution
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import Transform, biject_to
 from numpyro.util import not_jax_tracer
-
-
-class _CallableTuple(tuple):
-    """
-    A tuple that upon calling returns itself.
-    """
-    def __call__(self):
-        return self
 
 
 def _get_codomain(bijector):
@@ -55,6 +48,7 @@ class BijectorConstraint(constraints.Constraint):
     def __call__(self, x):
         return self.codomain(x)
 
+    # a convenient property to inspect the actual support of a TFP distribution
     @property
     def codomain(self):
         return _get_codomain(self.bijector)
@@ -72,6 +66,10 @@ class BijectorTransform(Transform):
     @property
     def event_dim(self):
         return self.bijector.forward_min_event_ndims
+
+    @property
+    def codomain(self):
+        return _get_codomain(self.bijector)
 
     def __call__(self, x):
         return self.bijector.forward(x)
@@ -97,15 +95,6 @@ class TFPDistributionMixin(NumPyroDistribution):
         key = kwargs.pop('rng_key')
         return self.sample(*args, seed=key, **kwargs)
 
-    # In TFP, batch_shape, event_shape are methods, so we need this workaround
-    @property
-    def batch_shape(self):
-        return _CallableTuple(super().batch_shape())
-
-    @property
-    def event_shape(self):
-        return _CallableTuple(super().event_shape())
-
     @property
     def support(self):
         bijector = self._default_event_space_bijector()
@@ -122,6 +111,21 @@ class TFPDistributionMixin(NumPyroDistribution):
 
 class InverseGamma(tfd.InverseGamma):
     arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
+
+
+class OneHotCategorical(tfd.OneHotCategorical):
+    arg_constraints = {"logits": constraints.real_vector}
+    has_enumerate_support = True
+    support = constraints.simplex
+    is_discrete = True
+
+    def enumerate_support(self, expand=True):
+        n = self.event_shape[-1]
+        values = jnp.identity(n, dtype=canonicalize_dtype(self.dtype))
+        values = values.reshape((n,) + (1,) * len(self.batch_shape) + (n,))
+        if expand:
+            values = jnp.broadcast_to(values, (n,) + self.batch_shape + (n,))
+        return values
 
 
 class OrderedLogistic(tfd.OrderedLogistic):
