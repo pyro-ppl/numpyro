@@ -148,7 +148,6 @@ for _name, _Dist in tfd.__dict__.items():
         _PyroDist = type(_name, (_Dist, TFPDistributionMixin), {})
         _PyroDist.__module__ = __name__
         if hasattr(numpyro_dist, _name):
-            # TODO: write tests to check for consistency
             numpyro_dist_class = getattr(numpyro_dist, _name)
             # resolve FooProbs/FooLogits namespaces
             if type(numpyro_dist_class).__name__ == "function":
