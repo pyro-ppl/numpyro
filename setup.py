@@ -51,7 +51,7 @@ setup(
             'ipython',
             'isort',
             'flax',
-            'dm-haiku @ git+https://github.com/deepmind/dm-haiku.git@[db32b39]#egg=dm-haiku'
+            'dm-haiku @ https://github.com/deepmind/dm-haiku/archive/v0.0.2.zip'
         ],
         'examples': ['matplotlib', 'seaborn'],
     },
