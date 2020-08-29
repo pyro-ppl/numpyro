@@ -51,7 +51,8 @@ setup(
             'ipython',
             'isort',
             'flax',
-            'dm-haiku @ https://github.com/deepmind/dm-haiku/archive/v0.0.2.zip'
+            'dm-haiku @ https://github.com/deepmind/dm-haiku/archive/v0.0.2.zip',
+            'tfp-nightly',
         ],
         'examples': ['matplotlib', 'seaborn'],
     },
