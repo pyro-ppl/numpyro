@@ -50,6 +50,8 @@ setup(
             'funsor',
             'ipython',
             'isort',
+            'flax',
+            'dm-haiku @ https://github.com/deepmind/dm-haiku/archive/v0.0.2.zip'
         ],
         'examples': ['matplotlib', 'seaborn'],
     },
