@@ -3,11 +3,11 @@
 
 import inspect
 
-import pytest
 from numpy.testing import assert_allclose
+import pytest
 
-import jax.numpy as jnp
 from jax import random
+import jax.numpy as jnp
 
 import numpyro
 from numpyro.infer import MCMC, NUTS

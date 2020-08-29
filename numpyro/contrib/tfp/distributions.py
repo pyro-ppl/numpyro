@@ -20,7 +20,7 @@ class _CallableTuple(tuple):
         return self
 
 
-def _bijector_to_constraint(bijector):
+def _get_codomain(bijector):
     if bijector.__class__.__name__ == "Sigmoid":
         return constraints.interval(bijector.low, bijector.high)
     elif bijector.__class__.__name__ == "Identity":
@@ -38,24 +38,34 @@ def _bijector_to_constraint(bijector):
     elif bijector.__class__.__name__ == "SoftmaxCentered":
         return constraints.simplex
     elif bijector.__class__.__name__ == "Chain":
-        return _bijector_to_constraint(bijector.bijectors[-1])
+        return _get_codomain(bijector.bijectors[-1])
     else:
         return constraints.real
 
 
 class BijectorConstraint(constraints.Constraint):
+    """
+    A constraint which is codomain of a TensorFlow bijector.
+
+    :param ~tensorflow_probability.substrates.jax.bijectors.Bijector bijector: a TensorFlow bijector
+    """
     def __init__(self, bijector):
         self.bijector = bijector
 
     def __call__(self, x):
-        return self.constraint(x)
+        return self.codomain(x)
 
     @property
-    def constraint(self):
-        return _bijector_to_constraint(self.bijector)
+    def codomain(self):
+        return _get_codomain(self.bijector)
 
 
 class BijectorTransform(Transform):
+    """
+    A wrapper for TensorFlow bijectors to make them compatible with NumPyro's transforms.
+
+    :param ~tensorflow_probability.substrates.jax.bijectors.Bijector bijector: a TensorFlow bijector
+    """
     def __init__(self, bijector):
         self.bijector = bijector
 
@@ -80,7 +90,7 @@ def _transform_to_bijector_constraint(constraint):
 
 class TFPDistributionMixin(NumPyroDistribution):
     """
-    A mixin layer to make Tensorflow Probability (TFP) distribution compatible
+    A mixin layer to make TensorFlow Probability (TFP) distribution compatible
     with NumPyro internal.
     """
     def __call__(self, *args, **kwargs):
@@ -123,6 +133,7 @@ class Pareto(tfd.Pareto):
 
 
 __all__ = ['BijectorConstraint', 'BijectorTransform', 'TFPDistributionMixin']
+_len_all = len(__all__)
 for _name, _Dist in tfd.__dict__.items():
     if not isinstance(_Dist, type):
         continue
@@ -150,9 +161,9 @@ for _name, _Dist in tfd.__dict__.items():
         locals()[_name] = _PyroDist
 
     _PyroDist.__doc__ = '''
-    Wraps :class:`{}.{}` with
-    :class:`~numpyro.contrib.tfp.distributions.TFPDistributionMixin`.
-    '''.format(_Dist.__module__, _Dist.__name__)
+    Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/{}>`_
+    with :class:`~numpyro.contrib.tfp.distributions.TFPDistributionMixin`.
+    '''.format(_Dist.__module__, _Dist.__name__, _Dist.__name__)
 
     __all__.append(_name)
 
@@ -165,5 +176,5 @@ __doc__ = '\n\n'.join([
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.distributions.{0}
     '''.format(_name)
-    for _name in sorted(__all__)
+    for _name in __all__[:_len_all] + sorted(__all__[_len_all:])
 ])
