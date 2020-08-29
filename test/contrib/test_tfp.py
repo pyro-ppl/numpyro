@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import inspect
+
 import pytest
 from numpy.testing import assert_allclose
 
@@ -9,6 +11,20 @@ from jax import random
 
 import numpyro
 from numpyro.infer import MCMC, NUTS
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_api_consistent():
+    from numpyro.contrib.tfp import distributions as tfd
+
+    for name in tfd.__all__:
+        if name in numpyro.distributions.__all__:
+            tfp_dist = getattr(tfd, name)
+            numpyro_dist = getattr(numpyro.distributions, name)
+            if type(numpyro_dist).__name__ == "function":
+                numpyro_dist = getattr(numpyro.distributions, name + "Logits")
+            for p in tfp_dist.arg_constraints:
+                assert p in dict(inspect.signature(tfp_dist).parameters)
 
 
 @pytest.mark.filterwarnings("ignore")

@@ -1,8 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import jax.numpy as jnp
 from tensorflow_probability.substrates.jax import distributions as tfd
+
+import jax.numpy as jnp
 
 import numpyro.distributions as numpyro_dist
 from numpyro.distributions import Distribution as NumPyroDistribution
@@ -109,7 +110,19 @@ class TFPDistributionMixin(NumPyroDistribution):
         return self.support is None
 
 
-__all__ = []
+class InverseGamma(tfd.InverseGamma):
+    arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
+
+
+class OrderedLogistic(tfd.OrderedLogistic):
+    arg_constraints = {"cutpoints": constraints.ordered_vector, "loc": constraints.real}
+
+
+class Pareto(tfd.Pareto):
+    arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
+
+
+__all__ = ['BijectorConstraint', 'BijectorTransform', 'TFPDistributionMixin']
 for _name, _Dist in tfd.__dict__.items():
     if not isinstance(_Dist, type):
         continue
@@ -118,7 +131,6 @@ for _name, _Dist in tfd.__dict__.items():
     if _Dist is tfd.Distribution:
         continue
 
-    print(_name)
     try:
         _PyroDist = locals()[_name]
     except KeyError:
