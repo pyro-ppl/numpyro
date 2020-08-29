@@ -303,7 +303,7 @@ class Distribution(object):
         :return: An expanded version of this distribution.
         :rtype: :class:`ExpandedDistribution`
         """
-        return self.expand(tuple(sample_shape) + self._batch_shape)
+        return self.expand(tuple(sample_shape) + self.batch_shape)
 
     def mask(self, mask):
         """
@@ -330,20 +330,16 @@ class ExpandedDistribution(Distribution):
             batch_shape = self._broadcast_shape(base_dist.batch_shape, batch_shape)
             base_dist = base_dist.base_dist
         self.base_dist = base_dist
-        super().__init__(base_dist.batch_shape, base_dist.event_shape)
-        # adjust batch shape
-        self.expand(batch_shape)
 
-    def expand(self, batch_shape):
+        # adjust batch shape
         # Do basic validation. e.g. we should not "unexpand" distributions even if that is possible.
-        new_shape, _, _ = self._broadcast_shape(self.batch_shape, batch_shape)
+        new_shape, _, _ = self._broadcast_shape(base_dist.batch_shape, batch_shape)
         # Record interstitial and expanded dims/sizes w.r.t. the base distribution
-        new_shape, expanded_sizes, interstitial_sizes = self._broadcast_shape(self.base_dist.batch_shape,
+        new_shape, expanded_sizes, interstitial_sizes = self._broadcast_shape(base_dist.batch_shape,
                                                                               new_shape)
-        self._batch_shape = new_shape
         self._expanded_sizes = expanded_sizes
         self._interstitial_sizes = interstitial_sizes
-        return self
+        super().__init__(new_shape, base_dist.event_shape)
 
     @staticmethod
     def _broadcast_shape(existing_shape, new_shape):
