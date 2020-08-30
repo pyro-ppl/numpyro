@@ -10,9 +10,11 @@ from jax import random
 import jax.numpy as jnp
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
 
+# XXX: for some reasons, pytest raises ImportWarning when we import tfp
 @pytest.mark.filterwarnings("ignore")
 def test_api_consistent():
     from numpyro.contrib.tfp import distributions as tfd
@@ -25,6 +27,31 @@ def test_api_consistent():
                 numpyro_dist = getattr(numpyro.distributions, name + "Logits")
             for p in tfp_dist.arg_constraints:
                 assert p in dict(inspect.signature(tfp_dist).parameters)
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_independent():
+    from numpyro.contrib.tfp import distributions as tfd
+
+    d = tfd.Independent(tfd.Normal(jnp.zeros(10), jnp.ones(10)), reinterpreted_batch_ndims=1)
+    assert d.event_shape == (10,)
+    assert d.batch_shape == ()
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_transformed_distributions():
+    from tensorflow_probability.substrates.jax import bijectors as tfb
+    from numpyro.contrib.tfp import distributions as tfd
+
+    d = dist.TransformedDistribution(dist.Normal(0, 1), dist.transforms.ExpTransform())
+    d1 = tfd.TransformedDistribution(tfd.Normal(0, 1), tfb.Exp())
+    d2 = dist.TransformedDistribution(dist.Normal(0, 1), tfd.BijectorTransform(tfb.Exp()))
+    x = random.normal(random.PRNGKey(0), (1000,))
+    d_x = d.log_prob(x).sum()
+    d1_x = d1.log_prob(x).sum()
+    d2_x = d2.log_prob(x).sum()
+    assert_allclose(d_x, d1_x)
+    assert_allclose(d_x, d2_x)
 
 
 @pytest.mark.filterwarnings("ignore")
