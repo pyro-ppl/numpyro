@@ -3,7 +3,7 @@
 
 from functools import namedtuple, partial
 
-from jax import random, value_and_grad
+from jax import random
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
@@ -16,6 +16,11 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **optim_state** - current optimizer's state.
  - **rng_key** - random number generator seed used for the iteration.
 """
+
+
+def _apply_loss_fn(loss_fn, rng_key, constrain_fn, model, guide,
+                   args, kwargs, static_kwargs, params):
+    return loss_fn(rng_key, constrain_fn(params), model, guide, *args, **kwargs, **static_kwargs)
 
 
 class SVI(object):
@@ -127,11 +132,9 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
-        params = self.optim.get_params(svi_state.optim_state)
-        loss_val, grads = value_and_grad(
-            lambda x: self.loss.loss(rng_key_step, self.constrain_fn(x), self.model, self.guide,
-                                     *args, **kwargs, **self.static_kwargs))(params)
-        optim_state = self.optim.update(grads, svi_state.optim_state)
+        loss_fn = partial(_apply_loss_fn, self.loss.loss, rng_key_step, self.constrain_fn, self.model,
+                          self.guide, args, kwargs, self.static_kwargs)
+        optim_state, loss_val = self.optim.step(loss_fn, svi_state.optim_state)
         return SVIState(optim_state, rng_key), loss_val
 
     def evaluate(self, svi_state, *args, **kwargs):
