@@ -3,6 +3,7 @@
 
 from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
+from tensorflow_probability.substrates.jax import bijectors as tfb
 from tensorflow_probability.substrates.jax import distributions as tfd
 
 import numpyro.distributions as numpyro_dist
@@ -67,8 +68,12 @@ class BijectorTransform(Transform):
         return self.bijector.forward_min_event_ndims
 
     @property
+    def domain(self):
+        return BijectorConstraint(tfb.Invert(self.bijector))
+
+    @property
     def codomain(self):
-        return _get_codomain(self.bijector)
+        return BijectorConstraint(self.bijector)
 
     def __call__(self, x):
         return self.bijector.forward(x)
