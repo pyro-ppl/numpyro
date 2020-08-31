@@ -284,7 +284,7 @@ class plate(Messenger):
                 msg['kwargs']['sample_shape'] = ()
             overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
             trailing_shape = expected_shape[overlap_idx:]
-            broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+            broadcast_shape = lax.broadcast_shapes(trailing_shape, tuple(dist_batch_shape))
             batch_shape = expected_shape[:overlap_idx] + broadcast_shape
             msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:

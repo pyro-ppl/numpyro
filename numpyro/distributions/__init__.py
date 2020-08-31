@@ -42,16 +42,16 @@ from numpyro.distributions.discrete import (
     CategoricalLogits,
     CategoricalProbs,
     Delta,
+    Geometric,
+    GeometricLogits,
+    GeometricProbs,
     Multinomial,
     MultinomialLogits,
     MultinomialProbs,
     OrderedLogistic,
     Poisson,
     PRNGIdentity,
-    ZeroInflatedPoisson,
-    Geometric,
-    GeometricLogits,
-    GeometricProbs
+    ZeroInflatedPoisson
 )
 from numpyro.distributions.distribution import (
     Distribution,
