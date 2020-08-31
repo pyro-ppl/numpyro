@@ -348,7 +348,7 @@ class HMC(MCMCKernel):
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
         any python collection type, provided that `init_params` argument to
-        `init_kernel` has the same type.
+        :meth:`init` has the same type.
     :param kinetic_fn: Python callable that returns the kinetic energy given
         inverse mass matrix and momentum. If not provided, the default is
         euclidean kinetic energy.
@@ -408,14 +408,10 @@ class HMC(MCMCKernel):
             init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
                 rng_key,
                 self._model,
+                init_strategy=self._init_strategy,
                 dynamic_args=True,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
-            if any(v['type'] == 'param' for v in model_trace.values()):
-                warnings.warn("'param' sites will be treated as constants during inference. To define "
-                              "an improper variable, please use a 'sample' site with log probability "
-                              "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
-                              "means that `x` has improper distribution over the positive domain.")
             if self._init_fn is None:
                 self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
                                                      kinetic_fn=self._kinetic_fn,
