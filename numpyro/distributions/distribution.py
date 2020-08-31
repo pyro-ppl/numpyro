@@ -380,7 +380,7 @@ class ExpandedDistribution(Distribution):
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
-        samples = self.base_dist.sample(key, sample_shape + batch_shape)
+        samples = self.base_dist(rng_key=key, sample_shape=sample_shape + batch_shape)
         interstitial_idx = len(sample_shape) + len(expanded_sizes)
         interstitial_sample_dims = tuple(range(interstitial_idx, interstitial_idx + len(interstitial_sizes)))
         for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
@@ -565,7 +565,7 @@ class Independent(Distribution):
         return self.base_dist.variance
 
     def sample(self, key, sample_shape=()):
-        return self.base_dist.sample(key, sample_shape=sample_shape)
+        return self.base_dist(rng_key=key, sample_shape=sample_shape)
 
     def log_prob(self, value):
         log_prob = self.base_dist.log_prob(value)
@@ -602,7 +602,7 @@ class MaskedDistribution(Distribution):
         if isinstance(mask, bool):
             self._mask = mask
         else:
-            batch_shape = lax.broadcast_shapes(jnp.shape(mask), base_dist.batch_shape)
+            batch_shape = lax.broadcast_shapes(jnp.shape(mask), tuple(base_dist.batch_shape))
             if mask.shape != batch_shape:
                 mask = jnp.broadcast_to(mask, batch_shape)
             if base_dist.batch_shape != batch_shape:
@@ -624,11 +624,11 @@ class MaskedDistribution(Distribution):
         return self.base_dist.support
 
     def sample(self, key, sample_shape=()):
-        return self.base_dist.sample(key, sample_shape)
+        return self.base_dist(rng_key=key, sample_shape=sample_shape)
 
     def log_prob(self, value):
         if self._mask is False:
-            shape = lax.broadcast_shapes(self.base_dist.batch_shape,
+            shape = lax.broadcast_shapes(tuple(self.base_dist.batch_shape),
                                          jnp.shape(value)[:max(jnp.ndim(value) - len(self.event_shape), 0)])
             return jnp.zeros(shape)
         if self._mask is True:
@@ -719,13 +719,13 @@ class TransformedDistribution(Distribution):
         return domain
 
     def sample(self, key, sample_shape=()):
-        x = self.base_dist.sample(key, sample_shape)
+        x = self.base_dist(rng_key=key, sample_shape=sample_shape)
         for transform in self.transforms:
             x = transform(x)
         return x
 
     def sample_with_intermediates(self, key, sample_shape=()):
-        x = self.base_dist.sample(key, sample_shape)
+        x = self.base_dist(rng_key=key, sample_shape=sample_shape)
         intermediates = []
         for transform in self.transforms:
             x_tmp = x

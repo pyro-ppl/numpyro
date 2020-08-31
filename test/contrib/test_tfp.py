@@ -80,6 +80,8 @@ def test_logistic_regression():
 
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")
+# TODO: remove after https://github.com/tensorflow/probability/issues/1072 is resolved
+@pytest.mark.filterwarnings("ignore:Explicitly requested dtype")
 def test_beta_bernoulli():
     from numpyro.contrib.tfp import distributions as dist
 

@@ -97,6 +97,7 @@ class TFPDistributionMixin(NumPyroDistribution):
     """
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('rng_key')
+        kwargs.pop('sample_intermediates', False)
         return self.sample(*args, seed=key, **kwargs)
 
     @property
