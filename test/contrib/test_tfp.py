@@ -15,7 +15,7 @@ from numpyro.infer import MCMC, NUTS
 
 
 # XXX: for some reasons, pytest raises ImportWarning when we import tfp
-@pytest.mark.filterwarnings("ignore")
+@pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_api_consistent():
     from numpyro.contrib.tfp import distributions as tfd
 
@@ -29,7 +29,7 @@ def test_api_consistent():
                 assert p in dict(inspect.signature(tfp_dist).parameters)
 
 
-@pytest.mark.filterwarnings("ignore")
+@pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_independent():
     from numpyro.contrib.tfp import distributions as tfd
 
@@ -38,7 +38,7 @@ def test_independent():
     assert d.batch_shape == ()
 
 
-@pytest.mark.filterwarnings("ignore")
+@pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_transformed_distributions():
     from tensorflow_probability.substrates.jax import bijectors as tfb
     from numpyro.contrib.tfp import distributions as tfd
@@ -54,7 +54,7 @@ def test_transformed_distributions():
     assert_allclose(d_x, d2_x)
 
 
-@pytest.mark.filterwarnings("ignore")
+@pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_logistic_regression():
     from numpyro.contrib.tfp import distributions as dist
 
@@ -79,7 +79,7 @@ def test_logistic_regression():
     assert_allclose(jnp.mean(samples['coefs'], 0), true_coefs, atol=0.22)
 
 
-@pytest.mark.filterwarnings("ignore")
+@pytest.mark.filterwarnings("ignore:can't resolve package")
 def test_beta_bernoulli():
     from numpyro.contrib.tfp import distributions as dist
 
