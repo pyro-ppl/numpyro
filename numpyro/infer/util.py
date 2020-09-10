@@ -427,9 +427,22 @@ def initialize_model(rng_key, model,
 
     if not_jax_tracer(is_valid):
         if device_get(~jnp.all(is_valid)):
-            with numpyro.validation_enabled(), \
+            with numpyro.validation_enabled(), trace() as tr, \
                     seed(rng_seed=rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]):
+                # validate parameters
                 model(*model_args, **model_kwargs)
+                # validate values
+                for site in tr.values():
+                    if site['type'] == 'sample':
+                        with warnings.catch_warnings(record=True) as ws:
+                            site['fn']._validate_sample(site['value'])
+                        if len(ws) > 0:
+                            for w in ws:
+                                # at site information to the warning message
+                                w.message.args = ("Site {}: {}".format(site["name"], w.message.args[0]),) \
+                                    + w.message.args[1:]
+                                warnings.showwarning(w.message, w.category, w.filename, w.lineno,
+                                                     file=w.file, line=w.line)
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return ModelInfo(ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace)
 
