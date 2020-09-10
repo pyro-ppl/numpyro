@@ -409,6 +409,7 @@ class HMC(MCMCKernel):
                 rng_key,
                 self._model,
                 dynamic_args=True,
+                init_strategy=self._init_strategy,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
             if any(v['type'] == 'param' for v in model_trace.values()):
