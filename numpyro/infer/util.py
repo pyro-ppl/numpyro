@@ -427,6 +427,9 @@ def initialize_model(rng_key, model,
 
     if not_jax_tracer(is_valid):
         if device_get(~jnp.all(is_valid)):
+            with numpyro.validation_enabled(), \
+                    seed(rng_seed=rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]):
+                model(*model_args, **model_kwargs)
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
     return ModelInfo(ParamInfo(init_params, pe, grad), potential_fn, postprocess_fn, model_trace)
 
