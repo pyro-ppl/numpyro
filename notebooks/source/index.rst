@@ -15,6 +15,7 @@ Welcome to NumPyro Examples and Tutorials!
    bayesian_imputation
    ordinal_regression
    bayesian_hierarchical_linear_regression
+   discreteimputation
 
 .. toctree::
    :maxdepth: 2
