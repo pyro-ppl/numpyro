@@ -235,6 +235,25 @@ def test_plate(model):
             assert_allclose(jit_trace[name]['value'], site['value'])
 
 
+def test_subsample_data():
+    data = jnp.arange(100.)
+    subsample_size = 7
+    with handlers.trace() as tr, handlers.seed(rng_seed=0):
+        with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
+            assert data[idx].shape == (subsample_size,)
+
+
+def test_subsample_substitute():
+    data = jnp.arange(100.)
+    subsample_size = 7
+    subsample = jnp.array([13, 3, 30, 4, 1, 68, 5])
+    with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(data={"a": subsample}):
+        with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
+            assert data[idx].shape == (subsample_size,)
+            assert_allclose(idx, subsample)
+    assert tr["a"]["kwargs"]["rng_key"] is None
+
+
 def test_messenger_fn_invalid():
     with pytest.raises(ValueError, match="to be a Python callable object"):
         with numpyro.handlers.mask(False):

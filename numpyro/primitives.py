@@ -204,11 +204,8 @@ def module(name, nn, input_shape=None):
 
 
 def _subsample_fn(size, subsample_size, rng_key=None):
-    if size == subsample_size:
-        return jnp.arange(size)
-    else:
-        assert rng_key is not None, "Missing random key to generate subsample indices."
-        return random.permutation(rng_key, size)[:subsample_size]
+    assert rng_key is not None, "Missing random key to generate subsample indices."
+    return random.permutation(rng_key, size)[:subsample_size]
 
 
 class plate(Messenger):
@@ -251,7 +248,7 @@ class plate(Messenger):
             'name': name,
             'args': (size, subsample_size),
             'kwargs': {'rng_key': None},
-            'value': None,
+            'value': None if size != subsample_size else jnp.arange(size),
             'scale': 1.0,
             'cond_indep_stack': [],
         }
