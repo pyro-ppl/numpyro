@@ -10,7 +10,7 @@ import jax.numpy as np
 
 import funsor
 from numpyro.handlers import trace as OrigTraceMessenger
-from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
+from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack, plate as OrigPlateMessenger
 
 funsor.set_backend("jax")
 
@@ -442,10 +442,11 @@ class plate(GlobalNamedMessenger):
         if dim is not None and dim >= 0:
             raise ValueError('dim arg must be negative.')
         self.dim = dim
+        _, indices = OrigPlateMessenger._subsample(self.name, self.size, self.subsample_size, dim)
         self._indices = funsor.Tensor(
-            funsor.ops.new_arange(funsor.tensor.get_default_prototype(), self.size),
-            OrderedDict([(self.name, funsor.bint(self.size))]),
-            self.size
+            indices,
+            OrderedDict([(self.name, funsor.bint(self.subsample_size))]),
+            self.subsample_size
         )
         super(plate, self).__init__(None)
 

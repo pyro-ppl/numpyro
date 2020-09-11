@@ -5,7 +5,8 @@ from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
 
-from jax import lax
+from jax import lax, random
+import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
@@ -202,6 +203,14 @@ def module(name, nn, input_shape=None):
     return functools.partial(nn_apply, nn_params)
 
 
+def _subsample_fn(size, subsample_size, rng_key=None):
+    if size == subsample_size:
+        return jnp.arange(size)
+    else:
+        assert rng_key is not None, "Missing random key to generate subsample indices."
+        return random.permutation(rng_key, size)[:subsample_size]
+
+
 class plate(Messenger):
     """
     Construct for annotating conditionally independent variables. Within a
@@ -224,38 +233,44 @@ class plate(Messenger):
         self.subsample_size = size if subsample_size is None else subsample_size
         if dim is not None and dim >= 0:
             raise ValueError('dim arg must be negative.')
-        self.dim = dim
-        self._validate_and_set_dim()
+        self.dim, self._indices = self._subsample(self.name, self.size, self.subsample_size, dim)
         super(plate, self).__init__()
 
-    def _validate_and_set_dim(self):
+    # XXX: different from Pyro, this method returns dim and indices
+    @staticmethod
+    def _subsample(name, size, subsample_size, dim):
         msg = {
             'type': 'plate',
-            'fn': identity,
-            'name': self.name,
-            'args': (None,),
-            'kwargs': {},
+            'fn': _subsample_fn,
+            'name': name,
+            'args': (size, subsample_size),
+            'kwargs': {'rng_key': None},
             'value': None,
             'scale': 1.0,
             'cond_indep_stack': [],
         }
         apply_stack(msg)
+        subsample = msg['value']
+        if subsample_size != subsample.shape[0]:
+            raise ValueError("subsample_size does not match len(subsample), {} vs {}.".format(
+                subsample_size, len(subsample)) +
+                " Did you accidentally use different subsample_size in the model and guide?")
         cond_indep_stack = msg['cond_indep_stack']
         occupied_dims = {f.dim for f in cond_indep_stack}
-        dim = -1
-        while True:
-            if dim not in occupied_dims:
-                break
-            dim -= 1
-        if self.dim is None:
-            self.dim = dim
+        if dim is None:
+            new_dim = -1
+            while True:
+                if new_dim not in occupied_dims:
+                    break
+                new_dim -= 1
+            dim = new_dim
         else:
-            assert self.dim not in occupied_dims
+            assert dim not in occupied_dims
+        return dim, subsample
 
     def __enter__(self):
         super().__enter__()
-        # XXX: JAX doesn't like slice index, so we cast to list
-        return list(range(self.subsample_size))
+        return self._indices
 
     @staticmethod
     def _get_batch_shape(cond_indep_stack):

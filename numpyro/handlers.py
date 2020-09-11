@@ -547,7 +547,12 @@ class seed(Messenger):
 
     def process_message(self, msg):
         if (msg['type'] == 'sample' and not msg['is_observed'] and
-                msg['kwargs']['rng_key'] is None) or msg['type'] == 'control_flow':
+                msg['kwargs']['rng_key'] is None) or msg['type'] in ['plate', 'control_flow']:
+            # no need to split key if size = subsample_size
+            if msg['type'] == 'plate':
+                size, subsample_size = msg['args']
+                if size == subsample_size:
+                    return
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg['kwargs']['rng_key'] = rng_key_sample
 
@@ -596,7 +601,7 @@ class substitute(Messenger):
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg['type'] not in ('sample', 'param')) or msg.get('_control_flow_done', False):
+        if (msg['type'] not in ('sample', 'param', 'plate')) or msg.get('_control_flow_done', False):
             if msg['type'] == 'control_flow':
                 if self.data is not None:
                     msg['kwargs']['substitute_stack'].append(('substitute', self.data))
