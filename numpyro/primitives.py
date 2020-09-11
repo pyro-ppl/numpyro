@@ -218,6 +218,12 @@ class plate(Messenger):
     the size of the plate. Additionally, a scale factor might be applied by
     certain inference algorithms if `subsample_size` is specified.
 
+    .. note:: This can be used to subsample minibatches of data::
+
+            with plate("data", len(data), subsample_size=100) as ind:
+                batch = data[ind]
+                assert len(batch) == 100
+
     :param str name: Name of the plate.
     :param int size: Size of the plate.
     :param int subsample_size: Optional argument denoting the size of the mini-batch.
