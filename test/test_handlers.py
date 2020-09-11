@@ -238,7 +238,7 @@ def test_plate(model):
 def test_subsample_data():
     data = jnp.arange(100.)
     subsample_size = 7
-    with handlers.trace() as tr, handlers.seed(rng_seed=0):
+    with handlers.seed(rng_seed=0):
         with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
             assert data[idx].shape == (subsample_size,)
 
