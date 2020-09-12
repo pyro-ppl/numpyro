@@ -21,7 +21,7 @@ TFPKernelState = namedtuple('TFPKernelState', ['z', 'kernel_results', 'rng_key']
 def _extract_kernel_functions(kernel):
 
     def init_fn(z, rng_key):
-        z_flat, unravel_fn = ravel_pytree(z)
+        z_flat, _ = ravel_pytree(z)
         results = kernel.bootstrap_results(z_flat)
         return TFPKernelState(z, results, rng_key)
 
@@ -36,7 +36,6 @@ def _extract_kernel_functions(kernel):
 
 def _make_log_prob_fn(potential_fn, unravel_fn):
     def log_prob_fn(x):
-        print(unravel_fn(x))
         return - potential_fn(unravel_fn(x))
 
     return log_prob_fn
@@ -44,13 +43,14 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
 
 class TFPKernel(MCMCKernel):
     """
-    A thin wrapper for TensorFlow Probability MCMC transition kernels.
+    A thin wrapper for TensorFlow Probability (TFP) MCMC transition kernels.
+    The argument `target_log_prob_fn` in TFP is replaced by either `model`
+    or `potential_fn` (which is the negative of `target_log_prob_fn`).
 
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
-    :param target_log_prob_fn: Python callable that computes the target log
-        probability (the negative of potential energy)
-        given input parameters. The input parameters to `target_log_prob_fn`
+    :param potential_fn: Python callable that computes the target potential energy
+        given input parameters. The input parameters to `potential_fn`
         can be any python collection type, provided that `init_params` argument to
         :meth:`init` has the same type.
     :param callable init_strategy: a per-site initialization function.
@@ -59,16 +59,17 @@ class TFPKernel(MCMCKernel):
     """
     kernel_class = None
 
-    def __init__(self, model=None, target_log_prob_fn=None, init_strategy=init_to_uniform,
+    def __init__(self, model=None, potential_fn=None, init_strategy=init_to_uniform,
                  **kernel_kwargs):
-        if not (model is None) ^ (target_log_prob_fn is None):
-            raise ValueError('Only one of `model` or `target_log_prob_fn` must be specified.')
+        if not (model is None) ^ (potential_fn is None):
+            raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
-        self._target_log_prob_fn = target_log_prob_fn
+        self._potential_fn = potential_fn
         self._kernel_kwargs = kernel_kwargs
         self._init_strategy = init_strategy
         # Set on first call to init
         self._init_fn = None
+        self._postprocess_fn = None
         self._sample_fn = None
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
@@ -88,8 +89,11 @@ class TFPKernel(MCMCKernel):
                     **self._kernel_kwargs)
                 self._init_fn, self._sample_fn = _extract_kernel_functions(kernel)
             self._postprocess_fn = postprocess_fn
-        elif self._kernel is None:
-            kernel = self.kernel_class(self._target_log_prob_fn, **self._kernel_kwargs)
+        elif self._init_fn is None:
+            _, unravel_fn = ravel_pytree(init_params)
+            kernel = self.kernel_class(
+                _make_log_prob_fn(self._potential_fn, unravel_fn),
+                **self._kernel_kwargs)
             self._init_fn, self._sample_fn = _extract_kernel_functions(kernel)
         return init_params
 
@@ -120,7 +124,7 @@ class TFPKernel(MCMCKernel):
         else:
             rng_key, rng_key_init_model = jnp.swapaxes(vmap(random.split)(rng_key), 0, 1)
         init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
-        if self._target_log_prob_fn and init_params is None:
+        if self._potential_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `target_log_prob_fn`.')
 

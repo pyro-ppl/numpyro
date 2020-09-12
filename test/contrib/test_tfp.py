@@ -126,8 +126,8 @@ def test_mcmc_kernels(kernel, kwargs):
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
-    kernel = kernel_class(model=model, **kwargs)
-    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
+    tfp_kernel = kernel_class(model=model, **kwargs)
+    mcmc = MCMC(tfp_kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.warmup(random.PRNGKey(2), data, collect_warmup=True)
     warmup_samples = mcmc.get_samples()
     mcmc.run(random.PRNGKey(3), data)
@@ -135,3 +135,30 @@ def test_mcmc_kernels(kernel, kwargs):
     assert len(warmup_samples['loc']) == num_warmup
     assert len(samples['loc']) == num_samples
     assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
+
+
+@pytest.mark.parametrize('kernel, kwargs', [
+    ('RandomWalkMetropolis', dict()),
+    ('SliceSampler', dict(step_size=1.0, max_doublings=5))
+])
+@pytest.mark.filterwarnings("ignore:can't resolve package")
+# TODO: remove after https://github.com/tensorflow/probability/issues/1072 is resolved
+@pytest.mark.filterwarnings("ignore:Explicitly requested dtype")
+def test_unnormalized_normal(kernel, kwargs):
+    from numpyro.contrib.tfp import mcmc
+    kernel_class = getattr(mcmc, kernel)
+
+    true_mean, true_std = 1., 0.5
+    warmup_steps, num_samples = (1000, 8000)
+
+    def potential_fn(z):
+        return 0.5 * jnp.sum(((z - true_mean) / true_std) ** 2)
+
+    init_params = jnp.array(0.)
+    tfp_kernel = kernel_class(potential_fn=potential_fn, **kwargs)
+    mcmc = MCMC(tfp_kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), init_params=init_params)
+    mcmc.print_summary()
+    hmc_states = mcmc.get_samples()
+    assert_allclose(jnp.mean(hmc_states), true_mean, rtol=0.07)
+    assert_allclose(jnp.std(hmc_states), true_std, rtol=0.07)
