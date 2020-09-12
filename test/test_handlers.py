@@ -218,6 +218,26 @@ def model_subsample_1():
         assert xy.shape == (5, 1, 10)
 
 
+def model_subsample_2():
+    data = jnp.ones((10, 1, 20))
+    outer = numpyro.plate('outer', data.shape[-1], subsample_size=10)
+    inner = numpyro.plate('inner', data.shape[-3], subsample_size=5, dim=-3)
+    with outer:
+        x = numpyro.sample('x', dist.Normal(0., 1.))
+        assert x.shape == (10,)
+    with inner:
+        y = numpyro.sample('y', dist.Normal(0., 1.))
+        assert y.shape == (5, 1, 1)
+        z = numpyro.deterministic('z', x ** 2)
+        assert z.shape == (10,)
+
+    with outer, inner:
+        xy = numpyro.sample('xy', dist.Normal(0., 1.))
+        assert xy.shape == (5, 1, 10)
+        subsample_data = numpyro.subsample(data, event_dim=0)
+        assert subsample_data.shape == (5, 1, 10)
+
+
 @pytest.mark.parametrize('model', [
     model_nested_plates_0,
     model_nested_plates_1,
@@ -225,6 +245,7 @@ def model_subsample_1():
     model_nested_plates_3,
     model_dist_batch_shape,
     model_subsample_1,
+    model_subsample_2,
 ])
 def test_plate(model):
     trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
@@ -241,6 +262,19 @@ def test_subsample_data():
     with handlers.seed(rng_seed=0):
         with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
             assert data[idx].shape == (subsample_size,)
+            subsample_data = numpyro.subsample(data, event_dim=0)
+            assert subsample_data.shape == (subsample_size,)
+
+
+def test_subsample_param():
+    data = jnp.arange(100.)
+    subsample_size = 7
+    with handlers.seed(rng_seed=0):
+        with numpyro.plate("a", len(data), subsample_size=subsample_size):
+            p0 = numpyro.param("p0", 0., event_dim=0)
+            assert jnp.shape(p0) == ()
+            p = numpyro.param("p", 0.5 * jnp.ones(len(data)), event_dim=0)
+            assert len(p) == subsample_size
 
 
 def test_subsample_substitute():
@@ -252,6 +286,19 @@ def test_subsample_substitute():
             assert data[idx].shape == (subsample_size,)
             assert_allclose(idx, subsample)
     assert tr["a"]["kwargs"]["rng_key"] is None
+
+
+def test_subsample_replay():
+    data = jnp.arange(100.)
+    subsample_size = 7
+
+    with handlers.trace() as guide_trace, handlers.seed(rng_seed=0):
+        with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
+            pass
+
+    with handlers.trace() as model, handlers.seed(rng_seed=0), handlers.replay(guide_trace=guide_trace):
+        with numpyro.plate("a", len(data)) as idx:
+            assert data[idx].shape == (subsample_size,)
 
 
 def test_messenger_fn_invalid():

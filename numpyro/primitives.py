@@ -126,6 +126,14 @@ def param(name, init_value=None, **kwargs):
         the onus of using this to initialize the optimizer is on the user /
         inference algorithm, since there is no global parameter store in
         NumPyro.
+    :param constraint: NumPyro constraint, defaults to ``constraints.real``.
+    :type constraint: numpyro.distributions.constraints.Constraint
+    :param int event_dim: (optional) number of rightmost dimensions unrelated
+        to batching. Dimension to the left of this will be considered batch
+        dimensions; if the param statement is inside a subsampled plate, then
+        corresponding batch dimensions of the parameter will be correspondingly
+        subsampled. If unspecified, all dimensions will be considered event
+        dims and no subsampling will be performed.
     :return: value for the parameter. Unless wrapped inside a
         handler like :class:`~numpyro.handlers.substitute`, this will simply
         return the initial value.
@@ -233,10 +241,11 @@ class plate(Messenger):
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         self.size = size
-        self.subsample_size = size if subsample_size is None else subsample_size
         if dim is not None and dim >= 0:
             raise ValueError('dim arg must be negative.')
-        self.dim, self._indices = self._subsample(self.name, self.size, self.subsample_size, dim)
+        self.dim, self._indices = self._subsample(
+            self.name, self.size, subsample_size, dim)
+        self.subsample_size = self._indices.shape[0]
         super(plate, self).__init__()
 
     # XXX: different from Pyro, this method returns dim and indices
@@ -248,13 +257,15 @@ class plate(Messenger):
             'name': name,
             'args': (size, subsample_size),
             'kwargs': {'rng_key': None},
-            'value': None if size != subsample_size else jnp.arange(size),
+            'value': (None
+                      if (subsample_size is not None and size != subsample_size)
+                      else jnp.arange(size)),
             'scale': 1.0,
             'cond_indep_stack': [],
         }
         apply_stack(msg)
         subsample = msg['value']
-        if subsample_size != subsample.shape[0]:
+        if subsample_size is not None and subsample_size != subsample.shape[0]:
             raise ValueError("subsample_size does not match len(subsample), {} vs {}.".format(
                 subsample_size, len(subsample)) +
                 " Did you accidentally use different subsample_size in the model and guide?")
@@ -309,6 +320,27 @@ class plate(Messenger):
             scale = 1. if msg['scale'] is None else msg['scale']
             msg['scale'] = scale * self.size / self.subsample_size
 
+    def postprocess_message(self, msg):
+        if msg["type"] in ("subsample", "param") and self.dim is not None:
+            event_dim = msg["kwargs"].get("event_dim")
+            if event_dim is not None:
+                assert event_dim >= 0
+                dim = self.dim - event_dim
+                shape = jnp.shape(msg["value"])
+                if len(shape) >= -dim and shape[dim] != 1:
+                    if shape[dim] != self.size:
+                        if msg["type"] == "param":
+                            statement = "numpyro.param({}, ..., event_dim={})".format(msg["name"], event_dim)
+                        else:
+                            statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
+                        raise ValueError(
+                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
+                            .format(self.name, self.size, self.dim, statement, shape))
+                    if self.subsample_size < self.size:
+                        value = msg["value"]
+                        new_value = jnp.take(value, self._indices, dim)
+                        msg["value"] = new_value
+
 
 @contextmanager
 def plate_stack(prefix, sizes, rightmost_dim=-1):
@@ -340,3 +372,44 @@ def factor(name, log_factor):
     unit_dist = numpyro.distributions.distribution.Unit(log_factor)
     unit_value = unit_dist.sample(None)
     sample(name, unit_dist, obs=unit_value)
+
+
+def subsample(data, event_dim):
+    """
+    EXPERIMENTAL Subsampling statement to subsample data based on enclosing
+    :class:`~numpyro.primitives.plate` s.
+
+    This is typically called on arguments to ``model()`` when subsampling is
+    performed automatically by :class:`~numpyro.primitives.plate` s by passing
+    ``subsample_size`` kwarg. For example the following are equivalent::
+
+        # Version 1. using indexing
+        def model(data):
+            with numpyro.plate("data", len(data), subsample_size=10, dim=-data.dim()) as ind:
+                data = data[ind]
+                # ...
+
+        # Version 2. using numpyro.subsample()
+        def model(data):
+            with numpyro.plate("data", len(data), subsample_size=10, dim=-data.dim()):
+                data = numpyro.subsample(data, event_dim=0)
+                # ...
+
+    :param numpy.ndarray data: A tensor of batched data.
+    :param int event_dim: The event dimension of the data tensor. Dimensions to
+        the left are considered batch dimensions.
+    :returns: A subsampled version of ``data``
+    :rtype: ~numpy.ndarray
+    """
+    if not _PYRO_STACK:
+        return data
+
+    assert isinstance(event_dim, int) and event_dim >= 0
+    initial_msg = {
+        'type': 'subsample',
+        'value': data,
+        'kwargs': {'event_dim': event_dim}
+    }
+
+    msg = apply_stack(initial_msg)
+    return msg['value']

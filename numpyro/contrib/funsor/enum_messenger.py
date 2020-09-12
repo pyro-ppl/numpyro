@@ -10,7 +10,8 @@ import jax.numpy as np
 
 import funsor
 from numpyro.handlers import trace as OrigTraceMessenger
-from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack, plate as OrigPlateMessenger
+from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
+from numpyro.primitives import plate as OrigPlateMessenger
 
 funsor.set_backend("jax")
 
@@ -438,11 +439,10 @@ class plate(GlobalNamedMessenger):
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         self.size = size
-        self.subsample_size = size if subsample_size is None else subsample_size
         if dim is not None and dim >= 0:
             raise ValueError('dim arg must be negative.')
-        self.dim = dim
-        _, indices = OrigPlateMessenger._subsample(self.name, self.size, self.subsample_size, dim)
+        self.dim, indices = OrigPlateMessenger._subsample(self.name, self.size, subsample_size, dim)
+        self.subsample_size = indices.shape[0]
         self._indices = funsor.Tensor(
             indices,
             OrderedDict([(self.name, funsor.bint(self.subsample_size))]),
@@ -487,6 +487,27 @@ class plate(GlobalNamedMessenger):
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
             msg['scale'] = scale * self.size / self.subsample_size
+
+    def postprocess_message(self, msg):
+        if msg["type"] in ("subsample", "param") and self.dim is not None:
+            event_dim = msg["kwargs"].get("event_dim")
+            if event_dim is not None:
+                assert event_dim >= 0
+                dim = self.dim - event_dim
+                shape = msg["value"].shape
+                if len(shape) >= -dim and shape[dim] != 1:
+                    if shape[dim] != self.size:
+                        if msg["type"] == "param":
+                            statement = "numpyro.param({}, ..., event_dim={})".format(msg["name"], event_dim)
+                        else:
+                            statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
+                        raise ValueError(
+                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
+                            .format(self.name, self.size, self.dim, statement, shape))
+                    if self.subsample_size < self.size:
+                        value = msg["value"]
+                        new_value = jnp.take_along_axis(value, self._indices, dim)
+                        msg["value"] = new_value
 
 
 class enum(BaseEnumMessenger):
