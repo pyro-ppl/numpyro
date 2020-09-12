@@ -427,12 +427,9 @@ def initialize_model(rng_key, model,
 
     if not_jax_tracer(is_valid):
         if device_get(~jnp.all(is_valid)):
-            with numpyro.validation_enabled(), \
-                    trace() as tr, \
-                    substitute(substitute_fn=init_strategy), \
-                    seed(rng_seed=rng_key if jnp.ndim(rng_key) == 1 else rng_key[0]):
+            with numpyro.validation_enabled(), trace() as tr:
                 # validate parameters
-                model(*model_args, **model_kwargs)
+                substituted_model(*model_args, **model_kwargs)
                 # validate values
                 for site in tr.values():
                     if site['type'] == 'sample':
