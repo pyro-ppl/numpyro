@@ -6,7 +6,7 @@ from contextlib import ExitStack  # python 3
 from enum import Enum
 
 from jax import lax
-import jax.numpy as np
+import jax.numpy as jnp
 
 import funsor
 from numpyro.handlers import trace as OrigTraceMessenger
@@ -506,7 +506,7 @@ class plate(GlobalNamedMessenger):
                             .format(self.name, self.size, self.dim, statement, shape))
                     if self.subsample_size < self.size:
                         value = msg["value"]
-                        new_value = jnp.take_along_axis(value, self._indices, dim)
+                        new_value = jnp.take(value, self._indices, dim)
                         msg["value"] = new_value
 
 
@@ -536,7 +536,7 @@ class enum(BaseEnumMessenger):
             raise NotImplementedError("expand=True not implemented")
 
         size = msg["fn"].enumerate_support(expand=False).shape[0]
-        raw_value = np.arange(0, size)
+        raw_value = jnp.arange(0, size)
         funsor_value = funsor.Tensor(
             raw_value,
             OrderedDict([(msg["name"], funsor.bint(size))]),
