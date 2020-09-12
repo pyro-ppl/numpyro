@@ -1,13 +1,18 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-try:
-    import tensorflow_probability.substrates.jax as tfp  # noqa: F401
+from collections import namedtuple
+import inspect
 
-from functools import partial
+from jax import random, vmap
+from jax.flatten_util import ravel_pytree
+import jax.numpy as jnp
+import tensorflow_probability.substrates.jax as tfp
 
+from numpyro.infer import init_to_uniform
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import init_to_uniform
+from numpyro.infer.util import initialize_model
+from numpyro.util import identity
 
 
 TFPKernelState = namedtuple('TFPKernelState', ['z', 'kernel_results', 'rng_key'])
@@ -16,19 +21,31 @@ TFPKernelState = namedtuple('TFPKernelState', ['z', 'kernel_results', 'rng_key']
 def _extract_kernel_functions(kernel):
 
     def init_fn(z, rng_key):
-        results = kernel.bootstrap_results(z)
+        z_flat, unravel_fn = ravel_pytree(z)
+        results = kernel.bootstrap_results(z_flat)
         return TFPKernelState(z, results, rng_key)
 
     def sample_fn(state, model_args=(), model_kwargs=None):
         rng_key, rng_key_transition = random.split(state.rng_key)
-        z, results = kernel.one_step(state.z, state.kernel_results, seed=rng_key_transition)
-        return TFPKernelState(z, kernel_results, rng_key)
+        z_flat, unravel_fn = ravel_pytree(state.z)
+        z_new_flat, results = kernel.one_step(z_flat, state.kernel_results, seed=rng_key_transition)
+        return TFPKernelState(unravel_fn(z_new_flat), results, rng_key)
 
     return init_fn, sample_fn
 
 
-class TFPKernelMixin(MCMCKernel):
+def _make_log_prob_fn(potential_fn, unravel_fn):
+    def log_prob_fn(x):
+        print(unravel_fn(x))
+        return - potential_fn(unravel_fn(x))
+
+    return log_prob_fn
+
+
+class TFPKernel(MCMCKernel):
     """
+    A thin wrapper for TensorFlow Probability MCMC transition kernels.
+
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
     :param target_log_prob_fn: Python callable that computes the target log
@@ -48,7 +65,7 @@ class TFPKernelMixin(MCMCKernel):
             raise ValueError('Only one of `model` or `target_log_prob_fn` must be specified.')
         self._model = model
         self._target_log_prob_fn = target_log_prob_fn
-        self._kernel_kwargs = kwargs
+        self._kernel_kwargs = kernel_kwargs
         self._init_strategy = init_strategy
         # Set on first call to init
         self._init_fn = None
@@ -63,12 +80,16 @@ class TFPKernelMixin(MCMCKernel):
                 dynamic_args=True,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
+            init_params = init_params.z
             if self._init_fn is None:
-                kernel = self.kernel_class(lambda x: -potential_fn(x), **self.kernel_kwargs)
+                _, unravel_fn = ravel_pytree(init_params)
+                kernel = self.kernel_class(
+                    _make_log_prob_fn(potential_fn(*model_args, **model_kwargs), unravel_fn),
+                    **self._kernel_kwargs)
                 self._init_fn, self._sample_fn = _extract_kernel_functions(kernel)
             self._postprocess_fn = postprocess_fn
         elif self._kernel is None:
-            kernel = self.kernel_class(target_log_prob_fn, **self.kernel_kwargs)
+            kernel = self.kernel_class(self._target_log_prob_fn, **self._kernel_kwargs)
             self._init_fn, self._sample_fn = _extract_kernel_functions(kernel)
         return init_params
 
@@ -99,9 +120,9 @@ class TFPKernelMixin(MCMCKernel):
         else:
             rng_key, rng_key_init_model = jnp.swapaxes(vmap(random.split)(rng_key), 0, 1)
         init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
-        if self._potential_fn and init_params is None:
+        if self._target_log_prob_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
-                             ' `potential_fn`.')
+                             ' `target_log_prob_fn`.')
 
         if rng_key.ndim == 1:
             init_state = self._init_fn(init_params, rng_key)
@@ -130,3 +151,40 @@ class TFPKernelMixin(MCMCKernel):
         :return: Next `state` after running the kernel.
         """
         return self._sample_fn(state, model_args, model_kwargs)
+
+
+__all__ = []
+for _name, _Kernel in tfp.mcmc.__dict__.items():
+    if not isinstance(_Kernel, type):
+        continue
+    if not issubclass(_Kernel, tfp.mcmc.TransitionKernel):
+        continue
+    if 'target_log_prob_fn' not in inspect.getfullargspec(_Kernel).args:
+        continue
+
+    try:
+        _PyroKernel = locals()[_name]
+    except KeyError:
+        _PyroKernel = type(_name, (TFPKernel,), {})
+        _PyroKernel.__module__ = __name__
+        _PyroKernel.kernel_class = _Kernel
+        locals()[_name] = _PyroKernel
+
+    _PyroKernel.__doc__ = '''
+    Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/{}>`_
+    with :class:`~numpyro.contrib.tfp.distributions.TFPDistributionMixin`.
+    '''.format(_Kernel.__module__, _Kernel.__name__, _Kernel.__name__)
+
+    __all__.append(_name)
+
+
+# Create sphinx documentation.
+__doc__ = '\n\n'.join([
+
+    '''
+    {0}
+    ----------------------------------------------------------------
+    .. autoclass:: numpyro.contrib.tfp.mcmc.{0}
+    '''.format(_name)
+    for _name in sorted(__all__)
+])

@@ -250,7 +250,6 @@ class SA(MCMCKernel):
             init_params, potential_fn, postprocess_fn, _ = initialize_model(
                 rng_key,
                 self._model,
-                init_strategy=self._init_strategy,
                 dynamic_args=True,
                 init_strategy=self._init_strategy,
                 model_args=model_args,

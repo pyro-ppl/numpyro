@@ -438,7 +438,7 @@ TensorFlow Distributions
 ========================
 
 Thin wrappers around TensorFlow Probability (TFP) distributions. For details on the TFP distribution interface,
-`its Distribution docs <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/Distribution>`_.
+see `its Distribution docs <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/Distribution>`_.
 
 .. automodule:: numpyro.contrib.tfp.distributions
 

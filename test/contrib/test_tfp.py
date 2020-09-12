@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
+from numpyro.infer.reparam import TransformReparam
 
 
 # XXX: for some reasons, pytest raises ImportWarning when we import tfp
@@ -102,3 +103,35 @@ def test_beta_bernoulli():
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples['p_latent'], 0), true_probs, atol=0.05)
+
+
+@pytest.mark.parametrize('kernel, kwargs', [
+    ('RandomWalkMetropolis', dict()),
+    ('SliceSampler', dict(step_size=1.0, max_doublings=5))
+])
+@pytest.mark.filterwarnings("ignore:can't resolve package")
+# TODO: remove after https://github.com/tensorflow/probability/issues/1072 is resolved
+@pytest.mark.filterwarnings("ignore:Explicitly requested dtype")
+def test_mcmc_kernels(kernel, kwargs):
+    from numpyro.contrib.tfp import mcmc
+    kernel_class = getattr(mcmc, kernel)
+
+    true_coef = 0.9
+    num_warmup, num_samples = 1000, 1000
+
+    def model(data):
+        alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
+        with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
+            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+        numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
+
+    data = true_coef + random.normal(random.PRNGKey(0), (1000,))
+    kernel = kernel_class(model=model, **kwargs)
+    mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
+    mcmc.warmup(random.PRNGKey(2), data, collect_warmup=True)
+    warmup_samples = mcmc.get_samples()
+    mcmc.run(random.PRNGKey(3), data)
+    samples = mcmc.get_samples()
+    assert len(warmup_samples['loc']) == num_warmup
+    assert len(samples['loc']) == num_samples
+    assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)

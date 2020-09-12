@@ -1,7 +1,6 @@
 from collections import namedtuple
 import math
 import os
-import warnings
 
 from jax import device_put, lax, partial, random, vmap
 from jax.dtypes import canonicalize_dtype
@@ -408,7 +407,6 @@ class HMC(MCMCKernel):
             init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
                 rng_key,
                 self._model,
-                init_strategy=self._init_strategy,
                 dynamic_args=True,
                 init_strategy=self._init_strategy,
                 model_args=model_args,
