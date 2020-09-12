@@ -410,6 +410,7 @@ class HMC(MCMCKernel):
                 self._model,
                 init_strategy=self._init_strategy,
                 dynamic_args=True,
+                init_strategy=self._init_strategy,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
             if self._init_fn is None:

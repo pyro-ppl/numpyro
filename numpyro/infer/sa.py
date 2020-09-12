@@ -252,6 +252,7 @@ class SA(MCMCKernel):
                 self._model,
                 init_strategy=self._init_strategy,
                 dynamic_args=True,
+                init_strategy=self._init_strategy,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
             init_params = init_params[0]

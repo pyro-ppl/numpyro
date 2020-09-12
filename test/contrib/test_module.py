@@ -1,9 +1,10 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
+
 import flax
 import haiku as hk
-import numpy as np
 
 import numpyro
 from numpyro import handlers

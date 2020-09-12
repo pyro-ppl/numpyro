@@ -51,9 +51,10 @@ setup(
             'ipython',
             'isort',
             'flax',
-            'dm-haiku @ https://github.com/deepmind/dm-haiku/archive/v0.0.2.zip'
+            'dm-haiku @ https://github.com/deepmind/dm-haiku/archive/v0.0.2.zip',
+            'tfp-nightly',  # TODO: change this to stable release or a specific nightly release
         ],
-        'examples': ['matplotlib', 'seaborn'],
+        'examples': ['matplotlib', 'seaborn', 'graphviz'],
     },
     long_description=long_description,
     long_description_content_type='text/markdown',

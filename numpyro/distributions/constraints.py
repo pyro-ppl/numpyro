@@ -192,7 +192,7 @@ class _RealVector(Constraint):
 class _Simplex(Constraint):
     def __call__(self, x):
         x_sum = jnp.sum(x, axis=-1)
-        return jnp.all(x > 0, axis=-1) & (x_sum <= 1) & (x_sum > 1 - 1e-6)
+        return jnp.all(x >= 0, axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
 
 
 # TODO: Make types consistent

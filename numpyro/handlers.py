@@ -86,7 +86,6 @@ import numpyro
 from numpyro.primitives import Messenger, apply_stack
 from numpyro.util import not_jax_tracer
 
-
 __all__ = [
     'block',
     'condition',
