@@ -513,19 +513,25 @@ class HMC(MCMCKernel):
         self._subsample_fn = None
 
     def _init_subsample_state(self,rng_key, model_args, model_kwargs, init_params,z_ref):
-        self._n = model_kwargs["observations"].shape[0]
+
+        self._n = model_args[0].shape[0]
 
         u = random.randint(rng_key, (self._m,), 0, self._n)
+
+        model_args = self.model_args_sub(u,model_args)
         model_kwargs = self.model_kwargs_sub(u, model_kwargs)
 
         rng_key_subsample, rng_key_model, rng_key_hmc_init, rng_key_potential, rng_key = random.split(rng_key, 5)
 
         ld_fn = lambda args: partial(log_density_hmcecs, self._model, model_args, model_kwargs, prior=False)(args)[0]
-
+        print(z_ref["theta"].shape)
+        print(z_ref.keys())
+        exit()
         ll_ref = ld_fn(z_ref)
         jac_all, _ = ravel_pytree(jacfwd(ld_fn)(z_ref))
         hess_all, _ = ravel_pytree(hessian(ld_fn)(z_ref))
-
+        print(jac_all.shape)
+        exit()
         jac_all = jac_all.reshape(self._n, -1).sum(0)
         k, = jac_all.shape
         hess_all = hess_all.reshape(self._n, k, k).sum(0)
@@ -542,7 +548,6 @@ class HMC(MCMCKernel):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._subsample_method is not None:
-            print(self._z_ref)
             assert self._z_ref is not None, "Please provide a (i.e map) estimate for the parameters"
             self._init_subsample_state(rng_key, model_args, model_kwargs, init_params,self._z_ref)
             self._init_fn, self._subsample_fn = hmc(potential_fn_gen=self._potential_fn,
@@ -591,6 +596,15 @@ class HMC(MCMCKernel):
         return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(state.num_steps,
                                                                   state.adapt_state.step_size,
                                                                   state.mean_accept_prob)
+    def model_args_sub(self,u,model_args):
+        """Subsample observations and features"""
+        args = []
+        for arg in model_args:
+            if isinstance(arg, jnp.ndarray):
+                args.append(jnp.take(arg, u, axis=0))
+            else:
+                args.append(arg)
+        return args
     def model_kwargs_sub(self,u, kwargs):
         """Subsample observations and features"""
         for key_arg, val_arg in kwargs.items():

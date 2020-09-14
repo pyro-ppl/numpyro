@@ -35,13 +35,13 @@ def infer_hmcecs(rng_key, feats, obs, g=2, samples=10, warmup=5, ):
     n, _ = feats.shape
 
     model_args = (feats, obs)
-    print("Running Nuts for map estimation")
+    print("Running NUTS for map estimation")
     z_map = {key: value.mean(0) for key, value in infer_nuts(map_key, feats, obs).items()}
 
     #Observations = (569,1)
     #Features = (569,31)
     print("Running MCMC subsampling")
-    kernel = HMC(model=model,z_ref=z_map,m=50,g=10) #,subsample_method="perturb")
+    kernel = HMC(model=model,z_ref=z_map,m=50,g=10,subsample_method="perturb")
     mcmc = MCMC(kernel,num_warmup=warmup,num_samples=samples)
     mcmc.run(rng_key,feats,obs)
     return mcmc.get_samples()
