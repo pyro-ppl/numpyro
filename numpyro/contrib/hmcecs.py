@@ -1,4 +1,4 @@
-"""Contributed code for HMC and NUTS energy conserving sampling from """
+"""Contributed code for HMC and NUTS energy conserving sampling adapted from <Hamiltonian Monte Carlo with Energy Conserving Subsampling>"""
 
 from collections import namedtuple
 import math
@@ -21,11 +21,10 @@ from numpyro.infer.hmc_util import (
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model, log_density
 from numpyro.util import cond, fori_loop, identity
-
+from numpyro.contrib.hmcecs_utils import grad_potential,potential_est,log_density_hmcecs
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
-                                   'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key',
-                                    'u','blocks', 'hmc_state', 'z_map', 'll_map', 'jac_map', 'hess_map',
-                                    'control_variates', 'll_u'])
+                                   'mean_accept_prob', 'diverging', 'adapt_state','rng_key'])
+HMCECSState = namedtuple("HMCECState",["u","hmc_state","z_ref","ll_ref","jac_all","hess_all","ll_u"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
 
@@ -54,7 +53,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **rng_key** - random number generator seed used for the iteration.
  - **u** - Subsample 
  - **blocks** - blocks in which the subsample is divided
- - **z_map** - MAP estimation of the model parameters to initialize the subsampling.
+ - **z_ref** - MAP estimation of the model parameters to initialize the subsampling.
  - **ll_map** - Log likelihood of the map estimated parameters.
  - **jac_map** - Jacobian vector from the map estimated parameters.
  - **hess_map** - Hessian matrix from the map estimated parameters
@@ -84,22 +83,30 @@ def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
 
 @partial(jit, static_argnums=(2, 3, 4))
 def _update_block(rng_key, u, n, m, g):
-    """Returns updated indexes for the subsample"""
+    """Returns the indexes from the subsample that will be updated, there is replacement.
+     The number of indexes to be updated depend on the block size, higher block size more correlation among elements in the subsample.
+    :param rng_key
+    :param u subsample
+    :param n total number of data
+    :param m subsample size
+    :param g block size: subsample subdivision"""
     rng_key_block, rng_key_index = random.split(rng_key)
 
     # uniformly choose block to update
-    chosen_block = random.randint(rng_key, (), 0, g + 1)
+    chosen_block = random.randint(rng_key, shape=(), minval= 0, maxval=g + 1) #TODO: assertions for g values? why minval=0?division by 0
 
-    idxs_new = random.randint(rng_key_index, (m // g,), 0, n)
+    idxs_new = random.randint(rng_key_index, shape=(m // g,), minval=0, maxval=n) #chose block within the subsample to update
 
-    u_new = jnp.zeros(m, jnp.dtype(u))
+    u_new = jnp.zeros(m, jnp.dtype(u)) #empty array with size m
     for i in range(m):
+        #if index in the subsample // g = chosen block : pick new indexes from the subsample size
+        #else not update: keep the same indexes
         u_new = ops.index_add(u_new, i,
                               lax.cond(i // g == chosen_block, i, lambda _: idxs_new[i % (m // g)], i, lambda _: u[i]))
     return u_new
 
 
-def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
+def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potential_fn_gen=None,algo='NUTS'):
     r"""
     Hamiltonian Monte Carlo inference, using either fixed number of
     steps or the No U-Turn Sampler (NUTS) with adaptive path length.
@@ -197,7 +204,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                     u=None,
                     blocks=None,
                     hmc_state = None,
-                    z_map=None,
+                    z_ref=None,
                     ll_map = None,
                     jac_map = None,
                     hess_map= None,
@@ -280,10 +287,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
-                             0, 0., 0., False, wa_state, rng_key_hmc,
-                             u, blocks, hmc_state, z_map, ll_map, jac_map, hess_map,
-                             control_variates, ll_u
-                             )
+                             0, 0., 0., False, wa_state,rng_key_hmc)
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
@@ -364,8 +368,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
 
         return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy, num_steps,
-                        accept_prob, mean_accept_prob, diverging, adapt_state, rng_key,u, blocks, hmc_state, z_map, ll_map, jac_map, hess_map,
-                             control_variates, ll_u)
+                        accept_prob, mean_accept_prob, diverging, adapt_state,rng_key)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
@@ -380,7 +383,7 @@ def _log_prob(trace):
     node = trace['observations']
     return jnp.sum(node['fn'].log_prob(node['value']), 1)
 
-def _hmcecs_potential(model, model_args, u, control_variates, jac_map, z, z_map, hess_map, n, m):
+def _hmcecs_potential(model, model_args, u, control_variates, jac_map, z, z_ref, hess_map, n, m):
     """Estimate the potential dynamic energy for the HMC ECS implementation. The calculation follows section 7.2.1 in https://jmlr.org/papers/volume18/15-205/15-205.pdf
     The computation has a complexity of O(1) and it's highly dependant on the quality of the map estimate"""
     ratio_pop_sub = n / m  # ratio of population size to subsample
@@ -401,10 +404,10 @@ def _hmcecs_potential(model, model_args, u, control_variates, jac_map, z, z_map,
     sigma = ratio_pop_sub ** 2 * jnp.sum(lq_sub - lq_sub_mean)
     return l_hat - .5 * sigma, control_variates, lq_sub
 
-def _grad_hmcecs_potential(model,model_args, model_kwargs,u, z, z_map, n, m, jac_map, hess_map, lq_sub):
+def _grad_hmcecs_potential(model,model_args, model_kwargs,u, z, z_ref, n, m, jac_map, hess_map, lq_sub):
     ratio_pop_sub = n / m  # ratio of population size to subsample
     z_flat, treedef = ravel_pytree(z)
-    zmap_flat, _ = ravel_pytree(z_map)
+    zmap_flat, _ = ravel_pytree(z_ref)
 
     grad_cv = jac_map + hess_map @ (z_flat - zmap_flat)
 
@@ -457,12 +460,16 @@ class HMC(MCMCKernel):
         See :ref:`init_strategy` section for available functions.
     :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
         step size at the beginning of each adaptation window. Defaults to False.
-    :param subsample If "perturb" is provided, the "potential_fn" function will be calculated
+    :param subsample_method If "perturb" is provided, the "potential_fn" function will be calculated
         using the equations from section 7.2.1 in https://jmlr.org/papers/volume18/15-205/15-205.pdf
+    :param m subsample size
+    :param g block size
+    :param z_ref MAP estimate of the parameters
     """
     def __init__(self,
                  model=None,
                  potential_fn=None,
+                 grad_potential = None,
                  kinetic_fn=None,
                  step_size=1.0,
                  adapt_step_size=True,
@@ -474,13 +481,15 @@ class HMC(MCMCKernel):
                  find_heuristic_step_size=False,
                  subsample_method = None,
                  m= None,
-                 g = None
+                 g = None,
+                 z_ref= None
                  ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
 
         self._model = model
         self._potential_fn = potential_fn
+        self._grad_potential = grad_potential
         self._kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
         self._step_size = step_size
         self._adapt_step_size = adapt_step_size
@@ -492,23 +501,55 @@ class HMC(MCMCKernel):
         self._max_tree_depth = 10
         self._init_strategy = init_strategy
         self._find_heuristic_step_size = find_heuristic_step_size
-        self._subsample_method = 'perturbed'
+        self._subsample_method = subsample_method
         self._m = m if m is not None else 4
         self._g = g if g is not None else 2
+        self._z_ref = z_ref
+        self._n = None
         # Set on first call to init
         self._init_fn = None
         self._postprocess_fn = None
         self._sample_fn = None
+        self._subsample_fn = None
 
-    def _init_state(self, rng_key, model_args, model_kwargs, init_params,z_map):
+    def _init_subsample_state(self,rng_key, model_args, model_kwargs, init_params,z_ref):
+        self._n = model_kwargs["observations"].shape[0]
+
+        u = random.randint(rng_key, (self._m,), 0, self._n)
+        model_kwargs = self.model_kwargs_sub(u, model_kwargs)
+
+        rng_key_subsample, rng_key_model, rng_key_hmc_init, rng_key_potential, rng_key = random.split(rng_key, 5)
+
+        ld_fn = lambda args: partial(log_density_hmcecs, self._model, model_args, model_kwargs, prior=False)(args)[0]
+
+        ll_ref = ld_fn(z_ref)
+        jac_all, _ = ravel_pytree(jacfwd(ld_fn)(z_ref))
+        hess_all, _ = ravel_pytree(hessian(ld_fn)(z_ref))
+
+        jac_all = jac_all.reshape(self._n, -1).sum(0)
+        k, = jac_all.shape
+        hess_all = hess_all.reshape(self._n, k, k).sum(0)
+
+        self._potential_fn = lambda model, args, ll_ref, jac_all, z_ref, hess_all, n, m: \
+            lambda z: potential_est(model=model, model_args=args, model_kwargs=model_kwargs, ll_ref=ll_ref,
+                                    jac_all=jac_all,
+                                    z=z, z_ref=z_ref, hess_all=hess_all, n=n, m=m)
+        self._grad_potential = lambda model, args, ll_ref, jac_all, z_ref, hess_all, n, m: \
+            lambda z: grad_potential(model=model, model_args=args, model_kwargs=model_kwargs, jac_all=jac_all, z=z,
+                                     z_ref=z_ref,
+                                     hess_all=hess_all, n=n, m=m)
+
+
+    def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._subsample_method is not None:
-            warnings.warn("Assumption that the observations have a shape of (n_elements,)")
-            assert z_map is not None
-            n = model_kwargs["observations"].shape[0]
-            m = self._m
-            g = self._g
-            u = random.randint(rng_key, (self._m,), 0, n)
-            model_kwargs = self.model_kwargs_sub(u, model_kwargs)
+            print(self._z_ref)
+            assert self._z_ref is not None, "Please provide a (i.e map) estimate for the parameters"
+            self._init_subsample_state(rng_key, model_args, model_kwargs, init_params,self._z_ref)
+            self._init_fn, self._subsample_fn = hmc(potential_fn_gen=self._potential_fn,
+                                                    kinetic_fn=euclidean_kinetic_energy,
+                                                    grad_potential_fn_gen=self._grad_potential,
+                                                    algo='HMC')  # no need to be returned here to be used for sampling, because they are init sampler and subsampler are updated...
+
         if self._model is not None:
             init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
                 rng_key,
@@ -531,7 +572,7 @@ class HMC(MCMCKernel):
                                                  kinetic_fn=self._kinetic_fn,
                                                  algo=self._algo)
 
-        return init_params #TODO: Return subsample state?
+        return init_params
 
 
     @property
@@ -563,35 +604,19 @@ class HMC(MCMCKernel):
         return jnp.hstack((a, b))
 
 
-    def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={},z_map=None):
+    def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
         # non-vectorized
         if rng_key.ndim == 1:
             rng_key, rng_key_init_model = random.split(rng_key)
         # vectorized
         else:
             rng_key, rng_key_init_model = jnp.swapaxes(vmap(random.split)(rng_key), 0, 1)
-        init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params,z_map)
+        init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params) #should work  for all cases
+
         if self._potential_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
-        if self._subsample_method is not None:
-            #TODO: Does this make sense to repeat?
-            rng_key_subsample, rng_key_model, rng_key_hmc_init, rng_key_potential, rng_key = random.split(rng_key, 5)
-            n = model_kwargs["observations"]
-            u = random.randint(rng_key, (self._m,), 0, n)
-            blocks = self._block_indices(self._m, self._g)
-            model_kwargs = self.model_kwargs_sub(u,model_kwargs)
-            ld_fn = lambda args: partial(log_density, self._model,(model_args, model_kwargs),{})(model_args)[0] #TODO: I changed args to model_args, still got detected
 
-            ll_map = ld_fn(z_map)
-            jac_map, _ = ravel_pytree(jacfwd(ld_fn)(z_map))
-            hess_map, _ = ravel_pytree(hessian(ld_fn)(z_map))
-            hess_map = jnp.reshape(hess_map, (jac_map.shape[0], jac_map.shape[0]))
-            _, tr = log_density(self._model,model_args, model_kwargs,z_map)
-            obs_node = tr['observations']
-            control_variates = jnp.sum(obs_node['fn'].log_prob(obs_node['value']), 1)
-
-            init_params, _, postprocess_fn, _ = initialize_model(rng_key_init_model, self._model,model_args, model_kwargs)
 
         hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,
@@ -611,12 +636,12 @@ class HMC(MCMCKernel):
         if rng_key.ndim == 1:
             init_state = hmc_init_fn(init_params, rng_key)
             return init_state
-        elif self._subsample_method is not None:
-            #TODO: No f***** clue --> Return subsample state?
+        elif self._subsample_method:
             init_state = vmap(hmc_init_fn)(init_params, rng_key)
-            sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
-            self._sample_fn = sample_fn
+            subsample_fn = vmap(self._subsample_fn, in_axes=(0, None, None))
+            self._subsample_fn = subsample_fn
             return init_state
+
         else:
             # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
             # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
@@ -642,7 +667,55 @@ class HMC(MCMCKernel):
         :return: Next `state` after running HMC.
         """
         return self._sample_fn(state, model_args, model_kwargs)
+    def subsample(self,subsamplestate,model_args,model_kwargs):
+        """
+          Run HMC from the given :data:`~numpyro.infer.hmc.HMCECSState` and return the resulting
+          :data:`~numpyro.infer.hmc.HMCECSState`.
 
+          :param HMCECSState state: Represents the current state.
+          :param model_args: Arguments provided to the model.
+          :param model_kwargs: Keyword arguments provided to the model.
+          :return: Next `subsample state` after running HMC.
+          """
+
+        rng_key_subsample, rng_key_transition, rng_key_likelihood, rng_key = random.split(subsamplestate.hmc_state.rng_key,4)
+
+        u_new = _update_block(rng_key_subsample, subsamplestate.u, self._n, self._m, self._g)
+
+        # estimate likelihood of subsample with single block updated
+        llu_new = potential_est(model=self._model,
+                                model_args=model_args,
+                                model_kwargs=model_kwargs,
+                                jac_all=subsamplestate.jac_all,
+                                hess_all=subsamplestate.hess_all,
+                                ll_ref=subsamplestate.ll_ref,
+                                z=subsamplestate.hmc_state.z,
+                                z_ref=subsamplestate.z_ref,
+                                n=self._n, m=self._m)
+
+        # accept new subsample with probability min(1,L^{hat}_{u_new}(z) - L^{hat}_{u}(z))
+        # NOTE: latent variables (z aka theta) same, subsample indices (u) different by one block.
+        accept_prob = jnp.clip(jnp.exp(-llu_new + subsamplestate.ll_u), a_max=1.)
+        transition = random.bernoulli(rng_key_transition, accept_prob)
+        u, ll_u = cond(transition,
+                       (u_new, llu_new), identity,
+                       (subsamplestate.u, subsamplestate.ll_u), identity)
+
+        ######## UPDATE PARAMETERS ##########
+
+
+        hmc_subsamplestate= HMCECSState(u=u, hmc_state=subsamplestate.hmc_state,
+                                        z_ref=subsamplestate.z_ref,
+                                        ll_u=ll_u,ll_ref=subsamplestate.ll_ref,
+                                        jac_all=subsamplestate.jac_all,
+                                        hess_all=subsamplestate.hess_all)
+
+        return self._subsample_fn(hmc_subsamplestate,model_args=(self._model,
+                                                               model_args,
+                                                               subsamplestate.ll_ref,
+                                                               subsamplestate.jac_all,
+                                                               subsamplestate.z_ref,
+                                                               subsamplestate.hess_all, self._n, self._m),model_kwargs=model_kwargs)
 
 class NUTS(HMC):
     """
