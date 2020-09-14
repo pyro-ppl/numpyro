@@ -7,6 +7,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import lax, random
+from jax.experimental.stax import Dense
 import jax.numpy as jnp
 from jax.test_util import check_eq
 
@@ -300,3 +301,19 @@ def test_improper():
     svi = SVI(model, guide, optim.Adam(0.003), ELBO(), y=y)
     svi_state = svi.init(random.PRNGKey(2))
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(10000))
+
+
+def test_module():
+    x = random.normal(random.PRNGKey(0), (100, 10))
+    y = random.normal(random.PRNGKey(1), (100,))
+
+    def model(x, y):
+        nn = numpyro.module("nn", Dense(1), (10,))
+        mu = nn(x).squeeze(-1)
+        sigma = numpyro.sample("sigma", dist.HalfNormal(1))
+        numpyro.sample('y', dist.Normal(mu, sigma), obs=y)
+
+    guide = AutoDiagonalNormal(model)
+    svi = SVI(model, guide, optim.Adam(0.003), ELBO(), x=x, y=y)
+    svi_state = svi.init(random.PRNGKey(2))
+    lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(1000))

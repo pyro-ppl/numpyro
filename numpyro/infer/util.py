@@ -268,7 +268,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     replay_model = False
     has_enumerate_support = False
     for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed']:
+        if v['type'] == 'sample' and not v['is_observed'] and not isinstance(v['fn'], dist.PRNGIdentity):
             if v['fn'].is_discrete:
                 has_enumerate_support = True
                 if not v['fn'].has_enumerate_support:
@@ -393,6 +393,10 @@ def initialize_model(rng_key, model,
                                    substitute_fn=init_strategy)
     inv_transforms, replay_model, has_enumerate_support, model_trace = _get_model_transforms(
         substituted_model, model_args, model_kwargs)
+    # substitute param sites from model_trace to model so
+    # we don't need to generate again parameters of `numpyro.module`
+    model = substitute(model, data={k: site['value'] for k, site in model_trace.items()
+                                    if site["type"] == "param"})
     constrained_values = {k: v['value'] for k, v in model_trace.items()
                           if v['type'] == 'sample' and not v['is_observed']
                           and not v['fn'].is_discrete}
