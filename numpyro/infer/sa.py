@@ -172,10 +172,8 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             log_weights_ = dist.MultivariateNormal(locs_, scale_tril=scales_).log_prob(zs_) + pes_
         else:
             log_weights_ = dist.Normal(locs_, scales_).log_prob(zs_).sum(-1) + pes_
-        log_weights_ = jnp.where(jnp.isnan(log_weights_), -jnp.inf, log_weights_)
-        log_weights_ = jnp.where(jnp.isposinf(log_weights_),
-                                 jnp.finfo(log_weights_.dtype).max,
-                                 log_weights_)
+        # mask invalid values (nan, +inf) by -inf
+        log_weights_ = jnp.where(jnp.isfinite(log_weights_), log_weights_, -jnp.inf)
         # get rejecting index
         j = random.categorical(rng_key_reject, log_weights_)
         zs = _numpy_delete(zs_, j)
