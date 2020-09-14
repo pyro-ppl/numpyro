@@ -273,9 +273,7 @@ class plate(Messenger):
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
             new_dim = -1
-            while True:
-                if new_dim not in occupied_dims:
-                    break
+            while new_dim in occupied_dims:
                 new_dim -= 1
             dim = new_dim
         else:
