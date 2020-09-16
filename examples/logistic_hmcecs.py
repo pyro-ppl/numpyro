@@ -17,6 +17,7 @@ def model(feats, obs):
     """
     n, m = feats.shape
     precision = numpyro.sample('precision', dist.continuous.Uniform(0, 4))
+    #precision = 0.5
     theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), precision * jnp.ones(m)))
 
     numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(feats, theta)), obs=obs)
@@ -34,7 +35,6 @@ def infer_hmcecs(rng_key, feats, obs, g=2, samples=10, warmup=5, ):
     hmcecs_key, map_key = jax.random.split(rng_key)
     n, _ = feats.shape
 
-    model_args = (feats, obs)
     print("Running NUTS for map estimation")
     z_map = {key: value.mean(0) for key, value in infer_nuts(map_key, feats, obs).items()}
 

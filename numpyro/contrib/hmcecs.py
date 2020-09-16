@@ -21,7 +21,7 @@ from numpyro.infer.hmc_util import (
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model, log_density
 from numpyro.util import cond, fori_loop, identity
-from numpyro.contrib.hmcecs_utils import grad_potential,potential_est,log_density_hmcecs
+from numpyro.contrib.hmcecs_utils import grad_potential,potential_est,log_density_hmcecs, velocity_verlet_hmcecs
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state','rng_key'])
 HMCECSState = namedtuple("HMCECState",["u","hmc_state","z_ref","ll_ref","jac_all","hess_all","ll_u"])
@@ -90,6 +90,8 @@ def _update_block(rng_key, u, n, m, g):
     :param n total number of data
     :param m subsample size
     :param g block size: subsample subdivision"""
+    if not (g > m) or (g < 1):
+        raise ValueError('Block size (g) needs to = or > than 1 and smaller than the subsample size {}'.format(m))
     rng_key_block, rng_key_index = random.split(rng_key)
 
     # uniformly choose block to update
@@ -247,7 +249,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         """
         step_size = lax.convert_element_type(step_size, canonicalize_dtype(jnp.float64))
         nonlocal wa_update, trajectory_len, max_treedepth, vv_update, wa_steps
-        #nonlocal n,m,g #TODO: This needs to be activated
         wa_steps = num_warmup
         trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
@@ -262,6 +263,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
             else:
                 kwargs = {} if model_kwargs is None else model_kwargs
                 pe_fn = potential_fn_gen(*model_args, **kwargs)
+        if grad_potential_fn_gen:
+            kwargs = {} if model_kwargs is None else model_kwargs
+            gpe_fn = grad_potential_fn_gen(*model_args, **kwargs)
+        else:
+            gpe_fn = None
 
         find_reasonable_ss = None
         if find_heuristic_step_size:
@@ -283,7 +289,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                            inverse_mass_matrix=inverse_mass_matrix,
                            mass_matrix_size=jnp.size(ravel_pytree(z)[0]))
         r = momentum_generator(z, wa_state.mass_matrix_sqrt, rng_key_momentum)
-        vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+        vv_init, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,grad_potential_fn=gpe_fn)
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
@@ -293,9 +299,14 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
                   model_args, model_kwargs, rng_key):
         if potential_fn_gen:
+            if grad_potential_fn_gen:
+                kwargs = {} if model_kwargs is None else model_kwargs
+                gpe_fn = grad_potential_fn_gen(*model_args, **kwargs)
+            else:
+                gpe_fn = None
             nonlocal vv_update
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+            _, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,gpe_fn)
 
         num_steps = _get_num_steps(step_size, trajectory_len)
         vv_state_new = fori_loop(0, num_steps,
@@ -318,7 +329,12 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         if potential_fn_gen:
             nonlocal vv_update
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+            if grad_potential_fn_gen:
+                kwargs = {} if model_kwargs is None else model_kwargs
+                gpe_fn = grad_potential_fn_gen(*model_args, **kwargs)
+            else:
+                gpe_fn = None
+            _, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,gpe_fn)
 
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
                                  inverse_mass_matrix, step_size, rng_key,
@@ -383,45 +399,6 @@ def _log_prob(trace):
     node = trace['observations']
     return jnp.sum(node['fn'].log_prob(node['value']), 1)
 
-def _hmcecs_potential(model, model_args, u, control_variates, jac_map, z, z_ref, hess_map, n, m):
-    """Estimate the potential dynamic energy for the HMC ECS implementation. The calculation follows section 7.2.1 in https://jmlr.org/papers/volume18/15-205/15-205.pdf
-    The computation has a complexity of O(1) and it's highly dependant on the quality of the map estimate"""
-    ratio_pop_sub = n / m  # ratio of population size to subsample
-    z_flat, _ = ravel_pytree(z)
-    zmap_flat, _ = ravel_pytree(z_map)
-
-    _, trace = log_density(model, model_args, {}, z)  # log likelihood for subsample
-    z_diff = z_flat - zmap_flat
-
-    control_variates += jac_map.T @ z_diff + .5 * z_diff.T @ hess_map @ (z_flat - 2 * zmap_flat)
-
-    lq_sub = _log_prob(trace) - control_variates[u] #correction of the likelihood based on the difference between the estimation and the map estimate
-
-    d_hat = ratio_pop_sub * jnp.sum(lq_sub)  # assume uniform distribution for subsample!
-    l_hat = d_hat + jnp.sum(control_variates)
-
-    lq_sub_mean = jnp.mean(lq_sub)
-    sigma = ratio_pop_sub ** 2 * jnp.sum(lq_sub - lq_sub_mean)
-    return l_hat - .5 * sigma, control_variates, lq_sub
-
-def _grad_hmcecs_potential(model,model_args, model_kwargs,u, z, z_ref, n, m, jac_map, hess_map, lq_sub):
-    ratio_pop_sub = n / m  # ratio of population size to subsample
-    z_flat, treedef = ravel_pytree(z)
-    zmap_flat, _ = ravel_pytree(z_ref)
-
-    grad_cv = jac_map + hess_map @ (z_flat - zmap_flat)
-
-    grad_lsub, _ = ravel_pytree(jacfwd(lambda args: partial(log_density, model, model_args, model_kwargs)(args)[0])(z)) #jacobian
-    grad_lhat = jnp.sum(jac_map, 0) + jnp.sum(hess_map, 0) + ratio_pop_sub * jnp.sum(grad_lsub - grad_cv)
-
-    lq_sub_mean = jnp.mean(lq_sub)
-    grad_dhat = grad_lhat - grad_cv - jnp.mean(grad_lhat - grad_cv)
-
-    # Note: factor 2 cancels with 1/2 from grad(L_hat) = grad_lhat - .5 * 2 * ratio_pop_sub**2 * ...
-    grad_sigma = ratio_pop_sub ** 2 * (jnp.sum(lq_sub) * grad_dhat - lq_sub_mean * jnp.sum(
-        grad_dhat))  # TODO: figure out lq_sub (20,) @ grad_dhat (z.shape)
-
-    return treedef(grad_lhat - grad_sigma) #unflatten tree
 
 class HMC(MCMCKernel):
     """
@@ -522,20 +499,18 @@ class HMC(MCMCKernel):
         model_kwargs = self.model_kwargs_sub(u, model_kwargs)
 
         rng_key_subsample, rng_key_model, rng_key_hmc_init, rng_key_potential, rng_key = random.split(rng_key, 5)
+        ld_fn = lambda args: partial(log_density_hmcecs, self._model, model_args, model_kwargs,prior=False)(args)[0]
 
-        ld_fn = lambda args: partial(log_density_hmcecs, self._model, model_args, model_kwargs, prior=False)(args)[0]
-        print(z_ref["theta"].shape)
-        print(z_ref.keys())
-        exit()
-        ll_ref = ld_fn(z_ref)
-        jac_all, _ = ravel_pytree(jacfwd(ld_fn)(z_ref))
-        hess_all, _ = ravel_pytree(hessian(ld_fn)(z_ref))
+        ll_ref = ld_fn(z_ref) #loglikelihood of the reference parameter estimates (u,u) under the subsample
+
+        jac_all, jac_all_unflat = ravel_pytree(jacfwd(ld_fn)(z_ref)) #contains the jacobian for the non observed parameters "theta":(u,u,features), "precision" : (u,u)
+        hess_all, hess_all_unflat = ravel_pytree(hessian(ld_fn)(z_ref))
         print(jac_all.shape)
         exit()
         jac_all = jac_all.reshape(self._n, -1).sum(0)
         k, = jac_all.shape
         hess_all = hess_all.reshape(self._n, k, k).sum(0)
-
+        exit()
         self._potential_fn = lambda model, args, ll_ref, jac_all, z_ref, hess_all, n, m: \
             lambda z: potential_est(model=model, model_args=args, model_kwargs=model_kwargs, ll_ref=ll_ref,
                                     jac_all=jac_all,
@@ -597,7 +572,7 @@ class HMC(MCMCKernel):
                                                                   state.adapt_state.step_size,
                                                                   state.mean_accept_prob)
     def model_args_sub(self,u,model_args):
-        """Subsample observations and features"""
+        """Subsample observations and features according to u subsample indexes"""
         args = []
         for arg in model_args:
             if isinstance(arg, jnp.ndarray):
