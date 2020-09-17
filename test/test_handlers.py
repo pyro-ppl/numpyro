@@ -337,16 +337,23 @@ def test_subsample_gradient(scale, subsample):
     normalizer = 2 if subsample else 1
     if subsample_size == 1:
         subsample = jnp.array([0])
-        _, grads1 = value_and_grad(lambda x: svi.loss.loss(
+        loss1, grads1 = value_and_grad(lambda x: svi.loss.loss(
             svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
         subsample = jnp.array([1])
-        _, grads2 = value_and_grad(lambda x: svi.loss.loss(
+        loss2, grads2 = value_and_grad(lambda x: svi.loss.loss(
             svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
         grads = tree_multimap(lambda *vals: vals[0] + vals[1], grads1, grads2)
+        loss = loss1 + loss2
     else:
         subsample = jnp.array([0, 1])
-        _, grads = value_and_grad(lambda x: svi.loss.loss(
+        loss, grads = value_and_grad(lambda x: svi.loss.loss(
             svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
+
+    actual_loss = loss / normalizer
+    expected_loss, _ = value_and_grad(lambda x: svi.loss.loss(
+        svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, None))(params)
+    assert_allclose(actual_loss, expected_loss, rtol=precision, atol=precision)
+
     actual_grads = {name: grad / normalizer for name, grad in grads.items()}
     expected_grads = {'loc': scale * jnp.array([0.5, -2.0]), 'scale': scale * jnp.array([2.0])}
     assert actual_grads.keys() == expected_grads.keys()
