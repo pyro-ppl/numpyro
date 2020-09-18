@@ -19,6 +19,10 @@ plate_stack
 -----------
 .. autofunction:: numpyro.primitives.plate_stack
 
+subsample
+---------
+.. autofunction:: numpyro.primitives.subsample
+
 deterministic
 -------------
 .. autofunction:: numpyro.primitives.deterministic

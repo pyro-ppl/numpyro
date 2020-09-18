@@ -5,14 +5,16 @@ import numpy as np
 from numpy.testing import assert_allclose, assert_raises
 import pytest
 
-from jax import jit, random, vmap
+from jax import jit, random, tree_multimap, value_and_grad, vmap
 import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
+from numpyro.infer import ELBO, SVI
 from numpyro.infer.util import log_density
+import numpyro.optim as optim
 from numpyro.util import optional
 
 
@@ -218,6 +220,26 @@ def model_subsample_1():
         assert xy.shape == (5, 1, 10)
 
 
+def model_subsample_2():
+    data = jnp.ones((10, 1, 20))
+    outer = numpyro.plate('outer', data.shape[-1], subsample_size=10)
+    inner = numpyro.plate('inner', data.shape[-3], subsample_size=5, dim=-3)
+    with outer:
+        x = numpyro.sample('x', dist.Normal(0., 1.))
+        assert x.shape == (10,)
+    with inner:
+        y = numpyro.sample('y', dist.Normal(0., 1.))
+        assert y.shape == (5, 1, 1)
+        z = numpyro.deterministic('z', x ** 2)
+        assert z.shape == (10,)
+
+    with outer, inner:
+        xy = numpyro.sample('xy', dist.Normal(0., 1.))
+        assert xy.shape == (5, 1, 10)
+        subsample_data = numpyro.subsample(data, event_dim=0)
+        assert subsample_data.shape == (5, 1, 10)
+
+
 @pytest.mark.parametrize('model', [
     model_nested_plates_0,
     model_nested_plates_1,
@@ -225,6 +247,7 @@ def model_subsample_1():
     model_nested_plates_3,
     model_dist_batch_shape,
     model_subsample_1,
+    model_subsample_2,
 ])
 def test_plate(model):
     trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
@@ -233,6 +256,110 @@ def test_plate(model):
     for name, site in trace.items():
         if site['type'] == 'sample':
             assert_allclose(jit_trace[name]['value'], site['value'])
+
+
+def test_subsample_data():
+    data = jnp.arange(100.)
+    subsample_size = 7
+    with handlers.seed(rng_seed=0):
+        with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
+            assert data[idx].shape == (subsample_size,)
+            subsample_data = numpyro.subsample(data, event_dim=0)
+            assert subsample_data.shape == (subsample_size,)
+
+
+def test_subsample_param():
+    data = jnp.arange(100.)
+    subsample_size = 7
+    with handlers.seed(rng_seed=0):
+        with numpyro.plate("a", len(data), subsample_size=subsample_size):
+            p0 = numpyro.param("p0", 0., event_dim=0)
+            assert jnp.shape(p0) == ()
+            p = numpyro.param("p", 0.5 * jnp.ones(len(data)), event_dim=0)
+            assert len(p) == subsample_size
+
+
+def test_subsample_substitute():
+    data = jnp.arange(100.)
+    subsample_size = 7
+    subsample = jnp.array([13, 3, 30, 4, 1, 68, 5])
+    with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(data={"a": subsample}):
+        with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
+            assert data[idx].shape == (subsample_size,)
+            assert_allclose(idx, subsample)
+    assert tr["a"]["kwargs"]["rng_key"] is None
+
+
+def test_subsample_replay():
+    data = jnp.arange(100.)
+    subsample_size = 7
+
+    with handlers.trace() as guide_trace, handlers.seed(rng_seed=0):
+        with numpyro.plate("a", len(data), subsample_size=subsample_size):
+            pass
+
+    with handlers.seed(rng_seed=1), handlers.replay(guide_trace=guide_trace):
+        with numpyro.plate("a", len(data)):
+            subsample_data = numpyro.subsample(data, event_dim=0)
+            assert subsample_data.shape == (subsample_size,)
+
+
+@pytest.mark.parametrize("scale", [1., 2.], ids=["unscaled", "scaled"])
+@pytest.mark.parametrize("subsample", [False, True], ids=["full", "subsample"])
+def test_subsample_gradient(scale, subsample):
+    data = jnp.array([-0.5, 2.0])
+    subsample_size = 1 if subsample else len(data)
+    precision = 0.06 * scale
+
+    def model(subsample):
+        with handlers.substitute(data={"data": subsample}):
+            with numpyro.plate("data", len(data), subsample_size) as ind:
+                x = data[ind]
+                z = numpyro.sample("z", dist.Normal(0, 1))
+                numpyro.sample("x", dist.Normal(z, 1), obs=x)
+
+    def guide(subsample):
+        scale = numpyro.param("scale", 1.)
+        with handlers.substitute(data={"data": subsample}):
+            with numpyro.plate("data", len(data), subsample_size):
+                loc = numpyro.param("loc", jnp.zeros(len(data)), event_dim=0)
+                numpyro.sample("z", dist.Normal(loc, scale))
+
+    if scale != 1.:
+        model = handlers.scale(model, scale=scale)
+        guide = handlers.scale(guide, scale=scale)
+
+    num_particles = 50000
+    optimizer = optim.Adam(0.1)
+    elbo = ELBO(num_particles=num_particles)
+    svi = SVI(model, guide, optimizer, loss=elbo)
+    svi_state = svi.init(random.PRNGKey(0), None)
+    params = svi.optim.get_params(svi_state.optim_state)
+    normalizer = 2 if subsample else 1
+    if subsample_size == 1:
+        subsample = jnp.array([0])
+        loss1, grads1 = value_and_grad(lambda x: svi.loss.loss(
+            svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
+        subsample = jnp.array([1])
+        loss2, grads2 = value_and_grad(lambda x: svi.loss.loss(
+            svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
+        grads = tree_multimap(lambda *vals: vals[0] + vals[1], grads1, grads2)
+        loss = loss1 + loss2
+    else:
+        subsample = jnp.array([0, 1])
+        loss, grads = value_and_grad(lambda x: svi.loss.loss(
+            svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
+
+    actual_loss = loss / normalizer
+    expected_loss, _ = value_and_grad(lambda x: svi.loss.loss(
+        svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, None))(params)
+    assert_allclose(actual_loss, expected_loss, rtol=precision, atol=precision)
+
+    actual_grads = {name: grad / normalizer for name, grad in grads.items()}
+    expected_grads = {'loc': scale * jnp.array([0.5, -2.0]), 'scale': scale * jnp.array([2.0])}
+    assert actual_grads.keys() == expected_grads.keys()
+    for name in expected_grads:
+        assert_allclose(actual_grads[name], expected_grads[name], rtol=precision, atol=precision)
 
 
 def test_messenger_fn_invalid():
