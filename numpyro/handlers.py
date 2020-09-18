@@ -192,7 +192,7 @@ class replay(Messenger):
         super(replay, self).__init__(fn)
 
     def process_message(self, msg):
-        if msg['name'] in self.guide_trace and msg['type'] in ('sample', 'plate'):
+        if msg['type'] in ('sample', 'plate') and msg['name'] in self.guide_trace:
             msg['value'] = self.guide_trace[msg['name']]['value']
 
 

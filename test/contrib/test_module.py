@@ -11,7 +11,7 @@ from numpyro import handlers, optim
 from numpyro.contrib.module import flax_module, haiku_module, random_module
 import numpyro.distributions as dist
 from numpyro.infer.autoguide import AutoDiagonalNormal
-from numpyro.infer import ELBO, SVI
+from numpyro.infer import ELBO, Predictive, SVI
 
 
 def haiku_model(x, y):
@@ -71,34 +71,36 @@ def test_random_module():
         y = np.cos(x * 3) + np.random.normal(size=(n_samples, 1)) * np.abs(x) / 2
         return x, y
 
-    n_train_data = 5000
-    n_test_data = 100
-    train_x, train_y = generate_data(n_train_data)
-    test_x, test_y = generate_data(n_test_data)
-    train_y = train_y / np.std(train_y)
-    test_y = test_y / np.std(test_y)
-
-    def model(x, y, batch_size=None):
+    def model(x, y=None, batch_size=None):
         module = Model.partial(n_units=32)
         nn = random_module("nn", module, dist.Normal(0, 1e-1), input_shape=(1,))
         with numpyro.plate("batch", x.shape[0], subsample_size=batch_size):
             batch_x = numpyro.subsample(x, event_dim=1)
-            batch_y = numpyro.subsample(y, event_dim=1)
+            batch_y = numpyro.subsample(y, event_dim=1) if y is not None else None
             mean, rho = nn(batch_x)
             sigma = softplus(rho)
-            numpyro.sample("obs", dist.Normal(mean, sigma), obs=batch_y)
+            numpyro.sample("obs", dist.Normal(mean, sigma).to_event(1), obs=batch_y)
 
-    adam = optim.Adam(5e-3)
+    n_train_data = 5000
+    x_train, y_train = generate_data(n_train_data)
+    adam = optim.Adam(5e-2)
     guide = AutoDiagonalNormal(model)
     svi = SVI(model, guide, adam, ELBO())
-    svi_state = svi.init(random.PRNGKey(0), train_x, train_y)
-    update_fn = jit(svi.update)
+    svi_state = svi.init(random.PRNGKey(0), x_train[:1], y_train[:1])
+    update_fn = jit(svi.update, static_argnums=(3,))
 
-    n_iterations = 30000
+    n_iterations = 3000
     batch_size = 256
-    for e in range(n_iterations):
-        svi_state, loss = update_fn(svi_state, train_x, train_y, batch_size=batch_size)
+    for i in range(n_iterations):
+        svi_state, loss = update_fn(svi_state, x_train, y_train, batch_size)
+        if i % 100 == 0:
+            print(i, loss)
 
     params = svi.get_params(svi_state)
-    # TODO: predict something from params
     assert set(params.keys()) == set(["auto_loc", "auto_scale", "nn$params"])
+
+    n_test_data = 100
+    x_test, y_test = generate_data(n_test_data)
+    predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
+    y_pred = predictive(random.PRNGKey(1), x_test[:100])["obs"].copy()
+    assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
