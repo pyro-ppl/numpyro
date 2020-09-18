@@ -3,7 +3,7 @@
 
 import numpy as np
 
-from jax import jit, lax, random
+from jax import jit, random
 from jax.nn import softplus
 
 import numpyro
