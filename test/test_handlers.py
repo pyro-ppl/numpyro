@@ -295,12 +295,13 @@ def test_subsample_replay():
     subsample_size = 7
 
     with handlers.trace() as guide_trace, handlers.seed(rng_seed=0):
-        with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
+        with numpyro.plate("a", len(data), subsample_size=subsample_size):
             pass
 
     with handlers.seed(rng_seed=1), handlers.replay(guide_trace=guide_trace):
-        with numpyro.plate("a", len(data)) as idx:
-            assert data[idx].shape == (subsample_size,)
+        with numpyro.plate("a", len(data)):
+            subsample_data = numpyro.subsample(data, event_dim=0)
+            assert subsample_data.shape == (subsample_size,)
 
 
 @pytest.mark.parametrize("scale", [1., 2.], ids=["unscaled", "scaled"])
