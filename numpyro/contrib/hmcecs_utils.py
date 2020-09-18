@@ -28,9 +28,9 @@ def log_density_hmcecs(model, model_args, model_kwargs, params,prior=False):
         name.
     :return: log of joint density and a corresponding model trace
     """
+
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-
     log_joint = jnp.array(0.)
     if not prior:
         for site in model_trace.values():
@@ -41,8 +41,12 @@ def log_density_hmcecs(model, model_args, model_kwargs, params,prior=False):
                 if intermediates:
                     log_prob = site['fn'].log_prob(value, intermediates)
                 else:
+                    #print(site["name"])
+                    #print("value shape")
+                    #print(value.shape)
                     log_prob = site['fn'].log_prob(value) #TODO: The shape here is duplicated
-
+                    #print("Log prob shape")
+                    #print(log_prob.shape)
                 if (scale is not None) and (not is_identically_one(scale)):
                     log_prob = scale * log_prob
 
@@ -175,4 +179,7 @@ def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
         return IntegratorState(z, r, potential_energy, z_grad)
 
     return init_fn, update_fn
+
+def initialize_model_hmcecs():
+    pass
 

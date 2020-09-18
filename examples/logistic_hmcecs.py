@@ -6,7 +6,7 @@ import numpyro.distributions as dist
 from numpyro.infer import NUTS, MCMC, Predictive
 from numpyro.contrib.hmcecs import HMC
 from sklearn.datasets import load_breast_cancer
-
+numpyro.set_platform("cpu")
 
 # TODO: import Higgs data! ---> http://archive.ics.uci.edu/ml/machine-learning-databases/00280/
 # https://towardsdatascience.com/identifying-higgs-bosons-from-background-noise-pyspark-d7983234207e
@@ -23,7 +23,7 @@ def model(feats, obs):
     numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(feats, theta)), obs=obs)
 
 
-def infer_nuts(rng_key, feats, obs, samples=10, warmup=5, ):
+def infer_nuts(rng_key, feats, obs, samples=5, warmup=5, ):
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=warmup, num_samples=samples)
     mcmc.run(rng_key, feats, obs)
@@ -35,13 +35,15 @@ def infer_hmcecs(rng_key, feats, obs, g=2, samples=10, warmup=5, ):
     hmcecs_key, map_key = jax.random.split(rng_key)
     n, _ = feats.shape
 
+
+
     print("Running NUTS for map estimation")
     z_map = {key: value.mean(0) for key, value in infer_nuts(map_key, feats, obs).items()}
 
     #Observations = (569,1)
     #Features = (569,31)
     print("Running MCMC subsampling")
-    kernel = HMC(model=model,z_ref=z_map,m=50,g=10,subsample_method="perturb")
+    kernel = HMC(model=model,z_ref=z_map,m=5,g=2,subsample_method="perturb")
     mcmc = MCMC(kernel,num_warmup=warmup,num_samples=samples)
     mcmc.run(rng_key,feats,obs)
     return mcmc.get_samples()
@@ -53,7 +55,8 @@ def breast_cancer_data():
     feats = dataset.data
     feats = (feats - feats.mean(0)) / feats.std(0)
     feats = jnp.hstack((feats, jnp.ones((feats.shape[0], 1))))
-    return feats, dataset.target.reshape((-1, 1))
+
+    return feats[:10], dataset.target[:10]
 
 
 def higgs_data():
