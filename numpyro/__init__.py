@@ -4,7 +4,7 @@
 from numpyro import compat, diagnostics, distributions, handlers, infer, optim
 from numpyro.distributions.distribution import enable_validation, validation_enabled
 import numpyro.patch  # noqa: F401
-from numpyro.primitives import deterministic, factor, module, param, plate, plate_stack, sample
+from numpyro.primitives import deterministic, factor, module, param, plate, plate_stack, sample, subsample
 from numpyro.util import enable_x64, set_host_device_count, set_platform
 from numpyro.version import __version__
 
@@ -28,6 +28,7 @@ __all__ = [
     'plate',
     'plate_stack',
     'sample',
+    'subsample',
     'set_host_device_count',
     'set_platform',
     'validation_enabled',
