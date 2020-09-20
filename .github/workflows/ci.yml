@@ -29,6 +29,7 @@ jobs:
         pip install jaxlib
         pip install jax
         pip install .[doc,test]
+        pip install -r docs/requirements.txt
         pip freeze
     - name: Lint with flake8
       run: |
