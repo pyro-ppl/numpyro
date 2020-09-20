@@ -100,4 +100,5 @@ def test_random_module():
     x_test, y_test = generate_data(n_test_data)
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
     y_pred = predictive(random.PRNGKey(1), x_test[:100])["obs"].copy()
+    assert loss < 3000
     assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1

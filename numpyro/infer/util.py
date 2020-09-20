@@ -395,8 +395,8 @@ def initialize_model(rng_key, model,
         substituted_model, model_args, model_kwargs)
     # substitute param sites from model_trace to model so
     # we don't need to generate again parameters of `numpyro.module`
-    model = substitute(model, data={k: site['value'] for k, site in model_trace.items()
-                                    if site["type"] == "param"})
+    model = substitute(model, data={k: site["value"] for k, site in model_trace.items()
+                                    if site["type"] in ["param", "plate"]})
     constrained_values = {k: v['value'] for k, v in model_trace.items()
                           if v['type'] == 'sample' and not v['is_observed']
                           and not v['fn'].is_discrete}
