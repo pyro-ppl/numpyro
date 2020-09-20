@@ -5,12 +5,14 @@ from copy import deepcopy
 
 import numpy as np
 from numpy.testing import assert_allclose
+import pytest
 
 from jax import random, test_util
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.module import ParamShape, flax_module, haiku_module, random_flax_module, _update_params
+from numpyro.contrib.module import (ParamShape, flax_module, haiku_module, random_flax_module,
+                                    random_haiku_module, _update_params)
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
@@ -63,12 +65,27 @@ def test_update_params():
                                           'f': np.full((4,), 5.)}})
 
 
-def test_random_module_mcmc():
-    import flax
+@pytest.mark.parametrize("backend", ["flax", "haiku"])
+def test_random_module_mcmc(backend):
+    if backend == "flax":
+        import flax
+
+        linear_module = flax.nn.Dense.partial(features=1)
+        bias_name = "bias"
+        weight_name = "kernel"
+        random_module = random_flax_module
+    elif backend == "haiku":
+        import haiku as hk
+
+        linear_module = hk.transform(lambda x: hk.Linear(1)(x))
+        bias_name = "linear.b"
+        weight_name = "linear.w"
+        random_module = random_haiku_module
 
     def model(data, labels):
-        linear_module = flax.nn.Dense.partial(features=1)
-        nn = random_flax_module("nn", linear_module, prior=dist.Normal(), input_shape=(dim,))
+        nn = random_module("nn", linear_module,
+                           prior={bias_name: dist.Cauchy(), weight_name: dist.Normal()},
+                           input_shape=(dim,))
         logits = nn(data).squeeze(-1)
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
@@ -84,5 +101,5 @@ def test_random_module_mcmc():
     mcmc.run(random.PRNGKey(2), data, labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
-    assert set(samples.keys()) == {"nn/bias", "nn/kernel"}
-    assert_allclose(np.mean(samples["nn/kernel"].squeeze(-1), 0), true_coefs, atol=0.22)
+    assert set(samples.keys()) == {"nn/{}".format(bias_name), "nn/{}".format(weight_name)}
+    assert_allclose(np.mean(samples["nn/{}".format(weight_name)].squeeze(-1), 0), true_coefs, atol=0.22)

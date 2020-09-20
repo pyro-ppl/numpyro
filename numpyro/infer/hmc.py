@@ -1,7 +1,6 @@
 from collections import namedtuple
 import math
 import os
-import warnings
 
 from jax import device_put, lax, partial, random, vmap
 from jax.dtypes import canonicalize_dtype

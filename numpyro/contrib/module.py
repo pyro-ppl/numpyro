@@ -16,17 +16,18 @@ __all__ = [
     'flax_module',
     'haiku_module',
     'random_flax_module',
+    'random_haiku_module',
 ]
 
 
-def flax_module(name, nn, *, input_shape=None):
+def flax_module(name, nn_module, *, input_shape=None):
     """
     Declare a :mod:`~flax` style neural network inside a
     model so that its parameters are registered for optimization via
     :func:`~numpyro.primitives.param` statements.
 
     :param str name: name of the module to be registered.
-    :param flax.nn.Module nn: a `flax` Module which has .init and .apply methods
+    :param flax.nn.Module nn_module: a `flax` Module which has .init and .apply methods
     :param tuple input_shape: shape of the input taken by the
         neural network.
     :return: a callable with bound parameters that takes an array
@@ -47,19 +48,19 @@ def flax_module(name, nn, *, input_shape=None):
             raise ValueError('Valid value for `input_shape` needed to initialize.')
         # feed in dummy data to init params
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
-        _, nn_params = nn.init(rng_key, jnp.ones(input_shape))
+        _, nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
         numpyro.param(module_key, nn_params)
-    return partial(nn.call, nn_params)
+    return partial(nn_module.call, nn_params)
 
 
-def haiku_module(name, nn, *, input_shape=None):
+def haiku_module(name, nn_module, *, input_shape=None):
     """
     Declare a :mod:`~haiku` style neural network inside a
     model so that its parameters are registered for optimization via
     :func:`~numpyro.primitives.param` statements.
 
     :param str name: name of the module to be registered.
-    :param haiku.Module nn: a `haiku` Module which has .init and .apply methods
+    :param haiku.Module nn_module: a `haiku` Module which has .init and .apply methods
     :param tuple input_shape: shape of the input taken by the
         neural network.
     :return: a callable with bound parameters that takes an array
@@ -81,9 +82,11 @@ def haiku_module(name, nn, *, input_shape=None):
             raise ValueError('Valid value for `input_shape` needed to initialize.')
         # feed in dummy data to init params
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
-        nn_params = nn.init(rng_key, jnp.ones(input_shape))
-        numpyro.param(module_key, nn_params)
-    return partial(nn.apply, nn_params, None)
+        nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
+        # haiku init returns an immutable dict
+        # we cast it to a mutable one to be able to set priors for parameters
+        nn_params = numpyro.param(module_key, haiku.data_structures.to_mutable_dict(nn_params))
+    return partial(nn_module.apply, nn_params, None)
 
 
 # register an "empty" parameter which only stores its shape
@@ -105,7 +108,6 @@ def _update_params(params, new_params, prior, prefix=''):
             _update_params(item, new_item, prior, prefix=flatten_name)
         elif (not isinstance(prior, dict)) or flatten_name in prior:
             d = prior[flatten_name] if isinstance(prior, dict) else prior
-            print(flatten_name)
             if isinstance(params[name], ParamShape):
                 param_shape = params[name].shape
             else:
@@ -116,14 +118,30 @@ def _update_params(params, new_params, prior, prefix=''):
             new_params[name] = numpyro.sample(flatten_name, d.expand(param_batch_shape).to_event())
 
 
-def random_flax_module(name, nn, prior, *, input_shape=None):
+def random_flax_module(name, nn_module, prior, *, input_shape=None):
     """
+    A primitive to place a prior over the parameters of the Flax module `nn_module`.
+
+    :param str name: name of NumPyro module
+    :param flax.nn.Module: the module to be registered with NumPyro
+    :param prior: a NumPyro distribution or a Python dict with parameter names as keys and
+        respective distributions as values. For example::
+
+            net = random_flax_module("net",
+                                     flax.nn.Dense.partial(features=1),
+                                     prior={"bias": dist.Cauchy(), "kernel": dist.Normal()},
+                                     input_shape=(4,))
+
+    :type param: dict or ~numpyro.distributions.Distribution
+    :param tuple input_shape: shape of the input taken by the neural network.
+    :returns: a sampled module
+
     **Example**
 
     .. doctest::
 
         # NB: this example is ported from https://github.com/ctallec/pyvarinf/blob/master/main_regression.ipynb
-        >>> import numpy as np
+        >>> import numpy as np; np.random.seed(0)
         >>> import tqdm
         >>> from flax import nn
         >>> from jax import jit, random
@@ -177,7 +195,34 @@ def random_flax_module(name, nn, prior, *, input_shape=None):
         >>> assert loss < 3000
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
-    nn = flax_module(name, nn, input_shape=input_shape)
+    nn = flax_module(name, nn_module, input_shape=input_shape)
+    params = nn.args[0]
+    new_params = deepcopy(params)
+    with numpyro.handlers.scope(prefix=name):
+        _update_params(params, new_params, prior)
+    nn_new = partial(nn.func, new_params, *nn.args[1:], **nn.keywords)
+    return nn_new
+
+
+def random_haiku_module(name, nn_module, prior, *, input_shape=None):
+    """
+    A primitive to place a prior over the parameters of the Haiku module `nn_module`.
+
+    :param str name: name of NumPyro module
+    :param haiku.Module: the module to be registered with NumPyro
+    :param prior: a NumPyro distribution or a Python dict with parameter names as keys and
+        respective distributions as values. For example::
+
+            net = random_haiku_module("net",
+                                      haiku.transform(lambda x: hk.Linear(1)(x)),
+                                      prior={"linear.b": dist.Cauchy(), "linear.w": dist.Normal()},
+                                      input_shape=(4,))
+
+    :type param: dict or ~numpyro.distributions.Distribution
+    :param tuple input_shape: shape of the input taken by the neural network.
+    :returns: a sampled module
+    """
+    nn = haiku_module(name, nn_module, input_shape=input_shape)
     params = nn.args[0]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):
