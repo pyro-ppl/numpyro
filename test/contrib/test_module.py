@@ -1,24 +1,25 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import numpy as np
+from copy import deepcopy
 
-from jax import jit, random
-from jax.nn import softplus
+import numpy as np
+from numpy.testing import assert_allclose
+
+from jax import random, test_util
 
 import numpyro
-from numpyro import handlers, optim
-from numpyro.contrib.module import flax_module, haiku_module, random_module
+from numpyro import handlers
+from numpyro.contrib.module import ParamShape, flax_module, haiku_module, random_flax_module, _update_params
 import numpyro.distributions as dist
-from numpyro.infer.autoguide import AutoDiagonalNormal
-from numpyro.infer import ELBO, Predictive, SVI, init_to_feasible
+from numpyro.infer import MCMC, NUTS
 
 
 def haiku_model(x, y):
     import haiku as hk
 
     linear_module = hk.transform(lambda x: hk.Linear(100)(x))
-    nn = haiku_module("nn", linear_module, (100,))
+    nn = haiku_module("nn", linear_module, input_shape=(100,))
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
@@ -27,7 +28,7 @@ def flax_model(x, y):
     import flax
 
     linear_module = flax.nn.Dense.partial(features=100)
-    nn = flax_module("nn", linear_module, (100,))
+    nn = flax_module("nn", linear_module, input_shape=(100,))
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
@@ -52,53 +53,36 @@ def test_haiku_module():
     assert haiku_tr["nn$params"]['value']['linear']['b'].shape == (100,)
 
 
-def test_random_module():
-    # ported from https://github.com/ctallec/pyvarinf/blob/master/main_regression.ipynb
-    from flax import nn
+def test_update_params():
+    params = {'a': {'b': {'c': {'d': 1}, 'e': np.array(2)}, 'f': np.ones(4)}}
+    prior = {'a.b.c.d': dist.Delta(4), 'a.f': dist.Delta(5)}
+    new_params = deepcopy(params)
+    _update_params(params, new_params, prior)
+    assert params == {'a': {'b': {'c': {'d': ParamShape(())}, 'e': 2}, 'f': ParamShape((4,))}}
+    test_util.check_eq(new_params, {'a': {'b': {'c': {'d': np.array(4.)}, 'e': np.array(2)},
+                                          'f': np.full((4,), 5.)}})
 
-    class Model(nn.Module):
-        def apply(self, x, n_units):
-            x = nn.Dense(x, features=n_units)
-            x = nn.relu(x)
-            x = nn.Dense(x, features=n_units)
-            x = nn.relu(x)
-            mean = nn.Dense(x, features=1)
-            rho = nn.Dense(x, features=1)
-            return mean, rho
 
-    def generate_data(n_samples):
-        x = np.random.normal(size=(n_samples, 1))
-        y = np.cos(x * 3) + np.random.normal(size=(n_samples, 1)) * np.abs(x) / 2
-        return x, y
+def test_random_module_mcmc():
+    import flax
 
-    def model(x, y=None, batch_size=None):
-        module = Model.partial(n_units=32)
-        nn = random_module("nn", module, dist.Normal(0, 0.1), input_shape=(1,))
-        with numpyro.plate("batch", x.shape[0], subsample_size=batch_size):
-            batch_x = numpyro.subsample(x, event_dim=1)
-            batch_y = numpyro.subsample(y, event_dim=1) if y is not None else None
-            mean, rho = nn(batch_x)
-            sigma = softplus(rho)
-            numpyro.sample("obs", dist.Normal(mean, sigma).to_event(1), obs=batch_y)
+    def model(data, labels):
+        linear_module = flax.nn.Dense.partial(features=1)
+        nn = random_flax_module("nn", linear_module, prior=dist.Normal(), input_shape=(dim,))
+        logits = nn(data).squeeze(-1)
+        numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
-    n_train_data = 5000
-    x_train, y_train = generate_data(n_train_data)
-    adam = optim.Adam(5e-3)
-    guide = AutoDiagonalNormal(model, init_strategy=init_to_feasible)
-    svi = SVI(model, guide, adam, ELBO())
+    N, dim = 3000, 3
+    warmup_steps, num_samples = (1000, 1000)
+    data = random.normal(random.PRNGKey(0), (N, dim))
+    true_coefs = np.arange(1., dim + 1.)
+    logits = np.sum(true_coefs * data, axis=-1)
+    labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
-    batch_size = 256
-    n_iterations = 3000
-    svi_state = svi.init(random.PRNGKey(0), x_train, y_train, batch_size=batch_size)
-    update_fn = jit(svi.update, static_argnums=(3,))
-    for i in range(n_iterations):
-        svi_state, loss = update_fn(svi_state, x_train, y_train, batch_size)
-
-    params = svi.get_params(svi_state)
-
-    n_test_data = 100
-    x_test, y_test = generate_data(n_test_data)
-    predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
-    y_pred = predictive(random.PRNGKey(1), x_test[:100])["obs"].copy()
-    assert loss < 3000
-    assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
+    kernel = NUTS(model=model)
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc.run(random.PRNGKey(2), data, labels)
+    mcmc.print_summary()
+    samples = mcmc.get_samples()
+    assert set(samples.keys()) == {"nn/bias", "nn/kernel"}
+    assert_allclose(np.mean(samples["nn/kernel"].squeeze(-1), 0), true_coefs, atol=0.22)

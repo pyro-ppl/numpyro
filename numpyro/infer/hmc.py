@@ -412,11 +412,6 @@ class HMC(MCMCKernel):
                 init_strategy=self._init_strategy,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
-            if any(v['type'] == 'param' for v in model_trace.values()):
-                warnings.warn("'param' sites will be treated as constants during inference. To define "
-                              "an improper variable, please use a 'sample' site with log probability "
-                              "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
-                              "means that `x` has improper distribution over the positive domain.")
             if self._init_fn is None:
                 self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
                                                      kinetic_fn=self._kinetic_fn,
