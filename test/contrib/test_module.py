@@ -11,7 +11,7 @@ from numpyro import handlers, optim
 from numpyro.contrib.module import flax_module, haiku_module, random_module
 import numpyro.distributions as dist
 from numpyro.infer.autoguide import AutoDiagonalNormal
-from numpyro.infer import ELBO, Predictive, SVI
+from numpyro.infer import ELBO, Predictive, SVI, init_to_feasible
 
 
 def haiku_model(x, y):
@@ -73,7 +73,7 @@ def test_random_module():
 
     def model(x, y=None, batch_size=None):
         module = Model.partial(n_units=32)
-        nn = random_module("nn", module, dist.Normal(0, 1e-1), input_shape=(1,))
+        nn = random_module("nn", module, dist.Normal(0, 0.1), input_shape=(1,))
         with numpyro.plate("batch", x.shape[0], subsample_size=batch_size):
             batch_x = numpyro.subsample(x, event_dim=1)
             batch_y = numpyro.subsample(y, event_dim=1) if y is not None else None
@@ -83,21 +83,18 @@ def test_random_module():
 
     n_train_data = 5000
     x_train, y_train = generate_data(n_train_data)
-    adam = optim.Adam(5e-2)
-    guide = AutoDiagonalNormal(model)
+    adam = optim.Adam(5e-3)
+    guide = AutoDiagonalNormal(model, init_strategy=init_to_feasible)
     svi = SVI(model, guide, adam, ELBO())
-    svi_state = svi.init(random.PRNGKey(0), x_train[:1], y_train[:1])
-    update_fn = jit(svi.update, static_argnums=(3,))
 
-    n_iterations = 3000
     batch_size = 256
+    n_iterations = 3000
+    svi_state = svi.init(random.PRNGKey(0), x_train, y_train, batch_size=batch_size)
+    update_fn = jit(svi.update, static_argnums=(3,))
     for i in range(n_iterations):
         svi_state, loss = update_fn(svi_state, x_train, y_train, batch_size)
-        if i % 100 == 0:
-            print(i, loss)
 
     params = svi.get_params(svi_state)
-    assert set(params.keys()) == set(["auto_loc", "auto_scale", "nn$params"])
 
     n_test_data = 100
     x_test, y_test = generate_data(n_test_data)

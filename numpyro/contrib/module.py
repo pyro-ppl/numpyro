@@ -63,7 +63,7 @@ def haiku_module(name, nn, input_shape=None):
         raise ImportError("Looking like you want to use haiku to declare "
                           "nn modules. This is an experimental feature. "
                           "You need to install `haiku` to be able to use this feature. "
-                          "It can be installed with `pip install git+https://github.com/deepmind/dm-haiku`.")
+                          "It can be installed with `pip install dm-haiku`.")
 
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)
@@ -84,18 +84,14 @@ def _update_params(params, new_params, prior, prefix=''):
             assert not isinstance(prior, dict) or flatten_name not in prior
             new_item = new_params[name]
             _update_params(item, new_item, prior, prefix=flatten_name)
-        elif not isinstance(prior, dict):
+        elif (not isinstance(prior, dict)) or flatten_name in prior:
+            d = prior['flatten_name'] if isinstance(prior, dict) else prior
             param_shape = jnp.shape(params[name])
-            params[name] = None
+            # TODO: create an empty pytree that hold shape information and store it in params
+            # but optimizer will not optimize it
+            # params[name] = None
             param_batch_shape = param_shape[:len(param_shape) - prior.event_dim]
-            new_params[name] = numpyro.sample(
-                flatten_name, prior.expand(param_batch_shape).to_event())
-        elif flatten_name in prior:
-            param_shape = jnp.shape(params[name])
-            params[name] = None
-            param_batch_shape = param_shape[:len(param_shape) - prior[flatten_name].event_dim]
-            new_params[name] = numpyro.sample(
-                flatten_name, prior[flatten_name].expand(param_batch_shape).to_event())
+            new_params[name] = numpyro.sample(flatten_name, d.expand(param_batch_shape).to_event())
 
 
 def random_module(name, nn, prior, input_shape=None):
