@@ -1,12 +1,17 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
+
 from jax import random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
-from numpyro.handlers import replay, seed
+import numpyro.distributions as dist
+from numpyro.distributions.kl import kl_divergence
+from numpyro.distributions.util import scale_and_mask
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import log_density
 
 
@@ -66,6 +71,65 @@ class ELBO(object):
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
+        if self.num_particles == 1:
+            return - single_particle_elbo(rng_key)
+        else:
+            rng_keys = random.split(rng_key, self.num_particles)
+            return - jnp.mean(vmap(single_particle_elbo)(rng_keys))
+
+
+def _get_log_prob_sum(site):
+    if site['intermediates']:
+        log_prob = site['fn'].log_prob(site['value'], site['intermediates'])
+    else:
+        log_prob = site['fn'].log_prob(site['value'])
+    log_prob = scale_and_mask(log_prob, site['scale'])
+    return jnp.sum(log_prob)
+
+
+class MeanFieldELBO(ELBO):
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+        def single_particle_elbo(rng_key):
+            model_seed, guide_seed = random.split(rng_key)
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+            subs_guide = substitute(seeded_guide, data=param_map)
+            guide_trace = trace(subs_guide).get_trace(*args, **kwargs)
+            subs_model = substitute(replay(seeded_model, guide_trace), data=param_map)
+            model_trace = trace(subs_model).get_trace(*args, **kwargs)
+
+            elbo_particle = 0
+            for name, model_site in model_trace.items():
+                if model_site["type"] == "sample" and not isinstance(model_site["fn"], dist.PRNGIdentity):
+                    if model_site["is_observed"]:
+                        log_prob = jnp.sum(model_site["fn"].log_prob(model_site["value"]))
+                        log_prob = scale_and_mask(log_prob, scale=model_site["scale"])
+                        print("mle", -log_prob)
+                        elbo_particle = elbo_particle + log_prob
+                    else:
+                        guide_site = guide_trace[name]
+                        try:
+                            kl_qp = kl_divergence(guide_site["fn"], model_site["fn"])
+                            kl_qp = scale_and_mask(kl_qp, scale=guide_site["scale"])
+                            if isinstance(kl_qp, (int, float)):
+                                kl_qp_sum = kl_qp * np.prod(guide_site["fn"].batch_shape)
+                            else:
+                                assert kl_qp.shape == guide_site["fn"].batch_shape
+                                kl_qp_sum = jnp.sum(kl_qp)
+                            elbo_particle = elbo_particle - kl_qp_sum
+                        except NotImplementedError:
+                            elbo_particle = elbo_particle + _get_log_prob_sum(model_site) \
+                                - _get_log_prob_sum(guide_site)
+
+            # handle auxiliary sites in the guide
+            for name, site in guide_trace.items():
+                if site["type"] == "sample" and name not in model_trace:
+                    assert guide_site["infer"].get("is_auxiliary")
+                    elbo_particle = elbo_particle - _get_log_prob_sum(guide_site)
+
+            print("sum", -elbo_particle)
+            return elbo_particle
+
         if self.num_particles == 1:
             return - single_particle_elbo(rng_key)
         else:
