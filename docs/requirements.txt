@@ -3,3 +3,5 @@ jaxlib>=0.1.45
 git+git://github.com/pyro-ppl/funsor@master#egg=funsor
 tqdm
 tfp_nightly  # TODO: change this to stable release
+flax
+dm-haiku
