@@ -24,7 +24,7 @@ from numpyro.distributions.transforms import (
     UnpackTransform,
     biject_to
 )
-from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
+from numpyro.distributions.util import cholesky_of_inverse, periodic_repeat, sum_rightmost
 from numpyro.infer.elbo import ELBO
 from numpyro.infer.util import init_to_uniform, initialize_model
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
@@ -52,6 +52,12 @@ class AutoGuide(ABC):
 
     :param callable model: a pyro model
     :param str prefix: a prefix that will be prefixed to all param internal sites
+    :param callable init_strategy: A per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    :param callable create_plates: An optional function inputing the same
+        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
+        or iterable of plates. Plates not returned will be created
+        automatically as usual. This is useful for data subsampling.
     """
 
     def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, create_plates=None):
@@ -61,6 +67,7 @@ class AutoGuide(ABC):
         self.create_plates = create_plates
         self.prototype_trace = None
         self._prototype_frames = {}
+        self._prototype_frame_full_sizes = {}
 
     def _create_plates(self, *args, **kwargs):
         if self.create_plates is None:
@@ -74,8 +81,9 @@ class AutoGuide(ABC):
             self.plates = {p.name: p for p in plates}
         for name, frame in sorted(self._prototype_frames.items()):
             if name not in self.plates:
-                size = self._prototype_plate_sizes[name]
-                self.plates[name] = numpyro.plate(name, size, dim=frame.dim, subsample_size=frame.size)
+                full_size = self._prototype_frame_full_sizes[name]
+                self.plates[name] = numpyro.plate(name, full_size, dim=frame.dim,
+                                                  subsample_size=frame.size)
         return self.plates
 
     @abstractmethod
@@ -110,7 +118,7 @@ class AutoGuide(ABC):
                 dynamic_args=False,
                 model_args=args,
                 model_kwargs=kwargs)
-        self._init_values = init_params[0]
+        self._init_locs = init_params[0]
 
         self._prototype_frames = {}
         self._prototype_plate_sizes = {}
@@ -119,15 +127,57 @@ class AutoGuide(ABC):
                 for frame in site["cond_indep_stack"]:
                     self._prototype_frames[frame.name] = frame
             elif site["type"] == "plate":
-                self._prototype_plate_sizes[name] = site["args"][0]
+                self._prototype_frame_full_sizes[name] = site["args"][0]
 
 
 class AutoNormal(AutoGuide):
-    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
-        # TODO: support subsampling for `create_plates` arg
+    """
+    This implementation of :class:`AutoGuide` uses Normal distributions
+    to construct a guide over the entire latent space. The guide does not
+    depend on the model's ``*args, **kwargs``.
+
+    This should be equivalent to :class: `AutoDiagonalNormal` , but with
+    more convenient site names and with better support for mean field ELBO.
+
+    Usage::
+
+        guide = AutoNormal(model)
+        svi = SVI(model, guide, ...)
+
+    :param callable model: A NumPyro model.
+    :param str prefix: a prefix that will be prefixed to all param internal sites.
+    :param callable init_strategy: A per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    :param float init_scale: Initial scale for the standard deviation of each
+        (unconstrained transformed) latent variable.
+    :param callable create_plates: An optional function inputing the same
+        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
+        or iterable of plates. Plates not returned will be created
+        automatically as usual. This is useful for data subsampling.
+    """
+    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1,
+                 create_plates=None):
         # TODO: rename `init_strategy` to `init_loc_fn` to be consistent with Pyro
         self._init_scale = init_scale
-        super().__init__(model, prefix=prefix, init_strategy=init_strategy)
+        self._event_dims = {}
+        super().__init__(model, prefix=prefix, init_strategy=init_strategy, create_plates=create_plates)
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+
+        for name, site in self.prototype_trace.items():
+            if site["type"] != "sample" or isinstance(site["fn"], dist.PRNGIdentity) or site["is_observed"]:
+                continue
+
+            event_dim = site["fn"].event_dim + jnp.ndim(self._init_locs[name]) - jnp.ndim(site["value"])
+            self._event_dims[name] = event_dim
+
+            # If subsampling, repeat init_value to full size.
+            for frame in site["cond_indep_stack"]:
+                full_size = self._prototype_frame_full_sizes[frame.name]
+                if full_size != frame.size:
+                    dim = frame.dim - event_dim
+                    self._init_locs[name] = periodic_repeat(self._init_locs[name], full_size, dim)
 
     def __call__(self, *args, **kwargs):
         """
@@ -146,16 +196,19 @@ class AutoNormal(AutoGuide):
             if site["type"] != "sample" or isinstance(site["fn"], dist.PRNGIdentity) or site["is_observed"]:
                 continue
 
+            event_dim = self._event_dims[name]
+            init_loc = self._init_locs[name]
             with ExitStack() as stack:
                 for frame in site["cond_indep_stack"]:
-                    print("aaaa", frame)
                     stack.enter_context(plates[frame.name])
 
-                site_loc = numpyro.param("{}_{}_loc".format(name, self.prefix), self._init_values[name])
+                site_loc = numpyro.param("{}_{}_loc".format(name, self.prefix), init_loc,
+                                         event_dim=event_dim)
                 site_scale = numpyro.param("{}_{}_scale".format(name, self.prefix),
-                                           jnp.full(jnp.shape(site_loc), self._init_scale),
-                                           constraint=constraints.positive)
-                event_dim = site["fn"].event_dim + jnp.ndim(site_loc) - jnp.ndim(site["value"])
+                                           jnp.full(jnp.shape(init_loc), self._init_scale),
+                                           constraint=constraints.positive,
+                                           event_dim=event_dim)
+
                 site_fn = dist.Normal(site_loc, site_scale).to_event(event_dim)
                 if site["fn"].support in [constraints.real, constraints.real_vector]:
                     result[name] = numpyro.sample(name, site_fn)
@@ -173,17 +226,38 @@ class AutoNormal(AutoGuide):
 
         return result
 
+    def _constrain(self, latent_samples):
+        name = list(latent_samples)[0]
+        sample_shape = jnp.shape(latent_samples[name])[
+            :jnp.ndim(latent_samples[name]) - jnp.ndim(self._init_locs[name])]
+        if sample_shape:
+            flatten_samples = tree_map(lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[len(sample_shape):]),
+                                       latent_samples)
+            contrained_samples = lax.map(self._postprocess_fn, flatten_samples)
+            return tree_map(lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
+                            contrained_samples)
+        else:
+            return self._postprocess_fn(latent_samples)
+
     def sample_posterior(self, rng_key, params, sample_shape=()):
-        # TODO: implement
-        pass
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
+        scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
+        with handlers.seed(rng_seed=rng_key):
+            latent_samples = {}
+            for k in locs:
+                latent_samples[k] = numpyro.sample(k, dist.Normal(locs[k], scales[k]).expand_by(sample_shape))
+        return self._constrain(latent_samples)
 
     def median(self, params):
-        # TODO: implement
-        pass
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k, v in self._init_locs.items()}
+        return self._constrain(locs)
 
-    def quantiles(self, params):
-        # TODO: implement
-        pass
+    def quantiles(self, params, quantiles):
+        quantiles = jnp.array(quantiles)[..., None]
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
+        scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
+        latent = {k: dist.Normal(locs[k], scales[k]).icdf(quantiles) for k in locs}
+        return self._constrain(latent)
 
 
 class AutoContinuous(AutoGuide):
@@ -209,7 +283,7 @@ class AutoContinuous(AutoGuide):
     """
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        self._init_latent, unpack_latent = ravel_pytree(self._init_values)
+        self._init_latent, unpack_latent = ravel_pytree(self._init_locs)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)
@@ -260,6 +334,7 @@ class AutoContinuous(AutoGuide):
     def _unpack_and_constrain(self, latent_sample, params):
         def unpack_single_latent(latent):
             unpacked_samples = self._unpack_latent(latent)
+            # TODO: this seems to be a legacy behavior? why we need to add param here?
             # add param sites in model
             unpacked_samples.update({k: v for k, v in params.items() if k in self.prototype_trace
                                      and self.prototype_trace[k]['type'] == 'param'})
