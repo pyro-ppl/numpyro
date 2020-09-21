@@ -180,6 +180,22 @@ def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
 
     return init_fn, update_fn
 
-def initialize_model_hmcecs():
-    pass
+def init_near_values(site=None, values={}):
+    """Initialize the sampling to a noisy map estimate of the parameters"""
+    from functools import partial
+
+    from numpyro.distributions.continuous import Normal
+    from numpyro.infer.initialization import init_to_uniform
+
+    if site is None:
+        return partial(init_near_values(values=values))
+
+    if site['type'] == 'sample' and not site['is_observed']:
+        if site['name'] in values:
+            try:
+                rng_key = site['kwargs'].get('rng_key')
+                sample_shape = site['kwargs'].get('sample_shape')
+                return values[site['name']] + Normal(0., 1e-3).sample(rng_key, sample_shape)
+            except:
+                return init_to_uniform(site)
 

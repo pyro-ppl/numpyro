@@ -23,7 +23,7 @@ def model(feats, obs):
     numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(feats, theta)), obs=obs)
 
 
-def infer_nuts(rng_key, feats, obs, samples=5, warmup=5, ):
+def infer_nuts(rng_key, feats, obs, samples=5, warmup=0, ):
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=warmup, num_samples=samples)
     mcmc.run(rng_key, feats, obs)

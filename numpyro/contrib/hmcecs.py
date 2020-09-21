@@ -21,7 +21,7 @@ from numpyro.infer.hmc_util import (
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model, log_density
 from numpyro.util import cond, fori_loop, identity
-from numpyro.contrib.hmcecs_utils import grad_potential,potential_est,log_density_hmcecs, velocity_verlet_hmcecs
+from numpyro.contrib.hmcecs_utils import grad_potential,potential_est,log_density_hmcecs, velocity_verlet_hmcecs, init_near_values
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state','rng_key'])
 HMCECSState = namedtuple("HMCECState",["u","hmc_state","z_ref","ll_ref","jac_all","hess_all","ll_u"])
@@ -202,17 +202,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                     find_heuristic_step_size=False,
                     model_args=(),
                     model_kwargs=None,
-                    rng_key=random.PRNGKey(0),
-                    u=None,
-                    blocks=None,
-                    hmc_state = None,
-                    z_ref=None,
-                    ll_map = None,
-                    jac_map = None,
-                    hess_map= None,
-                    control_variates= None,
-                    ll_u=None
-                    ):
+                    rng_key=random.PRNGKey(0)):
         """
         Initializes the HMC sampler.
 
@@ -262,6 +252,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                 raise ValueError('Only one of `potential_fn` or `potential_fn_gen` must be provided.')
             else:
                 kwargs = {} if model_kwargs is None else model_kwargs
+                # print(potential_fn_gen.__code__.co_varnames)
+                # exit()
                 pe_fn = potential_fn_gen(*model_args, **kwargs)
         if grad_potential_fn_gen:
             kwargs = {} if model_kwargs is None else model_kwargs
@@ -499,51 +491,61 @@ class HMC(MCMCKernel):
 
 
         rng_key_subsample, rng_key_model, rng_key_hmc_init, rng_key_potential, rng_key,rng_key_init_model = random.split(rng_key, 6)
-
-        ld_fn = lambda args: log_density_hmcecs( model=self._model,model_args=model_args,model_kwargs= model_kwargs,params=args,prior=False)[0]
-        ll_ref = ld_fn(z_ref) #loglikelihood of the reference parameter estimates (u,u) under the subsample
-        jac_all, jac_all_unflat = ravel_pytree(jacfwd(ld_fn)(z_ref)) #contains the jacobian for the non observed parameters "theta":(u,features), "precision" : (u,u)
-        hess_all, hess_all_unflat = ravel_pytree(hessian(ld_fn)(z_ref))
-        self._jac_all = jac_all.reshape(self._n, -1).sum(0)
-        k, = self._jac_all.shape
-        self._hess_all = hess_all.reshape(self._n, k, k).sum(0)
+        self._n = model_args[0].shape[0]
         self._u = random.randint(rng_key, (self.m,), 0, self._n)
 
-        init_params, _, postprocess_fn, _ = initialize_model(rng_key_init_model, self._model,
-                                                             model_args=self.model_args_sub(u=self._u,model_args=model_args))  # TODO: fix init strategy!
+        ld_fn = lambda args: jnp.sum(partial(log_density_hmcecs, self._model, model_args, {},prior=False)(args)[0])
 
-    def potential_fn(self,model, model_args,model_kwargs, ll_ref, jac_all, z_ref, hess_all, n, m):
-        return lambda z: potential_est(model=model, model_args=model_args, model_kwargs=model_kwargs,ll_ref=ll_ref, jac_all=jac_all,
-                                       z=z, z_ref=z_ref, hess_all=hess_all, n=n, m=m)
-    def grad_potencial_fn(self,model, model_args, model_kwargs, jac_all,z_ref,hess_all, n, m):
-        return lambda z: grad_potential(model=model, model_args=model_args, model_kwargs=model_kwargs, jac_all=jac_all, z=z,
+        self._ll_ref = ld_fn(z_ref)
+        self._jac_all, _ = ravel_pytree(jacfwd(ld_fn)(z_ref))
+        hess_all, _ = ravel_pytree(hessian(ld_fn)(z_ref))
+
+        k, = self._jac_all.shape
+        self._hess_all = hess_all.reshape((k, k))
+        # Initialize the potential and its gradient
+        self._potential_fn = self.potential_fn_hmcecs(model=self._model, model_args=model_args, model_kwargs=model_kwargs,
+                                               ll_ref=self._ll_ref,
+                                               jac_all=self._jac_all, z_ref=self.z_ref, hess_all=self._hess_all,
+                                               n=self._n, m=self.m)
+
+        self._grad_potential = self.grad_potencial_fn_hmcecs(model=self._model, model_args=model_args,
+                                                      model_kwargs=model_kwargs,
+                                                      jac_all=self._jac_all, z_ref=self.z_ref, hess_all=self._hess_all,
+                                                      n=self._n, m=self.m)
+        # Initialize the model parameters
+        init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
+            rng_key,
+            self._model,
+            init_strategy=partial(init_near_values, values=self.z_ref),
+            dynamic_args=True,
+            model_args=self.model_args_sub(self._u, model_args),
+            model_kwargs=model_kwargs)
+
+        return init_params, potential_fn, postprocess_fn, model_trace
+
+    def potential_fn_hmcecs(self,model, model_args,model_kwargs, ll_ref, jac_all, z_ref, hess_all, n, m):
+
+        return lambda model, args, kwargs,ll_ref, jac_all, z_ref, hess_all, n, m: \
+        lambda z: potential_est(model=model, model_args=args, model_kwargs=model_kwargs,ll_ref=ll_ref, jac_all=jac_all,
+                                    z=z, z_ref=z_ref, hess_all=hess_all, n=n, m=m)
+
+    def grad_potencial_fn_hmcecs(self,model, model_args, model_kwargs, jac_all,z_ref,hess_all, n, m):
+        return lambda model, args,kwargs ,ll_ref, jac_all, z_ref, hess_all, n, m:\
+        lambda z: grad_potential(model=model, model_args=model_args, model_kwargs=model_kwargs, jac_all=jac_all, z=z,
                                          z_ref=z_ref,hess_all=hess_all, n=n, m=m)
+
+
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self.subsample_method is not None:
             assert self.z_ref is not None, "Please provide a (i.e map) estimate for the parameters"
-            self._n = model_args[0].shape[0]
-
             #Initialize the subsample state
-            self._init_subsample_state(rng_key, model_args, model_kwargs, init_params,self.z_ref)
-            #
-            # #Initialize the potential and its gradient
-            self._potential_fn = self.potential_fn(model=self._model, model_args=model_args, model_kwargs=model_kwargs, ll_ref=self._ll_ref,
-                                        jac_all=self._jac_all, z_ref=self.z_ref, hess_all=self._hess_all, n=self._n, m=self.m)
-            self._grad_potential = self.grad_potencial_fn(model=self._model,model_args = model_args,model_kwargs=model_kwargs,
-                                                          jac_all=self._jac_all,z_ref=self.z_ref,hess_all=self._hess_all,n=self._n,m=self.m)
-            #Initialize the model parameters
-            init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
-                rng_key,
-                self._model,
-                dynamic_args=True,
-                model_args=model_args,
-                model_kwargs=model_kwargs) #TODO: review, change initialization
-            #Initialize the hmc sampler
+            self._algo = "HMC"
+            init_params, potential_fn, postprocess_fn, model_trace=self._init_subsample_state(rng_key, model_args, model_kwargs, init_params,self.z_ref)
+            # Initialize the hmc sampler
             self._init_fn, self._subsample_fn = hmc(potential_fn_gen=self._potential_fn,
                                                     kinetic_fn=euclidean_kinetic_energy,
                                                     grad_potential_fn_gen=self._grad_potential,
-                                                    algo='HMC')
-
+                                                    algo=self._algo)
         if self._model is not None:
             init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
                 rng_key,
@@ -622,7 +624,7 @@ class HMC(MCMCKernel):
                              ' `potential_fn`.')
 
         if self.subsample_method == "perturb":
-            print("Initializing sampler")
+
             hmc_init_fn = lambda init_params,rng_key: self._init_fn(init_params=init_params,
                                       num_warmup = num_warmup,
                                       step_size = self._step_size,
@@ -633,15 +635,11 @@ class HMC(MCMCKernel):
                                       trajectory_length=self._trajectory_length,
                                       max_tree_depth=self._max_tree_depth,
                                       find_heuristic_step_size=self._find_heuristic_step_size,
-                                      model_args=(
-                                      self._model, self.model_args_sub(self._u, model_args),self._ll_ref, self._jac_all, self.z_ref, self._hess_all,
-                                      self._n, self.m))
+                                      model_args=(self._model,self.model_args_sub(self._u,model_args),model_kwargs,self._ll_ref,self._jac_all,self.z_ref,self._hess_all,self._n,self.m),
+                                      model_kwargs=model_kwargs)
             if rng_key.ndim ==1:
-                print(init_params)
-                exit()
+
                 init_state = hmc_init_fn(init_params, rng_key)
-
-
                 self._ll_u = self._potential_fn(self._model, self.model_args_sub(self._u, model_args), self._ll_ref,
                                                 self._jac_all, self._hess_all,
                                                 init_state.z, self.z_ref, self._n, self.m)
@@ -667,7 +665,6 @@ class HMC(MCMCKernel):
                 self._sample_fn = sample_fn
                 self._subsample_fn = subsample
                 return init_state, device_put(init_subsample_state)
-            exit()
 
         else:
             hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
