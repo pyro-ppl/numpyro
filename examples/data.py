@@ -40,3 +40,29 @@ def get_data(N=20, S=2, P=10, Q=8, seed=0, likelihood="gaussian", sigma_obs=0.20
     assert Y.shape == (N,)
 
     return np.array(X), np.array(Y), W, WW, dim_pairs
+
+def get_data_linear(N=20, S=2, P=10, seed=0, likelihood="gaussian", sigma_obs=0.20):
+    assert likelihood in ["gaussian", "bernoulli"]
+    assert S < P and P > 1 and S > 0
+    onp.random.seed(seed)
+
+    # generate S coefficients with non-negligible magnitude
+    W = 0.25 + 1.75 * onp.random.rand(S)
+    W *= 2 * onp.random.binomial(1, 0.5, W.shape) - 1
+
+    X = onp.random.randn(N, P)
+
+    Y = onp.sum(X[:, 0:S] * W, axis=-1)
+
+    if likelihood=="bernoulli":
+        Y = 2 * onp.random.binomial(1, sigmoid(Y)) - 1
+        print("[Generated bernoulli data] number of 1s: {}  number of -1s: {}".format(onp.sum(Y == 1.0),
+              onp.sum(Y == -1.0)))
+    elif likelihood=="gaussian":
+        Y += sigma_obs * onp.random.randn(N)
+        print("[Generated gaussian data] sigma_obs: {:.2f}".format(sigma_obs))
+
+    assert X.shape == (N, P)
+    assert Y.shape == (N,)
+
+    return np.array(X), np.array(Y), W

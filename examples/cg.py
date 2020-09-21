@@ -66,6 +66,21 @@ def lowrank_presolve(kX, D, eta1, eta2, c, kappa, rank1, rank2):
     return lambda b: b / D - np.matmul(ZD, cho_solve((L, True), np.matmul(np.transpose(ZD), b)))
 
 
+def lowrank_presolve_linear(kX, D, eta1, c, kappa, rank):
+    N, P = kX.shape
+    all_ones = np.ones((N, 1))
+    kappa_indices = np.argsort(kappa)
+
+    top_features = dynamic_slice_in_dim(kappa_indices, P - rank, rank)
+    kX_top = np.take(kX, top_features, -1)
+    Z = np.concatenate([eta1 * kX_top, c * all_ones], axis=1)
+
+    ZD = Z / D[:, None]
+    ZDZ = np.eye(ZD.shape[-1]) + np.matmul(np.transpose(Z), ZD)
+    L = cho_factor(ZDZ, lower=True)[0]
+    return lambda b: b / D - np.matmul(ZD, cho_solve((L, True), np.matmul(np.transpose(ZD), b)))
+
+
 def cg_body_fun(state, mvm):
     x, r, p, r_dot_r, iteration = state
     Ap = mvm(p)

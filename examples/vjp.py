@@ -7,13 +7,17 @@ import numpyro
 import time
 import numpy as onp
 import math
-from utils import dotdot
+from utils import dotdot, kdot
 
-from mvm import kernel_mvm_diag, kXkXsq_mvm, quad_mvm_dil, kX_mvm, kXdkXsq_mvm, kernel_mvm
-from mvm import kXkXsq_mvm_sub, kXdkXsq_mvm_sub
-from cg import lowrank_presolve, pcg_batch_b, kernel, pcg
+from mvm import kernel_mvm_diag, kernel_mvm_diag_linear, kXkXsq_mvm, quad_mvm_dil, kX_mvm, kXdkXsq_mvm, kernel_mvm
+from mvm import kXkXsq_mvm_sub, kXdkXsq_mvm_sub, kernel_mvm_linear
+from cg import lowrank_presolve, pcg_batch_b, kernel, pcg, lowrank_presolve_linear
 
 numpyro.set_platform('gpu')
+
+
+def kernel_linear(X, Z, eta1, c):
+    return np.square(eta1) * kdot(X, Z) + np.square(c)
 
 
 def _get_chunks(L, chunk_size):
@@ -208,7 +212,6 @@ def pcpcg_quad_form_log_det2_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, 
 
     Ainv_b_kX_normsq = dotdot(Ainv_b_kX)
 
-    kX_sub, dkX_sub = kX[subsample], dkX[subsample]
     kXdkXsq_Ainv_b, kXdkXsq_Ainv_probes = split(np.transpose(kXdkXsq_mvm_sub(Ainv_b_probes, kX_sub, dkX_sub,
                                                                              kX, dkX, dilation=dilation)))
     kXkXsq_Ainv_b, kXkXsq_Ainv_probes = split(np.transpose(kXkXsq_mvm_sub(Ainv_b_probes, kX_sub, kX, dilation=dilation)))
@@ -243,6 +246,59 @@ def pcpcg_quad_form_log_det2_jvp(c, X, probes, rank1, rank2, cg_tol, max_iters, 
     return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
 
 
+
+@partial(custom_jvp, nondiff_argnums=(4, 5, 6, 7, 8, 9, 10))
+def pcpcg_quad_form_log_det2_linear(kappa, b, eta1, diag, c, X, probes, rank, cg_tol, max_iters, dilation):
+    return (np.nan, np.nan, np.nan)
+
+@pcpcg_quad_form_log_det2_linear.defjvp
+def pcpcg_quad_form_log_det2_linear_jvp(c, X, probes, rank, cg_tol, max_iters, dilation,
+                                        primals, tangents):
+    kappa, b, eta1, diag = primals
+    kappa_dot, b_dot, eta1_dot, diag_dot = tangents
+
+    kX = kappa * X
+    dkX = kappa_dot * X
+
+    mvm = lambda b: kernel_mvm_diag_linear(b, kX, eta1, c, diag, dilation=dilation)
+    presolve = lowrank_presolve_linear(kX, diag, eta1, c, kappa, rank)
+
+    b_diag = b * diag
+    b_probes = np.concatenate([b_diag[None, :], probes])
+
+    Ainv_b_probes, res_norm, iters = pcg_batch_b(b_probes, mvm, presolve=presolve, cg_tol=cg_tol, max_iters=max_iters)
+    Ainv_b, Ainv_probes = Ainv_b_probes[0], Ainv_b_probes[1:]
+
+    Kb = kernel_mvm_linear(b, kX, eta1, c, dilation=dilation)
+    KAinv_b = kernel_mvm_linear(Ainv_b, kX, eta1, c, dilation=dilation)
+
+    eta1sq = np.square(eta1)
+
+    split = lambda x: (x[0], x[1:])
+
+    Ainv_b_kX, Ainv_probes_kX = split(kX_mvm(Ainv_b_probes, kX, dilation=dilation))
+    Ainv_b_dkX, Ainv_probes_dkX = split(kX_mvm(Ainv_b_probes, dkX, dilation=dilation))
+
+    probes_kX = kX_mvm(probes, kX, dilation=dilation)
+
+    Ainv_b_kX_normsq = dotdot(Ainv_b_kX)
+
+    quad_form_dk = - 2.0 * eta1sq * np.dot(Ainv_b_kX, Ainv_b_dkX)
+    quad_form_db = 2.0 * np.dot(KAinv_b, b_dot)
+    quad_form_deta = - 2.0 * eta1 * eta1_dot * Ainv_b_kX_normsq
+    quad_form_ddiag = -np.dot(np.square(KAinv_b / diag), diag_dot)
+
+    log_det_dk = 2.0 * eta1sq * meansum(probes_kX * Ainv_probes_dkX)
+    log_det_deta = 2.0 * eta1 * eta1_dot * meansum(probes_kX * Ainv_probes_kX)
+    log_det_ddiag = meansum(probes * diag_dot * Ainv_probes)
+
+    tangent_out = -0.125 * (quad_form_dk + quad_form_deta + quad_form_ddiag - quad_form_db) + \
+                  -0.5 * (log_det_dk + log_det_deta + log_det_ddiag)
+    quad_form = 0.125 * np.dot(Kb, Ainv_b)
+
+    return (quad_form, np.mean(res_norm), np.mean(iters)), (tangent_out, 0.0, 0.0)
+
+
 if __name__ == '__main__':
     N = 5
     P = 4
@@ -260,20 +316,20 @@ if __name__ == '__main__':
     #probes = np.array(onp.random.randn(N * num_probes).reshape((num_probes, N)))
     probes = math.sqrt(N) * np.eye(N)
 
-    def direct(_kappa, _b, _eta1, _eta2, _diag, include_log_det):
+    def direct(_kappa, _b, _eta1, _diag, include_log_det):
         kX = _kappa * X
-        k = kernel(kX, kX, _eta1, _eta2, c)
+        k = kernel_linear(kX, kX, _eta1, c)
         k_diag = k + np.diag(_diag)
         return direct_quad_form_log_det(k_diag, np.matmul(k, _b), _b * _diag, include_log_det=include_log_det)
 
-    def pcpcg(_kappa, _b, _eta1, _eta2, _diag):
-        return pcpcg_quad_form_log_det2(_kappa, _b, _eta1, _eta2, _diag, c, X,
-                                       probes, 2, 2, 1.0e-5, 400, 1)[0]
+    def pcpcg(_kappa, _b, _eta1, _diag):
+        return pcpcg_quad_form_log_det2_linear(_kappa, _b, _eta1, _diag, c, X,
+                                       probes, 2, 1.0e-5, 400, 1)[0]
 
     which = 3
-    v1, _ = value_and_grad(direct, which)(kappa, b, eta1, eta2, diag, False)
-    _, g1 = value_and_grad(direct, which)(kappa, b, eta1, eta2, diag, True)
-    v2, g2 = value_and_grad(pcpcg, which)(kappa, b, eta1, eta2, diag)
+    v1, _ = value_and_grad(direct, which)(kappa, b, eta1, diag, False)
+    _, g1 = value_and_grad(direct, which)(kappa, b, eta1, diag, True)
+    v2, g2 = value_and_grad(pcpcg, which)(kappa, b, eta1, diag)
     #v2, g2 = value_and_grad(lambda x: pcpcg_quad_form_log_det(kappa, b, eta1, x, diag, c, X,
     #                                                          probes, 2, 2, 1.0e-3, 2, 1, 4)[0], 0)(eta2)
     #g2.block_until_ready()

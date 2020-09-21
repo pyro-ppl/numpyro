@@ -114,6 +114,13 @@ def kernel_mvm_diag(b, kX, eta1, eta2, c, diag, dilation=2,dilation2=2):
     k4b = (np.square(c) - 0.5 * eta2sq) * np.sum(b) * np.ones(b.shape)
     return k1b + k2b + k3b + k4b + diag * b
 
+def kernel_mvm_diag_linear(b, kX, eta1, c, diag, dilation=2,dilation2=2):
+    eta1sq = np.square(eta1)
+    k3b = eta1sq * quad_mvm_dil(b, kX, dilation=dilation)
+    k4b = np.square(c) * np.sum(b) * np.ones(b.shape)
+    return k3b + k4b + diag * b
+
+
 def kernel_mvm(b, kX, eta1, eta2, c, dilation=2,dilation2=2):
     eta1sq = np.square(eta1)
     eta2sq = np.square(eta2)
@@ -122,6 +129,14 @@ def kernel_mvm(b, kX, eta1, eta2, c, dilation=2,dilation2=2):
     k3b = (eta1sq - eta2sq) * quad_mvm_dil(b, kX, dilation=dilation)
     k4b = (np.square(c) - 0.5 * eta2sq) * np.sum(b) * np.ones(b.shape)
     return k1b + k2b + k3b + k4b
+
+
+def kernel_mvm_linear(b, kX, eta1, c, dilation=2,dilation2=2):
+    eta1sq = np.square(eta1)
+    k3b = eta1sq * quad_mvm_dil(b, kX, dilation=dilation)
+    k4b = np.square(c) * np.sum(b) * np.ones(b.shape)
+    return k3b + k4b
+
 
 
 
