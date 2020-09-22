@@ -3,6 +3,7 @@
 
 # Adapted from pyro.infer.autoguide
 from abc import ABC, abstractmethod
+from contextlib import ExitStack
 import warnings
 
 from jax import hessian, lax, random, tree_map
@@ -23,7 +24,7 @@ from numpyro.distributions.transforms import (
     UnpackTransform,
     biject_to
 )
-from numpyro.distributions.util import cholesky_of_inverse, sum_rightmost
+from numpyro.distributions.util import cholesky_of_inverse, periodic_repeat, sum_rightmost
 from numpyro.infer.elbo import ELBO
 from numpyro.infer.util import init_to_uniform, initialize_model
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
@@ -36,6 +37,7 @@ __all__ = [
     'AutoDiagonalNormal',
     'AutoLaplaceApproximation',
     'AutoLowRankMultivariateNormal',
+    'AutoNormal',
     'AutoMultivariateNormal',
     'AutoBNAFNormal',
     'AutoIAFNormal',
@@ -50,13 +52,39 @@ class AutoGuide(ABC):
 
     :param callable model: a pyro model
     :param str prefix: a prefix that will be prefixed to all param internal sites
+    :param callable init_strategy: A per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    :param callable create_plates: An optional function inputing the same
+        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
+        or iterable of plates. Plates not returned will be created
+        automatically as usual. This is useful for data subsampling.
     """
 
-    def __init__(self, model, prefix='auto'):
-        assert isinstance(prefix, str)
+    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, create_plates=None):
         self.model = model
         self.prefix = prefix
+        self.init_strategy = init_strategy
+        self.create_plates = create_plates
         self.prototype_trace = None
+        self._prototype_frames = {}
+        self._prototype_frame_full_sizes = {}
+
+    def _create_plates(self, *args, **kwargs):
+        if self.create_plates is None:
+            self.plates = {}
+        else:
+            plates = self.create_plates(*args, **kwargs)
+            if isinstance(plates, numpyro.plate):
+                plates = [plates]
+            assert all(isinstance(p, numpyro.plate) for p in plates), \
+                "create_plates() returned a non-plate"
+            self.plates = {p.name: p for p in plates}
+        for name, frame in sorted(self._prototype_frames.items()):
+            if name not in self.plates:
+                full_size = self._prototype_frame_full_sizes[name]
+                self.plates[name] = numpyro.plate(name, full_size, dim=frame.dim,
+                                                  subsample_size=frame.size)
+        return self.plates
 
     @abstractmethod
     def __call__(self, *args, **kwargs):
@@ -81,19 +109,155 @@ class AutoGuide(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def _sample_latent(self, *args, **kwargs):
-        """
-        Samples an encoded latent given the same ``*args, **kwargs`` as the
-        base ``model``.
-        """
-        raise NotImplementedError
+    def _setup_prototype(self, *args, **kwargs):
+        rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
+        with handlers.block():
+            init_params, _, self._postprocess_fn, self.prototype_trace = initialize_model(
+                rng_key, self.model,
+                init_strategy=self.init_strategy,
+                dynamic_args=False,
+                model_args=args,
+                model_kwargs=kwargs)
+        self._init_locs = init_params[0]
+
+        self._prototype_frames = {}
+        self._prototype_plate_sizes = {}
+        for name, site in self.prototype_trace.items():
+            if site["type"] == "sample":
+                for frame in site["cond_indep_stack"]:
+                    self._prototype_frames[frame.name] = frame
+            elif site["type"] == "plate":
+                self._prototype_frame_full_sizes[name] = site["args"][0]
+
+
+class AutoNormal(AutoGuide):
+    """
+    This implementation of :class:`AutoGuide` uses Normal distributions
+    to construct a guide over the entire latent space. The guide does not
+    depend on the model's ``*args, **kwargs``.
+
+    This should be equivalent to :class: `AutoDiagonalNormal` , but with
+    more convenient site names and with better support for mean field ELBO.
+
+    Usage::
+
+        guide = AutoNormal(model)
+        svi = SVI(model, guide, ...)
+
+    :param callable model: A NumPyro model.
+    :param str prefix: a prefix that will be prefixed to all param internal sites.
+    :param callable init_strategy: A per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    :param float init_scale: Initial scale for the standard deviation of each
+        (unconstrained transformed) latent variable.
+    :param callable create_plates: An optional function inputing the same
+        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
+        or iterable of plates. Plates not returned will be created
+        automatically as usual. This is useful for data subsampling.
+    """
+    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1,
+                 create_plates=None):
+        # TODO: rename `init_strategy` to `init_loc_fn` to be consistent with Pyro
+        self._init_scale = init_scale
+        self._event_dims = {}
+        super().__init__(model, prefix=prefix, init_strategy=init_strategy, create_plates=create_plates)
 
     def _setup_prototype(self, *args, **kwargs):
-        # run the model so we can inspect its structure
-        rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
-        model = handlers.seed(self.model, rng_key)
-        self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
+        super()._setup_prototype(*args, **kwargs)
+
+        for name, site in self.prototype_trace.items():
+            if site["type"] != "sample" or isinstance(site["fn"], dist.PRNGIdentity) or site["is_observed"]:
+                continue
+
+            event_dim = site["fn"].event_dim + jnp.ndim(self._init_locs[name]) - jnp.ndim(site["value"])
+            self._event_dims[name] = event_dim
+
+            # If subsampling, repeat init_value to full size.
+            for frame in site["cond_indep_stack"]:
+                full_size = self._prototype_frame_full_sizes[frame.name]
+                if full_size != frame.size:
+                    dim = frame.dim - event_dim
+                    self._init_locs[name] = periodic_repeat(self._init_locs[name], full_size, dim)
+
+    def __call__(self, *args, **kwargs):
+        """
+        An automatic guide with the same ``*args, **kwargs`` as the base ``model``.
+
+        :return: A dict mapping sample site name to sampled value.
+        :rtype: dict
+        """
+        if self.prototype_trace is None:
+            # run model to inspect the model structure
+            self._setup_prototype(*args, **kwargs)
+
+        plates = self._create_plates(*args, **kwargs)
+        result = {}
+        for name, site in self.prototype_trace.items():
+            if site["type"] != "sample" or isinstance(site["fn"], dist.PRNGIdentity) or site["is_observed"]:
+                continue
+
+            event_dim = self._event_dims[name]
+            init_loc = self._init_locs[name]
+            with ExitStack() as stack:
+                for frame in site["cond_indep_stack"]:
+                    stack.enter_context(plates[frame.name])
+
+                site_loc = numpyro.param("{}_{}_loc".format(name, self.prefix), init_loc,
+                                         event_dim=event_dim)
+                site_scale = numpyro.param("{}_{}_scale".format(name, self.prefix),
+                                           jnp.full(jnp.shape(init_loc), self._init_scale),
+                                           constraint=constraints.positive,
+                                           event_dim=event_dim)
+
+                site_fn = dist.Normal(site_loc, site_scale).to_event(event_dim)
+                if site["fn"].support in [constraints.real, constraints.real_vector]:
+                    result[name] = numpyro.sample(name, site_fn)
+                else:
+                    unconstrained_value = numpyro.sample("{}_unconstrained".format(name), site_fn,
+                                                         infer={"is_auxiliary": True})
+
+                    transform = biject_to(site['fn'].support)
+                    value = transform(unconstrained_value)
+                    log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
+                    log_density = sum_rightmost(log_density,
+                                                jnp.ndim(log_density) - jnp.ndim(value) + site["fn"].event_dim)
+                    delta_dist = dist.Delta(value, log_density=log_density, event_dim=site["fn"].event_dim)
+                    result[name] = numpyro.sample(name, delta_dist)
+
+        return result
+
+    def _constrain(self, latent_samples):
+        name = list(latent_samples)[0]
+        sample_shape = jnp.shape(latent_samples[name])[
+            :jnp.ndim(latent_samples[name]) - jnp.ndim(self._init_locs[name])]
+        if sample_shape:
+            flatten_samples = tree_map(lambda x: jnp.reshape(x, (-1,) + jnp.shape(x)[len(sample_shape):]),
+                                       latent_samples)
+            contrained_samples = lax.map(self._postprocess_fn, flatten_samples)
+            return tree_map(lambda x: jnp.reshape(x, sample_shape + jnp.shape(x)[1:]),
+                            contrained_samples)
+        else:
+            return self._postprocess_fn(latent_samples)
+
+    def sample_posterior(self, rng_key, params, sample_shape=()):
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
+        scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
+        with handlers.seed(rng_seed=rng_key):
+            latent_samples = {}
+            for k in locs:
+                latent_samples[k] = numpyro.sample(k, dist.Normal(locs[k], scales[k]).expand_by(sample_shape))
+        return self._constrain(latent_samples)
+
+    def median(self, params):
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k, v in self._init_locs.items()}
+        return self._constrain(locs)
+
+    def quantiles(self, params, quantiles):
+        quantiles = jnp.array(quantiles)[..., None]
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
+        scales = {k: params["{}_{}_scale".format(k, self.prefix)] for k in locs}
+        latent = {k: dist.Normal(locs[k], scales[k]).icdf(quantiles) for k in locs}
+        return self._constrain(latent)
 
 
 class AutoContinuous(AutoGuide):
@@ -117,21 +281,9 @@ class AutoContinuous(AutoGuide):
     :param callable init_strategy: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform):
-        self.init_strategy = init_strategy
-        super(AutoContinuous, self).__init__(model, prefix=prefix)
-
     def _setup_prototype(self, *args, **kwargs):
-        rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
-        with handlers.block():
-            init_params, _, self._postprocess_fn, self.prototype_trace = initialize_model(
-                rng_key, self.model,
-                init_strategy=self.init_strategy,
-                dynamic_args=False,
-                model_args=args,
-                model_kwargs=kwargs)
-
-        self._init_latent, unpack_latent = ravel_pytree(init_params[0])
+        super()._setup_prototype(*args, **kwargs)
+        self._init_latent, unpack_latent = ravel_pytree(self._init_locs)
         # this is to match the behavior of Pyro, where we can apply
         # unpack_latent for a batch of samples
         self._unpack_latent = UnpackTransform(unpack_latent)
@@ -147,7 +299,8 @@ class AutoContinuous(AutoGuide):
     def _sample_latent(self, *args, **kwargs):
         sample_shape = kwargs.pop('sample_shape', ())
         posterior = self._get_posterior()
-        return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
+        return numpyro.sample("_{}_latent".format(self.prefix), posterior.expand_by(sample_shape),
+                              infer={"is_auxiliary": True})
 
     def __call__(self, *args, **kwargs):
         """
@@ -181,6 +334,7 @@ class AutoContinuous(AutoGuide):
     def _unpack_and_constrain(self, latent_sample, params):
         def unpack_single_latent(latent):
             unpacked_samples = self._unpack_latent(latent)
+            # TODO: this seems to be a legacy behavior? why we need to add param here?
             # add param sites in model
             unpacked_samples.update({k: v for k, v in params.items() if k in self.prototype_trace
                                      and self.prototype_trace[k]['type'] == 'param'})
@@ -289,11 +443,11 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
-        super().__init__(model, prefix, init_strategy)
+        super().__init__(model, prefix=prefix, init_strategy=init_strategy)
 
     def _get_posterior(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
@@ -338,11 +492,11 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
-        super().__init__(model, prefix, init_strategy)
+        super().__init__(model, prefix=prefix, init_strategy=init_strategy)
 
     def _get_posterior(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
@@ -388,7 +542,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1, rank=None):
+    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1, rank=None):
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -530,7 +684,7 @@ class AutoIAFNormal(AutoContinuous):
     :param callable nonlinearity: the nonlinearity to use in the feedforward network.
         Defaults to :func:`jax.experimental.stax.Elu`.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform,
+    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform,
                  num_flows=3, hidden_dims=None, skip_connections=False, nonlinearity=stax.Elu):
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
@@ -587,7 +741,7 @@ class AutoBNAFNormal(AutoContinuous):
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
     """
-    def __init__(self, model, prefix="auto", init_strategy=init_to_uniform, num_flows=1,
+    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, num_flows=1,
                  hidden_factors=[8, 8]):
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
