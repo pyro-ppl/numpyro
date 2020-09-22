@@ -306,6 +306,7 @@ class MCMC(object):
             postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
         else:
             postprocess_fn = self.postprocess_fn
+
         diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else ''   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]

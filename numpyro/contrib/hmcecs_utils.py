@@ -70,7 +70,7 @@ def log_density_hmcecs(model, model_args, model_kwargs, params,prior=False):
         return log_joint, model_trace
 
 def grad_potential(model, model_args, model_kwargs,z, z_ref, jac_all, hess_all, n, m, *args, **kwargs):
-    """Calculate the gradient of the potential energy function"""
+    """Calculate the gradient of the potential energy function for the current subsample"""
     k, = jac_all.shape
     z_flat, treedef = ravel_pytree(z)
     zref_flat, _ = ravel_pytree(z_ref)
@@ -104,6 +104,15 @@ def grad_potential(model, model_args, model_kwargs,z, z_ref, jac_all, hess_all, 
 
     return treedef(gradll - jac_sub)
 
+def reducer( accum, d ):
+   accum.update(d)
+   return accum
+
+def  tuplemerge( *dictionaries ):
+   from functools import reduce
+   merged = reduce( reducer, dictionaries, {} )
+   return namedtuple('HMCCombinedState', merged )(**merged) # <==== Gist of the gist
+
 def potential_est(model, model_args, model_kwargs,ll_ref, jac_all, hess_all, z, z_ref, n, m):
     """Estimate the potential dynamic energy for the HMC ECS implementation. The calculation follows section 7.2.1 in https://jmlr.org/papers/volume18/15-205/15-205.pdf
         The computation has a complexity of O(1) and it's highly dependant on the quality of the map estimate"""
@@ -112,8 +121,10 @@ def potential_est(model, model_args, model_kwargs,ll_ref, jac_all, hess_all, z, 
     z_flat, _ = ravel_pytree(z)
     zref_flat, _ = ravel_pytree(z_ref)
 
-    z_diff = z_flat - zref_flat
 
+    z_diff = z_flat - zref_flat
+    #print(model_args[0].shape)
+    #print("........................................................................................")
     ld_fn = lambda args: partial(log_density_hmcecs, model, model_args, model_kwargs,prior=False)(args)[0]
 
     jac_sub, _ = ravel_pytree(jax.jacfwd(ld_fn)(z_ref))
@@ -146,6 +157,7 @@ def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
         inverse mass matrix and momentum.
     :return: a pair of (`init_fn`, `update_fn`).
     """
+
     compute_value_grad = value_and_grad(potential_fn) if grad_potential_fn is None \
         else lambda z: (potential_fn(z), grad_potential_fn(z))
 
@@ -160,6 +172,7 @@ def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
         if potential_energy is None or z_grad is None:
             potential_energy, z_grad = compute_value_grad(z)
 
+
         return IntegratorState(z, r, potential_energy, z_grad)
 
     def update_fn(step_size, inverse_mass_matrix, state):
@@ -171,6 +184,7 @@ def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
         :return: new state for the integrator.
         """
         z, r, _, z_grad = state
+
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
         r_grad = grad(kinetic_fn, argnums=1)(inverse_mass_matrix, r)
         z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
