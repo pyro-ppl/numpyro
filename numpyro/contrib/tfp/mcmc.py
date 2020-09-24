@@ -76,9 +76,9 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
     .. note:: By default, uncalibrated kernels will be inner kernels of the
         :class:`~tensorflow_probability.substrates.jax.mcmc.MetropolisHastings` kernel.
 
-    .. note:: For :class:`~numpyro.contrib.tfp.mcmc.ReplicaExchangeMC`, it is
-        required that the shape of `step_size` of the inner kernel must be
-        `[len(inverse_temperatures), 1]`.
+    .. note:: For :class:`~numpyro.contrib.tfp.mcmc.ReplicaExchangeMC`, TFP requires
+        that the shape of `step_size` of the inner kernel must be
+        `[len(inverse_temperatures), 1]` or `[len(inverse_temperatures), latent_size]`.
 
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
