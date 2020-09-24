@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from abc import ABCMeta
 from collections import namedtuple
 import inspect
 
@@ -41,11 +42,32 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
     return log_prob_fn
 
 
-class TFPKernel(MCMCKernel):
+class _TFPKernelMeta(ABCMeta):
+    def __getitem__(cls, kernel_class):
+        assert issubclass(kernel_class, tfp.mcmc.TransitionKernel)
+        assert 'target_log_prob_fn' in inspect.getfullargspec(kernel_class).args, \
+            f"the first argument of {kernel_class} must be `target_log_prob_fn`"
+
+        _PyroKernel = type(kernel_class.__name__, (TFPKernel,), {})
+        _PyroKernel.kernel_class = kernel_class
+        return _PyroKernel
+
+
+class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
     """
     A thin wrapper for TensorFlow Probability (TFP) MCMC transition kernels.
     The argument `target_log_prob_fn` in TFP is replaced by either `model`
     or `potential_fn` (which is the negative of `target_log_prob_fn`).
+
+    This class can be used to convert a TFP kernel to a NumPyro-compatible one
+    as follows::
+
+        kernel = TFPKernel[tfp.mcmc.NoUTurnSampler](model, step_size=1.)
+
+    .. note:: By default, uncalibrated kernels will be inner kernels of the
+        :class:`~tensorflow_probability.substrates.jax.mcmc.MetropolisHastings` kernel.
+        In addition, :class:`~tensorflow_probability.substrates.jax.mcmc.ReplicaExchangeMC`
+        kernel is currently not supported.
 
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
@@ -87,6 +109,10 @@ class TFPKernel(MCMCKernel):
                 kernel = self.kernel_class(
                     _make_log_prob_fn(potential_fn(*model_args, **model_kwargs), unravel_fn),
                     **self._kernel_kwargs)
+                # Uncalibrated... kernels have to used inside MetropolisHastings, see
+                # https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/UncalibratedLangevin
+                if self.kernel_class.__name__.startswith("Uncalibrated"):
+                    kernel = tfp.mcmc.MetropolisHastings(kernel)
                 self._init_fn, self._sample_fn = _extract_kernel_functions(kernel)
             self._postprocess_fn = postprocess_fn
         elif self._init_fn is None:
@@ -94,6 +120,8 @@ class TFPKernel(MCMCKernel):
             kernel = self.kernel_class(
                 _make_log_prob_fn(self._potential_fn, unravel_fn),
                 **self._kernel_kwargs)
+            if self.kernel_class.__name__.startswith("Uncalibrated"):
+                kernel = tfp.mcmc.MetropolisHastings(kernel)
             self._init_fn, self._sample_fn = _extract_kernel_functions(kernel)
         return init_params
 
@@ -157,7 +185,7 @@ class TFPKernel(MCMCKernel):
         return self._sample_fn(state, model_args, model_kwargs)
 
 
-__all__ = []
+__all__ = ['TFPKernel']
 for _name, _Kernel in tfp.mcmc.__dict__.items():
     if not isinstance(_Kernel, type):
         continue
@@ -165,18 +193,21 @@ for _name, _Kernel in tfp.mcmc.__dict__.items():
         continue
     if 'target_log_prob_fn' not in inspect.getfullargspec(_Kernel).args:
         continue
+    if _name == "ReplicaExchangeMC":
+        # FIXME: this kernel requires additional reshape logics to deal with multiple replicas
+        continue
 
     try:
         _PyroKernel = locals()[_name]
     except KeyError:
-        _PyroKernel = type(_name, (TFPKernel,), {})
+        _PyroKernel = TFPKernel[_Kernel]
         _PyroKernel.__module__ = __name__
-        _PyroKernel.kernel_class = _Kernel
         locals()[_name] = _PyroKernel
 
     _PyroKernel.__doc__ = '''
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/{}>`_
-    with :class:`~numpyro.contrib.tfp.distributions.TFPDistributionMixin`.
+    with :class:`~numpyro.contrib.tfp.mcmc.TFPKernel`. The first argument `target_log_prob_fn`
+    in TFP kernel construction is replaced by either `model` or `potential_fn`.
     '''.format(_Kernel.__module__, _Kernel.__name__, _Kernel.__name__)
 
     __all__.append(_name)
@@ -190,5 +221,5 @@ __doc__ = '\n\n'.join([
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.mcmc.{0}
     '''.format(_name)
-    for _name in sorted(__all__)
+    for _name in __all__[:1] + sorted(__all__)
 ])

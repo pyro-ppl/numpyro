@@ -107,8 +107,12 @@ def test_beta_bernoulli():
 
 
 @pytest.mark.parametrize('kernel, kwargs', [
+    ('HamiltonianMonteCarlo', dict(step_size=0.05, num_leapfrog_steps=10)),
+    ('NoUTurnSampler', dict(step_size=0.05,)),
     ('RandomWalkMetropolis', dict()),
-    ('SliceSampler', dict(step_size=1.0, max_doublings=5))
+    ('SliceSampler', dict(step_size=1.0, max_doublings=5)),
+    ('UncalibratedHamiltonianMonteCarlo', dict(step_size=0.05, num_leapfrog_steps=10)),
+    ('UncalibratedRandomWalk', dict()),
 ])
 @pytest.mark.filterwarnings("ignore:can't resolve package")
 # TODO: remove after https://github.com/tensorflow/probability/issues/1072 is resolved
@@ -139,8 +143,10 @@ def test_mcmc_kernels(kernel, kwargs):
 
 
 @pytest.mark.parametrize('kernel, kwargs', [
+    ('MetropolisAdjustedLangevinAlgorithm', dict(step_size=1.0)),
     ('RandomWalkMetropolis', dict()),
-    ('SliceSampler', dict(step_size=1.0, max_doublings=5))
+    ('SliceSampler', dict(step_size=1.0, max_doublings=5)),
+    ('UncalibratedLangevin', dict(step_size=0.1)),
 ])
 @pytest.mark.filterwarnings("ignore:can't resolve package")
 # TODO: remove after https://github.com/tensorflow/probability/issues/1072 is resolved
@@ -153,7 +159,7 @@ def test_unnormalized_normal(kernel, kwargs):
     warmup_steps, num_samples = (1000, 8000)
 
     def potential_fn(z):
-        return 0.5 * jnp.sum(((z - true_mean) / true_std) ** 2)
+        return 0.5 * ((z - true_mean) / true_std) ** 2
 
     init_params = jnp.array(0.)
     tfp_kernel = kernel_class(potential_fn=potential_fn, **kwargs)
