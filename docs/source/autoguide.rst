@@ -58,3 +58,11 @@ AutoLowRankMultivariateNormal
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+AutoNormal
+----------
+.. autoclass:: numpyro.infer.autoguide.AutoNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

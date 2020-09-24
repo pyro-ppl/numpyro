@@ -428,6 +428,23 @@ def _von_mises_centered(key, concentration, shape, dtype):
     return jnp.sign(u) * jnp.arccos(w)
 
 
+# TODO: use funsor implementation
+def periodic_repeat(x, size, dim):
+    """
+    Repeat a ``period``-sized array up to given ``size``.
+    """
+    assert isinstance(size, int) and size >= 0
+    assert isinstance(dim, int)
+    if dim >= 0:
+        dim -= jnp.ndim(x)
+
+    period = jnp.shape(x)[dim]
+    repeats = (size + period - 1) // period
+    result = jnp.repeat(x, repeats, axis=dim)
+    result = result[(Ellipsis, slice(None, size)) + (slice(None),) * (-1 - dim)]
+    return result
+
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
