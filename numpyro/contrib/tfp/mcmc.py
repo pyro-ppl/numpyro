@@ -5,7 +5,7 @@ from abc import ABCMeta
 from collections import namedtuple
 import inspect
 
-from jax import random, vmap
+from jax import random, tree_map, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 import tensorflow_probability.substrates.jax as tfp
@@ -36,8 +36,17 @@ def _extract_kernel_functions(kernel):
 
 
 def _make_log_prob_fn(potential_fn, unravel_fn):
+
     def log_prob_fn(x):
-        return - potential_fn(unravel_fn(x))
+        # we deal with batched x in case the kernel is ReplicaExchangeMC
+        batch_shape = jnp.shape(x)[:-1]
+        if batch_shape:
+            flatten_result = vmap(lambda a: -potential_fn(unravel_fn(a)))(
+                jnp.reshape(x, (-1,) + jnp.shape(x)[-1:]))
+            return tree_map(lambda a: jnp.reshape(a, batch_shape + jnp.shape(a)[1:]),
+                            flatten_result)
+        else:
+            return - potential_fn(unravel_fn(x))
 
     return log_prob_fn
 
@@ -66,8 +75,10 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
 
     .. note:: By default, uncalibrated kernels will be inner kernels of the
         :class:`~tensorflow_probability.substrates.jax.mcmc.MetropolisHastings` kernel.
-        In addition, :class:`~tensorflow_probability.substrates.jax.mcmc.ReplicaExchangeMC`
-        kernel is currently not supported.
+
+    .. note:: For :class:`~numpyro.contrib.tfp.mcmc.ReplicaExchangeMC`, it is
+        required that the shape of `step_size` of the inner kernel must be
+        `[len(inverse_temperatures), 1]`.
 
     :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
         If model is provided, `potential_fn` will be inferred using the model.
@@ -192,9 +203,6 @@ for _name, _Kernel in tfp.mcmc.__dict__.items():
     if not issubclass(_Kernel, tfp.mcmc.TransitionKernel):
         continue
     if 'target_log_prob_fn' not in inspect.getfullargspec(_Kernel).args:
-        continue
-    if _name == "ReplicaExchangeMC":
-        # FIXME: this kernel requires additional reshape logics to deal with multiple replicas
         continue
 
     try:
