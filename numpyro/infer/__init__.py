@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from numpyro.infer.elbo import ELBO, RenyiELBO
+from numpyro.infer.elbo import ELBO, MeanFieldELBO, RenyiELBO
 from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.initialization import (
     init_to_feasible,
@@ -23,6 +23,7 @@ __all__ = [
     'init_to_value',
     'log_likelihood',
     'ELBO',
+    'MeanFieldELBO',
     'RenyiELBO',
     'HMC',
     'MCMC',

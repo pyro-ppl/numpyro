@@ -6,24 +6,26 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import lax, random
+from jax import jit, lax, random
 import jax.numpy as jnp
 from jax.test_util import check_eq
 
 import numpyro
-from numpyro import optim
+from numpyro import handlers, optim
+from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
-from numpyro.infer import ELBO, SVI
+from numpyro.infer import ELBO, MeanFieldELBO, SVI
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
     AutoDiagonalNormal,
     AutoIAFNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
-    AutoMultivariateNormal
+    AutoMultivariateNormal,
+    AutoNormal
 )
 from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import TransformReparam
@@ -40,6 +42,7 @@ init_strategy = init_to_median(num_samples=2)
     AutoMultivariateNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
+    AutoNormal,
 ])
 def test_beta_bernoulli(auto_class):
     data = jnp.array([[1.0] * 8 + [0.0] * 2,
@@ -73,8 +76,10 @@ def test_beta_bernoulli(auto_class):
     AutoMultivariateNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
+    AutoNormal,
 ])
-def test_logistic_regression(auto_class):
+@pytest.mark.parametrize('Elbo', [ELBO, MeanFieldELBO])
+def test_logistic_regression(auto_class, Elbo):
     N, dim = 3000, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1., dim + 1.)
@@ -89,8 +94,16 @@ def test_logistic_regression(auto_class):
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
     guide = auto_class(model, init_strategy=init_strategy)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
+
+    # smoke test if analytic KL is used
+    if auto_class is AutoNormal and Elbo is MeanFieldELBO:
+        _, mean_field_loss = svi.update(svi_state, data, labels)
+        svi.loss = ELBO()
+        _, elbo_loss = svi.update(svi_state, data, labels)
+        svi.loss = MeanFieldELBO()
+        assert abs(mean_field_loss - elbo_loss) > 0.5
 
     def body_fn(i, val):
         svi_state, loss = svi.update(val, data, labels)
@@ -300,3 +313,49 @@ def test_improper():
     svi = SVI(model, guide, optim.Adam(0.003), ELBO(), y=y)
     svi_state = svi.init(random.PRNGKey(2))
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(10000))
+
+
+@pytest.mark.parametrize("auto_class", [AutoNormal])
+def test_subsample_guide(auto_class):
+
+    # The model adapted from tutorial/source/easyguide.ipynb
+    def model(batch, subsample, full_size):
+        drift = numpyro.sample("drift", dist.LogNormal(-1, 0.5))
+        with handlers.substitute(data={"data": subsample}):
+            plate = numpyro.plate("data", full_size, subsample_size=len(subsample))
+        assert plate.size == 50
+
+        def transition_fn(z_prev, y_curr):
+            with plate:
+                z_curr = numpyro.sample("state", dist.Normal(z_prev, drift))
+                y_curr = numpyro.sample("obs", dist.Bernoulli(logits=z_curr), obs=y_curr)
+            return z_curr, y_curr
+
+        _, result = scan(transition_fn, jnp.zeros(len(subsample)), batch, length=num_time_steps)
+        return result
+
+    def create_plates(batch, subsample, full_size):
+        with handlers.substitute(data={"data": subsample}):
+            return numpyro.plate("data", full_size, subsample_size=subsample.shape[0])
+
+    guide = auto_class(model, create_plates=create_plates)
+
+    full_size = 50
+    batch_size = 20
+    num_time_steps = 8
+    with handlers.seed(rng_seed=0):
+        data = model(None, jnp.arange(full_size), full_size)
+    assert data.shape == (num_time_steps, full_size)
+
+    svi = SVI(model, guide, optim.Adam(0.02), ELBO())
+    svi_state = svi.init(random.PRNGKey(0), data[:, :batch_size],
+                         jnp.arange(batch_size), full_size=full_size)
+    update_fn = jit(svi.update, static_argnums=(3,))
+    for epoch in range(2):
+        beg = 0
+        while beg < full_size:
+            end = min(full_size, beg + batch_size)
+            subsample = jnp.arange(beg, end)
+            batch = data[:, beg:end]
+            beg = end
+            svi_state, loss = update_fn(svi_state, batch, subsample, full_size)

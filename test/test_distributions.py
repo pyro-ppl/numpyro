@@ -18,11 +18,12 @@ import jax.random as random
 from jax.scipy.special import logsumexp
 
 import numpyro.distributions as dist
-from numpyro.distributions import constraints, transforms
+from numpyro.distributions import constraints, kl_divergence, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.transforms import LowerCholeskyAffine, PermuteTransform, PowerTransform, biject_to
-from numpyro.distributions.util import matrix_to_tril_vec, multinomial, signed_stick_breaking_tril, vec_to_tril_matrix
+from numpyro.distributions.util import (matrix_to_tril_vec, multinomial, signed_stick_breaking_tril,
+                                        sum_rightmost, vec_to_tril_matrix)
 from numpyro.nn import AutoregressiveNN
 
 
@@ -1163,3 +1164,47 @@ def test_expand_pytree():
 
     assert lax.map(g, jnp.ones((5, 3))).batch_shape == (5, 10, 3)
     assert jax.tree_map(lambda x: x[None], g(0)).batch_shape == (1, 10, 3)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (4,), (2, 3)], ids=str)
+def test_kl_delta_normal_shape(batch_shape):
+    v = np.random.normal(size=batch_shape)
+    loc = np.random.normal(size=batch_shape)
+    scale = np.exp(np.random.normal(size=batch_shape))
+    p = dist.Delta(v)
+    q = dist.Normal(loc, scale)
+    assert kl_divergence(p, q).shape == batch_shape
+
+
+@pytest.mark.parametrize('batch_shape', [(), (4,), (2, 3)], ids=str)
+@pytest.mark.parametrize('event_shape', [(), (4,), (2, 3)], ids=str)
+def test_kl_independent_normal(batch_shape, event_shape):
+    shape = batch_shape + event_shape
+    p = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
+    q = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
+    actual = kl_divergence(dist.Independent(p, len(event_shape)),
+                           dist.Independent(q, len(event_shape)))
+    expected = sum_rightmost(kl_divergence(p, q), len(event_shape))
+    assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (4,), (2, 3)], ids=str)
+@pytest.mark.parametrize('event_shape', [(), (4,), (2, 3)], ids=str)
+def test_kl_expanded_normal(batch_shape, event_shape):
+    shape = batch_shape + event_shape
+    p = dist.Normal(np.random.normal(), np.exp(np.random.normal())).expand(shape)
+    q = dist.Normal(np.random.normal(), np.exp(np.random.normal())).expand(shape)
+    actual = kl_divergence(dist.Independent(p, len(event_shape)),
+                           dist.Independent(q, len(event_shape)))
+    expected = sum_rightmost(kl_divergence(p, q), len(event_shape))
+    assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize('shape', [(), (4,), (2, 3)], ids=str)
+def test_kl_normal_normal(shape):
+    p = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
+    q = dist.Normal(np.random.normal(size=shape), np.exp(np.random.normal(size=shape)))
+    actual = kl_divergence(p, q)
+    x = p.sample(random.PRNGKey(0), (10000,)).copy()
+    expected = jnp.mean((p.log_prob(x) - q.log_prob(x)), 0)
+    assert_allclose(actual, expected, rtol=0.05)

@@ -141,7 +141,8 @@ class Distribution(object):
                 is_valid = jnp.all(constraint(getattr(self, param)))
                 if not_jax_tracer(is_valid):
                     if not is_valid:
-                        raise ValueError("The parameter {} has invalid values".format(param))
+                        raise ValueError("{} distribution got invalid {} parameter.".format(
+                            self.__class__.__name__, param))
         super(Distribution, self).__init__()
 
     @property

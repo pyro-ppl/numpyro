@@ -104,7 +104,6 @@ class MeanFieldELBO(ELBO):
                     if model_site["is_observed"]:
                         log_prob = jnp.sum(model_site["fn"].log_prob(model_site["value"]))
                         log_prob = scale_and_mask(log_prob, scale=model_site["scale"])
-                        print("mle", -log_prob)
                         elbo_particle = elbo_particle + log_prob
                     else:
                         guide_site = guide_trace[name]
@@ -124,10 +123,9 @@ class MeanFieldELBO(ELBO):
             # handle auxiliary sites in the guide
             for name, site in guide_trace.items():
                 if site["type"] == "sample" and name not in model_trace:
-                    assert guide_site["infer"].get("is_auxiliary")
-                    elbo_particle = elbo_particle - _get_log_prob_sum(guide_site)
+                    assert site["infer"].get("is_auxiliary")
+                    elbo_particle = elbo_particle - _get_log_prob_sum(site)
 
-            print("sum", -elbo_particle)
             return elbo_particle
 
         if self.num_particles == 1:
