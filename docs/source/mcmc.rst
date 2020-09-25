@@ -45,6 +45,15 @@ MCMC Kernels
 .. autodata:: numpyro.infer.sa.SAState
 
 
+TensorFlow Kernels
+------------------
+
+Thin wrappers around TensorFlow Probability (TFP) distributions. For details on the TFP distribution interface,
+see `its TransitionKernel docs <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/TransitionKernel>`_.
+
+.. automodule:: numpyro.contrib.tfp.mcmc
+
+
 MCMC Utilities
 --------------
 

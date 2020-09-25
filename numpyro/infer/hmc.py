@@ -1,7 +1,6 @@
 from collections import namedtuple
 import math
 import os
-import warnings
 
 from jax import device_put, lax, partial, random, vmap
 from jax.dtypes import canonicalize_dtype
@@ -348,7 +347,7 @@ class HMC(MCMCKernel):
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
         any python collection type, provided that `init_params` argument to
-        `init_kernel` has the same type.
+        :meth:`init` has the same type.
     :param kinetic_fn: Python callable that returns the kinetic energy given
         inverse mass matrix and momentum. If not provided, the default is
         euclidean kinetic energy.
@@ -412,11 +411,6 @@ class HMC(MCMCKernel):
                 init_strategy=self._init_strategy,
                 model_args=model_args,
                 model_kwargs=model_kwargs)
-            if any(v['type'] == 'param' for v in model_trace.values()):
-                warnings.warn("'param' sites will be treated as constants during inference. To define "
-                              "an improper variable, please use a 'sample' site with log probability "
-                              "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
-                              "means that `x` has improper distribution over the positive domain.")
             if self._init_fn is None:
                 self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
                                                      kinetic_fn=self._kinetic_fn,
