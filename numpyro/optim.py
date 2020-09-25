@@ -60,7 +60,7 @@ class _NumPyroOptim(object):
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
-    def step(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+    def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -76,7 +76,7 @@ class _NumPyroOptim(object):
         """
         params = self.get_params(state)
         out, grads = value_and_grad(fn)(params)
-        return self.update(grads, state), out
+        return out, self.update(grads, state)
 
     def get_params(self, state: _IterOptState) -> _Params:
         """
@@ -236,10 +236,10 @@ class Minimize(_NumPyroOptim):
         self._method = method
         self._kwargs = kwargs
 
-    def step(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+    def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
         i, (flat_params, unravel_fn) = state
         results = minimize(lambda x: fn(unravel_fn(x)), flat_params, (),
                            method=self._method, **self._kwargs)
-        flat_params, loss_val = results.x, results.fun
+        flat_params, out = results.x, results.fun
         state = (i + 1, _MinimizeState(flat_params, unravel_fn))
-        return state, loss_val
+        return out, state

@@ -134,7 +134,7 @@ class SVI(object):
         rng_key, rng_key_step = random.split(svi_state.rng_key)
         loss_fn = partial(_apply_loss_fn, self.loss.loss, rng_key_step, self.constrain_fn, self.model,
                           self.guide, args, kwargs, self.static_kwargs)
-        optim_state, loss_val = self.optim.step(loss_fn, svi_state.optim_state)
+        loss_val, optim_state = self.optim.eval_and_update(loss_fn, svi_state.optim_state)
         return SVIState(optim_state, rng_key), loss_val
 
     def evaluate(self, svi_state, *args, **kwargs):
