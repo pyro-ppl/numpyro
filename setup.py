@@ -52,7 +52,7 @@ setup(
             'isort',
             'flax',
             'dm-haiku',
-            'tfp-nightly==0.12.0.dev20200923',  # TODO: change this to stable release or a specific nightly release
+            'tfp-nightly',  # TODO: change this to stable release or a specific nightly release
         ],
         'examples': ['matplotlib', 'seaborn', 'graphviz', 'arviz'],
     },
