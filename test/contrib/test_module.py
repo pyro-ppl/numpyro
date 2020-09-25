@@ -11,8 +11,14 @@ from jax import random, test_util
 
 import numpyro
 from numpyro import handlers
-from numpyro.contrib.module import (ParamShape, flax_module, haiku_module, random_flax_module,
-                                    random_haiku_module, _update_params)
+from numpyro.contrib.module import (
+    ParamShape,
+    _update_params,
+    flax_module,
+    haiku_module,
+    random_flax_module,
+    random_haiku_module
+)
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 

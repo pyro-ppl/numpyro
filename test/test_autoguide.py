@@ -6,13 +6,14 @@ from functools import partial
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import lax, random
+from jax import jit, lax, random
 from jax.experimental.stax import Dense
 import jax.numpy as jnp
 from jax.test_util import check_eq
 
 import numpyro
-from numpyro import optim
+from numpyro import handlers, optim
+from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
@@ -24,7 +25,8 @@ from numpyro.infer.autoguide import (
     AutoIAFNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
-    AutoMultivariateNormal
+    AutoMultivariateNormal,
+    AutoNormal
 )
 from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import TransformReparam
@@ -41,6 +43,7 @@ init_strategy = init_to_median(num_samples=2)
     AutoMultivariateNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
+    AutoNormal,
 ])
 def test_beta_bernoulli(auto_class):
     data = jnp.array([[1.0] * 8 + [0.0] * 2,
@@ -74,6 +77,7 @@ def test_beta_bernoulli(auto_class):
     AutoMultivariateNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
+    AutoNormal,
 ])
 def test_logistic_regression(auto_class):
     N, dim = 3000, 3
@@ -317,3 +321,49 @@ def test_module():
     svi = SVI(model, guide, optim.Adam(0.003), ELBO(), x=x, y=y)
     svi_state = svi.init(random.PRNGKey(2))
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(1000))
+
+
+@pytest.mark.parametrize("auto_class", [AutoNormal])
+def test_subsample_guide(auto_class):
+
+    # The model adapted from tutorial/source/easyguide.ipynb
+    def model(batch, subsample, full_size):
+        drift = numpyro.sample("drift", dist.LogNormal(-1, 0.5))
+        with handlers.substitute(data={"data": subsample}):
+            plate = numpyro.plate("data", full_size, subsample_size=len(subsample))
+        assert plate.size == 50
+
+        def transition_fn(z_prev, y_curr):
+            with plate:
+                z_curr = numpyro.sample("state", dist.Normal(z_prev, drift))
+                y_curr = numpyro.sample("obs", dist.Bernoulli(logits=z_curr), obs=y_curr)
+            return z_curr, y_curr
+
+        _, result = scan(transition_fn, jnp.zeros(len(subsample)), batch, length=num_time_steps)
+        return result
+
+    def create_plates(batch, subsample, full_size):
+        with handlers.substitute(data={"data": subsample}):
+            return numpyro.plate("data", full_size, subsample_size=subsample.shape[0])
+
+    guide = auto_class(model, create_plates=create_plates)
+
+    full_size = 50
+    batch_size = 20
+    num_time_steps = 8
+    with handlers.seed(rng_seed=0):
+        data = model(None, jnp.arange(full_size), full_size)
+    assert data.shape == (num_time_steps, full_size)
+
+    svi = SVI(model, guide, optim.Adam(0.02), ELBO())
+    svi_state = svi.init(random.PRNGKey(0), data[:, :batch_size],
+                         jnp.arange(batch_size), full_size=full_size)
+    update_fn = jit(svi.update, static_argnums=(3,))
+    for epoch in range(2):
+        beg = 0
+        while beg < full_size:
+            end = min(full_size, beg + batch_size)
+            subsample = jnp.arange(beg, end)
+            batch = data[:, beg:end]
+            beg = end
+            svi_state, loss = update_fn(svi_state, batch, subsample, full_size)

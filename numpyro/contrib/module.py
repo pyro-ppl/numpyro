@@ -11,7 +11,6 @@ from jax.tree_util import register_pytree_node
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
 
-
 __all__ = [
     'flax_module',
     'haiku_module',

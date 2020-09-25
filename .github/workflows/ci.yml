@@ -27,7 +27,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
-        pip install jax
+        pip install "jax==0.1.77"
         pip install .[doc,test]
         pip install -r docs/requirements.txt
         pip freeze
@@ -64,7 +64,7 @@ jobs:
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
-        pip install jax
+        pip install "jax==0.1.77"
         pip install .[dev,test]
         pip freeze
     - name: Test with pytest
@@ -97,7 +97,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
-        pip install jax
+        pip install "jax==0.1.77"
         pip install .[dev,examples,test]
         pip freeze
     - name: Test with pytest
