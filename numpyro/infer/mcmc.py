@@ -168,6 +168,7 @@ def _sample_fn_jit_args(state, sampler):
 
 def _sample_fn_nojit_args(state, sampler, args, kwargs):
     # state is a tuple of size 1 - containing HMCState
+
     return sampler.sample(state[0], args, kwargs),
 
 
@@ -175,7 +176,11 @@ def _collect_fn(collect_fields):
     @cached_by(_collect_fn, collect_fields)
     def collect(x):
         if collect_fields:
-            return attrgetter(*collect_fields)(x[0])
+            # f = getattr(x[0], '_fields', None)
+            # if any(n == "hmc_state" for n in f):
+            #     return attrgetter(*collect_fields)(x[0].hmc_state)
+            # else:
+            return  attrgetter(*collect_fields)(x[0])
         else:
             return x[0]
 
