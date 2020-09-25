@@ -15,7 +15,6 @@ from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
 
-
 TFPKernelState = namedtuple('TFPKernelState', ['z', 'kernel_results', 'rng_key'])
 
 
@@ -205,12 +204,9 @@ for _name, _Kernel in tfp.mcmc.__dict__.items():
     if 'target_log_prob_fn' not in inspect.getfullargspec(_Kernel).args:
         continue
 
-    try:
-        _PyroKernel = locals()[_name]
-    except KeyError:
-        _PyroKernel = TFPKernel[_Kernel]
-        _PyroKernel.__module__ = __name__
-        locals()[_name] = _PyroKernel
+    _PyroKernel = TFPKernel[_Kernel]
+    _PyroKernel.__module__ = __name__
+    locals()[_name] = _PyroKernel
 
     _PyroKernel.__doc__ = '''
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/{}>`_

@@ -166,6 +166,7 @@ def test_mcmc_kernels(kernel, kwargs):
 @pytest.mark.filterwarnings("ignore:Explicitly requested dtype")
 def test_unnormalized_normal_chain(kernel, kwargs, num_chains):
     from numpyro.contrib.tfp import mcmc
+
     kernel_class = getattr(mcmc, kernel)
 
     true_mean, true_std = 1., 0.5
