@@ -108,7 +108,29 @@ def _check_mean_field_requirement(model_trace, guide_trace):
 
 
 class MeanFieldELBO(ELBO):
+    """
+    A trace implementation of ELBO-based SVI. This is currently the only
+    ELBO estimator in NumPyro that uses analytic KL divergences when those
+    are available.
+
+    .. warning:: This estimator may give incorrect results if the mean-field
+        condition is not satisfied.
+    """
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+        """
+        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+
+        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param dict param_map: dictionary of current parameter values keyed by site
+            name.
+        :param model: Python callable with NumPyro primitives for the model.
+        :param guide: Python callable with NumPyro primitives for the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
+        """
         def single_particle_elbo(rng_key):
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
