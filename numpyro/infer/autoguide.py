@@ -339,7 +339,7 @@ class AutoContinuous(AutoGuide):
             samples = self._postprocess_fn(unpacked_samples)
             # filter out param sites
             return {k: v for k, v in samples.items() if k in self.prototype_trace
-                    and self.prototype_trace[k]['type'] == 'param'}
+                    and self.prototype_trace[k]['type'] != 'param'}
 
         sample_shape = jnp.shape(latent_sample)[:-1]
         if sample_shape:
