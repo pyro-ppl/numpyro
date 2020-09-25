@@ -3,6 +3,8 @@
 
 # lightly adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/nn/auto_reg_nn.py
 
+import numpy as np
+
 from jax import ops
 from jax.experimental import stax
 import jax.numpy as jnp
@@ -98,11 +100,11 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
     Mathieu Germain, Karol Gregor, Iain Murray, Hugo Larochelle
     """
     output_multiplier = sum(param_dims)
-    all_ones = (jnp.array(param_dims) == 1).all()
+    all_ones = (np.array(param_dims) == 1).all()
 
     # Calculate the indices on the output corresponding to each parameter
-    ends = jnp.cumsum(jnp.array(param_dims), axis=0)
-    starts = jnp.concatenate((jnp.zeros(1), ends[:-1]))
+    ends = np.cumsum(np.array(param_dims), axis=0)
+    starts = np.concatenate((np.zeros(1), ends[:-1]))
     param_slices = [slice(int(s), int(e)) for s, e in zip(starts, ends)]
 
     # Hidden dimension must be not less than the input otherwise it isn't
