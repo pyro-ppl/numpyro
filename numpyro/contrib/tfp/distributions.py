@@ -95,6 +95,10 @@ class TFPDistributionMixin(NumPyroDistribution):
     A mixin layer to make TensorFlow Probability (TFP) distribution compatible
     with NumPyro internal.
     """
+    def __init_subclass__(cls, **kwargs):
+        # skip register pytree because TFP distributions are already pytrees
+        super(object, cls).__init_subclass__(**kwargs)
+
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('rng_key')
         kwargs.pop('sample_intermediates', False)
