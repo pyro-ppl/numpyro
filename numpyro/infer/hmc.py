@@ -347,7 +347,7 @@ class HMC(MCMCKernel):
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
         any python collection type, provided that `init_params` argument to
-        `init_kernel` has the same type.
+        :meth:`init` has the same type.
     :param kinetic_fn: Python callable that returns the kinetic energy given
         inverse mass matrix and momentum. If not provided, the default is
         euclidean kinetic energy.

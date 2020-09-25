@@ -225,7 +225,7 @@ class SA(MCMCKernel):
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
         any python collection type, provided that `init_params` argument to
-        `init_kernel` has the same type.
+        :meth:`init` has the same type.
     :param int adapt_state_size: The number of points to generate proposal
         distribution. Defaults to 2 times latent size.
     :param bool dense_mass:  A flag to decide if mass matrix is dense or
