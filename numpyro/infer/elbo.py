@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
+
 import numpy as np
 
 from jax import random, vmap
@@ -87,6 +89,24 @@ def _get_log_prob_sum(site):
     return jnp.sum(log_prob)
 
 
+def _check_mean_field_requirement(model_trace, guide_trace):
+    """
+    Checks that the guide and model sample sites are ordered identically.
+    This is sufficient but not necessary for correctness.
+    """
+    model_sites = [name for name, site in model_trace.nodes.items()
+                   if site["type"] == "sample" and name in guide_trace.nodes]
+    guide_sites = [name for name, site in guide_trace.nodes.items()
+                   if site["type"] == "sample" and name in model_trace.nodes]
+    assert set(model_sites) == set(guide_sites)
+    if model_sites != guide_sites:
+        warnings.warn("Failed to verify mean field restriction on the guide. "
+                      "To eliminate this warning, ensure model and guide sites "
+                      "occur in the same order.\n" +
+                      "Model sites:\n  " + "\n  ".join(model_sites) +
+                      "Guide sites:\n  " + "\n  ".join(guide_sites))
+
+
 class MeanFieldELBO(ELBO):
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         def single_particle_elbo(rng_key):
@@ -97,6 +117,7 @@ class MeanFieldELBO(ELBO):
             guide_trace = trace(subs_guide).get_trace(*args, **kwargs)
             subs_model = substitute(replay(seeded_model, guide_trace), data=param_map)
             model_trace = trace(subs_model).get_trace(*args, **kwargs)
+            _check_mean_field_requirement(model_trace, guide_trace)
 
             elbo_particle = 0
             for name, model_site in model_trace.items():
