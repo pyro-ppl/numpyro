@@ -6,11 +6,12 @@ from contextlib import ExitStack  # python 3
 from enum import Enum
 
 from jax import lax
-import jax.numpy as np
+import jax.numpy as jnp
 
 import funsor
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
+from numpyro.primitives import plate as OrigPlateMessenger
 
 funsor.set_backend("jax")
 
@@ -438,14 +439,14 @@ class plate(GlobalNamedMessenger):
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         self.size = size
-        self.subsample_size = size if subsample_size is None else subsample_size
         if dim is not None and dim >= 0:
             raise ValueError('dim arg must be negative.')
-        self.dim = dim
+        self.dim, indices = OrigPlateMessenger._subsample(self.name, self.size, subsample_size, dim)
+        self.subsample_size = indices.shape[0]
         self._indices = funsor.Tensor(
-            funsor.ops.new_arange(funsor.tensor.get_default_prototype(), self.size),
-            OrderedDict([(self.name, funsor.bint(self.size))]),
-            self.size
+            indices,
+            OrderedDict([(self.name, funsor.bint(self.subsample_size))]),
+            self.subsample_size
         )
         super(plate, self).__init__(None)
 
@@ -480,12 +481,33 @@ class plate(GlobalNamedMessenger):
                 msg['kwargs']['sample_shape'] = ()
             overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
             trailing_shape = expected_shape[overlap_idx:]
-            broadcast_shape = lax.broadcast_shapes(trailing_shape, dist_batch_shape)
+            broadcast_shape = lax.broadcast_shapes(trailing_shape, tuple(dist_batch_shape))
             batch_shape = expected_shape[:overlap_idx] + broadcast_shape
             msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
             msg['scale'] = scale * self.size / self.subsample_size
+
+    def postprocess_message(self, msg):
+        if msg["type"] in ("subsample", "param") and self.dim is not None:
+            event_dim = msg["kwargs"].get("event_dim")
+            if event_dim is not None:
+                assert event_dim >= 0
+                dim = self.dim - event_dim
+                shape = msg["value"].shape
+                if len(shape) >= -dim and shape[dim] != 1:
+                    if shape[dim] != self.size:
+                        if msg["type"] == "param":
+                            statement = "numpyro.param({}, ..., event_dim={})".format(msg["name"], event_dim)
+                        else:
+                            statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
+                        raise ValueError(
+                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
+                            .format(self.name, self.size, self.dim, statement, shape))
+                    if self.subsample_size < self.size:
+                        value = msg["value"]
+                        new_value = jnp.take(value, self._indices, dim)
+                        msg["value"] = new_value
 
 
 class enum(BaseEnumMessenger):
@@ -514,7 +536,7 @@ class enum(BaseEnumMessenger):
             raise NotImplementedError("expand=True not implemented")
 
         size = msg["fn"].enumerate_support(expand=False).shape[0]
-        raw_value = np.arange(0, size)
+        raw_value = jnp.arange(0, size)
         funsor_value = funsor.Tensor(
             raw_value,
             OrderedDict([(msg["name"], funsor.bint(size))]),
@@ -536,7 +558,7 @@ class trace(OrigTraceMessenger):
     def postprocess_message(self, msg):
         if msg["type"] == "sample":
             total_batch_shape = lax.broadcast_shapes(
-                msg["fn"].batch_shape,
+                tuple(msg["fn"].batch_shape),
                 msg["value"].shape[:len(msg["value"].shape)-len(msg["fn"].event_shape)]
             )
             msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(total_batch_shape)

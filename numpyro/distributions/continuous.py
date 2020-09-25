@@ -298,14 +298,16 @@ class HalfNormal(Distribution):
 
 
 class InverseGamma(TransformedDistribution):
+    """
+    .. note:: We keep the same notation `rate` as in Pyro but
+        it plays the role of scale parameter of InverseGamma in literatures
+        (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
+    """
     arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
     support = constraints.positive
     reparametrized_params = ['rate']
 
     def __init__(self, concentration, rate=1., validate_args=None):
-        # NB: we keep the same notation `rate` as in Pyro and tensorflow but
-        # it plays the role of scale parameter of InverseGamma in literatures
-        # (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
         base_dist = Gamma(concentration, rate)
         self.concentration = base_dist.concentration
         self.rate = base_dist.rate

@@ -34,7 +34,7 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
-        'jax>=0.1.73',
+        'jax>=0.1.73<0.2',
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L20
         'jaxlib>=0.1.51',
         'tqdm',
@@ -51,9 +51,10 @@ setup(
             'ipython',
             'isort',
             'flax',
-            'dm-haiku @ https://github.com/deepmind/dm-haiku/archive/v0.0.2.zip'
+            'dm-haiku',
+            'tfp-nightly==0.12.0.dev20200911',  # TODO: change this to stable release or a specific nightly release
         ],
-        'examples': ['matplotlib', 'seaborn'],
+        'examples': ['matplotlib', 'seaborn', 'graphviz'],
     },
     long_description=long_description,
     long_description_content_type='text/markdown',
