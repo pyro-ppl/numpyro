@@ -34,9 +34,9 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
-        'jax>=0.1.73<0.2',
-        # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L20
-        'jaxlib>=0.1.51',
+        'jax>=0.2',
+        # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L26
+        'jaxlib>=0.1.55',
         'tqdm',
     ],
     extras_require={
@@ -52,7 +52,7 @@ setup(
             'isort',
             'flax',
             'dm-haiku',
-            'tfp-nightly==0.12.0.dev20200911',  # TODO: change this to stable release or a specific nightly release
+            'tfp-nightly==0.12.0.dev20200923',  # TODO: change this to stable release or a specific nightly release
         ],
         'examples': ['matplotlib', 'seaborn', 'graphviz'],
     },
