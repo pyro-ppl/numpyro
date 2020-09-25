@@ -71,11 +71,12 @@ class _NumPyroOptim(object):
 
         :param fn: objective function.
         :param state: current optimizer state.
-        :return: new optimizer state after the update.
+        :return: a pair of new optimizer state and the output
+            of objective function.
         """
         params = self.get_params(state)
-        loss_val, grads = value_and_grad(fn)(params)
-        return self.update(grads, state), loss_val
+        out, grads = value_and_grad(fn)(params)
+        return self.update(grads, state), out
 
     def get_params(self, state: _IterOptState) -> _Params:
         """
