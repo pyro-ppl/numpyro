@@ -94,10 +94,10 @@ def _check_mean_field_requirement(model_trace, guide_trace):
     Checks that the guide and model sample sites are ordered identically.
     This is sufficient but not necessary for correctness.
     """
-    model_sites = [name for name, site in model_trace.nodes.items()
-                   if site["type"] == "sample" and name in guide_trace.nodes]
-    guide_sites = [name for name, site in guide_trace.nodes.items()
-                   if site["type"] == "sample" and name in model_trace.nodes]
+    model_sites = [name for name, site in model_trace.items()
+                   if site["type"] == "sample" and name in guide_trace]
+    guide_sites = [name for name, site in guide_trace.items()
+                   if site["type"] == "sample" and name in model_trace]
     assert set(model_sites) == set(guide_sites)
     if model_sites != guide_sites:
         warnings.warn("Failed to verify mean field restriction on the guide. "
