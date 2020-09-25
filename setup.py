@@ -54,7 +54,7 @@ setup(
             'dm-haiku',
             'tfp-nightly==0.12.0.dev20200923',  # TODO: change this to stable release or a specific nightly release
         ],
-        'examples': ['matplotlib', 'seaborn', 'graphviz'],
+        'examples': ['matplotlib', 'seaborn', 'graphviz', 'arviz'],
     },
     long_description=long_description,
     long_description_content_type='text/markdown',

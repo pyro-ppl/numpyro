@@ -520,7 +520,7 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     expected_log_prob = beta_log_prob - affine_logdet - signed_stick_breaking_logdet
     assert_allclose(actual_log_prob, expected_log_prob, rtol=2e-5)
 
-    assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=1e-7)
+    assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=1e-6)
 
 
 @pytest.mark.parametrize('rate', [0.1, 0.5, 0.9, 1.0, 1.1, 2.0, 10.0])
