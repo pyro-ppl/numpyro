@@ -93,7 +93,7 @@ def test_change_point():
     mcmc.run(random.PRNGKey(0), count_data)
     samples = mcmc.get_samples()
     assert_allclose(samples["lambda_1"].mean(0), 18., atol=1.)
-    assert_allclose(samples["lambda_2"].mean(0), 23., atol=1.)
+    assert_allclose(samples["lambda_2"].mean(0), 22.5, atol=1.5)
 
 
 def test_gaussian_hmm():

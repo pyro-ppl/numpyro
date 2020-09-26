@@ -1,3 +1,8 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+import numpy as np
+
 from jax import ops, random
 from jax.experimental import stax
 from jax.nn import sigmoid, softplus
@@ -21,8 +26,8 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
     input_dim, out_dim = num_blocks * in_factor, num_blocks * out_factor
     # construct mask_d, mask_o for formula (8) of Ref [1]
     # Diagonal block mask
-    mask_d = jnp.identity(num_blocks)[..., None]
-    mask_d = jnp.tile(mask_d, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
+    mask_d = np.identity(num_blocks)[..., None]
+    mask_d = np.tile(mask_d, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
     # Off-diagonal block mask for upper triangular weight matrix
     mask_o = vec_to_tril_matrix(jnp.ones(num_blocks * (num_blocks - 1) // 2), diagonal=-1).T[..., None]
     mask_o = jnp.tile(mask_o, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
