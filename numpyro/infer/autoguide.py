@@ -444,7 +444,12 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
+                 init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -493,7 +498,12 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
+                 init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -543,7 +553,12 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1, rank=None):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
+                 rank=None, init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
@@ -686,7 +701,12 @@ class AutoIAFNormal(AutoContinuous):
         Defaults to :func:`jax.experimental.stax.Elu`.
     """
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform,
-                 num_flows=3, hidden_dims=None, skip_connections=False, nonlinearity=stax.Elu):
+                 num_flows=3, hidden_dims=None, skip_connections=False, nonlinearity=stax.Elu,
+                 init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
         # IAF paper (https://arxiv.org/abs/1606.04934)
@@ -743,7 +763,11 @@ class AutoBNAFNormal(AutoContinuous):
         The elements of hidden_factors must be integers.
     """
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, num_flows=1,
-                 hidden_factors=[8, 8]):
+                 hidden_factors=[8, 8], init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
         super(AutoBNAFNormal, self).__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)

@@ -25,6 +25,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import warnings
+
 import numpy as np
 
 from jax import device_put, lax
@@ -359,7 +361,12 @@ class Delta(Distribution):
     support = constraints.real
     is_discrete = True
 
-    def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None):
+    def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None, value=None):
+        if value is not None:
+            v = value
+            warnings.warn("`value` argument has been deprecated in favor of `v` argument.",
+                          FutureWarning)
+
         if event_dim > jnp.ndim(v):
             raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
                              .format(event_dim, jnp.ndim(v)))
