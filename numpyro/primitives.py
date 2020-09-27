@@ -223,7 +223,9 @@ class plate(Messenger):
     the size of the plate. Additionally, a scale factor might be applied by
     certain inference algorithms if `subsample_size` is specified.
 
-    .. note:: This can be used to subsample minibatches of data::
+    .. note:: This can be used to subsample minibatches of data:
+
+        .. code-block:: python
 
             with plate("data", len(data), subsample_size=100) as ind:
                 batch = data[ind]
