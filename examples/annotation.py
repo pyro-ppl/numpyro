@@ -35,6 +35,8 @@ Switching" issue (mentioned in section 6.2 of [1]).
 import argparse
 import os
 
+import numpy as np
+
 from jax import nn, random
 import jax.numpy as jnp
 
@@ -54,8 +56,8 @@ def get_data():
         from `0` to `num_classes - 1`.
     """
     # NB: the first annotator assessed each item 3 times
-    positions = jnp.array([1, 1, 1, 2, 3, 4, 5])
-    annotations = jnp.array([
+    positions = np.array([1, 1, 1, 2, 3, 4, 5])
+    annotations = np.array([
         [1, 3, 1, 2, 2, 2, 1, 3, 2, 2, 4, 2, 1, 2, 1,
          1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1,
          1, 3, 1, 2, 2, 4, 2, 2, 3, 1, 1, 1, 2, 1, 2],
@@ -86,7 +88,7 @@ def multinomial(annotations):
     """
     This model corresponds to the plate diagram in Figure 1 of reference [1].
     """
-    num_classes = int(jnp.max(annotations)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("class", num_classes):
@@ -105,8 +107,8 @@ def dawid_skene(positions, annotations):
     """
     This model corresponds to the plate diagram in Figure 2 of reference [1].
     """
-    num_annotators = int(jnp.max(positions)) + 1
-    num_classes = int(jnp.max(annotations)) + 1
+    num_annotators = int(np.max(positions)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
@@ -128,8 +130,8 @@ def mace(positions, annotations):
     """
     This model corresponds to the plate diagram in Figure 3 of reference [1].
     """
-    num_annotators = int(jnp.max(positions)) + 1
-    num_classes = int(jnp.max(annotations)) + 1
+    num_annotators = int(np.max(positions)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("annotator", num_annotators):
@@ -151,8 +153,8 @@ def hierarchical_dawid_skene(positions, annotations):
     """
     This model corresponds to the plate diagram in Figure 4 of reference [1].
     """
-    num_annotators = int(jnp.max(positions)) + 1
-    num_classes = int(jnp.max(annotations)) + 1
+    num_annotators = int(np.max(positions)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("class", num_classes):
@@ -184,7 +186,7 @@ def item_difficulty(annotations):
     """
     This model corresponds to the plate diagram in Figure 5 of reference [1].
     """
-    num_classes = int(jnp.max(annotations)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("class", num_classes):
@@ -208,8 +210,8 @@ def logistic_random_effects(positions, annotations):
     """
     This model corresponds to the plate diagram in Figure 5 of reference [1].
     """
-    num_annotators = int(jnp.max(positions)) + 1
-    num_classes = int(jnp.max(annotations)) + 1
+    num_annotators = int(np.max(positions)) + 1
+    num_classes = int(np.max(annotations)) + 1
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("class", num_classes):

@@ -54,6 +54,7 @@ import argparse
 import os
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from jax import random
 import jax.numpy as jnp
@@ -72,7 +73,7 @@ def glmm(dept, male, applications, admit=None):
     L_Rho = numpyro.sample('L_Rho', dist.LKJCholesky(2, concentration=2))
     scale_tril = sigma[..., jnp.newaxis] * L_Rho
     # non-centered parameterization
-    num_dept = len(jnp.unique(dept))
+    num_dept = len(np.unique(dept))
     z = numpyro.sample('z', dist.Normal(jnp.zeros((num_dept, 2)), 1))
     v = jnp.dot(scale_tril, z.T).T
 
