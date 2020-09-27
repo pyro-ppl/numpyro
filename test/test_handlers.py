@@ -255,7 +255,7 @@ def test_plate(model):
     assert 'z' in trace
     for name, site in trace.items():
         if site['type'] == 'sample':
-            assert_allclose(jit_trace[name]['value'], site['value'])
+            assert_allclose(jit_trace[name]['value'].shape, site['value'].shape)
 
 
 def test_subsample_data():
