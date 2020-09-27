@@ -107,7 +107,7 @@ def _check_mean_field_requirement(model_trace, guide_trace):
                       "Guide sites:\n  " + "\n  ".join(guide_sites))
 
 
-class MeanFieldELBO(ELBO):
+class TraceMeanField_ELBO(ELBO):
     """
     A trace implementation of ELBO-based SVI. This is currently the only
     ELBO estimator in NumPyro that uses analytic KL divergences when those

@@ -18,7 +18,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
-from numpyro.infer import ELBO, MeanFieldELBO, SVI
+from numpyro.infer import ELBO, SVI, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
     AutoDiagonalNormal,
@@ -79,7 +79,7 @@ def test_beta_bernoulli(auto_class):
     AutoLowRankMultivariateNormal,
     AutoNormal,
 ])
-@pytest.mark.parametrize('Elbo', [ELBO, MeanFieldELBO])
+@pytest.mark.parametrize('Elbo', [ELBO, TraceMeanField_ELBO])
 def test_logistic_regression(auto_class, Elbo):
     N, dim = 3000, 3
     data = random.normal(random.PRNGKey(0), (N, dim))
@@ -99,11 +99,11 @@ def test_logistic_regression(auto_class, Elbo):
     svi_state = svi.init(rng_key_init, data, labels)
 
     # smoke test if analytic KL is used
-    if auto_class is AutoNormal and Elbo is MeanFieldELBO:
+    if auto_class is AutoNormal and Elbo is TraceMeanField_ELBO:
         _, mean_field_loss = svi.update(svi_state, data, labels)
         svi.loss = ELBO()
         _, elbo_loss = svi.update(svi_state, data, labels)
-        svi.loss = MeanFieldELBO()
+        svi.loss = TraceMeanField_ELBO()
         assert abs(mean_field_loss - elbo_loss) > 0.5
 
     def body_fn(i, val):
