@@ -25,6 +25,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import warnings
+
 import numpy as np
 
 from jax import device_put, lax
@@ -355,42 +357,47 @@ def Categorical(probs=None, logits=None, validate_args=None):
 
 
 class Delta(Distribution):
-    arg_constraints = {'value': constraints.real, 'log_density': constraints.real}
+    arg_constraints = {'v': constraints.real, 'log_density': constraints.real}
     support = constraints.real
     is_discrete = True
 
-    def __init__(self, value=0., log_density=0., event_dim=0, validate_args=None):
-        if event_dim > jnp.ndim(value):
+    def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None, value=None):
+        if value is not None:
+            v = value
+            warnings.warn("`value` argument has been deprecated in favor of `v` argument.",
+                          FutureWarning)
+
+        if event_dim > jnp.ndim(v):
             raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
-                             .format(event_dim, jnp.ndim(value)))
-        batch_dim = jnp.ndim(value) - event_dim
-        batch_shape = jnp.shape(value)[:batch_dim]
-        event_shape = jnp.shape(value)[batch_dim:]
-        self.value = lax.convert_element_type(value, canonicalize_dtype(jnp.float64))
+                             .format(event_dim, jnp.ndim(v)))
+        batch_dim = jnp.ndim(v) - event_dim
+        batch_shape = jnp.shape(v)[:batch_dim]
+        event_shape = jnp.shape(v)[batch_dim:]
+        self.v = lax.convert_element_type(v, canonicalize_dtype(jnp.float64))
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
-        return jnp.broadcast_to(device_put(self.value), shape)
+        return jnp.broadcast_to(device_put(self.v), shape)
 
     @validate_sample
     def log_prob(self, value):
-        log_prob = jnp.log(value == self.value)
+        log_prob = jnp.log(value == self.v)
         log_prob = sum_rightmost(log_prob, len(self.event_shape))
         return log_prob + self.log_density
 
     @property
     def mean(self):
-        return self.value
+        return self.v
 
     @property
     def variance(self):
         return jnp.zeros(self.batch_shape + self.event_shape)
 
     def tree_flatten(self):
-        return (self.value, self.log_density), self.event_dim
+        return (self.v, self.log_density), self.event_dim
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
