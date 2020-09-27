@@ -121,6 +121,22 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
     """
     A primitive to place a prior over the parameters of the Flax module `nn_module`.
 
+    .. note::
+        Parameters of a Flax module are stored in a nested dict. For example,
+        the module `B` defined as follows::
+
+            class A(nn.Module):
+                def apply(self, x):
+                    return nn.Dense(x, 1, bias=False, name='dense')
+
+            class B(nn.Module):
+                def apply(self, x):
+                    return A(x, name='inner')
+
+        has parameters `{'inner': {'dense': {'kernel': param_value}}}`. In the argument
+        `prior`, to specify `kernel` parameter, we join the path to it using dots:
+        `prior={"inner.dense.kernel": param_prior}`.
+
     :param str name: name of NumPyro module
     :param flax.nn.Module: the module to be registered with NumPyro
     :param prior: a NumPyro distribution or a Python dict with parameter names as keys and
