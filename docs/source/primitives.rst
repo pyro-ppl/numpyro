@@ -35,13 +35,21 @@ module
 ------
 .. autofunction:: numpyro.primitives.module
 
+flax_module
+-----------
+.. autofunction:: numpyro.contrib.module.flax_module
+
 haiku_module
 ------------
 .. autofunction:: numpyro.contrib.module.haiku_module
 
-flax_module
-------------
-.. autofunction:: numpyro.contrib.module.flax_module
+random_flax_module
+------------------
+.. autofunction:: numpyro.contrib.module.random_flax_module
+
+random_haiku_module
+-------------------
+.. autofunction:: numpyro.contrib.module.random_haiku_module
 
 scan
 ----
