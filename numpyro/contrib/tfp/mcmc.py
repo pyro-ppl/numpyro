@@ -225,5 +225,5 @@ __doc__ = '\n\n'.join([
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.mcmc.{0}
     '''.format(_name)
-    for _name in __all__[:1] + sorted(__all__)
+    for _name in __all__[:1] + sorted(__all__[1:])
 ])
