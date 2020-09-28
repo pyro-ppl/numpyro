@@ -40,10 +40,10 @@ def infer_nuts(rng_key, feats, obs, samples=5, warmup=0, ):
     return mcmc.get_samples()
 
 
-def infer_hmcecs(rng_key, feats, obs, m=50,g=20,samples=10, warmup=5, ):
+def infer_hmcecs(rng_key, feats, obs, m=50,g=20,samples=1000, warmup=500, ):
     hmcecs_key, map_key = jax.random.split(rng_key)
     n, _ = feats.shape
-
+    print("Using {} samples".format(str(samples+warmup)))
 
 
     print("Running NUTS for map estimation")
@@ -70,7 +70,7 @@ def breast_cancer_data():
 
 def higgs_data():
     observations,features = _load_higgs()
-    return observations[:1000],features[:1000]
+    return features[:1000],observations[:1000]
 
 
 def Plot(samples):
@@ -122,7 +122,7 @@ if __name__ == '__main__':
     Folders("PLOTS_{}".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss")))
     config.update('jax_disable_jit', True)
     est_posterior = infer_hmcecs(rng_key, feats=feats, obs=obs, m =50,g=20)
-
+    Plot(est_posterior)
     exit()
     predictions = Predictive(model, posterior_samples=est_posterior)(rng_key, feats, None)['obs']
 

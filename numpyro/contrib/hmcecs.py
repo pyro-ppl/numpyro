@@ -595,7 +595,7 @@ class HMC(MCMCKernel):
             assert self.z_ref is not None, "Please provide a (i.e map) estimate for the parameters"
             #Initialize the subsample state
 
-            self._algo = "HMC"
+            self._algo = "NUTS"
             # Initialize the potential and gradient potential functions
             self._potential_fn = lambda model, args, kwargs, ll_ref, jac_all,z, z_ref, hess_all, n, m: \
                 lambda z: potential_est(model=self._model, model_args=model_args, model_kwargs=model_kwargs,
