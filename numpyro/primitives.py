@@ -227,9 +227,9 @@ class plate(Messenger):
 
         .. code-block:: python
 
-        >>> with plate("data", len(data), subsample_size=100) as ind:
-        >>>     batch = data[ind]
-        >>>     assert len(batch) == 100
+            with plate("data", len(data), subsample_size=100) as ind:
+                batch = data[ind]
+                assert len(batch) == 100
 
     :param str name: Name of the plate.
     :param int size: Size of the plate.

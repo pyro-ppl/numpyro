@@ -192,7 +192,7 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
         >>>
         >>> n_train_data = 5000
         >>> x_train, y_train = generate_data(n_train_data)
-        >>> guide = autoguide.AutoDiagonalNormal(model, init_strategy=init_to_feasible)
+        >>> guide = autoguide.AutoNormal(model, init_loc_fn=init_to_feasible)
         >>> svi = SVI(model, guide, numpyro.optim.Adam(5e-3), ELBO())
         >>>
         >>> batch_size = 256
