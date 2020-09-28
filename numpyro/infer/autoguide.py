@@ -52,7 +52,7 @@ class AutoGuide(ABC):
 
     :param callable model: a pyro model
     :param str prefix: a prefix that will be prefixed to all param internal sites
-    :param callable init_strategy: A per-site initialization function.
+    :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     :param callable create_plates: An optional function inputing the same
         ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
@@ -60,10 +60,10 @@ class AutoGuide(ABC):
         automatically as usual. This is useful for data subsampling.
     """
 
-    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, create_plates=None):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, create_plates=None):
         self.model = model
         self.prefix = prefix
-        self.init_strategy = init_strategy
+        self.init_loc_fn = init_loc_fn
         self.create_plates = create_plates
         self.prototype_trace = None
         self._prototype_frames = {}
@@ -114,7 +114,7 @@ class AutoGuide(ABC):
         with handlers.block():
             init_params, _, self._postprocess_fn, self.prototype_trace = initialize_model(
                 rng_key, self.model,
-                init_strategy=self.init_strategy,
+                init_strategy=self.init_loc_fn,
                 dynamic_args=False,
                 model_args=args,
                 model_kwargs=kwargs)
@@ -146,7 +146,7 @@ class AutoNormal(AutoGuide):
 
     :param callable model: A NumPyro model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
-    :param callable init_strategy: A per-site initialization function.
+    :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     :param float init_scale: Initial scale for the standard deviation of each
         (unconstrained transformed) latent variable.
@@ -155,12 +155,11 @@ class AutoNormal(AutoGuide):
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
     """
-    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1,
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  create_plates=None):
-        # TODO: rename `init_strategy` to `init_loc_fn` to be consistent with Pyro
         self._init_scale = init_scale
         self._event_dims = {}
-        super().__init__(model, prefix=prefix, init_strategy=init_strategy, create_plates=create_plates)
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates)
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
@@ -278,7 +277,7 @@ class AutoContinuous(AutoGuide):
 
     :param callable model: A NumPyro model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
-    :param callable init_strategy: A per-site initialization function.
+    :param callable init_loc_fn: A per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
     def _setup_prototype(self, *args, **kwargs):
@@ -334,11 +333,13 @@ class AutoContinuous(AutoGuide):
     def _unpack_and_constrain(self, latent_sample, params):
         def unpack_single_latent(latent):
             unpacked_samples = self._unpack_latent(latent)
-            # TODO: this seems to be a legacy behavior? why we need to add param here?
-            # add param sites in model
+            # XXX: we need to add param here to be able to replay model
             unpacked_samples.update({k: v for k, v in params.items() if k in self.prototype_trace
                                      and self.prototype_trace[k]['type'] == 'param'})
-            return self._postprocess_fn(unpacked_samples)
+            samples = self._postprocess_fn(unpacked_samples)
+            # filter out param sites
+            return {k: v for k, v in samples.items() if k in self.prototype_trace
+                    and self.prototype_trace[k]['type'] != 'param'}
 
         sample_shape = jnp.shape(latent_sample)[:-1]
         if sample_shape:
@@ -443,11 +444,16 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
+                 init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
-        super().__init__(model, prefix=prefix, init_strategy=init_strategy)
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
@@ -492,11 +498,16 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
+                 init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
-        super().__init__(model, prefix=prefix, init_strategy=init_strategy)
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
@@ -542,13 +553,18 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
-    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, init_scale=0.1, rank=None):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
+                 rank=None, init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         if init_scale <= 0:
             raise ValueError("Expected init_scale > 0. but got {}".format(init_scale))
         self._init_scale = init_scale
         self.rank = rank
         super(AutoLowRankMultivariateNormal, self).__init__(
-            model, prefix=prefix, init_strategy=init_strategy)
+            model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self, *args, **kwargs):
         rank = int(round(self.latent_dim ** 0.5)) if self.rank is None else self.rank
@@ -675,7 +691,7 @@ class AutoIAFNormal(AutoContinuous):
 
     :param callable model: a generative model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
-    :param callable init_strategy: A per-site initialization function.
+    :param callable init_loc_fn: A per-site initialization function.
     :param int num_flows: the number of flows to be used, defaults to 3.
     :param list hidden_dims: the dimensionality of the hidden units per layer.
         Defaults to ``[latent_dim, latent_dim]``.
@@ -684,8 +700,13 @@ class AutoIAFNormal(AutoContinuous):
     :param callable nonlinearity: the nonlinearity to use in the feedforward network.
         Defaults to :func:`jax.experimental.stax.Elu`.
     """
-    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform,
-                 num_flows=3, hidden_dims=None, skip_connections=False, nonlinearity=stax.Elu):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform,
+                 num_flows=3, hidden_dims=None, skip_connections=False, nonlinearity=stax.Elu,
+                 init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         self.num_flows = num_flows
         # 2-layer, stax.Elu, skip_connections=False by default following the experiments in
         # IAF paper (https://arxiv.org/abs/1606.04934)
@@ -693,7 +714,7 @@ class AutoIAFNormal(AutoContinuous):
         self._hidden_dims = hidden_dims
         self._skip_connections = skip_connections
         self._nonlinearity = nonlinearity
-        super(AutoIAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
+        super(AutoIAFNormal, self).__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self):
         if self.latent_dim == 1:
@@ -735,17 +756,21 @@ class AutoBNAFNormal(AutoContinuous):
 
     :param callable model: a generative model.
     :param str prefix: a prefix that will be prefixed to all param internal sites.
-    :param callable init_strategy: A per-site initialization function.
+    :param callable init_loc_fn: A per-site initialization function.
     :param int num_flows: the number of flows to be used, defaults to 3.
     :param list hidden_factors: Hidden layer i has ``hidden_factors[i]`` hidden units per
         input dimension. This corresponds to both :math:`a` and :math:`b` in reference [1].
         The elements of hidden_factors must be integers.
     """
-    def __init__(self, model, *, prefix="auto", init_strategy=init_to_uniform, num_flows=1,
-                 hidden_factors=[8, 8]):
+    def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, num_flows=1,
+                 hidden_factors=[8, 8], init_strategy=None):
+        if init_strategy is not None:
+            init_loc_fn = init_strategy
+            warnings.warn("`init_strategy` argument has been deprecated in favor of `init_loc_fn`"
+                          " argument.", FutureWarning)
         self.num_flows = num_flows
         self._hidden_factors = hidden_factors
-        super(AutoBNAFNormal, self).__init__(model, prefix=prefix, init_strategy=init_strategy)
+        super(AutoBNAFNormal, self).__init__(model, prefix=prefix, init_loc_fn=init_loc_fn)
 
     def _get_posterior(self):
         if self.latent_dim == 1:

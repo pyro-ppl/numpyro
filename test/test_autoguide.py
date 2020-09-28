@@ -54,7 +54,7 @@ def test_beta_bernoulli(auto_class):
         numpyro.sample('obs', dist.Bernoulli(f), obs=data)
 
     adam = optim.Adam(0.01)
-    guide = auto_class(model, init_strategy=init_strategy)
+    guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
@@ -94,7 +94,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
-    guide = auto_class(model, init_strategy=init_strategy)
+    guide = auto_class(model, init_loc_fn=init_strategy)
     svi = SVI(model, guide, adam, Elbo())
     svi_state = svi.init(rng_key_init, data, labels)
 
