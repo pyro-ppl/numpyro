@@ -24,6 +24,13 @@ ClippedAdam
    :undoc-members:
    :inherited-members:
 
+Minimize
+--------
+.. autoclass:: numpyro.optim.Minimize
+   :members:
+   :undoc-members:
+   :inherited-members:
+
 Momentum
 --------
 .. autoclass:: numpyro.optim.Momentum
