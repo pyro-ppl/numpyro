@@ -34,3 +34,5 @@ numpyro/examples/.data
 # docs
 docs/build
 docs/.DS_Store
+
+examples/HIGGS.csv.gz

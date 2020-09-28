@@ -9,9 +9,9 @@ import pickle
 import struct
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
-
+import warnings
 import numpy as np
-
+import pandas as pd
 from jax import device_put, lax
 from jax.interpreters.xla import DeviceArray
 
@@ -63,6 +63,9 @@ JSB_CHORALES = dset('jsb_chorales', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle',
 ])
 
+HIGGS = dset("higgs",[
+    "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz",
+])
 
 def _download(dset):
     for url in dset.urls:
@@ -216,6 +219,32 @@ def _load_jsb_chorales():
         processed_dataset[k] = (lengths, _pad_sequence(sequences).astype("int32"))
     return processed_dataset
 
+def _load_higgs():
+    warnings.warn("Downloading 2.6 GB dataset")
+    _download(HIGGS)
+    file_path = os.path.join(DATA_DIR, 'HIGGS.csv.gz')
+    df = pd.read_csv(file_path, header=None)
+    obs, feats = df.iloc[:, 0], df.iloc[:, 1:]
+    return obs.to_numpy(), feats.to_numpy()
+
+    #SLOW (no pandas) option
+    # observations,features = [],[]
+    # with gzip.open(file_path, mode='rt') as f:
+    #     csv_reader = csv.DictReader(
+    #         f,
+    #         delimiter=',',
+    #         restkey="30",
+    #         fieldnames=['observations'] +['feature_{}'.format(i) for i in range(28)],
+    #     )
+    #
+    #     for row in csv_reader:
+    #         observations.append(row["observations"])
+    #         for i in range(28):
+    #             print(row["feature_{}".format(i)])
+    #             features.append(row["feature_{}".format(i)])
+    # return {"observations": np.stack(observations),"features": np.stack(features)}
+
+
 
 def _load(dset):
     if dset == BASEBALL:
@@ -232,6 +261,8 @@ def _load(dset):
         return _load_lynxhare()
     elif dset == JSB_CHORALES:
         return _load_jsb_chorales()
+    elif dset == HIGGS:
+        return _load_higgs()
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 

@@ -169,7 +169,7 @@ def potential_est(model, model_args, model_kwargs,ll_ref, jac_all, hess_all, z, 
 
     sigma = n ** 2 / m * jnp.var(diff)
 
-    ll_prior, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=True)
+    ll_prior, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=True) #TODO: work with hierachical models
 
     return (-l_hat + .5 * sigma) - ll_prior
 
