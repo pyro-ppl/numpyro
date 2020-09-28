@@ -136,7 +136,7 @@ def _kl_expanded_expanded(p, q):
 
 @register_kl(Delta, Distribution)
 def _kl_delta(p, q):
-    return -q.log_prob(p.value)
+    return -q.log_prob(p.v)
 
 
 @register_kl(Independent, Independent)
