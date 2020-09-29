@@ -3,8 +3,6 @@
 
 import warnings
 
-import numpy as np
-
 from jax import random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
