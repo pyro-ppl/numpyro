@@ -6,7 +6,7 @@ from copy import deepcopy
 from functools import partial
 
 from jax import numpy as jnp
-from jax.tree_util import register_pytree_node
+from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
@@ -48,6 +48,9 @@ def flax_module(name, nn_module, *, input_shape=None):
         # feed in dummy data to init params
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
         _, nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
+        # make sure that nn_params keep the same order after unflatten
+        params_flat, tree_def = tree_flatten(nn_params)
+        nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
     return partial(nn_module.call, nn_params)
 
@@ -83,8 +86,12 @@ def haiku_module(name, nn_module, *, input_shape=None):
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
         nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
         # haiku init returns an immutable dict
+        nn_params = haiku.data_structures.to_mutable_dict(nn_params)
         # we cast it to a mutable one to be able to set priors for parameters
-        nn_params = numpyro.param(module_key, haiku.data_structures.to_mutable_dict(nn_params))
+        # make sure that nn_params keep the same order after unflatten
+        params_flat, tree_def = tree_flatten(nn_params)
+        nn_params = tree_unflatten(tree_def, params_flat)
+        numpyro.param(module_key, nn_params)
     return partial(nn_module.apply, nn_params, None)
 
 
@@ -163,7 +170,7 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.contrib.module import random_flax_module
-        >>> from numpyro.infer import ELBO, Predictive, SVI, autoguide, init_to_feasible
+        >>> from numpyro.infer import Predictive, SVI, TraceMeanField_ELBO, autoguide, init_to_feasible
         >>>
         >>> class Net(nn.Module):
         ...     def apply(self, x, n_units):
@@ -193,7 +200,7 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
         >>> n_train_data = 5000
         >>> x_train, y_train = generate_data(n_train_data)
         >>> guide = autoguide.AutoNormal(model, init_loc_fn=init_to_feasible)
-        >>> svi = SVI(model, guide, numpyro.optim.Adam(5e-3), ELBO())
+        >>> svi = SVI(model, guide, numpyro.optim.Adam(5e-3), TraceMeanField_ELBO())
         >>>
         >>> batch_size = 256
         >>> n_iterations = 3000

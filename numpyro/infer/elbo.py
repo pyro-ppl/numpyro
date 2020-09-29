@@ -1,12 +1,17 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
+
 from jax import random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
-from numpyro.handlers import replay, seed
+import numpyro.distributions as dist
+from numpyro.distributions.kl import kl_divergence
+from numpyro.distributions.util import scale_and_mask
+from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import log_density
 
 
@@ -66,6 +71,105 @@ class ELBO(object):
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
+        if self.num_particles == 1:
+            return - single_particle_elbo(rng_key)
+        else:
+            rng_keys = random.split(rng_key, self.num_particles)
+            return - jnp.mean(vmap(single_particle_elbo)(rng_keys))
+
+
+def _get_log_prob_sum(site):
+    if site['intermediates']:
+        log_prob = site['fn'].log_prob(site['value'], site['intermediates'])
+    else:
+        log_prob = site['fn'].log_prob(site['value'])
+    log_prob = scale_and_mask(log_prob, site['scale'])
+    return jnp.sum(log_prob)
+
+
+def _check_mean_field_requirement(model_trace, guide_trace):
+    """
+    Checks that the guide and model sample sites are ordered identically.
+    This is sufficient but not necessary for correctness.
+    """
+    model_sites = [name for name, site in model_trace.items()
+                   if site["type"] == "sample" and name in guide_trace]
+    guide_sites = [name for name, site in guide_trace.items()
+                   if site["type"] == "sample" and name in model_trace]
+    assert set(model_sites) == set(guide_sites)
+    if model_sites != guide_sites:
+        warnings.warn("Failed to verify mean field restriction on the guide. "
+                      "To eliminate this warning, ensure model and guide sites "
+                      "occur in the same order.\n" +
+                      "Model sites:\n  " + "\n  ".join(model_sites) +
+                      "Guide sites:\n  " + "\n  ".join(guide_sites))
+
+
+class TraceMeanField_ELBO(ELBO):
+    """
+    A trace implementation of ELBO-based SVI. This is currently the only
+    ELBO estimator in NumPyro that uses analytic KL divergences when those
+    are available.
+
+    .. warning:: This estimator may give incorrect results if the mean-field
+        condition is not satisfied.
+        The mean field condition is a sufficient but not necessary condition for
+        this estimator to be correct. The precise condition is that for every
+        latent variable `z` in the guide, its parents in the model must not include
+        any latent variables that are descendants of `z` in the guide. Here
+        'parents in the model' and 'descendants in the guide' is with respect
+        to the corresponding (statistical) dependency structure. For example, this
+        condition is always satisfied if the model and guide have identical
+        dependency structures.
+    """
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+        """
+        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+
+        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param dict param_map: dictionary of current parameter values keyed by site
+            name.
+        :param model: Python callable with NumPyro primitives for the model.
+        :param guide: Python callable with NumPyro primitives for the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
+        """
+        def single_particle_elbo(rng_key):
+            model_seed, guide_seed = random.split(rng_key)
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+            subs_guide = substitute(seeded_guide, data=param_map)
+            guide_trace = trace(subs_guide).get_trace(*args, **kwargs)
+            subs_model = substitute(replay(seeded_model, guide_trace), data=param_map)
+            model_trace = trace(subs_model).get_trace(*args, **kwargs)
+            _check_mean_field_requirement(model_trace, guide_trace)
+
+            elbo_particle = 0
+            for name, model_site in model_trace.items():
+                if model_site["type"] == "sample" and not isinstance(model_site["fn"], dist.PRNGIdentity):
+                    if model_site["is_observed"]:
+                        elbo_particle = elbo_particle + _get_log_prob_sum(model_site)
+                    else:
+                        guide_site = guide_trace[name]
+                        try:
+                            kl_qp = kl_divergence(guide_site["fn"], model_site["fn"])
+                            kl_qp = scale_and_mask(kl_qp, scale=guide_site["scale"])
+                            elbo_particle = elbo_particle - jnp.sum(kl_qp)
+                        except NotImplementedError:
+                            elbo_particle = elbo_particle + _get_log_prob_sum(model_site) \
+                                - _get_log_prob_sum(guide_site)
+
+            # handle auxiliary sites in the guide
+            for name, site in guide_trace.items():
+                if site["type"] == "sample" and name not in model_trace:
+                    assert site["infer"].get("is_auxiliary")
+                    elbo_particle = elbo_particle - _get_log_prob_sum(site)
+
+            return elbo_particle
+
         if self.num_particles == 1:
             return - single_particle_elbo(rng_key)
         else:

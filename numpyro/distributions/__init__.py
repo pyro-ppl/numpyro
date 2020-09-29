@@ -3,6 +3,7 @@
 
 from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
 import numpyro.distributions.constraints  # noqa: F401
+from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -68,6 +69,7 @@ from numpyro.distributions.transforms import biject_to
 __all__ = [
     'biject_to',
     'constraints',
+    'kl_divergence',
     'transforms',
     'Bernoulli',
     'BernoulliLogits',
