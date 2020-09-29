@@ -525,7 +525,9 @@ class HMC(MCMCKernel):
                  subsample_method = None,
                  m= None,
                  g = None,
-                 z_ref= None
+                 z_ref= None,
+                 algo = "HMC",
+                 covariate_fn = None, #TODO: substitute with default Taylor expansion
                  ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
@@ -540,7 +542,7 @@ class HMC(MCMCKernel):
         self._dense_mass = dense_mass
         self._target_accept_prob = target_accept_prob
         self._trajectory_length = trajectory_length
-        self._algo = 'HMC'
+        self._algo = algo
         self._max_tree_depth = 10
         self._init_strategy = init_strategy
         self._find_heuristic_step_size = find_heuristic_step_size
@@ -560,6 +562,7 @@ class HMC(MCMCKernel):
         self._postprocess_fn = None
         self._sample_fn = None
         self._subsample_fn = None
+        self.covariates_fn = None
 
     def _init_subsample_state(self,rng_key, model_args, model_kwargs, init_params,z_ref):
         "Compute the jacobian, hessian and gradient for all the data"
@@ -595,7 +598,6 @@ class HMC(MCMCKernel):
             assert self.z_ref is not None, "Please provide a (i.e map) estimate for the parameters"
             #Initialize the subsample state
 
-            self._algo = "NUTS"
             # Initialize the potential and gradient potential functions
             self._potential_fn = lambda model, args, kwargs, ll_ref, jac_all,z, z_ref, hess_all, n, m: \
                 lambda z: potential_est(model=self._model, model_args=model_args, model_kwargs=model_kwargs,

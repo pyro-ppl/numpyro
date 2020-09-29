@@ -6,7 +6,8 @@ import numpyro.distributions as dist
 from numpyro.infer import NUTS, MCMC, Predictive
 import sys, os
 from jax.config import config
-import datetime
+import datetime,time
+
 sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/contrib/')
 sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/examples/')
 
@@ -40,7 +41,7 @@ def infer_nuts(rng_key, feats, obs, samples=5, warmup=0, ):
     return mcmc.get_samples()
 
 
-def infer_hmcecs(rng_key, feats, obs, m=50,g=20,samples=1000, warmup=500, ):
+def infer_hmcecs(rng_key, feats, obs, m=50,g=20,samples=10, warmup=5, ):
     hmcecs_key, map_key = jax.random.split(rng_key)
     n, _ = feats.shape
     print("Using {} samples".format(str(samples+warmup)))
@@ -52,9 +53,18 @@ def infer_hmcecs(rng_key, feats, obs, m=50,g=20,samples=1000, warmup=500, ):
     #Observations = (569,1)
     #Features = (569,31)
     print("Running MCMC subsampling")
-    kernel = HMC(model=model,z_ref=z_map,m=m,g=g,subsample_method="perturb")
+    start = time.time()
+    kernel = HMC(model=model,z_ref=z_map,m=m,g=g,subsample_method="perturb",algo="NUTS")
+
     mcmc = MCMC(kernel,num_warmup=warmup,num_samples=samples)
     mcmc.run(rng_key,feats,obs)
+    stop = time.time()
+    file_hyperparams = open("PLOTS_{}/Hyperparameters_{}.txt".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss"),now.strftime("%Y_%m_%d_%Hh%Mmin%Ss")), "a")
+    file_hyperparams.write('MCMC/NUTS elapsed time: {} \n'.format(time.time() - start))
+    file_hyperparams.close()
+
+    save_obj(mcmc.get_samples(),"{}/MCMC_Dict_Samples.pkl".format("PLOTS_{}".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss"))))
+
     return mcmc.get_samples()
 
 
@@ -70,8 +80,12 @@ def breast_cancer_data():
 
 def higgs_data():
     observations,features = _load_higgs()
-    return features[:1000],observations[:1000]
-
+    return features[:100],observations[:100]
+def save_obj(obj, name):
+    import _pickle as cPickle
+    import bz2
+    with bz2.BZ2File(name, "wb") as f:
+        cPickle.dump(obj, f)
 
 def Plot(samples):
     import matplotlib.pyplot as plt
@@ -115,8 +129,8 @@ if __name__ == '__main__':
     rng_key, feat_key, obs_key = jax.random.split(rng_key, 3)
 
 
-    #feats, obs = breast_cancer_data()
-    feats,obs = higgs_data()
+    feats, obs = breast_cancer_data()
+    #feats,obs = higgs_data()
 
     now = datetime.datetime.now()
     Folders("PLOTS_{}".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss")))
