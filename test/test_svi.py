@@ -14,7 +14,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import ELBO, SVI, RenyiELBO
+from numpyro.infer import RenyiELBO, SVI, Trace_ELBO
 from numpyro.util import fori_loop
 
 
@@ -27,7 +27,7 @@ def test_renyi_elbo(alpha):
         pass
 
     def elbo_loss_fn(x):
-        return ELBO().loss(random.PRNGKey(0), {}, model, guide, x)
+        return Trace_ELBO().loss(random.PRNGKey(0), {}, model, guide, x)
 
     def renyi_loss_fn(x):
         return RenyiELBO(alpha=alpha, num_particles=10).loss(random.PRNGKey(0), {}, model, guide, x)
@@ -39,7 +39,7 @@ def test_renyi_elbo(alpha):
 
 
 @pytest.mark.parametrize('elbo', [
-    ELBO(),
+    Trace_ELBO(),
     RenyiELBO(num_particles=10),
 ])
 def test_beta_bernoulli(elbo):
@@ -85,7 +85,7 @@ def test_jitted_update_fn():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     adam = optim.Adam(0.05)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
     expected = svi.get_params(svi.update(svi_state, data)[0])
 
@@ -117,7 +117,7 @@ def test_param():
         numpyro.sample('y', dist.Normal(c, d), obs=obs)
 
     adam = optim.Adam(0.01)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0))
 
     params = svi.get_params(svi_state)
@@ -147,7 +147,7 @@ def test_elbo_dynamic_support():
     adam = optim.Adam(0.01)
     x = 2.
     guide = substitute(guide, data={'x': x})
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0))
     actual_loss = svi.evaluate(svi_state)
     assert jnp.isfinite(actual_loss)

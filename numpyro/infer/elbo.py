@@ -1,6 +1,9 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from abc import ABCMeta, abstractmethod
+import warnings
+
 from jax import random, vmap
 from jax.lax import stop_gradient
 import jax.numpy as jnp
@@ -10,7 +13,59 @@ from numpyro.handlers import replay, seed
 from numpyro.infer.util import log_density
 
 
-class ELBO(object):
+class ELBO(object, metaclass=ABCMeta):
+    """
+    :class:`ELBO` is the top-level interface for stochastic variational
+    inference via optimization of the evidence lower bound.
+
+    :param int num_particles: The number of particles/samples used to form the ELBO
+        (gradient) estimators.
+    """
+    def __init__(self, num_particles=1):
+        self.num_particles = num_particles
+
+    @abstractmethod
+    def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
+        """
+        Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
+
+        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param dict param_map: dictionary of current parameter values keyed by site
+            name.
+        :param model: Python callable with NumPyro primitives for the model.
+        :param guide: Python callable with NumPyro primitives for the guide.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
+        """
+        warnings.warn("Using ELBO directly in SVI is deprecated. Please using Trace_ELBO class instead.",
+                      FutureWarning)
+
+        # TODO: raise NotImplementedError error instead
+        def single_particle_elbo(rng_key):
+            model_seed, guide_seed = random.split(rng_key)
+            seeded_model = seed(model, model_seed)
+            seeded_guide = seed(guide, guide_seed)
+            guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
+            seeded_model = replay(seeded_model, guide_trace)
+            model_log_density, _ = log_density(seeded_model, args, kwargs, param_map)
+
+            # log p(z) - log q(z)
+            elbo = model_log_density - guide_log_density
+            return elbo
+
+        # Return (-elbo) since by convention we do gradient descent on a loss and
+        # the ELBO is a lower bound that needs to be maximized.
+        if self.num_particles == 1:
+            return - single_particle_elbo(rng_key)
+        else:
+            rng_keys = random.split(rng_key, self.num_particles)
+            return - jnp.mean(vmap(single_particle_elbo)(rng_keys))
+
+
+class Trace_ELBO(ELBO):
     """
     A trace implementation of ELBO-based SVI. The estimator is constructed
     along the lines of references [1] and [2]. There are no restrictions on the
@@ -34,8 +89,6 @@ class ELBO(object):
     :param num_particles: The number of particles/samples used to form the ELBO
         (gradient) estimators.
     """
-    def __init__(self, num_particles=1):
-        self.num_particles = num_particles
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         """

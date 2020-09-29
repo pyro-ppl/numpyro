@@ -18,7 +18,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
-from numpyro.infer import ELBO, SVI
+from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
     AutoDiagonalNormal,
@@ -55,7 +55,7 @@ def test_beta_bernoulli(auto_class):
 
     adam = optim.Adam(0.01)
     guide = auto_class(model, init_loc_fn=init_strategy)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
     def body_fn(i, val):
@@ -94,7 +94,7 @@ def test_logistic_regression(auto_class):
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
     guide = auto_class(model, init_loc_fn=init_strategy)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init, data, labels)
 
     def body_fn(i, val):
@@ -131,7 +131,7 @@ def test_iaf():
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
     guide = AutoIAFNormal(model)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init, data, labels)
     params = svi.get_params(svi_state)
 
@@ -175,7 +175,7 @@ def test_uniform_normal():
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
     guide = AutoDiagonalNormal(model)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init, data)
 
     def body_fn(i, val):
@@ -214,7 +214,7 @@ def test_param():
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
     guide = _AutoGuide(model)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init)
 
     params = svi.get_params(svi_state)
@@ -249,7 +249,7 @@ def test_dynamic_supports():
     rng_key_init = random.PRNGKey(1)
 
     guide = AutoDiagonalNormal(actual_model)
-    svi = SVI(actual_model, guide, adam, ELBO())
+    svi = SVI(actual_model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init, data)
     actual_opt_params = adam.get_params(svi_state.optim_state)
     actual_params = svi.get_params(svi_state)
@@ -257,7 +257,7 @@ def test_dynamic_supports():
     actual_loss = svi.evaluate(svi_state, data)
 
     guide = AutoDiagonalNormal(expected_model)
-    svi = SVI(expected_model, guide, adam, ELBO())
+    svi = SVI(expected_model, guide, adam, Trace_ELBO())
     svi_state = svi.init(rng_key_init, data)
     expected_opt_params = adam.get_params(svi_state.optim_state)
     expected_params = svi.get_params(svi_state)
@@ -283,7 +283,7 @@ def test_laplace_approximation_warning():
     x = random.normal(random.PRNGKey(0), (3,))
     y = 1 + 2 * x + 3 * x ** 2 + 4 * x ** 3
     guide = AutoLaplaceApproximation(model)
-    svi = SVI(model, guide, optim.Adam(0.1), ELBO(), x=x, y=y)
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), x=x, y=y)
     init_state = svi.init(random.PRNGKey(0))
     svi_state = fori_loop(0, 10000, lambda i, val: svi.update(val)[0], init_state)
     params = svi.get_params(svi_state)
@@ -302,7 +302,7 @@ def test_improper():
         numpyro.sample('y', dist.Normal(mu, sigma), obs=y)
 
     guide = AutoDiagonalNormal(model)
-    svi = SVI(model, guide, optim.Adam(0.003), ELBO(), y=y)
+    svi = SVI(model, guide, optim.Adam(0.003), Trace_ELBO(), y=y)
     svi_state = svi.init(random.PRNGKey(2))
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(10000))
 
@@ -318,7 +318,7 @@ def test_module():
         numpyro.sample('y', dist.Normal(mu, sigma), obs=y)
 
     guide = AutoDiagonalNormal(model)
-    svi = SVI(model, guide, optim.Adam(0.003), ELBO(), x=x, y=y)
+    svi = SVI(model, guide, optim.Adam(0.003), Trace_ELBO(), x=x, y=y)
     svi_state = svi.init(random.PRNGKey(2))
     lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(1000))
 
@@ -355,7 +355,7 @@ def test_subsample_guide(auto_class):
         data = model(None, jnp.arange(full_size), full_size)
     assert data.shape == (num_time_steps, full_size)
 
-    svi = SVI(model, guide, optim.Adam(0.02), ELBO())
+    svi = SVI(model, guide, optim.Adam(0.02), Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0), data[:, :batch_size],
                          jnp.arange(batch_size), full_size=full_size)
     update_fn = jit(svi.update, static_argnums=(3,))

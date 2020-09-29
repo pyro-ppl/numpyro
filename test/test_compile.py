@@ -8,7 +8,7 @@ from jax.lib import xla_bridge
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import ELBO, MCMC, NUTS, SVI
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDiagonalNormal
 import numpyro.optim as optim
 
@@ -55,7 +55,7 @@ def test_mcmc_parallel_chain(deterministic):
 def test_autoguide(deterministic):
     GLOBAL["count"] = 0
     guide = AutoDiagonalNormal(model)
-    svi = SVI(model, guide, optim.Adam(0.1), ELBO(), deterministic=deterministic)
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO(), deterministic=deterministic)
     svi_state = svi.init(random.PRNGKey(0))
     svi_state = lax.fori_loop(0, 100, lambda i, val: svi.update(val)[0], svi_state)
     params = svi.get_params(svi_state)

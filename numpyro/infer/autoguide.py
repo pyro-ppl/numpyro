@@ -625,7 +625,7 @@ class AutoLaplaceApproximation(AutoContinuous):
 
         def loss_fn(params):
             # we are doing maximum likelihood, so only require `num_particles=1` and an arbitrary rng_key.
-            return ELBO().loss(random.PRNGKey(0), params, self.model, self, *args, **kwargs)
+            return Trace_ELBO().loss(random.PRNGKey(0), params, self.model, self, *args, **kwargs)
 
         self._loss_fn = loss_fn
 
