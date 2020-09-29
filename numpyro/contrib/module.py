@@ -163,7 +163,7 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.contrib.module import random_flax_module
-        >>> from numpyro.infer import ELBO, Predictive, SVI, autoguide, init_to_feasible
+        >>> from numpyro.infer import Predictive, SVI, Trace_ELBO, autoguide, init_to_feasible
         >>>
         >>> class Net(nn.Module):
         ...     def apply(self, x, n_units):
