@@ -6,7 +6,7 @@ from copy import deepcopy
 from functools import partial
 
 from jax import numpy as jnp
-from jax.tree_util import register_pytree_node
+from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 
 import numpyro
 from numpyro.distributions.discrete import PRNGIdentity
@@ -48,6 +48,9 @@ def flax_module(name, nn_module, *, input_shape=None):
         # feed in dummy data to init params
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
         _, nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
+        # make sure that nn_params keep the same order after unflatten
+        params_flat, tree_def = tree_flatten(nn_params)
+        nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
     return partial(nn_module.call, nn_params)
 
@@ -83,8 +86,12 @@ def haiku_module(name, nn_module, *, input_shape=None):
         rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
         nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
         # haiku init returns an immutable dict
+        nn_params = haiku.data_structures.to_mutable_dict(nn_params)
         # we cast it to a mutable one to be able to set priors for parameters
-        nn_params = numpyro.param(module_key, haiku.data_structures.to_mutable_dict(nn_params))
+        # make sure that nn_params keep the same order after unflatten
+        params_flat, tree_def = tree_flatten(nn_params)
+        nn_params = tree_unflatten(tree_def, params_flat)
+        numpyro.param(module_key, nn_params)
     return partial(nn_module.apply, nn_params, None)
 
 
