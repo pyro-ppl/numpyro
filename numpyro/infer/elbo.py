@@ -115,6 +115,14 @@ class TraceMeanField_ELBO(ELBO):
 
     .. warning:: This estimator may give incorrect results if the mean-field
         condition is not satisfied.
+        The mean field condition is a sufficient but not necessary condition for
+        this estimator to be correct. The precise condition is that for every
+        latent variable `z` in the guide, its parents in the model must not include
+        any latent variables that are descendants of `z` in the guide. Here
+        'parents in the model' and 'descendants in the guide' is with respect
+        to the corresponding (statistical) dependency structure. For example, this
+        condition is always satisfied if the model and guide have identical
+        dependency structures.
     """
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         """
@@ -145,20 +153,13 @@ class TraceMeanField_ELBO(ELBO):
             for name, model_site in model_trace.items():
                 if model_site["type"] == "sample" and not isinstance(model_site["fn"], dist.PRNGIdentity):
                     if model_site["is_observed"]:
-                        log_prob = jnp.sum(model_site["fn"].log_prob(model_site["value"]))
-                        log_prob = scale_and_mask(log_prob, scale=model_site["scale"])
-                        elbo_particle = elbo_particle + log_prob
+                        elbo_particle = elbo_particle + _get_log_prob_sum(model_site)
                     else:
                         guide_site = guide_trace[name]
                         try:
                             kl_qp = kl_divergence(guide_site["fn"], model_site["fn"])
                             kl_qp = scale_and_mask(kl_qp, scale=guide_site["scale"])
-                            if isinstance(kl_qp, (int, float)):
-                                kl_qp_sum = kl_qp * np.prod(guide_site["fn"].batch_shape)
-                            else:
-                                assert kl_qp.shape == guide_site["fn"].batch_shape
-                                kl_qp_sum = jnp.sum(kl_qp)
-                            elbo_particle = elbo_particle - kl_qp_sum
+                            elbo_particle = elbo_particle - jnp.sum(kl_qp)
                         except NotImplementedError:
                             elbo_particle = elbo_particle + _get_log_prob_sum(model_site) \
                                 - _get_log_prob_sum(guide_site)
