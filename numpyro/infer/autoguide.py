@@ -25,7 +25,7 @@ from numpyro.distributions.transforms import (
     biject_to
 )
 from numpyro.distributions.util import cholesky_of_inverse, periodic_repeat, sum_rightmost
-from numpyro.infer.elbo import ELBO
+from numpyro.infer.elbo import Trace_ELBO
 from numpyro.infer.util import init_to_uniform, initialize_model
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
