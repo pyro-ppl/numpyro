@@ -17,23 +17,13 @@ IntegratorState.__new__.__defaults__ = (None,) * len(IntegratorState._fields)
 
 def model_args_sub(u, model_args):
     """Subsample observations and features according to u subsample indexes"""
-    if isinstance(model_args,dict):
-        args = {}
-        for key, val in model_args.items():
-            if isinstance(val, jnp.ndarray) and val.shape[0] > len(u):
-                args[key] = jnp.take(val, u, axis=0)
-            else:
-                args[key] = val
-        return args
-
-    else:
-        args = []
-        for arg in model_args:
-            if isinstance(arg, jnp.ndarray) and arg.shape[0] > len(u):
-                args.append(jnp.take(arg, u, axis=0))
-            else:
-                args.append(arg)
-        return tuple(args)
+    args = []
+    for arg in model_args:
+        if isinstance(arg, jnp.ndarray) and arg.shape[0] > len(u):
+            args.append(jnp.take(arg, u, axis=0))
+        else:
+            args.append(arg)
+    return tuple(args)
 
 
 def model_kwargs_sub(u, kwargs):
@@ -204,7 +194,7 @@ def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
 
         return IntegratorState(z, r, potential_energy, z_grad)
 
-    def update_fn(step_size, inverse_mass_matrix, state,u=None):
+    def update_fn(step_size, inverse_mass_matrix, state):
         """
         :param float step_size: Size of a single step.
         :param inverse_mass_matrix: Inverse of mass matrix, which is used to

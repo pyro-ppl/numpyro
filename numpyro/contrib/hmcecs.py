@@ -317,11 +317,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                              0, 0., 0., False, wa_state,rng_key_hmc)
         hmc_sub_state = HMCECSState(u=3, hmc_state=hmc_state, z_ref=z_ref, ll_ref=ll_ref, jac_all=jac_all,
                                     hess_all=hess_all, ll_u=ll_u)
-        # if subsample_method == "perturb":
-        #     hmc_sub_state = HMCECSState(u=3,hmc_state=hmc_state,z_ref=z_ref,ll_ref=ll_ref,jac_all=jac_all,hess_all=hess_all,ll_u=ll_u)
-        #     return device_put(hmc_sub_state)
-        # else:
-        #     return device_put(hmc_state)
         hmc_state = tuplemerge(hmc_sub_state._asdict(),hmc_state._asdict())
 
         return device_put(hmc_state)
@@ -344,16 +339,14 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                 pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             nonlocal vv_update
             #pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            _, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,gpe_fn) #TODO:vv_update might be updating wrong
+            _, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,gpe_fn)
 
         num_steps = _get_num_steps(step_size, trajectory_len)
 
         vv_state_new = fori_loop(0, num_steps,
-                                 lambda i, val: vv_update(step_size, inverse_mass_matrix, val,u), #TODO added u
+                                 lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
                                  vv_state)
-        # vv_state_new = fori_loop(0, num_steps,
-        #                          lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
-        #                          vv_state)
+
         energy_old = vv_state.potential_energy + kinetic_fn(inverse_mass_matrix, vv_state.r)
         energy_new = vv_state_new.potential_energy + kinetic_fn(inverse_mass_matrix, vv_state_new.r)
         delta_energy = energy_new - energy_old
@@ -373,7 +366,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
             nonlocal vv_update
             if grad_potential_fn_gen:
                 if subsample_method == "perturb":
-                    #model, model_args_sub, model_kwargs, ll_ref, jac_all, z, z_ref, hess_all,ll_u,u, n, m = model_args
                     gpe_fn = grad_potential_fn_gen(model, model_args, model_kwargs,ll_ref,jac_all, z, z_ref, n,
                                                    m,u)
                     pe_fn = potential_fn_gen(model, model_args, model_kwargs, ll_ref,jac_all, vv_state.z, z_ref, hess_all, n,m)
@@ -444,11 +436,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                         accept_prob, mean_accept_prob, diverging, adapt_state,rng_key)
         hmc_sub_state = HMCECSState(u=u, hmc_state=hmc_state, z_ref=z_ref, ll_ref=ll_ref, jac_all=jac_all,
                                     hess_all=hess_all, ll_u=ll_u)
-        # if subsample_method == "perturbed":
-        #     hmc_sub_state = HMCECSState(u=u,hmc_state=hmc_state,z_ref=z_ref,ll_ref=ll_ref,jac_all=jac_all,hess_all=hess_all,ll_u=ll_u)
-        #     return hmc_sub_state
-        # else:
-        #     return hmcstate
         hmcstate = tuplemerge(hmc_sub_state._asdict(),hmcstate._asdict())
         return hmcstate
 
@@ -616,7 +603,13 @@ class HMC(MCMCKernel):
                                                     algo=self._algo)
 
             init_params, potential_fn, postprocess_fn, model_trace=self._init_subsample_state(rng_key, model_args, model_kwargs, init_params,self.z_ref)
-
+            if (self.g > self.m) or (self.g < 1):
+                raise ValueError(
+                    'Block size (g) = {} needs to = or > than 1 and smaller than the subsample size {}'.format(self.g,
+                                                                                                               self.m))
+            elif (self.m > self._n):
+                raise ValueError(
+                    'Subsample size (m) = {} needs to = or < than data size (n) {}'.format(self.m, self._n))
         if self._model is not None:
             init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
                 rng_key,
@@ -727,7 +720,7 @@ class HMC(MCMCKernel):
 
 
                 return init_sub_state
-            else:
+            else: #TODO: Check that it works for more than 2 chains
                 #For more than 2 chains
                 # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
                 # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
@@ -744,10 +737,10 @@ class HMC(MCMCKernel):
                 init_subsample_state = vmap(hmc_init_sub_fn)(init_params,rng_key)
 
                 sample_fn = vmap(self._sample_fn, in_axes=(0, None, None))
-                subsample = vmap(self._subsample_fn, in_axes=(0,None,None))
+                subsample_fn = vmap(self._subsample_fn, in_axes=(0,None,None))
                 HMCCombinedState = tuplemerge(init_state._asdict,init_subsample_state._asdict())
                 self._sample_fn = sample_fn
-                self._subsample_fn = subsample
+                self._subsample_fn = subsample_fn
                 return HMCCombinedState
 
         else:

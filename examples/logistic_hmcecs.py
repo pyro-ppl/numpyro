@@ -26,8 +26,8 @@ def model(feats, obs):
 
     """
     n, m = feats.shape
-    #precision = numpyro.sample('precision', dist.continuous.Uniform(1, 4))
-    precision = 0.5
+    precision = numpyro.sample('precision', dist.continuous.Uniform(1, 4))
+    #precision = 0.5
     theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), precision * jnp.ones(m)))
 
     numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(feats, theta)), obs=obs)
