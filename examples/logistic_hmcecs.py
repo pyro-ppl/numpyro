@@ -13,7 +13,7 @@ sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/examples/')
 
 from hmcecs import HMC
 #from numpyro.contrib.hmcecs import HMC
-
+#numpyro.set_host_device_count(2)
 from sklearn.datasets import load_breast_cancer
 from datasets import _load_higgs
 numpyro.set_platform("cpu")
@@ -56,7 +56,7 @@ def infer_hmcecs(rng_key, feats, obs, m=50,g=20,samples=10, warmup=5, ):
     start = time.time()
     kernel = HMC(model=model,z_ref=z_map,m=m,g=g,subsample_method="perturb",algo="NUTS")
 
-    mcmc = MCMC(kernel,num_warmup=warmup,num_samples=samples)
+    mcmc = MCMC(kernel,num_warmup=warmup,num_samples=samples,num_chains=1)
     mcmc.run(rng_key,feats,obs)
     stop = time.time()
     file_hyperparams = open("PLOTS_{}/Hyperparameters_{}.txt".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss"),now.strftime("%Y_%m_%d_%Hh%Mmin%Ss")), "a")

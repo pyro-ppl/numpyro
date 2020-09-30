@@ -665,6 +665,8 @@ class HMC(MCMCKernel):
         # vectorized
         else:
             rng_key, rng_key_init_model = jnp.swapaxes(vmap(random.split)(rng_key), 0, 1)
+
+
         init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params) #should work  for all cases
 
         if self._potential_fn and init_params is None:
@@ -672,6 +674,7 @@ class HMC(MCMCKernel):
                              ' `potential_fn`.')
 
         if self.subsample_method == "perturb":
+
             hmc_init_fn = lambda init_params,rng_key: self._init_fn(init_params=init_params,
                                       num_warmup = num_warmup,
                                       step_size = self._step_size,
@@ -693,7 +696,10 @@ class HMC(MCMCKernel):
                                       n=self._n,m=self.m,
                                       u = self._u)
 
+            print(rng_key.shape)
+
             if rng_key.ndim ==1:
+
                 init_state = hmc_init_fn(init_params, rng_key) #HMCState + HMCECSState
                 self._ll_u = potential_est(self._model,
                                                 model_args_sub(self._u, model_args),
@@ -718,14 +724,13 @@ class HMC(MCMCKernel):
                 init_sub_state = hmc_init_sub_fn(init_params,rng_key) #HMCState
                 init_sub_state  = tuplemerge(init_state._asdict(),init_sub_state._asdict())
 
-
                 return init_sub_state
-            else: #TODO: Check that it works for more than 2 chains
-                #For more than 2 chains
+            else: #TODO: What is this for? It does not go into it for num_chains>1
                 # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
                 # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
                 # wa_steps because those variables do not depend on traced args: init_params, rng_key.
                 init_state = vmap(hmc_init_fn)(init_params, rng_key)
+
                 self._ll_u = potential_est(self._model, model_args_sub(self._u, model_args), model_kwargs,self._ll_ref,
                                                 self._jac_all, self._hess_all,
                                                 init_state.z, self.z_ref, self._n, self.m,self._u)

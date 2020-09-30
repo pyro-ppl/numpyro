@@ -420,6 +420,7 @@ class MCMC(object):
         if self.num_chains > 1 and rng_key.ndim == 1:
             rng_key = random.split(rng_key, self.num_chains)
 
+
         if self._warmup_state is not None:
             self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
             init_state = self._warmup_state._replace(rng_key=rng_key)
