@@ -83,42 +83,6 @@ def log_density_hmcecs(model, model_args, model_kwargs, params,prior=False):
                 log_joint = log_joint + log_prob
         return log_joint, model_trace
 
-def grad_potential(model, model_args, model_kwargs,z, z_ref, jac_all, hess_all, n, m,u=None, *args, **kwargs):
-    """Calculate the gradient of the potential energy function for the current subsample"""
-    if any(arg.shape[0] > m for arg in model_args):
-        model_args = model_args_sub(u,model_args)
-    k, = jac_all.shape
-    z_flat, treedef = ravel_pytree(z)
-    zref_flat, _ = ravel_pytree(z_ref)
-    z_diff = z_flat - zref_flat
-
-    ld_fn = lambda args: partial(log_density_hmcecs, model, model_args, model_kwargs,prior=False)(args)[0]
-
-    jac_ref, _ = ravel_pytree(jax.jacfwd(ld_fn)(z_ref))
-    hess_ref, _ = ravel_pytree(jax.hessian(ld_fn)(z_ref))
-
-    jac_ref = jac_ref.reshape(m, k)
-    hess_ref = hess_ref.reshape(m, k, k)
-
-    grad_sum = jac_all + hess_all.dot(z_diff)
-    jac_sub, _ = ravel_pytree(jax.jacfwd(ld_fn)(z))
-
-    ll_sub, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=False)  # log likelihood for subsample with current theta
-    ll_ref, _ = log_density_hmcecs(model, model_args, model_kwargs, z_ref,prior=False)  # log likelihood for subsample with reference theta
-
-    diff = ll_sub - (ll_ref + jac_ref @ z_diff + .5 * z_diff @ hess_ref @ z_diff.T)
-
-    jac_sub = jac_sub.reshape(jac_ref.shape) - jac_ref
-
-    grad_d_k = jac_sub - z_diff.dot(hess_ref)
-
-    gradll = -(grad_sum + n / m * (jac_sub.sum(0) - hess_ref.sum(0).dot(z_diff))) + n ** 2 / (m ** 2) * (
-            diff - diff.mean(0)).T.dot(grad_d_k - grad_d_k.mean(0))
-
-    ld_fn = lambda args: partial(log_density_hmcecs, model, model_args, model_kwargs,prior=True)(args)[0]
-    jac_sub, _ = ravel_pytree(jax.jacfwd(ld_fn)(z))
-
-    return treedef(gradll - jac_sub)
 
 def reducer( accum, d ):
    accum.update(d)
@@ -129,39 +93,28 @@ def  tuplemerge( *dictionaries ):
    merged = reduce( reducer, dictionaries, {} )
    return namedtuple('HMCCombinedState', merged )(**merged) # <==== Gist of the gist
 
-def potential_est(model, model_args, model_kwargs,ll_ref, jac_all, hess_all, z, z_ref, n, m,u=None):
-    """Estimate the potential dynamic energy for the HMC ECS implementation. The calculation follows section 7.2.1 in https://jmlr.org/papers/volume18/15-205/15-205.pdf
-        The computation has a complexity of O(1) and it's highly dependant on the quality of the map estimate"""
 
+def potential_est(model, model_args,model_kwargs, z, z_ref, n, m, proxy, proxy_u,u=None):
     if any(arg.shape[0] > m for arg in model_args):
         model_args = model_args_sub(u,model_args)
-
-    # Agrees with reference upto constant factor on prior
-    k, = jac_all.shape  # number of features
-    z_flat, _ = ravel_pytree(z)
-    zref_flat, _ = ravel_pytree(z_ref)
-
-
-    z_diff = z_flat - zref_flat
-
-    ld_fn = lambda args: partial(log_density_hmcecs, model, model_args, model_kwargs,prior=False)(args)[0]
-
-    jac_sub, _ = ravel_pytree(jax.jacfwd(ld_fn)(z_ref))
-    hess_sub, _ = ravel_pytree(jax.hessian(ld_fn)(z_ref))
-
-    proxy = jnp.sum(ll_ref) + jac_all.T @ z_diff + .5 * z_diff.T @ hess_all @ z_diff
-
     ll_sub, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=False)  # log likelihood for subsample with current theta
-    ll_ref, _ = log_density_hmcecs(model, model_args, model_kwargs, z_ref,prior=False)  # log likelihood for subsample with reference theta
 
-    diff = ll_sub - (ll_ref + jac_sub.reshape((m, k)) @ z_diff + .5 * z_diff @ hess_sub.reshape((m, k, k)) @ z_diff.T)
-    l_hat = proxy + n / m * jnp.sum(diff)
+    diff = ll_sub - proxy_u(z, z_ref, model, model_args)
+    l_hat = proxy(z, z_ref) + n / m * jnp.sum(diff)
 
     sigma = n ** 2 / m * jnp.var(diff)
 
-    ll_prior, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=True) #TODO: work with hierachical models
+    ll_prior, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=True)
 
     return (-l_hat + .5 * sigma) - ll_prior
+
+
+
+
+
+
+
+
 
 def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
     r"""
@@ -232,4 +185,34 @@ def init_near_values(site=None, values={}):
                 return values[site['name']] + Normal(0., 1e-3).sample(rng_key, sample_shape)
             except:
                 return init_to_uniform(site)
+
+def taylor_proxy(ll_ref, jac_all, hess_all):
+    def proxy(z, z_ref):
+        z_flat, _ = ravel_pytree(z)
+        zref_flat, _ = ravel_pytree(z_ref)
+        z_diff = z_flat - zref_flat
+        return jnp.sum(ll_ref) + jac_all.T @ z_diff + .5 * z_diff.T @ hess_all @ z_diff
+
+    def proxy_u(z, z_ref, model, model_args):
+        z_flat, _ = ravel_pytree(z)
+        zref_flat, _ = ravel_pytree(z_ref)
+        z_diff = z_flat - zref_flat
+
+        ld_fn = lambda args: jnp.sum(partial(log_density_hmcecs, model, model_args, {},prior=False)(args)[0])
+
+        ll_sub, jac_sub = jax.value_and_grad(ld_fn)(z_ref)
+        k, = jac_all.shape
+        hess_sub, _ = ravel_pytree(jax.hessian(ld_fn)(z_ref))
+        jac_sub, _ = ravel_pytree(jac_sub)
+
+        return ll_sub + jac_sub @ z_diff + .5 * z_diff @ hess_sub.reshape((k, k)) @ z_diff.T
+
+    return proxy, proxy_u
+
+def svi_proxy():
+    return None
+
+def neural_proxy():
+    return None
+
 

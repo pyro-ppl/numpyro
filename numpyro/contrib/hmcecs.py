@@ -24,11 +24,15 @@ from numpyro.util import cond, fori_loop, identity
 import sys
 sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/contrib/')
 
-from hmcecs_utils import grad_potential,potential_est,log_density_hmcecs, \
-                                        velocity_verlet_hmcecs, init_near_values,tuplemerge,model_args_sub,model_kwargs_sub
+from hmcecs_utils import potential_est,log_density_hmcecs, \
+                        velocity_verlet_hmcecs, init_near_values,tuplemerge,\
+                        model_args_sub,model_kwargs_sub,taylor_proxy,svi_proxy,neural_proxy
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state','rng_key'])
-HMCECSState = namedtuple("HMCECState",["u","hmc_state","z_ref","ll_ref","jac_all","hess_all","ll_u"])
+#HMCECSState = namedtuple("HMCECState",["u","hmc_state","z_ref","ll_ref","jac_all","hess_all","ll_u"])
+
+HMCECSState = namedtuple("HMCECState",['u', 'hmc_state', 'z_ref', 'll_u'])
+
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
 
@@ -113,7 +117,7 @@ def _update_block(rng_key, u, n, m, g):
     return u_new
 
 
-def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potential_fn_gen=None,algo='NUTS'):
+def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potential_fn_gen=None,covariate_fn=None,algo='NUTS'):
     r"""
     Hamiltonian Monte Carlo inference, using either fixed number of
     steps or the No U-Turn Sampler (NUTS) with adaptive path length.
@@ -217,7 +221,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                     m = None,
                     u= None,
                     rng_key=random.PRNGKey(0),
-                    subsample_method=None):
+                    subsample_method=None,
+                    covariate_fn = None):
         """
         Initializes the HMC sampler.
 
@@ -269,20 +274,18 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                 raise ValueError('Only one of `potential_fn` or `potential_fn_gen` must be provided.')
             else:
                 if subsample_method == "perturb":
-                    #model, model_args, model_kwargs,z, z_ref, jac_all, hess_all, n, m,u=None
-                    gpe_fn = grad_potential_fn_gen(model, model_args, model_kwargs,z, z_ref,jac_all, hess_all, n, m,u)
-                    pe_fn = potential_fn_gen(model, model_args, model_kwargs,ll_ref, jac_all,z,z_ref ,hess_all, n, m)
+                    kwargs = {} if model_kwargs is None else model_kwargs
+
+                    proxy,proxy_u = covariate_fn(ll_ref, jac_all, hess_all)
+                    pe_fn = potential_fn_gen(model, model_args,model_kwargs, z, z_ref, n, m, proxy, proxy_u,u)
+
                 else:
                     kwargs = {} if model_kwargs is None else model_kwargs
                     pe_fn = potential_fn_gen(*model_args, **kwargs)
-                    gpe_fn = grad_potential_fn_gen(*model_args, **kwargs,)
+                    #gpe_fn = grad_potential_fn_gen(*model_args, **kwargs,)
         if grad_potential_fn_gen:
-            if subsample_method == "perturb":
-                #model, model_args, model_kwargs,z, z_ref, jac_all, hess_all, n, m,u=None
-                gpe_fn = grad_potential_fn_gen(model, model_args, model_kwargs, z, z_ref,jac_all, hess_all,n, m,u)
-            else:
-                kwargs = {} if model_kwargs is None else model_kwargs
-                gpe_fn = grad_potential_fn_gen(*model_args, **kwargs)
+            kwargs = {} if model_kwargs is None else model_kwargs
+            gpe_fn = grad_potential_fn_gen(*model_args, **kwargs)
         else:
             gpe_fn = None
 
@@ -308,15 +311,19 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                            mass_matrix_size=jnp.size(ravel_pytree(z)[0]))
 
         r = momentum_generator(z, wa_state.mass_matrix_sqrt, rng_key_momentum)
-        vv_init, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,grad_potential_fn=gpe_fn)
+        #vv_init, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,grad_potential_fn=gpe_fn)
+        vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
 
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
 
         hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
                              0, 0., 0., False, wa_state,rng_key_hmc)
-        hmc_sub_state = HMCECSState(u=3, hmc_state=hmc_state, z_ref=z_ref, ll_ref=ll_ref, jac_all=jac_all,
-                                    hess_all=hess_all, ll_u=ll_u)
+        hmc_sub_state = HMCECSState(u=u, hmc_state=hmc_state,
+                                    z_ref=z_ref,
+                                    ll_u=ll_u)
+
         hmc_state = tuplemerge(hmc_sub_state._asdict(),hmc_state._asdict())
 
         return device_put(hmc_state)
@@ -326,27 +333,27 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                   model,ll_ref,jac_all,z,z_ref,hess_all,ll_u,u,n,m):
         if potential_fn_gen:
             if grad_potential_fn_gen:
-                if subsample_method == "perturb":
-                    #model, model_args, model_kwargs,z, z_ref, jac_all, hess_all, n, m,u=None
-                    gpe_fn = grad_potential_fn_gen(model, model_args, model_kwargs,vv_state.z, z_ref,jac_all, hess_all, n,m,u)
-                    pe_fn = potential_fn_gen(model, model_args, model_kwargs, ll_ref,jac_all, vv_state.z, z_ref, hess_all, n,m)
-                else:
-                    kwargs = {} if model_kwargs is None else model_kwargs
-                    gpe_fn = grad_potential_fn_gen(*model_args, **kwargs,)
-                    pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            else:
-                gpe_fn = None
+                kwargs = {} if model_kwargs is None else model_kwargs
+                gpe_fn = grad_potential_fn_gen(*model_args, **kwargs, )
                 pe_fn = potential_fn_gen(*model_args, **model_kwargs)
+
+            else:
+                if subsample_method == "perturb":
+                    proxy, proxy_u = covariate_fn(ll_ref, jac_all, hess_all)
+                    pe_fn = potential_fn_gen(model, model_args, model_kwargs,vv_state.z, z_ref, n, m, proxy, proxy_u, u)
+                    kwargs = {} if model_kwargs is None else model_kwargs
+                    gpe_fn = None
+                else:
+                    gpe_fn = None
+                    pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             nonlocal vv_update
-            #pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            _, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,gpe_fn)
+            _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
 
         num_steps = _get_num_steps(step_size, trajectory_len)
 
         vv_state_new = fori_loop(0, num_steps,
                                  lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
                                  vv_state)
-
         energy_old = vv_state.potential_energy + kinetic_fn(inverse_mass_matrix, vv_state.r)
         energy_new = vv_state_new.potential_energy + kinetic_fn(inverse_mass_matrix, vv_state_new.r)
         delta_energy = energy_new - energy_old
@@ -365,19 +372,21 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         if potential_fn_gen:
             nonlocal vv_update
             if grad_potential_fn_gen:
-                if subsample_method == "perturb":
-                    gpe_fn = grad_potential_fn_gen(model, model_args, model_kwargs,ll_ref,jac_all, z, z_ref, n,
-                                                   m,u)
-                    pe_fn = potential_fn_gen(model, model_args, model_kwargs, ll_ref,jac_all, vv_state.z, z_ref, hess_all, n,m)
 
-                else:
                     kwargs = {} if model_kwargs is None else model_kwargs
                     gpe_fn = grad_potential_fn_gen(*model_args, **kwargs, )
                     pe_fn = potential_fn_gen(*model_args, **model_kwargs)
 
             else:
-                gpe_fn = None
-            _, vv_update = velocity_verlet_hmcecs(pe_fn, kinetic_fn,gpe_fn)
+                if subsample_method == "perturb":
+                    proxy, proxy_u = covariate_fn(ll_ref, jac_all, hess_all)
+                    pe_fn = potential_fn_gen(model, model_args, model_kwargs, vv_state.z, z_ref, n, m, proxy,
+                                             proxy_u, u)
+                    gpe_fn = None
+                else:
+                    gpe_fn = None
+                    pe_fn = potential_fn_gen(*model_args, **model_kwargs)
+            _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
 
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
                                  inverse_mass_matrix, step_size, rng_key,
@@ -393,8 +402,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
-    def sample_kernel(hmc_state,model_args=(),model_kwargs=None,subsample_method=None,
-                      model=None,ll_ref=None,jac_all=None,z=None,z_ref=None,hess_all=None,ll_u=None,u=None,n=None,m=None,):
+    def sample_kernel(hmc_state,model_args=(),model_kwargs=None,
+                      subsample_method=None,covariate_fn=None,
+                      model=None,ll_ref=None,jac_all=None,
+                      z=None,z_ref=None,hess_all=None,ll_u=None,
+                      u=None,n=None,m=None,):
         """
         Given an existing :data:`~numpyro.infer.mcmc.HMCState`, run HMC with fixed (possibly adapted)
         step size and return a new :data:`~numpyro.infer.mcmc.HMCState`.
@@ -408,16 +420,16 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         """
 
         model_kwargs = {} if model_kwargs is None else model_kwargs
-        #if subsample_method =="perturb":
-        #    hmc_state = hmc_state.hmc_state
+
         rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
         r = momentum_generator(hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
-
+        if subsample_method =="perturb":
+            model_args = model_args_sub(u,model_args)
         vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
                                                                     hmc_state.adapt_state.inverse_mass_matrix,
                                                                     vv_state,
-                                                                    model_args_sub(u,model_args),
+                                                                    model_args,
                                                                     model_kwargs,
                                                                     rng_key_transition,
                                                                     subsample_method,
@@ -434,8 +446,9 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
         hmcstate = HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy, num_steps,
                         accept_prob, mean_accept_prob, diverging, adapt_state,rng_key)
-        hmc_sub_state = HMCECSState(u=u, hmc_state=hmc_state, z_ref=z_ref, ll_ref=ll_ref, jac_all=jac_all,
-                                    hess_all=hess_all, ll_u=ll_u)
+        hmc_sub_state = HMCECSState(u=u, hmc_state=hmc_state,
+                                    z_ref=z_ref,
+                                    ll_u=ll_u)
         hmcstate = tuplemerge(hmc_sub_state._asdict(),hmcstate._asdict())
         return hmcstate
 
@@ -495,6 +508,7 @@ class HMC(MCMCKernel):
     :param m subsample size
     :param g block size
     :param z_ref MAP estimate of the parameters
+    :param covariate_fn Proxy function to calculate the covariates for the likelihood correction
     """
     def __init__(self,
                  model=None,
@@ -514,7 +528,7 @@ class HMC(MCMCKernel):
                  g = None,
                  z_ref= None,
                  algo = "HMC",
-                 covariate_fn = None, #TODO: substitute with default Taylor expansion
+                 covariate_fn = None,
                  ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
@@ -549,7 +563,8 @@ class HMC(MCMCKernel):
         self._postprocess_fn = None
         self._sample_fn = None
         self._subsample_fn = None
-        self.covariates_fn = None
+        self.proxy = "taylor",
+        self.covariate_fn = covariate_fn
 
     def _init_subsample_state(self,rng_key, model_args, model_kwargs, init_params,z_ref):
         "Compute the jacobian, hessian and gradient for all the data"
@@ -583,24 +598,27 @@ class HMC(MCMCKernel):
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self.subsample_method is not None:
             assert self.z_ref is not None, "Please provide a (i.e map) estimate for the parameters"
-            #Initialize the subsample state
+            # Choose the covariate calculation method
+            if self.proxy == "svi":
+                self.covariate_fn = lambda ll_ref, jac_all, hess_all:svi_proxy(ll_ref, jac_all, hess_all)
+            elif self.proxy == "neural":
+                self.covariate_fn = lambda ll_ref, jac_all, hess_all:neural_proxy(ll_ref, jac_all, hess_all)
+            else:
+                warnings.warn("Using default second order Taylor expansion, change by using the proxy flag to {svi,neural}")
+                self.covariate_fn = lambda ll_ref, jac_all, hess_all:taylor_proxy(ll_ref, jac_all, hess_all)
+
 
             # Initialize the potential and gradient potential functions
-            self._potential_fn = lambda model, args, kwargs, ll_ref, jac_all,z, z_ref, hess_all, n, m: \
-                lambda z: potential_est(model=self._model, model_args=model_args, model_kwargs=model_kwargs,
-                                        ll_ref=self._ll_ref,
-                                        jac_all=self._jac_all, z=z, z_ref=z_ref, hess_all=hess_all, n=self._n, m=self.m,u=self._u)
-            self._grad_potential = lambda model, args, kwargs,ll_ref, jac_all,z, z_ref, hess_all, n, m:\
-                                  lambda z: grad_potential(model=self._model, model_args=model_args,
-                                                          model_kwargs=model_kwargs,
-                                                          jac_all=self._jac_all,z=z,
-                                                          z_ref=self.z_ref, hess_all=self._hess_all,
-                                                          n=self._n, m=self.m,u=self._u)
+
+            self._potential_fn = lambda  model, model_args, model_kwargs,z, z_ref, n, m, proxy, proxy_u,u : lambda z:potential_est(model=model,
+                                 model_args=model_args,model_kwargs=model_kwargs,z=z,z_ref=z_ref,n=n,m = m,proxy=proxy,proxy_u=proxy_u,u=u)
+
+
             # Initialize the hmc sampler: sample_fn = sample_kernel
             self._init_fn, self._sample_fn = hmc(potential_fn_gen=self._potential_fn,
                                                     kinetic_fn=euclidean_kinetic_energy,
-                                                    grad_potential_fn_gen=self._grad_potential,
-                                                    algo=self._algo)
+                                                    algo=self._algo,
+                                                    covariate_fn=self.covariate_fn)
 
             init_params, potential_fn, postprocess_fn, model_trace=self._init_subsample_state(rng_key, model_args, model_kwargs, init_params,self.z_ref)
             if (self.g > self.m) or (self.g < 1):
@@ -672,7 +690,7 @@ class HMC(MCMCKernel):
         if self._potential_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
-
+        #TODO: assert the subsample method name is correct
         if self.subsample_method == "perturb":
 
             hmc_init_fn = lambda init_params,rng_key: self._init_fn(init_params=init_params,
@@ -693,33 +711,33 @@ class HMC(MCMCKernel):
                                       jac_all=self._jac_all,
                                       z_ref=self.z_ref,
                                       hess_all = self._hess_all,
-                                      n=self._n,m=self.m,
-                                      u = self._u)
-
-            print(rng_key.shape)
+                                      n=self._n,
+                                      m=self.m,
+                                      u = self._u,
+                                      covariate_fn = self.covariate_fn)
 
             if rng_key.ndim ==1:
 
                 init_state = hmc_init_fn(init_params, rng_key) #HMCState + HMCECSState
-                self._ll_u = potential_est(self._model,
-                                                model_args_sub(self._u, model_args),
-                                                model_kwargs,
-                                                self._ll_ref,
-                                                self._jac_all,
-                                                self._hess_all,
-                                                init_state.z,
-                                                self.z_ref,
-                                                self._n,
-                                                self.m,
-                                                u = self._u)
+
+                self._proxy, self._proxy_u = self.covariate_fn(self._ll_ref, self._jac_all, self._hess_all)
+                self._ll_u = potential_est(model=self._model,
+                                           model_args = model_args_sub(self._u, model_args),
+                                           model_kwargs=model_kwargs,
+                                           z=init_state.z,
+                                           z_ref=self.z_ref,
+                                           n=self._n,
+                                           m=self.m,
+                                           proxy=self._proxy,
+                                           proxy_u=self._proxy_u,
+                                           u=self._u)
+
+
 
                 hmc_init_sub_fn = lambda init_params, rng_key: HMCECSState(u=self._u,
                                                                            hmc_state=init_state.hmc_state,
                                                                            z_ref=self.z_ref,
-                                                                           ll_u=self._ll_u,
-                                                                           jac_all=self._jac_all,
-                                                                           hess_all=self._hess_all,
-                                                                           ll_ref=self._ll_ref)
+                                                                           ll_u=self._ll_u)
 
                 init_sub_state = hmc_init_sub_fn(init_params,rng_key) #HMCState
                 init_sub_state  = tuplemerge(init_state._asdict(),init_sub_state._asdict())
@@ -731,13 +749,19 @@ class HMC(MCMCKernel):
                 # wa_steps because those variables do not depend on traced args: init_params, rng_key.
                 init_state = vmap(hmc_init_fn)(init_params, rng_key)
 
-                self._ll_u = potential_est(self._model, model_args_sub(self._u, model_args), model_kwargs,self._ll_ref,
-                                                self._jac_all, self._hess_all,
-                                                init_state.z, self.z_ref, self._n, self.m,self._u)
+                self._proxy, self._proxy_u = self.covariate_fn(self._ll_ref, self._jac_all, self._hess_all)
+                self._ll_u = potential_est(model=self._model,
+                                           model_args=model_args_sub(self._u, model_args),
+                                           model_kwargs=model_kwargs,
+                                           z=init_state.z,
+                                           z_ref=self.z_ref,
+                                           n=self._n,
+                                           m=self.m,
+                                           proxy=self._proxy,
+                                           proxy_u=self._proxy_u,
+                                           u=self._u)
 
-                hmc_init_sub_fn = lambda init_params, rng_key: HMCECSState(u=self._u, hmc_state=init_state, z_ref=self.z_ref, ll_u=self._ll_u,
-                                                   jac_all=self._jac_all,
-                                                   hess_all=self._hess_all, ll_ref=self._ll_ref)
+                hmc_init_sub_fn = lambda init_params, rng_key: HMCECSState(u=self._u, hmc_state=init_state, z_ref=self.z_ref, ll_u=self._ll_u)
 
                 init_subsample_state = vmap(hmc_init_sub_fn)(init_params,rng_key)
 
@@ -797,17 +821,18 @@ class HMC(MCMCKernel):
             rng_key_subsample, rng_key_transition, rng_key_likelihood, rng_key = random.split(
                 state.rng_key, 4)
 
-            u_new = _update_block(rng_key_subsample, self._u, self._n, self.m, self.g)
+            u_new = _update_block(rng_key_subsample, state.u, self._n, self.m, self.g)
             # estimate likelihood of subsample with single block updated
+            self._proxy, self._proxy_u = self.covariate_fn(self._ll_ref, self._jac_all, self._hess_all)
+
             llu_new = potential_est(model=self._model,
                                          model_args=model_args_sub(u_new,model_args),
                                          model_kwargs=model_kwargs,
-                                         ll_ref = state.ll_ref,
-                                         jac_all=state.jac_all,
-                                         hess_all= state.hess_all,
                                          z=state.z,
-                                         z_ref=state.z_ref,
-                                         n=self._n, m=self.m,u=self._u)
+                                         z_ref=self.z_ref,
+                                         proxy = self._proxy,
+                                         proxy_u = self._proxy_u,
+                                         n=self._n, m=self.m,u=state.u)
             # accept new subsample with probability min(1,L^{hat}_{u_new}(z) - L^{hat}_{u}(z))
             # NOTE: latent variables (z aka theta) same, subsample indices (u) different by one block.
 
@@ -816,14 +841,11 @@ class HMC(MCMCKernel):
             u, ll_u = cond(transition,
                            (u_new, llu_new), identity,
                            (state.u, state.ll_u), identity)
-            self._u = u
+            self._u = u #Just in case , but not necessary
             ######## UPDATE PARAMETERS ##########
 
             hmc_subsamplestate = HMCECSState(u=u, hmc_state=state.hmc_state,
-                                             z_ref=state.z_ref,
-                                             ll_u=ll_u, ll_ref=state.ll_ref,
-                                             jac_all=state.jac_all,
-                                             hess_all=state.hess_all)
+                                             ll_u=ll_u,z_ref=self.z_ref)
             hmc_subsamplestate = tuplemerge(hmc_subsamplestate._asdict(),state._asdict())
 
             return self._sample_fn(hmc_subsamplestate,
@@ -831,11 +853,11 @@ class HMC(MCMCKernel):
                                    model_kwargs=model_kwargs,
                                    subsample_method=self.subsample_method,
                                    model = self._model,
-                                   ll_ref = state.ll_ref,
-                                   jac_all =state.jac_all,
+                                   ll_ref = self._ll_ref,
+                                   jac_all =self._jac_all,
                                    z= state.z,
-                                   z_ref = state.z_ref,
-                                   hess_all = state.hess_all,
+                                   z_ref = self.z_ref,
+                                   hess_all = self._hess_all,
                                    ll_u = ll_u,
                                    u= u,
                                    n= self._n,
