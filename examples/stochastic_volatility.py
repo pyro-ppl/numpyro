@@ -110,7 +110,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.3.0')
+    assert numpyro.__version__.startswith('0.4.0')
     parser = argparse.ArgumentParser(description="Stochastic Volatility Model")
     parser.add_argument('-n', '--num-samples', nargs='?', default=600, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=600, type=int)
