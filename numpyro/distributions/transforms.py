@@ -555,8 +555,8 @@ class ConstraintRegistry(object):
     def __call__(self, constraint):
         try:
             factory = self._registry[type(constraint)]
-        except KeyError:
-            raise NotImplementedError
+        except KeyError as e:
+            raise NotImplementedError from e
 
         return factory(constraint)
 

@@ -182,10 +182,10 @@ class NeuTraReparam(Reparam):
         self.params = params
         try:
             self.transform = self.guide.get_transform(params)
-        except (NotImplementedError, TypeError):
+        except (NotImplementedError, TypeError) as e:
             raise ValueError("NeuTraReparam only supports guides that implement "
                              "`get_transform` method that does not depend on the "
-                             "model's `*args, **kwargs`")
+                             "model's `*args, **kwargs`") from e
         self._x_unconstrained = {}
 
     def _reparam_config(self, site):
