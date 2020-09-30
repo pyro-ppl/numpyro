@@ -35,11 +35,11 @@ def flax_module(name, nn_module, *, input_shape=None):
     """
     try:
         import flax  # noqa: F401
-    except ImportError:
+    except ImportError as e:
         raise ImportError("Looking like you want to use flax to declare "
                           "nn modules. This is an experimental feature. "
                           "You need to install `flax` to be able to use this feature. "
-                          "It can be installed with `pip install flax`.")
+                          "It can be installed with `pip install flax`.") from e
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)
     if nn_params is None:
@@ -71,11 +71,11 @@ def haiku_module(name, nn_module, *, input_shape=None):
     """
     try:
         import haiku  # noqa: F401
-    except ImportError:
+    except ImportError as e:
         raise ImportError("Looking like you want to use haiku to declare "
                           "nn modules. This is an experimental feature. "
                           "You need to install `haiku` to be able to use this feature. "
-                          "It can be installed with `pip install dm-haiku`.")
+                          "It can be installed with `pip install dm-haiku`.") from e
 
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)

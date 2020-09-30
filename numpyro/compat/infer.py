@@ -132,7 +132,7 @@ class SVI(svi.SVI):
         except TypeError as e:
             if 'not a valid JAX type' in str(e):
                 raise TypeError('NumPyro backend requires args, kwargs to be arrays or tuples, '
-                                'dicts of arrays.')
+                                'dicts of arrays.') from e
             else:
                 raise e
         params = jit(super(SVI, self).get_params)(self.svi_state)
