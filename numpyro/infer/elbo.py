@@ -15,7 +15,7 @@ from numpyro.handlers import replay, seed, substitute, trace
 from numpyro.infer.util import log_density
 
 
-class ELBO(object):
+class Trace_ELBO:
     """
     A trace implementation of ELBO-based SVI. The estimator is constructed
     along the lines of references [1] and [2]. There are no restrictions on the
@@ -78,6 +78,13 @@ class ELBO(object):
             return - jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
+class ELBO(Trace_ELBO):
+    def __init__(self, num_particles=1):
+        warnings.warn("Using ELBO directly in SVI is deprecated. Please use Trace_ELBO class instead.",
+                      FutureWarning)
+        super().__init__(num_particles=num_particles)
+
+
 def _get_log_prob_sum(site):
     if site['intermediates']:
         log_prob = site['fn'].log_prob(site['value'], site['intermediates'])
@@ -105,7 +112,7 @@ def _check_mean_field_requirement(model_trace, guide_trace):
                       "Guide sites:\n  " + "\n  ".join(guide_sites))
 
 
-class TraceMeanField_ELBO(ELBO):
+class TraceMeanField_ELBO(Trace_ELBO):
     """
     A trace implementation of ELBO-based SVI. This is currently the only
     ELBO estimator in NumPyro that uses analytic KL divergences when those
@@ -177,7 +184,7 @@ class TraceMeanField_ELBO(ELBO):
             return - jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
-class RenyiELBO(ELBO):
+class RenyiELBO(Trace_ELBO):
     r"""
     An implementation of Renyi's :math:`\alpha`-divergence
     variational inference following reference [1].

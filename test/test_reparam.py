@@ -12,7 +12,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
-from numpyro.infer import ELBO, MCMC, NUTS, SVI
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoIAFNormal
 from numpyro.infer.reparam import LocScaleReparam, NeuTraReparam, TransformReparam
 from numpyro.infer.util import initialize_model
@@ -77,7 +77,7 @@ def test_neals_funnel_smoke():
     dim = 10
 
     guide = AutoIAFNormal(neals_funnel)
-    svi = SVI(neals_funnel, guide, Adam(1e-10), ELBO())
+    svi = SVI(neals_funnel, guide, Adam(1e-10), Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0), dim)
 
     def body_fn(i, val):
@@ -104,7 +104,7 @@ def test_neals_funnel_smoke():
 ])
 def test_reparam_log_joint(model, kwargs):
     guide = AutoIAFNormal(model)
-    svi = SVI(model, guide, Adam(1e-10), ELBO(), **kwargs)
+    svi = SVI(model, guide, Adam(1e-10), Trace_ELBO(), **kwargs)
     svi_state = svi.init(random.PRNGKey(0))
     params = svi.get_params(svi_state)
     neutra = NeuTraReparam(guide, params)

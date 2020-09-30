@@ -143,7 +143,7 @@ class SVI(svi.SVI):
         return super(SVI, self).get_params(self.svi_state)
 
 
-class Trace_ELBO(elbo.ELBO):
+class Trace_ELBO(elbo.Trace_ELBO):
     def __init__(self,
                  num_particles=1,
                  max_plate_nesting=float('inf'),

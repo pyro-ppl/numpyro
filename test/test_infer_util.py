@@ -15,7 +15,7 @@ from numpyro import handlers
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, biject_to
-from numpyro.infer import ELBO, MCMC, NUTS, SVI
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
@@ -86,7 +86,7 @@ def test_predictive_with_guide():
                                constraint=constraints.positive)
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
-    svi = SVI(model, guide, optim.Adam(0.1), ELBO())
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
 
     def body_fn(i, val):

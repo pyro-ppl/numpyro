@@ -41,7 +41,7 @@ class SVI(object):
         >>> import numpyro
         >>> import numpyro.distributions as dist
         >>> from numpyro.distributions import constraints
-        >>> from numpyro.infer import SVI, ELBO
+        >>> from numpyro.infer import SVI, Trace_ELBO
 
         >>> def model(data):
         ...     f = numpyro.sample("latent_fairness", dist.Beta(10, 10))
@@ -55,7 +55,7 @@ class SVI(object):
 
         >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
         >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
-        >>> svi = SVI(model, guide, optimizer, loss=ELBO())
+        >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
         >>> init_state = svi.init(random.PRNGKey(0), data)
         >>> state = lax.fori_loop(0, 2000, lambda i, state: svi.update(state, data)[0], init_state)
         >>> # or to collect losses during the loop

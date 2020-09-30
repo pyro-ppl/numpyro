@@ -209,7 +209,7 @@ class Minimize(_NumPyroOptim):
         >>> import jax.numpy as jnp
         >>> import numpyro
         >>> import numpyro.distributions as dist
-        >>> from numpyro.infer import SVI, ELBO
+        >>> from numpyro.infer import SVI, Trace_ELBO
         >>> from numpyro.infer.autoguide import AutoLaplaceApproximation
 
         >>> def model(x, y):
@@ -222,7 +222,7 @@ class Minimize(_NumPyroOptim):
         >>> y = 3 * x + 2
         >>> optimizer = numpyro.optim.Minimize()
         >>> guide = AutoLaplaceApproximation(model)
-        >>> svi = SVI(model, guide, optimizer, loss=ELBO())
+        >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
         >>> init_state = svi.init(random.PRNGKey(0), x, y)
         >>> optimal_state, loss = svi.update(init_state, x, y)
         >>> params = svi.get_params(optimal_state)  # get guide's parameters
