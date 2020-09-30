@@ -39,6 +39,8 @@ class Trace_ELBO:
     :param num_particles: The number of particles/samples used to form the ELBO
         (gradient) estimators.
     """
+    def __init__(self, num_particles=1):
+        self.num_particles = num_particles
 
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         """
@@ -77,10 +79,10 @@ class Trace_ELBO:
 
 
 class ELBO(Trace_ELBO):
-    def __init_subclass__(cls, **kwargs):
+    def __init__(self, num_particles=1):
         warnings.warn("Using ELBO directly in SVI is deprecated. Please use Trace_ELBO class instead.",
                       FutureWarning)
-        super().__init_subclass__(**kwargs)
+        super().__init__(num_particles=num_particles)
 
 
 def _get_log_prob_sum(site):
