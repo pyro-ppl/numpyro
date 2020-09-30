@@ -346,6 +346,17 @@ def clamp_probs(probs):
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
+def is_identically_zero(x):
+    """
+    Check if argument is exactly the number zero. True for the number zero;
+    false for other numbers; false for ndarrays.
+    """
+    if isinstance(x, (int, float)):
+        return x == 0
+    else:
+        return False
+
+
 def is_identically_one(x):
     """
     Check if argument is exactly the number one. True for the number one;
@@ -426,6 +437,20 @@ def _von_mises_centered(key, concentration, shape, dtype):
     )
 
     return jnp.sign(u) * jnp.arccos(w)
+
+
+def scale_and_mask(x, scale=None, mask=None):
+    """
+    Scale and mask a tensor, broadcasting and avoiding unnecessary ops.
+    """
+    if is_identically_zero(x):
+        return x
+    if not (scale is None or is_identically_one(scale)):
+        x = x * scale
+    if mask is None:
+        return x
+    else:
+        return jnp.where(mask, x, 0.)
 
 
 # TODO: use funsor implementation
