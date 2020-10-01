@@ -769,7 +769,7 @@ def test_categorical_log_prob_grad():
      jnp.array([False, True, True, False, True, False])),
     (constraints.interval(-3, 5), 0, True),
     (constraints.interval(-3, 5), jnp.array([-5, -3, 0, 5, 7]),
-     jnp.array([False, False, True, False, False])),
+     jnp.array([False, True, True, True, False])),
     (constraints.less_than(1), -2, True),
     (constraints.less_than(1), jnp.array([-1, 1, 5]), jnp.array([True, False, False])),
     (constraints.lower_cholesky, jnp.array([[1., 0.], [-2., 0.1]]), True),
@@ -792,7 +792,7 @@ def test_categorical_log_prob_grad():
      jnp.array([True, False, False])),
     (constraints.unit_interval, 0.1, True),
     (constraints.unit_interval, jnp.array([-5, 0, 0.5, 1, 7]),
-     jnp.array([False, False, True, False, False])),
+     jnp.array([False, True, True, True, False])),
 ])
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
