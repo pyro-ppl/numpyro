@@ -146,7 +146,7 @@ class _Interval(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return (x > self.lower_bound) & (x < self.upper_bound)
+        return (x >= self.lower_bound) & (x <= self.upper_bound)
 
 
 class _LowerCholesky(Constraint):
@@ -181,6 +181,7 @@ class _PositiveDefinite(Constraint):
 
 class _Real(Constraint):
     def __call__(self, x):
+        # XXX: consider to relax this condition to [-inf, inf] interval
         return jnp.isfinite(x)
 
 
