@@ -90,7 +90,9 @@ def reducer( accum, d ):
 
 def  tuplemerge( *dictionaries ):
    from functools import reduce
+
    merged = reduce( reducer, dictionaries, {} )
+
    return namedtuple('HMCCombinedState', merged )(**merged) # <==== Gist of the gist
 
 
@@ -107,13 +109,6 @@ def potential_est(model, model_args,model_kwargs, z, z_ref, n, m, proxy, proxy_u
     ll_prior, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=True)
 
     return (-l_hat + .5 * sigma) - ll_prior
-
-
-
-
-
-
-
 
 
 def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):

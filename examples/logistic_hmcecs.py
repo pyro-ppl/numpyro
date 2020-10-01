@@ -35,6 +35,8 @@ def model(feats, obs):
     """
     n, m = feats.shape
     precision = numpyro.sample('precision', dist.continuous.Uniform(1, 4))
+    #precision = numpyro.sample('precision', dist.continuous.HalfNormal(1))
+
     #precision = 0.5
     theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), precision * jnp.ones(m)))
 
@@ -59,13 +61,14 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     print("Using {} samples".format(str(n_samples+warmup)))
 
 
-    print("Running NUTS for map estimation")
     if subsample_method=="perturb":
-        samples,r_hat_average = infer_nuts(map_key, feats, obs,samples=15,warmup=5)
+        print("Running NUTS for map estimation")
+        samples,r_hat_average = infer_nuts(map_key, feats, obs,samples=10,warmup=5)
         z_map = {key: value.mean(0) for key, value in samples.items()}
+        print("Running MCMC subsampling")
+
     else:
         z_map = None
-    print("Running MCMC subsampling")
     start = time.time()
     kernel = HMC(model=model,z_ref=z_map,m=m,g=g,algo=algo,subsample_method=subsample_method)
 
@@ -79,6 +82,7 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     file_hyperparams.write('Subsample size (m): {}\n'.format(m))
     file_hyperparams.write('Block size (g): {}\n'.format(g))
     file_hyperparams.write('Data size (n): {}\n'.format(feats.shape[0]))
+    file_hyperparams.write('...........................................\n')
     file_hyperparams.close()
 
     save_obj(mcmc.get_samples(),"{}/MCMC_Dict_Samples_{}.pkl".format("PLOTS_{}".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss")),subsample_method))
@@ -93,7 +97,7 @@ def breast_cancer_data():
     feats = (feats - feats.mean(0)) / feats.std(0)
     feats = jnp.hstack((feats, jnp.ones((feats.shape[0], 1))))
 
-    return feats[:100], dataset.target[:100]
+    return feats, dataset.target
 
 
 def higgs_data():
@@ -105,7 +109,7 @@ def save_obj(obj, name):
     with bz2.BZ2File(name, "wb") as f:
         cPickle.dump(obj, f)
 
-def determine_best_sample_size(rng_key,feats,obs):
+def Determine_best_sample_size(rng_key,feats,obs):
     """Determine amount of effective sample size for z_map initialization"""
     effective_sample_list=[5,10,20,30,50]
     r_hat_average_list=[]
@@ -163,23 +167,20 @@ if __name__ == '__main__':
     rng_key, feat_key, obs_key = jax.random.split(rng_key, 3)
 
 
-    #feats, obs = breast_cancer_data()
-    feats,obs = higgs_data()
-
-
+    feats, obs = breast_cancer_data()
+    #feats,obs = higgs_data()
 
 
     now = datetime.datetime.now()
     Folders("PLOTS_{}".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss")))
     config.update('jax_disable_jit', True)
 
-
-    #determine_best_sample_size(rng_key,feats[:100],obs[:100])
-
-    m = int(np_jax.sqrt(obs.shape[0])*2)
-    g= int(m//3)
-    est_posterior_ECS = infer_hmcecs(rng_key, feats=feats[:100], obs=obs[:100],n_samples=100,warmup=50, m =m,g=g,algo="NUTS",subsample_method="perturb")
-    est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:100], obs=obs[:100], n_samples=100,warmup=50,m =m,g=g,algo="NUTS")
+    #Determine_best_sample_size(rng_key,feats[:100],obs[:100])
+    factor = 100
+    m = int(np_jax.sqrt(obs[:factor].shape[0])*2)
+    g= int(m//6)
+    est_posterior_ECS = infer_hmcecs(rng_key, feats=feats[:factor], obs=obs[:factor],n_samples=10,warmup=5, m =m,g=g,algo="NUTS",subsample_method="perturb")
+    est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor], obs=obs[:factor], n_samples=10,warmup=5,m =m,g=g,algo="NUTS")
 
     Plot(est_posterior_ECS,est_posterior_NUTS)
     exit()
