@@ -71,7 +71,23 @@ def validation_enabled(is_validate=True):
         enable_validation(distribution_validation_status)
 
 
-class Distribution(object):
+# TODO Remove import guard once funsor is a required dependency.
+try:
+    from funsor.distribution import CoerceDistributionToFunsor
+except ImportError:
+    DistributionMeta = type
+else:
+    _coerce_to_funsor = CoerceDistributionToFunsor("jax")
+
+    class DistributionMeta(type):
+        def __call__(cls, *args, **kwargs):
+            result = _coerce_to_funsor(cls, args, kwargs)
+            if result is not None:
+                return result
+            return super().__call__(*args, **kwargs)
+
+
+class Distribution(metaclass=DistributionMeta):
     """
     Base class for probability distributions in NumPyro. The design largely
     follows from :mod:`torch.distributions`.
