@@ -341,6 +341,14 @@ Delta
     :show-inheritance:
     :member-order: bysource
 
+DirichletMultinomial
+--------------------
+.. autoclass:: numpyro.distributions.conjugate.DirichletMultinomial
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 GammaPoisson
 ------------
 .. autoclass:: numpyro.distributions.conjugate.GammaPoisson

@@ -193,10 +193,12 @@ DISCRETE = [
     T(dist.CategoricalProbs, jnp.array([[0.1, 0.5, 0.4], [0.4, 0.4, 0.2]])),
     T(dist.CategoricalLogits, jnp.array([-5.])),
     T(dist.CategoricalLogits, jnp.array([1., 2., -2.])),
+    T(dist.CategoricalLogits, jnp.array([[-1, 2., 3.], [3., -4., -2.]])),
     T(dist.Delta, 1),
     T(dist.Delta, jnp.array([0., 2.])),
     T(dist.Delta, jnp.array([0., 2.]), jnp.array([-2., -4.])),
-    T(dist.CategoricalLogits, jnp.array([[-1, 2., 3.], [3., -4., -2.]])),
+    T(dist.DirichletMultinomial, jnp.array([1.0, 2.0, 3.9]), 10),
+    T(dist.DirichletMultinomial, jnp.array([0.2, 0.7, 1.1]), jnp.array([5, 5])),
     T(dist.GammaPoisson, 2., 2.),
     T(dist.GammaPoisson, jnp.array([6., 2]), jnp.array([2., 8.])),
     T(dist.GeometricProbs, 0.2),
@@ -557,6 +559,23 @@ def test_beta_binomial_log_prob(total_count, shape):
 
     actual = dist.BetaBinomial(concentration1, concentration0, total_count).log_prob(value)
     assert_allclose(actual, expected, rtol=0.02)
+
+
+@pytest.mark.parametrize("total_count", [1, 2, 3, 10])
+@pytest.mark.parametrize("batch_shape", [(1,), (3, 1), (2, 3, 1)])
+def test_dirichlet_multinomial_log_prob(total_count, batch_shape):
+    event_shape = (3,)
+    concentration = np.exp(np.random.normal(size=batch_shape + event_shape))
+    # test on one-hots
+    value = total_count * jnp.eye(event_shape[-1]).reshape(event_shape + (1,) * len(batch_shape) + event_shape)
+
+    num_samples = 100000
+    probs = dist.Dirichlet(concentration).sample(random.PRNGKey(0), (num_samples, 1))
+    log_probs = dist.Multinomial(total_count, probs).log_prob(value)
+    expected = logsumexp(log_probs, 0) - jnp.log(num_samples)
+
+    actual = dist.DirichletMultinomial(concentration, total_count).log_prob(value)
+    assert_allclose(actual, expected, rtol=0.05)
 
 
 @pytest.mark.parametrize("shape", [(1,), (3, 1), (2, 3, 1)])
