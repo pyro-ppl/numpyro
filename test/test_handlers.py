@@ -520,7 +520,7 @@ def test_collapse_beta_binomial():
         c0 = numpyro.param("c0", 1.5, constraint=dist.constraints.positive)
         with handlers.collapse():
             probs = numpyro.sample("probs", dist.Beta(c1, c0))
-            numpyro.sample("obs", dist.Binomial(total_count, probs), obs=data)
+            numpyro.sample("obs", dist.Binomial(probs, total_count), obs=data)
 
     def model2():
         c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)
@@ -537,12 +537,17 @@ def test_collapse_beta_binomial():
 
     svi1 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
     svi2 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
-    svi_state = svi1.init(random.PRNGKey(0))
-
-    params1 = svi1.get_params(svi1.update(svi_state))
-    params2 = svi2.get_params(svi2.update(svi_state))
+    svi_state1 = svi1.init(random.PRNGKey(0))
+    svi_state2 = svi2.init(random.PRNGKey(0))
+    params1 = svi1.get_params(svi_state1)
+    params2 = svi2.get_params(svi_state2)
     assert_allclose(params1["c1"], params2["c1"])
-    assert_allclose(params1["c2"], params2["c2"])
+    assert_allclose(params1["c0"], params2["c0"])
+
+    params1 = svi1.get_params(svi1.update(svi_state1)[0])
+    params2 = svi2.get_params(svi2.update(svi_state2)[0])
+    assert_allclose(params1["c1"], params2["c1"])
+    assert_allclose(params1["c0"], params2["c0"])
 
 
 @pytest.mark.xfail(reason="missing Beta-Bernoulli pattern in Funsor")
