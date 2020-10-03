@@ -99,7 +99,7 @@ class DirichletMultinomial(Distribution):
                        'total_count': constraints.nonnegative_integer}
     is_discrete = True
 
-    def __init__(self, concentration, total_count=1, is_sparse=False, validate_args=None):
+    def __init__(self, concentration, total_count=1, validate_args=None):
         if jnp.ndim(concentration) < 1:
             raise ValueError("`concentration` parameter must be at least one-dimensional.")
 
@@ -107,9 +107,8 @@ class DirichletMultinomial(Distribution):
         self.concentration = jnp.broadcast_to(concentration, batch_shape + jnp.shape(concentration)[-1:])
         self._dirichlet = Dirichlet(self.concentration)
         self.total_count, = promote_shapes(total_count, shape=batch_shape)
-        self.is_sparse = is_sparse
         super().__init__(
-            batch_shape, self._dirichlet.event_shape, validate_args=validate_args)
+            self._dirichlet.batch_shape, self._dirichlet.event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         key_dirichlet, key_multinom = random.split(key)
@@ -122,6 +121,7 @@ class DirichletMultinomial(Distribution):
                                           " by `sample`.")
         return Multinomial(total_count, probs).sample(key_multinom)
 
+    @validate_sample
     def log_prob(self, value):
         alpha = self.concentration
         return (_log_beta_1(alpha.sum(-1), value.sum(-1)) -
@@ -141,7 +141,7 @@ class DirichletMultinomial(Distribution):
 
     @property
     def support(self):
-        return constraints.integer_interval(0, self.total_count)
+        return constraints.multinomial(self.total_count)
 
 
 class GammaPoisson(Distribution):

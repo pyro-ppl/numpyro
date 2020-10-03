@@ -6,6 +6,12 @@ Funsor-based NumPyro
 Effect handlers
 ---------------
 
+.. autoclass:: numpyro.contrib.funsor.enum_messenger.collapse
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 .. autoclass:: numpyro.contrib.funsor.enum_messenger.enum
     :members:
     :undoc-members:
