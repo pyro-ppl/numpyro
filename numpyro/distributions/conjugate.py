@@ -52,7 +52,7 @@ class BetaBinomial(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return (_log_beta_1(self.total_count - value + 1, value) +
+        return (-_log_beta_1(self.total_count - value + 1, value) +
                 betaln(value + self.concentration1, self.total_count - value + self.concentration0) -
                 betaln(self.concentration0, self.concentration1))
 
