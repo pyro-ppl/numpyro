@@ -520,7 +520,7 @@ def test_collapse_beta_binomial():
         c0 = numpyro.param("c0", 1.5, constraint=dist.constraints.positive)
         with handlers.collapse():
             probs = numpyro.sample("probs", dist.Beta(c1, c0))
-            numpyro.sample("obs", dist.Binomial(probs, total_count), obs=data)
+            numpyro.sample("obs", dist.Binomial(total_count, probs), obs=data)
 
     def model2():
         c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)
