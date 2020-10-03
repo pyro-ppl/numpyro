@@ -14,12 +14,12 @@ import jax.numpy as jnp
 from funsor import Tensor, bint, reals
 import numpyro
 from numpyro.contrib.control_flow import scan
-from numpyro.contrib.funsor import collapse, config_enumerate, enum, markov, to_data, to_funsor
+from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor
 from numpyro.contrib.funsor.enum_messenger import NamedMessenger
 from numpyro.contrib.funsor.infer_util import log_density
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
+from numpyro.infer import MCMC, NUTS
 
 
 def test_gaussian_mixture_model():
@@ -421,37 +421,3 @@ def test_scan_enum_scan_enum():
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
     expected_log_joint = log_density(enum(config_enumerate(model)), (data_x, data_w), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
-
-
-def test_gradient_collapse_beta_binomial():
-    total_count = 10
-    data = 3.
-
-    def model1():
-        c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)
-        c0 = numpyro.param("c0", 1.5, constraint=dist.constraints.positive)
-        with collapse():
-            probs = numpyro.sample("probs", dist.Beta(c1, c0))
-            numpyro.sample("obs", dist.Binomial(total_count, probs), obs=data)
-
-    def model2():
-        c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)
-        c0 = numpyro.param("c0", 1.5, constraint=dist.constraints.positive)
-        numpyro.sample("obs", dist.BetaBinomial(c1, c0, total_count),
-                       obs=data)
-
-    trace1 = numpyro.handlers.trace(model1).get_trace()
-    trace2 = numpyro.handlers.trace(model2).get_trace()
-    assert "probs" in trace1.nodes
-    assert "obs" not in trace1.nodes
-    assert "probs" not in trace2.nodes
-    assert "obs" in trace2.nodes
-
-    svi1 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
-    svi2 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
-    svi_state = svi1.init(random.PRNGKey(0))
-
-    params1 = svi1.get_params(svi1.update(svi_state))
-    params2 = svi2.get_params(svi2.update(svi_state))
-    assert_allclose(params1["c1"], params2["c1"])
-    assert_allclose(params1["c2"], params2["c2"])

@@ -509,3 +509,37 @@ def test_lift_memoize():
     with handlers.seed(rng_seed=1):
         with handlers.lift(prior=dist.Normal(0, 1)):
             model()
+
+
+def test_gradient_collapse_beta_binomial():
+    total_count = 10
+    data = 3.
+
+    def model1():
+        c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)
+        c0 = numpyro.param("c0", 1.5, constraint=dist.constraints.positive)
+        with handlers.collapse():
+            probs = numpyro.sample("probs", dist.Beta(c1, c0))
+            numpyro.sample("obs", dist.Binomial(total_count, probs), obs=data)
+
+    def model2():
+        c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)
+        c0 = numpyro.param("c0", 1.5, constraint=dist.constraints.positive)
+        numpyro.sample("obs", dist.BetaBinomial(c1, c0, total_count),
+                       obs=data)
+
+    trace1 = handlers.trace(model1).get_trace()
+    trace2 = handlers.trace(model2).get_trace()
+    assert "probs" in trace1.nodes
+    assert "obs" not in trace1.nodes
+    assert "probs" not in trace2.nodes
+    assert "obs" in trace2.nodes
+
+    svi1 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
+    svi2 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state = svi1.init(random.PRNGKey(0))
+
+    params1 = svi1.get_params(svi1.update(svi_state))
+    params2 = svi2.get_params(svi2.update(svi_state))
+    assert_allclose(params1["c1"], params2["c1"])
+    assert_allclose(params1["c2"], params2["c2"])
