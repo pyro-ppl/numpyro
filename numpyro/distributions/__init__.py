@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
+from numpyro.distributions.conjugate import BetaBinomial, DirichletMultinomial, GammaPoisson
 import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.continuous import (
@@ -86,6 +86,7 @@ __all__ = [
     'Chi2',
     'Delta',
     'Dirichlet',
+    'DirichletMultinomial',
     'Distribution',
     'Exponential',
     'ExpandedDistribution',
