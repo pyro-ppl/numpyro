@@ -6,11 +6,16 @@ import jax.numpy as jnp
 from jax.scipy.special import betaln, gammaln
 
 from numpyro.distributions import constraints
-from numpyro.distributions.continuous import Beta, Gamma
-from numpyro.distributions.discrete import Binomial, Poisson
+from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
+from numpyro.distributions.discrete import Binomial, Multinomial, Poisson
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import promote_shapes, validate_sample
 from numpyro.util import not_jax_tracer
+
+
+def _log_beta_1(alpha, value):
+    # XXX: support sparse `value`
+    return gammaln(1 + value) + gammaln(alpha) - gammaln(value + alpha)
 
 
 class BetaBinomial(Distribution):
@@ -47,10 +52,7 @@ class BetaBinomial(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        log_factorial_n = gammaln(self.total_count + 1)
-        log_factorial_k = gammaln(value + 1)
-        log_factorial_nmk = gammaln(self.total_count - value + 1)
-        return (log_factorial_n - log_factorial_k - log_factorial_nmk +
+        return (-_log_beta_1(self.total_count - value + 1, value) +
                 betaln(value + self.concentration1, self.total_count - value + self.concentration0) -
                 betaln(self.concentration0, self.concentration1))
 
@@ -77,6 +79,67 @@ class BetaBinomial(Distribution):
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
         return values
+
+
+class DirichletMultinomial(Distribution):
+    r"""
+    Compound distribution comprising of a dirichlet-multinomial pair. The probability of
+    classes (``probs`` for the :class:`~numpyro.distributions.Multinomial` distribution)
+    is unknown and randomly drawn from a :class:`~numpyro.distributions.Dirichlet`
+    distribution prior to a certain number of Categorical trials given by
+    ``total_count``.
+
+    :param numpy.ndarray concentration: concentration parameter (alpha) for the
+        Dirichlet distribution.
+    :param numpy.ndarray total_count: number of Categorical trials.
+    """
+    arg_constraints = {'concentration': constraints.positive,
+                       'total_count': constraints.nonnegative_integer}
+    is_discrete = True
+
+    def __init__(self, concentration, total_count=1, validate_args=None):
+        if jnp.ndim(concentration) < 1:
+            raise ValueError("`concentration` parameter must be at least one-dimensional.")
+
+        batch_shape = lax.broadcast_shapes(jnp.shape(concentration)[:-1], jnp.shape(total_count))
+        self.concentration = jnp.broadcast_to(concentration, batch_shape + jnp.shape(concentration)[-1:])
+        self._dirichlet = Dirichlet(self.concentration)
+        self.total_count, = promote_shapes(total_count, shape=batch_shape)
+        super().__init__(
+            self._dirichlet.batch_shape, self._dirichlet.event_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        key_dirichlet, key_multinom = random.split(key)
+        probs = self._dirichlet.sample(key_dirichlet, sample_shape)
+        total_count = jnp.amax(self.total_count)
+        if not_jax_tracer(total_count):
+            # NB: the error can't be raised if inhomogeneous issue happens when tracing
+            if jnp.amin(self.total_count) != total_count:
+                raise NotImplementedError("Inhomogeneous total count not supported"
+                                          " by `sample`.")
+        return Multinomial(total_count, probs).sample(key_multinom)
+
+    @validate_sample
+    def log_prob(self, value):
+        alpha = self.concentration
+        return (_log_beta_1(alpha.sum(-1), value.sum(-1)) -
+                _log_beta_1(alpha, value).sum(-1))
+
+    @property
+    def mean(self):
+        return self._dirichlet.mean * jnp.expand_dims(self.total_count, -1)
+
+    @property
+    def variance(self):
+        n = jnp.expand_dims(self.total_count, -1)
+        alpha = self.concentration
+        alpha_sum = self.concentration.sum(-1, keepdims=True)
+        alpha_ratio = alpha / alpha_sum
+        return n * alpha_ratio * (1 - alpha_ratio) * (n + alpha_sum) / (1 + alpha_sum)
+
+    @property
+    def support(self):
+        return constraints.multinomial(self.total_count)
 
 
 class GammaPoisson(Distribution):
