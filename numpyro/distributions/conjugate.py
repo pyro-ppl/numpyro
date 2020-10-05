@@ -92,8 +92,6 @@ class DirichletMultinomial(Distribution):
     :param numpy.ndarray concentration: concentration parameter (alpha) for the
         Dirichlet distribution.
     :param numpy.ndarray total_count: number of Categorical trials.
-    :param bool is_sparse: Whether to assume value is mostly zero when computing
-        :meth:`log_prob`, which can speed up computation when data is sparse.
     """
     arg_constraints = {'concentration': constraints.positive,
                        'total_count': constraints.nonnegative_integer}
