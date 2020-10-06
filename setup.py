@@ -34,9 +34,9 @@ setup(
     author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
-        'jax==0.2',
+        'jax>=0.2',
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L26
-        'jaxlib==0.1.55',
+        'jaxlib>=0.1.55',
         'tqdm',
     ],
     extras_require={
@@ -47,12 +47,12 @@ setup(
             'pyro-api>=0.1.1'
         ],
         'dev': [
-            'funsor',
+            'funsor @ git+https://github.com/pyro-ppl/funsor.git@6575ac2c3f7ac25a6a1e5f1107b1b7c072edd992',
             'ipython',
             'isort',
             'flax',
             'dm-haiku',
-            'tfp-nightly==0.12.0.dev20200930',  # TODO: change this to stable release or a specific nightly release
+            'tfp-nightly',  # TODO: change this to stable release or a specific nightly release
         ],
         'examples': ['matplotlib', 'seaborn', 'graphviz', 'arviz'],
     },
