@@ -32,12 +32,28 @@ def model_kwargs_sub(u, kwargs):
         if key_arg == "observations" or key_arg == "features":
             kwargs[key_arg] = jnp.take(val_arg, u, axis=0)
     return kwargs
+def log_density_obs_hmcecs(model, model_args, model_kwargs, params):
+    model = substitute(model, data=params)
+    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
+    log_joint = jnp.array(0.)
+    for site in model_trace.values():
+        if site['type'] == 'sample' and site['is_observed'] and not isinstance(site['fn'], dist.PRNGIdentity):
+            value = site['value']
+            intermediates = site['intermediates']
+            scale = site['scale']
+            if intermediates:
+                log_prob = site['fn'].log_prob(value, intermediates)
+            else:
+                log_prob = site['fn'].log_prob(value)
+            if (scale is not None) and (not is_identically_one(scale)):
+                log_prob = scale * log_prob
+            log_joint += log_prob
 
-def log_density_hmcecs(model, model_args, model_kwargs, params,prior=False):
+            return log_prob, model_trace
+def log_density_prior_hmcecs(model, model_args, model_kwargs, params):
     """
     (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
-    latent values ``params``. If prior == False, the log probability of the prior probability
-    over the parameters is not computed, solely the log probability of the observations
+    latent values ``params``.
 
     :param model: Python callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
@@ -46,42 +62,25 @@ def log_density_hmcecs(model, model_args, model_kwargs, params,prior=False):
         name.
     :return: log of joint density and a corresponding model trace
     """
-
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
-    if not prior:
-        for site in model_trace.values():
-            if site['type'] == 'sample' and site['is_observed'] and not isinstance(site['fn'], dist.PRNGIdentity):
-                value = site['value']
-                intermediates = site['intermediates']
-                scale = site['scale']
-                if intermediates:
-                    log_prob = site['fn'].log_prob(value, intermediates)
-                else:
-                    log_prob = site['fn'].log_prob(value) #TODO: The shape here is duplicated
+    for site in model_trace.values():
+        if site['type'] == 'sample' and not isinstance(site['fn'], dist.PRNGIdentity) and not site['is_observed']:
+            value = site['value']
+            intermediates = site['intermediates']
+            scale = site['scale']
+            if intermediates:
+                log_prob = site['fn'].log_prob(value, intermediates)
+            else:
+                log_prob = site['fn'].log_prob(value)
 
-                if (scale is not None) and (not is_identically_one(scale)):
-                    log_prob = scale * log_prob
+            if (scale is not None) and (not is_identically_one(scale)):
+                log_prob = scale * log_prob
 
-                return log_prob, model_trace
-    else:
-        for site in model_trace.values():
-            if site['type'] == 'sample' and not isinstance(site['fn'], dist.PRNGIdentity) and not site['is_observed']: #Prior prob
-                value = site['value']
-                intermediates = site['intermediates']
-                scale = site['scale']
-                if intermediates:
-                    log_prob = site['fn'].log_prob(value, intermediates)
-                else:
-                    log_prob = site['fn'].log_prob(value)
-
-                if (scale is not None) and (not is_identically_one(scale)):
-                    log_prob = scale * log_prob
-
-                log_prob = jnp.sum(log_prob)
-                log_joint = log_joint + log_prob
-        return log_joint, model_trace
+            log_prob = jnp.sum(log_prob)
+            log_joint = log_joint + log_prob
+    return log_joint, model_trace
 
 
 def reducer( accum, d ):
@@ -96,19 +95,20 @@ def  tuplemerge( *dictionaries ):
    return namedtuple('HMCCombinedState', merged )(**merged) # <==== Gist of the gist
 
 
-def potential_est(model, model_args,model_kwargs, z, z_ref, n, m, proxy, proxy_u,u=None):
-    if any(arg.shape[0] > m for arg in model_args):
-        model_args = model_args_sub(u,model_args)
-    ll_sub, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=False)  # log likelihood for subsample with current theta
+def potential_est(model, model_args,model_kwargs, z, z_ref, n, m, proxy_fn, proxy_u_fn,u=None):
+    #if any(arg.shape[0] > m for arg in model_args):
+    #    model_args = model_args_sub(u,model_args)
+    ll_sub, _ = log_density_obs_hmcecs(model, model_args, model_kwargs, z)  # log likelihood for subsample with current theta
 
-    diff = ll_sub - proxy_u(z, z_ref, model, model_args)
-    l_hat = proxy(z, z_ref) + n / m * jnp.sum(diff)
+    diff = ll_sub - proxy_u_fn(z, z_ref, model, model_args)
+    l_hat = proxy_fn(z, z_ref) + n / m * jnp.sum(diff)
 
     sigma = n ** 2 / m * jnp.var(diff)
 
-    ll_prior, _ = log_density_hmcecs(model, model_args, model_kwargs, z,prior=True)
+    ll_prior, _ = log_density_prior_hmcecs(model, model_args, model_kwargs, z)
 
     return (-l_hat + .5 * sigma) - ll_prior
+
 
 
 def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
@@ -193,7 +193,7 @@ def taylor_proxy(ll_ref, jac_all, hess_all):
         zref_flat, _ = ravel_pytree(z_ref)
         z_diff = z_flat - zref_flat
 
-        ld_fn = lambda args: jnp.sum(partial(log_density_hmcecs, model, model_args, {},prior=False)(args)[0])
+        ld_fn = lambda args: jnp.sum(partial(log_density_obs_hmcecs, model, model_args, {})(args)[0])
 
         ll_sub, jac_sub = jax.value_and_grad(ld_fn)(z_ref)
         k, = jac_all.shape

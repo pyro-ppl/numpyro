@@ -24,9 +24,9 @@ from numpyro.util import cond, fori_loop, identity
 import sys
 sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/contrib/')
 
-from hmcecs_utils import potential_est,log_density_hmcecs, \
-                        velocity_verlet_hmcecs, init_near_values,tuplemerge,\
-                        model_args_sub,model_kwargs_sub,taylor_proxy,svi_proxy,neural_proxy
+from hmcecs_utils import potential_est, init_near_values,tuplemerge,\
+                        model_args_sub,model_kwargs_sub,taylor_proxy,svi_proxy,neural_proxy,log_density_obs_hmcecs,log_density_prior_hmcecs
+
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state','rng_key'])
 #HMCECSState = namedtuple("HMCECState",["u","hmc_state","z_ref","ll_ref","jac_all","hess_all","ll_u"])
@@ -117,7 +117,7 @@ def _update_block(rng_key, u, n, m, g):
     return u_new
 
 
-def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potential_fn_gen=None,covariate_fn=None,algo='NUTS'):
+def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potential_fn_gen=None,algo='NUTS'):
     r"""
     Hamiltonian Monte Carlo inference, using either fixed number of
     steps or the No U-Turn Sampler (NUTS) with adaptive path length.
@@ -222,7 +222,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                     u= None,
                     rng_key=random.PRNGKey(0),
                     subsample_method=None,
-                    covariate_fn = None):
+                    proxy_fn=None,
+                    proxy_u_fn = None):
         """
         Initializes the HMC sampler.
 
@@ -275,8 +276,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
             else:
                 if subsample_method == "perturb":
                     kwargs = {} if model_kwargs is None else model_kwargs
-                    proxy,proxy_u = covariate_fn(ll_ref, jac_all, hess_all)
-                    pe_fn = potential_fn_gen(model, model_args,model_kwargs, z, z_ref, n, m, proxy, proxy_u,u)
+
+                    pe_fn = potential_fn_gen(model, model_args,model_kwargs, z, z_ref, n, m, proxy_fn, proxy_u_fn,u)
                 else:
                     kwargs = {} if model_kwargs is None else model_kwargs
                     pe_fn = potential_fn_gen(*model_args, **kwargs)
@@ -323,11 +324,14 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
 
         hmc_state = tuplemerge(hmc_sub_state._asdict(),hmc_state._asdict())
 
+
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
                   model_args, model_kwargs, rng_key,subsample_method,
-                  model,ll_ref,jac_all,z,z_ref,hess_all,ll_u,u,n,m):
+                  proxy_fn = None, proxy_u_fn = None,
+                  model = None, ll_ref = None, jac_all = None, z = None, z_ref = None, hess_all = None,
+                  ll_u = None, u = None, n = None, m = None):
         if potential_fn_gen:
             if grad_potential_fn_gen:
                 kwargs = {} if model_kwargs is None else model_kwargs
@@ -336,8 +340,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
 
             else:
                 if subsample_method == "perturb":
-                    proxy, proxy_u = covariate_fn(ll_ref, jac_all, hess_all)
-                    pe_fn = potential_fn_gen(model, model_args, model_kwargs,vv_state.z, z_ref, n, m, proxy, proxy_u, u)
+                    pe_fn = potential_fn_gen(model, model_args, model_kwargs,vv_state.z, z_ref, n, m, proxy_fn, proxy_u_fn, u)
                     kwargs = {} if model_kwargs is None else model_kwargs
                 else:
                     pe_fn = potential_fn_gen(*model_args, **model_kwargs)
@@ -359,10 +362,12 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         vv_state, energy = cond(transition,
                                 (vv_state_new, energy_new), identity,
                                 (vv_state, energy_old), identity)
+
         return vv_state, energy, num_steps, accept_prob, diverging
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state,
                    model_args, model_kwargs, rng_key,subsample_method,
+                   proxy_fn=None,proxy_u_fn=None,
                    model=None,ll_ref=None,jac_all=None,z = None,z_ref=None,hess_all=None,ll_u=None,u=None,n=None,m=None):
         if potential_fn_gen:
             nonlocal vv_update
@@ -372,9 +377,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                     pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             else:
                 if subsample_method == "perturb":
-                    proxy, proxy_u = covariate_fn(ll_ref, jac_all, hess_all)
-                    pe_fn = potential_fn_gen(model, model_args, model_kwargs, vv_state.z, z_ref, n, m, proxy,
-                                             proxy_u, u)
+                    pe_fn = potential_fn_gen(model, model_args, model_kwargs, vv_state.z, z_ref, n, m, proxy_fn,
+                                             proxy_u_fn, u)
                 else:
                     pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
@@ -394,7 +398,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
     def sample_kernel(hmc_state,model_args=(),model_kwargs=None,
-                      subsample_method=None,covariate_fn=None,
+                      subsample_method=None,proxy_fn=None,proxy_u_fn=None,
                       model=None,ll_ref=None,jac_all=None,
                       z=None,z_ref=None,hess_all=None,ll_u=None,
                       u=None,n=None,m=None,):
@@ -411,10 +415,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         """
 
         model_kwargs = {} if model_kwargs is None else model_kwargs
-        print(hmc_state._fields)
         if subsample_method =="perturb":
             model_args = model_args_sub(u,model_args)
-            #hmc_state = hmc_state.hmc_state #TODO: Probably not necessary since keys are merged
         rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
         r = momentum_generator(hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
@@ -426,6 +428,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                                                                     model_kwargs,
                                                                     rng_key_transition,
                                                                     subsample_method,
+                                                                    proxy_fn,
+                                                                    proxy_u_fn,
                                                                     model,ll_ref,jac_all,z,z_ref,hess_all,ll_u,u,n,m)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
@@ -520,8 +524,7 @@ class HMC(MCMCKernel):
                  m= None,
                  g = None,
                  z_ref= None,
-                 algo = "HMC",
-                 covariate_fn = None,
+                 algo = "HMC"
                  ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
@@ -556,42 +559,31 @@ class HMC(MCMCKernel):
         self._postprocess_fn = None
         self._sample_fn = None
         self._subsample_fn = None
-        self.proxy = "taylor",
-        self.covariate_fn = covariate_fn
+        self.proxy = "taylor"
+        self._proxy_fn = None
+        self._proxy_u_fn = None
 
     def _init_subsample_state(self,rng_key, model_args, model_kwargs, init_params,z_ref):
         "Compute the jacobian, hessian and log likelihood for all the data"
-        rng_key_subsample, rng_key_model, rng_key_hmc_init, rng_key_potential, rng_key_init_model = random.split(
-            rng_key, 5)
+        rng_key_subsample, rng_key_model, rng_key_hmc_init, rng_key_potential, rng_key = random.split(rng_key, 5)
+
         self._n = model_args[0].shape[0]
         self._u = random.randint(rng_key, (self.m,), 0, self._n)
-
-        ld_fn = lambda args: jnp.sum(partial(log_density_hmcecs, self._model, model_args, {},prior=False)(args)[0])
-
-        self._ll_ref = ld_fn(z_ref)
-        self._jac_all, _ = ravel_pytree(jacfwd(ld_fn)(z_ref))
-        hess_all, _ = ravel_pytree(hessian(ld_fn)(z_ref))
-
-        k, = self._jac_all.shape
-        self._hess_all = hess_all.reshape((k, k))
-        # Initialize the model parameters
-        init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
-            rng_key_init_model,
-            self._model,
-            init_strategy=partial(init_near_values, values=self.z_ref),
-            dynamic_args=True,
-            model_args=model_args_sub(self._u, model_args),
-            model_kwargs=model_kwargs)
-
-
-
-        return init_params, potential_fn, postprocess_fn, model_trace
+        if self.proxy == "taylor":
+            ld_fn = lambda args: jnp.sum(partial(log_density_obs_hmcecs, self._model, model_args, model_kwargs)(args)[0])
+            self._jac_all, _ = ravel_pytree(jacfwd(ld_fn)(z_ref))
+            hess_all, _ = ravel_pytree(hessian(ld_fn)(z_ref))
+            k, = self._jac_all.shape
+            self._hess_all = hess_all.reshape((k, k))
+            ld_fn = lambda args: partial(log_density_obs_hmcecs,self._model,model_args,model_kwargs)(args)[0]
+            self._ll_ref = ld_fn(z_ref)
 
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self.subsample_method is not None:
             assert self.z_ref is not None, "Please provide a (i.e map) estimate for the parameters"
 
+            self._init_subsample_state(rng_key, model_args, model_kwargs, init_params,self.z_ref)
 
             # Choose the covariate calculation method
             if self.proxy == "svi":
@@ -600,50 +592,63 @@ class HMC(MCMCKernel):
                 self.covariate_fn = lambda ll_ref, jac_all, hess_all:neural_proxy(ll_ref, jac_all, hess_all)
             else:
                 warnings.warn("Using default second order Taylor expansion, change by using the proxy flag to {svi,neural}")
-                self.covariate_fn = lambda ll_ref, jac_all, hess_all:taylor_proxy(ll_ref, jac_all, hess_all)
-
+                self._proxy_fn, self._proxy_u_fn = taylor_proxy(self._ll_ref, self._jac_all, self._hess_all)
 
             # Initialize the potential and gradient potential functions
 
-            self._potential_fn = lambda  model, model_args, model_kwargs,z, z_ref, n, m, proxy, proxy_u,u : lambda z:potential_est(model=model,
-                                 model_args=model_args,model_kwargs=model_kwargs,z=z,z_ref=z_ref,n=n,m = m,proxy=proxy,proxy_u=proxy_u,u=u)
+            self._potential_fn = lambda  model, model_args, model_kwargs,z, z_ref, n, m, proxy_fn, proxy_u_fn,u : lambda z:potential_est(model=model,
+                                 model_args=model_args,model_kwargs=model_kwargs,z=z,z_ref=z_ref,n=n,m = m,proxy_fn=proxy_fn,proxy_u_fn=proxy_u_fn,u=u)
 
 
             # Initialize the hmc sampler: sample_fn = sample_kernel
             self._init_fn, self._sample_fn = hmc(potential_fn_gen=self._potential_fn,
                                                     kinetic_fn=euclidean_kinetic_energy,
-                                                    algo=self._algo,
-                                                    covariate_fn=self.covariate_fn)
+                                                    algo=self._algo)
 
-            init_params, potential_fn, postprocess_fn, model_trace=self._init_subsample_state(rng_key, model_args, model_kwargs, init_params,self.z_ref)
-            if (self.g > self.m) or (self.g < 1):
-                raise ValueError(
-                    'Block size (g) = {} needs to = or > than 1 and smaller than the subsample size {}'.format(self.g,
-                                                                                                               self.m))
-            elif (self.m > self._n):
-                raise ValueError(
-                    'Subsample size (m) = {} needs to = or < than data size (n) {}'.format(self.m, self._n))
-        if self._model is not None:
+
+            self._init_strategy = partial(init_near_values, values=self.z_ref)
+            # Initialize the model parameters
+            rng_key_init_model, rng_key = random.split(rng_key)
+
             init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
-                rng_key,
+                rng_key_init_model,
                 self._model,
+                init_strategy=self._init_strategy,
                 dynamic_args=True,
-                model_args=model_args,
+                model_args=model_args_sub(self._u, model_args),
                 model_kwargs=model_kwargs)
-            if any(v['type'] == 'param' for v in model_trace.values()):
-                warnings.warn("'param' sites will be treated as constants during inference. To define "
-                              "an improper variable, please use a 'sample' site with log probability "
-                              "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
-                              "means that `x` has improper distribution over the positive domain.")
-            if self._init_fn is None:
-                self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
+
+
+            if (self.g > self.m) or (self.g < 1):
+                    raise ValueError(
+                        'Block size (g) = {} needs to = or > than 1 and smaller than the subsample size {}'.format(self.g,
+                                                                                                                   self.m))
+            elif (self.m > self._n):
+                    raise ValueError(
+                        'Subsample size (m) = {} needs to = or < than data size (n) {}'.format(self.m, self._n))
+        else:
+            if self._model is not None:
+                init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
+                    rng_key,
+                    self._model,
+                    dynamic_args=True,
+                    model_args=model_args,
+                    model_kwargs=model_kwargs)
+
+                if any(v['type'] == 'param' for v in model_trace.values()):
+                    warnings.warn("'param' sites will be treated as constants during inference. To define "
+                                  "an improper variable, please use a 'sample' site with log probability "
+                                  "masked out. For example, `sample('x', dist.LogNormal(0, 1).mask(False)` "
+                                  "means that `x` has improper distribution over the positive domain.")
+                if self._init_fn is None:
+                    self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
+                                                         kinetic_fn=self._kinetic_fn,
+                                                         algo=self._algo)
+                self._postprocess_fn = postprocess_fn
+            elif self._init_fn is None:
+                self._init_fn, self._sample_fn = hmc(potential_fn=self._potential_fn,
                                                      kinetic_fn=self._kinetic_fn,
                                                      algo=self._algo)
-            self._postprocess_fn = postprocess_fn
-        elif self._init_fn is None:
-            self._init_fn, self._sample_fn = hmc(potential_fn=self._potential_fn,
-                                                 kinetic_fn=self._kinetic_fn,
-                                                 algo=self._algo)
 
         return init_params
 
@@ -681,41 +686,41 @@ class HMC(MCMCKernel):
 
 
         init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params) #should work  for all cases
-
         if self._potential_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
         if self.subsample_method == "perturb":
 
             hmc_init_fn = lambda init_params,rng_key: self._init_fn(init_params=init_params,
-                                      num_warmup = num_warmup,
-                                      step_size = self._step_size,
-                                      adapt_step_size = self._adapt_step_size,
-                                      adapt_mass_matrix = self._adapt_mass_matrix,
-                                      dense_mass = self._dense_mass,
-                                      target_accept_prob = self._target_accept_prob,
-                                      trajectory_length=self._trajectory_length,
-                                      max_tree_depth=self._max_tree_depth,
-                                      find_heuristic_step_size=self._find_heuristic_step_size,
-                                      model_args=model_args_sub(self._u,model_args),
-                                      model_kwargs=model_kwargs,
-                                      subsample_method= self.subsample_method,
-                                      model=self._model,
-                                      ll_ref =self._ll_ref,
-                                      jac_all=self._jac_all,
-                                      z_ref=self.z_ref,
-                                      hess_all = self._hess_all,
-                                      ll_u = self._ll_u,
-                                      n=self._n,
-                                      m=self.m,
-                                      u = self._u,
-                                      covariate_fn = self.covariate_fn)
+                                          num_warmup = num_warmup,
+                                          step_size = self._step_size,
+                                          adapt_step_size = self._adapt_step_size,
+                                          adapt_mass_matrix = self._adapt_mass_matrix,
+                                          dense_mass = self._dense_mass,
+                                          target_accept_prob = self._target_accept_prob,
+                                          trajectory_length=self._trajectory_length,
+                                          max_tree_depth=self._max_tree_depth,
+                                          find_heuristic_step_size=self._find_heuristic_step_size,
+                                          model_args=model_args_sub(self._u,model_args),
+                                          model_kwargs=model_kwargs,
+                                          subsample_method= self.subsample_method,
+                                          model=self._model,
+                                          ll_ref =self._ll_ref,
+                                          jac_all=self._jac_all,
+                                          z_ref=self.z_ref,
+                                          hess_all = self._hess_all,
+                                          ll_u = self._ll_u,
+                                          n=self._n,
+                                          m=self.m,
+                                          u = self._u,
+                                          proxy_fn = self._proxy_fn,
+                                          proxy_u_fn = self._proxy_u_fn)
 
             if rng_key.ndim ==1:
-
-                init_state = hmc_init_fn(init_params, rng_key) #HMCState + HMCECSState
-
-                self._proxy, self._proxy_u = self.covariate_fn(self._ll_ref, self._jac_all, self._hess_all)
+                rng_key_hmc_init = jnp.array([1000966916, 171341646])
+                init_state = hmc_init_fn(init_params, rng_key_hmc_init) #HMCState + HMCECSState
+                if self.proxy == "taylor":
+                    self._proxy_fn, self._proxy_u_fn = taylor_proxy(self._ll_ref, self._jac_all, self._hess_all)
                 self._ll_u = potential_est(model=self._model,
                                            model_args = model_args_sub(self._u, model_args),
                                            model_kwargs=model_kwargs,
@@ -723,19 +728,15 @@ class HMC(MCMCKernel):
                                            z_ref=self.z_ref,
                                            n=self._n,
                                            m=self.m,
-                                           proxy=self._proxy,
-                                           proxy_u=self._proxy_u,
+                                           proxy_fn=self._proxy_fn,
+                                           proxy_u_fn=self._proxy_u_fn,
                                            u=self._u)
 
-
-
-                hmc_init_sub_fn = lambda init_params, rng_key: HMCECSState(u=self._u,
-                                                                           hmc_state=init_state.hmc_state,
-                                                                           z_ref=self.z_ref,
-                                                                           ll_u=self._ll_u)
-
-                init_sub_state = hmc_init_sub_fn(init_params,rng_key) #HMCState
-                init_sub_state  = tuplemerge(init_state._asdict(),init_sub_state._asdict())
+                hmc_init_sub_state =  HMCECSState(u=self._u,
+                                                 hmc_state=init_state.hmc_state,
+                                                 z_ref=self.z_ref,
+                                                ll_u=self._ll_u)
+                init_sub_state  = tuplemerge(init_state._asdict(),hmc_init_sub_state._asdict())
 
                 return init_sub_state
             else: #TODO: What is this for? It does not go into it for num_chains>1
@@ -744,7 +745,6 @@ class HMC(MCMCKernel):
                 # wa_steps because those variables do not depend on traced args: init_params, rng_key.
                 init_state = vmap(hmc_init_fn)(init_params, rng_key)
 
-                self._proxy, self._proxy_u = self.covariate_fn(self._ll_ref, self._jac_all, self._hess_all)
                 self._ll_u = potential_est(model=self._model,
                                            model_args=model_args_sub(self._u, model_args),
                                            model_kwargs=model_kwargs,
@@ -752,8 +752,8 @@ class HMC(MCMCKernel):
                                            z_ref=self.z_ref,
                                            n=self._n,
                                            m=self.m,
-                                           proxy=self._proxy,
-                                           proxy_u=self._proxy_u,
+                                           proxy_fn=self._proxy_fn,
+                                           proxy_u_fn=self._proxy_u_fn,
                                            u=self._u)
 
                 hmc_init_sub_fn = lambda init_params, rng_key: HMCECSState(u=self._u, hmc_state=init_state, z_ref=self.z_ref, ll_u=self._ll_u)
@@ -816,28 +816,24 @@ class HMC(MCMCKernel):
                 state.rng_key, 4)
 
             u_new = _update_block(rng_key_subsample, state.u, self._n, self.m, self.g)
-
             # estimate likelihood of subsample with single block updated
-            self._proxy, self._proxy_u = self.covariate_fn(self._ll_ref, self._jac_all, self._hess_all)
-
             llu_new = potential_est(model=self._model,
                                          model_args=model_args_sub(u_new,model_args),
                                          model_kwargs=model_kwargs,
                                          z=state.z,
                                          z_ref=self.z_ref,
-                                         proxy = self._proxy,
-                                         proxy_u = self._proxy_u,
+                                         proxy_fn = self._proxy_fn,
+                                         proxy_u_fn = self._proxy_u_fn,
                                          n=self._n, m=self.m,u=state.u)
             # accept new subsample with probability min(1,L^{hat}_{u_new}(z) - L^{hat}_{u}(z))
             # NOTE: latent variables (z aka theta) same, subsample indices (u) different by one block.
-
             accept_prob = jnp.clip(jnp.exp(-llu_new + state.ll_u), a_max=1.)
             transition = random.bernoulli(rng_key_transition, accept_prob)
             u, ll_u = cond(transition,
                            (u_new, llu_new), identity,
                            (state.u, state.ll_u), identity)
-            self._u = u #Just in case , but not necessary
-            self._ll_u = ll_u
+            print("ll_u")
+            print(ll_u)
             ######## UPDATE PARAMETERS ##########
 
             hmc_subsamplestate = HMCECSState(u=u, hmc_state=state.hmc_state,
@@ -849,6 +845,8 @@ class HMC(MCMCKernel):
                                    model_args=model_args,
                                    model_kwargs=model_kwargs,
                                    subsample_method=self.subsample_method,
+                                   proxy_fn = self._proxy_fn,
+                                   proxy_u_fn = self._proxy_u_fn,
                                    model = self._model,
                                    ll_ref = self._ll_ref,
                                    jac_all =self._jac_all,
