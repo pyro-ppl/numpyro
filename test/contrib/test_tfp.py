@@ -7,7 +7,7 @@ import os
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import jit, random
 import jax.numpy as jnp
 
 import numpyro
@@ -28,7 +28,16 @@ def test_api_consistent():
             if type(numpyro_dist).__name__ == "function":
                 numpyro_dist = getattr(numpyro.distributions, name + "Logits")
             for p in tfp_dist.arg_constraints:
-                assert p in dict(inspect.signature(tfp_dist).parameters)
+                assert p in inspect.getfullargspec(tfp_dist.__init__)[0]
+
+
+def test_dist_pytree():
+    from numpyro.contrib.tfp import distributions as tfd
+
+    def f(x):
+        return tfd.Normal(x, 1)
+
+    jit(f)(0)
 
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")
