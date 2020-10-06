@@ -7,10 +7,9 @@ from jax.scipy.special import betaln, gammaln
 
 from numpyro.distributions import constraints
 from numpyro.distributions.continuous import Beta, Dirichlet, Gamma
-from numpyro.distributions.discrete import Binomial, Multinomial, Poisson
+from numpyro.distributions.discrete import BinomialProbs, MultinomialProbs, Poisson
 from numpyro.distributions.distribution import Distribution
 from numpyro.distributions.util import promote_shapes, validate_sample
-from numpyro.util import not_jax_tracer
 
 
 def _log_beta_1(alpha, value):
@@ -35,6 +34,7 @@ class BetaBinomial(Distribution):
                        'total_count': constraints.nonnegative_integer}
     has_enumerate_support = True
     is_discrete = True
+    enumerate_support = BinomialProbs.enumerate_support
 
     def __init__(self, concentration1, concentration0, total_count=1, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration1), jnp.shape(concentration0),
@@ -48,7 +48,7 @@ class BetaBinomial(Distribution):
     def sample(self, key, sample_shape=()):
         key_beta, key_binom = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
-        return Binomial(self.total_count, probs).sample(key_binom)
+        return BinomialProbs(total_count=self.total_count, probs=probs).sample(key_binom)
 
     @validate_sample
     def log_prob(self, value):
@@ -67,18 +67,6 @@ class BetaBinomial(Distribution):
     @property
     def support(self):
         return constraints.integer_interval(0, self.total_count)
-
-    def enumerate_support(self, expand=True):
-        total_count = jnp.amax(self.total_count)
-        if not_jax_tracer(total_count):
-            # NB: the error can't be raised if inhomogeneous issue happens when tracing
-            if jnp.amin(self.total_count) != total_count:
-                raise NotImplementedError("Inhomogeneous total count not supported"
-                                          " by `enumerate_support`.")
-        values = jnp.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
-        if expand:
-            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
-        return values
 
 
 class DirichletMultinomial(Distribution):
@@ -111,13 +99,7 @@ class DirichletMultinomial(Distribution):
     def sample(self, key, sample_shape=()):
         key_dirichlet, key_multinom = random.split(key)
         probs = self._dirichlet.sample(key_dirichlet, sample_shape)
-        total_count = jnp.amax(self.total_count)
-        if not_jax_tracer(total_count):
-            # NB: the error can't be raised if inhomogeneous issue happens when tracing
-            if jnp.amin(self.total_count) != total_count:
-                raise NotImplementedError("Inhomogeneous total count not supported"
-                                          " by `sample`.")
-        return Multinomial(total_count, probs).sample(key_multinom)
+        return MultinomialProbs(total_count=self.total_count, probs=probs).sample(key_multinom)
 
     @validate_sample
     def log_prob(self, value):

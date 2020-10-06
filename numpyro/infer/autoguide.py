@@ -6,6 +6,8 @@ from abc import ABC, abstractmethod
 from contextlib import ExitStack
 import warnings
 
+import numpy as np
+
 from jax import hessian, lax, random, tree_map
 from jax.experimental import stax
 from jax.flatten_util import ravel_pytree
@@ -647,7 +649,7 @@ class AutoLaplaceApproximation(AutoContinuous):
         precision = hessian(loss_fn)(loc)
         scale_tril = cholesky_of_inverse(precision)
         if not_jax_tracer(scale_tril):
-            if jnp.any(jnp.isnan(scale_tril)):
+            if np.any(np.isnan(scale_tril)):
                 warnings.warn("Hessian of log posterior at the MAP point is singular. Posterior"
                               " samples from AutoLaplaceApproxmiation will be constant (equal to"
                               " the MAP point).")

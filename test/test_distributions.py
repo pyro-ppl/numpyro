@@ -748,6 +748,22 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         d.log_prob(oob_samples)
 
 
+def test_omnistaging_invalid_param():
+    def f(x):
+        return dist.LogNormal(x, -np.ones(2), validate_args=True).log_prob(0)
+
+    with pytest.raises(ValueError, match="got invalid"):
+        jax.jit(f)(0)
+
+
+def test_omnistaging_invalid_sample():
+    def f(x):
+        return dist.LogNormal(x, np.ones(2), validate_args=True).log_prob(-1)
+
+    with pytest.warns(UserWarning, match="Out-of-support"):
+        jax.jit(f)(0)
+
+
 def test_categorical_log_prob_grad():
     data = jnp.repeat(jnp.arange(3), 10)
 

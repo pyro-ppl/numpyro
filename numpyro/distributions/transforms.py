@@ -4,6 +4,8 @@
 import math
 import warnings
 
+import numpy as np
+
 from jax import ops, tree_flatten, tree_map, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
@@ -96,19 +98,19 @@ class AffineTransform(Transform):
         elif self.domain is constraints.real_vector:
             return constraints.real_vector
         elif isinstance(self.domain, constraints.greater_than):
-            if not_jax_tracer(self.scale) and jnp.all(self.scale < 0):
+            if not_jax_tracer(self.scale) and np.all(self.scale < 0):
                 return constraints.less_than(self(self.domain.lower_bound))
             # we suppose scale > 0 for any tracer
             else:
                 return constraints.greater_than(self(self.domain.lower_bound))
         elif isinstance(self.domain, constraints.less_than):
-            if not_jax_tracer(self.scale) and jnp.all(self.scale < 0):
+            if not_jax_tracer(self.scale) and np.all(self.scale < 0):
                 return constraints.greater_than(self(self.domain.upper_bound))
             # we suppose scale > 0 for any tracer
             else:
                 return constraints.less_than(self(self.domain.upper_bound))
         elif isinstance(self.domain, constraints.interval):
-            if not_jax_tracer(self.scale) and jnp.all(self.scale < 0):
+            if not_jax_tracer(self.scale) and np.all(self.scale < 0):
                 return constraints.interval(self(self.domain.upper_bound),
                                             self(self.domain.lower_bound))
             else:

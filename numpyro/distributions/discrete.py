@@ -183,12 +183,14 @@ class BinomialProbs(Distribution):
         return constraints.integer_interval(0, self.total_count)
 
     def enumerate_support(self, expand=True):
-        total_count = jnp.amax(self.total_count)
-        if not_jax_tracer(total_count):
+        if not_jax_tracer(self.total_count):
+            total_count = np.amax(self.total_count)
             # NB: the error can't be raised if inhomogeneous issue happens when tracing
-            if jnp.amin(self.total_count) != total_count:
+            if np.amin(self.total_count) != total_count:
                 raise NotImplementedError("Inhomogeneous total count not supported"
                                           " by `enumerate_support`.")
+        else:
+            total_count = jnp.amax(self.total_count)
         values = jnp.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
         if expand:
             values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
@@ -200,6 +202,7 @@ class BinomialLogits(Distribution):
                        'total_count': constraints.nonnegative_integer}
     has_enumerate_support = True
     is_discrete = True
+    enumerate_support = BinomialProbs.enumerate_support
 
     def __init__(self, logits, total_count=1, validate_args=None):
         self.logits, self.total_count = promote_shapes(logits, total_count)
@@ -234,18 +237,6 @@ class BinomialLogits(Distribution):
     @property
     def support(self):
         return constraints.integer_interval(0, self.total_count)
-
-    def enumerate_support(self, expand=True):
-        total_count = jnp.amax(self.total_count)
-        if not_jax_tracer(total_count):
-            # NB: the error can't be raised if inhomogeneous issue happens when tracing
-            if jnp.amin(self.total_count) != total_count:
-                raise NotImplementedError("Inhomogeneous total count not supported"
-                                          " by `enumerate_support`.")
-        values = jnp.arange(total_count + 1).reshape((-1,) + (1,) * len(self.batch_shape))
-        if expand:
-            values = jnp.broadcast_to(values, values.shape[:1] + self.batch_shape)
-        return values
 
 
 def Binomial(total_count=1, probs=None, logits=None, validate_args=None):

@@ -1,6 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import numpy as np
+
 from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
 from tensorflow_probability.substrates.jax import bijectors as tfb
@@ -22,7 +24,7 @@ def _get_codomain(bijector):
         return constraints.positive
     elif bijector.__class__.__name__ == "GeneralizedPareto":
         loc, scale, concentration = bijector.loc, bijector.scale, bijector.concentration
-        if not_jax_tracer(concentration) and jnp.all(concentration < 0):
+        if not_jax_tracer(concentration) and np.all(concentration < 0):
             return constraints.interval(loc, loc + scale / jnp.abs(concentration))
         # XXX: here we suppose concentration > 0
         # which is not true in general, but should cover enough usage cases
