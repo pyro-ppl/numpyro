@@ -550,7 +550,6 @@ def test_collapse_beta_binomial():
     assert_allclose(params1["c0"], params2["c0"])
 
 
-@pytest.mark.xfail(reason="missing Beta-Bernoulli pattern in Funsor")
 def test_collapse_beta_bernoulli():
     data = 0.
 

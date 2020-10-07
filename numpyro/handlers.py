@@ -83,6 +83,7 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
+from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
 from numpyro.util import not_jax_tracer
 
@@ -250,10 +251,14 @@ class collapse(trace):
     fail. Code using the results of sample sites must be written to accept
     Funsors rather than Tensors. This requires ``funsor`` to be installed.
     """
-    def __init__(self, *args, **kwargs):
-        import funsor
+    _coerce = None
 
-        funsor.set_backend("jax")
+    def __init__(self, *args, **kwargs):
+        if collapse._coerce is None:
+            import funsor
+            from funsor.distribution import CoerceDistributionToFunsor
+            funsor.set_backend("jax")
+            collapse._coerce = CoerceDistributionToFunsor("jax")
         super().__init__(*args, **kwargs)
 
     def process_message(self, msg):
@@ -269,11 +274,14 @@ class collapse(trace):
     def __enter__(self):
         self.preserved_plates = frozenset(h.name for h in _PYRO_STACK
                                           if isinstance(h, plate))
+        COERCIONS.append(self._coerce)
         return super().__enter__()
 
     def __exit__(self, *args, **kwargs):
         import funsor
 
+        _coerce = COERCIONS.pop()
+        assert _coerce is self._coerce
         super().__exit__(*args, **kwargs)
 
         # Convert delayed statements to pyro.factor()
