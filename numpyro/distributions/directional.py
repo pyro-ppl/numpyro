@@ -4,6 +4,7 @@ import math
 
 from jax import lax
 import jax.numpy as jnp
+from jax.scipy.special import i0e, i1e
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -43,8 +44,8 @@ class VonMises(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return -(jnp.log(2 * jnp.pi) + lax.bessel_i0e(self.concentration)) + (
-                self.concentration * jnp.cos(value - self.loc))
+        return -(jnp.log(2 * jnp.pi) + jnp.log(i0e(self.concentration))) + \
+            self.concentration * (jnp.cos((value - self.loc) % (2 * jnp.pi)) - 1)
 
     @property
     def mean(self):
@@ -54,5 +55,5 @@ class VonMises(Distribution):
     @property
     def variance(self):
         """ Computes circular variance of distribution """
-        return jnp.broadcast_to(1. - lax.bessel_i1e(self.concentration) / lax.bessel_i0e(self.concentration),
+        return jnp.broadcast_to(1. - i1e(self.concentration) / i0e(self.concentration),
                                 self.batch_shape)
