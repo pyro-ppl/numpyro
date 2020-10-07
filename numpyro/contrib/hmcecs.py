@@ -832,8 +832,7 @@ class HMC(MCMCKernel):
             u, ll_u = cond(transition,
                            (u_new, llu_new), identity,
                            (state.u, state.ll_u), identity)
-            print("ll_u")
-            print(ll_u)
+
             ######## UPDATE PARAMETERS ##########
 
             hmc_subsamplestate = HMCECSState(u=u, hmc_state=state.hmc_state,

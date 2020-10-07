@@ -47,7 +47,7 @@ def log_density_obs_hmcecs(model, model_args, model_kwargs, params):
                 log_prob = site['fn'].log_prob(value)
             if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
-            log_joint += log_prob
+            log_joint += log_prob #TODO: log_joint += jnp.sum(log_prob) ?---> gives a single number
 
             return log_prob, model_trace
 def log_density_prior_hmcecs(model, model_args, model_kwargs, params):

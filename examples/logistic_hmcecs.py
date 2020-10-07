@@ -94,11 +94,11 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     if subsample_method=="perturb":
         if map_method == "NUTS":
             print("Running NUTS for map estimation")
-            samples,r_hat_average = infer_nuts(map_key, feats, obs,samples=100,warmup=50)
+            samples,r_hat_average = infer_nuts(map_key, feats[:1000], obs[:1000],samples=500,warmup=250)
             z_map = {key: value.mean(0) for key, value in samples.items()}
         if map_method == "HMC":
             print("Running HMC for map estimation")
-            samples, r_hat_average = infer_hmc(map_key, feats, obs, samples=100, warmup=50)
+            samples, r_hat_average = infer_hmc(map_key, feats[:1000], obs[:1000], samples=50, warmup=250)
             z_map = {key: value.mean(0) for key, value in samples.items()}
 
         if map_method == "SVI":
@@ -187,10 +187,10 @@ def Folders(folder_name):
         os.makedirs(newpath,0o777)
 
 def Tests(map_method,ecs_algo,algo,n_samples,n_warmup,epochs):
-    factor = 100
-    m = int(np_jax.sqrt(obs[:factor].shape[0])*2)
+    factor_NUTS = 1000
+    m = int(np_jax.sqrt(obs.shape[0])*2)
     g= 5
-    est_posterior_ECS = infer_hmcecs(rng_key, feats=feats[:factor], obs=obs[:factor],
+    est_posterior_ECS = infer_hmcecs(rng_key, feats=feats, obs=obs,
                                      n_samples=n_samples,
                                      warmup=n_warmup,
                                      m =m,g=g,
@@ -198,7 +198,7 @@ def Tests(map_method,ecs_algo,algo,n_samples,n_warmup,epochs):
                                      subsample_method="perturb",
                                      map_method = map_method,
                                      num_epochs=epochs)
-    est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor], obs=obs[:factor], n_samples=n_samples,warmup=n_warmup,m =m,g=g,algo=algo)
+    est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor_NUTS], obs=obs[:factor_NUTS], n_samples=n_samples,warmup=n_warmup,m =m,g=g,algo=algo)
 
     Plot(est_posterior_ECS,est_posterior_NUTS,ecs_algo,algo)
 
