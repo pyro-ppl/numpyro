@@ -73,6 +73,7 @@ def validation_enabled(is_validate=True):
 
 COERCIONS = []
 
+
 class DistributionMeta(type):
     def __call__(cls, *args, **kwargs):
         for coerce_ in COERCIONS:
