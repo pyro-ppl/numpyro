@@ -83,11 +83,13 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.primitives import Messenger, apply_stack
+from numpyro.distributions.distribution import COERCIONS
+from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
 from numpyro.util import not_jax_tracer
 
 __all__ = [
     'block',
+    'collapse',
     'condition',
     'lift',
     'mask',
@@ -240,6 +242,73 @@ class block(Messenger):
     def process_message(self, msg):
         if self.hide_fn(msg):
             msg['stop'] = True
+
+
+class collapse(trace):
+    """
+    EXPERIMENTAL Collapses all sites in the context by lazily sampling and
+    attempting to use conjugacy relations. If no conjugacy is known this will
+    fail. Code using the results of sample sites must be written to accept
+    Funsors rather than Tensors. This requires ``funsor`` to be installed.
+    """
+    _coerce = None
+
+    def __init__(self, *args, **kwargs):
+        if collapse._coerce is None:
+            import funsor
+            from funsor.distribution import CoerceDistributionToFunsor
+            funsor.set_backend("jax")
+            collapse._coerce = CoerceDistributionToFunsor("jax")
+        super().__init__(*args, **kwargs)
+
+    def process_message(self, msg):
+        from funsor.terms import Funsor
+
+        if msg["type"] == "sample":
+            if msg["value"] is None:
+                msg["value"] = msg["name"]
+
+            if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
+                msg["stop"] = True
+
+    def __enter__(self):
+        self.preserved_plates = frozenset(h.name for h in _PYRO_STACK
+                                          if isinstance(h, plate))
+        COERCIONS.append(self._coerce)
+        return super().__enter__()
+
+    def __exit__(self, *args, **kwargs):
+        import funsor
+
+        _coerce = COERCIONS.pop()
+        assert _coerce is self._coerce
+        super().__exit__(*args, **kwargs)
+
+        # Convert delayed statements to pyro.factor()
+        reduced_vars = []
+        log_prob_terms = []
+        plates = frozenset()
+        for name, site in self.trace.items():
+            if not site["is_observed"]:
+                reduced_vars.append(name)
+            dim_to_name = {f.dim: f.name for f in site["cond_indep_stack"]}
+            fn = funsor.to_funsor(site["fn"], funsor.Real, dim_to_name)
+            value = site["value"]
+            if not isinstance(value, str):
+                value = funsor.to_funsor(site["value"], fn.inputs["value"], dim_to_name)
+            log_prob_terms.append(fn(value=value))
+            plates |= frozenset(f.name for f in site["cond_indep_stack"])
+        assert log_prob_terms, "nothing to collapse"
+        reduced_plates = plates - self.preserved_plates
+        log_prob = funsor.sum_product.sum_product(
+            funsor.ops.logaddexp,
+            funsor.ops.add,
+            log_prob_terms,
+            eliminate=frozenset(reduced_vars) | reduced_plates,
+            plates=plates,
+        )
+        name = reduced_vars[0]
+        numpyro.factor(name, log_prob.data)
 
 
 class condition(Messenger):

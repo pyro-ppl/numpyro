@@ -71,7 +71,19 @@ def validation_enabled(is_validate=True):
         enable_validation(distribution_validation_status)
 
 
-class Distribution(object):
+COERCIONS = []
+
+
+class DistributionMeta(type):
+    def __call__(cls, *args, **kwargs):
+        for coerce_ in COERCIONS:
+            result = coerce_(cls, args, kwargs)
+            if result is not None:
+                return result
+        return super().__call__(*args, **kwargs)
+
+
+class Distribution(metaclass=DistributionMeta):
     """
     Base class for probability distributions in NumPyro. The design largely
     follows from :mod:`torch.distributions`.

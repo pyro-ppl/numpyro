@@ -11,6 +11,14 @@ block
     :show-inheritance:
     :member-order: bysource
 
+collapse
+--------
+.. autoclass:: numpyro.handlers.collapse
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 condition
 ---------
 .. autoclass:: numpyro.handlers.condition

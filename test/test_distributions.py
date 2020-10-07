@@ -339,7 +339,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     if not jax_dist.reparametrized_params:
         pytest.skip('{} not reparametrized.'.format(jax_dist.__name__))
 
-    dist_args = [p.name for p in inspect.signature(jax_dist).parameters.values()]
+    dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
     params_dict = dict(zip(dist_args[:len(params)], params))
     nonrepara_params_dict = {k: v for k, v in params_dict.items()
                              if k not in jax_dist.reparametrized_params}
@@ -701,7 +701,7 @@ def test_mean_var(jax_dist, sp_dist, params):
     (2, 3),
 ])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
-    dist_args = [p.name for p in inspect.signature(jax_dist).parameters.values()]
+    dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
     key = random.PRNGKey(1)
