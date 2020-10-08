@@ -67,7 +67,8 @@ def test_predictive(parallel):
     assert predictive_samples["beta_sq"].shape == (100,) + true_probs.shape
     assert predictive_samples["obs"].shape == (100,) + data.shape
     # check sample mean
-    assert_allclose(predictive_samples["obs"].reshape((-1,) + true_probs.shape).mean(0), true_probs, rtol=0.1)
+    obs = predictive_samples["obs"].reshape((-1,) + true_probs.shape).astype(np.float32)
+    assert_allclose(obs.mean(0), true_probs, rtol=0.1)
 
 
 def test_predictive_with_guide():
@@ -97,7 +98,7 @@ def test_predictive_with_guide():
     params = svi.get_params(svi_state)
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(random.PRNGKey(2), data=None)
     assert predictive["beta_sq"].shape == (1000,)
-    obs_pred = predictive["obs"]
+    obs_pred = predictive["obs"].astype(np.float32)
     assert_allclose(jnp.mean(obs_pred), 0.8, atol=0.05)
 
 
@@ -208,7 +209,7 @@ def test_model_with_mask_false():
 ])
 def test_initialize_model_change_point(init_strategy):
     def model(data):
-        alpha = 1 / jnp.mean(data)
+        alpha = 1 / jnp.mean(data.astype(np.float32))
         lambda1 = numpyro.sample('lambda1', dist.Exponential(alpha))
         lambda2 = numpyro.sample('lambda2', dist.Exponential(alpha))
         tau = numpyro.sample('tau', dist.Uniform(0, 1))
