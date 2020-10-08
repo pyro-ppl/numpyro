@@ -144,6 +144,6 @@ def test_cholesky_update(chol_batch_shape, vec_batch_shape, dim, coef):
 @pytest.mark.parametrize("n", [10, 100, 1000])
 @pytest.mark.parametrize("p", [0., 0.01, 0.05, 0.3, 0.5, 0.7, 0.95, 1.])
 def test_binomial_mean(n, p):
-    samples = binomial(random.PRNGKey(1), p, n, shape=(100, 100))
+    samples = binomial(random.PRNGKey(1), p, n, shape=(100, 100)).astype(np.float32)
     expected_mean = n * p
     assert_allclose(jnp.mean(samples), expected_mean, rtol=0.05)
