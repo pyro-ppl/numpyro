@@ -509,3 +509,83 @@ def test_lift_memoize():
     with handlers.seed(rng_seed=1):
         with handlers.lift(prior=dist.Normal(0, 1)):
             model()
+
+
+def test_collapse_beta_binomial():
+    total_count = 10
+    data = 3.
+
+    def model1():
+        c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)
+        c0 = numpyro.param("c0", 1.5, constraint=dist.constraints.positive)
+        with handlers.collapse():
+            probs = numpyro.sample("probs", dist.Beta(c1, c0))
+            numpyro.sample("obs", dist.Binomial(total_count, probs), obs=data)
+
+    def model2():
+        c1 = numpyro.param("c1", 0.5, constraint=dist.constraints.positive)
+        c0 = numpyro.param("c0", 1.5, constraint=dist.constraints.positive)
+        numpyro.sample("obs", dist.BetaBinomial(c1, c0, total_count),
+                       obs=data)
+
+    trace1 = handlers.trace(model1).get_trace()
+    trace2 = handlers.trace(model2).get_trace()
+    assert "probs" in trace1
+    assert "obs" not in trace1
+    assert "probs" not in trace2
+    assert "obs" in trace2
+
+    svi1 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
+    svi2 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state1 = svi1.init(random.PRNGKey(0))
+    svi_state2 = svi2.init(random.PRNGKey(0))
+    params1 = svi1.get_params(svi_state1)
+    params2 = svi2.get_params(svi_state2)
+    assert_allclose(params1["c1"], params2["c1"])
+    assert_allclose(params1["c0"], params2["c0"])
+
+    params1 = svi1.get_params(svi1.update(svi_state1)[0])
+    params2 = svi2.get_params(svi2.update(svi_state2)[0])
+    assert_allclose(params1["c1"], params2["c1"])
+    assert_allclose(params1["c0"], params2["c0"])
+
+
+def test_collapse_beta_bernoulli():
+    data = 0.
+
+    def model():
+        c = numpyro.sample("c", dist.Gamma(1, 1))
+        with handlers.collapse():
+            probs = numpyro.sample("probs", dist.Beta(c, 2))
+            numpyro.sample("obs", dist.Bernoulli(probs), obs=data)
+
+    def guide():
+        a = numpyro.param("a", 1., constraint=constraints.positive)
+        b = numpyro.param("b", 1., constraint=constraints.positive)
+        numpyro.sample("c", dist.Gamma(a, b))
+
+    svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)
+
+
+@pytest.mark.xfail(reason="missing pattern in Funsor")
+def test_collapse_beta_binomial_plate():
+    data = np.array([0., 1., 5., 5.])
+
+    def model():
+        c = numpyro.sample("c", dist.Gamma(1, 1))
+        with handlers.collapse():
+            probs = numpyro.sample("probs", dist.Beta(c, 2))
+            with numpyro.plate("plate", len(data)):
+                numpyro.sample("obs", dist.Binomial(10, probs),
+                               obs=data)
+
+    def guide():
+        a = numpyro.param("a", 1., constraint=constraints.positive)
+        b = numpyro.param("b", 1., constraint=constraints.positive)
+        numpyro.sample("c", dist.Gamma(a, b))
+
+    svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)

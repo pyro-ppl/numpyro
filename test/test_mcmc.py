@@ -197,7 +197,7 @@ def test_change_point_x64():
     warmup_steps, num_samples = 500, 3000
 
     def model(data):
-        alpha = 1 / jnp.mean(data)
+        alpha = 1 / jnp.mean(data.astype(np.float32))
         lambda1 = numpyro.sample('lambda1', dist.Exponential(alpha))
         lambda2 = numpyro.sample('lambda2', dist.Exponential(alpha))
         tau = numpyro.sample('tau', dist.Uniform(0, 1))

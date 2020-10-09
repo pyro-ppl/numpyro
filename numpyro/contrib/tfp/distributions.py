@@ -92,7 +92,23 @@ def _transform_to_bijector_constraint(constraint):
     return BijectorTransform(constraint.bijector)
 
 
-class TFPDistributionMixin(NumPyroDistribution):
+_TFPDistributionMeta = type(tfd.Distribution)
+
+
+# XXX: we create this mixin class to avoid metaclass conflict between TFP and NumPyro Ditribution
+class _TFPMixinMeta(_TFPDistributionMeta, type(NumPyroDistribution)):
+    def __init__(cls, name, bases, dct):
+        # XXX: _TFPDistributionMeta.__init__ registers cls as a PyTree
+        # for some reasons, when defining metaclass of TFPDistributionMixin to be _TFPMixinMeta,
+        # TFPDistributionMixin will be registered as a PyTree 2 times, which is not allowed
+        # in JAX, so we skip registering TFPDistributionMixin as a PyTree.
+        if name == "TFPDistributionMixin":
+            super(_TFPDistributionMeta, cls).__init__(name, bases, dct)
+        else:
+            super(_TFPMixinMeta, cls).__init__(name, bases, dct)
+
+
+class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
     """
     A mixin layer to make TensorFlow Probability (TFP) distribution compatible
     with NumPyro internal.
@@ -120,11 +136,11 @@ class TFPDistributionMixin(NumPyroDistribution):
         return self.support is None
 
 
-class InverseGamma(tfd.InverseGamma):
+class InverseGamma(tfd.InverseGamma, TFPDistributionMixin):
     arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
 
 
-class OneHotCategorical(tfd.OneHotCategorical):
+class OneHotCategorical(tfd.OneHotCategorical, TFPDistributionMixin):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
     support = constraints.simplex
@@ -139,11 +155,11 @@ class OneHotCategorical(tfd.OneHotCategorical):
         return values
 
 
-class OrderedLogistic(tfd.OrderedLogistic):
+class OrderedLogistic(tfd.OrderedLogistic, TFPDistributionMixin):
     arg_constraints = {"cutpoints": constraints.ordered_vector, "loc": constraints.real}
 
 
-class Pareto(tfd.Pareto):
+class Pareto(tfd.Pareto, TFPDistributionMixin):
     arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
 
 

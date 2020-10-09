@@ -70,7 +70,7 @@ def test_bernoulli_latent_model():
 def test_change_point():
     def model(count_data):
         n_count_data = count_data.shape[0]
-        alpha = 1 / jnp.mean(count_data)
+        alpha = 1 / jnp.mean(count_data.astype(np.float32))
         lambda_1 = numpyro.sample('lambda_1', dist.Exponential(alpha))
         lambda_2 = numpyro.sample('lambda_2', dist.Exponential(alpha))
         # this is the same as DiscreteUniform(0, 69)
