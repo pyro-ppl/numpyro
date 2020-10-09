@@ -744,8 +744,19 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
 
     # Out of support samples throw ValueError
     oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="Out-of-support"):
         d.log_prob(oob_samples)
+
+    with pytest.warns(UserWarning, match="Out-of-support"):
+        # test warning work under jit
+        oob_samples = jax.device_get(oob_samples)
+
+        def log_prob_fn(valid_parms):
+            d = jax_dist(*valid_params, validate_args=True)
+            print(d.support)
+            return d.log_prob(oob_samples)
+
+        jax.jit(log_prob_fn)(valid_params)
 
 
 def test_omnistaging_invalid_param():
