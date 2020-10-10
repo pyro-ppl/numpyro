@@ -193,7 +193,7 @@ class _Real(Constraint):
 
 class _RealVector(Constraint):
     def __call__(self, x):
-        return ((x != x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
+        return ((x == x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
 
 
 class _Simplex(Constraint):

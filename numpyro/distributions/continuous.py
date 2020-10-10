@@ -937,22 +937,23 @@ class Pareto(TransformedDistribution):
     arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
 
     def __init__(self, scale, alpha, validate_args=None):
+        self.scale, self.alpha = promote_shapes(scale, alpha)
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
-        self.scale, self.alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(alpha, batch_shape)
-        base_dist = Exponential(self.alpha)
-        transforms = [ExpTransform(), AffineTransform(loc=0, scale=self.scale)]
+        scale, alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(alpha, batch_shape)
+        base_dist = Exponential(alpha)
+        transforms = [ExpTransform(), AffineTransform(loc=0, scale=scale)]
         super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
 
     @property
     def mean(self):
         # mean is inf for alpha <= 1
-        a = lax.div(self.alpha * self.scale, (self.alpha - 1))
+        a = jnp.divide(self.alpha * self.scale, (self.alpha - 1))
         return jnp.where(self.alpha <= 1, jnp.inf, a)
 
     @property
     def variance(self):
         # var is inf for alpha <= 2
-        a = lax.div((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
+        a = jnp.divide((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
         return jnp.where(self.alpha <= 2, jnp.inf, a)
 
     # override the default behaviour to save computations
