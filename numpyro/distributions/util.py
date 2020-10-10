@@ -4,6 +4,8 @@ from collections import namedtuple
 from functools import update_wrapper
 import math
 
+import numpy as np
+
 from jax import jit, lax, random, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
@@ -232,6 +234,13 @@ def binary_cross_entropy_with_logits(x, y):
     return jnp.clip(x, 0) + jnp.log1p(jnp.exp(-jnp.abs(x))) - x * y
 
 
+def _reshape(x, shape):
+    if isinstance(x, (int, float, np.ndarray, np.generic)):
+        return np.reshape(x, shape)
+    else:
+        return jnp.reshape(x, shape)
+
+
 def promote_shapes(*args, shape=()):
     # adapted from lax.lax_numpy
     if len(args) < 2 and not shape:
@@ -239,7 +248,7 @@ def promote_shapes(*args, shape=()):
     else:
         shapes = [jnp.shape(arg) for arg in args]
         num_dims = len(lax.broadcast_shapes(shape, *shapes))
-        return [lax.reshape(arg, (1,) * (num_dims - len(s)) + s)
+        return [_reshape(arg, (1,) * (num_dims - len(s)) + s)
                 if len(s) < num_dims else arg for arg, s in zip(args, shapes)]
 
 

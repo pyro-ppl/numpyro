@@ -54,10 +54,11 @@ class Beta(Distribution):
     support = constraints.unit_interval
 
     def __init__(self, concentration1, concentration0, validate_args=None):
+        self.concentration1, self.concentration0 = promote_shapes(concentration1, concentration0)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration1), jnp.shape(concentration0))
-        self.concentration1 = jnp.broadcast_to(concentration1, batch_shape)
-        self.concentration0 = jnp.broadcast_to(concentration0, batch_shape)
-        self._dirichlet = Dirichlet(jnp.stack([self.concentration1, self.concentration0],
+        concentration1 = jnp.broadcast_to(concentration1, batch_shape)
+        concentration0 = jnp.broadcast_to(concentration0, batch_shape)
+        self._dirichlet = Dirichlet(jnp.stack([concentration1, concentration0],
                                               axis=-1))
         super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
@@ -688,7 +689,7 @@ class MultivariateNormal(Distribution):
     def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
                  validate_args=None):
         if jnp.isscalar(loc):
-            loc = jnp.expand_dims(loc, axis=-1)
+            loc, = promote_shapes(loc, shape=(1,))
         # temporary append a new axis to loc
         loc = loc[..., jnp.newaxis]
         if covariance_matrix is not None:
@@ -704,7 +705,7 @@ class MultivariateNormal(Distribution):
                              ' must be specified.')
         batch_shape = lax.broadcast_shapes(jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2])
         event_shape = jnp.shape(self.scale_tril)[-1:]
-        self.loc = jnp.broadcast_to(jnp.squeeze(loc, axis=-1), batch_shape + event_shape)
+        self.loc = loc[..., 0]
         super(MultivariateNormal, self).__init__(batch_shape=batch_shape,
                                                  event_shape=event_shape,
                                                  validate_args=validate_args)
@@ -731,7 +732,7 @@ class MultivariateNormal(Distribution):
 
     @property
     def mean(self):
-        return self.loc
+        return jnp.broadcast_to(self.loc, self.shape())
 
     @property
     def variance(self):
@@ -817,7 +818,7 @@ class LowRankMultivariateNormal(Distribution):
 
         loc, cov_factor, cov_diag = promote_shapes(loc[..., jnp.newaxis], cov_factor, cov_diag[..., jnp.newaxis])
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(cov_factor), jnp.shape(cov_diag))[:-2]
-        self.loc = jnp.broadcast_to(loc[..., 0], batch_shape + event_shape)
+        self.loc = loc[..., 0]
         self.cov_factor = cov_factor
         cov_diag = cov_diag[..., 0]
         self.cov_diag = cov_diag
@@ -972,9 +973,9 @@ class StudentT(Distribution):
 
     def __init__(self, df, loc=0., scale=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(df), jnp.shape(loc), jnp.shape(scale))
-        self.df = jnp.broadcast_to(df, batch_shape)
-        self.loc, self.scale = promote_shapes(loc, scale, shape=batch_shape)
-        self._chi2 = Chi2(self.df)
+        self.df, self.loc, self.scale = promote_shapes(df, loc, scale, shape=batch_shape)
+        df = jnp.broadcast_to(df, batch_shape)
+        self._chi2 = Chi2(df)
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):

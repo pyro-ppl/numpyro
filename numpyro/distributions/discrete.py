@@ -412,7 +412,8 @@ class OrderedLogistic(CategoricalProbs):
                        'cutpoints': constraints.ordered_vector}
 
     def __init__(self, predictor, cutpoints, validate_args=None):
-        predictor, self.cutpoints = promote_shapes(jnp.expand_dims(predictor, -1), cutpoints)
+        predictor, = promote_shapes(predictor, shape=jnp.shape(predictor) + (1,))
+        predictor, self.cutpoints = promote_shapes(predictor, cutpoints)
         self.predictor = predictor[..., 0]
         cumulative_probs = expit(cutpoints - predictor)
         # add two boundary points 0 and 1
