@@ -688,7 +688,7 @@ class MultivariateNormal(Distribution):
 
     def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
                  validate_args=None):
-        if jnp.isscalar(loc):
+        if jnp.ndim(loc) == 0:
             loc, = promote_shapes(loc, shape=(1,))
         # temporary append a new axis to loc
         loc = loc[..., jnp.newaxis]
@@ -999,7 +999,7 @@ class StudentT(Distribution):
 
     @property
     def variance(self):
-        var = jnp.where(self.df > 2, self.scale ** 2 * self.df / (self.df - 2.0), jnp.inf)
+        var = jnp.where(self.df > 2, jnp.divide(self.scale ** 2 * self.df, self.df - 2.0), jnp.inf)
         var = jnp.where(self.df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape)
 
