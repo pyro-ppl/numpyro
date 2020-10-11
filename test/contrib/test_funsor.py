@@ -16,6 +16,7 @@ import numpyro
 from numpyro.contrib.control_flow import scan
 from numpyro.contrib.funsor import config_enumerate, enum, markov, to_data, to_funsor
 from numpyro.contrib.funsor.enum_messenger import NamedMessenger
+from numpyro.contrib.funsor.enum_messenger import plate as enum_plate
 from numpyro.contrib.funsor.infer_util import log_density
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
@@ -194,6 +195,13 @@ def test_staggered():
 
     with NamedMessenger():
         testing()
+
+
+def test_plate_saved_globals():
+    with enum(first_available_dim=-2):
+        p = enum_plate("a", 10, dim=-1)
+        with p:
+            assert p._saved_globals == (('a', -1),)
 
 
 @pytest.mark.parametrize('num_steps', [1, 10, 11])

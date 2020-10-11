@@ -489,6 +489,9 @@ class plate(GlobalNamedMessenger):
             msg['scale'] = scale * self.size / self.subsample_size
 
     def postprocess_message(self, msg):
+        # run GlobalNamedMessenger postprocessing
+        super().postprocess_message(msg)
+
         if msg["type"] in ("subsample", "param") and self.dim is not None:
             event_dim = msg["kwargs"].get("event_dim")
             if event_dim is not None:
