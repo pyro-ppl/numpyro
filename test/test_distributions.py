@@ -93,7 +93,9 @@ _DIST_MAP = {
     dist.Poisson: lambda rate: osp.poisson(rate),
     dist.StudentT: lambda df, loc, scale: osp.t(df=df, loc=loc, scale=scale),
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
-    dist.Logistic: lambda loc, scale: osp.logistic(loc=loc, scale=scale)
+    dist.Logistic: lambda loc, scale: osp.logistic(loc=loc, scale=scale),
+    dist.VonMises: lambda loc, conc: osp.vonmises(loc=np.array(loc, dtype=np.float64),
+                                                  kappa=np.array(conc, dtype=np.float64))
 }
 
 CONTINUOUS = [
@@ -634,7 +636,8 @@ def test_mean_var(jax_dist, sp_dist, params):
     k = random.PRNGKey(0)
     samples = d_jax.sample(k, sample_shape=(n,)).astype(np.float32)
     # check with suitable scipy implementation if available
-    if sp_dist and not _is_batched_multivariate(d_jax):
+    # XXX: VonMises is already tested below
+    if sp_dist and not _is_batched_multivariate(d_jax) and jax_dist not in [dist.VonMises]:
         d_sp = sp_dist(*params)
         try:
             sp_mean = d_sp.mean()

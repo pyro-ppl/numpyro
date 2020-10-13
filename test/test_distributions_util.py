@@ -6,6 +6,7 @@ from numbers import Number
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
+import scipy
 
 from jax import lax, random, vmap
 import jax.numpy as jnp
@@ -17,7 +18,8 @@ from numpyro.distributions.util import (
     categorical,
     cholesky_update,
     multinomial,
-    vec_to_tril_matrix
+    vec_to_tril_matrix,
+    von_mises_centered
 )
 
 
@@ -147,3 +149,10 @@ def test_binomial_mean(n, p):
     samples = binomial(random.PRNGKey(1), p, n, shape=(100, 100)).astype(np.float32)
     expected_mean = n * p
     assert_allclose(jnp.mean(samples), expected_mean, rtol=0.05)
+
+
+@pytest.mark.parametrize("concentration", [1, 10, 100])
+def test_von_mises_centered(concentration):
+    samples = von_mises_centered(random.PRNGKey(0), concentration, shape=(10000,))
+    cdf = scipy.stats.vonmises(kappa=concentration).cdf
+    assert scipy.stats.kstest(samples, cdf).pvalue > 0.01

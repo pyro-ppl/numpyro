@@ -420,7 +420,7 @@ def _von_mises_centered(key, concentration, shape, dtype):
         w = jnp.where(done, w, (1. + s * z) / (s + z))  # Update where not done
 
         y = concentration * (s - w)
-        v = random.uniform(key=uni_vkey, shape=shape, dtype=concentration.dtype, minval=-1., maxval=1.)
+        v = random.uniform(key=uni_vkey, shape=shape, dtype=concentration.dtype)
 
         accept = (y * (2. - y) >= v) | (jnp.log(y / v) + 1. >= y)
 
