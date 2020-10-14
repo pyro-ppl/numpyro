@@ -50,7 +50,9 @@ __all__ = [
     'Constraint',
 ]
 
-import jax.numpy as jnp
+import numpy as np
+
+import jax.numpy
 
 
 class Constraint(object):
@@ -79,6 +81,7 @@ class _Boolean(Constraint):
 
 class _CorrCholesky(Constraint):
     def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
         lower_triangular = jnp.all(jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
@@ -89,6 +92,7 @@ class _CorrCholesky(Constraint):
 
 class _CorrMatrix(Constraint):
     def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
         symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
         # check for the smallest eigenvalue is positive
@@ -129,7 +133,7 @@ class _IntegerInterval(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return (x >= self.lower_bound) & (x <= self.upper_bound) & (x == jnp.floor(x))
+        return (x >= self.lower_bound) & (x <= self.upper_bound) & (x % 1 == 0)
 
 
 class _IntegerGreaterThan(Constraint):
@@ -151,6 +155,7 @@ class _Interval(Constraint):
 
 class _LowerCholesky(Constraint):
     def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
         lower_triangular = jnp.all(jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
@@ -162,16 +167,17 @@ class _Multinomial(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return jnp.all(x >= 0, axis=-1) & (jnp.sum(x, -1) == self.upper_bound)
+        return (x >= 0).all(axis=-1) & (x.sum(axis=-1) == self.upper_bound)
 
 
 class _OrderedVector(Constraint):
     def __call__(self, x):
-        return jnp.all(x[..., 1:] > x[..., :-1], axis=-1)
+        return (x[..., 1:] > x[..., :-1]).all(axis=-1)
 
 
 class _PositiveDefinite(Constraint):
     def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
         symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
         # check for the smallest eigenvalue is positive
@@ -182,18 +188,18 @@ class _PositiveDefinite(Constraint):
 class _Real(Constraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
-        return jnp.isfinite(x)
+        return (x == x) & (x != float('inf')) & (x != float('-inf'))
 
 
 class _RealVector(Constraint):
     def __call__(self, x):
-        return jnp.all(jnp.isfinite(x), axis=-1)
+        return ((x == x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
 
 
 class _Simplex(Constraint):
     def __call__(self, x):
-        x_sum = jnp.sum(x, axis=-1)
-        return jnp.all(x >= 0, axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
+        x_sum = x.sum(axis=-1)
+        return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
 
 
 # TODO: Make types consistent

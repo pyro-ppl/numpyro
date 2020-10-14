@@ -29,6 +29,8 @@ from collections import OrderedDict
 from contextlib import contextmanager
 import warnings
 
+import numpy as np
+
 from jax import lax, tree_util
 import jax.numpy as jnp
 
@@ -150,9 +152,9 @@ class Distribution(metaclass=DistributionMeta):
                     continue
                 if is_dependent(constraint):
                     continue  # skip constraints that cannot be checked
-                is_valid = jnp.all(constraint(getattr(self, param)))
+                is_valid = constraint(getattr(self, param))
                 if not_jax_tracer(is_valid):
-                    if not is_valid:
+                    if not np.all(is_valid):
                         raise ValueError("{} distribution got invalid {} parameter.".format(
                             self.__class__.__name__, param))
         super(Distribution, self).__init__()
@@ -255,7 +257,7 @@ class Distribution(metaclass=DistributionMeta):
     def _validate_sample(self, value):
         mask = self.support(value)
         if not_jax_tracer(mask):
-            if not jnp.all(mask):
+            if not np.all(mask):
                 warnings.warn('Out-of-support values provided to log prob method. '
                               'The value argument should be within the support.')
         return mask

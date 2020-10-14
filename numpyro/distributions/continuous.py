@@ -54,10 +54,11 @@ class Beta(Distribution):
     support = constraints.unit_interval
 
     def __init__(self, concentration1, concentration0, validate_args=None):
+        self.concentration1, self.concentration0 = promote_shapes(concentration1, concentration0)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration1), jnp.shape(concentration0))
-        self.concentration1 = jnp.broadcast_to(concentration1, batch_shape)
-        self.concentration0 = jnp.broadcast_to(concentration0, batch_shape)
-        self._dirichlet = Dirichlet(jnp.stack([self.concentration1, self.concentration0],
+        concentration1 = jnp.broadcast_to(concentration1, batch_shape)
+        concentration0 = jnp.broadcast_to(concentration0, batch_shape)
+        self._dirichlet = Dirichlet(jnp.stack([concentration1, concentration0],
                                               axis=-1))
         super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
@@ -687,8 +688,8 @@ class MultivariateNormal(Distribution):
 
     def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
                  validate_args=None):
-        if jnp.isscalar(loc):
-            loc = jnp.expand_dims(loc, axis=-1)
+        if jnp.ndim(loc) == 0:
+            loc, = promote_shapes(loc, shape=(1,))
         # temporary append a new axis to loc
         loc = loc[..., jnp.newaxis]
         if covariance_matrix is not None:
@@ -704,7 +705,7 @@ class MultivariateNormal(Distribution):
                              ' must be specified.')
         batch_shape = lax.broadcast_shapes(jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2])
         event_shape = jnp.shape(self.scale_tril)[-1:]
-        self.loc = jnp.broadcast_to(jnp.squeeze(loc, axis=-1), batch_shape + event_shape)
+        self.loc = loc[..., 0]
         super(MultivariateNormal, self).__init__(batch_shape=batch_shape,
                                                  event_shape=event_shape,
                                                  validate_args=validate_args)
@@ -731,7 +732,7 @@ class MultivariateNormal(Distribution):
 
     @property
     def mean(self):
-        return self.loc
+        return jnp.broadcast_to(self.loc, self.shape())
 
     @property
     def variance(self):
@@ -817,7 +818,7 @@ class LowRankMultivariateNormal(Distribution):
 
         loc, cov_factor, cov_diag = promote_shapes(loc[..., jnp.newaxis], cov_factor, cov_diag[..., jnp.newaxis])
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(cov_factor), jnp.shape(cov_diag))[:-2]
-        self.loc = jnp.broadcast_to(loc[..., 0], batch_shape + event_shape)
+        self.loc = loc[..., 0]
         self.cov_factor = cov_factor
         cov_diag = cov_diag[..., 0]
         self.cov_diag = cov_diag
@@ -937,22 +938,23 @@ class Pareto(TransformedDistribution):
     arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
 
     def __init__(self, scale, alpha, validate_args=None):
+        self.scale, self.alpha = promote_shapes(scale, alpha)
         batch_shape = lax.broadcast_shapes(jnp.shape(scale), jnp.shape(alpha))
-        self.scale, self.alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(alpha, batch_shape)
-        base_dist = Exponential(self.alpha)
-        transforms = [ExpTransform(), AffineTransform(loc=0, scale=self.scale)]
+        scale, alpha = jnp.broadcast_to(scale, batch_shape), jnp.broadcast_to(alpha, batch_shape)
+        base_dist = Exponential(alpha)
+        transforms = [ExpTransform(), AffineTransform(loc=0, scale=scale)]
         super(Pareto, self).__init__(base_dist, transforms, validate_args=validate_args)
 
     @property
     def mean(self):
         # mean is inf for alpha <= 1
-        a = lax.div(self.alpha * self.scale, (self.alpha - 1))
+        a = jnp.divide(self.alpha * self.scale, (self.alpha - 1))
         return jnp.where(self.alpha <= 1, jnp.inf, a)
 
     @property
     def variance(self):
         # var is inf for alpha <= 2
-        a = lax.div((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
+        a = jnp.divide((self.scale ** 2) * self.alpha, (self.alpha - 1) ** 2 * (self.alpha - 2))
         return jnp.where(self.alpha <= 2, jnp.inf, a)
 
     # override the default behaviour to save computations
@@ -971,9 +973,9 @@ class StudentT(Distribution):
 
     def __init__(self, df, loc=0., scale=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(df), jnp.shape(loc), jnp.shape(scale))
-        self.df = jnp.broadcast_to(df, batch_shape)
-        self.loc, self.scale = promote_shapes(loc, scale, shape=batch_shape)
-        self._chi2 = Chi2(self.df)
+        self.df, self.loc, self.scale = promote_shapes(df, loc, scale, shape=batch_shape)
+        df = jnp.broadcast_to(df, batch_shape)
+        self._chi2 = Chi2(df)
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -997,7 +999,7 @@ class StudentT(Distribution):
 
     @property
     def variance(self):
-        var = jnp.where(self.df > 2, self.scale ** 2 * self.df / (self.df - 2.0), jnp.inf)
+        var = jnp.where(self.df > 2, jnp.divide(self.scale ** 2 * self.df, self.df - 2.0), jnp.inf)
         var = jnp.where(self.df <= 1, jnp.nan, var)
         return jnp.broadcast_to(var, self.batch_shape)
 

@@ -731,6 +731,16 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         with pytest.raises(ValueError):
             jax_dist(*oob_params, validate_args=True)
 
+        with pytest.raises(ValueError):
+            # test error raised under jit omnistaging
+            oob_params = jax.device_get(oob_params)
+
+            def dist_gen_fn():
+                d = jax_dist(*oob_params, validate_args=True)
+                return d
+
+            jax.jit(dist_gen_fn)()
+
     d = jax_dist(*valid_params, validate_args=True)
 
     # Test agreement of log density evaluation on randomly generated samples
@@ -747,8 +757,35 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
 
     # Out of support samples throw ValueError
     oob_samples = gen_values_outside_bounds(d.support, size=prepend_shape + d.batch_shape + d.event_shape)
-    with pytest.warns(UserWarning):
+    with pytest.warns(UserWarning, match="Out-of-support"):
         d.log_prob(oob_samples)
+
+    with pytest.warns(UserWarning, match="Out-of-support"):
+        # test warning work under jit omnistaging
+        oob_samples = jax.device_get(oob_samples)
+        valid_params = jax.device_get(valid_params)
+
+        def log_prob_fn():
+            d = jax_dist(*valid_params, validate_args=True)
+            return d.log_prob(oob_samples)
+
+        jax.jit(log_prob_fn)()
+
+
+def test_omnistaging_invalid_param():
+    def f(x):
+        return dist.LogNormal(x, -np.ones(2), validate_args=True).log_prob(0)
+
+    with pytest.raises(ValueError, match="got invalid"):
+        jax.jit(f)(0)
+
+
+def test_omnistaging_invalid_sample():
+    def f(x):
+        return dist.LogNormal(x, np.ones(2), validate_args=True).log_prob(-1)
+
+    with pytest.warns(UserWarning, match="Out-of-support"):
+        jax.jit(f)(0)
 
 
 def test_categorical_log_prob_grad():
