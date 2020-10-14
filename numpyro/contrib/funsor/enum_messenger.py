@@ -10,7 +10,7 @@ import jax.numpy as jnp
 
 import funsor
 from numpyro.handlers import trace as OrigTraceMessenger
-from numpyro.primitives import CondIndepStackFrame, Messenger, apply_stack
+from numpyro.primitives import Messenger, apply_stack
 from numpyro.primitives import plate as OrigPlateMessenger
 
 funsor.set_backend("jax")
@@ -466,48 +466,14 @@ class plate(GlobalNamedMessenger):
             batch_shape[f.dim] = f.size
         return tuple(batch_shape)
 
-    def process_message(self, msg):  # copied almost verbatim from plate
-        if msg['type'] not in ('sample',):
+    def process_message(self, msg):
+        if msg["type"] in ["to_funsor", "to_data"]:
             return super().process_message(msg)
-
-        cond_indep_stack = msg['cond_indep_stack']
-        frame = CondIndepStackFrame(self.name, self.dim, self.subsample_size)
-        cond_indep_stack.append(frame)
-        expected_shape = self._get_batch_shape(cond_indep_stack)
-        if msg['type'] == 'sample':
-            dist_batch_shape = msg['fn'].batch_shape
-            if 'sample_shape' in msg['kwargs']:
-                dist_batch_shape = msg['kwargs']['sample_shape'] + dist_batch_shape
-                msg['kwargs']['sample_shape'] = ()
-            overlap_idx = max(len(expected_shape) - len(dist_batch_shape), 0)
-            trailing_shape = expected_shape[overlap_idx:]
-            broadcast_shape = lax.broadcast_shapes(trailing_shape, tuple(dist_batch_shape))
-            batch_shape = expected_shape[:overlap_idx] + broadcast_shape
-            msg['fn'] = msg['fn'].expand(batch_shape)
-        if self.size != self.subsample_size:
-            scale = 1. if msg['scale'] is None else msg['scale']
-            msg['scale'] = scale * self.size / self.subsample_size
+        return OrigPlateMessenger.process_message(self, msg)
 
     def postprocess_message(self, msg):
-        if msg["type"] in ("subsample", "param") and self.dim is not None:
-            event_dim = msg["kwargs"].get("event_dim")
-            if event_dim is not None:
-                assert event_dim >= 0
-                dim = self.dim - event_dim
-                shape = msg["value"].shape
-                if len(shape) >= -dim and shape[dim] != 1:
-                    if shape[dim] != self.size:
-                        if msg["type"] == "param":
-                            statement = "numpyro.param({}, ..., event_dim={})".format(msg["name"], event_dim)
-                        else:
-                            statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
-                        raise ValueError(
-                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
-                            .format(self.name, self.size, self.dim, statement, shape))
-                    if self.subsample_size < self.size:
-                        value = msg["value"]
-                        new_value = jnp.take(value, self._indices, dim)
-                        msg["value"] = new_value
+        # TODO: consider running super().postprocess_message(msg) if it does not break the senmatics
+        return OrigPlateMessenger.postprocess_message(self, msg)
 
 
 class enum(BaseEnumMessenger):
