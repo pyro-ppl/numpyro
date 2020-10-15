@@ -472,7 +472,8 @@ class plate(GlobalNamedMessenger):
         return OrigPlateMessenger.process_message(self, msg)
 
     def postprocess_message(self, msg):
-        # TODO: consider running super().postprocess_message(msg) if it does not break the senmatics
+        if msg["type"] in ["to_funsor", "to_data"]:
+            return super().postprocess_message(msg)
         return OrigPlateMessenger.postprocess_message(self, msg)
 
 
