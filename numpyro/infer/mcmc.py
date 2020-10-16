@@ -338,7 +338,10 @@ class MCMC(object):
         states = dict(zip(collect_fields, states))
         # Apply constraints if number of samples is non-zero
         site_values = tree_flatten(states[self._sample_field])[0]
-        if len(site_values) > 0 and site_values[0].size > 0:
+        # XXX: lax.map still works if some arrays have 0 size
+        # so we only need to filter out the case site_value.shape[0] == 0
+        # (which happens when lower_idx==upper_idx)
+        if len(site_values) > 0 and jnp.shape(site_values[0])[0] > 0:
             states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
         return states, last_state
 

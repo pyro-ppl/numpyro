@@ -25,6 +25,7 @@ EXAMPLES = [
     'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'hmm_enum.py -m 1 -t 3 -d 4 --num-warmup 1 -n 4',
     'hmm_enum.py -m 2 -t 3 -d 4 --num-warmup 1 -n 4',
+    'hmm_enum.py -m 3 -t 3 -d 3 --num-warmup 1 -n 4',
     'hmm_enum.py -m 3 -t 3 -d 4 --num-warmup 1 -n 4',
     'hmm_enum.py -m 4 -t 3 -d 4 --num-warmup 1 -n 4',
     'minipyro.py',

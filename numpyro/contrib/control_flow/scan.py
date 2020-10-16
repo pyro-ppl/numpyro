@@ -163,11 +163,18 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
 
     first_var = None
     for name, site in pytree_trace.trace.items():
+        # currently, we only record sample or deterministic in the trace
+        # we don't need to adjust `dim_to_name` for deterministic site
+        if site['type'] not in ('sample',):
+            continue
         # add `time` dimension, the name will be '_time_{first variable in the trace}'
         if first_var is None:
             first_var = name
-        leftmost_dim = min(site['infer']['dim_to_name'])
-        site['infer']['dim_to_name'][leftmost_dim - 1] = '_time_{}'.format(first_var)
+
+        # XXX: site['infer']['dim_to_name'] is not enough to determine leftmost dimension because
+        # we don't record 1-size dimensions in this field
+        time_dim = -min(len(site['fn'].batch_shape), jnp.ndim(site['value']) - site['fn'].event_dim)
+        site['infer']['dim_to_name'][time_dim] = '_time_{}'.format(first_var)
 
     # similar to carry, we need to reshape due to shape alternating in markov
     ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)), y0, ys)
