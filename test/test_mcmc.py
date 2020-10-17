@@ -648,3 +648,16 @@ def test_numpy_delete(shape, idx):
     expected = np.delete(x, idx, axis=0)
     actual = _numpy_delete(x, idx)
     assert_allclose(actual, expected)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (4,)])
+def test_trivial_dirichlet(batch_shape):
+    def model():
+        x = numpyro.sample("x", dist.Dirichlet(jnp.ones(1)).expand(batch_shape))
+        return numpyro.sample("y", dist.Normal(x, 1), obs=2)
+
+    num_samples = 10
+    mcmc = MCMC(NUTS(model), 10, num_samples)
+    mcmc.run(random.PRNGKey(0))
+    # because event_shape of x is (1,), x should only take value 1
+    assert_allclose(mcmc.get_samples()["x"], jnp.ones((num_samples,) + batch_shape + (1,)))
