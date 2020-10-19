@@ -47,9 +47,10 @@ def log_density_obs_hmcecs(model, model_args, model_kwargs, params):
                 log_prob = site['fn'].log_prob(value)
             if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
-            log_joint += log_prob #TODO: log_joint += jnp.sum(log_prob) ?---> gives a single number
+            #log_joint += log_prob #TODO: log_joint += jnp.sum(log_prob) ?---> gives a single number
+            log_joint = log_joint + jnp.sum(log_prob)
 
-            return log_prob, model_trace
+    return log_joint, model_trace
 def log_density_prior_hmcecs(model, model_args, model_kwargs, params):
     """
     (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
@@ -95,13 +96,11 @@ def  tuplemerge( *dictionaries ):
    return namedtuple('HMCCombinedState', merged )(**merged) # <==== Gist of the gist
 
 
-def potential_est(model, model_args,model_kwargs, z, z_ref, n, m, proxy_fn, proxy_u_fn,u=None):
-    #if any(arg.shape[0] > m for arg in model_args):
-    #    model_args = model_args_sub(u,model_args)
-    ll_sub, _ = log_density_obs_hmcecs(model, model_args, model_kwargs, z)  # log likelihood for subsample with current theta
+def potential_est(model, model_args, model_kwargs, z, n, m, proxy_fn, proxy_u_fn):
+    ll_sub, _ = log_density_obs_hmcecs(model, model_args, {}, z)  # log likelihood for subsample with current theta
 
-    diff = ll_sub - proxy_u_fn(z, z_ref, model, model_args)
-    l_hat = proxy_fn(z, z_ref) + n / m * jnp.sum(diff)
+    diff = ll_sub - proxy_u_fn(z=z, model_args=model_args, model_kwargs=model_kwargs)
+    l_hat = proxy_fn(z) + n / m * diff
 
     sigma = n ** 2 / m * jnp.var(diff)
 
@@ -181,19 +180,19 @@ def init_near_values(site=None, values={}):
             except:
                 return init_to_uniform(site)
 
-def taylor_proxy(ll_ref, jac_all, hess_all):
-    def proxy(z, z_ref):
+def taylor_proxy(z_ref, model, ll_ref, jac_all, hess_all):
+    def proxy(z, *args, **kwargs):
         z_flat, _ = ravel_pytree(z)
         zref_flat, _ = ravel_pytree(z_ref)
         z_diff = z_flat - zref_flat
         return jnp.sum(ll_ref) + jac_all.T @ z_diff + .5 * z_diff.T @ hess_all @ z_diff
 
-    def proxy_u(z, z_ref, model, model_args):
+    def proxy_u(z, model_args, model_kwargs, *args, **kwargs):
         z_flat, _ = ravel_pytree(z)
         zref_flat, _ = ravel_pytree(z_ref)
         z_diff = z_flat - zref_flat
 
-        ld_fn = lambda args: jnp.sum(partial(log_density_obs_hmcecs, model, model_args, {})(args)[0])
+        ld_fn = lambda args: jnp.sum(partial(log_density_obs_hmcecs, model, model_args, model_kwargs)(args)[0])
 
         ll_sub, jac_sub = jax.value_and_grad(ld_fn)(z_ref)
         k, = jac_all.shape
@@ -204,8 +203,19 @@ def taylor_proxy(ll_ref, jac_all, hess_all):
 
     return proxy, proxy_u
 
-def svi_proxy():
-    return None
+
+def svi_proxy(svi, model_args, model_kwargs):
+    def proxy(z, *args, **kwargs):
+        z_ref = svi.guide.expectation(z)
+        ll, _ = log_density_obs_hmcecs(svi.model, model_args, model_kwargs, z_ref)
+        return ll
+
+    def proxy_u(z, model_args, model_kwargs, *args, **kwargs):
+        z_ref = svi.guide.expectation(z)
+        ll, _ = log_density_prior_hmcecs(svi.model, model_args, model_kwargs, z_ref)
+        return ll
+
+    return proxy, proxy_u
 
 def neural_proxy():
     return None

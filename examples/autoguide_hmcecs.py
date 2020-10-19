@@ -160,7 +160,8 @@ class AutoContinuous(AutoGuide):
         super(AutoContinuous, self).__init__(model, prefix=prefix)
 
     def _setup_prototype(self, *args, **kwargs):
-        rng_key = numpyro.rng_key("_{}_rng_key_setup".format(self.prefix))
+        rng_key = random.PRNGKey(0)
+        #rng_key = numpyro.rng_key("_{}_rng_key_setup".format(self.prefix))
         with handlers.block():
             init_params, _, self._postprocess_fn, self.prototype_trace = initialize_model(
                 rng_key, self.model,
@@ -186,6 +187,26 @@ class AutoContinuous(AutoGuide):
         sample_shape = kwargs.pop('sample_shape', ())
         posterior = self._get_posterior()
         return numpyro.sample("_{}_latent".format(self.prefix), posterior, sample_shape=sample_shape)
+
+    def expectation(self, latent):
+        """Computes the expectation/probabilities of the parameters of the guide. The expectation over the variance over the latent space is bounded
+        using the reparametrization trick"""
+        if self.prototype_trace is None:
+            raise ValueError()  # TODO: fix value error
+
+        result = {}
+        for name, unconstrained_value in latent.items():
+            site = self.prototype_trace[name]
+            transform = biject_to(site['fn'].support)
+
+            value = transform(unconstrained_value)
+            log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
+            event_ndim = len(site['fn'].event_shape)
+            log_density = sum_rightmost(log_density,
+                                        jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
+            prob = jnp.exp(log_density)
+            result[name] = prob * value
+        return result
 
     def __call__(self, *args, **kwargs):
         """

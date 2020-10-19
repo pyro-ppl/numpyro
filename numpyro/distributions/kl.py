@@ -177,4 +177,8 @@ def _kl_masked_masked(p, q):
 def _kl_normal_normal(p, q):
     var_ratio = jnp.square(p.scale / q.scale)
     t1 = jnp.square((p.loc - q.loc) / q.scale)
+<<<<<<< HEAD
     return 0.5 * (var_ratio + t1 - 1 - jnp.log(var_ratio))
+=======
+    return 0.5 * (var_ratio + t1 - 1 - jnp.log(var_ratio))
+>>>>>>> Maybe working

@@ -33,9 +33,10 @@ def svi_map(model, rng_key, feats,obs,num_epochs,batch_size):
     import numpyro
     numpyro.set_platform("gpu")
 
-    from autoguide_hmcecs import AutoDelta
+    from autoguide_hmcecs import AutoDelta, AutoDiagonalNormal
     n, _ = feats.shape
-    guide = AutoDelta(model)
+    #guide = AutoDelta(model)
+    guide = AutoDiagonalNormal(model)
     loss = RenyiELBO(alpha=2, num_particles=1)
     svi = SVI(model, guide, optim.Adam(0.001), loss=loss)
     svi_state = svi.init( rng_key,feats,obs)
@@ -58,4 +59,4 @@ def svi_map(model, rng_key, feats,obs,num_epochs,batch_size):
         t_start = time.time()
         train_loss, svi_state = epoch_train(svi_state)
         print("Epoch {}: loss = {} ({:.2f} s.)".format(i, train_loss, time.time() - t_start))
-    return svi.get_params(svi_state)
+    return svi.get_params(svi_state), svi, svi_state
