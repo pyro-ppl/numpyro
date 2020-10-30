@@ -47,7 +47,7 @@ author = u'Uber AI Labs'
 version = ''
 
 if 'READTHEDOCS' not in os.environ:
-    # if developing locally, use pyro.__version__ as version
+    # if developing locally, use numpyro.__version__ as version
     from numpyro import __version__  # noqaE402
     version = __version__
 
@@ -142,48 +142,56 @@ with open('README.md', 'wt') as f:
 
 # copy notebook files
 
+with open('../../numpyro/version.py') as f:
+    for line in f.readlines():
+        if line.startswith("__version__ = "):
+            break
+    pip_version = line.rstrip().split(" = ")[-1].strip("'").strip('"')
+    # resolve the issue: tags for versions before 0.3.0 have the prefix 'v'.
+    tag = "v" + pip_version if version[:3] < "0.3" else pip_version
+
+
 if not os.path.exists('tutorials'):
     os.makedirs('tutorials')
 
 # remove files that are updated or not available in notebooks/source
-for dest_file in glob.glob('tutorials/*.ipynb'):
-    src_file = os.path.join('../../notebooks/source', dest_file.split("/")[-1])
+for dst_file in glob.glob('tutorials/*.ipynb'):
+    src_file = os.path.join('../../notebooks/source', dst_file.split("/")[-1])
     if ((not os.path.exists(src_file)) or
             (any(re.search(p, src_file) is not None for p in exclude_patterns))):
-        os.remove(dest_file)
+        os.remove(dst_file)
         continue
     with open(src_file, 'rb') as f:
         src_md5sum = hashlib.md5(f.read()).hexdigest()
-    with open(dest_file, 'rb') as f:
-        dest_md5sum = hashlib.md5(f.read()).hexdigest()
-    if src_md5sum != dest_md5sum:
-        os.remove(dest_file)
+    with open(dst_file, 'rb') as f:
+        dst_md5sum = hashlib.md5(f.read()).hexdigest()
+    if src_md5sum != dst_md5sum:
+        os.remove(dst_file)
 
 for src_file in glob.glob('../../notebooks/source/*.ipynb'):
     # skip files in exclude_patterns
     if any(re.search(p, src_file) is not None for p in exclude_patterns):
         continue
-    dest_file = os.path.join('tutorials', src_file.split("/")[-1])
-    if not os.path.exists(dest_file):
-        shutil.copy(src_file, 'tutorials')
+    dst_file = os.path.join('tutorials', src_file.split("/")[-1])
+    if not os.path.exists(dst_file):
+        shutil.copy(src_file, 'tutorials/')
 
 
 # This is processed by Jinja2 and inserted before each notebook
 nbsphinx_prolog = r"""
-{% set docname = 'notebooks/source/' + env.doc2path(env.docname, base=None) %}
-
+{% set docname = 'notebooks/source/' + env.doc2path(env.docname, base=None).split('/')[-1] %}
 .. raw:: html
 
     <div class="admonition note">
       Interactive online version:
       <span style="white-space: nowrap;">
-        <a href="https://colab.research.google.com/github/google/jax/blob/master/{{ docname }}">
+        <a href="https://colab.research.google.com/github/pyro-ppl/numpyro/blob/{}/{{ docname }}">
           <img alt="Open In Colab" src="https://colab.research.google.com/assets/colab-badge.svg"
             style="vertical-align:text-bottom">
         </a>
       </span>
     </div>
-"""
+""".replace(r"{}", tag)
 
 
 # Examples Gallery
@@ -254,8 +262,8 @@ class PNGScraper(object):
 
 
 sphinx_gallery_conf = {
-    'examples_dirs': ['../../examples', '../../notebooks/source/'],
-    'gallery_dirs': ['examples', 'tutorials'],
+    'examples_dirs': ['../../examples'],
+    'gallery_dirs': ['examples'],
     # only execute the examples with the following patterns
     # (skip all to make readthedocs render faster)
     'filename_pattern': '/plot_',
