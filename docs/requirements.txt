@@ -1,7 +1,10 @@
+dm-haiku
+flax
+funsor
 jax>=0.1.65
 jaxlib>=0.1.45
-git+git://github.com/pyro-ppl/funsor@master#egg=funsor
-tqdm
+nbsphinx
+recommonmark
+sphinx-gallery
 tfp_nightly  # TODO: change this to stable release
-flax
-dm-haiku
+tqdm

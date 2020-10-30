@@ -1,5 +1,5 @@
-Code Examples
-=============
+Example Gallery
+===============
 
 Examples on specifying models and doing inference in NumPyro.
 

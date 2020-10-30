@@ -3,6 +3,9 @@ __pycache__/
 .ipynb_checkpoints/
 build
 notebooks/source/examples/
+docs/source/examples/
+docs/source/tutorials/
+docs/source/README.md
 
 # built / compiled
 *.pyc

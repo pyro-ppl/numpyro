@@ -1,9 +1,15 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import glob
+import hashlib
 import os
+import re
+import shutil
 import sys
 
+from sphinx_gallery.scrapers import figure_rst
+from sphinx_gallery.sorting import FileNameSortKey
 import sphinx_rtd_theme
 
 
@@ -59,11 +65,14 @@ release = version
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'nbsphinx',
+    'recommonmark',
     'sphinx.ext.autodoc',
     'sphinx.ext.doctest',
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
+    'sphinx_gallery.gen_gallery',
 ]
 
 # Enable documentation inheritance
@@ -85,7 +94,13 @@ templates_path = ['_templates']
 # You can specify multiple suffix as a list of string:
 #
 # source_suffix = ['.rst', '.md']
-source_suffix = '.rst'
+source_suffix = ['.rst', '.md', '.ipynb']
+
+# do not execute cells
+nbsphinx_execute = 'never'
+
+# allow errors because not all tutorials build
+# nbsphinx_allow_errors = True
 
 # The master toctree document.
 master_doc = 'index'
@@ -100,7 +115,8 @@ language = None
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path .
-exclude_patterns = []
+exclude_patterns = ['.ipynb_checkpoints', 'logistic_regression.ipynb',
+                    'examples/*ipynb', 'examples/*py']
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
@@ -108,6 +124,148 @@ pygments_style = 'sphinx'
 
 # do not prepend module name to functions
 add_module_names = False
+
+
+# copy README files
+
+with open('../../README.md', 'rt') as f:
+    lines = f.readlines()
+    for i, line in enumerate(lines):
+        if "# NumPyro" == line.rstrip():
+            break
+    lines = lines[i:]
+    lines[0] = "# Getting Started with NumPyro\n"
+
+with open('README.md', 'wt') as f:
+    f.writelines(lines)
+
+
+# copy notebook files
+
+if not os.path.exists('tutorials'):
+    os.makedirs('tutorials')
+
+# remove files that are updated or not available in notebooks/source
+for dest_file in glob.glob('tutorials/*.ipynb'):
+    src_file = os.path.join('../../notebooks/source', dest_file.split("/")[-1])
+    if ((not os.path.exists(src_file)) or
+            (any(re.search(p, src_file) is not None for p in exclude_patterns))):
+        os.remove(dest_file)
+        continue
+    with open(src_file, 'rb') as f:
+        src_md5sum = hashlib.md5(f.read()).hexdigest()
+    with open(dest_file, 'rb') as f:
+        dest_md5sum = hashlib.md5(f.read()).hexdigest()
+    if src_md5sum != dest_md5sum:
+        os.remove(dest_file)
+
+for src_file in glob.glob('../../notebooks/source/*.ipynb'):
+    # skip files in exclude_patterns
+    if any(re.search(p, src_file) is not None for p in exclude_patterns):
+        continue
+    dest_file = os.path.join('tutorials', src_file.split("/")[-1])
+    if not os.path.exists(dest_file):
+        shutil.copy(src_file, 'tutorials')
+
+
+# This is processed by Jinja2 and inserted before each notebook
+nbsphinx_prolog = r"""
+{% set docname = 'notebooks/source/' + env.doc2path(env.docname, base=None) %}
+
+.. raw:: html
+
+    <div class="admonition note">
+      Interactive online version:
+      <span style="white-space: nowrap;">
+        <a href="https://colab.research.google.com/github/google/jax/blob/master/{{ docname }}">
+          <img alt="Open In Colab" src="https://colab.research.google.com/assets/colab-badge.svg"
+            style="vertical-align:text-bottom">
+        </a>
+      </span>
+    </div>
+"""
+
+
+# Examples Gallery
+
+# examples with order
+EXAMPLES = [
+   'baseball.py',
+   'bnn.py',
+   'funnel.py',
+   'gp.py',
+   'ucbadmit.py',
+   'hmm.py',
+   'hmm_enum.py',
+   'neutra.py',
+   'ode.py',
+   'sparse_regression.py',
+   'stochastic_volatility.py',
+   'vae.py',
+]
+
+
+class GalleryFileNameSortKey(FileNameSortKey):
+    def __call__(self, filename):
+        if filename in EXAMPLES:
+            return "{:02d}".format(EXAMPLES.index(filename))
+        else:  # not in examples list, sort by name
+            return "99" + filename
+
+
+# Adapted from https://sphinx-gallery.github.io/stable/advanced.html#example-2-detecting-image-files-on-disk
+#
+# Custom images can be put in _static/img folder, with the pattern
+#   sphx_glr_[name_of_example]_1.png
+# Note that this also displays the image in the example page.
+# To not display the image, we can add the following lines
+# at the end of __call__ method:
+#   if "sparse_regression" in images_rst:
+#       images_rst = ""
+#   return images_rst
+#
+# If there are several images for an example, we can select
+# which one to be the thumbnail image by adding a comment
+# in the example script
+#   # sphinx_gallery_thumbnail_number = 2
+class PNGScraper(object):
+    def __init__(self):
+        self.seen = set()
+
+    def __repr__(self):
+        return 'PNGScraper'
+
+    def __call__(self, block, block_vars, gallery_conf):
+        # Find all PNG files in the directory of this example.
+        pngs = sorted(glob.glob(os.path.join(os.path.dirname(__file__), '_static/img/sphx_glr_*.png')))
+
+        # Iterate through PNGs, copy them to the sphinx-gallery output directory
+        image_names = list()
+        image_path_iterator = block_vars['image_path_iterator']
+        for png in pngs:
+            if png not in self.seen:
+                self.seen |= set(png)
+                this_image_path = image_path_iterator.next()
+                image_names.append(this_image_path)
+                shutil.copy(png, this_image_path)
+        # Use the `figure_rst` helper function to generate rST for image files
+        images_rst = figure_rst(image_names, gallery_conf['src_dir'])
+        return images_rst
+
+
+sphinx_gallery_conf = {
+    'examples_dirs': ['../../examples', '../../notebooks/source/'],
+    'gallery_dirs': ['examples', 'tutorials'],
+    # only execute the examples with the following patterns
+    # (skip all to make readthedocs render faster)
+    'filename_pattern': '/plot_',
+    # skip rendering files with the following patterns
+    'ignore_pattern': '(conf|minipyro|covtype|__init__)',
+    'within_subsection_order': GalleryFileNameSortKey,
+    'image_scrapers': ('matplotlib', PNGScraper()),
+    'default_thumb_file': 'source/_static/img/pyro_logo_wide.png',
+}
+
 
 # -- Options for HTML output -------------------------------------------------
 

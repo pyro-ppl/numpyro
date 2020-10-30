@@ -5,41 +5,34 @@ NumPyro documentation
 =====================
 
 .. toctree::
-   :glob:
-   :maxdepth: 2
-   :caption: Modeling:
+   :maxdepth: 1
 
-   primitives
-   handlers
-
+   README
 
 .. toctree::
-   :glob:
-   :maxdepth: 2
-   :caption: Distributions:
+   :maxdepth: 3
+   :caption: API and Developer Reference
 
-   distributions
-
+   api
+   Change Log <https://github.com/pyro-ppl/numpyro/releases>
 
 .. toctree::
-   :glob:
-   :maxdepth: 2
-   :caption: Inference:
+   :maxdepth: 3
+   :caption: Tutorials and Examples
 
-   mcmc
-   svi
-   autoguide
-   reparam
-   funsor
-   optimizers
-   diagnostics
-   utilities
+   examples/index
+
+   tutorials/bayesian_regression
+   tutorials/bayesian_hierarchical_linear_regression
+   tutorials/time_series_forecasting
+   tutorials/bayesian_imputation
+   tutorials/discrete_imputation
+   tutorials/ordinal_regression
 
 
 Indices and tables
 ==================
 
 * :ref:`genindex`
+* :ref:`modindex`
 * :ref:`search`
-
-.. * :ref:`modindex`
