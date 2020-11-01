@@ -1,6 +1,6 @@
 """
-Predator-Prey Model
-===================
+Example: Predator-Prey Model
+============================
 
 This example replicates the great case study [1], which leverages the Lotka-Volterra
 equation [2] to describe the dynamics of Canada lynx (predator) and snowshoe hare

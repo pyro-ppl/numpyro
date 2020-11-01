@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Generalized Linear Mixed Models
-===============================
+Example: Generalized Linear Mixed Models
+========================================
 
 The UCBadmit data is sourced from the study [1] of gender biased in graduate admissions at
 UC Berkeley in Fall 1973:

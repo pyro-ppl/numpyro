@@ -1,6 +1,6 @@
 """
-Proportion Test
-===============
+Example: Proportion Test
+========================
 You are managing a business and want to test if calling your customers will
 increase their chance of making a purchase. You get 100,000 customer records and call
 roughly half of them and record if they make a purchase in the next three months.

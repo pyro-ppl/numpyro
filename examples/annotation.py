@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Bayesian Models of Annotation
-=============================
+Example: Bayesian Models of Annotation
+======================================
 
 In this example, we run MCMC for various crowdsourced annotation models in [1].
 

@@ -5,7 +5,7 @@ build
 notebooks/source/examples/
 docs/source/examples/
 docs/source/tutorials/
-docs/source/README.md
+docs/source/getting_started.rst
 
 # built / compiled
 *.pyc

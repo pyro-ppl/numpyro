@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Sparse Regression
-=================
+Example: Sparse Regression
+==========================
 
 We demonstrate how to do (fully Bayesian) sparse linear regression using the
 approach described in [1]. This approach is particularly suitable for situations
