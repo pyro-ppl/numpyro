@@ -4,7 +4,6 @@ funsor
 jax>=0.1.65
 jaxlib>=0.1.45
 nbsphinx
-recommonmark
 sphinx-gallery
 tfp_nightly  # TODO: change this to stable release
 tqdm
