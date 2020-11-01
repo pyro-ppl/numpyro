@@ -27,6 +27,7 @@
 
 from collections import OrderedDict
 from contextlib import contextmanager
+import functools
 import warnings
 
 import numpy as np
@@ -83,6 +84,10 @@ class DistributionMeta(type):
             if result is not None:
                 return result
         return super().__call__(*args, **kwargs)
+
+    @property
+    def __wrapped__(cls):
+        return functools.partial(cls.__init__, None)
 
 
 class Distribution(metaclass=DistributionMeta):
