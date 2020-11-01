@@ -65,7 +65,6 @@ release = version
 # ones.
 extensions = [
     'nbsphinx',
-    'recommonmark',
     'sphinx.ext.autodoc',
     'sphinx.ext.doctest',
     'sphinx.ext.intersphinx',
