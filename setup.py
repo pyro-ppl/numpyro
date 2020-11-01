@@ -40,7 +40,7 @@ setup(
         'tqdm',
     ],
     extras_require={
-        'doc': ['nbsphinx', 'recommonmark', 'sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
+        'doc': ['nbsphinx', 'sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
         'test': [
             'flake8',
             'pytest>=4.1',
