@@ -366,6 +366,7 @@ def test_chain(use_init_params, chain_method):
     def model(labels):
         coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
         logits = jnp.sum(coefs * data, axis=-1)
+        numpyro.deterministic("logits", logits)
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     kernel = NUTS(model=model)
