@@ -17,6 +17,7 @@ clean: FORCE
 
 docs: FORCE
 	$(MAKE) -C docs html
+	git clean -dfx docs/source/
 
 notebooks: FORCE
 	$(MAKE) -C notebooks html
