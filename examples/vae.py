@@ -45,27 +45,25 @@ def decoder(hidden_dim, out_dim):
     )
 
 
-def model(batch, hidden_dim=400, z_dim=100):
-    batch = jnp.reshape(batch, (batch.shape[0], -1))
-    batch_dim, out_dim = jnp.shape(batch)
-    decode = numpyro.module('decoder', decoder(hidden_dim, out_dim), (batch_dim, z_dim))
-    z = numpyro.sample('z', dist.Normal(jnp.zeros((z_dim,)), jnp.ones((z_dim,))))
-    img_loc = decode(z)
-    return numpyro.sample('obs', dist.Bernoulli(img_loc), obs=batch)
+def model(data, hidden_dim=400, z_dim=100, batch_size=128):
+    data = data.reshape((data.shape[0], -1))
+    out_dim = data.shape[-1]
+    decode = numpyro.module('decoder', decoder(hidden_dim, out_dim), (z_dim,))
+    with numpyro.plate('batch', data.shape[0], subsample_size=batch_size):
+        batch = numpyro.subsample(data, event_dim=1)
+        z = numpyro.sample('z', dist.Normal(0, 1).expand([z_dim]).to_event(1))
+        img_loc = decode(z)
+        numpyro.sample('obs', dist.Bernoulli(img_loc).to_event(1), obs=batch)
 
 
-def guide(batch, hidden_dim=400, z_dim=100):
-    batch = jnp.reshape(batch, (batch.shape[0], -1))
-    batch_dim, out_dim = jnp.shape(batch)
-    encode = numpyro.module('encoder', encoder(hidden_dim, z_dim), (batch_dim, out_dim))
-    z_loc, z_std = encode(batch)
-    z = numpyro.sample('z', dist.Normal(z_loc, z_std))
-    return z
-
-
-@jit
-def binarize(rng_key, batch):
-    return random.bernoulli(rng_key, batch).astype(batch.dtype)
+def guide(data, hidden_dim=400, z_dim=100, batch_size=128):
+    data = data.reshape((data.shape[0], -1))
+    out_dim = data.shape[-1]
+    encode = numpyro.module('encoder', encoder(hidden_dim, z_dim), (out_dim,))
+    with numpyro.plate('data', data.shape[0], subsample_size=batch_size):
+        batch = numpyro.subsample(data, event_dim=1)
+        z_loc, z_std = encode(batch)
+        numpyro.sample('z', dist.Normal(z_loc, z_std).to_event(1))
 
 
 def main(args):
@@ -74,14 +72,9 @@ def main(args):
     adam = optim.Adam(args.learning_rate)
     svi = SVI(model, guide, adam, Trace_ELBO(), hidden_dim=args.hidden_dim, z_dim=args.z_dim)
     rng_key = PRNGKey(0)
-    train_init, train_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='train')
-    test_init, test_fetch = load_dataset(MNIST, batch_size=args.batch_size, split='test')
-    num_train, train_idx = train_init()
-    rng_key, rng_key_binarize, rng_key_init = random.split(rng_key, 3)
-    sample_batch = binarize(rng_key_binarize, train_fetch(0, train_idx)[0])
-    svi_state = svi.init(rng_key_init, sample_batch)
+    _, train_fetch = load_dataset(MNIST, split='train')
+    _, test_fetch = load_dataset(MNIST, split='test')
 
-    @jit
     def epoch_train(svi_state, rng_key):
         def body_fn(i, val):
             loss_sum, svi_state = val
@@ -109,6 +102,7 @@ def main(args):
 
     def reconstruct_img(epoch, rng_key):
         img = test_fetch(0, test_idx)[0][0]
+        # TODO: add an image to example gallery
         plt.imsave(os.path.join(RESULTS_DIR, 'original_epoch={}.png'.format(epoch)), img, cmap='gray')
         rng_key_binarize, rng_key_sample = random.split(rng_key)
         test_sample = binarize(rng_key_binarize, img)
@@ -118,7 +112,7 @@ def main(args):
         img_loc = decoder_nn[1](params['decoder$params'], z).reshape([28, 28])
         plt.imsave(os.path.join(RESULTS_DIR, 'recons_epoch={}.png'.format(epoch)), img_loc, cmap='gray')
 
-    for i in range(args.num_epochs):
+    for i in range(args.num_iters):
         rng_key, rng_key_train, rng_key_test, rng_key_reconstruct = random.split(rng_key, 4)
         t_start = time.time()
         num_train, train_idx = train_init()
@@ -133,7 +127,7 @@ def main(args):
 if __name__ == '__main__':
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('-n', '--num-epochs', default=15, type=int, help='number of training epochs')
+    parser.add_argument('-n', '--num-iters', default=8000, type=int, help='number of training iterations')
     parser.add_argument('-lr', '--learning-rate', default=1.0e-3, type=float, help='learning rate')
     parser.add_argument('-batch-size', default=128, type=int, help='batch size')
     parser.add_argument('-z-dim', default=50, type=int, help='size of latent')

@@ -21,7 +21,7 @@ from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from jax import lax, random
+from jax import random
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
@@ -67,11 +67,11 @@ def main(args):
 
     guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
     svi = SVI(dual_moon_model, guide, optim.Adam(0.003), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
-    last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(args.num_iters))
-    params = svi.get_params(last_state)
+    svi.run(random.PRNGKey(1), args.num_iters)
+    params = svi.get_params()
+    losses = svi.get_losses()
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(random.PRNGKey(2), params,
                                            sample_shape=(args.num_samples,))['x'].copy()

@@ -202,19 +202,14 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
         >>> guide = autoguide.AutoNormal(model, init_loc_fn=init_to_feasible)
         >>> svi = SVI(model, guide, numpyro.optim.Adam(5e-3), TraceMeanField_ELBO())
         >>>
-        >>> batch_size = 256
         >>> n_iterations = 3000
-        >>> svi_state = svi.init(random.PRNGKey(0), x_train, y_train, batch_size=batch_size)
-        >>> update_fn = jit(svi.update, static_argnums=(3,))
-        >>> for i in tqdm.trange(n_iterations):
-        ...     svi_state, loss = update_fn(svi_state, x_train, y_train, batch_size)
-        >>>
-        >>> params = svi.get_params(svi_state)
+        >>> svi.run(random.PRNGKey(0), n_iterations, x_train, y_train, batch_size=256)
+        >>> params = svi.get_params()
         >>> n_test_data = 100
         >>> x_test, y_test = generate_data(n_test_data)
         >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
         >>> y_pred = predictive(random.PRNGKey(1), x_test[:100])["obs"].copy()
-        >>> assert loss < 3000
+        >>> assert svi.get_losses()[-1] < 3000
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
     nn = flax_module(name, nn_module, input_shape=input_shape)

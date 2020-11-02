@@ -3,7 +3,9 @@
 
 from functools import namedtuple, partial
 
-from jax import random
+from jax import jit, lax, random
+import jax.numpy as jnp
+import tqdm
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
@@ -56,11 +58,8 @@ class SVI(object):
         >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
         >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
         >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-        >>> init_state = svi.init(random.PRNGKey(0), data)
-        >>> state = lax.fori_loop(0, 2000, lambda i, state: svi.update(state, data)[0], init_state)
-        >>> # or to collect losses during the loop
-        >>> # state, losses = lax.scan(lambda state, i: svi.update(state, data), init_state, jnp.arange(2000))
-        >>> params = svi.get_params(state)
+        >>> svi.run(random.PRNGKey(0), 2000, data)
+        >>> params = svi.get_params()
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
 
     :param model: Python callable with Pyro primitives for the model.
@@ -79,18 +78,19 @@ class SVI(object):
         self.optim = optim
         self.static_kwargs = static_kwargs
         self.constrain_fn = None
+        self._last_state = None
+        self._losses = None
 
     def init(self, rng_key, *args, **kwargs):
         """
+        Gets the initial SVI state.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
         :param args: arguments to the model / guide (these can possibly vary during
             the course of fitting).
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
-        :return: tuple containing initial :data:`SVIState`, and `get_params`, a callable
-            that transforms unconstrained parameter values from the optimizer to the
-            specified constrained domain
+        :return: the initial :data:`SVIState`
         """
         rng_key, model_seed, guide_seed = random.split(rng_key, 3)
         model_init = seed(self.model, model_seed)
@@ -110,12 +110,15 @@ class SVI(object):
         self.constrain_fn = partial(transform_fn, inv_transforms)
         return SVIState(self.optim.init(params), rng_key)
 
-    def get_params(self, svi_state):
+    def get_params(self, svi_state=None):
         """
         Gets values at `param` sites of the `model` and `guide`.
 
-        :param svi_state: current state of the optimizer.
+        :param svi_state: current state of SVI. This is not needed if :meth:`run`
+            is used to optimize the parameters.
         """
+        svi_state = svi_state if svi_state is not None else self._last_state
+        assert svi_state is not None, "svi_state needs to be specified"
         params = self.constrain_fn(self.optim.get_params(svi_state.optim_state))
         return params
 
@@ -136,6 +139,41 @@ class SVI(object):
                           self.guide, args, kwargs, self.static_kwargs)
         loss_val, optim_state = self.optim.eval_and_update(loss_fn, svi_state.optim_state)
         return SVIState(optim_state, rng_key), loss_val
+
+    def run(self, rng_key, num_steps, *args, progress_bar=True, **kwargs):
+        """
+        Run SVI with `num_steps` iterations. After SVI is run, the optimized state
+        and training losses can be obtained by using `self.get_params()` and
+        `self.get_losses()` methods.
+
+        :param jax.random.PRNGKey rng_key: random number generator seed.
+        :param int num_steps: the number of optimization steps.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param bool progress_bar: Whether to enable progress bar updates. Defaults to
+            ``True``.
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        """
+        def body_fn(svi_state):
+            return self.update(svi_state, *args, **kwargs)
+
+        svi_state = self.init(rng_key, *args, **kwargs)
+        if progress_bar:
+            losses = []
+            for i in tqdm.trange(num_steps):
+                svi_state, loss = jit(body_fn)(svi_state)
+                losses.append(loss)
+            losses = jnp.stack(losses)
+        else:
+            svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
+        self._last_state = svi_state
+        self._losses = losses
+
+    def get_losses(self):
+        # TODO: consider to move `loss` to SVIState and make a `get_extra_fields`
+        # method for this purpose
+        return self._losses
 
     def evaluate(self, svi_state, *args, **kwargs):
         """
