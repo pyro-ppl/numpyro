@@ -8,6 +8,7 @@ format: FORCE
 
 doctest: FORCE
 	$(MAKE) -C docs doctest
+	git clean -dfx docs/source/
 
 test: lint FORCE
 	pytest -v test
