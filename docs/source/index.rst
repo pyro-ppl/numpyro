@@ -5,9 +5,16 @@ NumPyro documentation
 =====================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
    getting_started
+
+.. toctree::
+   :maxdepth: 2
+   :caption: API and Developer Reference
+
+   api
+   Change Log <https://github.com/pyro-ppl/numpyro/releases>
 
 .. nbgallery::
    :maxdepth: 1
@@ -45,13 +52,6 @@ NumPyro documentation
    examples/ucbadmit
    examples/ode
    examples/neutra
-
-.. toctree::
-   :maxdepth: 3
-   :caption: API and Developer Reference
-
-   api
-   Change Log <https://github.com/pyro-ppl/numpyro/releases>
 
 
 Indices and tables
