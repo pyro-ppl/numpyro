@@ -101,9 +101,9 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     n, _ = feats.shape
     file_hyperparams = open("PLOTS_{}/Hyperparameters_{}.txt".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms"),now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms")), "a")
     if subsample_method=="perturb" and proxy== "taylor":
-        map_samples = 100
-        map_warmup = 50
-        factor_NUTS = 1000
+        map_samples = 5
+        map_warmup = 20
+        factor_NUTS = 100
         if map_method == "NUTS":
             print("Running NUTS for map estimation {} + {} samples".format(map_samples,map_warmup))
             file_hyperparams.write('MAP samples : {} \n'.format(map_samples))
@@ -116,7 +116,6 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
             file_hyperparams.write('MAP warmup : {} \n'.format(map_warmup))
             samples, r_hat_average = infer_hmc(map_key, feats[:factor_NUTS], obs[:factor_NUTS], samples=map_samples, warmup=map_warmup)
             z_ref = {key: value.mean(0) for key, value in samples.items()}
-
         if map_method == "SVI":
             print("Running SVI for map estimation")
             file_hyperparams.write('SVI epochs : {} \n'.format(num_epochs))
@@ -127,8 +126,8 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
         print("Running MCMC subsampling with Taylor proxy")
     elif subsample_method =="perturb" and proxy=="svi":
         factor_SVI = obs.shape[0]
-        batch_size = int(factor_SVI//10)
-        print("Running SVI for map estimation")
+        batch_size = 32 #int(factor_SVI//10)
+        print("Running SVI for map estimation with svi proxy")
         file_hyperparams.write('SVI epochs : {} \n'.format(num_epochs))
         map_key, post_key = jax.random.split(map_key)
         z_ref, svi, svi_state = svi_map(model, map_key, feats=feats[:factor_SVI], obs=obs[:factor_SVI],
@@ -148,6 +147,7 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     kernel = HMC(model=model,z_ref=z_ref,m=m,g=g,algo=algo,subsample_method=subsample_method,proxy=proxy,svi_fn=svi,target_accept_prob=0.8)
 
     mcmc = MCMC(kernel,num_warmup=warmup,num_samples=n_samples,num_chains=1)
+    print(feats.shape)
     mcmc.run(rng_key,feats,obs)
     stop = time.time()
     file_hyperparams.write('MCMC/NUTS elapsed time {}: {} \n'.format(subsample_method,time.time() - start))
@@ -211,12 +211,13 @@ def Folders(folder_name):
     else:
         shutil.rmtree(newpath)  # removes all the subdirectories!
         os.makedirs(newpath,0o777)
-def Plot_KL(map_method,ecs_algo,algo,n_samples,n_warmup,epochs):
-    factor_ECS=obs.shape[0]
+def Plot_KL(map_method,ecs_algo,algo,proxy,n_samples,n_warmup,epochs):
+    factor_ECS= 1000 #obs.shape[0]
     m = [int(np_jax.sqrt(obs[:factor_ECS].shape[0])),2*int(np_jax.sqrt(obs[:factor_ECS].shape[0])),4*int(np_jax.sqrt(obs[:factor_ECS].shape[0])),8*int(np_jax.sqrt(obs[:factor_ECS].shape[0]))]
     g = 5
-    factor_NUTS = 1000
+    factor_NUTS = 100
     colors = cm.rainbow(np.linspace(0, 1, len(m)))
+    print("Running standard NUTS")
     est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor_NUTS], obs=obs[:factor_NUTS],
                                       n_samples=n_samples, warmup=n_warmup, m="all", g=g, algo=algo)
     for m_val, color in zip(m,colors):
@@ -226,13 +227,23 @@ def Plot_KL(map_method,ecs_algo,algo,n_samples,n_warmup,epochs):
                                          m=m_val, g=g,
                                          algo=ecs_algo,
                                          subsample_method="perturb",
+                                         proxy=proxy,
                                          map_method=map_method,
                                          num_epochs=epochs)
 
         p = dist.Normal(est_posterior_ECS["theta"])
         q = dist.Normal(est_posterior_NUTS["theta"])
         kl = kl_divergence(p, q)
-        Plot(est_posterior_ECS, est_posterior_NUTS, ecs_algo, algo,m_val,kl=kl )
+
+        Plot(samples_ECS=est_posterior_ECS,
+             samples_NUTS=est_posterior_NUTS,
+             ecs_algo= ecs_algo,
+             algo=algo,
+             proxy= proxy,
+             m = m_val,
+             kl=kl)
+        exit()
+
 def Tests(map_method,ecs_algo,algo,n_samples,n_warmup,epochs,proxy):
     m = int(np_jax.sqrt(obs.shape[0])*2)
     g= 5
@@ -252,13 +263,13 @@ def Tests(map_method,ecs_algo,algo,n_samples,n_warmup,epochs,proxy):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-num_samples', nargs='?', default=50, type=int)
-    parser.add_argument('-num_warmup', nargs='?', default=5, type=int)
+    parser.add_argument('-num_samples', nargs='?', default=5,type=int)
+    parser.add_argument('-num_warmup', nargs='?', default=20, type=int)
     parser.add_argument('-ecs_algo', nargs='?', default="NUTS", type=str)
-    parser.add_argument('-ecs_proxy', nargs='?', default="svi", type=str)
+    parser.add_argument('-ecs_proxy', nargs='?', default="taylor", type=str)
     parser.add_argument('-algo', nargs='?', default="HMC", type=str)
     parser.add_argument('-map_init', nargs='?', default="NUTS", type=str)
-    parser.add_argument("-epochs",default=2,type=int)
+    parser.add_argument("-epochs",default=10,type=int)
     args = parser.parse_args()
 
 
@@ -274,6 +285,7 @@ if __name__ == '__main__':
                                                                      now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms")), "a")
     file_hyperparams.write('ECS algo : {} \n'.format(args.ecs_algo))
     file_hyperparams.write('algo : {} \n'.format(args.algo))
+    file_hyperparams.write('ECS proxy : {} \n'.format(args.ecs_proxy))
     file_hyperparams.write('MAP init : {} \n'.format(args.map_init))
 
     higgs = False
@@ -289,8 +301,8 @@ if __name__ == '__main__':
     config.update('jax_disable_jit', True)
 
     #Determine_best_sample_size(rng_key,feats[:100],obs[:100])
-    Tests(args.map_init,args.ecs_algo,args.algo,args.num_samples,args.num_warmup,args.epochs,args.ecs_proxy)
-    #Plot_KL(args.map_init,args.ecs_algo,args.algo,args.num_samples,args.num_warmup,args.epochs)
+    #Tests(args.map_init,args.ecs_algo,args.algo,args.num_samples,args.num_warmup,args.epochs,args.ecs_proxy)
+    Plot_KL(args.map_init,args.ecs_algo,args.algo,args.ecs_proxy,args.num_samples,args.num_warmup,args.epochs)
 
 
     exit()

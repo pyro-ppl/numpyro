@@ -181,6 +181,12 @@ def init_near_values(site=None, values={}):
                 return init_to_uniform(site)
 
 def taylor_proxy(z_ref, model, ll_ref, jac_all, hess_all):
+    """Corrects the subsample likelihood using covariates the taylor expansion
+    :param z_ref = reference estimate (e.g MAP) of the model's parameters
+    :param model = model likelihood
+    :param ll_ref = reference loglikelihood
+    :param jac_all= Jacobian vector of the entire dataset
+    :param hess_all = Hessian matrix of the entire dataset"""
     def proxy(z, *args, **kwargs):
         z_flat, _ = ravel_pytree(z)
         zref_flat, _ = ravel_pytree(z_ref)
@@ -219,5 +225,36 @@ def svi_proxy(svi, model_args, model_kwargs):
 
 def neural_proxy():
     return None
+
+
+def signed_estimator(model, model_args, model_kwargs, z, a, l, proxy, proxy_u):
+    """
+
+    :param model:
+    :param model_args:
+    :param model_kwargs:
+    :param z:
+    :param a:
+    :param l: Length of the block of data to be updated within the subsample
+    :param proxy:
+    :param proxy_u:
+    :return:
+    """
+    xis = 0.
+    sign = 1.
+
+    for args in model_args:
+        ll_sub, _ = log_density_obs_hmcecs(model, args, {}, z)  # log likelihood for subsample with current theta
+        xi = (jnp.exp(ll_sub - proxy_u(z=z, model_args=args, model_kwargs=model_kwargs)) - a) / l
+        sign *= jnp.prod(jnp.sign(xi))
+        xis += jnp.sum(jnp.abs(xi), axis=0)
+
+    lhat = proxy(z) + (a + l) / l + xis
+    ll_prior, _ = log_density_prior_hmcecs(model, model_args, model_kwargs, z)
+
+    neg_ll = - lhat - ll_prior
+
+    return neg_ll, sign
+
 
 
