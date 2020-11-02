@@ -12,7 +12,7 @@ import argparse
 import numpy as np
 from numpyro.distributions.kl import kl_divergence
 from matplotlib.pyplot import cm
-
+#remember to export the path of the project
 sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/contrib/')
 sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/examples/')
 
@@ -20,8 +20,8 @@ from hmcecs import HMC
 #from numpyro.contrib.hmcecs import HMC
 
 from sklearn.datasets import load_breast_cancer
-#from datasets import _load_higgs
-from numpyro.examples.datasets import _load_higgs
+from datasets import _load_higgs
+#from numpyro.examples.datasets import _load_higgs
 from logistic_hmcecs_svi import svi_map
 import jax.numpy as np_jax
 import matplotlib.pyplot as plt
@@ -96,14 +96,15 @@ def infer_hmc(rng_key, feats, obs, samples, warmup ):
 
 
 
-def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,algo="NUTS",subsample_method=None,map_method=None,proxy="taylor",num_epochs=None ):
+def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,algo="NUTS",subsample_method=None,map_method=None,proxy="taylor",estimator=None,num_epochs=None ):
     hmcecs_key, map_key = jax.random.split(rng_key)
     n, _ = feats.shape
     file_hyperparams = open("PLOTS_{}/Hyperparameters_{}.txt".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms"),now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms")), "a")
+
     if subsample_method=="perturb" and proxy== "taylor":
-        map_samples = 5
-        map_warmup = 20
-        factor_NUTS = 100
+        map_samples = 10
+        map_warmup = 5
+        factor_NUTS = 50
         if map_method == "NUTS":
             print("Running NUTS for map estimation {} + {} samples".format(map_samples,map_warmup))
             file_hyperparams.write('MAP samples : {} \n'.format(map_samples))
@@ -144,7 +145,7 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
         svi = None
 
     start = time.time()
-    kernel = HMC(model=model,z_ref=z_ref,m=m,g=g,algo=algo,subsample_method=subsample_method,proxy=proxy,svi_fn=svi,target_accept_prob=0.8)
+    kernel = HMC(model=model,z_ref=z_ref,m=m,g=g,algo=algo,subsample_method=subsample_method,proxy=proxy,svi_fn=svi,estimator = estimator,target_accept_prob=0.8)
 
     mcmc = MCMC(kernel,num_warmup=warmup,num_samples=n_samples,num_chains=1)
     mcmc.run(rng_key,feats,obs)
@@ -177,11 +178,16 @@ def Determine_best_sample_size(rng_key,feats,obs):
     plt.ylabel(r"$\hat{r}$")
     plt.title("Determine best effective sample size for z_map")
     plt.savefig("{}/Best_effective_size_z_map.png".format("PLOTS_{}".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms"))))
-def Plot(samples_ECS,samples_NUTS,ecs_algo,algo,proxy,m,kl=None):
+def Plot(samples_ECS,samples_NUTS,ecs_algo,algo,proxy,estimator,m,kl=None):
+    if estimator :
+        label = "ECS-{}-{} proxy-{} estimator".format(ecs_algo, proxy, estimator)
+    else:
+        label = "ECS-{}-{} proxy".format(ecs_algo, proxy)
     for sample in [0,7,15,25]:
         plt.figure(sample + m +3)
         #samples = pd.DataFrame.from_records(samples,index="theta")
-        sns.kdeplot(data=samples_ECS["theta"][sample],color="r",label="ECS-{}-{} proxy".format(ecs_algo,proxy))
+
+        sns.kdeplot(data=samples_ECS["theta"][sample],color="r",label=label)
         sns.kdeplot(data=samples_NUTS["theta"][sample],color="b",label="{}".format(algo))
         #if kl != None:
         #        sns.kdeplot(data=kl, color="g", label="KL; m: {}".format(m))
@@ -210,15 +216,17 @@ def Folders(folder_name):
     else:
         shutil.rmtree(newpath)  # removes all the subdirectories!
         os.makedirs(newpath,0o777)
-def Plot_KL(map_method,ecs_algo,algo,proxy,n_samples,n_warmup,epochs):
-    factor_ECS= 1000 #obs.shape[0]
+def Plot_KL(map_method,ecs_algo,algo,proxy,estimator,n_samples,n_warmup,epochs):
+    factor_ECS= 50 #obs.shape[0]
     m = [int(np_jax.sqrt(obs[:factor_ECS].shape[0])),2*int(np_jax.sqrt(obs[:factor_ECS].shape[0])),4*int(np_jax.sqrt(obs[:factor_ECS].shape[0])),8*int(np_jax.sqrt(obs[:factor_ECS].shape[0]))]
     g = 5
-    factor_NUTS = 100
+    factor_NUTS = 50
     colors = cm.rainbow(np.linspace(0, 1, len(m)))
-    print("Running standard NUTS")
-    est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor_NUTS], obs=obs[:factor_NUTS],
-                                      n_samples=n_samples, warmup=n_warmup, m="all", g=g, algo=algo)
+    run_test = False
+    if run_test:
+        print("Running standard NUTS")
+        est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor_NUTS], obs=obs[:factor_NUTS],
+                                          n_samples=n_samples, warmup=n_warmup, m="all", g=g, algo=algo)
     for m_val, color in zip(m,colors):
         est_posterior_ECS = infer_hmcecs(rng_key, feats=feats[:factor_ECS], obs=obs[:factor_ECS],
                                          n_samples=n_samples,
@@ -227,6 +235,7 @@ def Plot_KL(map_method,ecs_algo,algo,proxy,n_samples,n_warmup,epochs):
                                          algo=ecs_algo,
                                          subsample_method="perturb",
                                          proxy=proxy,
+                                         estimator=estimator,
                                          map_method=map_method,
                                          num_epochs=epochs)
 
@@ -239,34 +248,45 @@ def Plot_KL(map_method,ecs_algo,algo,proxy,n_samples,n_warmup,epochs):
              ecs_algo= ecs_algo,
              algo=algo,
              proxy= proxy,
+             estimator = estimator,
              m = m_val,
              kl=kl)
         exit()
 
-def Tests(map_method,ecs_algo,algo,n_samples,n_warmup,epochs,proxy):
+def Tests(map_method,ecs_algo,algo,estimator,n_samples,n_warmup,epochs,proxy):
     m = int(np_jax.sqrt(obs.shape[0])*2)
     g= 5
     est_posterior_ECS = infer_hmcecs(rng_key, feats=feats, obs=obs,
                                      n_samples=n_samples,
                                      warmup=n_warmup,
-                                     m =m,g=g,
+                                     m =m,
+                                     g=g,
                                      algo=ecs_algo,
                                      subsample_method="perturb",
                                      proxy=proxy,
+                                     estimator = estimator,
                                      map_method = map_method,
                                      num_epochs=epochs)
-    est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats, obs=obs, n_samples=n_samples,warmup=n_warmup,m =m,g=g,algo=algo)
+    est_posterior_NUTS = infer_hmcecs(rng_key,
+                                      feats=feats,
+                                      obs=obs,
+                                      n_samples=n_samples,
+                                      warmup=n_warmup,
+                                      m =m,
+                                      g=g,
+                                      algo=algo)
 
-    Plot(est_posterior_ECS,est_posterior_NUTS,ecs_algo,algo,proxy,m)
+    Plot(est_posterior_ECS,est_posterior_NUTS,ecs_algo,algo,proxy,estimator,m)
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-num_samples', nargs='?', default=5,type=int)
-    parser.add_argument('-num_warmup', nargs='?', default=20, type=int)
+    parser.add_argument('-num_samples', nargs='?', default=10,type=int)
+    parser.add_argument('-num_warmup', nargs='?', default=5, type=int)
     parser.add_argument('-ecs_algo', nargs='?', default="NUTS", type=str)
     parser.add_argument('-ecs_proxy', nargs='?', default="taylor", type=str)
     parser.add_argument('-algo', nargs='?', default="HMC", type=str)
+    parser.add_argument('-estimator', nargs='?', default="poisson", type=str)
     parser.add_argument('-map_init', nargs='?', default="NUTS", type=str)
     parser.add_argument("-epochs",default=10,type=int)
     args = parser.parse_args()
@@ -301,7 +321,7 @@ if __name__ == '__main__':
 
     #Determine_best_sample_size(rng_key,feats[:100],obs[:100])
     #Tests(args.map_init,args.ecs_algo,args.algo,args.num_samples,args.num_warmup,args.epochs,args.ecs_proxy)
-    Plot_KL(args.map_init,args.ecs_algo,args.algo,args.ecs_proxy,args.num_samples,args.num_warmup,args.epochs)
+    Plot_KL(args.map_init,args.ecs_algo,args.algo,args.ecs_proxy,args.estimator,args.num_samples,args.num_warmup,args.epochs)
 
 
     exit()
@@ -314,8 +334,14 @@ if __name__ == '__main__':
     p = dist.Normal(samples_ECS_3316["theta"])
     q = dist.Normal(samples_HMC["theta"])
     kl = kl_divergence(p, q)
-    print(np_jax.average(kl))
-    Plot(samples_ECS_3316, samples_HMC, args.ecs_algo, args.algo, 3316,args.ecs_proxy ,kl=kl)
+    Plot(samples_ECS=samples_ECS_3316,
+             samples_NUTS=samples_HMC,
+             ecs_algo= args.ecs_algo,
+             algo=args.algo,
+             proxy= args.proxy,
+             estimator = args.estimator,
+             m = 3316,
+             kl=kl)
 
     # samples = pd.DataFrame.from_records(samples,index="theta")
     # sns.kdeplot(data=kl, color=color, label="m : ".format(m_val))

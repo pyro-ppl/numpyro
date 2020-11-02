@@ -240,10 +240,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                     model_args=(),
                     model_kwargs=None,
                     model = None,
-                    #ll_ref=None,
-                    #jac_all=None,
-                    #z_ref= None,
-                    #hess_all=None,
+                    ll_ref=None,
+                    jac_all=None,
+                    z_ref= None,
+                    hess_all=None,
                     ll_u = None,
                     n = None,
                     m = None,
@@ -358,12 +358,12 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                   proxy_fn = None,
                   proxy_u_fn = None,
                   model = None,
-                  #ll_ref = None,
-                  #jac_all = None,
-                  #z = None,
-                  #z_ref = None,
-                  #hess_all = None,
-                  #ll_u = None,
+                  ll_ref = None,
+                  jac_all = None,
+                  z = None,
+                  z_ref = None,
+                  hess_all = None,
+                  ll_u = None,
                   u = None,
                   n = None,
                   m = None):
@@ -412,7 +412,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                    model_args, model_kwargs, rng_key,subsample_method,
                    proxy_fn=None,proxy_u_fn=None,
                    model=None,
-                   #ll_ref=None,jac_all=None,z = None,z_ref=None,hess_all=None,ll_u=None,u=None,
+                   ll_ref=None,jac_all=None,z = None,z_ref=None,hess_all=None,ll_u=None,u=None,
                    n=None,m=None):
         if potential_fn_gen:
             nonlocal vv_update
@@ -454,11 +454,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                       proxy_fn=None,
                       proxy_u_fn=None,
                       model=None,
-                      #ll_ref=None,
-                      #jac_all=None,
-                      #z=None,
-                      #z_ref=None,
-                      #hess_all=None,
+                      ll_ref=None,
+                      jac_all=None,
+                      z=None,
+                      z_ref=None,
+                      hess_all=None,
                       ll_u=None,
                       u=None,n=None,m=None,): #TODO: Remove so many args
         """
@@ -490,7 +490,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                                                                     proxy_fn,
                                                                     proxy_u_fn,
                                                                     model,
-                                                                    #ll_ref,jac_all,z,z_ref,hess_all,ll_u,u,
+                                                                    ll_ref,jac_all,z,z_ref,hess_all,ll_u,u,
                                                                     n,m)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
@@ -618,6 +618,8 @@ class HMC(MCMCKernel):
         self._u = None
         self._neg_ll = None
         self._sign = None
+        self._l = 1 #TODO: What to initialize this to?
+        self._a = 1
         # Set on first call to init
         self._init_fn = None
         self._postprocess_fn = None
@@ -627,7 +629,7 @@ class HMC(MCMCKernel):
         self.svi_fn = svi_fn
         self._proxy_fn = None
         self._proxy_u_fn = None
-        self.estimator = None
+        self.estimator = estimator
 
     def _init_subsample_state(self,rng_key, model_args, model_kwargs, init_params,z_ref):
         "Compute the jacobian, hessian and log likelihood for all the data. Used with taylor expansion proxy"
@@ -654,10 +656,14 @@ class HMC(MCMCKernel):
                 warnings.warn("Using default second order Taylor expansion, change by using the proxy flag to {svi}")
                 self._init_subsample_state(rng_key, model_args, model_kwargs, init_params, self.z_ref)
                 self._proxy_fn,self._proxy_u_fn = taylor_proxy(self.z_ref, self._model, self._ll_ref, self._jac_all, self._hess_all)
-            # Initialize the potential and gradient potential functions
+            if self.estimator =="poisson":
+                self._l = 1 # initialize?
+                self._a = 1
 
+            # Initialize the potential and gradient potential functions
             self._potential_fn = lambda model, model_args, model_kwargs, z, n, m, proxy_fn, proxy_u_fn : lambda  z:potential_est(model=model,
                                 model_args=model_args, model_kwargs=model_kwargs, z=z, n=n, m=m, proxy_fn=proxy_fn, proxy_u_fn=proxy_u_fn)
+
             # Initialize the hmc sampler: sample_fn = sample_kernel
             self._init_fn, self._sample_fn = hmc(potential_fn_gen=self._potential_fn,
                                                     kinetic_fn=euclidean_kinetic_energy,
@@ -762,10 +768,10 @@ class HMC(MCMCKernel):
                                           model_kwargs=model_kwargs,
                                           subsample_method= self.subsample_method,
                                           model=self._model,
-                                          #ll_ref =self._ll_ref,
-                                          #jac_all=self._jac_all,
-                                          #z_ref=self.z_ref,
-                                          #hess_all = self._hess_all,
+                                          ll_ref =self._ll_ref,
+                                          jac_all=self._jac_all,
+                                          z_ref=self.z_ref,
+                                          hess_all = self._hess_all,
                                           ll_u = self._ll_u,
                                           n=self._n,
                                           m=self.m,
@@ -783,8 +789,14 @@ class HMC(MCMCKernel):
                 elif self.proxy == "svi":
                     self._proxy_fn, self._proxy_u_fn = svi_proxy(self.svi_fn, model_args, model_kwargs)
                 if self.estimator == "poisson":
+                    #signed pseudo-marginal algorithm with the block-Poisson estimator
+                    #use the term signed PM for any pseudo-marginal algorithm that uses the technique in Lyne
+                    # et al. (2015) where a pseudo-marginal sampler is run on the absolute value of the estimated
+                    # posterior and subsequently sign-corrected by importance sampling. Similarly, we call the
+                    # algorithm described in this section signed HMC-ECS
                     print("Poisson, working on it")
-                    self._neg_ll, self._sign = signed_estimator(self._model, model_args, model_kwargs, init_state.z, self.a, self.l, self._proxy_fn, self._proxy_u_fn)
+                    self._neg_ll, self._sign = signed_estimator(self._model, model_args, model_kwargs, init_state.z, self._a, self._l, self._proxy_fn, self._proxy_u_fn)
+                    exit()
                 else:
                     self._ll_u = potential_est(model=self._model,
                                                model_args=model_args_sub(self._u, model_args),
@@ -801,7 +813,7 @@ class HMC(MCMCKernel):
 
                     return init_sub_state
             else: #TODO: What is this for? It does not go into it for num_chains>1
-                raise ValueError("Not implemented for n_chains > 1")
+                raise ValueError("Not implemented for chains > 1")
                 # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
                 # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
                 # wa_steps because those variables do not depend on traced args: init_params, rng_key.
@@ -872,6 +884,18 @@ class HMC(MCMCKernel):
             rng_key_subsample, rng_key_transition, rng_key_likelihood, rng_key = random.split(
                 state.rng_key, 4)
 
+            if self.estimator == "poisson":
+                #TODO: What to do here? does the negative likelihood need to be stored? how about the sign? store in the state?
+                u_new = _sample_u_poisson(rng_key,self.m,self._l)
+                neg_ll, sign = signed_estimator(model = self._model,
+                                                model_args=model_args,
+                                                model_kwargs=model_kwargs,
+                                                z=state.z,
+                                                a=self._a,
+                                                l =self._l,
+                                                proxy_fn = self._proxy_fn,
+                                                proxy_u_fn = self._proxy_u_fn)
+
             u_new = _update_block(rng_key_subsample, state.u, self._n, self.m, self.g)
             # estimate likelihood of subsample with single block updated
 
@@ -894,7 +918,6 @@ class HMC(MCMCKernel):
             ######## UPDATE PARAMETERS ##########
 
             hmc_subsamplestate = HMCECSState(u=u, hmc_state=state.hmc_state,ll_u=ll_u)
-
             hmc_subsamplestate = tuplemerge(hmc_subsamplestate._asdict(),state._asdict())
 
             return self._sample_fn(hmc_subsamplestate,
@@ -904,11 +927,11 @@ class HMC(MCMCKernel):
                                    proxy_fn = self._proxy_fn,
                                    proxy_u_fn = self._proxy_u_fn,
                                    model = self._model,
-                                   #ll_ref = self._ll_ref,
-                                   #jac_all =self._jac_all,
-                                   #z= state.z,
-                                   #z_ref = self.z_ref, #TODO: Not necessary , remove(z_ref, hess_all, jac_all,ll_ref)
-                                   #hess_all = self._hess_all,
+                                   ll_ref = self._ll_ref,
+                                   jac_all =self._jac_all,
+                                   z= state.z,
+                                   z_ref = self.z_ref,
+                                   hess_all = self._hess_all,
                                    ll_u = ll_u,
                                    u= u,
                                    n= self._n,

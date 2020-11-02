@@ -100,6 +100,7 @@ def potential_est(model, model_args, model_kwargs, z, n, m, proxy_fn, proxy_u_fn
     ll_sub, _ = log_density_obs_hmcecs(model, model_args, {}, z)  # log likelihood for subsample with current theta
 
     diff = ll_sub - proxy_u_fn(z=z, model_args=model_args, model_kwargs=model_kwargs)
+
     l_hat = proxy_fn(z) + n / m * diff
 
     sigma = n ** 2 / m * jnp.var(diff)
@@ -227,7 +228,7 @@ def neural_proxy():
     return None
 
 
-def signed_estimator(model, model_args, model_kwargs, z, a, l, proxy, proxy_u):
+def signed_estimator(model, model_args, model_kwargs, z, a, l, proxy_fn, proxy_u_fn):
     """
 
     :param model:
@@ -243,13 +244,13 @@ def signed_estimator(model, model_args, model_kwargs, z, a, l, proxy, proxy_u):
     xis = 0.
     sign = 1.
 
-    for args in model_args:
+    for args in model_args: #TODO: Perhaps for index in len(model_args) ?
         ll_sub, _ = log_density_obs_hmcecs(model, args, {}, z)  # log likelihood for subsample with current theta
-        xi = (jnp.exp(ll_sub - proxy_u(z=z, model_args=args, model_kwargs=model_kwargs)) - a) / l
+        xi = (jnp.exp(ll_sub - proxy_u_fn(z=z, model_args=args, model_kwargs=model_kwargs)) - a) / l
         sign *= jnp.prod(jnp.sign(xi))
         xis += jnp.sum(jnp.abs(xi), axis=0)
 
-    lhat = proxy(z) + (a + l) / l + xis
+    lhat = proxy_fn(z) + (a + l) / l + xis
     ll_prior, _ = log_density_prior_hmcecs(model, model_args, model_kwargs, z)
 
     neg_ll = - lhat - ll_prior
