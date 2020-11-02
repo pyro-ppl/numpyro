@@ -147,7 +147,6 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     kernel = HMC(model=model,z_ref=z_ref,m=m,g=g,algo=algo,subsample_method=subsample_method,proxy=proxy,svi_fn=svi,target_accept_prob=0.8)
 
     mcmc = MCMC(kernel,num_warmup=warmup,num_samples=n_samples,num_chains=1)
-    print(feats.shape)
     mcmc.run(rng_key,feats,obs)
     stop = time.time()
     file_hyperparams.write('MCMC/NUTS elapsed time {}: {} \n'.format(subsample_method,time.time() - start))

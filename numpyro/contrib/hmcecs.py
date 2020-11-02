@@ -890,7 +890,6 @@ class HMC(MCMCKernel):
             u, ll_u = cond(transition,
                            (u_new, llu_new), identity,
                            (state.u, state.ll_u), identity)
-            print(u)
 
             ######## UPDATE PARAMETERS ##########
 
