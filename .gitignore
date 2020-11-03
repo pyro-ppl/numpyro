@@ -2,6 +2,7 @@ numpyro.egg-info
 __pycache__/
 .ipynb_checkpoints/
 build
+docs/source/examples/
 
 # built / compiled
 *.pyc
