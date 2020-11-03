@@ -83,7 +83,7 @@ class BernoulliProbs(Distribution):
 
     def sample(self, key, sample_shape=()):
         samples = random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
-        return samples.astype(canonicalize_dtype(jnp.int64))
+        return samples.astype(jnp.result_type(samples, int))
 
     @validate_sample
     def log_prob(self, value):
@@ -116,7 +116,7 @@ class BernoulliLogits(Distribution):
 
     def sample(self, key, sample_shape=()):
         samples = random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
-        return samples.astype(canonicalize_dtype(jnp.int64))
+        return samples.astype(jnp.result_type(samples, int))
 
     @validate_sample
     def log_prob(self, value):
