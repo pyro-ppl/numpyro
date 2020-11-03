@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Neal's Funnel
-=============
+Example: Neal's Funnel
+======================
 
 This example, which is adapted from [1], illustrates how to leverage non-centered
 parameterization using the class :class:`numpyro.distributions.TransformedDistribution`.

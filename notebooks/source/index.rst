@@ -3,8 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to NumPyro Examples and Tutorials!
-==========================================
+Welcome to NumPyro Tutorials!
+=============================
 
 .. toctree::
    :maxdepth: 2
@@ -16,12 +16,6 @@ Welcome to NumPyro Examples and Tutorials!
    ordinal_regression
    bayesian_hierarchical_linear_regression
    discrete_imputation
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Examples:
-
-   examples/index
 
 
 Indices

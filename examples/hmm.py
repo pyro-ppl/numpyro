@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Hidden Markov Model
-===================
+Example: Hidden Markov Model
+============================
 
 In this example, we will follow [1] to construct a semi-supervised Hidden Markov
 Model for a generative model with observations are words and latent variables

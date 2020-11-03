@@ -1,12 +1,8 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import glob
 import os
-import shutil
 
-from sphinx_gallery.scrapers import figure_rst
-from sphinx_gallery.sorting import FileNameSortKey
 import sphinx_rtd_theme
 
 # -*- coding: utf-8 -*-
@@ -48,7 +44,6 @@ extensions = ['sphinx.ext.intersphinx',
               'nbsphinx',
               'sphinx.ext.autodoc',
               'IPython.sphinxext.ipython_console_highlighting',
-              'sphinx_gallery.gen_gallery',
               ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -98,8 +93,7 @@ language = None
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This patterns also effect to html_static_path and html_extra_path
-exclude_patterns = ['.ipynb_checkpoints', 'logistic_regression.ipynb',
-                    'examples/*ipynb', 'examples/*py']
+exclude_patterns = ['.ipynb_checkpoints', 'logistic_regression.ipynb']
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
@@ -109,83 +103,6 @@ todo_include_todos = False
 
 # extend timeout
 nbsphinx_timeout = 120
-
-# -- Options for gallery --------------------------------------------------
-
-# examples with order
-EXAMPLES = [
-   'baseball.py',
-   'bnn.py',
-   'funnel.py',
-   'gp.py',
-   'ucbadmit.py',
-   'hmm.py',
-   'neutra.py',
-   'ode.py',
-   'sparse_regression.py',
-   'stochastic_volatility.py',
-   'vae.py',
-]
-
-
-class GalleryFileNameSortKey(FileNameSortKey):
-    def __call__(self, filename):
-        if filename in EXAMPLES:
-            return "{:02d}".format(EXAMPLES.index(filename))
-        else:  # not in examples list, sort by name
-            return "99" + filename
-
-
-# Adapted from https://sphinx-gallery.github.io/stable/advanced.html#example-2-detecting-image-files-on-disk
-#
-# Custom images can be put in _static/img folder, with the pattern
-#   sphx_glr_[name_of_example]_1.png
-# Note that this also displays the image in the example page.
-# To not display the image, we can add the following lines
-# at the end of __call__ method:
-#   if "sparse_regression" in images_rst:
-#       images_rst = ""
-#   return images_rst
-#
-# If there are several images for an example, we can select
-# which one to be the thumbnail image by adding a comment
-# in the example script
-#   # sphinx_gallery_thumbnail_number = 2
-class PNGScraper(object):
-    def __init__(self):
-        self.seen = set()
-
-    def __repr__(self):
-        return 'PNGScraper'
-
-    def __call__(self, block, block_vars, gallery_conf):
-        # Find all PNG files in the directory of this example.
-        pngs = sorted(glob.glob(os.path.join(os.path.dirname(__file__), '_static/img/sphx_glr_*.png')))
-
-        # Iterate through PNGs, copy them to the sphinx-gallery output directory
-        image_names = list()
-        image_path_iterator = block_vars['image_path_iterator']
-        for png in pngs:
-            if png not in self.seen:
-                self.seen |= set(png)
-                this_image_path = image_path_iterator.next()
-                image_names.append(this_image_path)
-                shutil.copy(png, this_image_path)
-        # Use the `figure_rst` helper function to generate rST for image files
-        images_rst = figure_rst(image_names, gallery_conf['src_dir'])
-        return images_rst
-
-
-sphinx_gallery_conf = {
-    'examples_dirs': ['../../examples'],
-    'gallery_dirs': ['examples'],
-    # slow examples can be added to here to avoid execution
-    'filename_pattern': r'(?!hmm_enum)\b\w+.py\b',
-    'ignore_pattern': '(minipyro|covtype|__init__)',
-    'within_subsection_order': GalleryFileNameSortKey,
-    'image_scrapers': ('matplotlib', PNGScraper()),
-    'default_thumb_file': 'source/_static/img/pyro_logo_wide.png',
-}
 
 
 # -- Options for HTML output ----------------------------------------------
