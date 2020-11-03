@@ -8,7 +8,6 @@ format: FORCE
 
 doctest: FORCE
 	$(MAKE) -C docs doctest
-	git clean -dfx docs/source/
 
 test: lint FORCE
 	pytest -v test
@@ -18,7 +17,6 @@ clean: FORCE
 
 docs: FORCE
 	$(MAKE) -C docs html
-	git clean -dfx docs/source/
 
 notebooks: FORCE
 	$(MAKE) -C notebooks html
