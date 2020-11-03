@@ -357,6 +357,21 @@ def _guess_max_plate_nesting(model_trace):
     return max_plate_nesting
 
 
+# TODO: follow pyro.util.check_site_shape logics for more complete validation
+def _validate_model(model_trace):
+    # XXX: this validates plate statements under `enum`
+    sites = [site for site in model_trace.values()
+             if site["type"] in ("sample", "control_flow")]
+
+    for site in sites:
+        batch_dims = len(site["fn"].batch_shape)
+        if site.get('_control_flow_done', False):
+            batch_dims = batch_dims - 1  # remove time dimension under scan
+        plate_dims = -min([0] + [frame.dim for frame in site["cond_indep_stack"]])
+        assert plate_dims >= batch_dims, \
+            "Missing plate statement for batch dimensions at site {}".format(site["name"])
+
+
 def initialize_model(rng_key, model,
                      init_strategy=init_to_uniform,
                      dynamic_args=False,
@@ -406,6 +421,7 @@ def initialize_model(rng_key, model,
 
         if not isinstance(model, enum):
             max_plate_nesting = _guess_max_plate_nesting(model_trace)
+            _validate_model(model_trace)
             model = enum(config_enumerate(model), -max_plate_nesting - 1)
 
     potential_fn, postprocess_fn = get_potential_fn(model,

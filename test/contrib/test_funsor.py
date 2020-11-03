@@ -430,3 +430,26 @@ def test_scan_enum_scan_enum():
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
     expected_log_joint = log_density(enum(config_enumerate(model)), (data_x, data_w), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
+
+
+def test_missing_plate():
+    K, N = 3, 1000
+
+    def gmm(data):
+        mix_proportions = numpyro.sample("phi", dist.Dirichlet(jnp.ones(K)))
+        # plate/to_event is missing here
+        cluster_means = numpyro.sample("cluster_means", dist.Normal(jnp.arange(K), 1.))
+
+        with numpyro.plate("data", data.shape[0], dim=-1):
+            assignments = numpyro.sample("assignments", dist.Categorical(mix_proportions))
+            numpyro.sample("obs", dist.Normal(cluster_means[assignments], 1.), obs=data)
+
+    true_cluster_means = jnp.array([1., 5., 10.])
+    true_mix_proportions = jnp.array([0.1, 0.3, 0.6])
+    cluster_assignments = dist.Categorical(true_mix_proportions).sample(random.PRNGKey(0), (N,))
+    data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample(random.PRNGKey(1))
+
+    nuts_kernel = NUTS(gmm)
+    mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
+    with pytest.raises(AssertionError, match="Missing plate statement"):
+        mcmc.run(random.PRNGKey(2), data)
