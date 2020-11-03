@@ -113,7 +113,7 @@ language = None
 # This pattern also affects html_static_path and html_extra_path .
 exclude_patterns = [
     '.ipynb_checkpoints',
-    'logistic_regression.ipynb',
+    'tutorials/logistic_regression.ipynb',
     'examples/*ipynb',
     'examples/*py'
 ]
@@ -173,9 +173,16 @@ with open('getting_started.rst', 'wt') as f:
 if not os.path.exists('tutorials'):
     os.makedirs('tutorials')
 
-for src_file in glob.glob('../../notebooks/source/*.ipynb') + ['../../notebooks/source/index.rst']:
+for src_file in glob.glob('../../notebooks/source/*.ipynb'):
     dst_file = os.path.join('tutorials', src_file.split("/")[-1])
     shutil.copy(src_file, 'tutorials/')
+
+# add index file to `tutorials` path, `:orphan:` is used to
+# tell sphinx that this rst file needs not to be appeared in toctree
+with open('../../notebooks/source/index.rst', 'rt') as f1:
+    with open('tutorials/index.rst', 'wt') as f2:
+        f2.write(":orphan:\n\n")
+        f2.write(f1.read())
 
 
 # -- Convert scripts to notebooks

@@ -11,7 +11,7 @@ inferences about parameters of the differential equation governing the dynamics.
 
     1. Bob Carpenter (2018), `"Predator-Prey Population Dynamics: the Lotka-Volterra model in Stan"
        <https://mc-stan.org/users/documentation/case-studies/lotka-volterra-predator-prey.html/>`_.
-    2. https://en.wikipedia.org/wiki/Lotka–Volterra_equations
+    2. https://en.wikipedia.org/wiki/Lotka-Volterra_equations
     3. http://people.whitman.edu/~hundledr/courses/M250F03/M250.html
 """
 
