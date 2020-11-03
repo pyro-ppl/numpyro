@@ -140,11 +140,18 @@ class SVI(object):
         loss_val, optim_state = self.optim.eval_and_update(loss_fn, svi_state.optim_state)
         return SVIState(optim_state, rng_key), loss_val
 
+    # XXX: As suggested in SteinVI PR, it is pretty flexible to support
+    # Callbacks as in Keras/PyTorch Lightning so that early stopping or
+    # training infos can be collected/displayed.
+    # Though that functionality might not fit into the core of NumPyro,
+    # it is nice to provide a functionality so that if some sort of
+    # `contrib.callbacks` is supported, users can use it directly with SVI
+    # interface, rather than a wrapper.
     def run(self, rng_key, num_steps, *args, progress_bar=True, **kwargs):
         """
-        Run SVI with `num_steps` iterations. After SVI is run, the optimized state
-        and training losses can be obtained by using `self.get_params()` and
-        `self.get_losses()` methods.
+        (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations.
+        After SVI is run, the optimized state and training losses can be
+        obtained by using `self.get_params()` and `self.get_losses()` methods.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
         :param int num_steps: the number of optimization steps.
@@ -167,8 +174,8 @@ class SVI(object):
             losses = jnp.stack(losses)
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
-        self._last_state = svi_state
-        self._losses = losses
+
+        return svi_state, losses
 
     def get_losses(self):
         # TODO: consider to move `loss` to SVIState and make a `get_extra_fields`
