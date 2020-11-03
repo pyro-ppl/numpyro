@@ -164,25 +164,32 @@ with open('../../README.md', 'rt') as f:
     lines[0] = "# Getting Started with NumPyro\n"
     text = "\n".join(lines)
 
-with open('getting_started.rst', 'wt') as f:
-    f.write(nbsphinx.markdown2rst(text))
+try:
+    with open('getting_started.rst', 'wt') as f:
+        f.write(nbsphinx.markdown2rst(text))
 
+    # -- Copy notebook files
 
-# -- Copy notebook files
+    if not os.path.exists('tutorials'):
+        os.makedirs('tutorials')
+    raise ValueError
 
-if not os.path.exists('tutorials'):
-    os.makedirs('tutorials')
+    for src_file in glob.glob('../../notebooks/source/*.ipynb'):
+        dst_file = os.path.join('tutorials', src_file.split("/")[-1])
+        shutil.copy(src_file, 'tutorials/')
 
-for src_file in glob.glob('../../notebooks/source/*.ipynb'):
-    dst_file = os.path.join('tutorials', src_file.split("/")[-1])
-    shutil.copy(src_file, 'tutorials/')
-
-# add index file to `tutorials` path, `:orphan:` is used to
-# tell sphinx that this rst file needs not to be appeared in toctree
-with open('../../notebooks/source/index.rst', 'rt') as f1:
-    with open('tutorials/index.rst', 'wt') as f2:
-        f2.write(":orphan:\n\n")
-        f2.write(f1.read())
+    # add index file to `tutorials` path, `:orphan:` is used to
+    # tell sphinx that this rst file needs not to be appeared in toctree
+    with open('../../notebooks/source/index.rst', 'rt') as f1:
+        with open('tutorials/index.rst', 'wt') as f2:
+            f2.write(":orphan:\n\n")
+            f2.write(f1.read())
+except BaseException as e:  # noqa: E722
+    if os.path.exists('getting_started.rst'):
+        os.remove('getting_started.rst')
+    if os.path.exists('tutorials'):
+        shutil.rmtree('tutorials')
+    raise e
 
 
 # -- Convert scripts to notebooks
