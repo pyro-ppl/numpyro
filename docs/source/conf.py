@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import glob
-import hashlib
 import os
-import re
 import shutil
 import sys
 
@@ -175,27 +173,9 @@ with open('getting_started.rst', 'wt') as f:
 if not os.path.exists('tutorials'):
     os.makedirs('tutorials')
 
-# remove files that are updated or not available in notebooks/source
-for dst_file in glob.glob('tutorials/*.ipynb'):
-    src_file = os.path.join('../../notebooks/source', dst_file.split("/")[-1])
-    if ((not os.path.exists(src_file)) or
-            (any(re.search(p, src_file) is not None for p in exclude_patterns))):
-        os.remove(dst_file)
-        continue
-    with open(src_file, 'rb') as f:
-        src_md5sum = hashlib.md5(f.read()).hexdigest()
-    with open(dst_file, 'rb') as f:
-        dst_md5sum = hashlib.md5(f.read()).hexdigest()
-    if src_md5sum != dst_md5sum:
-        os.remove(dst_file)
-
-for src_file in glob.glob('../../notebooks/source/*.ipynb'):
-    # skip files in exclude_patterns
-    if any(re.search(p, src_file) is not None for p in exclude_patterns):
-        continue
+for src_file in glob.glob('../../notebooks/source/*.ipynb') + ['../../notebooks/source/index.rst']:
     dst_file = os.path.join('tutorials', src_file.split("/")[-1])
-    if not os.path.exists(dst_file):
-        shutil.copy(src_file, 'tutorials/')
+    shutil.copy(src_file, 'tutorials/')
 
 
 # -- Convert scripts to notebooks
