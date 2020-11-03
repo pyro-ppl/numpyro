@@ -361,7 +361,7 @@ def _guess_max_plate_nesting(model_trace):
 def _validate_model(model_trace):
     # XXX: this validates plate statements under `enum`
     sites = [site for site in model_trace.values()
-             if site["type"] in ("sample", "control_flow")]
+             if site["type"] == "sample"]
 
     for site in sites:
         batch_dims = len(site["fn"].batch_shape)
