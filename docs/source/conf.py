@@ -65,6 +65,7 @@ extensions = [
     'nbsphinx',
     'sphinx.ext.autodoc',
     'sphinx.ext.doctest',
+    'sphinx.ext.imgconverter',
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
@@ -138,6 +139,8 @@ with open('../../numpyro/version.py') as f:
 # This is processed by Jinja2 and inserted before each notebook
 nbsphinx_prolog = r"""
 {% set docname = 'notebooks/source/' + env.doc2path(env.docname, base=None).split('/')[-1] %}
+:github_url: https://github.com/pyro-ppl/numpyro/blob/master/{{ docname }}
+
 .. raw:: html
 
     <div class="admonition note">
@@ -193,6 +196,8 @@ sphinx_gallery_conf = {
     # only execute files beginning with plot_
     'filename_pattern': '/plot_',
     'ignore_pattern': '(minipyro|covtype|__init__)',
+    # not display Total running time of the script because we do not execute it
+    'min_reported_time': 1
 }
 
 
@@ -266,7 +271,10 @@ latex_elements = {
 
     # Additional stuff for the LaTeX preamble.
     #
-    # 'preamble': '',
+    'preamble': r'''
+        \usepackage{pmboxdraw}
+        \usepackage{alphabeta}
+        ''',
 
     # Latex figure (float) alignment
     #
