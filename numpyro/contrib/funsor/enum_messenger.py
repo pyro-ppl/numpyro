@@ -7,8 +7,13 @@ from enum import Enum
 
 from jax import lax
 import jax.numpy as jnp
-
-import funsor
+try:
+    import funsor
+except ImportError as e:
+    raise ImportError("Looking like you want to do inference for models with "
+                      "discrete latent variables. This is an experimental feature. "
+                      "You need to install `funsor` to be able to use this feature. "
+                      "It can be installed with `pip install funsor`.") from e
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import Messenger, apply_stack
 from numpyro.primitives import plate as OrigPlateMessenger

@@ -156,6 +156,7 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     file_hyperparams.write('Subsample size (m): {}\n'.format(m))
     file_hyperparams.write('Block size (g): {}\n'.format(g))
     file_hyperparams.write('Data size (n): {}\n'.format(feats.shape[0]))
+    file_hyperparams.write('Estimator: {}\n'.format(estimator))
     file_hyperparams.write('...........................................\n')
     file_hyperparams.close()
 

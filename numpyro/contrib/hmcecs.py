@@ -91,7 +91,7 @@ def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
 
 @partial(jit, static_argnums=(2, 3, 4))
 def _update_block(rng_key, u, n, m, g):
-    """Returns the indexes from the subsample that will be updated, there is replacement.
+    """Returns indexes of the new subsample. The update mechanism selects blocks of indices within the subsample to be updated.
      The number of indexes to be updated depend on the block size, higher block size more correlation among elements in the subsample.
     :param rng_key
     :param u subsample indexes
@@ -115,6 +115,9 @@ def _update_block(rng_key, u, n, m, g):
 
 def _sample_u_poisson(rng_key, m, l):
     """ Initialize subsamples u
+    ***References***
+    1.Hamiltonian Monte Carlo with Energy Conserving Subsampling
+    2.The blockPoisson estimator for optimally tuned exact subsampling MCMC.
     :param m: subsample size
     :param l: length of the current subsample block
     :param g: number of blocks
@@ -126,18 +129,21 @@ def _sample_u_poisson(rng_key, m, l):
 
 @partial(jit, static_argnums=(2, 3, 4))
 def _update_block_poisson(rng_key, u, m, l, g):
-    """ Update block of u
+    """ Update block of u, where the length of the block of indexes to update is given by the Poisson distribution.
+    ***References***
+    1.Hamiltonian Monte Carlo with Energy Conserving Subsampling
+    2.The blockPoisson estimator for optimally tuned exact subsampling MCMC.
     :param rng_key
     :param u: current subsample indexes
-    :param m:
-    :param l:
-    :param g:
+    :param m: Subsample size
+    :param l: lambda
+    :param g: Block size within subsample
     """
     if (g > m) or (g < 1):
         raise ValueError('Block size (g) = {} needs to = or > than 1 and smaller than the subsample size {}'.format(g,m))
     u = u.copy()
     block_key, sample_key = random.split(rng_key)
-    num_updates = int(round(l / g, 0))
+    num_updates = int(round(l / g, 0)) # choose lambda/g number of blocks to update
     chosen_blocks = random.randint(block_key, (num_updates,), 0, l)
     new_blocks = _sample_u_poisson(sample_key, m, num_updates)
     for i, block in enumerate(chosen_blocks):
@@ -618,8 +624,7 @@ class HMC(MCMCKernel):
         self._u = None
         self._neg_ll = None
         self._sign = None
-        self._l = 1 #TODO: What to initialize this to?
-        self._a = 1
+        self._l = 100 #TODO: What to initialize this to?
         # Set on first call to init
         self._init_fn = None
         self._postprocess_fn = None
@@ -657,8 +662,7 @@ class HMC(MCMCKernel):
                 self._init_subsample_state(rng_key, model_args, model_kwargs, init_params, self.z_ref)
                 self._proxy_fn,self._proxy_u_fn = taylor_proxy(self.z_ref, self._model, self._ll_ref, self._jac_all, self._hess_all)
             if self.estimator =="poisson":
-                self._l = 1 # initialize?
-                self._a = 1
+                self._l = 100 # lambda
 
             # Initialize the potential and gradient potential functions
             self._potential_fn = lambda model, model_args, model_kwargs, z, n, m, proxy_fn, proxy_u_fn : lambda  z:potential_est(model=model,
@@ -795,8 +799,7 @@ class HMC(MCMCKernel):
                     # posterior and subsequently sign-corrected by importance sampling. Similarly, we call the
                     # algorithm described in this section signed HMC-ECS
                     print("Poisson, working on it")
-                    self._neg_ll, self._sign = signed_estimator(self._model, model_args, model_kwargs, init_state.z, self._a, self._l, self._proxy_fn, self._proxy_u_fn)
-                    exit()
+                    self._neg_ll, self._sign = signed_estimator(self._model, model_args, model_kwargs, init_state.z, self._l, self._proxy_fn, self._proxy_u_fn)
                 else:
                     self._ll_u = potential_est(model=self._model,
                                                model_args=model_args_sub(self._u, model_args),
@@ -883,42 +886,40 @@ class HMC(MCMCKernel):
         if self.subsample_method == "perturb":
             rng_key_subsample, rng_key_transition, rng_key_likelihood, rng_key = random.split(
                 state.rng_key, 4)
-
             if self.estimator == "poisson":
                 #TODO: What to do here? does the negative likelihood need to be stored? how about the sign? store in the state?
                 u_new = _sample_u_poisson(rng_key,self.m,self._l)
                 neg_ll, sign = signed_estimator(model = self._model,
-                                                model_args=model_args,
+                                                model_args=model_args_sub(u_new,model_args),
                                                 model_kwargs=model_kwargs,
                                                 z=state.z,
-                                                a=self._a,
                                                 l =self._l,
                                                 proxy_fn = self._proxy_fn,
                                                 proxy_u_fn = self._proxy_u_fn)
 
-            u_new = _update_block(rng_key_subsample, state.u, self._n, self.m, self.g)
-            # estimate likelihood of subsample with single block updated
+            else:
+                u_new = _update_block(rng_key_subsample, state.u, self._n, self.m, self.g)
+                # estimate likelihood of subsample with single block updated
+                llu_new = potential_est(model=self._model,
+                                        model_args=model_args_sub(u_new,model_args),
+                                        model_kwargs=model_kwargs,
+                                        z=state.z,
+                                        n=self._n,
+                                        m=self.m,
+                                        proxy_fn=self._proxy_fn,
+                                        proxy_u_fn=self._proxy_u_fn)
+                # accept new subsample with probability min(1,L^{hat}_{u_new}(z) - L^{hat}_{u}(z))
+                # NOTE: latent variables (z aka theta) same, subsample indices (u) different by one block.
+                accept_prob = jnp.clip(jnp.exp(-llu_new + state.ll_u), a_max=1.)
+                transition = random.bernoulli(rng_key_transition, accept_prob)
+                u, ll_u = cond(transition,
+                               (u_new, llu_new), identity,
+                               (state.u, state.ll_u), identity)
 
-            llu_new = potential_est(model=self._model,
-                                    model_args=model_args_sub(u_new,model_args),
-                                    model_kwargs=model_kwargs,
-                                    z=state.z,
-                                    n=self._n,
-                                    m=self.m,
-                                    proxy_fn=self._proxy_fn,
-                                    proxy_u_fn=self._proxy_u_fn)
-            # accept new subsample with probability min(1,L^{hat}_{u_new}(z) - L^{hat}_{u}(z))
-            # NOTE: latent variables (z aka theta) same, subsample indices (u) different by one block.
-            accept_prob = jnp.clip(jnp.exp(-llu_new + state.ll_u), a_max=1.)
-            transition = random.bernoulli(rng_key_transition, accept_prob)
-            u, ll_u = cond(transition,
-                           (u_new, llu_new), identity,
-                           (state.u, state.ll_u), identity)
+                ######## UPDATE PARAMETERS ##########
 
-            ######## UPDATE PARAMETERS ##########
-
-            hmc_subsamplestate = HMCECSState(u=u, hmc_state=state.hmc_state,ll_u=ll_u)
-            hmc_subsamplestate = tuplemerge(hmc_subsamplestate._asdict(),state._asdict())
+                hmc_subsamplestate = HMCECSState(u=u, hmc_state=state.hmc_state,ll_u=ll_u)
+                hmc_subsamplestate = tuplemerge(hmc_subsamplestate._asdict(),state._asdict())
 
             return self._sample_fn(hmc_subsamplestate,
                                    model_args=model_args,
