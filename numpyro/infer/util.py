@@ -584,13 +584,13 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
     :param args: model arguments.
     :param batch_ndims: the number of batch dimensions in posterior samples. Some usages:
 
-        + set `batch_ndims=0` to get prediction for 1 single sample
+        + set `batch_ndims=0` to get log likelihoods for 1 single sample
 
-        + set `batch_ndims=1` to get prediction for `posterior_samples`
+        + set `batch_ndims=1` to get log likelihoods for `posterior_samples`
           with shapes `(num_samples x ...)`
 
-        + set `batch_ndims=2` to get prediction for `posterior_samples`
-          with shapes `(num_chains x N x ...)`
+        + set `batch_ndims=2` to get log likelihoods for `posterior_samples`
+          with shapes `(num_chains x num_samples x ...)`
 
     :param kwargs: model kwargs.
     :return: dict of log likelihoods at observation sites.
