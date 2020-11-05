@@ -20,22 +20,7 @@ from numpyro.util import cached_by, fori_collect, identity
 __all__ = [
     'MCMCKernel',
     'MCMC',
-    'hmc',
 ]
-
-
-def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
-    from numpyro.infer.hmc import hmc
-
-    warnings.warn("The functional interface `hmc` has been moved to `numpyro.infer.hmc` module.",
-                  DeprecationWarning)
-    return hmc(potential_fn, potential_fn_gen, kinetic_fn, algo)
-
-
-def get_progbar_desc_str(num_warmup, i):
-    if i < num_warmup:
-        return 'warmup'
-    return 'sample'
 
 
 class MCMCKernel(ABC):
@@ -153,6 +138,12 @@ class MCMCKernel(ABC):
         be added to progress bar for diagnostics purpose.
         """
         return ''
+
+
+def _get_progbar_desc_str(num_warmup, phase, i):
+    if phase is not None:
+        return phase
+    return 'warmup' if i < num_warmup else 'sample'
 
 
 def _get_value_from_index(xs, i):
@@ -319,6 +310,7 @@ class MCMC(object):
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
+        phase = self._collection_params["phase"]
 
         collect_vals = fori_collect(lower_idx,
                                     upper_idx,
@@ -328,7 +320,7 @@ class MCMC(object):
                                     progbar=self.progress_bar,
                                     return_last_val=True,
                                     collection_size=self._collection_params["collection_size"],
-                                    progbar_desc=partial(get_progbar_desc_str, lower_idx),
+                                    progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
                                     diagnostics_fn=diagnostics)
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
@@ -347,10 +339,11 @@ class MCMC(object):
             states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
         return states, last_state
 
-    def _set_collection_params(self, lower=None, upper=None, collection_size=None):
+    def _set_collection_params(self, lower=None, upper=None, collection_size=None, phase=None):
         self._collection_params["lower"] = self.num_warmup if lower is None else lower
         self._collection_params["upper"] = self.num_warmup + self.num_samples if upper is None else upper
         self._collection_params["collection_size"] = collection_size
+        self._collection_params["phase"] = phase
 
     def _compile(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
         self._set_collection_params(0, 0, self.num_samples)
@@ -387,9 +380,9 @@ class MCMC(object):
         """
         self._warmup_state = None
         if collect_warmup:
-            self._set_collection_params(0, self.num_warmup, self.num_warmup)
+            self._set_collection_params(0, self.num_warmup, self.num_warmup, "warmup")
         else:
-            self._set_collection_params(self.num_warmup, self.num_warmup, self.num_samples)
+            self._set_collection_params(self.num_warmup, self.num_warmup, self.num_samples, "warmup")
         self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
         self._warmup_state = self._last_state
 
@@ -422,7 +415,7 @@ class MCMC(object):
             rng_key = random.split(rng_key, self.num_chains)
 
         if self._warmup_state is not None:
-            self._set_collection_params(0, self.num_samples, self.num_samples)
+            self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
             init_state = self._warmup_state._replace(rng_key=rng_key)
 
         chain_method = self.chain_method
