@@ -594,7 +594,21 @@ def test_collapse_beta_binomial_plate():
 def test_prng_key():
     assert numpyro.prng_key() is None
 
-    with numpyro.handlers.seed(rng_seed=0):
+    with handlers.seed(rng_seed=0):
         rng_key = numpyro.prng_key()
 
     assert rng_key.shape == (2,) and rng_key.dtype == "uint32"
+
+
+def test_prng_key_with_vmap():
+    def model(x=None):
+        return numpyro.prng_key()
+
+    x = handlers.seed(vmap(model), 0)(jnp.arange(10))
+    assert (x == x[0]).all()
+    y = vmap(handlers.seed(model, 0))(jnp.arange(10))
+    assert (x == y).all()
+    z = vmap(lambda i: handlers.seed(model, i)())(jnp.arange(10))
+    z0 = handlers.seed(model, 0)()
+    assert (z[1:] != z0).all()
+    assert (z[0] == z0).all()
