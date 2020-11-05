@@ -203,13 +203,12 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
         >>> svi = SVI(model, guide, numpyro.optim.Adam(5e-3), TraceMeanField_ELBO())
         >>>
         >>> n_iterations = 3000
-        >>> svi.run(random.PRNGKey(0), n_iterations, x_train, y_train, batch_size=256)
-        >>> params = svi.get_params()
+        >>> params, losses = svi.run(random.PRNGKey(0), n_iterations, x_train, y_train, batch_size=256)
         >>> n_test_data = 100
         >>> x_test, y_test = generate_data(n_test_data)
         >>> predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
         >>> y_pred = predictive(random.PRNGKey(1), x_test[:100])["obs"].copy()
-        >>> assert svi.get_losses()[-1] < 3000
+        >>> assert losses[-1] < 3000
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
     nn = flax_module(name, nn_module, input_shape=input_shape)

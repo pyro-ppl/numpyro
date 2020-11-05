@@ -69,9 +69,7 @@ def main(args):
     svi = SVI(dual_moon_model, guide, optim.Adam(0.003), Trace_ELBO())
 
     print("Start training guide...")
-    svi.run(random.PRNGKey(1), args.num_iters)
-    params = svi.get_params()
-    losses = svi.get_losses()
+    params, losses = svi.run(random.PRNGKey(1), args.num_iters)
     print("Finish training guide. Extract samples...")
     guide_samples = guide.sample_posterior(random.PRNGKey(2), params,
                                            sample_shape=(args.num_samples,))['x'].copy()

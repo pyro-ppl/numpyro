@@ -38,7 +38,7 @@ class SVI(object):
 
     .. doctest::
 
-        >>> from jax import lax, random
+        >>> from jax import random
         >>> import jax.numpy as jnp
         >>> import numpyro
         >>> import numpyro.distributions as dist
@@ -77,8 +77,6 @@ class SVI(object):
         self.optim = optim
         self.static_kwargs = static_kwargs
         self.constrain_fn = None
-        self._last_state = None
-        self._losses = None
 
     def init(self, rng_key, *args, **kwargs):
         """
@@ -142,34 +140,36 @@ class SVI(object):
     def run(self, rng_key, num_steps, *args, progress_bar=True, **kwargs):
         """
         (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return
-        the optimized parameters and the stacked losses at every step.
+        the optimized parameters and the stacked losses at every step. If `num_steps`
+        is large, setting `progress_bar=False` can make the run faster.
 
         .. note:: For a complex training process (e.g. the one requires early stopping,
-            epoch training,...), we recommend to use the more flexible methods
-            :meth:`init`, :meth:`update`, :meth:`evaluate` to customize your
-            training procedure.
+            epoch training, varying args/kwargs,...), we recommend to use the more
+            flexible methods :meth:`init`, :meth:`update`, :meth:`evaluate` to
+            customize your training procedure.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
         :param int num_steps: the number of optimization steps.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
+        :param args: arguments to the model / guide
         :param bool progress_bar: Whether to enable progress bar updates. Defaults to
             ``True``.
-        :param kwargs: keyword arguments to the model / guide (these can possibly vary
-            during the course of fitting).
+        :param kwargs: keyword arguments to the model / guide
         :returns: a tuple of `(params, losses)` where `params` holds the optimized values
             at :class:`numpyro.param` sites, and `losses` is the collected loss
             during the process.
         """
-        def body_fn(svi_state):
-            return self.update(svi_state, *args, **kwargs)
+        def body_fn(svi_state, carry):
+            svi_state, loss = self.update(svi_state, *args, **kwargs)
+            return svi_state, loss
 
         svi_state = self.init(rng_key, *args, **kwargs)
         if progress_bar:
             losses = []
-            for i in tqdm.trange(num_steps):
-                svi_state, loss = jit(body_fn)(svi_state)
-                losses.append(loss)
+            with tqdm.trange(num_steps) as t:
+                for i in t:
+                    svi_state, loss = jit(body_fn)(svi_state, None)
+                    t.set_postfix_str("Loss: {:.4e}".format(loss), refresh=False)
+                    losses.append(loss)
             losses = jnp.stack(losses)
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
