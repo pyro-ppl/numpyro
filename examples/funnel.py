@@ -6,18 +6,15 @@ Example: Neal's Funnel
 ======================
 
 This example, which is adapted from [1], illustrates how to leverage non-centered
-parameterization using the class :class:`numpyro.distributions.TransformedDistribution`.
+parameterization using the :class:`~numpyro.handlers.reparam` handler.
 We will examine the difference between two types of parameterizations on the
 10-dimensional Neal's funnel distribution. As we will see, HMC gets trouble at
 the neck of the funnel if centered parameterization is used. On the contrary,
 the problem can be solved by using non-centered parameterization.
 
-Using non-centered parameterization through TransformedDistribution in NumPyro
-has the same effect as the automatic reparameterisation technique introduced in
-[2]. However, in [2], users need to implement a (non-trivial) reparameterization
-rule for each type of transform. Instead, in NumPyro the only requirement to let
-inference algorithms know to do reparameterization automatically is to declare
-the random variable as a transformed distribution.
+Using non-centered parameterization through :class:`~numpyro.infer.reparam.LocScaleReparam`
+or :class:`~numpyro.infer.reparam.TransformReparam` in NumPyro has the same effect as
+the automatic reparameterisation technique introduced in [2].
 
 **References:**
 
@@ -36,6 +33,7 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.handlers import reparam
 from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.infer.reparam import LocScaleReparam
 
@@ -45,10 +43,7 @@ def model(dim=10):
     numpyro.sample('x', dist.Normal(jnp.zeros(dim - 1), jnp.exp(y / 2)))
 
 
-def reparam_model(dim=10):
-    y = numpyro.sample('y', dist.Normal(0, 3))
-    with numpyro.handlers.reparam(config={'x': LocScaleReparam(0)}):
-        numpyro.sample('x', dist.Normal(jnp.zeros(dim - 1), jnp.exp(y / 2)))
+reparam_model = reparam(model, config={'x': LocScaleReparam(0)})
 
 
 def run_inference(model, args, rng_key):
@@ -56,7 +51,7 @@ def run_inference(model, args, rng_key):
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key)
-    mcmc.print_summary()
+    mcmc.print_summary(exclude_deterministic=False)
     return mcmc.get_samples()
 
 
