@@ -20,6 +20,14 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 """
 
 
+SVIRunResult = namedtuple('SVIRunResult', ['params', 'losses'])
+"""
+A :func:`~collections.namedtuple` consisting of the following fields:
+ - **params** - the optimized parameters.
+ - **losses** - the losses collected at every step.
+"""
+
+
 def _apply_loss_fn(loss_fn, rng_key, constrain_fn, model, guide,
                    args, kwargs, static_kwargs, params):
     return loss_fn(rng_key, constrain_fn(params), model, guide, *args, **kwargs, **static_kwargs)
@@ -58,7 +66,8 @@ class SVI(object):
         >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
         >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
         >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-        >>> params, losses = svi.run(random.PRNGKey(0), 2000, data)
+        >>> svi_result = svi.run(random.PRNGKey(0), 2000, data)
+        >>> params = svi_result.params
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
 
     :param model: Python callable with Pyro primitives for the model.
@@ -152,9 +161,10 @@ class SVI(object):
         :param bool progress_bar: Whether to enable progress bar updates. Defaults to
             ``True``.
         :param kwargs: keyword arguments to the model / guide
-        :return: a tuple of `(params, losses)` where `params` holds the optimized values
-            at :class:`numpyro.param` sites, and `losses` is the collected loss
-            during the process.
+        :return: a namedtuple with fields `params` and `losses` where `params`
+            holds the optimized values at :class:`numpyro.param` sites,
+            and `losses` is the collected loss during the process.
+        :rtype: SVIRunResult
         """
         def body_fn(svi_state, carry):
             svi_state, loss = self.update(svi_state, *args, **kwargs)
@@ -172,7 +182,7 @@ class SVI(object):
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
 
-        return self.get_params(svi_state), losses
+        return SVIRunResult(self.get_params(svi_state), losses)
 
     def evaluate(self, svi_state, *args, **kwargs):
         """

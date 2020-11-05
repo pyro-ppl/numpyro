@@ -69,13 +69,13 @@ def main(args):
     svi = SVI(dual_moon_model, guide, optim.Adam(0.003), Trace_ELBO())
 
     print("Start training guide...")
-    params, losses = svi.run(random.PRNGKey(1), args.num_iters)
+    svi_result = svi.run(random.PRNGKey(1), args.num_iters)
     print("Finish training guide. Extract samples...")
-    guide_samples = guide.sample_posterior(random.PRNGKey(2), params,
+    guide_samples = guide.sample_posterior(random.PRNGKey(2), svi_result.params,
                                            sample_shape=(args.num_samples,))['x'].copy()
 
     print("\nStart NeuTra HMC...")
-    neutra = NeuTraReparam(guide, params)
+    neutra = NeuTraReparam(guide, svi_result.params)
     neutra_model = neutra.reparam(dual_moon_model)
     nuts_kernel = NUTS(neutra_model)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
@@ -109,7 +109,7 @@ def main(args):
     ax5 = fig.add_subplot(gs[0, 2])
     ax6 = fig.add_subplot(gs[1, 2])
 
-    ax1.plot(losses[1000:])
+    ax1.plot(svi_result.losses[1000:])
     ax1.set_title('Autoguide training loss\n(after 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')
