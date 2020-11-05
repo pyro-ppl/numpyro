@@ -27,6 +27,10 @@ deterministic
 -------------
 .. autofunction:: numpyro.primitives.deterministic
 
+prng_key
+--------
+.. autofunction:: numpyro.primitives.prng_key
+
 factor
 ------
 .. autofunction:: numpyro.primitives.factor

@@ -8,7 +8,6 @@ from jax.lax import stop_gradient
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
-import numpyro.distributions as dist
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.util import scale_and_mask
 from numpyro.handlers import replay, seed, substitute, trace
@@ -156,7 +155,7 @@ class TraceMeanField_ELBO(Trace_ELBO):
 
             elbo_particle = 0
             for name, model_site in model_trace.items():
-                if model_site["type"] == "sample" and not isinstance(model_site["fn"], dist.PRNGIdentity):
+                if model_site["type"] == "sample":
                     if model_site["is_observed"]:
                         elbo_particle = elbo_particle + _get_log_prob_sum(model_site)
                     else:

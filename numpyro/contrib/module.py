@@ -9,7 +9,6 @@ from jax import numpy as jnp
 from jax.tree_util import register_pytree_node, tree_flatten, tree_unflatten
 
 import numpyro
-from numpyro.distributions.discrete import PRNGIdentity
 
 __all__ = [
     'flax_module',
@@ -46,7 +45,7 @@ def flax_module(name, nn_module, *, input_shape=None):
         if input_shape is None:
             raise ValueError('Valid value for `input_shape` needed to initialize.')
         # feed in dummy data to init params
-        rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
+        rng_key = numpyro.prng_key()
         _, nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
         # make sure that nn_params keep the same order after unflatten
         params_flat, tree_def = tree_flatten(nn_params)
@@ -83,7 +82,7 @@ def haiku_module(name, nn_module, *, input_shape=None):
         if input_shape is None:
             raise ValueError('Valid value for `input_shape` needed to initialize.')
         # feed in dummy data to init params
-        rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
+        rng_key = numpyro.prng_key()
         nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
         # haiku init returns an immutable dict
         nn_params = haiku.data_structures.to_mutable_dict(nn_params)

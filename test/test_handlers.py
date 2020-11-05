@@ -589,3 +589,12 @@ def test_collapse_beta_binomial_plate():
     svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0))
     svi.update(svi_state)
+
+
+def test_prng_key():
+    assert numpyro.prng_key() is None
+
+    with numpyro.handlers.seed(rng_seed=0):
+        rng_key = numpyro.prng_key()
+
+    assert rng_key.shape == (2,) and rng_key.dtype == "uint32"
