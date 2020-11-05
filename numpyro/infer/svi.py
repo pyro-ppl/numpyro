@@ -107,15 +107,13 @@ class SVI(object):
         self.constrain_fn = partial(transform_fn, inv_transforms)
         return SVIState(self.optim.init(params), rng_key)
 
-    def get_params(self, svi_state=None):
+    def get_params(self, svi_state):
         """
         Gets values at `param` sites of the `model` and `guide`.
 
-        :param svi_state: current state of SVI. This is not needed if :meth:`run`
-            is used to optimize the parameters.
+        :param svi_state: current state of SVI.
+        :return: the corresponding parameters
         """
-        svi_state = svi_state if svi_state is not None else self._last_state
-        assert svi_state is not None, "svi_state needs to be specified"
         params = self.constrain_fn(self.optim.get_params(svi_state.optim_state))
         return params
 
@@ -154,7 +152,7 @@ class SVI(object):
         :param bool progress_bar: Whether to enable progress bar updates. Defaults to
             ``True``.
         :param kwargs: keyword arguments to the model / guide
-        :returns: a tuple of `(params, losses)` where `params` holds the optimized values
+        :return: a tuple of `(params, losses)` where `params` holds the optimized values
             at :class:`numpyro.param` sites, and `losses` is the collected loss
             during the process.
         """
