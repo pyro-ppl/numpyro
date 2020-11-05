@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Neural Transport
-================
+Example: Neural Transport
+=========================
 
 This example illustrates how to use a trained AutoBNAFNormal autoguide to transform a posterior to a
 Gaussian-like one. The transform will be used to get better mixing rate for NUTS sampler.

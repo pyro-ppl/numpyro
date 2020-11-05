@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Enumerate Hidden Markov Model
-=============================
+Example: Enumerate Hidden Markov Model
+======================================
 
 This example is ported from [1], which shows how to marginalize out
 discrete model variables in Pyro.

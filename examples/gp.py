@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Gaussian Process
-================
+Example: Gaussian Process
+=========================
 
 In this example we show how to use NUTS to sample from the posterior
 over the hyperparameters of a gaussian process.

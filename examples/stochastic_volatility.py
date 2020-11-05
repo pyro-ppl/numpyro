@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Stochastic Volatility
-=====================
+Example: Stochastic Volatility
+==============================
 
 Generative model:
 

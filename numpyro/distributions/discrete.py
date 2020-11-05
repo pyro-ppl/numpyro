@@ -82,7 +82,8 @@ class BernoulliProbs(Distribution):
         super(BernoulliProbs, self).__init__(batch_shape=jnp.shape(self.probs), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
+        samples = random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
+        return samples.astype(jnp.result_type(samples, int))
 
     @validate_sample
     def log_prob(self, value):
@@ -114,7 +115,8 @@ class BernoulliLogits(Distribution):
         super(BernoulliLogits, self).__init__(batch_shape=jnp.shape(self.logits), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
-        return random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
+        samples = random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
+        return samples.astype(jnp.result_type(samples, int))
 
     @validate_sample
     def log_prob(self, value):

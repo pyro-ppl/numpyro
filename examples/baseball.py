@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Baseball
-========
+Example: Baseball Batting Average
+=================================
 
 Original example from Pyro:
 https://github.com/pyro-ppl/pyro/blob/dev/examples/baseball.py
@@ -197,7 +197,7 @@ def main(args):
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
-    parser = argparse.ArgumentParser(description="Baseball batting average using HMC")
+    parser = argparse.ArgumentParser(description="Baseball batting average using MCMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1500, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)

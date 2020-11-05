@@ -7,7 +7,7 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import device_put, jit, lax, pmap, random
+from jax import device_put, jit, lax, pmap, random, vmap
 from jax.core import Tracer
 from jax.interpreters.xla import DeviceArray
 from jax.lib import xla_bridge
@@ -342,6 +342,8 @@ class MCMC(object):
         # so we only need to filter out the case site_value.shape[0] == 0
         # (which happens when lower_idx==upper_idx)
         if len(site_values) > 0 and jnp.shape(site_values[0])[0] > 0:
+            if self.chain_method == "vectorized" and self.num_chains > 1:
+                postprocess_fn = vmap(postprocess_fn)
             states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
         return states, last_state
 
