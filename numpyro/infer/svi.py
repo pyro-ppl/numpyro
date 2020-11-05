@@ -58,8 +58,7 @@ class SVI(object):
         >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
         >>> optimizer = numpyro.optim.Adam(step_size=0.0005)
         >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-        >>> svi.run(random.PRNGKey(0), 2000, data)
-        >>> params = svi.get_params()
+        >>> params, losses = svi.run(random.PRNGKey(0), 2000, data)
         >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
 
     :param model: Python callable with Pyro primitives for the model.
@@ -140,18 +139,15 @@ class SVI(object):
         loss_val, optim_state = self.optim.eval_and_update(loss_fn, svi_state.optim_state)
         return SVIState(optim_state, rng_key), loss_val
 
-    # XXX: As suggested in SteinVI PR, it is pretty flexible to support
-    # Callbacks as in Keras/PyTorch Lightning so that early stopping or
-    # training infos can be collected/displayed.
-    # Though that functionality might not fit into the core of NumPyro,
-    # it is nice to provide a functionality so that if some sort of
-    # `contrib.callbacks` is supported, users can use it directly with SVI
-    # interface, rather than a wrapper.
     def run(self, rng_key, num_steps, *args, progress_bar=True, **kwargs):
         """
-        (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations.
-        After SVI is run, the optimized state and training losses can be
-        obtained by using `self.get_params()` and `self.get_losses()` methods.
+        (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return
+        the optimized parameters and the stacked losses at every step.
+
+        .. note:: For a complex training process (e.g. the one requires early stopping,
+            epoch training,...), we recommend to use the more flexible methods
+            :meth:`init`, :meth:`update`, :meth:`evaluate` to customize your
+            training procedure.
 
         :param jax.random.PRNGKey rng_key: random number generator seed.
         :param int num_steps: the number of optimization steps.
@@ -161,6 +157,9 @@ class SVI(object):
             ``True``.
         :param kwargs: keyword arguments to the model / guide (these can possibly vary
             during the course of fitting).
+        :returns: a tuple of `(params, losses)` where `params` holds the optimized values
+            at :class:`numpyro.param` sites, and `losses` is the collected loss
+            during the process.
         """
         def body_fn(svi_state):
             return self.update(svi_state, *args, **kwargs)
@@ -175,12 +174,7 @@ class SVI(object):
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
 
-        return svi_state, losses
-
-    def get_losses(self):
-        # TODO: consider to move `loss` to SVIState and make a `get_extra_fields`
-        # method for this purpose
-        return self._losses
+        return self.get_params(svi_state), losses
 
     def evaluate(self, svi_state, *args, **kwargs):
         """
