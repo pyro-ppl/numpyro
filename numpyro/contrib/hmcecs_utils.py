@@ -35,11 +35,11 @@ def model_kwargs_sub(u, kwargs):
             kwargs[key_arg] = jnp.take(val_arg, u, axis=0)
     return kwargs
 def log_density_obs_hmcecs(model, model_args, model_kwargs, params):
-    #model = substitute(model, data=params)
-    #model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     model = substitute(model, data=params)
-    with plate_to_enum_plate():
-        model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
+    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
+    #model = substitute(model, data=params)
+    # with plate_to_enum_plate():
+    #     model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
     for site in model_trace.values():
         if site['type'] == 'sample' and site['is_observed'] and not isinstance(site['fn'], dist.PRNGIdentity):
@@ -68,11 +68,11 @@ def log_density_prior_hmcecs(model, model_args, model_kwargs, params):
         name.
     :return: log of joint density and a corresponding model trace
     """
-    # model = substitute(model, data=params)
-    # model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     model = substitute(model, data=params)
-    with plate_to_enum_plate():
-        model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
+    model_trace = trace(model).get_trace(*model_args, **model_kwargs)
+    # model = substitute(model, data=params)
+    # with plate_to_enum_plate():
+    #     model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
     for site in model_trace.values():
         if site['type'] == 'sample' and not isinstance(site['fn'], dist.PRNGIdentity) and not site['is_observed']:
@@ -241,10 +241,10 @@ def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn
     """
     Function at minusloglike_estPoisson
     :param model:
-    :param model_args:
+    :param model_args: Subsample of model arguments [l,m,n_feats]
     :param model_kwargs:
     :param z:
-    :param l: Lambda ~number of samples of the likelihood estimator
+    :param l: Lambda number of subsamples (u indexes)
     :param proxy:
     :param proxy_u:
     :return:
@@ -253,16 +253,17 @@ def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn
     sign = 1.
     d = 0
     a = d - l #For a fixed λ, V[LbB] is minimized at a = d − λ. Quiroz 2018c
+    #TODO: Remove empty lists?
+    model_args = [args_l for args_l in model_args if len(args_l[0]) != 0]
+    for args_l in model_args: #Iterate over each of the lambda groups of model args
 
-    #for args in model_args: #TODO: Perhaps for index in len(model_args) ?
-    for args_i in range(len(model_args)): #Now it's doing everything twice
-
-        ll_sub, _ = log_density_obs_hmcecs(model, model_args, {}, z)  # log likelihood for subsample with current theta
-        xi = (jnp.exp(ll_sub - proxy_u_fn(z=z, model_args=model_args, model_kwargs=model_kwargs)) - a) / l
+        ll_sub, _ = log_density_obs_hmcecs(model, args_l, {}, z)  # log likelihood for each u subsample
+        xi = (jnp.exp(ll_sub - proxy_u_fn(z=z, model_args=args_l, model_kwargs=model_kwargs)) - a) / l
         sign *= jnp.prod(jnp.sign(xi))
         xis += jnp.sum(jnp.abs(xi)) #, axis=0)
     lhat = proxy_fn(z) + (a + l) / l + xis
-    ll_prior, _ = log_density_prior_hmcecs(model, model_args, model_kwargs, z)
+
+    ll_prior, _ = log_density_prior_hmcecs(model, model_args[0], model_kwargs, z) #the ll of the prior does not depend on the model args, so we just take some pair
 
     neg_ll = - lhat - ll_prior
 
