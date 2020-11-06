@@ -133,7 +133,7 @@ with open('../../numpyro/version.py') as f:
             break
     pip_version = line.rstrip().split(" = ")[-1].strip("'").strip('"')
     # resolve the issue: tags for versions before 0.3.0 have the prefix 'v'.
-    tag = ("v" + pip_version) if version[:3] < "0.3" else pip_version
+    tag = "v" + pip_version if pip_version[:3] < "0.3" else pip_version
 
 
 # This is processed by Jinja2 and inserted before each notebook
