@@ -48,6 +48,8 @@ if 'READTHEDOCS' not in os.environ:
     from numpyro import __version__  # noqaE402
     version = __version__
 
+    html_context = {'github_version': 'master'}
+
 # release version
 release = version
 
@@ -127,15 +129,6 @@ pygments_style = 'sphinx'
 add_module_names = False
 
 
-with open('../../numpyro/version.py') as f:
-    for line in f.readlines():
-        if line.startswith("__version__ = "):
-            break
-    pip_version = line.rstrip().split(" = ")[-1].strip("'").strip('"')
-    # resolve the issue: tags for versions before 0.3.0 have the prefix 'v'.
-    tag = "v" + pip_version if pip_version[:3] < "0.3" else pip_version
-
-
 # This is processed by Jinja2 and inserted before each notebook
 nbsphinx_prolog = r"""
 {% set docname = 'notebooks/source/' + env.doc2path(env.docname, base=None).split('/')[-1] %}
@@ -146,13 +139,13 @@ nbsphinx_prolog = r"""
     <div class="admonition note">
       Interactive online version:
       <span style="white-space: nowrap;">
-        <a href="https://colab.research.google.com/github/pyro-ppl/numpyro/blob/{tag}/{{ docname }}">
+        <a href="https://colab.research.google.com/github/pyro-ppl/numpyro/blob/{{ env.config.html_context.github_version }}/{{ docname }}">
           <img alt="Open In Colab" src="https://colab.research.google.com/assets/colab-badge.svg"
             style="vertical-align:text-bottom">
         </a>
       </span>
     </div>
-""".replace(r"{tag}", tag)
+"""  # noqa: E501
 
 
 # -- Copy README files
