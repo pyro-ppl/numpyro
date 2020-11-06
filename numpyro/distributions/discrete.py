@@ -439,7 +439,7 @@ class PRNGIdentity(Distribution):
     def __init__(self):
         warnings.warn("PRNGIdentity distribution is deprecated. To get a random "
                       "PRNG key, you can use `numpyro.prng_key()` instead.",
-                      DeprecationWarning)
+                      FutureWarning)
         super(PRNGIdentity, self).__init__(event_shape=(2,))
 
     def sample(self, key, sample_shape=()):
