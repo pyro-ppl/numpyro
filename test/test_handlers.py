@@ -569,7 +569,6 @@ def test_collapse_beta_bernoulli():
     svi.update(svi_state)
 
 
-@pytest.mark.xfail(reason="missing pattern in Funsor")
 def test_collapse_beta_binomial_plate():
     data = np.array([0., 1., 5., 5.])
 
