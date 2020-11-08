@@ -115,7 +115,7 @@ class NestedSampler:
             loglik_dict = log_likelihood(reparam_model, params, *args, batch_ndims=0, **kwargs)
             return sum(x.sum() for x in loglik_dict.values())
 
-        # use NestedSampler with prior chain
+        # use NestedSampler with identity prior chain
         prior_chain = PriorChain()
         for name in param_names:
             shape_transform = ShapeTransform(name + "_base", prototype_trace[name]["fn"].shape())
@@ -144,6 +144,7 @@ class NestedSampler:
                    if k in self._results.samples or not exclude_deterministic}
         print_summary(samples, prob=prob, group_by_chain=False)
 
-    def diagnostics(self):
+    def diagnostics(self, cornerplot=True):
         plot_diagnostics(self._results)
-        plot_cornerplot(self._results)
+        if cornerplot:
+            plot_cornerplot(self._results)
