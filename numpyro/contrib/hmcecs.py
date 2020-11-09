@@ -22,8 +22,9 @@ from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model, log_density
 from numpyro.util import cond, fori_loop, identity
 import sys
-sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/contrib/')
+sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/contrib/')     #TODO: remove
 import numpyro.distributions as dist
+from itertools import chain
 from hmcecs_utils import potential_est, init_near_values,tuplemerge,\
                         model_args_sub,model_kwargs_sub,taylor_proxy,svi_proxy,neural_proxy,log_density_obs_hmcecs,log_density_prior_hmcecs,signed_estimator
 
@@ -124,8 +125,8 @@ def _sample_u_poisson(rng_key, m, l):
     """
     pois_key, sub_key = random.split(rng_key)
     block_lengths = dist.discrete.Poisson(1).sample(pois_key, (l,)) #lambda block lengths
-    u = random.randint(sub_key, (jnp.sum(block_lengths), ), 0, m)
-
+    #u = random.randint(sub_key, (jnp.sum(block_lengths), ), 0, m)
+    u = random.randint(sub_key, (jnp.sum(block_lengths), m), 0, m)
     return jnp.split(u, jnp.cumsum(block_lengths), axis=0)
 
 @partial(jit, static_argnums=(2, 3, 4))
@@ -255,6 +256,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                     n = None,
                     m = None,
                     u= None,
+                    l=None,
                     rng_key=random.PRNGKey(0),
                     subsample_method=None,
                     estimator=None,
@@ -312,8 +314,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
             else:
                 if subsample_method == "perturb":
                     kwargs = {} if model_kwargs is None else model_kwargs
-                    pe_fn = potential_fn_gen(model=model, model_args=model_args, model_kwargs=kwargs, z=z, n=n, m=m,
-                                   proxy_fn=proxy_fn, proxy_u_fn=proxy_u_fn)
+                    if estimator == "poisson":
+                        pe_fn = potential_fn_gen(model=model, model_args=model_args, model_kwargs=kwargs, z=z, l=l,proxy_fn=proxy_fn, proxy_u_fn=proxy_u_fn)
+                    else:
+                        pe_fn = potential_fn_gen(model=model, model_args=model_args, model_kwargs=kwargs, z=z, n=n, m=m,proxy_fn=proxy_fn, proxy_u_fn=proxy_u_fn)
+
                 else:
                     kwargs = {} if model_kwargs is None else model_kwargs
                     pe_fn = potential_fn_gen(*model_args, **kwargs)
@@ -375,7 +380,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                   ll_u = None,
                   u = None,
                   n = None,
-                  m = None):
+                  m = None,
+                  l=None):
         if potential_fn_gen:
             if grad_potential_fn_gen:
                 kwargs = {} if model_kwargs is None else model_kwargs
@@ -384,15 +390,24 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
 
             else:
                 if subsample_method == "perturb":
-                    #pe_fn = potential_fn_gen(model, model_args, model_kwargs,vv_state.z, z_ref, n, m, proxy_fn, proxy_u_fn, u)
-                    pe_fn = potential_fn_gen(model=model,
-                                             model_args=model_args,
-                                             model_kwargs=model_kwargs,
-                                             z=vv_state.z,
-                                             n=n,
-                                             m=m,
-                                             proxy_fn=proxy_fn,
-                                             proxy_u_fn=proxy_u_fn)
+                    if estimator == "poisson":
+                        pe_fn = potential_fn_gen(model=model,
+                                                 model_args=model_args,
+                                                 model_kwargs=model_kwargs,
+                                                 z=vv_state.z,
+                                                 l=l,
+                                                 proxy_fn=proxy_fn,
+                                                 proxy_u_fn=proxy_u_fn)
+
+                    else:
+                        pe_fn = potential_fn_gen(model=model,
+                                                 model_args=model_args,
+                                                 model_kwargs=model_kwargs,
+                                                 z=vv_state.z,
+                                                 n=n,
+                                                 m=m,
+                                                 proxy_fn=proxy_fn,
+                                                 proxy_u_fn=proxy_u_fn)
                     kwargs = {} if model_kwargs is None else model_kwargs
                 else:
                     pe_fn = potential_fn_gen(*model_args, **model_kwargs)
@@ -423,7 +438,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                    proxy_fn=None,proxy_u_fn=None,
                    model=None,
                    ll_ref=None,jac_all=None,z = None,z_ref=None,hess_all=None,ll_u=None,u=None,
-                   n=None,m=None):
+                   n=None,m=None,l=None):
         if potential_fn_gen:
             nonlocal vv_update
             if grad_potential_fn_gen:
@@ -432,15 +447,26 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                     pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             else:
                 if subsample_method == "perturb":
-                    #pe_fn = potential_fn_gen(model, model_args, model_kwargs, vv_state.z, z_ref, n, m, proxy_fn,proxy_u_fn, u)
-                    pe_fn = potential_fn_gen(model=model,
-                                             model_args=model_args,
-                                             model_kwargs=model_kwargs,
-                                             z=vv_state.z,
-                                             n=n,
-                                             m=m,
-                                             proxy_fn=proxy_fn,
-                                             proxy_u_fn=proxy_u_fn)
+                    if estimator == "poisson":
+                        pe_fn = potential_fn_gen(model=model,
+                                                 model_args=model_args,
+                                                 model_kwargs=model_kwargs,
+                                                 z=vv_state.z,
+                                                 l=l,
+                                                 proxy_fn=proxy_fn,
+                                                 proxy_u_fn=proxy_u_fn)
+
+
+
+                    else:
+                        pe_fn = potential_fn_gen(model=model,
+                                                 model_args=model_args,
+                                                 model_kwargs=model_kwargs,
+                                                 z=vv_state.z,
+                                                 n=n,
+                                                 m=m,
+                                                 proxy_fn=proxy_fn,
+                                                 proxy_u_fn=proxy_u_fn)
                 else:
                     pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
@@ -471,7 +497,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                       z_ref=None,
                       hess_all=None,
                       ll_u=None,
-                      u=None,n=None,m=None,):
+                      u=None,n=None,m=None,l=None):
         """
         Given an existing :data:`~numpyro.infer.mcmc.HMCState`, run HMC with fixed (possibly adapted)
         step size and return a new :data:`~numpyro.infer.mcmc.HMCState`.
@@ -479,6 +505,20 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         :param hmc_state: Current sample (and associated state).
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
+        :param subsample_method: Indicates if hmc energy conserving method shall be implemented for subsampling
+        :param proxy_fn
+        :param proxy_u_fn
+        :param model
+        :param ll_ref
+        :param jac_all
+        :param z
+        :param z_ref
+        :param hess_all
+        :param ll_u
+        :param u
+        :param n
+        :param m
+        :param l : lambda value for block poisson estimator method. Indicates the number of subsamples within a subsample
         :return: new proposed :data:`~numpyro.infer.mcmc.HMCState` from simulating
             Hamiltonian dynamics given existing state.
 
@@ -506,7 +546,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                                                                     proxy_u_fn,
                                                                     model,
                                                                     ll_ref,jac_all,z,z_ref,hess_all,ll_u,u,
-                                                                    n,m)
+                                                                    n,m,l)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
                            (hmc_state.i, accept_prob, vv_state, hmc_state.adapt_state),
@@ -631,7 +671,6 @@ class HMC(MCMCKernel):
         self._hess_all = None
         self._ll_u = None
         self._u = None
-        self._neg_ll = None
         self._sign = None
         self._l = 100
         # Set on first call to init
@@ -639,6 +678,7 @@ class HMC(MCMCKernel):
         self._postprocess_fn = None
         self._sample_fn = None
         self._subsample_fn = None
+        self._sign = []
         self.proxy = proxy
         self.svi_fn = svi_fn
         self._proxy_fn = None
@@ -673,10 +713,11 @@ class HMC(MCMCKernel):
             if self.estimator =="poisson":
                 self._l = 25 # lambda subsamples
                 self._u = _sample_u_poisson(rng_key, self.m, self._l)
+
                 #TODO: Confirm that the signed estimator is the new potential function---> If so the output has to be fixed
                 self._potential_fn = lambda model,model_args,model_kwargs,z,l, proxy_fn,proxy_u_fn : lambda z:signed_estimator(model = model,model_args=model_args,
                                                                                                                                model_kwargs= model_kwargs,z=z,l=l,proxy_fn=proxy_fn,
-                                                                                                                               proxy_u_fn=proxy_u_fn)
+                                                                                                                               proxy_u_fn=proxy_u_fn)[0]
                 # Initialize the hmc sampler: sample_fn = sample_kernel
                 self._init_fn, self._sample_fn = hmc(potential_fn_gen=self._potential_fn,
                                                      kinetic_fn=euclidean_kinetic_energy,
@@ -686,13 +727,15 @@ class HMC(MCMCKernel):
                 # Initialize the model parameters
                 rng_key_init_model, rng_key = random.split(rng_key)
                 model_args = [model_args_sub(u_i, model_args) for u_i in self._u] #TODO: The initialization function has to be initialized on a subsample
-                #Highlight: Initialize with one non empty list?
+
+                #model_args = list(chain(*model_args))    #Highlight: This just chains all the elements in the sublist , len(lists_of_lists) = n , len(chain(list_of_lists)) = sum(n_elements_inside_list=*n
+                self._init_strategy = partial(init_near_values, values=self.z_ref)
                 init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
                     rng_key_init_model,
                     self._model,
                     init_strategy=self._init_strategy,
                     dynamic_args=True,
-                    model_args=model_args,
+                    model_args=tuple([arg[0] for arg in next(chain(model_args))]), #Pick the first non-empty block
                     model_kwargs=model_kwargs)
 
             else:
@@ -787,10 +830,15 @@ class HMC(MCMCKernel):
 
 
         init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params) #should work  for all cases
+
         if self._potential_fn and init_params is None:
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
         if self.subsample_method == "perturb":
+            if self.estimator == "poisson":
+                init_model_args = [model_args_sub(u_i, model_args) for u_i in self._u]
+            else:
+                init_model_args = model_args_sub(self._u,model_args)
             hmc_init_fn = lambda init_params,rng_key: self._init_fn(init_params=init_params,
                                           num_warmup = num_warmup,
                                           step_size = self._step_size,
@@ -801,9 +849,10 @@ class HMC(MCMCKernel):
                                           trajectory_length=self._trajectory_length,
                                           max_tree_depth=self._max_tree_depth,
                                           find_heuristic_step_size=self._find_heuristic_step_size,
-                                          model_args=model_args_sub(self._u,model_args),
+                                          model_args=init_model_args,
                                           model_kwargs=model_kwargs,
                                           subsample_method= self.subsample_method,
+                                          estimator= self.estimator,
                                           model=self._model,
                                           ll_ref =self._ll_ref,
                                           jac_all=self._jac_all,
@@ -813,6 +862,7 @@ class HMC(MCMCKernel):
                                           n=self._n,
                                           m=self.m,
                                           u = self._u,
+                                          l = self._l,
                                           proxy_fn = self._proxy_fn,
                                           proxy_u_fn = self._proxy_u_fn)
 
@@ -821,10 +871,6 @@ class HMC(MCMCKernel):
                 rng_key_hmc_init,_ = random.split(rng_key)
 
                 init_state = hmc_init_fn(init_params, rng_key_hmc_init) #HMCState + HMCECSState
-                if self.proxy == "taylor":
-                    self._proxy_fn,self._proxy_u_fn = taylor_proxy(self.z_ref, self._model, self._ll_ref, self._jac_all, self._hess_all)
-                elif self.proxy == "svi":
-                    self._proxy_fn, self._proxy_u_fn = svi_proxy(self.svi_fn, model_args, model_kwargs)
                 if self.estimator == "poisson":
                     #signed pseudo-marginal algorithm with the block-Poisson estimator
                     #use the term signed PM for any pseudo-marginal algorithm that uses the technique in Lyne
@@ -832,15 +878,15 @@ class HMC(MCMCKernel):
                     # posterior and subsequently sign-corrected by importance sampling. Similarly, we call the
                     # algorithm described in this section signed HMC-ECS
                     model_args = [model_args_sub(u_i, model_args)for u_i in self._u]
-                    self._neg_ll, self._sign = signed_estimator(self._model,
-                                                                model_args,
-                                                                model_kwargs,
-                                                                init_state.z,
-                                                                self._l,
-                                                                self._proxy_fn,
-                                                                self._proxy_u_fn)
-                    self._ll_u = self._sign*self._neg_ll #TODO: ???????????
-                    exit()
+                    neg_ll, sign = signed_estimator(self._model,
+                                                    model_args,
+                                                    model_kwargs,
+                                                    init_state.z,
+                                                    self._l,
+                                                    self._proxy_fn,
+                                                    self._proxy_u_fn)
+                    self._sign.append(sign)
+                    self._ll_u = neg_ll
 
                 else:
                     self._ll_u = potential_est(model=self._model,
@@ -851,27 +897,39 @@ class HMC(MCMCKernel):
                                                m=self.m,
                                                proxy_fn=self._proxy_fn,
                                                proxy_u_fn=self._proxy_u_fn)
-                    exit()
-                    hmc_init_sub_state =  HMCECSState(u=self._u,
-                                                      hmc_state=init_state.hmc_state,
-                                                      ll_u=self._ll_u)
-                    init_sub_state  = tuplemerge(init_state._asdict(),hmc_init_sub_state._asdict())
+                hmc_init_sub_state =  HMCECSState(u=self._u,
+                                                  hmc_state=init_state.hmc_state,
+                                                  ll_u=self._ll_u)
+                init_sub_state  = tuplemerge(init_state._asdict(),hmc_init_sub_state._asdict())
 
-                    return init_sub_state
+                return init_sub_state
             else: #TODO: What is this for? It does not go into it for num_chains>1
                 raise ValueError("Not implemented for chains > 1")
                 # XXX it is safe to run hmc_init_fn under vmap despite that hmc_init_fn changes some
                 # nonlocal variables: momentum_generator, wa_update, trajectory_len, max_treedepth,
                 # wa_steps because those variables do not depend on traced args: init_params, rng_key.
                 init_state = vmap(hmc_init_fn)(init_params, rng_key)
-                self._ll_u = potential_est(model=self._model,
-                                           model_args=model_args_sub(self._u, model_args),
-                                           model_kwargs=model_kwargs,
-                                           z=init_state.z,
-                                           n=self._n,
-                                           m=self.m,
-                                           proxy_fn=self._proxy_fn,
-                                           proxy_u_fn=self._proxy_u_fn)
+                if self.estimator == "poisson":
+                    model_args = [model_args_sub(u_i, model_args)for u_i in self._u]
+                    neg_ll, sign = signed_estimator(self._model,
+                                                    model_args,
+                                                    model_kwargs,
+                                                    init_state.z,
+                                                    self._l,
+                                                    self._proxy_fn,
+                                                    self._proxy_u_fn)
+                    self._sign.append(sign)
+                    self._ll_u = neg_ll
+
+                else:
+                    self._ll_u = potential_est(model=self._model,
+                                               model_args=model_args_sub(self._u, model_args),
+                                               model_kwargs=model_kwargs,
+                                               z=init_state.z,
+                                               n=self._n,
+                                               m=self.m,
+                                               proxy_fn=self._proxy_fn,
+                                               proxy_u_fn=self._proxy_u_fn)
 
                 hmc_init_sub_fn = lambda init_params, rng_key: HMCECSState(u=self._u, hmc_state=init_state, ll_u=self._ll_u)
 
@@ -932,15 +990,16 @@ class HMC(MCMCKernel):
             if self.estimator == "poisson":
                 #TODO: What to do here? does the negative likelihood need to be stored? how about the sign? store in the state?
                 u_new = _sample_u_poisson(rng_key, self.m, self._l)
-                model_args = [model_args_sub(u_i, model_args) for u_i in u_new]
                 neg_ll, sign = signed_estimator(model = self._model,
-                                                model_args=model_args,
+                                                model_args=[model_args_sub(u_i, model_args) for u_i in u_new],
                                                 model_kwargs=model_kwargs,
                                                 z=state.z,
                                                 l =self._l,
                                                 proxy_fn = self._proxy_fn,
                                                 proxy_u_fn = self._proxy_u_fn)
-                llu_new = neg_ll*sign
+                self._sign.append(sign)
+                # Correct the negativeloglikelihood by substracting the density of the prior to calculate the potential
+                llu_new = jnp.min(jnp.array([0, -neg_ll + state.ll_u]))
 
             else:
                 u_new = _update_block(rng_key_subsample, state.u, self._n, self.m, self.g)
@@ -956,10 +1015,11 @@ class HMC(MCMCKernel):
             # accept new subsample with probability min(1,L^{hat}_{u_new}(z) - L^{hat}_{u}(z))
             # NOTE: latent variables (z aka theta) same, subsample indices (u) different by one block.
             accept_prob = jnp.clip(jnp.exp(-llu_new + state.ll_u), a_max=1.)
-            transition = random.bernoulli(rng_key_transition, accept_prob)
+            transition = random.bernoulli(rng_key_transition, accept_prob)  #TODO: Why Bernouilli instead of Uniform?
             u, ll_u = cond(transition,
                            (u_new, llu_new), identity,
                            (state.u, state.ll_u), identity)
+
 
             ######## UPDATE PARAMETERS ##########
 
@@ -970,6 +1030,7 @@ class HMC(MCMCKernel):
                                    model_args=model_args,
                                    model_kwargs=model_kwargs,
                                    subsample_method=self.subsample_method,
+                                   estimator =self.estimator,
                                    proxy_fn = self._proxy_fn,
                                    proxy_u_fn = self._proxy_u_fn,
                                    model = self._model,
@@ -981,7 +1042,8 @@ class HMC(MCMCKernel):
                                    ll_u = ll_u,
                                    u= u,
                                    n= self._n,
-                                   m= self.m)
+                                   m= self.m,
+                                   l=self._l)
 
 
 

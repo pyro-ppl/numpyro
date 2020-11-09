@@ -27,13 +27,13 @@ def model_args_sub(u, model_args):
             args.append(arg)
     return tuple(args)
 
-
 def model_kwargs_sub(u, kwargs):
     """Subsample observations and features"""
     for key_arg, val_arg in kwargs.items():
         if key_arg == "observations" or key_arg == "features":
             kwargs[key_arg] = jnp.take(val_arg, u, axis=0)
     return kwargs
+
 def log_density_obs_hmcecs(model, model_args, model_kwargs, params):
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
@@ -56,6 +56,7 @@ def log_density_obs_hmcecs(model, model_args, model_kwargs, params):
             log_joint = log_joint + jnp.sum(log_prob)
 
     return log_joint, model_trace
+
 def log_density_prior_hmcecs(model, model_args, model_kwargs, params):
     """
     (EXPERIMENTAL INTERFACE) Computes log of joint density for the model given
@@ -91,7 +92,6 @@ def log_density_prior_hmcecs(model, model_args, model_kwargs, params):
             log_joint = log_joint + log_prob
     return log_joint, model_trace
 
-
 def reducer( accum, d ):
    accum.update(d)
    return accum
@@ -102,7 +102,6 @@ def  tuplemerge( *dictionaries ):
    merged = reduce( reducer, dictionaries, {} )
 
    return namedtuple('HMCCombinedState', merged )(**merged) # <==== Gist of the gist
-
 
 def potential_est(model, model_args, model_kwargs, z, n, m, proxy_fn, proxy_u_fn):
     ll_sub, _ = log_density_obs_hmcecs(model, model_args, {}, z)  # log likelihood for subsample with current theta
@@ -116,8 +115,6 @@ def potential_est(model, model_args, model_kwargs, z, n, m, proxy_fn, proxy_u_fn
     ll_prior, _ = log_density_prior_hmcecs(model, model_args, model_kwargs, z)
 
     return (-l_hat + .5 * sigma) - ll_prior
-
-
 
 def velocity_verlet_hmcecs(potential_fn, kinetic_fn, grad_potential_fn=None):
     r"""
@@ -218,7 +215,6 @@ def taylor_proxy(z_ref, model, ll_ref, jac_all, hess_all):
 
     return proxy, proxy_u
 
-
 def svi_proxy(svi, model_args, model_kwargs):
     def proxy(z, *args, **kwargs):
         z_ref = svi.guide.expectation(z)
@@ -235,11 +231,9 @@ def svi_proxy(svi, model_args, model_kwargs):
 def neural_proxy():
     return None
 
-
-
 def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn):
     """
-    Function at minusloglike_estPoisson
+    Estimate the grdient potential estimate
     :param model:
     :param model_args: Subsample of model arguments [l,m,n_feats]
     :param model_kwargs:
@@ -248,25 +242,27 @@ def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn
     :param proxy:
     :param proxy_u:
     :return:
+        neg_ll: Negative likelihood
+        sign
     """
     xis = 0.
     sign = 1.
     d = 0
     a = d - l #For a fixed λ, V[LbB] is minimized at a = d − λ. Quiroz 2018c
-    #TODO: Remove empty lists?
     model_args = [args_l for args_l in model_args if len(args_l[0]) != 0]
     for args_l in model_args: #Iterate over each of the lambda groups of model args
-
+        args_l = tuple([arg.reshape(arg.shape[0]*arg.shape[1],-1) for arg in args_l]) #TODO:Not sure is this ok
         ll_sub, _ = log_density_obs_hmcecs(model, args_l, {}, z)  # log likelihood for each u subsample
         xi = (jnp.exp(ll_sub - proxy_u_fn(z=z, model_args=args_l, model_kwargs=model_kwargs)) - a) / l
         sign *= jnp.prod(jnp.sign(xi))
         xis += jnp.sum(jnp.abs(xi)) #, axis=0)
     lhat = proxy_fn(z) + (a + l) / l + xis
 
-    ll_prior, _ = log_density_prior_hmcecs(model, model_args[0], model_kwargs, z) #the ll of the prior does not depend on the model args, so we just take some pair
-
+    prior_arg = tuple([arg.reshape(arg.shape[0] * arg.shape[1], -1) for arg in model_args[0]])
+    ll_prior, _ = log_density_prior_hmcecs(model, prior_arg, model_kwargs, z) #the ll of the prior does not depend on the model args, so we just take some pair
+    # Correct the negativeloglikelihood by substracting the density of the prior to calculate the potential
+    #potentialEst = -loglikeEst - dprior(theta,pfamily,priorPar1,priorPar2)
     neg_ll = - lhat - ll_prior
-
     return neg_ll, sign
 
 
