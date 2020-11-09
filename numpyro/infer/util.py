@@ -12,6 +12,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
+import numpyro.distributions as dist
 from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
@@ -49,7 +50,7 @@ def log_density(model, model_args, model_kwargs, params):
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
     log_joint = jnp.array(0.)
     for site in model_trace.values():
-        if site['type'] == 'sample':
+        if site['type'] == 'sample' and not isinstance(site['fn'], dist.PRNGIdentity):
             value = site['value']
             intermediates = site['intermediates']
             scale = site['scale']
@@ -267,7 +268,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
     replay_model = False
     has_enumerate_support = False
     for k, v in model_trace.items():
-        if v['type'] == 'sample' and not v['is_observed']:
+        if v['type'] == 'sample' and not v['is_observed'] and not isinstance(v['fn'], dist.PRNGIdentity):
             if v['fn'].is_discrete:
                 has_enumerate_support = True
                 if not v['fn'].has_enumerate_support:
@@ -619,13 +620,13 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
 
     prototype_site = batch_shape = None
     for name, sample in posterior_samples.items():
-        if batch_shape is not None and sample.shape[:batch_ndims] != batch_shape:
+        if batch_shape is not None and jnp.shape(sample)[:batch_ndims] != batch_shape:
             raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
                              f"should be the same, but got "
                              f"{sample.shape[:batch_ndims]} and {batch_shape}")
         else:
             prototype_site = name
-            batch_shape = sample.shape[:batch_ndims]
+            batch_shape = jnp.shape(sample)[:batch_ndims]
 
     if batch_shape is None:  # posterior_samples is an empty dict
         batch_shape = (1,) * batch_ndims
