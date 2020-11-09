@@ -2,14 +2,13 @@ from functools import singledispatch
 
 import numpy as np
 
-from jax import device_get, random
+from jax import device_get, nn, random, tree_multimap
 import jax.numpy as jnp
 from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
 from jaxns.plotting import plot_cornerplot, plot_diagnostics
 from jaxns.prior_transforms import PriorChain, PriorTransform
 
 import numpyro
-from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.handlers import reparam, seed, trace
 from numpyro.infer.reparam import Reparam
@@ -93,12 +92,9 @@ class NestedSampler:
         self.sampler_name = sampler_name
         self.max_samples = max_samples
         self.termination_frac = termination_frac
-        self._num_samples = None
+        self._samples = None
+        self._log_weights = None
         self._results = None
-
-    @property
-    def num_samples(self):
-        return self._num_samples
 
     def run(self, rng_key, *args, **kwargs):
         rng_sampling, rng_predictive = random.split(rng_key)
@@ -123,26 +119,26 @@ class NestedSampler:
         ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name)
         results = ns(rng_sampling, self.num_live_points, collect_samples=True,
                      max_samples=self.max_samples, termination_frac=self.termination_frac)
-        self._num_samples = int(device_get(results.num_samples))
+        num_samples = int(device_get(results.num_samples))
 
         # transform base samples back to original domains
-        base_samples = {k: v[:self._num_samples] for k, v in results.samples.items()}
+        base_samples = {k: v[:num_samples] for k, v in results.samples.items()}
         predictive = Predictive(reparam_model, base_samples,
                                 return_sites=param_names + deterministics)
         self._samples = predictive(rng_predictive, *args, **kwargs)
+        self._log_weights = results.log_p[:num_samples]
         self._results = results._replace(samples={k: v for k, v in self._samples.items()
                                                   if k in param_names})
 
-    def get_samples(self):
-        return self._samples
+        print("Number of weighted samples:", num_samples)
+        print("Effective sample size:", round(float(device_get(results.ESS)), 1))
 
-    def get_results(self):
-        return self._results
+    def get_samples(self, rng_key, num_samples):
+        p = nn.softmax(self._log_weights)
+        idx = random.choice(rng_key, self._log_weights.shape[0], (num_samples,), p=p)
+        return tree_multimap(lambda x: x[idx], self._samples)
 
-    def print_summary(self, prob=0.9, exclude_deterministic=True):
-        samples = {k: v for k, v in self._samples.items()
-                   if k in self._results.samples or not exclude_deterministic}
-        print_summary(samples, prob=prob, group_by_chain=False)
+    # TODO: print_summary with weighted mean/variance/quantiles
 
     def diagnostics(self, cornerplot=True):
         plot_diagnostics(self._results)
