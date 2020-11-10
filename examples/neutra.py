@@ -21,7 +21,7 @@ from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from jax import lax, random
+from jax import random
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
@@ -67,17 +67,15 @@ def main(args):
 
     guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
     svi = SVI(dual_moon_model, guide, optim.Adam(0.003), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(1))
 
     print("Start training guide...")
-    last_state, losses = lax.scan(lambda state, i: svi.update(state), svi_state, jnp.zeros(args.num_iters))
-    params = svi.get_params(last_state)
+    svi_result = svi.run(random.PRNGKey(1), args.num_iters)
     print("Finish training guide. Extract samples...")
-    guide_samples = guide.sample_posterior(random.PRNGKey(2), params,
+    guide_samples = guide.sample_posterior(random.PRNGKey(2), svi_result.params,
                                            sample_shape=(args.num_samples,))['x'].copy()
 
     print("\nStart NeuTra HMC...")
-    neutra = NeuTraReparam(guide, params)
+    neutra = NeuTraReparam(guide, svi_result.params)
     neutra_model = neutra.reparam(dual_moon_model)
     nuts_kernel = NUTS(neutra_model)
     mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
@@ -111,7 +109,7 @@ def main(args):
     ax5 = fig.add_subplot(gs[0, 2])
     ax6 = fig.add_subplot(gs[1, 2])
 
-    ax1.plot(losses[1000:])
+    ax1.plot(svi_result.losses[1000:])
     ax1.set_title('Autoguide training loss\n(after 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')

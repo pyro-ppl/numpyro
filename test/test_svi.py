@@ -70,6 +70,27 @@ def test_beta_bernoulli(elbo):
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize('progress_bar', [True, False])
+def test_run(progress_bar):
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        f = numpyro.sample("beta", dist.Beta(1., 1.))
+        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    def guide(data):
+        alpha_q = numpyro.param("alpha_q", 1.0,
+                                constraint=constraints.positive)
+        beta_q = numpyro.param("beta_q", 1.0,
+                               constraint=constraints.positive)
+        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
+
+    svi = SVI(model, guide, optim.Adam(0.05), Trace_ELBO())
+    params, losses = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
+    assert losses.shape == (1000,)
+    assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
+
+
 def test_jitted_update_fn():
     data = jnp.array([1.0] * 8 + [0.0] * 2)
 
