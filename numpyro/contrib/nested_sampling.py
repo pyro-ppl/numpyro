@@ -86,12 +86,14 @@ class NestedSampler:
     """
     A wrapper for :class:`jaxns.nested_sampling.NestedSampler`.
     """
-    def __init__(self, model, num_live_points, *, sampler_name='slice', max_samples=1e5, termination_frac=0.01):
+    def __init__(self, model, num_live_points, *, sampler_name='slice', max_samples=1e5,
+                 termination_frac=0.01, sampler_kwargs=None):
         self.model = model
         self.num_live_points = num_live_points
         self.sampler_name = sampler_name
         self.max_samples = max_samples
         self.termination_frac = termination_frac
+        self.sampler_kwargs = sampler_kwargs
         self._samples = None
         self._log_weights = None
         self._results = None
@@ -118,7 +120,8 @@ class NestedSampler:
             prior_chain.push(shape_transform)
         ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name)
         results = ns(rng_sampling, self.num_live_points, collect_samples=True,
-                     max_samples=self.max_samples, termination_frac=self.termination_frac)
+                     max_samples=self.max_samples, termination_frac=self.termination_frac,
+                     sampler_kwargs=self.sampler_kwargs)
         num_samples = int(device_get(results.num_samples))
 
         # transform base samples back to original domains
