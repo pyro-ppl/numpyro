@@ -18,11 +18,7 @@ Effect handlers
     :show-inheritance:
     :member-order: bysource
 
-.. autoclass:: numpyro.contrib.funsor.enum_messenger.markov
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
+.. autofunction:: numpyro.contrib.funsor.enum_messenger.markov
 
 .. autoclass:: numpyro.contrib.funsor.enum_messenger.plate
     :members:
@@ -30,17 +26,9 @@ Effect handlers
     :show-inheritance:
     :member-order: bysource
 
-.. autoclass:: numpyro.contrib.funsor.enum_messenger.to_data
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
+.. autofunction:: numpyro.contrib.funsor.enum_messenger.to_data
 
-.. autoclass:: numpyro.contrib.funsor.enum_messenger.to_funsor
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
+.. autofunction:: numpyro.contrib.funsor.enum_messenger.to_funsor
 
 .. autoclass:: numpyro.contrib.funsor.enum_messenger.trace
     :members:

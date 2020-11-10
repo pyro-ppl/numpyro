@@ -112,7 +112,7 @@ class AutoGuide(ABC):
         raise NotImplementedError
 
     def _setup_prototype(self, *args, **kwargs):
-        rng_key = numpyro.sample("_{}_rng_key_setup".format(self.prefix), dist.PRNGIdentity())
+        rng_key = numpyro.prng_key()
         with handlers.block():
             init_params, _, self._postprocess_fn, self.prototype_trace = initialize_model(
                 rng_key, self.model,
@@ -167,7 +167,7 @@ class AutoNormal(AutoGuide):
         super()._setup_prototype(*args, **kwargs)
 
         for name, site in self.prototype_trace.items():
-            if site["type"] != "sample" or isinstance(site["fn"], dist.PRNGIdentity) or site["is_observed"]:
+            if site["type"] != "sample" or site["is_observed"]:
                 continue
 
             event_dim = site["fn"].event_dim + jnp.ndim(self._init_locs[name]) - jnp.ndim(site["value"])
@@ -194,7 +194,7 @@ class AutoNormal(AutoGuide):
         plates = self._create_plates(*args, **kwargs)
         result = {}
         for name, site in self.prototype_trace.items():
-            if site["type"] != "sample" or isinstance(site["fn"], dist.PRNGIdentity) or site["is_observed"]:
+            if site["type"] != "sample" or site["is_observed"]:
                 continue
 
             event_dim = self._event_dims[name]

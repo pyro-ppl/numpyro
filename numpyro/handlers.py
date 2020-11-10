@@ -204,9 +204,10 @@ class block(Messenger):
     primitive sites  where `hide_fn` returns True from other effect handlers
     on the stack.
 
-    :param fn: Python callable with NumPyro primitives.
-    :param hide_fn: function which when given a dictionary containing
+    :param callable fn: Python callable with NumPyro primitives.
+    :param callable hide_fn: function which when given a dictionary containing
         site-level metadata returns whether it should be blocked.
+    :param list hide: list of site names to hide.
 
     **Example:**
 
@@ -616,7 +617,7 @@ class seed(Messenger):
 
     def process_message(self, msg):
         if (msg['type'] == 'sample' and not msg['is_observed'] and
-                msg['kwargs']['rng_key'] is None) or msg['type'] in ['plate', 'control_flow']:
+                msg['kwargs']['rng_key'] is None) or msg['type'] in ['prng_key', 'plate', 'control_flow']:
             # no need to create a new key when value is available
             if msg['value'] is not None:
                 return
@@ -687,23 +688,23 @@ class substitute(Messenger):
 
 class do(Messenger):
     """
-    Given a stochastic function with some sample statements
-    and a dictionary of values at names,
-    set the return values of those sites equal to the values
-    as if they were hard-coded to those values
-    and introduce fresh sample sites with the same names
-    whose values do not propagate.
-    Composes freely with :func:`~numpyro.handlers.condition`
-    to represent counterfactual distributions over potential outcomes.
-    See Single World Intervention Graphs [1] for additional details and theory.
+    Given a stochastic function with some sample statements and a dictionary
+    of values at names, set the return values of those sites equal to the values
+    as if they were hard-coded to those values and introduce fresh sample sites
+    with the same names whose values do not propagate.
+
+    Composes freely with :func:`~numpyro.handlers.condition` to represent
+    counterfactual distributions over potential outcomes. See Single World
+    Intervention Graphs [1] for additional details and theory.
 
     This is equivalent to replacing `z = numpyro.sample("z", ...)` with `z = 1.`
-    and introducing a fresh sample site `numpyro.sample("z", ...)` whose value is not used elsewhere.
+    and introducing a fresh sample site `numpyro.sample("z", ...)` whose value is
+    not used elsewhere.
 
-    References
+    **References:**
 
-    [1] `Single World Intervention Graphs: A Primer`,
-        Thomas Richardson, James Robins
+    1. *Single World Intervention Graphs: A Primer*,
+       Thomas Richardson, James Robins
 
     :param fn: a stochastic function (callable containing Pyro primitive calls)
     :param data: a ``dict`` mapping sample site names to interventions

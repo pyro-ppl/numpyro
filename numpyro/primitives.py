@@ -9,7 +9,6 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.distributions.discrete import PRNGIdentity
 from numpyro.util import identity
 
 _PYRO_STACK = []
@@ -205,7 +204,7 @@ def module(name, nn, input_shape=None):
     if nn_params is None:
         if input_shape is None:
             raise ValueError('Valid value for `input_shape` needed to initialize.')
-        rng_key = numpyro.sample(name + '$rng_key', PRNGIdentity())
+        rng_key = prng_key()
         _, nn_params = nn_init(rng_key, input_shape)
         param(module_key, nn_params)
     return functools.partial(nn_apply, nn_params)
@@ -372,6 +371,28 @@ def factor(name, log_factor):
     unit_dist = numpyro.distributions.distribution.Unit(log_factor)
     unit_value = unit_dist.sample(None)
     sample(name, unit_dist, obs=unit_value)
+
+
+def prng_key():
+    """
+    A statement to draw a pseudo-random number generator key
+    :func:`~jax.random.PRNGKey` under :class:`~numpyro.handlers.seed` handler.
+
+    :return: a PRNG key of shape (2,) and dtype unit32.
+    """
+    if not _PYRO_STACK:
+        return
+
+    initial_msg = {
+        'type': 'prng_key',
+        'fn': lambda rng_key: rng_key,
+        'args': (),
+        'kwargs': {'rng_key': None},
+        'value': None,
+    }
+
+    msg = apply_stack(initial_msg)
+    return msg['value']
 
 
 def subsample(data, event_dim):
