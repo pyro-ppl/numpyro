@@ -262,7 +262,7 @@ def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn
     model_args = [args_l for args_l in model_args if len(args_l[0]) != 0] #remove empty lambda blocks
     for args_l in model_args: #Iterate over each of the lambda groups of model args
         block_len = args_l[0].shape[0]
-        args_l = [jnp.split(arg, arg.shape[0]) for arg in args_l]
+        args_l = [jnp.split(arg, arg.shape[0]) for arg in args_l] # split the arrays of blocks
         args_l = list(itertools.chain.from_iterable(args_l)) #Join list of lists
         args_l = [arr.squeeze(axis=0) for arr in args_l]
         args_l = list(split_list(args_l,block_len))

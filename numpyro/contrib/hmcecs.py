@@ -116,8 +116,8 @@ def _update_block(rng_key, u, n, m, g):
 def _sample_u_poisson(rng_key, m, l):
     """ Initialize subsamples u
     ***References***
-    1.Hamiltonian Monte Carlo with Energy Conserving Subsampling
-    2.The blockPoisson estimator for optimally tuned exact subsampling MCMC.
+    1. Hamiltonian Monte Carlo with Energy Conserving Subsampling
+    2. The blockPoisson estimator for optimally tuned exact subsampling MCMC.
     :param m: subsample size
     :param l: lambda u blocks
     :param g: number of blocks
@@ -132,8 +132,8 @@ def _sample_u_poisson(rng_key, m, l):
 def _update_block_poisson(rng_key, u, m, l, g):
     """ Update block of u, where the length of the block of indexes to update is given by the Poisson distribution.
     ***References***
-    1.Hamiltonian Monte Carlo with Energy Conserving Subsampling
-    2.The blockPoisson estimator for optimally tuned exact subsampling MCMC.
+    1. Hamiltonian Monte Carlo with Energy Conserving Subsampling
+    2.T he blockPoisson estimator for optimally tuned exact subsampling MCMC.
     :param rng_key
     :param u: current subsample indexes
     :param m: Subsample size
@@ -165,6 +165,9 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
        Matthew D. Hoffman, and Andrew Gelman.
     3. *A Conceptual Introduction to Hamiltonian Monte Carlo`*,
        Michael Betancourt
+    **ECS References***
+    1. Hamiltonian Monte Carlo with Energy Conserving Subsampling
+    2. The blockPoisson estimator for optimally tuned exact subsampling MCMC.
 
     :param potential_fn: Python callable that computes the potential energy
         given input parameters. The input parameters to `potential_fn` can be
@@ -292,8 +295,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
             step size at the beginning of each adaptation window. Defaults to False.
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
-        :param jax.random.PRNGKey rng_key: random key to be used as the source of
-            randomness.
+
         :param model:,
         :param sign:,
         :param ll_ref:,
@@ -305,6 +307,13 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
         :param m ,
         :param u,
         :param l,
+        :param jax.random.PRNGKey rng_key: random key to be used as the source of
+            randomness.
+        :param subsample_method: Allows for activation of HMC-ECS or Subsampling,
+        :param estimator: Allows between an approximate likelihood estimator of the potential function (default), or an exact
+        calculation (poisson)
+        :param proxy_fn: Pre-compiled function that calculates the covariate (likelihood correction) for the parameters given the reference estimate
+        :param proxy_u_fn: Pre-compiled function that calculates the covariate (likelihood correction) for the paraneters given the subsample (model_args)
 
         """
         step_size = lax.convert_element_type(step_size, canonicalize_dtype(jnp.float64))
@@ -561,13 +570,25 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                            hmc_state.adapt_state,
                            identity)
 
+
         itr = hmc_state.i + 1
         n = jnp.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
+
         hmcstate = HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy, num_steps,
                         accept_prob, mean_accept_prob, diverging, adapt_state,rng_key)
-        hmc_sub_state = HMCECSState(u=u, hmc_state=hmc_state,ll_u=ll_u,sign = sign) #TODO: Check if sign is correct
+
+        # Highlight: The accepted proposals samples are in vv_state.z /hmcstate.z, as we return them, we change their sign
+        #TODO: Make this prettier
+        if subsample_method == "perturb" and estimator == "poisson" and itr > wa_steps:
+                    z_new={}
+                    for x,y in hmcstate.z.items():
+                        z_new[x] = y*sign[-1]
+                    hmcstate = hmcstate._replace(z=z_new)
+
+        hmc_sub_state = HMCECSState(u=u, hmc_state=hmc_state,ll_u=ll_u,sign = sign)
         hmcstate = tuplemerge(hmc_sub_state._asdict(),hmcstate._asdict())
+
         return hmcstate
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
@@ -893,7 +914,7 @@ class HMC(MCMCKernel):
                                                     proxy_fn=self._proxy_fn,
                                                     proxy_u_fn = self._proxy_u_fn)
 
-                    self._sign.append(sign)
+                    #self._sign.append(sign) #Highlight, do not append the sign here, not necessary
                     self._ll_u = neg_ll
 
 
@@ -997,7 +1018,6 @@ class HMC(MCMCKernel):
             rng_key_subsample, rng_key_transition, rng_key_likelihood, rng_key = random.split(
                 state.rng_key, 4)
             if self.estimator == "poisson":
-                #TODO: What to do here? does the negative likelihood need to be stored? how about the sign? store in the state?
                 u_new = _sample_u_poisson(rng_key, self.m, self._l)
                 neg_ll, sign = signed_estimator(model = self._model,
                                                 model_args=[model_args_sub(u_i, model_args) for u_i in u_new],
@@ -1031,7 +1051,6 @@ class HMC(MCMCKernel):
 
 
             ######## UPDATE PARAMETERS ##########
-            print(self._sign)
             hmc_subsamplestate = HMCECSState(u=u, hmc_state=state.hmc_state,ll_u=ll_u,sign=self._sign)
             hmc_subsamplestate = tuplemerge(hmc_subsamplestate._asdict(),state._asdict())
 
@@ -1052,12 +1071,8 @@ class HMC(MCMCKernel):
                                    u= u,
                                    n= self._n,
                                    m= self.m,
-                                   l=self._l)
-
-
-
-
-
+                                   l=self._l,
+                                   sign = self._sign)
 
         else:
             return self._sample_fn(state, model_args, model_kwargs)

@@ -64,7 +64,6 @@ def model(feats, obs):
     """
     n, m = feats.shape
     theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), 2 * jnp.ones(m)))
-
     numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(feats, theta)), obs=obs)
 
 def infer_nuts(rng_key, feats, obs, samples, warmup ):
@@ -223,7 +222,7 @@ def Plot_KL(map_method,ecs_algo,algo,proxy,estimator,n_samples,n_warmup,epochs):
     g = 5
     factor_NUTS = 50
     colors = cm.rainbow(np.linspace(0, 1, len(m)))
-    run_test = False
+    run_test = True
     if run_test:
         print("Running standard NUTS")
         est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor_NUTS], obs=obs[:factor_NUTS],
