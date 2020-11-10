@@ -104,6 +104,8 @@ def  tuplemerge( *dictionaries ):
    return namedtuple('HMCCombinedState', merged )(**merged) # <==== Gist of the gist
 
 def potential_est(model, model_args, model_kwargs, z, n, m, proxy_fn, proxy_u_fn):
+    """Computes the estimation of the likelihood of the potential
+    :param: proxy_U_fn : Function to calculate the covariates that correct the subsample likelihood"""
     ll_sub, _ = log_density_obs_hmcecs(model, model_args, {}, z)  # log likelihood for subsample with current theta
 
     diff = ll_sub - proxy_u_fn(z=z, model_args=model_args, model_kwargs=model_kwargs)
@@ -231,37 +233,49 @@ def svi_proxy(svi, model_args, model_kwargs):
 def neural_proxy():
     return None
 
+def split_list(lst, n):
+    """Pair up the split model arguments back."""
+    for i in range(0, len(lst), n):
+        if i+n < len(lst)-1:
+            yield tuple( map(lst.__getitem__, [i,i+n]))
+        else:
+            break
 def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn):
     """
-    Estimate the grdient potential estimate
-    :param model:
+    Estimate the gradient potential estimate
+    :param model: Likelihood function
     :param model_args: Subsample of model arguments [l,m,n_feats]
     :param model_kwargs:
-    :param z:
+    :param z: Model parameters estimates
     :param l: Lambda number of subsamples (u indexes)
-    :param proxy:
-    :param proxy_u:
+    :param proxy_fn:
+    :param proxy_u_fn:
     :return:
-        neg_ll: Negative likelihood
-        sign
+        neg_ll: Negative likelihood estimate of the potential
+        sign: Sign of the likelihood estimate over the subsamples, it will be used after all the samples are collected
     """
+    import itertools
     xis = 0.
     sign = 1.
     d = 0
     a = d - l #For a fixed λ, V[LbB] is minimized at a = d − λ. Quiroz 2018c
-    model_args = [args_l for args_l in model_args if len(args_l[0]) != 0]
+    model_args = [args_l for args_l in model_args if len(args_l[0]) != 0] #remove empty lambda blocks
     for args_l in model_args: #Iterate over each of the lambda groups of model args
-        args_l = tuple([arg.reshape(arg.shape[0]*arg.shape[1],-1) for arg in args_l]) #TODO:Not sure is this ok
-        ll_sub, _ = log_density_obs_hmcecs(model, args_l, {}, z)  # log likelihood for each u subsample
-        xi = (jnp.exp(ll_sub - proxy_u_fn(z=z, model_args=args_l, model_kwargs=model_kwargs)) - a) / l
-        sign *= jnp.prod(jnp.sign(xi))
-        xis += jnp.sum(jnp.abs(xi)) #, axis=0)
+        block_len = args_l[0].shape[0]
+        args_l = [jnp.split(arg, arg.shape[0]) for arg in args_l]
+        args_l = list(itertools.chain.from_iterable(args_l)) #Join list of lists
+        args_l = [arr.squeeze(axis=0) for arr in args_l]
+        args_l = list(split_list(args_l,block_len))
+        for args_l_b in args_l:
+            ll_sub, _ = log_density_obs_hmcecs(model, args_l_b, {}, z)  # log likelihood for each u subsample
+            xi = (jnp.exp(ll_sub - proxy_u_fn(z=z, model_args=args_l_b, model_kwargs=model_kwargs)) - a) / l
+            sign *= jnp.prod(jnp.sign(xi))
+            xis += jnp.sum(jnp.abs(xi)) #, axis=0)
     lhat = proxy_fn(z) + (a + l) / l + xis
 
-    prior_arg = tuple([arg.reshape(arg.shape[0] * arg.shape[1], -1) for arg in model_args[0]])
+    prior_arg = tuple([arg.reshape(arg.shape[0] * arg.shape[1], -1) for arg in model_args[0]])#Join the block subsamples, does not matter because the prior does not look t them
     ll_prior, _ = log_density_prior_hmcecs(model, prior_arg, model_kwargs, z) #the ll of the prior does not depend on the model args, so we just take some pair
-    # Correct the negativeloglikelihood by substracting the density of the prior to calculate the potential
-    #potentialEst = -loglikeEst - dprior(theta,pfamily,priorPar1,priorPar2)
+    # Correct the negativeloglikelihood by substracting the density of the prior  --> potentialEst = -loglikeEst - dprior(theta,pfamily,priorPar1,priorPar2)
     neg_ll = - lhat - ll_prior
     return neg_ll, sign
 

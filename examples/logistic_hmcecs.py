@@ -224,9 +224,9 @@ def Plot_KL(map_method,ecs_algo,algo,proxy,estimator,n_samples,n_warmup,epochs):
     factor_NUTS = 50
     colors = cm.rainbow(np.linspace(0, 1, len(m)))
     run_test = False
-    #if run_test:
-    #print("Running standard NUTS")
-    est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor_NUTS], obs=obs[:factor_NUTS],
+    if run_test:
+        print("Running standard NUTS")
+        est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor_NUTS], obs=obs[:factor_NUTS],
                                       n_samples=n_samples, warmup=n_warmup, m="all", g=g, algo=algo)
     for m_val, color in zip(m,colors):
         est_posterior_ECS = infer_hmcecs(rng_key, feats=feats[:factor_ECS], obs=obs[:factor_ECS],
