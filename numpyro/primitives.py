@@ -307,6 +307,7 @@ class plate(Messenger):
         cond_indep_stack.append(frame)
         if msg['type'] == 'sample':
             expected_shape = self._get_batch_shape(cond_indep_stack)
+            # TODO: get `batch_shape` of a Funsor
             dist_batch_shape = msg['fn'].batch_shape
             if 'sample_shape' in msg['kwargs']:
                 dist_batch_shape = msg['kwargs']['sample_shape'] + dist_batch_shape
@@ -315,6 +316,7 @@ class plate(Messenger):
             trailing_shape = expected_shape[overlap_idx:]
             broadcast_shape = lax.broadcast_shapes(trailing_shape, tuple(dist_batch_shape))
             batch_shape = expected_shape[:overlap_idx] + broadcast_shape
+            # TODO: `expand` a Funsor
             msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
