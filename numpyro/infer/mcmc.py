@@ -180,6 +180,7 @@ def _collect_fn(collect_fields):
             # if any(n == "hmc_state" for n in f):
             #     return attrgetter(*collect_fields)(x[0].hmc_state)
             # else:
+            print(attrgetter(*collect_fields)(x[0]))
             return  attrgetter(*collect_fields)(x[0])
         else:
             return x[0]
@@ -285,8 +286,7 @@ class MCMC(object):
             if self._jit_model_args:
                 fn = partial(_sample_fn_jit_args, sampler=self.sampler)
             else:
-                fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
-                             args=self._args, kwargs=self._kwargs)
+                fn = partial(_sample_fn_nojit_args, sampler=self.sampler,args=self._args, kwargs=self._kwargs)
             if key is not None:
                 self._cache[key] = fn
         return fn
@@ -316,7 +316,11 @@ class MCMC(object):
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
+<<<<<<< HEAD
         phase = self._collection_params["phase"]
+=======
+        #TODO: the returned object needs to accomodate the sign
+>>>>>>> MISSING: Postprocessing
 
         collect_vals = fori_collect(lower_idx,
                                     upper_idx,
@@ -328,6 +332,7 @@ class MCMC(object):
                                     collection_size=self._collection_params["collection_size"],
                                     progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
                                     diagnostics_fn=diagnostics)
+
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
         last_state = last_val[0]

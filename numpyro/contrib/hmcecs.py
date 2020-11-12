@@ -579,12 +579,12 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, grad_potentia
                         accept_prob, mean_accept_prob, diverging, adapt_state,rng_key)
 
         # Highlight: The accepted proposals samples are in vv_state.z /hmcstate.z, as we return them, we change their sign
-        #TODO: Make this prettier
-        if subsample_method == "perturb" and estimator == "poisson" and itr > wa_steps:
-                    z_new={}
-                    for x,y in hmcstate.z.items():
-                        z_new[x] = y*sign[-1]
-                    hmcstate = hmcstate._replace(z=z_new)
+        # #TODO: Make this prettier
+        # if subsample_method == "perturb" and estimator == "poisson" and itr > wa_steps:
+        #             z_new={}
+        #             for x,y in hmcstate.z.items():
+        #                 z_new[x] = y*sign[-1]
+        #             hmcstate = hmcstate._replace(z=z_new)
 
         hmc_sub_state = HMCECSState(u=u, hmc_state=hmc_state,ll_u=ll_u,sign = sign)
         hmcstate = tuplemerge(hmc_sub_state._asdict(),hmcstate._asdict())
@@ -605,7 +605,7 @@ def _log_prob(trace):
     return jnp.sum(node['fn'].log_prob(node['value']), 1)
 
 
-class HMC(MCMCKernel):
+class HMCECS(MCMCKernel):
     """
     Hamiltonian Monte Carlo inference, using fixed trajectory length, with
     provision for step size and mass matrix adaptation.
@@ -669,7 +669,8 @@ class HMC(MCMCKernel):
                  m= None,
                  g = None,
                  z_ref= None,
-                 algo = "HMC"
+                 algo = "HMC",
+                 postprocess_fn = None,
                  ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
@@ -703,10 +704,10 @@ class HMC(MCMCKernel):
         self._l = 100
         # Set on first call to init
         self._init_fn = None
-        self._postprocess_fn = None
+        self._postprocess_fn = postprocess_fn
         self._sample_fn = None
         self._subsample_fn = None
-        self._sign = []
+        self._sign = jnp.array([jnp.nan])
         self.proxy = proxy
         self.svi_fn = svi_fn
         self._proxy_fn = None
@@ -948,7 +949,7 @@ class HMC(MCMCKernel):
                                                     l = self._l,
                                                     proxy_fn = self._proxy_fn,
                                                     proxy_u_fn = self._proxy_u_fn)
-                    self._sign.append(sign)
+                    self._sign = jnp.array(sign)
                     self._ll_u = neg_ll
 
                 else:
@@ -1026,7 +1027,9 @@ class HMC(MCMCKernel):
                                                 l =self._l,
                                                 proxy_fn = self._proxy_fn,
                                                 proxy_u_fn = self._proxy_u_fn)
-                self._sign.append(sign)
+
+                self._sign = jnp.append(self._sign,jnp.array([sign]),axis=0)
+                self._sign = self._sign[jnp.isfinite(self._sign)] #remove dummy start point, since we annot initialize empty arrays
                 # Correct the negativeloglikelihood by substracting the density of the prior to calculate the potential
                 llu_new = jnp.min(jnp.array([0, -neg_ll + state.ll_u]))
 
@@ -1081,7 +1084,7 @@ class HMC(MCMCKernel):
 
 
 
-class NUTS(HMC):
+class NUTS(HMCECS):
     """
     Hamiltonian Monte Carlo inference, using the No U-Turn Sampler (NUTS)
     with adaptive path length and mass matrix adaptation.

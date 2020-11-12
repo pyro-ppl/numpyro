@@ -236,7 +236,7 @@ def neural_proxy():
 def split_list(lst, n):
     """Pair up the split model arguments back."""
     for i in range(0, len(lst), n):
-        if i+n < len(lst)-1:
+        if i+n < len(lst)-1: #TODO: Change back to len(lst), after debugging
             yield tuple( map(lst.__getitem__, [i,i+n]))
         else:
             break
@@ -270,7 +270,7 @@ def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn
             ll_sub, _ = log_density_obs_hmcecs(model, args_l_b, {}, z)  # log likelihood for each u subsample
             xi = (jnp.exp(ll_sub - proxy_u_fn(z=z, model_args=args_l_b, model_kwargs=model_kwargs)) - a) / l
             sign *= jnp.prod(jnp.sign(xi))
-            xis += jnp.sum(jnp.abs(xi)) #, axis=0)
+            xis += jnp.sum(jnp.abs(xi))
     lhat = proxy_fn(z) + (a + l) / l + xis
 
     prior_arg = tuple([arg.reshape(arg.shape[0] * arg.shape[1], -1) for arg in model_args[0]])#Join the block subsamples, does not matter because the prior does not look t them
@@ -280,4 +280,8 @@ def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn
     return neg_ll, sign
 
 
+
+def poisson_samples_correction(*args,**kwargs):
+    "Changes the suport of the samples"
+    return args
 

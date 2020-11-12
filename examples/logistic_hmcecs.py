@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import NUTS, MCMC, Predictive
+from numpyro.infer import NUTS, MCMC, Predictive,HMC
 import sys, os
 from jax.config import config
 import datetime,time
@@ -16,7 +16,8 @@ from matplotlib.pyplot import cm
 sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/contrib/')
 sys.path.append('/home/lys/Dropbox/PhD/numpyro/numpyro/examples/')
 
-from hmcecs import HMC
+from hmcecs import HMCECS
+from hmcecs_utils import poisson_samples_correction
 #from numpyro.contrib.hmcecs import HMC
 
 from sklearn.datasets import load_breast_cancer
@@ -95,7 +96,7 @@ def infer_hmc(rng_key, feats, obs, samples, warmup ):
 
 
 
-def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,algo="NUTS",subsample_method=None,map_method=None,proxy="taylor",estimator=None,num_epochs=None ):
+def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,algo="NUTS",subsample_method=None,map_method=None,proxy="taylor",estimator=None,num_epochs=None,postprocess_fn=None ):
     hmcecs_key, map_key = jax.random.split(rng_key)
     n, _ = feats.shape
     file_hyperparams = open("PLOTS_{}/Hyperparameters_{}.txt".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms"),now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms")), "a")
@@ -144,10 +145,17 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
         svi = None
 
     start = time.time()
-    kernel = HMC(model=model,z_ref=z_ref,m=m,g=g,algo=algo,subsample_method=subsample_method,proxy=proxy,svi_fn=svi,estimator = estimator,target_accept_prob=0.8)
+    extra_fields = []
+    if estimator == "poisson":
+        postprocess_fn = None # poisson_samples_correction
+        #extra_fields = ("sign",)
+    kernel = HMCECS(model=model,z_ref=z_ref,m=m,g=g,algo=algo,
+                    subsample_method=subsample_method,proxy=proxy,svi_fn=svi,
+                    estimator = estimator,target_accept_prob=0.8)#,postprocess_fn=postprocess_fn)
 
-    mcmc = MCMC(kernel,num_warmup=warmup,num_samples=n_samples,num_chains=1)
-    mcmc.run(rng_key,feats,obs)
+    mcmc = MCMC(kernel,num_warmup=warmup,num_samples=n_samples,num_chains=1,postprocess_fn=postprocess_fn)
+    mcmc.run(rng_key,feats,obs,extra_fields=extra_fields)
+    #extra_fields = mcmc.get_extra_fields()
     stop = time.time()
     file_hyperparams.write('MCMC/NUTS elapsed time {}: {} \n'.format(subsample_method,time.time() - start))
     file_hyperparams.write('Effective size {}: {}\n'.format(subsample_method,n_samples))
@@ -158,7 +166,7 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     file_hyperparams.write('Estimator: {}\n'.format(estimator))
     file_hyperparams.write('...........................................\n')
     file_hyperparams.close()
-
+    #print(mcmc.get_samples().keys())
     save_obj(mcmc.get_samples(),"{}/MCMC_Dict_Samples_{}_m_{}.pkl".format("PLOTS_{}".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms")),subsample_method,m))
 
     return mcmc.get_samples()
@@ -222,7 +230,7 @@ def Plot_KL(map_method,ecs_algo,algo,proxy,estimator,n_samples,n_warmup,epochs):
     g = 5
     factor_NUTS = 50
     colors = cm.rainbow(np.linspace(0, 1, len(m)))
-    run_test = True
+    run_test = False
     if run_test:
         print("Running standard NUTS")
         est_posterior_NUTS = infer_hmcecs(rng_key, feats=feats[:factor_NUTS], obs=obs[:factor_NUTS],
