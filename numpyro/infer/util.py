@@ -619,13 +619,13 @@ def log_likelihood(model, posterior_samples, *args, parallel=False, batch_ndims=
 
     prototype_site = batch_shape = None
     for name, sample in posterior_samples.items():
-        if batch_shape is not None and sample.shape[:batch_ndims] != batch_shape:
+        if batch_shape is not None and jnp.shape(sample)[:batch_ndims] != batch_shape:
             raise ValueError(f"Batch shapes at site {name} and {prototype_site} "
                              f"should be the same, but got "
                              f"{sample.shape[:batch_ndims]} and {batch_shape}")
         else:
             prototype_site = name
-            batch_shape = sample.shape[:batch_ndims]
+            batch_shape = jnp.shape(sample)[:batch_ndims]
 
     if batch_shape is None:  # posterior_samples is an empty dict
         batch_shape = (1,) * batch_ndims
