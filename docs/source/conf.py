@@ -48,6 +48,8 @@ if 'READTHEDOCS' not in os.environ:
     from numpyro import __version__  # noqaE402
     version = __version__
 
+    html_context = {'github_version': 'master'}
+
 # release version
 release = version
 
@@ -65,6 +67,7 @@ extensions = [
     'nbsphinx',
     'sphinx.ext.autodoc',
     'sphinx.ext.doctest',
+    'sphinx.ext.imgconverter',
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
@@ -126,30 +129,23 @@ pygments_style = 'sphinx'
 add_module_names = False
 
 
-with open('../../numpyro/version.py') as f:
-    for line in f.readlines():
-        if line.startswith("__version__ = "):
-            break
-    pip_version = line.rstrip().split(" = ")[-1].strip("'").strip('"')
-    # resolve the issue: tags for versions before 0.3.0 have the prefix 'v'.
-    tag = "v" + pip_version if version[:3] < "0.3" else pip_version
-
-
 # This is processed by Jinja2 and inserted before each notebook
 nbsphinx_prolog = r"""
 {% set docname = 'notebooks/source/' + env.doc2path(env.docname, base=None).split('/')[-1] %}
+:github_url: https://github.com/pyro-ppl/numpyro/blob/master/{{ docname }}
+
 .. raw:: html
 
     <div class="admonition note">
       Interactive online version:
       <span style="white-space: nowrap;">
-        <a href="https://colab.research.google.com/github/pyro-ppl/numpyro/blob/{tag}/{{ docname }}">
+        <a href="https://colab.research.google.com/github/pyro-ppl/numpyro/blob/{{ env.config.html_context.github_version }}/{{ docname }}">
           <img alt="Open In Colab" src="https://colab.research.google.com/assets/colab-badge.svg"
             style="vertical-align:text-bottom">
         </a>
       </span>
     </div>
-""".replace(r"{tag}", tag)
+"""  # noqa: E501
 
 
 # -- Copy README files
@@ -193,6 +189,8 @@ sphinx_gallery_conf = {
     # only execute files beginning with plot_
     'filename_pattern': '/plot_',
     'ignore_pattern': '(minipyro|covtype|__init__)',
+    # not display Total running time of the script because we do not execute it
+    'min_reported_time': 1
 }
 
 
@@ -266,7 +264,10 @@ latex_elements = {
 
     # Additional stuff for the LaTeX preamble.
     #
-    # 'preamble': '',
+    'preamble': r'''
+        \usepackage{pmboxdraw}
+        \usepackage{alphabeta}
+        ''',
 
     # Latex figure (float) alignment
     #

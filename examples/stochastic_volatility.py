@@ -7,7 +7,7 @@ Example: Stochastic Volatility
 
 Generative model:
 
-.. math::
+.. math:: :nowrap:
 
     \\begin{align}
         \\sigma & \\sim \\text{Exponential}(50) \\\\

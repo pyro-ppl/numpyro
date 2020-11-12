@@ -620,7 +620,7 @@ class seed(Messenger):
 
     def process_message(self, msg):
         if (msg['type'] == 'sample' and not msg['is_observed'] and
-                msg['kwargs']['rng_key'] is None) or msg['type'] in ['plate', 'control_flow']:
+                msg['kwargs']['rng_key'] is None) or msg['type'] in ['prng_key', 'plate', 'control_flow']:
             # no need to create a new key when value is available
             if msg['value'] is not None:
                 return
