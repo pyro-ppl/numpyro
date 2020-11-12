@@ -8,7 +8,7 @@ import random
 import re
 
 import numpy as np
-import tqdm
+from tqdm.auto import tqdm
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
@@ -221,7 +221,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
             # special case, only compiling
             jit(_body_fn)(0, vals)
         else:
-            with tqdm.trange(upper) as t:
+            with tqdm(range(upper)) as t:
                 for i in t:
                     vals = jit(_body_fn)(i, vals)
                     t.set_description(progbar_desc(i), refresh=False)
