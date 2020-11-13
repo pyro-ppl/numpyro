@@ -915,7 +915,7 @@ class HMCECS(MCMCKernel):
                                                     proxy_fn=self._proxy_fn,
                                                     proxy_u_fn = self._proxy_u_fn)
 
-                    #self._sign.append(sign) #Highlight, do not append the sign here, not necessary
+                    self._sign = jnp.array(sign) #Highlight, do not append the sign here, not necessary
                     self._ll_u = neg_ll
 
 
@@ -1027,9 +1027,9 @@ class HMCECS(MCMCKernel):
                                                 l =self._l,
                                                 proxy_fn = self._proxy_fn,
                                                 proxy_u_fn = self._proxy_u_fn)
-
-                self._sign = jnp.append(self._sign,jnp.array([sign]),axis=0)
-                self._sign = self._sign[jnp.isfinite(self._sign)] #remove dummy start point, since we annot initialize empty arrays
+                self._sign=jnp.array(sign)
+                #self._sign = jnp.append(self._sign,jnp.array([sign]),axis=0)
+                #self._sign = self._sign[jnp.isfinite(self._sign)] #remove dummy start point, since we annot initialize empty arrays
                 # Correct the negativeloglikelihood by substracting the density of the prior to calculate the potential
                 llu_new = jnp.min(jnp.array([0, -neg_ll + state.ll_u]))
 

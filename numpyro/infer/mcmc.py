@@ -168,7 +168,6 @@ def _sample_fn_jit_args(state, sampler):
 
 def _sample_fn_nojit_args(state, sampler, args, kwargs):
     # state is a tuple of size 1 - containing HMCState
-
     return sampler.sample(state[0], args, kwargs),
 
 
@@ -176,12 +175,7 @@ def _collect_fn(collect_fields):
     @cached_by(_collect_fn, collect_fields)
     def collect(x):
         if collect_fields:
-            # f = getattr(x[0], '_fields', None)
-            # if any(n == "hmc_state" for n in f):
-            #     return attrgetter(*collect_fields)(x[0].hmc_state)
-            # else:
-            print(attrgetter(*collect_fields)(x[0]))
-            return  attrgetter(*collect_fields)(x[0])
+            return attrgetter(*collect_fields)(x[0])
         else:
             return x[0]
 
@@ -286,7 +280,8 @@ class MCMC(object):
             if self._jit_model_args:
                 fn = partial(_sample_fn_jit_args, sampler=self.sampler)
             else:
-                fn = partial(_sample_fn_nojit_args, sampler=self.sampler,args=self._args, kwargs=self._kwargs)
+                fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
+                             args=self._args, kwargs=self._kwargs)
             if key is not None:
                 self._cache[key] = fn
         return fn
@@ -311,16 +306,11 @@ class MCMC(object):
             postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
         else:
             postprocess_fn = self.postprocess_fn
-
         diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else ''   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
-<<<<<<< HEAD
         phase = self._collection_params["phase"]
-=======
-        #TODO: the returned object needs to accomodate the sign
->>>>>>> MISSING: Postprocessing
 
         collect_vals = fori_collect(lower_idx,
                                     upper_idx,
@@ -332,7 +322,6 @@ class MCMC(object):
                                     collection_size=self._collection_params["collection_size"],
                                     progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
                                     diagnostics_fn=diagnostics)
-
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
         last_state = last_val[0]
@@ -425,7 +414,6 @@ class MCMC(object):
         if self.num_chains > 1 and rng_key.ndim == 1:
             rng_key = random.split(rng_key, self.num_chains)
 
-
         if self._warmup_state is not None:
             self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
             init_state = self._warmup_state._replace(rng_key=rng_key)
@@ -505,7 +493,6 @@ class MCMC(object):
     def print_summary(self, prob=0.9, exclude_deterministic=True):
         # Exclude deterministic sites by default
         sites = self._states[self._sample_field]
-
         if isinstance(sites, dict) and exclude_deterministic:
             sites = {k: v for k, v in self._states[self._sample_field].items()
                      if k in self._last_state.z}
