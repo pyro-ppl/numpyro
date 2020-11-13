@@ -328,14 +328,20 @@ class MCMC(object):
         if len(collect_fields) == 1:
             states = (states,)
         states = dict(zip(collect_fields, states))
+        #print(states)
         # Apply constraints if number of samples is non-zero
+        #print(self._sample_field)
         site_values = tree_flatten(states[self._sample_field])[0]
+        #print(site_values)
         # XXX: lax.map still works if some arrays have 0 size
         # so we only need to filter out the case site_value.shape[0] == 0
         # (which happens when lower_idx==upper_idx)
+        print(self._sample_field)
+        #print(states[self._sample_field])
         if len(site_values) > 0 and jnp.shape(site_values[0])[0] > 0:
             if self.chain_method == "vectorized" and self.num_chains > 1:
                 postprocess_fn = vmap(postprocess_fn)
+            print(states[self._sample_field])
             states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
         return states, last_state
 

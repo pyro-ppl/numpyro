@@ -835,7 +835,7 @@ class HMCECS(MCMCKernel):
 
     @property
     def default_fields(self):
-        return ('z', 'diverging')
+        return ('z', 'diverging','sign')
 
     def get_diagnostics_str(self, state):
         return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(state.num_steps,
@@ -906,7 +906,6 @@ class HMCECS(MCMCKernel):
                     # et al. (2015) where a pseudo-marginal sampler is run on the absolute value of the estimated
                     # posterior and subsequently sign-corrected by importance sampling. Similarly, we call the
                     # algorithm described in this section signed HMC-ECS
-                    #model_args = [model_args_sub(u_i, model_args)for u_i in self._u]
                     neg_ll, sign = signed_estimator(model = self._model,
                                                     model_args = [model_args_sub(u_i, model_args)for u_i in self._u],
                                                     model_kwargs= model_kwargs,

@@ -156,8 +156,6 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
     mcmc = MCMC(kernel,num_warmup=warmup,num_samples=n_samples,num_chains=1,postprocess_fn=postprocess_fn)
     mcmc.run(rng_key,feats,obs,extra_fields=extra_fields)
     extra_fields = mcmc.get_extra_fields()
-    print(extra_fields)
-    print(extra_fields.keys())
     stop = time.time()
     file_hyperparams.write('MCMC/NUTS elapsed time {}: {} \n'.format(subsample_method,time.time() - start))
     file_hyperparams.write('Effective size {}: {}\n'.format(subsample_method,n_samples))

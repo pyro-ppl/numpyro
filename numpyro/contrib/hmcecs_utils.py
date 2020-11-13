@@ -282,6 +282,7 @@ def signed_estimator(model, model_args, model_kwargs, z, l, proxy_fn, proxy_u_fn
 
 
 def poisson_samples_correction(*args,**kwargs):
-    "Changes the suport of the samples"
+    "Changes the support of the samples by using the sign from the "
+
     return args
 
