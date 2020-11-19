@@ -278,18 +278,23 @@ class collapse(trace):
         COERCIONS.append(self._coerce)
         return super().__enter__()
 
-    def __exit__(self, *args, **kwargs):
+    def __exit__(self, exc_type, exc_value, traceback):
         import funsor
 
         _coerce = COERCIONS.pop()
         assert _coerce is self._coerce
-        super().__exit__(*args, **kwargs)
+        super().__exit__(exc_type, exc_value, traceback)
+
+        if exc_type is not None:
+            return
 
         # Convert delayed statements to pyro.factor()
         reduced_vars = []
         log_prob_terms = []
         plates = frozenset()
         for name, site in self.trace.items():
+            if site["type"] != "sample":
+                continue
             if not site["is_observed"]:
                 reduced_vars.append(name)
             dim_to_name = {f.dim: f.name for f in site["cond_indep_stack"]}
