@@ -175,4 +175,8 @@ def log_density(model, model_args, model_kwargs, params):
             funsor.ops.logaddexp, funsor.ops.add, log_factors,
             eliminate=sum_vars | prod_vars, plates=prod_vars)
     result = funsor.optimizer.apply_optimizer(lazy_result)
+    if len(result.inputs) > 0:
+        raise ValueError("Expected the joint log density is a scalar, but got {}. "
+                         "There seems to be something wrong at the following sites: {}."
+                         .format(result.data.shape, {k.split("__BOUND")[0] for k in result.inputs}))
     return result.data, model_trace
