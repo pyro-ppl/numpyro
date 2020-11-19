@@ -269,13 +269,6 @@ class Distribution(metaclass=DistributionMeta):
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('rng_key')
-        # FIXME: This also raises error for Delta site.
-        # Is there a better way to raise this error?
-        if key is None:
-            raise ValueError("Missing random key for {} distribution. Looking like you "
-                             "have not seeded your stochastic function. See "
-                             "`numpyro.handlers.seed` documentation for more information."
-                             .format(self.__class__.__name__))
         sample_intermediates = kwargs.pop('sample_intermediates', False)
         if sample_intermediates:
             return self.sample_with_intermediates(key, *args, **kwargs)
