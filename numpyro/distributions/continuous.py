@@ -63,6 +63,7 @@ class Beta(Distribution):
         super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         return self._dirichlet.sample(key, sample_shape)[..., 0]
 
     @validate_sample
@@ -90,6 +91,7 @@ class Cauchy(Distribution):
         super(Cauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         eps = random.cauchy(key, shape=sample_shape + self.batch_shape)
         return self.loc + eps * self.scale
 
@@ -120,6 +122,7 @@ class Dirichlet(Distribution):
                                         validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         shape = sample_shape + self.batch_shape + self.event_shape
         gamma_samples = random.gamma(key, self.concentration, shape=shape)
         samples = gamma_samples / jnp.sum(gamma_samples, axis=-1, keepdims=True)
@@ -151,6 +154,7 @@ class Exponential(Distribution):
         super(Exponential, self).__init__(batch_shape=jnp.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         return random.exponential(key, shape=sample_shape + self.batch_shape) / self.rate
 
     @validate_sample
@@ -179,6 +183,7 @@ class Gamma(Distribution):
                                     validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         shape = sample_shape + self.batch_shape + self.event_shape
         return random.gamma(key, self.concentration, shape=shape) / self.rate
 
@@ -218,6 +223,7 @@ class GaussianRandomWalk(Distribution):
         super(GaussianRandomWalk, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         shape = sample_shape + self.batch_shape + self.event_shape
         walks = random.normal(key, shape=shape)
         return jnp.cumsum(walks, axis=-1) * jnp.expand_dims(self.scale, axis=-1)
@@ -257,6 +263,7 @@ class HalfCauchy(Distribution):
         super(HalfCauchy, self).__init__(batch_shape=jnp.shape(scale), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         return jnp.abs(self._cauchy.sample(key, sample_shape))
 
     @validate_sample
@@ -283,6 +290,7 @@ class HalfNormal(Distribution):
         super(HalfNormal, self).__init__(batch_shape=jnp.shape(scale), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         return jnp.abs(self._normal.sample(key, sample_shape))
 
     @validate_sample
@@ -344,6 +352,7 @@ class Gumbel(Distribution):
                                      validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         standard_gumbel_sample = random.gumbel(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + self.scale * standard_gumbel_sample
 
@@ -374,6 +383,7 @@ class Laplace(Distribution):
         super(Laplace, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         eps = random.laplace(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + eps * self.scale
 
@@ -554,6 +564,7 @@ class LKJCholesky(Distribution):
         return cholesky
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         if self.sample_method == "onion":
             return self._onion(key, sample_shape)
         else:
@@ -711,6 +722,7 @@ class MultivariateNormal(Distribution):
                                                  validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         eps = random.normal(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + jnp.squeeze(jnp.matmul(self.scale_tril, eps[..., jnp.newaxis]), axis=-1)
 
@@ -873,6 +885,7 @@ class LowRankMultivariateNormal(Distribution):
         return diag_embed - jnp.matmul(jnp.swapaxes(A, -1, -2), A)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         key_W, key_D = random.split(key)
         batch_shape = sample_shape + self.batch_shape
         W_shape = batch_shape + self.cov_factor.shape[-1:]
@@ -913,6 +926,7 @@ class Normal(Distribution):
         super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         eps = random.normal(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + eps * self.scale
 
@@ -979,6 +993,7 @@ class StudentT(Distribution):
         super(StudentT, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         key_normal, key_chi2 = random.split(key)
         std_normal = random.normal(key_normal, shape=sample_shape + self.batch_shape)
         z = self._chi2.sample(key_chi2, sample_shape)
@@ -1013,6 +1028,7 @@ class _BaseTruncatedCauchy(Distribution):
         super(_BaseTruncatedCauchy, self).__init__(batch_shape=jnp.shape(base_loc))
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         # We use inverse transform method:
         # z ~ inv_cdf(U), where U ~ Uniform(cdf(low), cdf(high)).
         #                         ~ Uniform(arctan(low), arctan(high)) / pi + 1/2
@@ -1080,6 +1096,7 @@ class _BaseTruncatedNormal(Distribution):
         super(_BaseTruncatedNormal, self).__init__(batch_shape=jnp.shape(base_loc))
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         size = sample_shape + self.batch_shape
         # We use inverse transform method:
         # z ~ icdf(U), where U ~ Uniform(0, 1).
@@ -1145,6 +1162,7 @@ class _BaseUniform(Distribution):
         super(_BaseUniform, self).__init__(batch_shape=batch_shape)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         size = sample_shape + self.batch_shape
         return random.uniform(key, shape=size)
 
@@ -1204,6 +1222,7 @@ class Logistic(Distribution):
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         z = random.logistic(key, shape=sample_shape + self.batch_shape + self.event_shape)
         return self.loc + z * self.scale
 
@@ -1236,6 +1255,7 @@ class TruncatedPolyaGamma(Distribution):
         super(TruncatedPolyaGamma, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert key is not None
         denom = jnp.square(jnp.arange(0.5, self.num_gamma_variates))
         x = random.gamma(key, jnp.ones(self.batch_shape + sample_shape + (self.num_gamma_variates,)))
         x = jnp.sum(x / denom, axis=-1)

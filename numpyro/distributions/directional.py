@@ -36,6 +36,7 @@ class VonMises(Distribution):
             :param key: random number generator key
             :return: samples from von Mises
         """
+        assert key is not None
         samples = von_mises_centered(key, self.concentration, sample_shape + self.shape())
         samples = samples + self.loc  # VM(0, concentration) -> VM(loc,concentration)
         samples = (samples + jnp.pi) % (2. * jnp.pi) - jnp.pi
