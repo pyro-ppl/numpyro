@@ -526,7 +526,8 @@ class scale(Messenger):
     This is typically used for data subsampling or for stratified sampling of data
     (e.g. in fraud detection where negatives vastly outnumber positives).
 
-    :param scale: a positive scaling factor
+    :param scale: a positive scaling factor that is broadcastable to the shape
+        of log probability.
     :type scale: float or numpy.ndarray
     """
     def __init__(self, fn=None, scale=1.):
