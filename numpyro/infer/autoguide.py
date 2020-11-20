@@ -293,12 +293,12 @@ class AutoDelta(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-
+        self._init_locs = {k: v for k, v in self._postprocess_fn(self._init_locs).items()}
         for name, site in self.prototype_trace.items():
             if site["type"] != "sample" or site["is_observed"]:
                 continue
 
-            event_dim = site["fn"].event_dim + jnp.ndim(self._init_locs[name]) - jnp.ndim(site["value"])
+            event_dim = site["fn"].event_dim
             self._event_dims[name] = event_dim
 
             # If subsampling, repeat init_value to full size.
@@ -326,6 +326,7 @@ class AutoDelta(AutoGuide):
                     stack.enter_context(plates[frame.name])
 
                 site_loc = numpyro.param("{}_{}_loc".format(name, self.prefix), init_loc,
+                                         constraint=site['fn'].support,
                                          event_dim=event_dim)
 
                 site_fn = dist.Delta(site_loc).to_event(event_dim)
