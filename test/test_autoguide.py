@@ -26,7 +26,8 @@ from numpyro.infer.autoguide import (
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
     AutoMultivariateNormal,
-    AutoNormal
+    AutoNormal,
+    AutoDelta,
 )
 from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import TransformReparam
@@ -44,6 +45,7 @@ init_strategy = init_to_median(num_samples=2)
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
     AutoNormal,
+    AutoDelta,
 ])
 def test_beta_bernoulli(auto_class):
     data = jnp.array([[1.0] * 8 + [0.0] * 2,
@@ -78,6 +80,7 @@ def test_beta_bernoulli(auto_class):
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
     AutoNormal,
+    AutoDelta,
 ])
 @pytest.mark.parametrize('Elbo', [Trace_ELBO, TraceMeanField_ELBO])
 def test_logistic_regression(auto_class, Elbo):
@@ -116,8 +119,9 @@ def test_logistic_regression(auto_class, Elbo):
         median = guide.median(params)
         assert_allclose(median['coefs'], true_coefs, rtol=0.1)
         # test .quantile method
-        median = guide.quantiles(params, [0.2, 0.5])
-        assert_allclose(median['coefs'][1], true_coefs, rtol=0.1)
+        if auto_class is not AutoDelta:
+            median = guide.quantiles(params, [0.2, 0.5])
+            assert_allclose(median['coefs'][1], true_coefs, rtol=0.1)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(1000,))
     assert_allclose(jnp.mean(posterior_samples['coefs'], 0), true_coefs, rtol=0.1)
