@@ -79,6 +79,8 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 from collections import OrderedDict
 import warnings
 
+import numpy as np
+
 from jax import lax, random
 import jax.numpy as jnp
 
@@ -524,12 +526,13 @@ class scale(Messenger):
     This is typically used for data subsampling or for stratified sampling of data
     (e.g. in fraud detection where negatives vastly outnumber positives).
 
-    :param float scale: a positive scaling factor
+    :param scale: a positive scaling factor
+    :type scale: float or numpy.ndarray
     """
     def __init__(self, fn=None, scale=1.):
         if not_jax_tracer(scale):
-            if scale <= 0:
-                raise ValueError("'scale' argument should be a positive number.")
+            if np.any(scale <= 0):
+                raise ValueError("'scale' argument should be positive.")
         self.scale = scale
         super().__init__(fn)
 
