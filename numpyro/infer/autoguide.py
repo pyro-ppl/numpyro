@@ -339,7 +339,7 @@ class AutoDelta(AutoGuide):
     def sample_posterior(self, rng_key, params, sample_shape=()):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         latent_samples = {
-            k:jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
+            k: jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
         }
         return latent_samples
 
