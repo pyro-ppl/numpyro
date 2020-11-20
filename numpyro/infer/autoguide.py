@@ -293,7 +293,9 @@ class AutoDelta(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        self._init_locs = {k: v for k, v in self._postprocess_fn(self._init_locs).items()}
+        self._init_locs = {
+            k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs
+        }
         for name, site in self.prototype_trace.items():
             if site["type"] != "sample" or site["is_observed"]:
                 continue
