@@ -65,7 +65,8 @@ def test_update_params():
     params = {'a': {'b': {'c': {'d': 1}, 'e': np.array(2)}, 'f': np.ones(4)}}
     prior = {'a.b.c.d': dist.Delta(4), 'a.f': dist.Delta(5)}
     new_params = deepcopy(params)
-    _update_params(params, new_params, prior)
+    with handlers.seed(rng_seed=0):
+        _update_params(params, new_params, prior)
     assert params == {'a': {'b': {'c': {'d': ParamShape(())}, 'e': 2}, 'f': ParamShape((4,))}}
     test_util.check_eq(new_params, {'a': {'b': {'c': {'d': np.array(4.)}, 'e': np.array(2)},
                                           'f': np.full((4,), 5.)}})
