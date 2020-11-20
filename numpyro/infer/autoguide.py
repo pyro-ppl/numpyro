@@ -335,10 +335,9 @@ class AutoDelta(AutoGuide):
 
     def sample_posterior(self, rng_key, params, sample_shape=()):
         locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
-        with handlers.seed(rng_seed=rng_key):
-            latent_samples = {}
-            for k in locs:
-                latent_samples[k] = numpyro.sample(k, dist.Delta(locs[k]).expand_by(sample_shape))
+        latent_samples = {
+            k:jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
+        }
         return latent_samples
 
     def median(self, params):
@@ -348,7 +347,7 @@ class AutoDelta(AutoGuide):
         :return: A dict mapping sample site name to median tensor.
         :rtype: dict
         """
-        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k, v in self._init_locs.items()}
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
         return locs
 
 
