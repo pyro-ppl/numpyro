@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 
-def flax_module(name, nn_module, *args, input_shape=None, **kwargs):
+def flax_module(name, nn_module, *, input_shape=None, **kwargs):
     """
     Declare a :mod:`~flax` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -28,6 +28,8 @@ def flax_module(name, nn_module, *args, input_shape=None, **kwargs):
     :param flax.nn.Module nn_module: a `flax` Module which has .init and .apply methods
     :param tuple input_shape: shape of the input taken by the
         neural network.
+    :param kwargs: optional keyword arguments to initialize flax neural network
+        as an alternative to `input_shape`
     :return: a callable with bound parameters that takes an array
         as an input and returns the neural network transformed output
         array.
@@ -42,8 +44,7 @@ def flax_module(name, nn_module, *args, input_shape=None, **kwargs):
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)
     if nn_params is None:
-        if input_shape is not None:
-            args = (jnp.ones(input_shape),)
+        args = (jnp.ones(input_shape),) if input_shape is not None else ()
         # feed in dummy data to init params
         rng_key = numpyro.prng_key()
         _, nn_params = nn_module.init(rng_key, *args, **kwargs)
@@ -54,7 +55,7 @@ def flax_module(name, nn_module, *args, input_shape=None, **kwargs):
     return partial(nn_module.call, nn_params)
 
 
-def haiku_module(name, nn_module, *args, input_shape=None, **kwargs):
+def haiku_module(name, nn_module, *, input_shape=None, **kwargs):
     """
     Declare a :mod:`~haiku` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -64,6 +65,8 @@ def haiku_module(name, nn_module, *args, input_shape=None, **kwargs):
     :param haiku.Module nn_module: a `haiku` Module which has .init and .apply methods
     :param tuple input_shape: shape of the input taken by the
         neural network.
+    :param kwargs: optional keyword arguments to initialize flax neural network
+        as an alternative to `input_shape`
     :return: a callable with bound parameters that takes an array
         as an input and returns the neural network transformed output
         array.
@@ -79,8 +82,7 @@ def haiku_module(name, nn_module, *args, input_shape=None, **kwargs):
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)
     if nn_params is None:
-        if input_shape is not None:
-            args = (jnp.ones(input_shape),)
+        args = (jnp.ones(input_shape),) if input_shape is not None else ()
         # feed in dummy data to init params
         rng_key = numpyro.prng_key()
         nn_params = nn_module.init(rng_key, *args, **kwargs)
@@ -123,7 +125,7 @@ def _update_params(params, new_params, prior, prefix=''):
             new_params[name] = numpyro.sample(flatten_name, d.expand(param_batch_shape).to_event())
 
 
-def random_flax_module(name, nn_module, prior, *args, input_shape=None, **kwargs):
+def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
     """
     A primitive to place a prior over the parameters of the Flax module `nn_module`.
 
@@ -155,6 +157,8 @@ def random_flax_module(name, nn_module, prior, *args, input_shape=None, **kwargs
 
     :type param: dict or ~numpyro.distributions.Distribution
     :param tuple input_shape: shape of the input taken by the neural network.
+    :param kwargs: optional keyword arguments to initialize flax neural network
+        as an alternative to `input_shape`
     :returns: a sampled module
 
     **Example**
@@ -210,7 +214,7 @@ def random_flax_module(name, nn_module, prior, *args, input_shape=None, **kwargs
         >>> assert losses[-1] < 3000
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
-    nn = flax_module(name, nn_module, *args, input_shape=input_shape, **kwargs)
+    nn = flax_module(name, nn_module, input_shape=input_shape, **kwargs)
     params = nn.args[0]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):
@@ -219,7 +223,7 @@ def random_flax_module(name, nn_module, prior, *args, input_shape=None, **kwargs
     return nn_new
 
 
-def random_haiku_module(name, nn_module, prior, *args, input_shape=None, **kwargs):
+def random_haiku_module(name, nn_module, prior, *, input_shape=None, **kwargs):
     """
     A primitive to place a prior over the parameters of the Haiku module `nn_module`.
 
@@ -237,7 +241,7 @@ def random_haiku_module(name, nn_module, prior, *args, input_shape=None, **kwarg
     :param tuple input_shape: shape of the input taken by the neural network.
     :returns: a sampled module
     """
-    nn = haiku_module(name, nn_module, *args, input_shape=input_shape, **kwargs)
+    nn = haiku_module(name, nn_module, input_shape=input_shape, **kwargs)
     params = nn.args[0]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):

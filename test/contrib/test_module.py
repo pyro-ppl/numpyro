@@ -32,35 +32,6 @@ def haiku_model_by_shape(x, y):
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
-def haiku_model_by_args_1(x, y):
-    import haiku as hk
-
-    linear_module = hk.transform(lambda x: hk.Linear(100)(x))
-    nn = haiku_module("nn", linear_module, x)
-    mean = nn(x)
-    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
-
-
-def haiku_model_by_args_2(w, x, y):
-    import haiku as hk
-
-    class TestHaikuModule(hk.Module):
-        def __init__(self, dim: int = 100):
-            super().__init__()
-            self._dim = dim
-            return
-
-        def __call__(self, w, x):
-            l1 = hk.Linear(self._dim, name="w_linear")(w)
-            l2 = hk.Linear(self._dim, name="x_linear")(x)
-            return l1 + l2
-
-    linear_module = hk.transform(lambda w, x: TestHaikuModule(100)(w, x))
-    nn = haiku_module("nn", linear_module, w, x)
-    mean = nn(w, x)
-    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
-
-
 def haiku_model_by_kwargs_1(x, y):
     import haiku as hk
 
@@ -99,15 +70,6 @@ def flax_model_by_shape(x, y):
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
 
 
-def flax_model_by_args(x, y):
-    import flax
-
-    linear_module = flax.nn.Dense.partial(features=100)
-    nn = flax_module("nn", linear_module, x)
-    mean = nn(x)
-    numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
-
-
 def flax_model_by_kwargs(x, y):
     import flax
 
@@ -127,11 +89,6 @@ def test_flax_module():
     assert flax_tr["nn$params"]['value']['bias'].shape == (100,)
 
     with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
-        flax_model_by_args(X, Y)
-    assert flax_tr["nn$params"]['value']['kernel'].shape == (100, 100)
-    assert flax_tr["nn$params"]['value']['bias'].shape == (100,)
-
-    with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
         flax_model_by_kwargs(X, Y)
     assert flax_tr["nn$params"]['value']['kernel'].shape == (100, 100)
     assert flax_tr["nn$params"]['value']['bias'].shape == (100,)
@@ -146,18 +103,6 @@ def test_haiku_module():
         haiku_model_by_shape(X, Y)
     assert haiku_tr["nn$params"]['value']['linear']['w'].shape == (100, 100)
     assert haiku_tr["nn$params"]['value']['linear']['b'].shape == (100,)
-
-    with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
-        haiku_model_by_args_1(X, Y)
-    assert haiku_tr["nn$params"]['value']['linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['linear']['b'].shape == (100,)
-
-    with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
-        haiku_model_by_args_2(W, X, Y)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/w_linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/w_linear']['b'].shape == (100,)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/x_linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/x_linear']['b'].shape == (100,)
 
     with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
         haiku_model_by_kwargs_1(X, Y)
@@ -184,7 +129,7 @@ def test_update_params():
 
 
 @pytest.mark.parametrize("backend", ["flax", "haiku"])
-@pytest.mark.parametrize("init", ["shape", "args", "kwargs"])
+@pytest.mark.parametrize("init", ["shape", "kwargs"])
 def test_random_module__mcmc(backend, init):
 
     if backend == "flax":
@@ -212,19 +157,14 @@ def test_random_module__mcmc(backend, init):
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
     if init == "shape":
-        args = ()
         kwargs = {"input_shape": (3,)}
-    elif init == "args":
-        args = (data,)
-        kwargs = {}
     elif init == "kwargs":
-        args = ()
         kwargs = {kwargs_name: data}
 
     def model(data, labels):
         nn = random_module("nn", linear_module,
                            {bias_name: dist.Cauchy(), weight_name: dist.Normal()},
-                           *args, **kwargs)
+                           **kwargs)
         logits = nn(data).squeeze(-1)
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
