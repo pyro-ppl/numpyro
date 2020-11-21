@@ -22,6 +22,7 @@ from numpyro.contrib.module import (
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
 
+
 def haiku_model_by_shape(x, y):
     import haiku as hk
 
@@ -44,11 +45,11 @@ def haiku_model_by_args_2(w, x, y):
     import haiku as hk
 
     class TestHaikuModule(hk.Module):
-        def __init__(self, dim:int = 100):
+        def __init__(self, dim: int = 100):
             super().__init__()
             self._dim = dim
             return
-    
+
         def __call__(self, w, x):
             l1 = hk.Linear(self._dim, name="w_linear")(w)
             l2 = hk.Linear(self._dim, name="x_linear")(x)
@@ -73,11 +74,11 @@ def haiku_model_by_kwargs_2(w, x, y):
     import haiku as hk
 
     class TestHaikuModule(hk.Module):
-        def __init__(self, dim:int = 100):
+        def __init__(self, dim: int = 100):
             super().__init__()
             self._dim = dim
             return
-    
+
         def __call__(self, w, x):
             l1 = hk.Linear(self._dim, name="w_linear")(w)
             l2 = hk.Linear(self._dim, name="x_linear")(x)
@@ -158,14 +159,12 @@ def test_haiku_module():
     assert haiku_tr["nn$params"]['value']['test_haiku_module/x_linear']['w'].shape == (100, 100)
     assert haiku_tr["nn$params"]['value']['test_haiku_module/x_linear']['b'].shape == (100,)
 
-    with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
+    with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
         haiku_model_by_kwargs_1(X, Y)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/w_linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/w_linear']['b'].shape == (100,)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/x_linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/x_linear']['b'].shape == (100,)
+    assert haiku_tr["nn$params"]['value']['linear']['w'].shape == (100, 100)
+    assert haiku_tr["nn$params"]['value']['linear']['b'].shape == (100,)
 
-    with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
+    with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
         haiku_model_by_kwargs_2(W, X, Y)
     assert haiku_tr["nn$params"]['value']['test_haiku_module/w_linear']['w'].shape == (100, 100)
     assert haiku_tr["nn$params"]['value']['test_haiku_module/w_linear']['b'].shape == (100,)
@@ -187,7 +186,6 @@ def test_update_params():
 @pytest.mark.parametrize("backend", ["flax", "haiku"])
 @pytest.mark.parametrize("init", ["shape", "args", "kwargs"])
 def test_random_module__mcmc(backend, init):
-    import functools as ft
 
     if backend == "flax":
         import flax
@@ -215,7 +213,7 @@ def test_random_module__mcmc(backend, init):
 
     if init == "shape":
         args = ()
-        kwargs = {"input_shape":(3,)}
+        kwargs = {"input_shape": (3,)}
     elif init == "args":
         args = (data,)
         kwargs = {}
@@ -230,7 +228,6 @@ def test_random_module__mcmc(backend, init):
         logits = nn(data).squeeze(-1)
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
-
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data, labels)
@@ -238,4 +235,3 @@ def test_random_module__mcmc(backend, init):
     samples = mcmc.get_samples()
     assert set(samples.keys()) == {"nn/{}".format(bias_name), "nn/{}".format(weight_name)}
     assert_allclose(np.mean(samples["nn/{}".format(weight_name)].squeeze(-1), 0), true_coefs, atol=0.22)
-
