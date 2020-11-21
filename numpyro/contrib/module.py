@@ -18,7 +18,7 @@ __all__ = [
 ]
 
 
-def flax_module(name, nn_module, *, input_shape=None):
+def flax_module(name, nn_module, *args, input_shape=None, **kwargs):
     """
     Declare a :mod:`~flax` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -42,11 +42,11 @@ def flax_module(name, nn_module, *, input_shape=None):
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)
     if nn_params is None:
-        if input_shape is None:
-            raise ValueError('Valid value for `input_shape` needed to initialize.')
+        if input_shape is not None:
+            args = (jnp.ones(input_shape),)
         # feed in dummy data to init params
         rng_key = numpyro.prng_key()
-        _, nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
+        _, nn_params = nn_module.init(rng_key, *args, **kwargs)
         # make sure that nn_params keep the same order after unflatten
         params_flat, tree_def = tree_flatten(nn_params)
         nn_params = tree_unflatten(tree_def, params_flat)
@@ -54,7 +54,7 @@ def flax_module(name, nn_module, *, input_shape=None):
     return partial(nn_module.call, nn_params)
 
 
-def haiku_module(name, nn_module, *, input_shape=None):
+def haiku_module(name, nn_module, *args, input_shape=None, **kwargs):
     """
     Declare a :mod:`~haiku` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -79,11 +79,11 @@ def haiku_module(name, nn_module, *, input_shape=None):
     module_key = name + '$params'
     nn_params = numpyro.param(module_key)
     if nn_params is None:
-        if input_shape is None:
-            raise ValueError('Valid value for `input_shape` needed to initialize.')
+        if input_shape is not None:
+            args = (jnp.ones(input_shape),)
         # feed in dummy data to init params
         rng_key = numpyro.prng_key()
-        nn_params = nn_module.init(rng_key, jnp.ones(input_shape))
+        nn_params = nn_module.init(rng_key, *args, **kwargs)
         # haiku init returns an immutable dict
         nn_params = haiku.data_structures.to_mutable_dict(nn_params)
         # we cast it to a mutable one to be able to set priors for parameters
@@ -123,7 +123,7 @@ def _update_params(params, new_params, prior, prefix=''):
             new_params[name] = numpyro.sample(flatten_name, d.expand(param_batch_shape).to_event())
 
 
-def random_flax_module(name, nn_module, prior, *, input_shape=None):
+def random_flax_module(name, nn_module, prior, *args, input_shape=None, **kwargs):
     """
     A primitive to place a prior over the parameters of the Flax module `nn_module`.
 
@@ -210,7 +210,7 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
         >>> assert losses[-1] < 3000
         >>> assert np.sqrt(np.mean(np.square(y_test - y_pred))) < 1
     """
-    nn = flax_module(name, nn_module, input_shape=input_shape)
+    nn = flax_module(name, nn_module, *args, input_shape=input_shape, **kwargs)
     params = nn.args[0]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):
@@ -219,7 +219,7 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None):
     return nn_new
 
 
-def random_haiku_module(name, nn_module, prior, *, input_shape=None):
+def random_haiku_module(name, nn_module, prior, *args, input_shape=None, **kwargs):
     """
     A primitive to place a prior over the parameters of the Haiku module `nn_module`.
 
@@ -237,7 +237,7 @@ def random_haiku_module(name, nn_module, prior, *, input_shape=None):
     :param tuple input_shape: shape of the input taken by the neural network.
     :returns: a sampled module
     """
-    nn = haiku_module(name, nn_module, input_shape=input_shape)
+    nn = haiku_module(name, nn_module, *args, input_shape=input_shape, **kwargs)
     params = nn.args[0]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):
