@@ -24,7 +24,7 @@ import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, init_to_value, init_to_median, init_to_feasible, init_to_sample
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -55,7 +55,18 @@ def model(X, Y):
 # helper function for doing hmc inference
 def run_inference(model, args, rng_key, X, Y):
     start = time.time()
-    kernel = NUTS(model)
+    # demonstrate how to use different HMC initialization strategies
+    if args.init_strategy == "value":
+        init_strategy = init_to_value(values={"kernel_var": 1.0, "kernel_noise": 0.05, "kernel_length": 0.5})
+    elif args.init_strategy == "median":
+        init_strategy = init_to_median(num_samples=10)
+    elif args.init_strategy == "feasible":
+        init_strategy = init_to_feasible()
+    elif args.init_strategy == "sample":
+        init_strategy = init_to_sample()
+    elif args.init_strategy == "uniform":
+        init_strategy = None  # uniform is the default
+    kernel = NUTS(model, init_strategy=init_strategy)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y)
@@ -136,6 +147,8 @@ if __name__ == "__main__":
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument("--num-data", nargs='?', default=25, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--init-strategy", default='median', type=str,
+                        choices=['median', 'feasible', 'value', 'uniform', 'sample'])
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
