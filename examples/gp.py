@@ -24,7 +24,7 @@ import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS, init_to_value, init_to_median, init_to_feasible, init_to_sample
+from numpyro.infer import MCMC, NUTS, init_to_value, init_to_median, init_to_feasible, init_to_sample, init_to_uniform
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -65,7 +65,7 @@ def run_inference(model, args, rng_key, X, Y):
     elif args.init_strategy == "sample":
         init_strategy = init_to_sample()
     elif args.init_strategy == "uniform":
-        init_strategy = None  # uniform is the default
+        init_strategy = init_to_uniform(radius=1)
     kernel = NUTS(model, init_strategy=init_strategy)
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
