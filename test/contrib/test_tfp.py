@@ -197,3 +197,19 @@ def test_unnormalized_normal_chain(kernel, kwargs, num_chains):
     hmc_states = mcmc.get_samples()
     assert_allclose(jnp.mean(hmc_states), true_mean, rtol=0.07)
     assert_allclose(jnp.std(hmc_states), true_std, rtol=0.07)
+
+
+# test if sampling from tfp distributions works as expected using
+# numpyro sample function: numpyro.sample("name", dist) (bug)
+@pytest.mark.filterwarnings("ignore:can't resolve package")
+def test_sample_tfp_distributions():
+    from numpyro.contrib.tfp import distributions as tfd
+
+    # test no error raised
+    d = tfd.Normal(0, 1)
+    with numpyro.handlers.seed(rng_seed=random.PRNGKey(0)):
+        numpyro.sample("normal", d)
+
+    # test intermediates are []
+    value, intermediates = d(sample_intermediates=True, rng_key=random.PRNGKey(0))
+    assert intermediates == []
