@@ -657,6 +657,7 @@ def test_collapse_normal_mvn_mvn():
         x = numpyro.sample("x", dist.Exponential(1))
         with handlers.collapse():
             with numpyro.plate("d", d):
+                # TODO: verify that to_event works here
                 beta0 = numpyro.sample("beta0", dist.Normal(0, 1).expand([S]).to_event(1))
                 # TODO: address beta0 is a str, which cannot do infer_param_domain
                 beta = numpyro.sample("beta", dist.MultivariateNormal(beta0, jnp.eye(S)))
