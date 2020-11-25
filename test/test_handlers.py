@@ -636,7 +636,6 @@ def test_collapse_normal_plate_normal():
         x = numpyro.sample("x", dist.Normal(0, 1))
         with handlers.collapse():
             with handlers.plate("data", len(data)):
-                # TODO: address expanded distribution
                 y = numpyro.sample("y", dist.Normal(x, 1.))
                 numpyro.sample("z", dist.Normal(y, 1.), obs=data)
 

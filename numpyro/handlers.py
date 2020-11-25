@@ -83,7 +83,7 @@ from jax import lax, random
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.distributions.distribution import COERCIONS
+from numpyro.distributions.distribution import COERCIONS, ExpandedDistribution
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
 from numpyro.util import not_jax_tracer
 
@@ -268,6 +268,8 @@ class collapse(trace):
         if msg["type"] == "sample":
             if msg["value"] is None:
                 msg["value"] = msg["name"]
+                if isinstance(msg["fn"], ExpandedDistribution):
+                    msg["fn"] = msg["fn"].base_dist
 
             if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
                 msg["stop"] = True
