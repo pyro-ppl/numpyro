@@ -590,6 +590,91 @@ def test_collapse_beta_binomial_plate():
     svi.update(svi_state)
 
 
+def test_collapse_normal_normal():
+    data = np.array(0.)
+
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        with handlers.collapse():
+            y = numpyro.sample("y", dist.Normal(x, 1.))
+            numpyro.sample("z", dist.Normal(y, 1.), obs=data)
+
+    def guide():
+        loc = numpyro.param("loc", 0.)
+        scale = numpyro.param("scale", 1., constraint=constraints.positive)
+        numpyro.sample("x", dist.Normal(loc, scale))
+
+    svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)
+
+
+def test_collapse_normal_normal_plate():
+    data = np.arange(5.)
+
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        with handlers.collapse():
+            y = numpyro.sample("y", dist.Normal(x, 1.))
+            with handlers.plate("data", len(data)):
+                numpyro.sample("z", dist.Normal(y, 1.), obs=data)
+
+    def guide():
+        loc = numpyro.param("loc", 0.)
+        scale = numpyro.param("scale", 1., constraint=constraints.positive)
+        numpyro.sample("x", dist.Normal(loc, scale))
+
+    svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)
+
+
+def test_collapse_normal_plate_normal():
+    data = np.arange(5.)
+
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        with handlers.collapse():
+            with handlers.plate("data", len(data)):
+                # TODO: address expanded distribution
+                y = numpyro.sample("y", dist.Normal(x, 1.))
+                numpyro.sample("z", dist.Normal(y, 1.), obs=data)
+
+    def guide():
+        loc = numpyro.param("loc", 0.)
+        scale = numpyro.param("scale", 1., constraint=constraints.positive)
+        numpyro.sample("x", dist.Normal(loc, scale))
+
+    svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)
+
+
+def test_collapse_normal_mvn_mvn():
+    T, d, S = 5, 2, 3
+    data = jnp.ones((T, S))
+
+    def model():
+        x = numpyro.sample("x", dist.Exponential(1))
+        with handlers.collapse():
+            with numpyro.plate("d", d):
+                beta0 = numpyro.sample("beta0", dist.Normal(0, 1).expand([S]).to_event(1))
+                # TODO: address beta0 is a str, which cannot do infer_param_domain
+                beta = numpyro.sample("beta", dist.MultivariateNormal(beta0, jnp.eye(S)))
+            # FIXME: beta is a string here, how to apply numeric operators
+            mean = jnp.ones((T, d)) @ beta
+            with numpyro.plate("data", T, dim=-2):
+                numpyro.sample("obs", dist.MultivariateNormal(mean, jnp.eye(S)), obs=data)
+
+    def guide():
+        rate = numpyro.param("rate", 1., constraint=constraints.positive)
+        numpyro.sample("x", dist.Exponential(rate))
+
+    svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)
+
+
 def test_prng_key():
     assert numpyro.prng_key() is None
 
