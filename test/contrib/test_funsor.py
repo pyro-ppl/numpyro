@@ -21,6 +21,7 @@ from numpyro.contrib.funsor.infer_util import log_density
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
+from numpyro.primitives import _PYRO_STACK
 
 
 def test_gaussian_mixture_model():
@@ -432,7 +433,7 @@ def test_scan_enum_scan_enum():
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
-def test_missing_plate():
+def test_missing_plate(monkeypatch):
     K, N = 3, 1000
 
     def gmm(data):
@@ -453,3 +454,8 @@ def test_missing_plate():
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
     with pytest.raises(AssertionError, match="Missing plate statement"):
         mcmc.run(random.PRNGKey(2), data)
+
+    monkeypatch.setattr(numpyro.infer.util, "_validate_model", lambda model_trace: None)
+    with pytest.raises(Exception):
+        mcmc.run(random.PRNGKey(2), data)
+    assert len(_PYRO_STACK) == 0

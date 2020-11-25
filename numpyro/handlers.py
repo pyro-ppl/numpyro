@@ -279,13 +279,14 @@ class collapse(trace):
         return super().__enter__()
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if exc_type is not None:
-            return super().__exit__(exc_type, exc_value, traceback)
         import funsor
 
         _coerce = COERCIONS.pop()
         assert _coerce is self._coerce
         super().__exit__(exc_type, exc_value, traceback)
+
+        if exc_type is not None:
+            return
 
         # Convert delayed statements to pyro.factor()
         reduced_vars = []

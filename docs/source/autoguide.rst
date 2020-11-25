@@ -66,3 +66,11 @@ AutoNormal
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+AutoDelta
+---------
+.. autoclass:: numpyro.infer.autoguide.AutoDelta
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

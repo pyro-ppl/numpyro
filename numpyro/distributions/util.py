@@ -479,6 +479,14 @@ def periodic_repeat(x, size, dim):
     return result
 
 
+# src: https://github.com/google/jax/blob/5a41779fbe12ba7213cd3aa1169d3b0ffb02a094/jax/_src/random.py#L95
+def is_prng_key(key):
+    try:
+        return key.shape == (2,) and key.dtype == np.uint32
+    except AttributeError:
+        return False
+
+
 # The is sourced from: torch.distributions.util.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)

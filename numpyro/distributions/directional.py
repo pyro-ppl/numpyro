@@ -8,7 +8,7 @@ from jax.scipy.special import i0e, i1e
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import promote_shapes, validate_sample, von_mises_centered
+from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sample, von_mises_centered
 
 
 class VonMises(Distribution):
@@ -36,6 +36,7 @@ class VonMises(Distribution):
             :param key: random number generator key
             :return: samples from von Mises
         """
+        assert is_prng_key(key)
         samples = von_mises_centered(key, self.concentration, sample_shape + self.shape())
         samples = samples + self.loc  # VM(0, concentration) -> VM(loc,concentration)
         samples = (samples + jnp.pi) % (2. * jnp.pi) - jnp.pi

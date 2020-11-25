@@ -44,6 +44,7 @@ from numpyro.distributions.util import (
     categorical,
     clamp_probs,
     get_dtype,
+    is_prng_key,
     lazy_property,
     multinomial,
     promote_shapes,
@@ -82,6 +83,7 @@ class BernoulliProbs(Distribution):
         super(BernoulliProbs, self).__init__(batch_shape=jnp.shape(self.probs), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         samples = random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
         return samples.astype(jnp.result_type(samples, int))
 
@@ -115,6 +117,7 @@ class BernoulliLogits(Distribution):
         super(BernoulliLogits, self).__init__(batch_shape=jnp.shape(self.logits), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         samples = random.bernoulli(key, self.probs, shape=sample_shape + self.batch_shape)
         return samples.astype(jnp.result_type(samples, int))
 
@@ -162,6 +165,7 @@ class BinomialProbs(Distribution):
         super(BinomialProbs, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         return binomial(key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -212,6 +216,7 @@ class BinomialLogits(Distribution):
         super(BinomialLogits, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         return binomial(key, self.probs, n=self.total_count, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -263,6 +268,7 @@ class CategoricalProbs(Distribution):
                                                validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         return categorical(key, self.probs, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -306,6 +312,7 @@ class CategoricalLogits(Distribution):
                                                 validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         return random.categorical(key, self.logits, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -463,6 +470,7 @@ class MultinomialProbs(Distribution):
                                                validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         return multinomial(key, self.probs, self.total_count, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -501,6 +509,7 @@ class MultinomialLogits(Distribution):
                                                 validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         return multinomial(key, self.probs, self.total_count, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -547,6 +556,7 @@ class Poisson(Distribution):
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         return random.poisson(key, self.rate, shape=sample_shape + self.batch_shape)
 
     @validate_sample
@@ -581,6 +591,7 @@ class ZeroInflatedPoisson(Distribution):
         super(ZeroInflatedPoisson, self).__init__(batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         key_bern, key_poisson = random.split(key)
         shape = sample_shape + self.batch_shape
         mask = random.bernoulli(key_bern, self.gate, shape)
@@ -612,6 +623,7 @@ class GeometricProbs(Distribution):
                                              validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         probs = self.probs
         dtype = get_dtype(probs)
         shape = sample_shape + self.batch_shape
@@ -647,6 +659,7 @@ class GeometricLogits(Distribution):
         return _to_probs_bernoulli(self.logits)
 
     def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
         logits = self.logits
         dtype = get_dtype(logits)
         shape = sample_shape + self.batch_shape
