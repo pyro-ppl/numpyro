@@ -536,7 +536,7 @@ def test_collapse_beta_binomial():
     assert "obs" in trace2
 
     svi1 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
-    svi2 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
+    svi2 = SVI(model2, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
     svi_state1 = svi1.init(random.PRNGKey(0))
     svi_state2 = svi2.init(random.PRNGKey(0))
     params1 = svi1.get_params(svi_state1)
