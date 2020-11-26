@@ -649,25 +649,50 @@ def test_collapse_normal_plate_normal():
     svi.update(svi_state)
 
 
+@pytest.mark.xfail(reason="missing pattern in Funsor")
+def test_collapse_diag_normal_plate_normal():
+    d = 3
+    data = np.ones((5, d))
+
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        with handlers.collapse():
+            with handlers.plate("data", len(data)):
+                y = numpyro.sample("y", dist.Normal(x, 1.).expand([d]).to_event(1))
+                numpyro.sample("z", dist.Normal(y, 1.).to_event(1), obs=data)
+
+    def guide():
+        loc = numpyro.param("loc", 0.)
+        scale = numpyro.param("scale", 1., constraint=constraints.positive)
+        numpyro.sample("x", dist.Normal(loc, scale))
+
+    svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)
+
+
+@pytest.mark.xfail(reason="missing pattern in Funsor")
 def test_collapse_normal_mvn_mvn():
     T, d, S = 5, 2, 3
     data = jnp.ones((T, S))
 
     def model():
-        x = numpyro.sample("x", dist.Exponential(1))
+        x = numpyro.sample("x", dist.Normal(0, 1))
         with handlers.collapse():
             with numpyro.plate("d", d, dim=-1):
-                beta0 = numpyro.sample("beta0", dist.Normal(0., 1.).expand([d, S]).to_event(1))
+                beta0 = numpyro.sample("beta0", dist.Normal(x, 1.).expand([d, S]).to_event(1))
                 beta = numpyro.sample(
                     "beta", dist.MultivariateNormal(beta0, scale_tril=jnp.eye(S)))
 
+	    # this fails because beta shape is (3,) while it should be (2, 3)
             mean = jnp.ones((T, d)) @ beta
             with numpyro.plate("data", T, dim=-1):
                 numpyro.sample("obs", dist.MultivariateNormal(mean, scale_tril=jnp.eye(S)), obs=data)
 
     def guide():
-        rate = numpyro.param("rate", 1., constraint=constraints.positive)
-        numpyro.sample("x", dist.Exponential(rate))
+        loc = numpyro.param("loc", 0.)
+        scale = numpyro.param("scale", 1., constraint=constraints.positive)
+        numpyro.sample("x", dist.Normal(loc, scale))
 
     svi = SVI(model, guide, numpyro.optim.Adam(1), Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0))
