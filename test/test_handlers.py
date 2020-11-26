@@ -684,7 +684,7 @@ def test_collapse_normal_mvn_mvn():
                 beta = numpyro.sample(
                     "beta", dist.MultivariateNormal(beta0, scale_tril=jnp.eye(S)))
 
-	    # this fails because beta shape is (3,) while it should be (2, 3)
+            # this fails because beta shape is (3,) while it should be (2, 3)
             mean = jnp.ones((T, d)) @ beta
             with numpyro.plate("data", T, dim=-1):
                 numpyro.sample("obs", dist.MultivariateNormal(mean, scale_tril=jnp.eye(S)), obs=data)
