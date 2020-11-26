@@ -299,3 +299,34 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
     ys = tree_map(lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys)
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+def posdef(m):
+    mlambda, mvec = jnp.linalg.eigh(m)
+    if jnp.ndim(mlambda) >= 2:
+        mlambda = jax.vmap(lambda ml: jnp.diag(jnp.maximum(ml, 1e-5)), in_axes=tuple(range(jnp.ndim(mlambda) - 1)))(
+            mlambda)
+    else:
+        mlambda = jnp.diag(jnp.maximum(mlambda, 1e-5))
+    return mvec @ mlambda @ jnp.swapaxes(mvec, -2, -1)
+
+
+def sqrth(m):
+    mlambda, mvec = jnp.linalg.eigh(m)
+    if jnp.ndim(mlambda) >= 2:
+        mlambdasqrt = jax.vmap(lambda ml: jnp.diag(jnp.maximum(ml, 1e-5) ** 0.5),
+                               in_axes=tuple(range(jnp.ndim(mlambda) - 1)))(mlambda)
+    else:
+        mlambdasqrt = jnp.diag(jnp.maximum(mlambda, 1e-5) ** 0.5)
+    msqrt = mvec @ mlambdasqrt @ jnp.swapaxes(mvec, -2, -1)
+    return msqrt
+
+
+def safe_norm(a, ord=2, axis=None):
+    if axis is not None:
+        is_zero = jnp.expand_dims(jnp.isclose(jnp.sum(a, axis=axis), 0.), axis=axis)
+    else:
+        is_zero = jnp.ones_like(a, dtype='bool')
+    norm = jnp.linalg.norm(a + jnp.where(is_zero, jnp.ones_like(a) * 1e-5 ** ord, jnp.zeros_like(a)), ord=ord,
+                           axis=axis)
+    return norm
