@@ -120,6 +120,7 @@ class IMQKernel(SteinKernel):
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2, axis=-1) if self._mode == 'norm' else x - y
             return (jnp.array(self.const) ** 2 + diff ** 2) ** self.expon
+
         return kernel
 
 
@@ -141,6 +142,7 @@ class LinearKernel(SteinKernel):
                 return x @ y + 1
             else:
                 return x * y + 1
+
         return kernel
 
 
@@ -191,6 +193,7 @@ class RandomFeatureKernel(SteinKernel):
             ws = self._random_weights if self.random_indices is None else self._random_weights[self.random_indices]
             bs = self._random_biases if self.random_indices is None else self._random_biases[self.random_indices]
             return jnp.sum(jax.vmap(lambda w, b: feature(x, w, b) * feature(y, w, b))(ws, bs))
+
         return kernel
 
 
