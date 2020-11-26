@@ -1,10 +1,12 @@
 from abc import ABC, abstractmethod
 from typing import Callable, List, Dict, Tuple
+
+import jax.numpy as jnp
+import jax.scipy.linalg
+import jax.scipy.stats
 import numpy as np
 import numpy.random as npr
-import jax.numpy as jnp
-import jax.scipy.stats
-import jax.scipy.linalg
+
 import numpyro.distributions as dist
 from numpyro.util import sqrth, posdef, safe_norm
 
@@ -45,9 +47,10 @@ class RBFKernel(SteinKernel):
     """
     Calculates the Gaussian RBF kernel function with median bandwidth.
     This is the kernel used in the original "Stein Variational Gradient Descent" paper by Liu and Wang
-    :param mode: Either 'norm' (default) specifying to take the norm of each particle, 'vector' to return a component-wise kernel
-                 or 'matrix' to return a matrix-valued kernel
-    :param matrix_mode: Either 'norm_diag' (default) for diagonal filled with the norm kernel or 'vector_diag' for diagonal of vector-valued kernel
+    :param mode: Either 'norm' (default) specifying to take the norm of each particle, 'vector' to return a
+                 component-wise kernel or 'matrix' to return a matrix-valued kernel
+    :param matrix_mode: Either 'norm_diag' (default) for diagonal filled with the norm kernel or 'vector_diag'
+                        for diagonal of vector-valued kernel
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
     """
 
@@ -98,9 +101,10 @@ class RBFKernel(SteinKernel):
 class IMQKernel(SteinKernel):
     """
     Calculates the IMQ kernel, from "Measuring Sample Quality with Kernels" by Gorham and Mackey
-    :param mode: Either 'norm' (default) specifying to take the norm of each particle or 'vector' to return a component-wise kernel
+    :param mode: Either 'norm' (default) specifying to take the norm of each particle,
+                 or 'vector' to return a component-wise kernel
     :param const: Positive multi-quadratic constant (c)
-    :param exponent: Inverse exponent (beta) between (-1, 0)
+    :param expon: Inverse exponent (beta) between (-1, 0)
     """
 
     # Based on
@@ -149,8 +153,10 @@ class LinearKernel(SteinKernel):
 class RandomFeatureKernel(SteinKernel):
     """
     Calculates the random kernel, from "Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
-    :param bandwidth_subset: How many particles should be used to calculate the bandwidth? (default None, meaning all particles)
-    :param random_indices: The set of indices which to do random feature expansion on. (default None, meaning all indices)
+    :param bandwidth_subset: How many particles should be used to calculate the bandwidth?
+                             (default None, meaning all particles)
+    :param random_indices: The set of indices which to do random feature expansion on.
+                           (default None, meaning all indices)
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
     """
 
@@ -199,7 +205,9 @@ class RandomFeatureKernel(SteinKernel):
 
 class MixtureKernel(SteinKernel):
     """
-    Implements a mixture of multiple kernels from "Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
+    Implements a mixture of multiple kernels from "Stein Variational Gradient Descent as Moment Matching" by
+    Liu and Wang
+
     :param ws: Weight of each kernel in the mixture
     :param kernel_fns: Different kernel functions to mix together
     """
@@ -240,7 +248,8 @@ class HessianPrecondMatrix(PrecondMatrix):
 
 class PrecondMatrixKernel(SteinKernel):
     """
-    Calculates the preconditioned kernel from "Stein Variational Gradient Descent with Matrix-Valued Kernels" by Wang, Tang, Bajaj and Liu
+    Calculates the preconditioned kernel from "Stein Variational Gradient Descent with Matrix-Valued Kernels" by
+    Wang, Tang, Bajaj and Liu
     :param precond_matrix_fn: The constant preconditioning matrix
     :param inner_kernel_fn: The inner kernel function
     :param precond_mode: How to use the precondition matrix, either constant ('const')
@@ -286,8 +295,10 @@ class PrecondMatrixKernel(SteinKernel):
 
 class GraphicalKernel(SteinKernel):
     """
-    Calculates graphical kernel used in "Stein Variational Message Passing for Continuous Graphical Models" by Wang, Zheng and Liu
-    :param local_kernel_fns: A mapping between parameters and a choice of kernel function for that parameter (default to default_kernel_fn for each parameter)
+    Calculates graphical kernel used in "Stein Variational Message Passing for Continuous Graphical Models" by
+    Wang, Zheng and Liu
+    :param local_kernel_fns: A mapping between parameters and a choice of kernel function for that parameter
+                             (default to default_kernel_fn for each parameter)
     :param default_kernel_fn: The default choice of kernel function when none is specified for a particular parameter
     """
 
@@ -300,13 +311,17 @@ class GraphicalKernel(SteinKernel):
         return 'matrix'
 
     def compute(self, particles, particle_info, loss_fn):
+        def pk_loss_fn(start, end):
+            def fn(ps):
+                return loss_fn(jnp.concatenate([particles[:, :start], ps, particles[:, end:]], axis=-1))
+
+            return fn
+
         local_kernels = []
         for pk, (start_idx, end_idx) in particle_info.items():
             pk_kernel_fn = self.local_kernel_fns.get(pk, self.default_kernel_fn)
-            pk_loss_fn = lambda ps: loss_fn(
-                jnp.concatenate([particles[:, :start_idx], ps, particles[:, end_idx:]], axis=-1))
             pk_kernel = pk_kernel_fn.compute(particles[:, start_idx:end_idx], {pk: (0, end_idx - start_idx)},
-                                             pk_loss_fn)
+                                             pk_loss_fn(start_idx, end_idx))
             local_kernels.append((pk_kernel, pk_kernel_fn.mode, start_idx, end_idx))
 
         def kernel(x, y):
