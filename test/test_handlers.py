@@ -656,15 +656,14 @@ def test_collapse_normal_mvn_mvn():
     def model():
         x = numpyro.sample("x", dist.Exponential(1))
         with handlers.collapse():
-            with numpyro.plate("d", d):
-                # TODO: verify that to_event works here
-                beta0 = numpyro.sample("beta0", dist.Normal(0, 1).expand([S]).to_event(1))
-                # TODO: address beta0 is a str, which cannot do infer_param_domain
-                beta = numpyro.sample("beta", dist.MultivariateNormal(beta0, jnp.eye(S)))
-            # FIXME: beta is a string here, how to apply numeric operators
+            with numpyro.plate("d", d, dim=-1):
+                beta0 = numpyro.sample("beta0", dist.Normal(0., 1.).expand([d, S]).to_event(1))
+                beta = numpyro.sample(
+                    "beta", dist.MultivariateNormal(beta0, scale_tril=jnp.eye(S)))
+
             mean = jnp.ones((T, d)) @ beta
-            with numpyro.plate("data", T, dim=-2):
-                numpyro.sample("obs", dist.MultivariateNormal(mean, jnp.eye(S)), obs=data)
+            with numpyro.plate("data", T, dim=-1):
+                numpyro.sample("obs", dist.MultivariateNormal(mean, scale_tril=jnp.eye(S)), obs=data)
 
     def guide():
         rate = numpyro.param("rate", 1., constraint=constraints.positive)

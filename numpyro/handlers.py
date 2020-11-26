@@ -77,13 +77,14 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 """
 
 from collections import OrderedDict
+from functools import reduce
 import warnings
 
-from jax import lax, random
+from jax import lax, random, tree_map
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.distributions.distribution import COERCIONS, ExpandedDistribution
+from numpyro.distributions.distribution import COERCIONS, ExpandedDistribution, Independent
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
 from numpyro.util import not_jax_tracer
 
@@ -245,6 +246,20 @@ class block(Messenger):
             msg['stop'] = True
 
 
+def _eager_expand_fn(fn):
+    if isinstance(fn, Independent):
+        reinterpreted_batch_ndims = fn.reinterpreted_batch_ndims
+        fn = fn.base_dist
+    else:
+        reinterpreted_batch_ndims = 0  # no-op for to_event method
+    if isinstance(fn, ExpandedDistribution):
+        batch_shape = fn.batch_shape
+        base_batch_shape = fn.base_dist.batch_shape
+        appended_shape = batch_shape[:len(batch_shape) - len(base_batch_shape)]
+        fn = tree_map(lambda x: jnp.broadcast_to(x, appended_shape + jnp.shape(x)), fn.base_dist)
+    return fn.to_event(reinterpreted_batch_ndims)
+
+
 class collapse(trace):
     """
     EXPERIMENTAL Collapses all sites in the context by lazily sampling and
@@ -263,32 +278,47 @@ class collapse(trace):
         super().__init__(*args, **kwargs)
 
     def process_message(self, msg):
-        from funsor.terms import Funsor
+        if msg["type"] != "sample":
+            return
 
-        if msg["type"] == "sample":
-            if msg["value"] is None:
-                msg["value"] = msg["name"]
-                if isinstance(msg["fn"], ExpandedDistribution):
-                    msg["fn"] = msg["fn"].base_dist
+        import funsor
 
-            if isinstance(msg["fn"], Funsor) or isinstance(msg["value"], (str, Funsor)):
-                msg["stop"] = True
+        # Eagerly convert fn and value to Funsor.
+        dim_to_name = {f.dim: f.name for f in msg["cond_indep_stack"]}
+        dim_to_name.update(self.preserved_plates)
+        if isinstance(msg["fn"], (Independent, ExpandedDistribution)):
+            msg["fn"] = _eager_expand_fn(msg["fn"])
+        msg["fn"] = funsor.to_funsor(msg["fn"], funsor.Real, dim_to_name)
+        domain = msg["fn"].inputs["value"]
+        if msg["value"] is None:
+            msg["value"] = funsor.Variable(msg["name"], domain)
+        else:
+            msg["value"] = funsor.to_funsor(msg["value"], domain, dim_to_name)
+
+        msg["stop"] = True
 
     def __enter__(self):
-        self.preserved_plates = frozenset(h.name for h in _PYRO_STACK
-                                          if isinstance(h, plate))
+        self.preserved_plates = {h.dim: h.name for h in _PYRO_STACK
+                                 if isinstance(h, plate)}
         COERCIONS.append(self._coerce)
         return super().__enter__()
 
     def __exit__(self, exc_type, exc_value, traceback):
-        import funsor
-
         _coerce = COERCIONS.pop()
         assert _coerce is self._coerce
         super().__exit__(exc_type, exc_value, traceback)
 
         if exc_type is not None:
+            self.trace.clear()
+            self.preserved_plates.clear()
             return
+
+        if any(site["type"] == "sample" for site in self.trace.values()):
+            name, log_prob, _, _ = self._get_log_prob()
+            numpyro.factor(name, log_prob.data)
+
+    def _get_log_prob(self):
+        import funsor
 
         # Convert delayed statements to pyro.factor()
         reduced_vars = []
@@ -299,24 +329,28 @@ class collapse(trace):
                 continue
             if not site["is_observed"]:
                 reduced_vars.append(name)
-            dim_to_name = {f.dim: f.name for f in site["cond_indep_stack"]}
-            fn = funsor.to_funsor(site["fn"], funsor.Real, dim_to_name)
-            value = site["value"]
-            if not isinstance(value, str):
-                value = funsor.to_funsor(site["value"], fn.inputs["value"], dim_to_name)
-            log_prob_terms.append(fn(value=value))
+            log_prob_terms.append(site["fn"](value=site["value"]))
             plates |= frozenset(f.name for f in site["cond_indep_stack"])
-        assert log_prob_terms, "nothing to collapse"
-        reduced_plates = plates - self.preserved_plates
-        log_prob = funsor.sum_product.sum_product(
-            funsor.ops.logaddexp,
-            funsor.ops.add,
-            log_prob_terms,
-            eliminate=frozenset(reduced_vars) | reduced_plates,
-            plates=plates,
-        )
         name = reduced_vars[0]
-        numpyro.factor(name, log_prob.data)
+        reduced_vars = frozenset(reduced_vars)
+        assert log_prob_terms, "nothing to collapse"
+        reduced_plates = plates - frozenset(self.preserved_plates.values())
+        self.trace.clear()
+        self.preserved_plates.clear()
+        if reduced_plates:
+            log_prob = funsor.sum_product.sum_product(
+                funsor.ops.logaddexp,
+                funsor.ops.add,
+                log_prob_terms,
+                eliminate=frozenset(reduced_vars) | reduced_plates,
+                plates=plates,
+            )
+            log_joint = NotImplemented
+        else:
+            log_joint = reduce(funsor.ops.add, log_prob_terms)
+            log_prob = log_joint.reduce(funsor.ops.logaddexp, reduced_vars)
+
+        return name, log_prob, log_joint, reduced_vars
 
 
 class condition(Messenger):
