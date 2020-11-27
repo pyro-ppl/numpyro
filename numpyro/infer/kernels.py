@@ -16,6 +16,7 @@ class PrecondMatrix(ABC):
     def compute(self, particles: jnp.ndarray, loss_fn: Callable[[jnp.ndarray], float]):
         """
         Computes a preconditioning matrix for a given set of particles and a loss function
+
         :param particles: The Stein particles to compute the preconditioning matrix from
         :param loss_fn: Loss function given particles
         """
@@ -36,20 +37,28 @@ class SteinKernel(ABC):
                 loss_fn: Callable[[jnp.ndarray], float]):
         """
         Computes the kernel function given the input Stein particles
+
         :param particles: The Stein particles to compute the kernel from
         :param particle_info: A mapping from parameter names to the position in the particle matrix
         :param loss_fn: Loss function given particles
+        :return: TODO
         """
         raise NotImplementedError
 
 
 class RBFKernel(SteinKernel):
     """
-    Calculates the Gaussian RBF kernel function with median bandwidth.
-    This is the kernel used in the original "Stein Variational Gradient Descent" paper by Liu and Wang
-    :param mode: Either 'norm' (default) specifying to take the norm of each particle, 'vector' to return a
+    Calculates the Gaussian RBF kernel function, from [1],
+    :math: `k(x,y) = \\exp(\\frac{1}{h} \\|x-y\\|^2)`,
+    where the bandwidth h is computed using the median heuristic
+    :math: `h = \\frac{1}{\\log(n)} \\med(\\|x-y\\|)`.
+
+    ** References: **
+    1. *Stein Variational Gradient Descent*  Liu and Wang
+
+    :param str mode: Either 'norm' (default) specifying to take the norm of each particle, 'vector' to return a
                  component-wise kernel or 'matrix' to return a matrix-valued kernel
-    :param matrix_mode: Either 'norm_diag' (default) for diagonal filled with the norm kernel or 'vector_diag'
+    :param str matrix_mode: Either 'norm_diag' (default) for diagonal filled with the norm kernel or 'vector_diag'
                         for diagonal of vector-valued kernel
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
     """
@@ -100,14 +109,19 @@ class RBFKernel(SteinKernel):
 
 class IMQKernel(SteinKernel):
     """
-    Calculates the IMQ kernel, from "Measuring Sample Quality with Kernels" by Gorham and Mackey
-    :param mode: Either 'norm' (default) specifying to take the norm of each particle,
+    Calculates the IMQ kernel
+    :math:`k(x,y) = (c^2 + \\|x+y\\|^2_2)^{\\beta},`
+    from [1].
+
+    ** References: **
+    1. *Measuring Sample Quality with Kernels* by Gorham and Mackey
+
+    :param str mode: Either 'norm' (default) specifying to take the norm of each particle,
                  or 'vector' to return a component-wise kernel
-    :param const: Positive multi-quadratic constant (c)
-    :param expon: Inverse exponent (beta) between (-1, 0)
+    :param float const: Positive multi-quadratic constant (c)
+    :param float expon: Inverse exponent (beta) between (-1, 0)
     """
 
-    # Based on
     def __init__(self, mode='norm', const=1.0, expon=-0.5):
         assert mode == 'norm' or mode == 'vector'
         assert 0.0 < const
@@ -130,7 +144,12 @@ class IMQKernel(SteinKernel):
 
 class LinearKernel(SteinKernel):
     """
-    Calculates the linear kernel, from "Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
+    Calculates the linear kernel
+    :math: `k(x,y) = x \\cdot y + 1`
+    from [1].
+
+    ** References **
+    1. Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
     """
 
     def __init__(self):
@@ -205,8 +224,11 @@ class RandomFeatureKernel(SteinKernel):
 
 class MixtureKernel(SteinKernel):
     """
-    Implements a mixture of multiple kernels from "Stein Variational Gradient Descent as Moment Matching" by
-    Liu and Wang
+    Calculates a mixture of multiple kernels
+    TODO: add formula
+
+    ** Reference **
+    1. *Stein Variational Gradient Descent as Moment Matching* by Liu and Wang
 
     :param ws: Weight of each kernel in the mixture
     :param kernel_fns: Different kernel functions to mix together
@@ -237,8 +259,10 @@ class MixtureKernel(SteinKernel):
 
 class HessianPrecondMatrix(PrecondMatrix):
     """
-    Calculates the constant precondition matrix based on the negative Hessian of the loss
-    from "Stein Variational Gradient Descent with Matrix-Valued Kernels" by Wang, Tang, Bajaj and Liu
+    Calculates the constant precondition matrix based on the negative Hessian of the loss from [1].
+
+    ** References: **
+    1. *Stein Variational Gradient Descent with Matrix-Valued Kernels* by Wang, Tang, Bajaj and Liu
     """
 
     def compute(self, particles, loss_fn):
@@ -248,8 +272,13 @@ class HessianPrecondMatrix(PrecondMatrix):
 
 class PrecondMatrixKernel(SteinKernel):
     """
-    Calculates the preconditioned kernel from "Stein Variational Gradient Descent with Matrix-Valued Kernels" by
-    Wang, Tang, Bajaj and Liu
+    Calculates the preconditioned kernel
+    TODO: add formula
+    from [1].
+
+    ** References: **
+    1. "Stein Variational Gradient Descent with Matrix-Valued Kernels" by Wang, Tang, Bajaj and Liu
+
     :param precond_matrix_fn: The constant preconditioning matrix
     :param inner_kernel_fn: The inner kernel function
     :param precond_mode: How to use the precondition matrix, either constant ('const')
@@ -295,8 +324,13 @@ class PrecondMatrixKernel(SteinKernel):
 
 class GraphicalKernel(SteinKernel):
     """
-    Calculates graphical kernel used in "Stein Variational Message Passing for Continuous Graphical Models" by
-    Wang, Zheng and Liu
+    Calculates graphical kernel
+    TODO: add formula
+    from [1].
+
+    ** References: **
+    1. *Stein Variational Message Passing for Continuous Graphical Models* by Wang, Zheng and Liu
+
     :param local_kernel_fns: A mapping between parameters and a choice of kernel function for that parameter
                              (default to default_kernel_fn for each parameter)
     :param default_kernel_fn: The default choice of kernel function when none is specified for a particular parameter
