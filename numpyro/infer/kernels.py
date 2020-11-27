@@ -225,7 +225,7 @@ class RandomFeatureKernel(SteinKernel):
 class MixtureKernel(SteinKernel):
     """
     Calculates a mixture of multiple kernels
-    TODO: add formula
+    :math: `k(x,y) = \\sum_i w_ik_i(x,y)`
 
     ** Reference **
     1. *Stein Variational Gradient Descent as Moment Matching* by Liu and Wang
@@ -272,9 +272,11 @@ class HessianPrecondMatrix(PrecondMatrix):
 
 class PrecondMatrixKernel(SteinKernel):
     """
-    Calculates the preconditioned kernel
-    TODO: add formula
-    from [1].
+    Calculates the const preconditioned kernel
+    :math: `k(x,y) = Q^{-\\frac{1}{2}}k(Q^{\\frac{1}{2}}x, Q^{\\frac{1}{2}}y)Q^{-\\frac{1}{2}},`
+    or anchor point preconditioned kernel
+    :math: `k(x,y) = \sum_{l=1}^m k_{Q_l}}(x,y)w_l(x)w_l(y)`
+    both from [1].
 
     ** References: **
     1. "Stein Variational Gradient Descent with Matrix-Valued Kernels" by Wang, Tang, Bajaj and Liu
@@ -325,7 +327,7 @@ class PrecondMatrixKernel(SteinKernel):
 class GraphicalKernel(SteinKernel):
     """
     Calculates graphical kernel
-    TODO: add formula
+    :math: `k(x,y) = diag({K^(l)(x,y)}_l)
     from [1].
 
     ** References: **
