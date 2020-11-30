@@ -117,8 +117,6 @@ def _unconstrain_reparam(params, site):
     name = site['name']
     if name in params:
         p = params[name]
-        if site['fn'].is_discrete:
-            return p
         support = site['fn'].support
         if support in [real, real_vector]:
             return p
@@ -322,9 +320,7 @@ def get_potential_fn(model, inv_transforms, enum=False, replay_model=False,
             return partial(potential_energy, model, args, kwargs, enum=enum)
 
         def postprocess_fn(*args, **kwargs):
-            # if _replay_model is defined in kwargs, then we use it
-            replay_model_ = kwargs.pop("_replay_model", replay_model)
-            if replay_model_:
+            if replay_model:
                 # XXX: we seed to sample discrete sites (but not collect them)
                 model_ = seed(model.fn, 0) if enum else model
                 return partial(constrain_fn, model_, args, kwargs, return_deterministic=True)

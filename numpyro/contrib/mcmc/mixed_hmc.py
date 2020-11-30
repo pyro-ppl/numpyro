@@ -16,7 +16,7 @@ import numpyro.distributions as dist
 from numpyro.handlers import condition, seed, trace
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.util import identity, ravel_pytree
+from numpyro.util import control_flow_prims_disabled, identity, ravel_pytree, while_loop
 
 
 MixedHMC_State = namedtuple("MixedHMC_State", "z, hmc_state, rng_key")
@@ -31,13 +31,14 @@ def _wrap_model(model):
     def fn(*args, **kwargs):
         discrete_values = kwargs.pop("_discrete_sites", {})
         with condition(data=discrete_values):
+            print(discrete_values)
             model(*args, **kwargs)
 
     return fn
 
 
 def _discrete_step(rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time,
-                   potential_fn, z_continous, support_sizes):
+                   potential_fn, z_continuous, support_sizes):
     rng_key, rng_proposal = random.split(rng_key)
 
     # get z proposal
@@ -48,17 +49,18 @@ def _discrete_step(rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time,
     z_discrete_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
     z_discrete_new = unravel_fn(z_discrete_new_flat)
 
-    pe_new = potential_fn(z_discrete_new, z_continous)
+    pe_new = potential_fn(z_discrete_new, z_continuous)
     ke_discrete_i_new = ke_discrete[idx] + pe - pe_new
+    print(z_discrete_flat[idx], proposal, z_continuous, pe, pe_new)
 
     z_discrete, pe, ke_discrete_i = lax.cond(ke_discrete_i_new > 0,
                                              (z_discrete_new, pe_new, ke_discrete_i_new), identity,
                                              (z_discrete, pe, ke_discrete[idx]), identity)
     ke_discrete = ops.index_update(ke_discrete, idx, ke_discrete_i)
 
+    max_time = max_time - time_to_go[idx]
     time_to_go = time_to_go - time_to_go[idx]
     time_to_go = ops.index_update(time_to_go, idx, 1)
-    max_time = max_time - time_to_go[idx]
     return rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time
 
 
@@ -113,7 +115,6 @@ class MixedHMC(MCMCKernel):
         hmc_state = self.inner_kernel.init(key_z, num_warmup, init_params,
                                            model_args, model_kwargs)
         z = {**discrete_sites, **hmc_state.z}
-        _, self._unravel_fn = ravel_pytree(discrete_sites)
         return device_put(MixedHMC_State(z, hmc_state, rng_key))
 
     def sample(self, state, model_args, model_kwargs):
@@ -146,20 +147,23 @@ class MixedHMC(MCMCKernel):
             *_, time_to_go, max_time = vals
             return jnp.amin(time_to_go) <= max_time
 
-        def body_fn(z_continous, vals):
+        def body_fn(z_continuous, vals):
             return _discrete_step(*vals,
                                   potential_fn=potential_fn,
-                                  z_continous=z_continous,
+                                  z_continuous=z_continuous,
                                   support_sizes=self._support_sizes)
 
         z_discrete = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
         pe = state.hmc_state.potential_energy
         vals = (rng_key, z_discrete, pe, ke_discrete, time_to_go, max_times[0])
-        rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time = lax.while_loop(
-            cond_fn, partial(body_fn, state.hmc_state.z), vals)
+        with control_flow_prims_disabled():
+            rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time = while_loop(
+                cond_fn, partial(body_fn, state.hmc_state.z), vals)
         time_to_go = time_to_go - max_time
 
         z_grad = grad(partial(potential_fn, z_discrete))(state.hmc_state.z)
+        import time; time.sleep(2)
+        print(z_grad, state.hmc_state.z_grad)
         hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
 
         # build a trajectory
@@ -168,9 +172,11 @@ class MixedHMC(MCMCKernel):
         hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_)
 
         # run discrete steps for those time < max_time
+        pe = hmc_state.potential_energy
         vals = (rng_key, z_discrete, pe, ke_discrete, time_to_go, max_times[1])
-        rng_key, z_discrete, pe, ke_discrete, *_ = lax.while_loop(
-            cond_fn, partial(body_fn, hmc_state.z), vals)
+        with control_flow_prims_disabled():
+            rng_key, z_discrete, pe, ke_discrete, *_ = while_loop(
+                cond_fn, partial(body_fn, hmc_state.z), vals)
         hmc_state = hmc_state._replace(potential_energy=pe)
 
         z = {**z_discrete, **hmc_state.z}
@@ -179,7 +185,7 @@ class MixedHMC(MCMCKernel):
 
 def model(probs, mu_list):
     c = numpyro.sample("c", dist.Categorical(probs))
-    numpyro.sample("obs", dist.Normal(mu_list[c], 0.1))
+    numpyro.sample("x", dist.Normal(mu_list[c], 0.1))
 
 
 kernel = MixedHMC(NUTS(model), sites=["c"])
@@ -190,5 +196,5 @@ mcmc.run(random.PRNGKey(0), probs, mu_list)
 # there is a bug when exclude_deterministic=True, which will be fixed upstream
 mcmc.print_summary(exclude_deterministic=False)
 
-sns.kdeplot(mcmc.get_samples()["obs"])
+sns.kdeplot(mcmc.get_samples()["x"])
 plt.show()
