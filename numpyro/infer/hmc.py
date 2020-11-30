@@ -398,13 +398,14 @@ class HMC(MCMCKernel):
         self._init_strategy = init_strategy
         self._find_heuristic_step_size = find_heuristic_step_size
         # Set on first call to init
+        self._potential_fn_gen = None
         self._init_fn = None
         self._postprocess_fn = None
         self._sample_fn = None
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
+            init_params, self._potential_fn_gen, postprocess_fn, model_trace = initialize_model(
                 rng_key,
                 self._model,
                 dynamic_args=True,
@@ -412,7 +413,7 @@ class HMC(MCMCKernel):
                 model_args=model_args,
                 model_kwargs=model_kwargs)
             if self._init_fn is None:
-                self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
+                self._init_fn, self._sample_fn = hmc(potential_fn_gen=self._potential_fn_gen,
                                                      kinetic_fn=self._kinetic_fn,
                                                      algo=self._algo)
             self._postprocess_fn = postprocess_fn
