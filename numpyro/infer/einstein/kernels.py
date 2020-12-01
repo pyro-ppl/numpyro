@@ -41,7 +41,8 @@ class SteinKernel(ABC):
         :param particles: The Stein particles to compute the kernel from
         :param particle_info: A mapping from parameter names to the position in the particle matrix
         :param loss_fn: Loss function given particles
-        :return: TODO
+        :return: The kernel value for each of the k particles, depends on the mode.
+        Modes: norm: `(k,d) -> (k,)`,  vector `(k,d) -> (k,d)`, or matrix `(k,d) -> (k,k,d,d)`
         """
         raise NotImplementedError
 
@@ -137,7 +138,7 @@ class IMQKernel(SteinKernel):
     def compute(self, particles, particle_info, loss_fn):
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2, axis=-1) if self._mode == 'norm' else x - y
-            return (jnp.array(self.const) ** 2 + diff ** 2) ** self.expon
+            return (self.const ** 2 + diff ** 2) ** self.expon
 
         return kernel
 
@@ -275,7 +276,7 @@ class PrecondMatrixKernel(SteinKernel):
     Calculates the const preconditioned kernel
     :math: `k(x,y) = Q^{-\\frac{1}{2}}k(Q^{\\frac{1}{2}}x, Q^{\\frac{1}{2}}y)Q^{-\\frac{1}{2}},`
     or anchor point preconditioned kernel
-    :math: `k(x,y) = \sum_{l=1}^m k_{Q_l}}(x,y)w_l(x)w_l(y)`
+    :math: `k(x,y) = \sum_{l=1}^m k_{Q_l}(x,y)w_l(x)w_l(y)`
     both from [1].
 
     ** References: **
