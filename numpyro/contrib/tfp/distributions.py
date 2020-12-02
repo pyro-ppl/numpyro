@@ -119,7 +119,9 @@ class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('rng_key')
-        kwargs.pop('sample_intermediates', False)
+        sample_intermediates = kwargs.pop('sample_intermediates', False)
+        if sample_intermediates:
+            return self.sample(*args, seed=key, **kwargs), []
         return self.sample(*args, seed=key, **kwargs)
 
     @property
