@@ -223,7 +223,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         else:
             with tqdm.trange(upper) as t:
                 for i in t:
-                    vals = _body_fn(i, vals)
+                    vals = jit(_body_fn)(i, vals)
                     t.set_description(progbar_desc(i), refresh=False)
                     if diagnostics_fn:
                         t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
