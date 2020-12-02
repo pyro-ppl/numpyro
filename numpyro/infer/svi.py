@@ -60,7 +60,8 @@ class SVI(object):
 
         >>> def guide(data):
         ...     alpha_q = numpyro.param("alpha_q", 15., constraint=constraints.positive)
-        ...     beta_q = numpyro.param("beta_q", 15., constraint=constraints.positive)
+        ...     beta_q = numpyro.param("beta_q", lambda rng_key: random.exponential(rng_key),
+        ...                            constraint=constraints.positive)
         ...     numpyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
 
         >>> data = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
