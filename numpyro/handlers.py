@@ -532,7 +532,7 @@ class scale(Messenger):
     """
     def __init__(self, fn=None, scale=1.):
         if not_jax_tracer(scale):
-            if np.any(scale <= 0):
+            if np.any(np.less_equal(scale, 0)):
                 raise ValueError("'scale' argument should be positive.")
         self.scale = scale
         super().__init__(fn)
