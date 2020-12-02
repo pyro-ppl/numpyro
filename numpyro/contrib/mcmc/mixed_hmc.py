@@ -90,6 +90,12 @@ class MixedHMC(MCMCKernel):
 
         return fn
 
+    def get_diagnostics_str(self, state):
+        state = state.hmc_state
+        return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(state.num_steps,
+                                                                  state.adapt_state.step_size,
+                                                                  state.mean_accept_prob)
+
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u, key_z = random.split(rng_key, 3)
@@ -121,7 +127,8 @@ class MixedHMC(MCMCKernel):
         rng_key, rng_ke, rng_time = random.split(state.rng_key, 3)
 
         # TODO: incorporate mass into discrete momentum
-        ke_discrete = random.exponential(rng_ke, self._support_sizes.shape) * 100
+        rate = state.hmc_state.adapt_state.step_size
+        ke_discrete = random.exponential(rng_ke, self._support_sizes.shape) / rate
 
         # TODO: relax the assumption that each size of the torus is proportional to velocity
         time_to_go = random.uniform(rng_time, self._support_sizes.shape)
@@ -149,11 +156,11 @@ class MixedHMC(MCMCKernel):
 
         z_discrete = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
         hmc_state = state.hmc_state
-        max_time = max_times[0]
 
         def body_fn(i, vals):
-            rng_key, z_discrete, ke_discrete, time_to_go, max_time, hmc_state = vals
+            rng_key, z_discrete, ke_discrete, time_to_go, hmc_state = vals
             pe = hmc_state.potential_energy
+            max_time = max_times[0]
             discrete_step_vals = (rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time)
             rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time = while_loop(
                 discrete_cond_fn, partial(discrete_body_fn, hmc_state.z), discrete_step_vals)
@@ -166,10 +173,10 @@ class MixedHMC(MCMCKernel):
             model_kwargs_ = model_kwargs.copy()
             model_kwargs_["_discrete_sites"] = z_discrete
             hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_)
-            return rng_key, z_discrete, ke_discrete, time_to_go, max_time, hmc_state
+            return rng_key, z_discrete, ke_discrete, time_to_go, hmc_state
 
-        vals = (rng_key, z_discrete, ke_discrete, time_to_go, max_time, hmc_state)
-        rng_key, z_discrete, ke_discerete, time_to_go, max_time, hmc_state = fori_loop(
+        vals = (rng_key, z_discrete, ke_discrete, time_to_go, hmc_state)
+        rng_key, z_discrete, ke_discerete, time_to_go, hmc_state = fori_loop(
             0, self.num_trajectories, body_fn, vals)
 
         # run discrete steps for those time < max_time
@@ -188,8 +195,8 @@ def model(probs, mu_list):
     numpyro.sample("x", dist.Normal(mu_list[c], jnp.sqrt(0.1)))
 
 
-kernel = MixedHMC(NUTS(model), sites=["c"], num_trajectories=20, num_discrete_steps=20)
-mcmc = MCMC(kernel, 1000, 200000)
+kernel = MixedHMC(NUTS(model), sites=["c"], num_trajectories=10, num_discrete_steps=11)
+mcmc = MCMC(kernel, 1000, 20000)
 probs = jnp.array([0.15, 0.3, 0.3, 0.25])
 mu_list = jnp.array([-2, 0, 2, 4])
 mcmc.run(random.PRNGKey(0), probs, mu_list)
