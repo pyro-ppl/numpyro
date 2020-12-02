@@ -157,13 +157,11 @@ def param(name, init_value=None, **kwargs):
             "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
         return init_value
 
-    default_fn = identity
     if callable(init_value):
-        def fn(*args, **kwargs):
-            init_fn = default_fn(*args, **kwargs)
+        def fn(init_fn, *args, **kwargs):
             return init_fn(prng_key())
     else:
-        fn = default_fn
+        fn = identity
 
     # Otherwise, we initialize a message...
     initial_msg = {
