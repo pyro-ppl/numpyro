@@ -329,8 +329,7 @@ def signed_stick_breaking_tril(t):
     # we omit the step of computing s = z * z_cumprod by using the fact:
     #     y = sign(r) * s = sign(r) * sqrt(z * z_cumprod) = r * sqrt(z_cumprod)
     z = r ** 2
-    z1m_cumprod = jnp.cumprod(1 - z, axis=-1)
-    z1m_cumprod_sqrt = jnp.sqrt(z1m_cumprod)
+    z1m_cumprod_sqrt = jnp.cumprod(jnp.sqrt(1 - z), axis=-1)
 
     pad_width = [(0, 0)] * z.ndim
     pad_width[-1] = (1, 0)
@@ -477,6 +476,14 @@ def periodic_repeat(x, size, dim):
     result = jnp.repeat(x, repeats, axis=dim)
     result = result[(Ellipsis, slice(None, size)) + (slice(None),) * (-1 - dim)]
     return result
+
+
+# src: https://github.com/google/jax/blob/5a41779fbe12ba7213cd3aa1169d3b0ffb02a094/jax/_src/random.py#L95
+def is_prng_key(key):
+    try:
+        return key.shape == (2,) and key.dtype == np.uint32
+    except AttributeError:
+        return False
 
 
 # The is sourced from: torch.distributions.util.py
