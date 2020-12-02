@@ -30,12 +30,14 @@ def apply_stack(msg):
             msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
                                                            sample_intermediates=True,
                                                            **msg['kwargs'])
+        elif msg['type'] == 'param':
+            value = msg['fn'](*msg['args'], **msg['kwargs'])
+            if callable(value):
+                msg['value'] = value(prng_key())
+            else:
+                msg['value'] = value
         else:
             msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
-
-        if msg['type'] == 'param' and callable(msg['value']):
-            rng_key = prng_key()
-            msg['value'] = msg['value'](rng_key)
 
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
