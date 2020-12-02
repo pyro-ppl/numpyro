@@ -30,12 +30,6 @@ def apply_stack(msg):
             msg['value'], msg['intermediates'] = msg['fn'](*msg['args'],
                                                            sample_intermediates=True,
                                                            **msg['kwargs'])
-        elif msg['type'] == 'param':
-            value = msg['fn'](*msg['args'], **msg['kwargs'])
-            if callable(value):
-                msg['value'] = value(prng_key())
-            else:
-                msg['value'] = value
         else:
             msg['value'] = msg['fn'](*msg['args'], **msg['kwargs'])
 
@@ -163,11 +157,19 @@ def param(name, init_value=None, **kwargs):
             "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
         return init_value
 
+    default_fn = identity
+    if callable(init_value):
+        def fn(*args, **kwargs):
+            init_fn = default_fn(*args, **kwargs)
+            return init_fn(prng_key())
+    else:
+        fn = default_fn
+
     # Otherwise, we initialize a message...
     initial_msg = {
         'type': 'param',
         'name': name,
-        'fn': identity,
+        'fn': fn,
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
