@@ -399,6 +399,7 @@ class HMC(MCMCKernel):
         self._find_heuristic_step_size = find_heuristic_step_size
         # Set on first call to init
         self._init_fn = None
+        self._potential_fn_gen = None
         self._postprocess_fn = None
         self._sample_fn = None
 
@@ -415,6 +416,7 @@ class HMC(MCMCKernel):
                 self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
                                                      kinetic_fn=self._kinetic_fn,
                                                      algo=self._algo)
+            self._potential_fn_gen = potential_fn
             self._postprocess_fn = postprocess_fn
         elif self._init_fn is None:
             self._init_fn, self._sample_fn = hmc(potential_fn=self._potential_fn,
