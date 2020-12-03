@@ -1,9 +1,8 @@
 from collections import namedtuple
-from functools import partial
 
 import jax.numpy as jnp
-
 import pytest
+
 from numpyro.infer.einstein.kernels import (
     RBFKernel,
     RandomFeatureKernel,
