@@ -3,7 +3,6 @@ from collections import namedtuple
 import jax.numpy as jnp
 import pytest
 from numpy.testing import assert_allclose
-from numpyro.util import ravel_pytree
 
 from numpyro.infer.einstein.kernels import (
     RBFKernel,
@@ -18,7 +17,7 @@ from numpyro.infer.einstein.kernels import (
 
 T = namedtuple('TestSteinKernel', ['kernel', 'particle_info', 'loss_fn', 'kval'])
 
-PARTICLES_2D = jnp.array([[1., 2.,], [-10., 10.], [0., 0.], [2., -1]])
+PARTICLES_2D = jnp.array([[1., 2.], [-10., 10.], [0., 0.], [2., -1]])
 
 TPARTICLES_2D = (jnp.array([1., 2.]), jnp.array([10., 5.]))  # transformed particles
 
@@ -60,7 +59,7 @@ TEST_CASES = [
       ),
     T(lambda mode: PrecondMatrixKernel(HessianPrecondMatrix(), RBFKernel(mode='matrix')),
       lambda d: {},
-      lambda x: x**2 + x**3,
+      lambda x: x ** 2 + x ** 3,
       {'matrix': jnp.array([[3.8147664e-06, 0.],
                             [0., 3.8147664e-06]])}
       )
