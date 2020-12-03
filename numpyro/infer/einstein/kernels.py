@@ -8,7 +8,7 @@ import numpy as np
 import numpy.random as npr
 
 import numpyro.distributions as dist
-from numpyro.infer.einstein.stein_utils import sqrth, posdef, safe_norm
+from numpyro.infer.einstein.utils import sqrth, posdef, safe_norm
 
 
 class PrecondMatrix(ABC):
@@ -42,7 +42,7 @@ class SteinKernel(ABC):
         :param particle_info: A mapping from parameter names to the position in the particle matrix
         :param loss_fn: Loss function given particles
         :return: The kernel_fn to compute kernel for pair of particles
-        Modes: norm: `(k,d) -> ()`,  vector `(k,d) -> (d)`, or matrix `(k,d) -> (d,d)`
+        Modes: norm `(d,) (d,)-> ()`,  vector `(d,) (d,) -> (d)`, or matrix `(d,) (d,) -> (d,d)`
         """
         raise NotImplementedError
 
@@ -77,11 +77,11 @@ class RBFKernel(SteinKernel):
 
     def compute(self, particles, particle_info, loss_fn):
         diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1)  # N x N (x D)
-        if self._normed() and particles.ndim >= 2:
+        if self._normed() and particles.ndim == 2:
             diffs = safe_norm(diffs, ord=2, axis=-1)  # N x D -> N
         diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1))  # N * N (x D)
         factor = self.bandwidth_factor(particles.shape[0])
-        if diffs.ndim >= 2:
+        if diffs.ndim == 2:
             diff_norms = safe_norm(diffs, ord=2, axis=-1)
         else:
             diff_norms = diffs
@@ -163,7 +163,7 @@ class LinearKernel(SteinKernel):
 
     def compute(self, particles: jnp.ndarray, particle_info, loss_fn):
         def kernel(x, y):
-            if x.ndim >= 1:
+            if x.ndim == 1:
                 return x @ y + 1
             else:
                 return x * y + 1
@@ -212,10 +212,10 @@ class RandomFeatureKernel(SteinKernel):
         if self.bandwidth_subset is not None:
             particles = particles[npr.choice(particles.shape[0], self.bandwidth_subset)]
         diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1)  # N x N x D
-        if particles.ndim >= 2:
+        if particles.ndim == 2:
             diffs = safe_norm(diffs, ord=2, axis=-1)  # N x N x D -> N x N
         diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1))  # N * N x 1
-        if diffs.ndim >= 2:
+        if diffs.ndim == 2:
             diff_norms = safe_norm(diffs, ord=2, axis=-1)
         else:
             diff_norms = diffs
