@@ -8,7 +8,7 @@ import numpy as np
 import numpy.random as npr
 
 import numpyro.distributions as dist
-from numpyro.util import sqrth, posdef, safe_norm
+from numpyro.infer.einstein.stein_utils import sqrth, posdef, safe_norm
 
 
 class PrecondMatrix(ABC):
@@ -41,8 +41,8 @@ class SteinKernel(ABC):
         :param particles: The Stein particles to compute the kernel from
         :param particle_info: A mapping from parameter names to the position in the particle matrix
         :param loss_fn: Loss function given particles
-        :return: The kernel value for each of the k particles, depends on the mode.
-        Modes: norm: `(k,d) -> (k,)`,  vector `(k,d) -> (k,d)`, or matrix `(k,d) -> (k,k,d,d)`
+        :return: The kernel_fn to compute kernel for pair of particles
+        Modes: norm: `(k,d) -> ()`,  vector `(k,d) -> (d)`, or matrix `(k,d) -> (d,d)`
         """
         raise NotImplementedError
 
@@ -153,7 +153,8 @@ class LinearKernel(SteinKernel):
     1. Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
     """
 
-    def __init__(self):
+    def __init__(self, mode='norm'):
+        assert mode == 'norm'
         self._mode = 'norm'
 
     @property
@@ -172,17 +173,26 @@ class LinearKernel(SteinKernel):
 
 class RandomFeatureKernel(SteinKernel):
     """
-    Calculates the random kernel, from "Stein Variational Gradient Descent as Moment Matching" by Liu and Wang
+    Calculates the random kernel
+    :math:`k(x,y)= 1/m\\sum_{l=1}^{m}\\phi(x,w_l)\\phi(y,w_l),
+    from [1].
+
+
+    ** References: **
+    1. *Stein Variational Gradient Descent as Moment Matching* by Liu and Wang
+
     :param bandwidth_subset: How many particles should be used to calculate the bandwidth?
                              (default None, meaning all particles)
     :param random_indices: The set of indices which to do random feature expansion on.
                            (default None, meaning all indices)
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
+
     """
 
-    def __init__(self, bandwidth_subset=None, random_indices=None,
+    def __init__(self, mode='norm', bandwidth_subset=None, random_indices=None,
                  bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n)):
         assert bandwidth_subset is None or bandwidth_subset > 0
+        assert mode == 'norm'
         self._mode = 'norm'
         self.bandwidth_subset = bandwidth_subset
         self.random_indices = None
@@ -235,10 +245,10 @@ class MixtureKernel(SteinKernel):
     :param kernel_fns: Different kernel functions to mix together
     """
 
-    def __init__(self, ws: List[float], kernel_fns: List[SteinKernel]):
+    def __init__(self,  ws: List[float], kernel_fns: List[SteinKernel], mode='norm',):
         assert len(ws) == len(kernel_fns)
         assert len(kernel_fns) > 1
-        assert all(kf.mode == kernel_fns[0].mode for kf in kernel_fns)
+        assert all(kf.mode == mode for kf in kernel_fns)
         self.ws = ws
         self.kernel_fns = kernel_fns
 
@@ -276,7 +286,7 @@ class PrecondMatrixKernel(SteinKernel):
     Calculates the const preconditioned kernel
     :math: `k(x,y) = Q^{-\\frac{1}{2}}k(Q^{\\frac{1}{2}}x, Q^{\\frac{1}{2}}y)Q^{-\\frac{1}{2}},`
     or anchor point preconditioned kernel
-    :math: `k(x,y) = \sum_{l=1}^m k_{Q_l}(x,y)w_l(x)w_l(y)`
+    :math: `k(x,y) = \\sum_{l=1}^m k_{Q_l}(x,y)w_l(x)w_l(y)`
     both from [1].
 
     ** References: **
@@ -339,7 +349,10 @@ class GraphicalKernel(SteinKernel):
     :param default_kernel_fn: The default choice of kernel function when none is specified for a particular parameter
     """
 
-    def __init__(self, local_kernel_fns: Dict[str, SteinKernel] = None, default_kernel_fn: SteinKernel = RBFKernel()):
+    def __init__(self, mode='matrix', local_kernel_fns: Dict[str, SteinKernel] = None,
+                 default_kernel_fn: SteinKernel = RBFKernel()):
+        assert mode == 'matrix'
+
         self.local_kernel_fns = local_kernel_fns if local_kernel_fns is not None else {}
         self.default_kernel_fn = default_kernel_fn
 
