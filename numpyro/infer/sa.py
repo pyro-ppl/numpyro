@@ -43,7 +43,7 @@ def _sample_proposal(inv_mass_matrix_sqrt, rng_key, batch_shape=()):
     return r
 
 
-SAAdaptState = namedtuple('SAAdaptState', ['zs', 'pes', 'loc', 'inv_mass_matrix_sqrt'])
+SAAdaptState = namedtuple('SAAdaptState', ['zs', 'pes', 'loc', 'inv_mass_matrix_sqrt', 'gibbs_sites'])
 SAState = namedtuple('SAState', ['i', 'z', 'potential_energy', 'accept_prob',
                                  'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
 """
@@ -82,7 +82,7 @@ def _numpy_delete(x, idx):
 
 
 # TODO: consider to expose this functional style
-def _sa(potential_fn=None, potential_fn_gen=None):
+def _sa(potential_fn=None, potential_fn_gen=None, initial_gibbs_sites=None):
     wa_steps = None
     max_delta_energy = 1000.
 
@@ -117,8 +117,14 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             assert adapt_state_size > 1, 'adapt_state_size should be greater than 1.'
         # NB: mean is init_params
         zs = z_flat + _sample_proposal(inv_mass_matrix_sqrt, rng_key_zs, (adapt_state_size,))
+
         # compute potential energies
-        pes = lax.map(lambda z: pe_fn(unravel_fn(z)), zs)
+        _pe_fn = lambda z, xval: potential_fn_gen(*model_args, _gibbs_sites={'x': xval})(unravel_fn(z))
+        _pe_fn2 = lambda z: lax.map(lambda xval: _pe_fn(z, xval), initial_gibbs_sites['x'])
+        pes = jnp.transpose(lax.map(_pe_fn2, zs))  # N_gibbs N_zs
+
+        # old
+        #pes = lax.map(lambda z: pe_fn(unravel_fn(z)), zs)
         if dense_mass:
             cov = jnp.cov(zs, rowvar=False, bias=True)
             if cov.shape == ():  # JAX returns scalar for 1D input
@@ -128,10 +134,10 @@ def _sa(potential_fn=None, potential_fn_gen=None):
             inv_mass_matrix_sqrt = jnp.where(jnp.any(jnp.isnan(cholesky)), inv_mass_matrix_sqrt, cholesky)
         else:
             inv_mass_matrix_sqrt = jnp.std(zs, 0)
-        adapt_state = SAAdaptState(zs, pes, jnp.mean(zs, 0), inv_mass_matrix_sqrt)
+        adapt_state = SAAdaptState(zs, pes, jnp.mean(zs, 0), inv_mass_matrix_sqrt, initial_gibbs_sites)
         k = random.categorical(rng_key_z, jnp.zeros(zs.shape[0]))
         z = unravel_fn(zs[k])
-        pe = pes[k]
+        pe = pes[k, k]  # only used for divergence check?
         sa_state = SAState(0, z, pe, 0., 0., False, adapt_state, rng_key_sa)
         return device_put(sa_state)
 
@@ -139,7 +145,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         pe_fn = potential_fn
         if potential_fn_gen:
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-        zs, pes, loc, scale = sa_state.adapt_state
+        zs, pes, loc, scale, gibbs_sites = sa_state.adapt_state
         # we recompute loc/scale after each iteration to avoid precision loss
         # XXX: consider to expose a setting to do this job periodically
         # to save some computations
@@ -157,21 +163,30 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         _, unravel_fn = ravel_pytree(sa_state.z)
 
         z = loc + _sample_proposal(scale, rng_key_z)
-        pe = pe_fn(unravel_fn(z))
-        pe = jnp.where(jnp.isnan(pe), jnp.inf, pe)
-        diverging = (pe - sa_state.potential_energy) > max_delta_energy
+        #old
+        #pe = pe_fn(unravel_fn(z))
+        #pe = jnp.where(jnp.isnan(pe), jnp.inf, pe)
+        #diverging = (pe - sa_state.potential_energy) > max_delta_energy
+        diverging = False
+
+        _pe_fn = lambda xval: potential_fn_gen(*model_args, _gibbs_sites={'x': xval})(unravel_fn(z))
+        new_pes = lax.map(_pe_fn, sa_state.adapt_state.gibbs_sites['x'])
 
         # NB: all terms having the pattern *s will have shape N x ...
         # and all terms having the pattern *s_ will have shape (N + 1) x ...
         locs, scales = _get_proposal_loc_and_scale(zs, loc, scale, z)
         zs_ = jnp.concatenate([zs, z[None, :]])
-        pes_ = jnp.concatenate([pes, pe[None]])
+        pes_ = jnp.concatenate([pes, new_pes[None, :]])
         locs_ = jnp.concatenate([locs, loc[None, :]])
         scales_ = jnp.concatenate([scales, scale[None, ...]])
         if scale.ndim == 2:  # dense_mass
             log_weights_ = dist.MultivariateNormal(locs_, scale_tril=scales_).log_prob(zs_) + pes_
         else:
-            log_weights_ = dist.Normal(locs_, scales_).log_prob(zs_).sum(-1) + pes_
+            log_weights_ = dist.Normal(locs_, scales_).log_prob(zs_).sum(-1, keepdims=True) + pes_
+
+        which = jnp.argmax(log_weights_, -1)
+        log_weights_ = log_weights_[jnp.array(log_weights_.shape[0]), which]
+
         # mask invalid values (nan, +inf) by -inf
         log_weights_ = jnp.where(jnp.isfinite(log_weights_), log_weights_, -jnp.inf)
         # get rejecting index
@@ -180,7 +195,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         pes = _numpy_delete(pes_, j)
         loc = locs_[j]
         scale = scales_[j]
-        adapt_state = SAAdaptState(zs, pes, loc, scale)
+        adapt_state = SAAdaptState(zs, pes, loc, scale, sa_state.adapt_state.gibbs_sites)
 
         # NB: weights[-1] / sum(weights) is the probability of rejecting the new sample `z`.
         accept_prob = 1 - jnp.exp(log_weights_[-1] - logsumexp(log_weights_))
@@ -193,7 +208,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         # here we do resampling to pick randomly a point from those N points
         k = random.categorical(rng_key_accept, jnp.zeros(zs.shape[0]))
         z = unravel_fn(zs[k])
-        pe = pes[k]
+        pe = pes[k, k]
         return SAState(itr, z, pe, accept_prob, mean_accept_prob, diverging, adapt_state, rng_key)
 
     return init_kernel, sample_kernel
@@ -234,7 +249,7 @@ class SA(MCMCKernel):
         See :ref:`init_strategy` section for available functions.
     """
     def __init__(self, model=None, potential_fn=None, adapt_state_size=None,
-                 dense_mass=True, init_strategy=init_to_uniform):
+                 dense_mass=True, init_strategy=init_to_uniform, initial_gibbs_sites=None):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
@@ -246,6 +261,7 @@ class SA(MCMCKernel):
         self._potential_fn_gen = None
         self._postprocess_fn = None
         self._sample_fn = None
+        self.initial_gibbs_sites = initial_gibbs_sites
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
@@ -258,7 +274,8 @@ class SA(MCMCKernel):
                 model_kwargs=model_kwargs)
             init_params = init_params[0]
             # NB: init args is different from HMC
-            self._init_fn, sample_fn = _sa(potential_fn_gen=potential_fn)
+            self._init_fn, sample_fn = _sa(potential_fn_gen=potential_fn,
+                                           initial_gibbs_sites=self.initial_gibbs_sites)
             self._potential_fn_gen = potential_fn
             if self._postprocess_fn is None:
                 self._postprocess_fn = postprocess_fn

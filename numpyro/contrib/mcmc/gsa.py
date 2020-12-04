@@ -3,6 +3,8 @@ import copy
 import math
 from functools import partial
 
+import numpy as np
+
 from jax import device_put, grad, lax, ops, random, jit, value_and_grad
 import jax.numpy as jnp
 
@@ -63,6 +65,7 @@ class GibbsSA(MCMCKernel):
         gibbs_sites = {name: site["value"] for name, site in prototype_trace.items() if name in self._gibbs_sites}
         model_kwargs["_gibbs_sites"] = gibbs_sites
         sa_state = self.inner_kernel.init(key_z, num_warmup, init_params, model_args, model_kwargs)
+        print("gsa init pes", sa_state.adapt_state.pes.shape)
 
         z = {**gibbs_sites, **sa_state.z}
         _, self._unravel_fn = ravel_pytree(gibbs_sites)
@@ -81,12 +84,12 @@ class GibbsSA(MCMCKernel):
 
         z_gibbs = self._gibbs_fn(rng_key=rng_gibbs, **z_gibbs, **z_sa)
 
-        pe = potential_fn(z_gibbs, state.sa_state.z)
-        sa_state = state.sa_state._replace(potential_energy=pe)
+        #pe = potential_fn(z_gibbs, state.sa_state.z)
+        #sa_state = state.sa_state._replace(potential_energy=pe)
 
-        pes = lax.map(lambda z: potential_fn(z_gibbs, {'y': z}), state.sa_state.adapt_state.zs)
-        adapt_state = sa_state.adapt_state._replace(pes=pes)
-        sa_state = sa_state._replace(adapt_state=adapt_state)
+        #pes = lax.map(lambda z: potential_fn(z_gibbs, {'y': z}), state.sa_state.adapt_state.zs)
+        #adapt_state = sa_state.adapt_state._replace(pes=pes)
+        #sa_state = sa_state._replace(adapt_state=adapt_state)
 
         model_kwargs_ = model_kwargs.copy()
         model_kwargs_["_gibbs_sites"] = z_gibbs
@@ -107,7 +110,10 @@ def gibbs_fn(rng_key, x, y):
 
 
 print("===  GIBBS-SA  ===")
-sa = SA(model=model, adapt_state_size=32, dense_mass=False)
+adapt_state_size = 32
+initial_gibbs_sites = {'x': np.random.randn(adapt_state_size)}
+sa = SA(model=model, adapt_state_size=adapt_state_size, dense_mass=False,
+        initial_gibbs_sites=initial_gibbs_sites)
 kernel = GibbsSA(sa, gibbs_fn=gibbs_fn, gibbs_sites=['x'])
 mcmc = MCMC(kernel, 5 * 1000, 5 * 1000, progress_bar=False)
 mcmc.run(random.PRNGKey(0))
