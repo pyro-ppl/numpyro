@@ -19,7 +19,7 @@ from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
 from numpyro.util import cond, fori_loop, identity
 
-HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
+HMCState = namedtuple('HMCState', ['i', 'z', 'r', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
@@ -27,6 +27,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **i** - iteration. This is reset to 0 after warmup.
  - **z** - Python collection representing values (unconstrained samples from
    the posterior) at latent sites.
+ - **r** - Current momentum state.
  - **z_grad** - Gradient of potential energy w.r.t. latent sample sites.
  - **potential_energy** - Potential energy computed at the given value of ``z``.
  - **energy** - Sum of potential energy and kinetic energy of the current state.
@@ -239,8 +240,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn)
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
-        hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
-                             0, 0., 0., False, wa_state, rng_key_hmc)
+        hmc_state = HMCState(0, vv_state.z, vv_state.r, vv_state.z_grad, vv_state.potential_energy,
+                             energy, 0, 0., 0., False, wa_state, rng_key_hmc)
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
@@ -287,7 +288,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
     _next = _nuts_next if algo == 'NUTS' else _hmc_next
 
-    def sample_kernel(hmc_state, model_args=(), model_kwargs=None):
+    def sample_kernel(hmc_state, model_args=(), model_kwargs=None, reset_momentum=True):
         """
         Given an existing :data:`~numpyro.infer.mcmc.HMCState`, run HMC with fixed (possibly adapted)
         step size and return a new :data:`~numpyro.infer.mcmc.HMCState`.
@@ -301,7 +302,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         """
         model_kwargs = {} if model_kwargs is None else model_kwargs
         rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
-        r = momentum_generator(hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
+        r = cond(reset_momentum,
+                 hmc_state.r,
+                 identity,
+                 (hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum),
+                 lambda args: momentum_generator(*args))
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
                                                                     hmc_state.adapt_state.inverse_mass_matrix,
@@ -320,8 +325,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         n = jnp.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
 
-        return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy, num_steps,
-                        accept_prob, mean_accept_prob, diverging, adapt_state, rng_key)
+        return HMCState(itr, vv_state.z, vv_state.r, vv_state.z_grad, vv_state.potential_energy, energy,
+                        num_steps, accept_prob, mean_accept_prob, diverging, adapt_state, rng_key)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
     # `hmc` is called for sphinx doc generation.
@@ -485,7 +490,7 @@ class HMC(MCMCKernel):
             return identity
         return self._postprocess_fn(*args, **kwargs)
 
-    def sample(self, state, model_args, model_kwargs):
+    def sample(self, state, model_args, model_kwargs, reset_momentum=True):
         """
         Run HMC from the given :data:`~numpyro.infer.hmc.HMCState` and return the resulting
         :data:`~numpyro.infer.hmc.HMCState`.
@@ -495,7 +500,7 @@ class HMC(MCMCKernel):
         :param model_kwargs: Keyword arguments provided to the model.
         :return: Next `state` after running HMC.
         """
-        return self._sample_fn(state, model_args, model_kwargs)
+        return self._sample_fn(state, model_args, model_kwargs, reset_momentum=reset_momentum)
 
 
 class NUTS(HMC):
