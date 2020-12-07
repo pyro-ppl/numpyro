@@ -32,8 +32,8 @@ class VonMises(Distribution):
     def sample(self, key, sample_shape=()):
         """ Generate sample from von Mises distribution
 
-        :param sample_shape: shape of samples
         :param key: random number generator key
+        :param sample_shape: shape of samples
         :return: samples from von Mises
         """
         assert is_prng_key(key)

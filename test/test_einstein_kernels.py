@@ -59,7 +59,7 @@ TEST_CASES = [
       ),
     T(lambda mode: PrecondMatrixKernel(HessianPrecondMatrix(), RBFKernel(mode='matrix')),
       lambda d: {},
-      lambda x: x ** 2 + x ** 3,
+      lambda x: 1/6 * x ** 3,
       {'matrix': jnp.array([[3.8147664e-06, 0.],
                             [0., 3.8147664e-06]])}
       )

@@ -41,8 +41,8 @@ class SteinKernel(ABC):
         :param particles: The Stein particles to compute the kernel from
         :param particle_info: A mapping from parameter names to the position in the particle matrix
         :param loss_fn: Loss function given particles
-        :return: The kernel_fn to compute kernel for pair of particles
-        Modes: norm `(d,) (d,)-> ()`,  vector `(d,) (d,) -> (d)`, or matrix `(d,) (d,) -> (d,d)`
+        :return: The kernel_fn to compute kernel for pair of particles.
+                 Modes: norm `(d,) (d,)-> ()`,  vector `(d,) (d,) -> (d)`, or matrix `(d,) (d,) -> (d,d)`
         """
         raise NotImplementedError
 
