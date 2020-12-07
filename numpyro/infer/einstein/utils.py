@@ -28,9 +28,6 @@ def sqrth(m):
 
 
 def safe_norm(a, ord=2, axis=None):
-    """
-
-    """
     if axis is not None:
         is_zero = jnp.expand_dims(jnp.isclose(jnp.sum(a, axis=axis), 0.), axis=axis)
     else:
