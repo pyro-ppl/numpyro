@@ -43,6 +43,7 @@ __all__ = [
     'AutoDelta'
 ]
 
+
 class ReinitGuide(ABC):
     @abstractmethod
     def init_params(self):
@@ -51,6 +52,8 @@ class ReinitGuide(ABC):
     @abstractmethod
     def find_params(self, rng_keys, *args, **kwargs):
         raise NotImplementedError
+
+
 class AutoGuide(ABC):
     """
     Base class for automatic guides.
@@ -103,7 +106,7 @@ class AutoGuide(ABC):
     def _setup_prototype(self, *args, **kwargs):
         # run the model so we can inspect its structure
         rng_key = random.PRNGKey(0)
-        #rng_key = numpyro.rng_key("_{}_rng_key_setup".format(self.prefix))
+        # rng_key = numpyro.rng_key("_{}_rng_key_setup".format(self.prefix))
         model = handlers.seed(self.model, rng_key)
         self.prototype_trace = handlers.block(handlers.trace(model).get_trace)(*args, **kwargs)
         self._args = args
@@ -161,7 +164,7 @@ class AutoContinuous(AutoGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         rng_key = random.PRNGKey(0)
-        #rng_key = numpyro.rng_key("_{}_rng_key_setup".format(self.prefix))
+        # rng_key = numpyro.rng_key("_{}_rng_key_setup".format(self.prefix))
         with handlers.block():
             init_params, _, self._postprocess_fn, self.prototype_trace = initialize_model(
                 rng_key, self.model,
@@ -418,7 +421,7 @@ class AutoMultivariateNormal(AutoContinuous):
     def get_transform(self, params):
         loc = params['{}_loc'.format(self.prefix)]
         scale_tril = params['{}_scale_tril'.format(self.prefix)]
-        return LowerCholeskyAffine(loc, scale_tril) #TODO: Changed MultivariateAffineTransform to LowerCholeskyAffine
+        return LowerCholeskyAffine(loc, scale_tril)  # TODO: Changed MultivariateAffineTransform to LowerCholeskyAffine
 
     def get_posterior(self, params):
         """
@@ -729,6 +732,6 @@ class AutoDelta(AutoGuide, ReinitGuide):
 
     def _setup_prototype(self, *args, **kwargs):
         super(AutoDelta, self)._setup_prototype(*args, **kwargs)
-        #rng_key = numpyro.rng_key("_{}_rng_key_init".format(self.prefix))
+        # rng_key = numpyro.rng_key("_{}_rng_key_init".format(self.prefix))
         rng_key = random.PRNGKey(1)
         self.find_params(rng_key, *args, **kwargs)
