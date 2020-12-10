@@ -12,9 +12,10 @@ from jax import device_put, disable_jit, grad, lax, ops, random, tree_map
 import jax.numpy as jnp
 
 import numpyro
+from numpyro.diagnostics import print_summary
 import numpyro.distributions as dist
 from numpyro.handlers import condition, seed, trace
-from numpyro.infer import HMC, MCMC, NUTS, Predictive
+from numpyro.infer import MCMC, NUTS, Predictive
 from numpyro.infer.hmc import momentum_generator
 from numpyro.infer.hmc_util import euclidean_kinetic_energy
 from numpyro.infer.mcmc import MCMCKernel
@@ -46,7 +47,7 @@ def _discrete_step(rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time,
     # get z proposal
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
     idx = jnp.argmin(time_to_go)
-    proposal = random.choice(rng_proposal, 3)
+    proposal = random.randint(rng_proposal, (), minval=0, maxval=support_sizes[idx] - 1)
     proposal = jnp.where(proposal >= z_discrete_flat[idx], proposal + 1, proposal)
     z_discrete_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
     z_discrete_new = unravel_fn(z_discrete_new_flat)
@@ -69,7 +70,7 @@ class MixedHMC(MCMCKernel):
     sample_field = "z"
 
     def __init__(self, inner_kernel, *, discrete_sites=None, num_trajectories=1, num_discrete_steps=None,
-                 max_times=None, discrete_mass=1.):
+                 max_times=None, discrete_mass=1., diffuse_momentum=True):
         self.inner_kernel = copy.copy(inner_kernel)
         self.inner_kernel._model = _wrap_model(inner_kernel.model)
         self.num_trajectories = num_trajectories
@@ -78,6 +79,7 @@ class MixedHMC(MCMCKernel):
         self._num_discrete_steps = num_discrete_steps
         self._max_times = max_times  # TODO: for testing, should be removed
         self._discrete_mass = discrete_mass
+        self._diffuse_momentum = diffuse_momentum
 
     @property
     def model(self):
@@ -110,7 +112,7 @@ class MixedHMC(MCMCKernel):
         discrete_sites = {name: site["value"] for name, site in prototype_trace.items()
                           if site["type"] == "sample" and site["fn"].has_enumerate_support
                           and (site["fn"].event_dim > 0 or
-                              (self._discrete_sites is not None and name in self._discrete_sites))}
+                               (self._discrete_sites is not None and name in self._discrete_sites))}
         # store support sizes of flatten discrete latent values
         supports = {name: jnp.broadcast_to(
                         prototype_trace[name]["fn"].enumerate_support(False).shape[0],
@@ -176,12 +178,15 @@ class MixedHMC(MCMCKernel):
             model_kwargs_["_discrete_sites"] = z_discrete
             z_grad = grad(partial(potential_fn, z_discrete))(hmc_state.z)
             # XXX: keep kinetic energy but make direction diffuse
-            rng_key, rng_r = random.split(rng_key)
-            r = momentum_generator(hmc_state.r, hmc_state.adapt_state.mass_matrix_sqrt, rng_r)
-            # scale to keep the same kinetic energy
-            prev_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, hmc_state.r)
-            curr_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, r)
-            r = tree_map(lambda x: x * prev_ke / curr_ke, r)
+            if self._diffuse_momentum:
+                rng_key, rng_r = random.split(rng_key)
+                r = momentum_generator(hmc_state.r, hmc_state.adapt_state.mass_matrix_sqrt, rng_r)
+                # scale to keep the same kinetic energy
+                prev_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, hmc_state.r)
+                curr_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, r)
+                r = tree_map(lambda x: x * jnp.sqrt(prev_ke / curr_ke), r)
+            else:
+                r = hmc_state.r
             hmc_state = hmc_state._replace(r=r, z_grad=z_grad, potential_energy=pe)
             hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_,
                                                  reset_momentum=(i == 0))
@@ -202,21 +207,39 @@ class MixedHMC(MCMCKernel):
         return MixedHMC_State(z, hmc_state, rng_key)
 
 
-def model(probs, mu_list):
-    c = numpyro.sample("c", dist.Categorical(probs))
-    numpyro.sample("x", dist.Normal(mu_list[c], jnp.sqrt(0.1)))
+if False:
+    def model(probs, mu_list):
+        c = numpyro.sample("c", dist.Categorical(probs))
+        numpyro.sample("x", dist.Normal(mu_list[c], jnp.sqrt(0.1)))
 
-
-kernel = MixedHMC(NUTS(model), discrete_sites=["c"], num_trajectories=20,
-                  num_discrete_steps=None, discrete_mass=0.1)
-mcmc = MCMC(kernel, int(1e4), int(1e5))
-probs = jnp.array([0.15, 0.3, 0.3, 0.25])
-mu_list = jnp.array([-2, 0, 2, 4])
-with optional(__debug__, disable_jit()), optional(__debug__, control_flow_prims_disabled()):
-    mcmc.run(random.PRNGKey(0), probs, mu_list)
-mcmc.print_summary()
-actual_samples = Predictive(model, {}, num_samples=int(1e7), return_sites=["x"])(
-    random.PRNGKey(1), probs, mu_list)["x"]
-sns.kdeplot(actual_samples, color="r")
-sns.kdeplot(mcmc.get_samples()["x"])
-plt.show()
+    gibbs = False
+    if gibbs:
+        max_times = [1, 0]  # [0, 1] or [1, 0]
+        num_trajectories = 1
+        thin = 20
+        discrete_mass = 1
+        progress_bar = False
+        num_samples = int(2e6)
+    else:
+        max_times = None
+        num_trajectories = 20
+        thin = 1
+        discrete_mass = 1  # important
+        progress_bar = False
+        num_samples = int(1e6)
+    kernel = MixedHMC(NUTS(model), discrete_sites=["c"], num_trajectories=num_trajectories,
+                      num_discrete_steps=None, max_times=max_times, discrete_mass=discrete_mass)
+    # kernel = NUTS(model)
+    mcmc = MCMC(kernel, int(1e4), num_samples, progress_bar=progress_bar)
+    probs = jnp.array([0.15, 0.3, 0.3, 0.25])
+    mu_list = jnp.array([-2, 0, 2, 4])
+    with optional(__debug__, disable_jit()), optional(__debug__, control_flow_prims_disabled()):
+        mcmc.run(random.PRNGKey(0), probs, mu_list)
+    samples = mcmc.get_samples()
+    samples = {k: v[::thin] for k, v in samples.items()}
+    print_summary(samples, group_by_chain=False)
+    actual_samples = Predictive(model, {}, num_samples=int(1e7), return_sites=["x"])(
+        random.PRNGKey(1), probs, mu_list)["x"]
+    sns.kdeplot(actual_samples, color="r")
+    sns.kdeplot(samples["x"])
+    plt.show()
