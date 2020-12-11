@@ -1,7 +1,7 @@
 from itertools import permutations
 
-import matplotlib.pyplot as plt
-import seaborn as sns
+# import matplotlib.pyplot as plt
+# import seaborn as sns
 from scipy.stats import ks_2samp
 
 from jax import disable_jit, random
