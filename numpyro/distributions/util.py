@@ -329,8 +329,7 @@ def signed_stick_breaking_tril(t):
     # we omit the step of computing s = z * z_cumprod by using the fact:
     #     y = sign(r) * s = sign(r) * sqrt(z * z_cumprod) = r * sqrt(z_cumprod)
     z = r ** 2
-    z1m_cumprod = jnp.cumprod(1 - z, axis=-1)
-    z1m_cumprod_sqrt = jnp.sqrt(z1m_cumprod)
+    z1m_cumprod_sqrt = jnp.cumprod(jnp.sqrt(1 - z), axis=-1)
 
     pad_width = [(0, 0)] * z.ndim
     pad_width[-1] = (1, 0)

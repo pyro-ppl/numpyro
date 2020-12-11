@@ -39,10 +39,10 @@ class MCMCKernel(ABC):
         >>> import numpyro.distributions as dist
         >>> from numpyro.infer import MCMC
 
-        >>> MHState = namedtuple("MHState", ["z", "rng_key"])
+        >>> MHState = namedtuple("MHState", ["u", "rng_key"])
 
         >>> class MetropolisHastings(numpyro.infer.mcmc.MCMCKernel):
-        ...     sample_field = "z"
+        ...     sample_field = "u"
         ...
         ...     def __init__(self, potential_fn, step_size=0.1):
         ...         self.potential_fn = potential_fn
@@ -52,12 +52,12 @@ class MCMCKernel(ABC):
         ...         return MHState(init_params, rng_key)
         ...
         ...     def sample(self, state, model_args, model_kwargs):
-        ...         z, rng_key = state
+        ...         u, rng_key = state
         ...         rng_key, key_proposal, key_accept = random.split(rng_key, 3)
-        ...         z_proposal = dist.Normal(z, self.step_size).sample(key_proposal)
-        ...         accept_prob = jnp.exp(self.potential_fn(z) - self.potential_fn(z_proposal))
-        ...         z_new = jnp.where(dist.Uniform().sample(key_accept) < accept_prob, z_proposal, z)
-        ...         return MHState(z_new, rng_key)
+        ...         u_proposal = dist.Normal(u, self.step_size).sample(key_proposal)
+        ...         accept_prob = jnp.exp(self.potential_fn(u) - self.potential_fn(u_proposal))
+        ...         u_new = jnp.where(dist.Uniform().sample(key_accept) < accept_prob, u_proposal, u)
+        ...         return MHState(u_new, rng_key)
 
         >>> def f(x):
         ...     return ((x - 2) ** 2).sum()
@@ -66,6 +66,7 @@ class MCMCKernel(ABC):
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), init_params=jnp.array([1., 2.]))
         >>> samples = mcmc.get_samples()
+        >>> mcmc.print_summary()  # doctest: +SKIP
     """
     def postprocess_fn(self, model_args, model_kwargs):
         """
@@ -491,11 +492,25 @@ class MCMC(object):
         return {k: v for k, v in states.items() if k != self._sample_field}
 
     def print_summary(self, prob=0.9, exclude_deterministic=True):
+        """
+        Print the statistics of posterior samples collected during running this MCMC instance.
+
+        :param float prob: the probability mass of samples within the credible interval.
+        :param bool exclude_deterministic: whether or not print out the statistics
+            at deterministic sites.
+        """
         # Exclude deterministic sites by default
         sites = self._states[self._sample_field]
         if isinstance(sites, dict) and exclude_deterministic:
-            sites = {k: v for k, v in self._states[self._sample_field].items()
-                     if k in self._last_state.z}
+            state_sample_field = attrgetter(self._sample_field)(self._last_state)
+            # XXX: there might be the case that state.z is not a dictionary but
+            # its postprocessed value `sites` is a dictionary.
+            # TODO: in general, when both `sites` and `state.z` are dictionaries,
+            # they can have different key names, not necessary due to deterministic
+            # behavior. We might revise this logic if needed in the future.
+            if isinstance(state_sample_field, dict):
+                sites = {k: v for k, v in self._states[self._sample_field].items()
+                         if k in state_sample_field}
         print_summary(sites, prob=prob)
         extra_fields = self.get_extra_fields()
         if 'diverging' in extra_fields:

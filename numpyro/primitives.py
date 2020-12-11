@@ -130,13 +130,15 @@ def param(name, init_value=None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.experimental.optimizers`. For an example of how `param` statements
-    can be used in inference algorithms, refer to :func:`~numpyro.svi.svi`.
+    can be used in inference algorithms, refer to :class:`~numpyro.infer.SVI`.
 
     :param str name: name of site.
-    :param numpy.ndarray init_value: initial value specified by the user. Note that
-        the onus of using this to initialize the optimizer is on the user /
-        inference algorithm, since there is no global parameter store in
-        NumPyro.
+    :param init_value: initial value specified by the user or a lazy callable
+        that accepts a JAX random PRNGKey and returns an array.
+        Note that the onus of using this to initialize the optimizer is
+        on the user inference algorithm, since there is no global parameter
+        store in NumPyro.
+    :type init_value: numpy.ndarray or callable
     :param constraint: NumPyro constraint, defaults to ``constraints.real``.
     :type constraint: numpyro.distributions.constraints.Constraint
     :param int event_dim: (optional) number of rightmost dimensions unrelated
@@ -151,13 +153,21 @@ def param(name, init_value=None, **kwargs):
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
+        assert not callable(init_value), \
+            "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
         return init_value
+
+    if callable(init_value):
+        def fn(init_fn, *args, **kwargs):
+            return init_fn(prng_key())
+    else:
+        fn = identity
 
     # Otherwise, we initialize a message...
     initial_msg = {
         'type': 'param',
         'name': name,
-        'fn': identity,
+        'fn': fn,
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
