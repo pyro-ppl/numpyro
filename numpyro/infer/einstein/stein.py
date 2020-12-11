@@ -47,10 +47,14 @@ class Stein(object):
         :param loss_temperature: scaling of loss factor
         :param repulsion_temperature: scaling of repulsive forces (Non-linear Stein)
         :param enum: whether to apply automatic marginalization of discrete variables
-        :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically without Stein (E.g., parameters for large normal networks or other transformation)
-        :param sp_mcmc_crit: Stein Point MCMC update selection criterion, either 'infl' for most influential or 'rand' for random (EXPERIMENTAL)
-        :param sp_mode: Stein Point MCMC mode for calculating Kernelized Stein Discrepancy. Either 'local' for only the updated MCMC particles or 'global' for all particles. (EXPERIMENTAL)
-        :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC (should be a subset of number of Stein particles) (EXPERIMENTAL)
+        :param classic_guide_param_fn: predicate on names of parameters in guide which should be optimized classically
+                                       without Stein (E.g. parameters for large normal networks or other transformation)
+        :param sp_mcmc_crit: Stein Point MCMC update selection criterion, either 'infl' for most influential or 'rand'
+                             for random (EXPERIMENTAL)
+        :param sp_mode: Stein Point MCMC mode for calculating Kernelized Stein Discrepancy. Either 'local'
+                        for only the updated MCMC particles or 'global' for all particles. (EXPERIMENTAL)
+        :param num_mcmc_particles: Number of particles that should be updated with Stein Point MCMC
+                                   (should be a subset of number of Stein particles) (EXPERIMENTAL)
         :param num_mcmc_warmup: Number of warmup steps for the MCMC sampler (EXPERIMENTAL)
         :param num_mcmc_updates: Number of MCMC update steps at each iteration (EXPERIMENTAL)
         :param sampler_fn: The MCMC sampling kernel used for the Stein Point MCMC updates (EXPERIMENTAL)
@@ -303,15 +307,15 @@ class Stein(object):
         self.particle_transform_fn = partial(transform_fn, particle_transforms)
         return Stein.CurrentState(self.optim.init(params), rng_key)
 
-    def get_params(self, state):
+    def get_params(self, state: CurrentState):
         """
         Gets values at `param` sites of the `model` and `guide`.
-        :param svi_state: current state of the optimizer.
+        :param state: current state of the optimizer.
         """
         params = self.constrain_fn(self.optim.get_params(state.optim_state))
         return params
 
-    def update(self, state, *args, **kwargs):
+    def update(self, state: CurrentState, *args, **kwargs):
         """
         Take a single step of Stein (possibly on a batch / minibatch of data),
         using the optimizer.
@@ -336,33 +340,3 @@ class Stein(object):
                                                     *args, **kwargs, **self.static_kwargs)
         optim_state = self.optim.update(grads, optim_state)
         return Stein.CurrentState(optim_state, rng_key), loss_val
-
-    def evaluate(self, state, *args, **kwargs):
-        """
-        Take a single step of Stein (possibly on a batch / minibatch of data).
-        :param state: current state of Stein.
-        :param args: arguments to the model / guide (these can possibly vary during
-            the course of fitting).
-        :param kwargs: keyword arguments to the model / guide.
-        :return: evaluate loss given the current parameter values (held within `state.optim_state`).
-        """
-        # we split to have the same seed as `update_fn` given a state
-        _, rng_key_eval = jax.random.split(state.rng_key)
-        params = self.optim.get_params(state.optim_state)
-        loss_val, _ = self._svgd_loss_and_grads(rng_key_eval, params,
-                                                *args, **kwargs, **self.static_kwargs)
-        return loss_val
-
-    def predict(self, state, *args, num_samples=1, **kwargs):
-        _, rng_key_predict = jax.random.split(state.rng_key)
-        params = self.get_params(state)
-        classic_params = {p: v for p, v in params.items() if
-                          p not in self.guide_param_names or self.classic_guide_params_fn(p)}
-        stein_params = {p: v for p, v in params.items() if p not in classic_params}
-        if num_samples == 1:
-            return jax.vmap(lambda sp: self._predict_model(rng_key_predict, {**sp, **classic_params}, *args, **kwargs)
-                            )(stein_params)
-        else:
-            return jax.vmap(lambda rk: jax.vmap(lambda sp: self._predict_model(rk, {**sp, **classic_params},
-                                                                               *args, **kwargs)
-                                                )(stein_params))(jax.random.split(rng_key_predict, num_samples))
