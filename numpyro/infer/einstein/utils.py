@@ -1,6 +1,9 @@
 import jax
 import jax.numpy as jnp
 
+from numpyro.distributions.constraints import real
+from numpyro.distributions.transforms import IdentityTransform, ComposeTransform, biject_to
+
 
 def posdef(m):
     """  Map a matrix to a positive definite matrix, where all eigenvalues are >= 1e-5. """
@@ -35,3 +38,9 @@ def safe_norm(a, ord=2, axis=None):
     norm = jnp.linalg.norm(a + jnp.where(is_zero, jnp.ones_like(a) * 1e-5 ** ord, jnp.zeros_like(a)), ord=ord,
                            axis=axis)
     return norm
+
+
+def get_parameter_transform(site):
+    constraint = site['kwargs'].get('constraint', real)
+    transform = site['kwargs'].get('particle_transform', IdentityTransform())
+    return ComposeTransform([transform, biject_to(constraint)])
