@@ -118,9 +118,17 @@ def _unconstrain_reparam(params, site):
     if name in params:
         p = params[name]
         support = site['fn'].support
+        t = biject_to(support)
+        # in scan, we might only want to substitute an item at index i, rather than the whole sequence
+        i = site['infer'].get('_scan_current_index', None)
+        if i is not None:
+            expected_unconstrained_dim = len(site["fn"].shape()) + t.input_event_dim - t.output_event_dim
+            # check if p has additional time dimension
+            if jnp.ndim(p) > expected_unconstrained_dim:
+                p = p[i]
+
         if support in [real, real_vector]:
             return p
-        t = biject_to(support)
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)

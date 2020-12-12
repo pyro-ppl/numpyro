@@ -5,6 +5,8 @@
 Example: CJS Capture-Recapture Model for Ecological Data
 ========================================================
 
+This example is ported from [8].
+
 We show how to implement several variants of the Cormack-Jolly-Seber (CJS)
 [4, 5, 6] model used in ecology to analyze animal capture-recapture data.
 For a discussion of these models see reference [1].
@@ -15,8 +17,6 @@ We make use of two datasets:
 -- the meadow voles data from reference [3].
 
 Compare to the Stan implementations in [7].
-
-This example is ported from [8].
 
 References
 [1] Kery, M., & Schaub, M. (2011). Bayesian population analysis using
@@ -49,6 +49,7 @@ from numpyro.contrib.control_flow import scan
 import numpyro.distributions as dist
 from numpyro.examples.datasets import DIPPER_VOLE, load_dataset
 from numpyro.infer import HMC, MCMC, NUTS
+from numpyro.infer.reparam import LocScaleReparam
 
 
 # %%
@@ -64,23 +65,24 @@ def model_1(capture_history, sex):
     rho = numpyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
 
     def transition_fn(carry, y):
-        first_capture_mask, z, t = carry
+        first_capture_mask, z = carry
         with numpyro.plate("animals", N, dim=-1):
             with handlers.mask(mask=first_capture_mask):
                 mu_z_t = first_capture_mask * phi * z + (1 - first_capture_mask)
-                z = numpyro.sample("z", dist.Bernoulli(mu_z_t))
+                # NumPyro exactly sums out the discrete states z_t.
+                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
                 mu_y_t = rho * z
-                numpyro.sample("y", dist.Bernoulli(mu_y_t), obs=y)
+                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
 
         first_capture_mask = first_capture_mask | y.astype(bool)
-        return (first_capture_mask, z, t + 1), None
+        return (first_capture_mask, z), None
 
     z = jnp.ones(N, dtype=jnp.int32)
     # we use this mask to eliminate extraneous log probabilities
     # that arise for a given individual before its first capture.
-    first_capture_mask = jnp.zeros(N, dtype=jnp.bool_)
+    first_capture_mask = capture_history[:, 0].astype(bool)
     # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
-    scan(transition_fn, (first_capture_mask, z, 0), jnp.swapaxes(capture_history, 0, 1))
+    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
 
 
 # %%
@@ -90,27 +92,31 @@ def model_1(capture_history, sex):
 
 def model_2(capture_history, sex):
     N, T = capture_history.shape
-    rho = pyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
+    rho = numpyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
 
-    z = torch.ones(N)
-    first_capture_mask = torch.zeros(N).bool()
-    # we create the plate once, outside of the loop over t
-    animals_plate = pyro.plate("animals", N, dim=-1)
-    for t in pyro.markov(range(T)):
+    def transition_fn(carry, y):
+        first_capture_mask, z = carry
         # note that phi_t needs to be outside the plate, since
         # phi_t is shared across all N individuals
-        phi_t = pyro.sample("phi_{}".format(t), dist.Uniform(0.0, 1.0)) if t > 0 \
-                else 1.0
-        with animals_plate, poutine.mask(mask=first_capture_mask):
-            mu_z_t = first_capture_mask.float() * phi_t * z + (1 - first_capture_mask.float())
-            # we use parallel enumeration to exactly sum out
-            # the discrete states z_t.
-            z = pyro.sample("z_{}".format(t), dist.Bernoulli(mu_z_t),
-                            infer={"enumerate": "parallel"})
-            mu_y_t = rho * z
-            pyro.sample("y_{}".format(t), dist.Bernoulli(mu_y_t),
-                        obs=capture_history[:, t])
-        first_capture_mask |= capture_history[:, t].bool()
+        phi_t = numpyro.sample("phi", dist.Uniform(0.0, 1.0))
+
+        with numpyro.plate("animals", N, dim=-1):
+            with handlers.mask(mask=first_capture_mask):
+                mu_z_t = first_capture_mask * phi_t * z + (1 - first_capture_mask)
+                # NumPyro exactly sums out the discrete states z_t.
+                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
+                mu_y_t = rho * z
+                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+
+        first_capture_mask = first_capture_mask | y.astype(bool)
+        return (first_capture_mask, z), None
+
+    z = jnp.ones(N, dtype=jnp.int32)
+    # we use this mask to eliminate extraneous log probabilities
+    # that arise for a given individual before its first capture.
+    first_capture_mask = capture_history[:, 0].astype(bool)
+    # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
+    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
 
 
 # %%
@@ -121,31 +127,34 @@ def model_2(capture_history, sex):
 
 def model_3(capture_history, sex):
     N, T = capture_history.shape
-    phi_mean = pyro.sample("phi_mean", dist.Uniform(0.0, 1.0))  # mean survival probability
+    phi_mean = numpyro.sample("phi_mean", dist.Uniform(0.0, 1.0))  # mean survival probability
     phi_logit_mean = logit(phi_mean)
     # controls temporal variability of survival probability
-    phi_sigma = pyro.sample("phi_sigma", dist.Uniform(0.0, 10.0))
-    rho = pyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
+    phi_sigma = numpyro.sample("phi_sigma", dist.Uniform(0.0, 10.0))
+    rho = numpyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
 
-    z = torch.ones(N)
-    first_capture_mask = torch.zeros(N).bool()
-    # we create the plate once, outside of the loop over t
-    animals_plate = pyro.plate("animals", N, dim=-1)
-    for t in pyro.markov(range(T)):
-        phi_logit_t = pyro.sample("phi_logit_{}".format(t),
-                                  dist.Normal(phi_logit_mean, phi_sigma)) if t > 0 \
-                      else torch.tensor(0.0)
-        phi_t = torch.sigmoid(phi_logit_t)
-        with animals_plate, poutine.mask(mask=first_capture_mask):
-            mu_z_t = first_capture_mask.float() * phi_t * z + (1 - first_capture_mask.float())
-            # we use parallel enumeration to exactly sum out
-            # the discrete states z_t.
-            z = pyro.sample("z_{}".format(t), dist.Bernoulli(mu_z_t),
-                            infer={"enumerate": "parallel"})
-            mu_y_t = rho * z
-            pyro.sample("y_{}".format(t), dist.Bernoulli(mu_y_t),
-                        obs=capture_history[:, t])
-        first_capture_mask |= capture_history[:, t].bool()
+    def transition_fn(carry, y):
+        first_capture_mask, z = carry
+        with handlers.reparam(config={"phi_logit": LocScaleReparam(0)}):
+            phi_logit_t = numpyro.sample("phi_logit", dist.Normal(phi_logit_mean, phi_sigma))
+        phi_t = expit(phi_logit_t)
+        with numpyro.plate("animals", N, dim=-1):
+            with handlers.mask(mask=first_capture_mask):
+                mu_z_t = first_capture_mask * phi_t * z + (1 - first_capture_mask)
+                # NumPyro exactly sums out the discrete states z_t.
+                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
+                mu_y_t = rho * z
+                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+
+        first_capture_mask = first_capture_mask | y.astype(bool)
+        return (first_capture_mask, z), None
+
+    z = jnp.ones(N, dtype=jnp.int32)
+    # we use this mask to eliminate extraneous log probabilities
+    # that arise for a given individual before its first capture.
+    first_capture_mask = capture_history[:, 0].astype(bool)
+    # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
+    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
 
 
 # %%
@@ -156,29 +165,32 @@ def model_3(capture_history, sex):
 def model_4(capture_history, sex):
     N, T = capture_history.shape
     # survival probabilities for males/females
-    phi_male = pyro.sample("phi_male", dist.Uniform(0.0, 1.0))
-    phi_female = pyro.sample("phi_female", dist.Uniform(0.0, 1.0))
+    phi_male = numpyro.sample("phi_male", dist.Uniform(0.0, 1.0))
+    phi_female = numpyro.sample("phi_female", dist.Uniform(0.0, 1.0))
     # we construct a N-dimensional vector that contains the appropriate
     # phi for each individual given its sex (female = 0, male = 1)
     phi = sex * phi_male + (1.0 - sex) * phi_female
-    rho = pyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
+    rho = numpyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
 
-    with pyro.plate("animals", N, dim=-1):
-        z = torch.ones(N)
-        # we use this mask to eliminate extraneous log probabilities
-        # that arise for a given individual before its first capture.
-        first_capture_mask = torch.zeros(N).bool()
-        for t in pyro.markov(range(T)):
-            with poutine.mask(mask=first_capture_mask):
-                mu_z_t = first_capture_mask.float() * phi * z + (1 - first_capture_mask.float())
-                # we use parallel enumeration to exactly sum out
-                # the discrete states z_t.
-                z = pyro.sample("z_{}".format(t), dist.Bernoulli(mu_z_t),
-                                infer={"enumerate": "parallel"})
+    def transition_fn(carry, y):
+        first_capture_mask, z = carry
+        with numpyro.plate("animals", N, dim=-1):
+            with handlers.mask(mask=first_capture_mask):
+                mu_z_t = first_capture_mask * phi * z + (1 - first_capture_mask)
+                # NumPyro exactly sums out the discrete states z_t.
+                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
                 mu_y_t = rho * z
-                pyro.sample("y_{}".format(t), dist.Bernoulli(mu_y_t),
-                            obs=capture_history[:, t])
-            first_capture_mask |= capture_history[:, t].bool()
+                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+
+        first_capture_mask = first_capture_mask | y.astype(bool)
+        return (first_capture_mask, z), None
+
+    z = jnp.ones(N, dtype=jnp.int32)
+    # we use this mask to eliminate extraneous log probabilities
+    # that arise for a given individual before its first capture.
+    first_capture_mask = capture_history[:, 0].astype(bool)
+    # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
+    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
 
 
 # %%
@@ -195,28 +207,31 @@ def model_5(capture_history, sex):
 
     # phi_beta controls the survival probability differential
     # for males versus females (in logit space)
-    phi_beta = pyro.sample("phi_beta", dist.Normal(0.0, 10.0))
+    phi_beta = numpyro.sample("phi_beta", dist.Normal(0.0, 10.0))
     phi_beta = sex * phi_beta
-    rho = pyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
+    rho = numpyro.sample("rho", dist.Uniform(0.0, 1.0))  # recapture probability
 
-    z = torch.ones(N)
-    first_capture_mask = torch.zeros(N).bool()
-    # we create the plate once, outside of the loop over t
-    animals_plate = pyro.plate("animals", N, dim=-1)
-    for t in pyro.markov(range(T)):
-        phi_gamma_t = pyro.sample("phi_gamma_{}".format(t), dist.Normal(0.0, 10.0)) if t > 0 \
-                      else 0.0
-        phi_t = torch.sigmoid(phi_beta + phi_gamma_t)
-        with animals_plate, poutine.mask(mask=first_capture_mask):
-            mu_z_t = first_capture_mask.float() * phi_t * z + (1 - first_capture_mask.float())
-            # we use parallel enumeration to exactly sum out
-            # the discrete states z_t.
-            z = pyro.sample("z_{}".format(t), dist.Bernoulli(mu_z_t),
-                            infer={"enumerate": "parallel"})
-            mu_y_t = rho * z
-            pyro.sample("y_{}".format(t), dist.Bernoulli(mu_y_t),
-                        obs=capture_history[:, t])
-        first_capture_mask |= capture_history[:, t].bool()
+    def transition_fn(carry, y):
+        first_capture_mask, z = carry
+        phi_gamma_t = numpyro.sample("phi_gamma", dist.Normal(0.0, 10.0))
+        phi_t = expit(phi_beta + phi_gamma_t)
+        with numpyro.plate("animals", N, dim=-1):
+            with handlers.mask(mask=first_capture_mask):
+                mu_z_t = first_capture_mask * phi_t * z + (1 - first_capture_mask)
+                # NumPyro exactly sums out the discrete states z_t.
+                z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
+                mu_y_t = rho * z
+                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+
+        first_capture_mask = first_capture_mask | y.astype(bool)
+        return (first_capture_mask, z), None
+
+    z = jnp.ones(N, dtype=jnp.int32)
+    # we use this mask to eliminate extraneous log probabilities
+    # that arise for a given individual before its first capture.
+    first_capture_mask = capture_history[:, 0].astype(bool)
+    # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
+    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
 
 
 models = {name[len('model_'):]: model
@@ -245,6 +260,7 @@ def main(args):
             raise ValueError("Cannot run model_{} on meadow voles data, since we lack sex "
                              "information for these animals.".format(args.model))
         capture_history, = load_dataset(DIPPER_VOLE, split='vole', shuffle=False)[1]()
+        sex = None
     else:
         raise ValueError("Available datasets are \'dipper\' and \'vole\'.")
 
@@ -262,8 +278,8 @@ if __name__ == '__main__':
     parser.add_argument("-m", "--model", default="1", type=str,
                         help="one of: {}".format(", ".join(sorted(models.keys()))))
     parser.add_argument("-d", "--dataset", default="dipper", type=str)
-    parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=1500, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
+    parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
     parser.add_argument('--rng_seed', default=0, type=int, help='random number generator seed')
     parser.add_argument('--algo', default='NUTS', type=str,

@@ -36,7 +36,7 @@ from jax import lax, tree_util
 import jax.numpy as jnp
 
 from numpyro.distributions.constraints import is_dependent, real
-from numpyro.distributions.transforms import Transform
+from numpyro.distributions.transforms import ComposeTransform, Transform
 from numpyro.distributions.util import lazy_property, promote_shapes, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
 
@@ -725,7 +725,8 @@ class TransformedDistribution(Distribution):
         # to pay attention to any inference function that inspects
         # transformed distribution's shape.
         shape = base_distribution.batch_shape + base_distribution.event_shape
-        event_dim = max([len(base_distribution.event_shape)] + [t.event_dim for t in transforms])
+        transform = ComposeTransform(self.transforms)
+        event_dim = transform.output_event_dim + max(transform.input_event_dim - self.base_dist.event_dim, 0)
         batch_shape = shape[:len(shape) - event_dim]
         event_shape = shape[len(shape) - event_dim:]
         super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
@@ -766,7 +767,9 @@ class TransformedDistribution(Distribution):
             x = transform.inv(y) if intermediates is None else intermediates[-i - 1][0]
             t_inter = None if intermediates is None else intermediates[-i - 1][1]
             t_log_det = transform.log_abs_det_jacobian(x, y, t_inter)
-            log_prob = log_prob - sum_rightmost(t_log_det, event_dim - transform.event_dim)
+            batch_ndim = event_dim - transform.output_event_dim
+            log_prob = log_prob - sum_rightmost(t_log_det, batch_ndim)
+            event_dim = transform.input_event_dim + batch_ndim
             y = x
 
         log_prob = log_prob + sum_rightmost(self.base_dist.log_prob(y),
@@ -802,7 +805,7 @@ class Unit(Distribution):
 
     def __init__(self, log_factor, validate_args=None):
         batch_shape = jnp.shape(log_factor)
-        event_shape = (0,)  # This satisfies .size == 0.
+        event_shape = ()  # This satisfies .size == 0.
         self.log_factor = log_factor
         super(Unit, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
