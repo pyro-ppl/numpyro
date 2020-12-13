@@ -35,6 +35,7 @@ NumPyro documentation
 
    examples/annotation
    examples/hmm_enum
+   examples/cjs
    tutorials/discrete_imputation
 
 .. nbgallery::
