@@ -874,10 +874,7 @@ def test_constraints(constraint, x, expected):
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
-    if transform.event_dim == 2:
-        event_dim = 1  # actual dim of unconstrained domain
-    else:
-        event_dim = transform.event_dim
+    event_dim = transform.input_event_dim
     if isinstance(constraint, constraints._Interval):
         assert transform.codomain.upper_bound == constraint.upper_bound
         assert transform.codomain.lower_bound == constraint.lower_bound
