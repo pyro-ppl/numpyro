@@ -234,6 +234,10 @@ def model_5(capture_history, sex):
     scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
 
 
+# %%
+# Do inference
+
+
 models = {name[len('model_'):]: model
           for name, model in globals().items()
           if name.startswith('model_')}
