@@ -12,28 +12,31 @@ We show how to implement several variants of the Cormack-Jolly-Seber (CJS)
 For a discussion of these models see reference [1].
 
 We make use of two datasets:
--- the European Dipper (Cinclus cinclus) data from reference [2]
-   (this is Norway's national bird).
--- the meadow voles data from reference [3].
+
+    - the European Dipper (Cinclus cinclus) data from reference [2]
+      (this is Norway's national bird).
+    - the meadow voles data from reference [3].
 
 Compare to the Stan implementations in [7].
 
-References
-[1] Kery, M., & Schaub, M. (2011). Bayesian population analysis using
-    WinBUGS: a hierarchical perspective. Academic Press.
-[2] Lebreton, J.D., Burnham, K.P., Clobert, J., & Anderson, D.R. (1992).
-    Modeling survival and testing biological hypotheses using marked animals:
-    a unified approach with case studies. Ecological monographs, 62(1), 67-118.
-[3] Nichols, Pollock, Hines (1984) The use of a robust capture-recapture design
-    in small mammal population studies: A field example with Microtus pennsylvanicus.
-    Acta Theriologica 29:357-365.
-[4] Cormack, R.M., 1964. Estimates of survival from the sighting of marked animals.
-    Biometrika 51, 429-438.
-[5] Jolly, G.M., 1965. Explicit estimates from capture-recapture data with both death
-    and immigration-stochastic model. Biometrika 52, 225-247.
-[6] Seber, G.A.F., 1965. A note on the multiple recapture census. Biometrika 52, 249-259.
-[7] https://github.com/stan-dev/example-models/tree/master/BPA/Ch.07
-[8] http://pyro.ai/examples/capture_recapture.html
+**References**
+
+    1. Kery, M., & Schaub, M. (2011). Bayesian population analysis using
+       WinBUGS: a hierarchical perspective. Academic Press.
+    2. Lebreton, J.D., Burnham, K.P., Clobert, J., & Anderson, D.R. (1992).
+       Modeling survival and testing biological hypotheses using marked animals:
+       a unified approach with case studies. Ecological monographs, 62(1), 67-118.
+    3. Nichols, Pollock, Hines (1984) The use of a robust capture-recapture design
+       in small mammal population studies: A field example with Microtus pennsylvanicus.
+       Acta Theriologica 29:357-365.
+    4. Cormack, R.M., 1964. Estimates of survival from the sighting of marked animals.
+       Biometrika 51, 429-438.
+    5. Jolly, G.M., 1965. Explicit estimates from capture-recapture data with both death
+       and immigration-stochastic model. Biometrika 52, 225-247.
+    6. Seber, G.A.F., 1965. A note on the multiple recapture census. Biometrika 52, 249-259.
+    7. https://github.com/stan-dev/example-models/tree/master/BPA/Ch.07
+    8. http://pyro.ai/examples/capture_recapture.html
+
 """
 
 import argparse
