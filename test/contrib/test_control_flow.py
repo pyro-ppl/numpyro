@@ -4,7 +4,7 @@
 from numpy.testing import assert_allclose
 import pytest
 
-import jax
+from jax import random
 import jax.numpy as jnp
 
 import numpyro
@@ -12,6 +12,7 @@ from numpyro.contrib.control_flow.scan import scan
 import numpyro.distributions as dist
 from numpyro.handlers import seed, substitute, trace
 from numpyro.infer import MCMC, NUTS, Predictive
+from numpyro.infer.util import potential_energy
 
 
 def test_scan():
@@ -37,7 +38,7 @@ def test_scan():
     num_samples = 100
     kernel = NUTS(model)
     mcmc = MCMC(kernel, 100, num_samples)
-    mcmc.run(jax.random.PRNGKey(0), T=T)
+    mcmc.run(random.PRNGKey(0), T=T)
     assert set(mcmc.get_samples()) == {'x', 'y', 'y2', 'x_0', 'y_0'}
     mcmc.print_summary()
 
@@ -48,7 +49,7 @@ def test_scan():
     future = 5
     predictive = Predictive(numpyro.handlers.condition(model, {'x': x}),
                             samples, return_sites=['x', 'y', 'y2'], parallel=True)
-    result = predictive(jax.random.PRNGKey(1), T=T + future)
+    result = predictive(random.PRNGKey(1), T=T + future)
     expected_shape = (num_samples, T + future)
     assert result['x'].shape == expected_shape
     assert result['y'].shape == expected_shape
@@ -78,3 +79,33 @@ def test_nested_scan_smoke():
     with trace(), seed(rng_seed=0), substitute(data={"z": data}):
         zs = model()
     assert_allclose(zs, data)
+
+
+def test_scan_constrain_reparam_compatible():
+    def model(T, q=1, r=1, phi=0., beta=0.):
+        x = 0.
+        mu = 0.
+        for i in range(T):
+            x = numpyro.sample(f'x_{i}', dist.LogNormal(phi * x, q))
+            mu = beta * mu + x
+            numpyro.sample(f'y_{i}', dist.Normal(mu, r))
+
+    def fun_model(T, q=1, r=1, phi=0., beta=0.):
+        def transition(state, i):
+            x, mu = state
+            x = numpyro.sample('x', dist.LogNormal(phi * x, q))
+            mu = beta * mu + x
+            numpyro.sample('y', dist.Normal(mu, r))
+            return (x, mu), None
+
+        scan(transition, (0., 0.), jnp.arange(T))
+
+    T = 10
+    params = {}
+    for i in range(T):
+        params[f'x_{i}'] = i + 1.
+        params[f'y_{i}'] = -i
+    fun_params = {'x': jnp.arange(1, T + 1), 'y': -jnp.arange(T)}
+    actual_log_joint = potential_energy(fun_model, (T,), {}, fun_params)
+    expected_log_joint = potential_energy(model, (T,), {}, params)
+    assert_allclose(actual_log_joint, expected_log_joint, rtol=1e-5)
