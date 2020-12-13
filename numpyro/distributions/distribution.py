@@ -805,7 +805,7 @@ class Unit(Distribution):
 
     def __init__(self, log_factor, validate_args=None):
         batch_shape = jnp.shape(log_factor)
-        event_shape = ()  # This satisfies .size == 0.
+        event_shape = (0,)  # This satisfies .size == 0.
         self.log_factor = log_factor
         super(Unit, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
