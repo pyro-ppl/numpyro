@@ -12,7 +12,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
+from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import seed, substitute, trace
@@ -122,12 +122,18 @@ def _unconstrain_reparam(params, site):
         # in scan, we might only want to substitute an item at index i, rather than the whole sequence
         i = site['infer'].get('_scan_current_index', None)
         if i is not None:
-            expected_unconstrained_dim = len(site["fn"].shape()) + t.input_event_dim - t.output_event_dim
+            # TODO: leverage t.input_event_dim, t.output_event_dim when they are available
+            if support in (constraints.corr_cholesky, constraints.corr_matrix,
+                           constraints.positive_definite, constraints.lower_cholesky):
+                event_dim_shift = 1
+            else:
+                event_dim_shift = 0
+            expected_unconstrained_dim = len(site["fn"].shape()) - event_dim_shift
             # check if p has additional time dimension
             if jnp.ndim(p) > expected_unconstrained_dim:
                 p = p[i]
 
-        if support in [real, real_vector]:
+        if support in [constraints.real, constraints.real_vector]:
             return p
         value = t(p)
 
@@ -286,9 +292,9 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                 inv_transforms[k] = biject_to(support)
                 # XXX: the following code filters out most situations with dynamic supports
                 args = ()
-                if isinstance(support, _GreaterThan):
+                if isinstance(support, constraints._GreaterThan):
                     args = ('lower_bound',)
-                elif isinstance(support, _Interval):
+                elif isinstance(support, constraints._Interval):
                     args = ('lower_bound', 'upper_bound')
                 for arg in args:
                     if not isinstance(getattr(support, arg), (int, float)):

@@ -106,7 +106,7 @@ class promote_shapes(Messenger):
 
 
 def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None):
-    from numpyro.contrib.funsor import config_enumerate, enum, infer_config, markov
+    from numpyro.contrib.funsor import config_enumerate, enum, markov
     from numpyro.contrib.funsor import trace as packed_trace
 
     # XXX: This implementation only works for history size=1 but can be
@@ -130,7 +130,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
 
         # we need to tell unconstrained messenger in potential energy computation
         # that only the item at time `i` is needed when transforming
-        fn = infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
+        fn = handlers.infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
 
         seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
         for subs_type, subs_map in substitute_stack:
@@ -211,7 +211,12 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
         with handlers.block():
-            seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
+
+            # we need to tell unconstrained messenger in potential energy computation
+            # that only the item at time `i` is needed when transforming
+            fn = handlers.infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
+
+            seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
             for subs_type, subs_map in substitute_stack:
                 subs_fn = partial(_subs_wrapper, subs_map, i, length)
                 if subs_type == 'condition':
