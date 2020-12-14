@@ -7,13 +7,13 @@ from functools import partial
 
 from jax import device_put, random, value_and_grad
 
-from numpyro.handlers import condition, seed, trace
+from numpyro.handlers import condition, seed, trace, substitute
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.hmc import HMC, NUTS
+from numpyro.infer.hmc import HMC
 from numpyro.util import ravel_pytree
 
 
-HMCGibbs_State = namedtuple("HMCGibbs_State", "z, hmc_state, rng_key")
+HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """
  - **z** - a dict of the current latent values (both HMC and Gibbs sites)
  - **hmc_state** - current hmc_state
@@ -24,13 +24,15 @@ HMCGibbs_State = namedtuple("HMCGibbs_State", "z, hmc_state, rng_key")
 def _wrap_model(model):
     def fn(*args, **kwargs):
         gibbs_values = kwargs.pop("_gibbs_sites", {})
-        with condition(data=gibbs_values):
+        with condition(data=gibbs_values), substitute(data=gibbs_values):
             model(*args, **kwargs)
     return fn
 
 
 class HMCGibbs(MCMCKernel):
     """
+    [EXPERIMENTAL INTERFACE]
+
     HMC-within-Gibbs. This inference algorithm allows the user to combine
     general purpose gradient-based inference (HMC or NUTS) with custom
     Gibbs samplers.
@@ -45,7 +47,7 @@ class HMCGibbs(MCMCKernel):
     sample_field = "z"
 
     def __init__(self, inner_kernel, gibbs_fn, gibbs_sites):
-        if not (isinstance(inner_kernel, HMC) or isinstance(inner_kernel, NUTS)):
+        if not isinstance(inner_kernel, HMC):
             raise ValueError("inner_kernel must be a HMC or NUTS sampler.")
         if not callable(gibbs_fn):
             raise ValueError("gibbs_fn must be a callable")
@@ -80,8 +82,8 @@ class HMCGibbs(MCMCKernel):
         hmc_state = self.inner_kernel.init(key_z, num_warmup, init_params, model_args, model_kwargs)
 
         z = {**gibbs_sites, **hmc_state.z}
-        _, self._unravel_fn = ravel_pytree(gibbs_sites)
-        return device_put(HMCGibbs_State(z, hmc_state, rng_key))
+
+        return device_put(HMCGibbsState(z, hmc_state, rng_key))
 
     def sample(self, state, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs
@@ -105,4 +107,4 @@ class HMCGibbs(MCMCKernel):
 
         z = {**z_gibbs, **hmc_state.z}
 
-        return HMCGibbs_State(z, hmc_state, rng_key)
+        return HMCGibbsState(z, hmc_state, rng_key)
