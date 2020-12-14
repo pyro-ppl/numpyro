@@ -9,7 +9,7 @@ from functools import partial
 
 import jax.numpy as jnp
 from jax import random
-from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
+from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular, inv
 
 import numpyro
 import numpyro.distributions as dist
@@ -67,7 +67,7 @@ def test_linear_model_log_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_step
     assert_allclose(sigma_mean, sigma, atol=0.25)
 
 
-@pytest.mark.skip('Problems with constraints? Also seems to hang due to compilation issues?')
+@pytest.mark.skip('Problems with constraints? Also seems to hang during warmup?')
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 def test_linear_model_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=500, num_samples=500):
     np.random.seed(0)
@@ -92,10 +92,56 @@ def test_linear_model_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=50
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
 
     mcmc.run(random.PRNGKey(0), X, Y)
-    mcmc.print_summary(exclude_deterministic=False)
 
     beta_mean = np.mean(mcmc.get_samples()['beta'], axis=0)
     assert_allclose(beta_mean, np.array([1.0] + [0.0] * (P - 1)), atol=0.05)
 
     sigma_mean = np.mean(mcmc.get_samples()['sigma'], axis=0)
     assert_allclose(sigma_mean, sigma, atol=0.25)
+
+
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+def test_gaussian_model(kernel_cls, D=2, warmup_steps=2000, num_samples=5000):
+    np.random.seed(0)
+    cov = np.random.randn(4 * D * D).reshape((2 * D, 2 * D))
+    cov = jnp.matmul(jnp.transpose(cov), cov) + jnp.eye(2 * D)
+
+    cov00 = cov[:D, :D]
+    cov01 = cov[:D, D:]
+    cov10 = cov[D:, :D]
+    cov11 = cov[D:, D:]
+
+    cov_01_cov11_inv = jnp.matmul(cov01, inv(cov11))
+    cov_10_cov00_inv = jnp.matmul(cov10, inv(cov00))
+
+    posterior_cov0 = cov00 - jnp.matmul(cov_01_cov11_inv, cov10)
+    posterior_cov1 = cov11 - jnp.matmul(cov_10_cov00_inv, cov01)
+
+    def gaussian_gibbs_fn(rng_key, x0, x1):
+        posterior_loc0 = jnp.matmul(cov_01_cov11_inv, x1)
+        x0_proposal = dist.MultivariateNormal(loc=posterior_loc0, covariance_matrix=posterior_cov0).sample(rng_key)
+        return {'x0': x0_proposal}
+
+    def model():
+        x0 = numpyro.sample("x0", dist.MultivariateNormal(loc=jnp.zeros(D), covariance_matrix=cov00))
+        posterior_loc1 = jnp.matmul(cov_10_cov00_inv, x0)
+        numpyro.sample("x1", dist.MultivariateNormal(loc=posterior_loc1, covariance_matrix=posterior_cov1))
+
+    hmc_kernel = kernel_cls(model, dense_mass=True)
+    kernel = HMCGibbs(hmc_kernel, gibbs_fn=gaussian_gibbs_fn, gibbs_sites=['x0'])
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+
+    mcmc.run(random.PRNGKey(0))
+    mcmc.print_summary()
+
+    x0_mean = np.mean(mcmc.get_samples()['x0'], axis=0)
+    x1_mean = np.mean(mcmc.get_samples()['x1'], axis=0)
+
+    x0_std = np.std(mcmc.get_samples()['x0'], axis=0)
+    x1_std = np.std(mcmc.get_samples()['x1'], axis=0)
+
+    assert_allclose(x0_mean, np.zeros(D), atol=0.1)
+    assert_allclose(x1_mean, np.zeros(D), atol=0.1)
+
+    assert_allclose(x0_std, np.sqrt(np.diagonal(cov00)), rtol=0.05)
+    assert_allclose(x1_std, np.sqrt(np.diagonal(cov11)), rtol=0.05)
