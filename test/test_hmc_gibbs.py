@@ -19,8 +19,7 @@ from numpyro.infer import HMC, MCMC, NUTS, HMCGibbs
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, beta, log_sigma=None, sigma=None):
     N, P = X.shape
 
-    if sigma is None:
-        sigma = jnp.exp(log_sigma)
+    sigma = jnp.exp(log_sigma) if sigma is None else sigma
 
     sigma_sq = jnp.square(sigma)
     covar_inv = XX / sigma_sq + jnp.eye(P)
@@ -34,7 +33,7 @@ def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, beta, log_sigma=None, sig
     return {'beta': beta_proposal}
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('kernel_cls', [HMC])
 def test_linear_model_log_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=500, num_samples=500):
     np.random.seed(0)
     X = np.random.randn(N * P).reshape((N, P))
@@ -59,6 +58,7 @@ def test_linear_model_log_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_step
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
 
     mcmc.run(random.PRNGKey(0), X, Y)
+    mcmc.print_summary()
 
     beta_mean = np.mean(mcmc.get_samples()['beta'], axis=0)
     assert_allclose(beta_mean, np.array([1.0] + [0.0] * (P - 1)), atol=0.05)
@@ -67,9 +67,8 @@ def test_linear_model_log_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_step
     assert_allclose(sigma_mean, sigma, atol=0.25)
 
 
-@pytest.mark.skip('Problems with constraints? Also seems to hang during warmup?')
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-def test_linear_model_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=500, num_samples=500):
+@pytest.mark.parametrize('kernel_cls', [NUTS])
+def test_linear_model_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=5000, num_samples=5000):
     np.random.seed(0)
     X = np.random.randn(N * P).reshape((N, P))
     XX = np.matmul(np.transpose(X), X)
@@ -92,6 +91,7 @@ def test_linear_model_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=50
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
 
     mcmc.run(random.PRNGKey(0), X, Y)
+    mcmc.print_summary()
 
     beta_mean = np.mean(mcmc.get_samples()['beta'], axis=0)
     assert_allclose(beta_mean, np.array([1.0] + [0.0] * (P - 1)), atol=0.05)
@@ -116,6 +116,8 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=2000, num_samples=5000):
 
     posterior_cov0 = cov00 - jnp.matmul(cov_01_cov11_inv, cov10)
     posterior_cov1 = cov11 - jnp.matmul(cov_10_cov00_inv, cov01)
+
+    # we consider a model in which (x0, x1) ~ MVN(0, cov)
 
     def gaussian_gibbs_fn(rng_key, x0, x1):
         posterior_loc0 = jnp.matmul(cov_01_cov11_inv, x1)
