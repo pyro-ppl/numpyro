@@ -132,7 +132,6 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=2000, num_samples=5000):
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
 
     mcmc.run(random.PRNGKey(0))
-    mcmc.print_summary()
 
     x0_mean = np.mean(mcmc.get_samples()['x0'], axis=0)
     x1_mean = np.mean(mcmc.get_samples()['x1'], axis=0)
