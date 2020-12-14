@@ -10,7 +10,6 @@ from jax import device_put, random, value_and_grad
 from numpyro.handlers import condition, seed, trace, substitute
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.hmc import HMC
-from numpyro.util import ravel_pytree
 
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
