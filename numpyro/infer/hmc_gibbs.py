@@ -1,14 +1,15 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 import copy
-import math
 from functools import partial
 
 from jax import device_put, random, value_and_grad
-import jax.numpy as jnp
 
-import numpyro
 from numpyro.handlers import condition, seed, trace
 from numpyro.infer.mcmc import MCMCKernel
+from numpyro.infer.hmc import HMC, NUTS
 from numpyro.util import ravel_pytree
 
 
@@ -34,19 +35,18 @@ class HMCGibbs(MCMCKernel):
     general purpose gradient-based inference (HMC or NUTS) with custom
     Gibbs samplers.
 
-    :param inner_kernel: Python callable containing Pyro :mod:`~numpyro.primitives`.
-        If model is provided, `potential_fn` will be inferred using the model.
-    :param potential_fn: Python callable that computes the potential energy
-        given input parameters. The input parameters to `potential_fn` can be
-        any python collection type, provided that `init_params` argument to
-        :meth:`init` has the same type.
-    :param callable init_strategy: a per-site initialization function.
-        See :ref:`init_strategy` section for available functions.
+    :param inner_kernel: One of :class:`~numpyro.infer.HMC` or :class:`~numpyro.infer.NUTS`.
+    :param gibbs_fn: A Python callable that returns a dictionary of Gibbs samples conditioned
+        on the HMC sites. Must include an argument `rng_key` that should be used for all sampling.
+        Must also include arguments for all HMC and Gibbs sites.
+    :param gibbs_sites: a list of site names for the latent variables that are covered by the Gibbs sampler.
     """
 
     sample_field = "z"
 
     def __init__(self, inner_kernel, gibbs_fn, gibbs_sites):
+        if not (isinstance(inner_kernel, HMC) or isinstance(inner_kernel, NUTS)):
+            raise ValueError("inner_kernel must be a HMC or NUTS sampler.")
         self.inner_kernel = copy.copy(inner_kernel)
         self.inner_kernel._model = _wrap_model(inner_kernel.model)
         self._gibbs_sites = gibbs_sites
