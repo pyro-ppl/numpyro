@@ -16,10 +16,10 @@ import numpyro.distributions as dist
 from numpyro.infer import HMC, MCMC, NUTS, HMCGibbs
 
 
-def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, beta, log_sigma=None, sigma=None):
+def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
     N, P = X.shape
 
-    sigma = jnp.exp(log_sigma) if sigma is None else sigma
+    sigma = jnp.exp(hmc_sites['log_sigma']) if 'log_sigma' in hmc_sites else hmc_sites['sigma']
 
     sigma_sq = jnp.square(sigma)
     covar_inv = XX / sigma_sq + jnp.eye(P)
@@ -33,7 +33,7 @@ def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, beta, log_sigma=None, sig
     return {'beta': beta_proposal}
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 def test_linear_model_log_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=500, num_samples=500):
     np.random.seed(0)
     X = np.random.randn(N * P).reshape((N, P))
@@ -58,7 +58,6 @@ def test_linear_model_log_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_step
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
 
     mcmc.run(random.PRNGKey(0), X, Y)
-    mcmc.print_summary()
 
     beta_mean = np.mean(mcmc.get_samples()['beta'], axis=0)
     assert_allclose(beta_mean, np.array([1.0] + [0.0] * (P - 1)), atol=0.05)
@@ -67,9 +66,9 @@ def test_linear_model_log_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_step
     assert_allclose(sigma_mean, sigma, atol=0.25)
 
 
-@pytest.mark.parametrize('kernel_cls', [NUTS])
-def test_linear_model_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=5000, num_samples=5000):
-    np.random.seed(0)
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+def test_linear_model_sigma(kernel_cls, N=90, P=40, sigma=0.07, warmup_steps=500, num_samples=500):
+    np.random.seed(1)
     X = np.random.randn(N * P).reshape((N, P))
     XX = np.matmul(np.transpose(X), X)
     Y = X[:, 0] + sigma * np.random.randn(N)
@@ -91,7 +90,6 @@ def test_linear_model_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=50
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
 
     mcmc.run(random.PRNGKey(0), X, Y)
-    mcmc.print_summary()
 
     beta_mean = np.mean(mcmc.get_samples()['beta'], axis=0)
     assert_allclose(beta_mean, np.array([1.0] + [0.0] * (P - 1)), atol=0.05)
@@ -101,10 +99,10 @@ def test_linear_model_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_steps=50
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-def test_gaussian_model(kernel_cls, D=2, warmup_steps=2000, num_samples=5000):
+def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
     np.random.seed(0)
     cov = np.random.randn(4 * D * D).reshape((2 * D, 2 * D))
-    cov = jnp.matmul(jnp.transpose(cov), cov) + jnp.eye(2 * D)
+    cov = jnp.matmul(jnp.transpose(cov), cov) + 0.25 * jnp.eye(2 * D)
 
     cov00 = cov[:D, :D]
     cov01 = cov[:D, D:]
@@ -119,7 +117,8 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=2000, num_samples=5000):
 
     # we consider a model in which (x0, x1) ~ MVN(0, cov)
 
-    def gaussian_gibbs_fn(rng_key, x0, x1):
+    def gaussian_gibbs_fn(rng_key, hmc_sites, gibbs_sites):
+        x1 = hmc_sites['x1']
         posterior_loc0 = jnp.matmul(cov_01_cov11_inv, x1)
         x0_proposal = dist.MultivariateNormal(loc=posterior_loc0, covariance_matrix=posterior_cov0).sample(rng_key)
         return {'x0': x0_proposal}
@@ -141,8 +140,8 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=2000, num_samples=5000):
     x0_std = np.std(mcmc.get_samples()['x0'], axis=0)
     x1_std = np.std(mcmc.get_samples()['x1'], axis=0)
 
-    assert_allclose(x0_mean, np.zeros(D), atol=0.1)
-    assert_allclose(x1_mean, np.zeros(D), atol=0.1)
+    assert_allclose(x0_mean, np.zeros(D), atol=0.15)
+    assert_allclose(x1_mean, np.zeros(D), atol=0.15)
 
     assert_allclose(x0_std, np.sqrt(np.diagonal(cov00)), rtol=0.05)
     assert_allclose(x1_std, np.sqrt(np.diagonal(cov11)), rtol=0.05)
