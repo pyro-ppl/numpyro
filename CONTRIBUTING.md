@@ -21,6 +21,7 @@ Before submitting a pull request, please autoformat code and ensure that unit te
 ```sh
 make format            # runs isort
 make test              # linting and unit tests
+make doctest           # test module’s docstrings
 ```
 
 To run all tests locally in parallel, use the `pytest-xdist` package
@@ -32,11 +33,17 @@ pytest -vs -n auto
 To run a single test from the command line
 ```sh
 pytest -vs {path_to_test}::{test_name}
-# or in cuda mode
-CUDA_TEST=1 PYRO_TENSOR_TYPE=torch.cuda.DoubleTensor pytest -vs {path_to_test}::{test_name}
+# or in cuda mode and double precision
+JAX_PLATFORM_NAME=gpu JAX_ENABLE_X64=1 pytest -vs {path_to_test}::{test_name}
 ```
 
+# Profiling
+
+TensorBoard can be used to profile NumPyro following the instructions following [JAX documentation](https://jax.readthedocs.io/en/latest/profiling.html).
+
 # Submitting
+
+For relevant design questions to consider, see past [design documents](https://github.com/pyro-ppl/pyro/wiki/Design-Docs).
 
 For larger changes, please open an issue for discussion before submitting a pull request.
 
