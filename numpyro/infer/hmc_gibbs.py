@@ -92,6 +92,12 @@ class HMCGibbs(MCMCKernel):
     def model(self):
         return self.inner_kernel._model
 
+    def get_diagnostics_str(self, state):
+        state = state.hmc_state
+        return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(state.num_steps,
+                                                                  state.adapt_state.step_size,
+                                                                  state.mean_accept_prob)
+
     def postprocess_fn(self, args, kwargs):
         def fn(z):
             model_kwargs = {} if kwargs is None else kwargs.copy()
