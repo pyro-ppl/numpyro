@@ -193,6 +193,16 @@ class Distribution(metaclass=DistributionMeta):
         """
         return len(self.event_shape)
 
+    @property
+    def has_rsample(self):
+        return self.is_discrete
+
+    def rsample(self, key, sample_shape=()):
+        if self.has_rsample:
+            self.sample(key, sample_shape=sample_shape)
+        else:
+            raise NotImplementedError
+
     def shape(self, sample_shape=()):
         """
         The tensor shape of samples from this distribution.
@@ -640,6 +650,10 @@ class MaskedDistribution(Distribution):
         return self.base_dist.is_discrete
 
     @property
+    def has_rsample(self):
+        return self.base_dist.has_rsample
+
+    @property
     def support(self):
         return self.base_dist.support
 
@@ -729,6 +743,16 @@ class TransformedDistribution(Distribution):
         batch_shape = shape[:len(shape) - event_dim]
         event_shape = shape[len(shape) - event_dim:]
         super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    @property
+    def has_rsample(self):
+        return self.base_dist.has_rsample
+
+    def rsample(self, key, sample_shape=()):
+        x = self.base_dist.rsample(key, sample_shape=sample_shape)
+        for transform in self.transforms:
+            x = transform(x)
+        return x
 
     @property
     def support(self):
