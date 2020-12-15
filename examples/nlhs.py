@@ -1,4 +1,5 @@
 import argparse
+import math
 import time
 from functools import partial
 
@@ -11,6 +12,9 @@ from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS, HMC, HMCGibbs, init_to_value
+
+
+BETA_COV = 0.2
 
 
 def kernel(X, Z, var, length, noise, jitter=1.0e-6, include_noise=True):
@@ -30,28 +34,29 @@ def model(X, Y):
 
     sigma_phi = numpyro.sample("sigma_phi", dist.HalfCauchy(0.01))
 
-    beta = numpyro.sample("beta", dist.Normal(jnp.zeros(P), 0.1 * jnp.ones(P)))
+    beta = numpyro.sample("beta", dist.Normal(jnp.zeros(P), math.sqrt(BETA_COV) * jnp.ones(P)))
     mean_phi = jnp.sum(beta * X, axis=-1)
 
-    phi = numpyro.sample("phi", dist.Normal(mean_phi, sigma_phi))
+    phi = mean_phi + sigma_phi * numpyro.sample("phi", dist.Normal(0.1, 1.0))
 
     k = kernel(phi, phi, var, length, noise)
 
-    numpyro.sample("Y", dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k),
-                   obs=Y)
+    numpyro.sample("Y", dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k), obs=Y)
 
 
 def _gibbs_fn(X, rng_key, gibbs_sites, hmc_sites):
     N, P = X.shape
 
     sigma_phi, phi = hmc_sites['sigma_phi'], hmc_sites['phi']
+    mean_phi = jnp.sum(gibbs_sites['beta'] * X, axis=-1)
+    phi = mean_phi + sigma_phi * phi
 
     X_phi = jnp.sum(X * phi[:, None], axis=0)
 
     XX = np.matmul(np.transpose(X), X)
 
     sigma_sq = jnp.square(sigma_phi)
-    covar_inv = XX / sigma_sq + jnp.eye(P)
+    covar_inv = XX / sigma_sq + jnp.eye(P) / BETA_COV
 
     L = cho_factor(covar_inv, lower=True)[0]
     L_inv = solve_triangular(L, jnp.eye(P), lower=True)
@@ -63,16 +68,16 @@ def _gibbs_fn(X, rng_key, gibbs_sites, hmc_sites):
 
 
 def run_inference(args, rng_key, X, Y):
+    init_strategy = init_to_value(values={"kernel_var": 0.5, "kernel_noise": 0.1,
+                                          "kernel_length": 2.0, "phi": Y})
 
     if args.strategy == "gibbs":
         gibbs_fn = partial(_gibbs_fn, X)
-        hmc_kernel = NUTS(model)
+        hmc_kernel = NUTS(model, max_tree_depth=7, init_strategy=init_strategy)
         kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['beta'])
         mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
     else:
-        init_strategy = init_to_value(values={"kernel_var": 0.5, "kernel_noise": 0.1,
-                                              "kernel_length": 0.5, "phi": Y})
-        hmc_kernel = NUTS(model, max_tree_depth=8, init_strategy=init_strategy)
+        hmc_kernel = NUTS(model, max_tree_depth=7, init_strategy=init_strategy)
         mcmc = MCMC(hmc_kernel, args.num_warmup, args.num_samples, progress_bar=True)
 
     start = time.time()
@@ -110,11 +115,11 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=500, type=int)
-    parser.add_argument("--num-warmup", default=500, type=int)
+    parser.add_argument("-n", "--num-samples", default=10000, type=int)
+    parser.add_argument("--num-warmup", default=2000, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
     parser.add_argument("--num-data", default=128, type=int)
-    parser.add_argument("--strategy", default="nuts", type=str, choices=["nuts", "gibbs"])
+    parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
     parser.add_argument("--P", default=5, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
