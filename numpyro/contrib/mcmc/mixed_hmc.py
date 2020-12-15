@@ -207,26 +207,27 @@ class MixedHMC(MCMCKernel):
         return MixedHMC_State(z, hmc_state, rng_key)
 
 
-if False:
+if True:
     def model(probs, mu_list):
         c = numpyro.sample("c", dist.Categorical(probs))
-        numpyro.sample("x", dist.Normal(mu_list[c], jnp.sqrt(0.1)))
+        numpyro.sample("x", dist.Normal(mu_list[c], jnp.sqrt(0.4)))
 
-    gibbs = False
+    gibbs = True
     if gibbs:
-        max_times = [1, 0]  # [0, 1] or [1, 0]
+        max_times = [0, 1]  # [0, 1] or [1, 0]
         num_trajectories = 1
-        thin = 20
+        num_discrete_steps = 1
+        thin = 1
         discrete_mass = 1
-        progress_bar = False
-        num_samples = int(2e6)
+        progress_bar = True
+        num_samples = int(1e4)
     else:
         max_times = None
         num_trajectories = 20
         thin = 1
         discrete_mass = 1  # important
         progress_bar = False
-        num_samples = int(1e6)
+        num_samples = int(1e5)
     kernel = MixedHMC(NUTS(model), discrete_sites=["c"], num_trajectories=num_trajectories,
                       num_discrete_steps=None, max_times=max_times, discrete_mass=discrete_mass)
     # kernel = NUTS(model)
