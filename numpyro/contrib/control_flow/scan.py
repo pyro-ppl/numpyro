@@ -29,14 +29,20 @@ class PytreeTrace:
                     # scanned sites have stop field because we trace them inside a block handler
                     elif key != 'stop':
                         aux_trace[name][key] = site[key]
-        return (trace,), aux_trace
+        # keep the site order information because in JAX, flatten and unflatten do not preserve
+        # the order of keys in a dict
+        site_names = list(trace.keys())
+        return (trace,), (aux_trace, site_names)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
+        aux_trace, site_names = aux_data
         trace, = children
-        for name, site in trace.items():
-            site.update(aux_data[name])
-        return cls(trace)
+        trace_with_aux = {}
+        for name in site_names:
+            trace[name].update(aux_trace[name])
+            trace_with_aux[name] = trace[name]
+        return cls(trace_with_aux)
 
 
 def _subs_wrapper(subs_map, i, length, site):
@@ -122,7 +128,11 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
         init = True if (not_jax_tracer(i) and i == 0) else False
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
-        seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
+        # we need to tell unconstrained messenger in potential energy computation
+        # that only the item at time `i` is needed when transforming
+        fn = handlers.infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
+
+        seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
         for subs_type, subs_map in substitute_stack:
             subs_fn = partial(_subs_wrapper, subs_map, i, length)
             if subs_type == 'condition':
@@ -201,7 +211,12 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
         with handlers.block():
-            seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
+
+            # we need to tell unconstrained messenger in potential energy computation
+            # that only the item at time `i` is needed when transforming
+            fn = handlers.infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
+
+            seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
             for subs_type, subs_map in substitute_stack:
                 subs_fn = partial(_subs_wrapper, subs_map, i, length)
                 if subs_type == 'condition':

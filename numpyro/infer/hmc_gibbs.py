@@ -55,7 +55,7 @@ class HMCGibbs(MCMCKernel):
     >>> import jax.numpy as jnp
     >>> import numpyro
     >>> import numpyro.distributions as dist
-    >>> from numpyro.infer import MCMC, HMC, HMCGibbs
+    >>> from numpyro.infer import MCMC, NUTS, HMCGibbs
 
     >>> def model():
     ...     x = numpyro.sample("x", dist.Normal(0.0, 2.0))
@@ -67,7 +67,7 @@ class HMCGibbs(MCMCKernel):
     ...    new_x = dist.Normal(0.8 * (1-y), math.sqrt(0.8)).sample(rng_key)
     ...    return {'x': new_x}
 
-    >>> hmc_kernel = HMC(model)
+    >>> hmc_kernel = NUTS(model)
     >>> kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['x'])
     >>> mcmc = MCMC(kernel, 100, 100, progress_bar=False)
     >>> mcmc.run(random.PRNGKey(0))
@@ -91,6 +91,12 @@ class HMCGibbs(MCMCKernel):
     @property
     def model(self):
         return self.inner_kernel._model
+
+    def get_diagnostics_str(self, state):
+        state = state.hmc_state
+        return '{} steps of size {:.2e}. acc. prob={:.2f}'.format(state.num_steps,
+                                                                  state.adapt_state.step_size,
+                                                                  state.mean_accept_prob)
 
     def postprocess_fn(self, args, kwargs):
         def fn(z):
