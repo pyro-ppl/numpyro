@@ -8,7 +8,7 @@ import numpy as np
 import numpy.random as npr
 
 import numpyro.distributions as dist
-from numpyro.infer.einstein.utils import sqrth, posdef, safe_norm
+from numpyro.infer.einstein.utils import safe_norm, sqrth_and_inv_sqrth
 
 
 class PrecondMatrix(ABC):
@@ -205,6 +205,7 @@ class RandomFeatureKernel(SteinKernel):
         return self._mode
 
     def compute(self, particles, particle_info, loss_fn):
+        # FIXME(fehiepsi): is the usage of `numpy.random` here safe?
         if self._random_weights is None:
             self._random_weights = jnp.array(npr.randn(*particles.shape))
             self._random_biases = jnp.array(npr.rand(*particles.shape) * 2 * np.pi)
@@ -314,9 +315,7 @@ class PrecondMatrixKernel(SteinKernel):
         qs = self.precond_matrix_fn.compute(particles, loss_fn)
         if self.precond_mode == 'const':
             qs = jnp.expand_dims(jnp.mean(qs, axis=0), axis=0)
-        qs_inv = jnp.linalg.inv(qs)
-        qs_sqrt = sqrth(qs)
-        qs_inv_sqrt = sqrth(qs_inv)
+        qs_sqrt, qs_inv, qs_inv_sqrt = sqrth_and_inv_sqrth(qs)
         inner_kernel = self.inner_kernel_fn.compute(particles, particle_info, loss_fn)
 
         def kernel(x, y):
@@ -325,9 +324,9 @@ class PrecondMatrixKernel(SteinKernel):
                 wys = jnp.array([1.])
             else:
                 wxs = jax.nn.softmax(
-                    jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, posdef(q_inv)).log_prob(x))(particles, qs_inv))
+                    jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(x))(particles, qs_inv))
                 wys = jax.nn.softmax(
-                    jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, posdef(q_inv)).log_prob(y))(particles, qs_inv))
+                    jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, q_inv).log_prob(y))(particles, qs_inv))
             return jnp.sum(
                 jax.vmap(lambda qs, qis, wx, wy: wx * wy * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose()))(
                     qs_sqrt, qs_inv_sqrt, wxs, wys), axis=0)
