@@ -740,7 +740,7 @@ class TransformedDistribution(Distribution):
             batch_shape = shape[:base_ndim - event_dim]
             event_shape = shape[base_ndim - event_dim:]
         else:
-            event_shape = (1,) * (event_dim - base_ndim) + shape
+            event_shape = (-1,) * event_dim
             batch_shape = ()
         super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
