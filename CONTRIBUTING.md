@@ -9,7 +9,7 @@ The NumPyro codebase follows the [PEP8 style guide](https://www.python.org/dev/p
 
 To set up local development environment, install NumPyro from source:
 
-```
+```sh
 git clone https://github.com/pyro-ppl/numpyro.git
 # install jax/jaxlib first for CUDA support
 pip install -e .[dev]  # contains additional dependencies for NumPyro development
@@ -21,7 +21,7 @@ Before submitting a pull request, please autoformat code and ensure that unit te
 ```sh
 make format            # runs isort
 make test              # linting and unit tests
-make doctest           # test module’s docstrings
+make doctest           # test module's docstrings
 ```
 
 To run all tests locally in parallel, use the `pytest-xdist` package
