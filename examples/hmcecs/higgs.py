@@ -1,8 +1,12 @@
+""" Logistic regression model as implemetned in https://arxiv.org/pdf/1708.00955.pdf with Higgs Dataset """
+# !/usr/bin/env python
+from collections import namedtuple
+
 import jax
 import jax.numpy as jnp
-import numpy as np
-from jax import jit, lax
-from sklearn.datasets import load_breast_cancer
+import jax.numpy as np_jax
+from jax.tree_util import tree_map
+from sklearn.model_selection import train_test_split
 
 import numpyro
 import numpyro.distributions as dist
@@ -10,129 +14,129 @@ from examples.logistic_hmcecs_svi import svi_map
 from numpyro import optim
 from numpyro.contrib.autoguide_hmcecs import AutoDiagonalNormal
 from numpyro.contrib.hmcecs import HMCECS
+from numpyro.diagnostics import summary
+from numpyro.examples.datasets import _load_higgs
 from numpyro.infer import NUTS, MCMC
-from numpyro.infer.elbo import ELBO
+from numpyro.infer.elbo import Trace_ELBO
 from numpyro.infer.svi import SVI
-from numpyro.util import fori_loop
 
-numpyro.set_platform("cpu")
+numpyro.set_platform("gpu")
+
+DataLoaderState = namedtuple("DataLoaderState", ('iteration', 'rng_key', 'indexes', 'max_iter'))
 
 
-def load_dataset(observations, features, batch_size=None, shuffle=True):
-    num_records = observations.shape[0]
-    idxs = jnp.arange(num_records)
-    if not batch_size:
-        batch_size = num_records
+def dataloader(*xs, batch_size=32, train_size=None, test_size=None, shuffle=True):
+    assert len(xs) > 1
+    splitxs = train_test_split(*xs, train_size=train_size, test_size=test_size)
+    trainxs, testxs = splitxs[0::2], splitxs[1::2]
+    max_train_iter, max_test_iter = len(trainxs[0]) // batch_size, len(testxs[0]) // batch_size
 
-    def init():
-        return num_records // batch_size, np.random.permutation(idxs) if shuffle else idxs
+    def make_dataset(dxs, max_iter):
+        def init(rng_key):
+            return DataLoaderState(0, rng_key, jnp.arange(len(dxs[0])), max_iter)
 
-    def get_batch(i=0, idxs=idxs):
-        ret_idx = lax.dynamic_slice_in_dim(idxs, i * batch_size, batch_size)
-        batch_obs = jnp.take(observations, ret_idx, axis=0)
-        batch_feats = jnp.take(features, ret_idx, axis=0)
-        return batch_obs, batch_feats
+        def next_step(state):
 
-    return init, get_batch
+            iteration = state.iteration % state.max_iter
+            batch = tuple(x[state.indexes[iteration * batch_size:(iteration + 1) * batch_size]]
+                          for x in dxs)
+            if iteration + 1 == state.max_iter:
+                shuffle_rng_key, rng_key = jax.random.split(state.rng_key)
+                if shuffle:
+                    indexes = jax.random.shuffle(shuffle_rng_key, state.indexes)
+                else:
+                    indexes = state.indexes
+                return batch, DataLoaderState(state.iteration + 1, rng_key, indexes, state.max_iter)
+            else:
+                return batch, DataLoaderState(state.iteration + 1, state.rng_key, state.indexes, state.max_iter)
+
+        return init, next_step
+
+    return make_dataset(trainxs, max_train_iter), make_dataset(testxs, max_test_iter), testxs
 
 
 def svi_map(model, rng_key, feats, obs, num_epochs, batch_size):
-    @jit
-    def epoch_train(svi_state):
-        def body_fn(i, val):
-            batch_obs, batch_feats = train_fetch(i, train_idx)
-            loss_sum, svi_state = val
-            svi_state, loss = svi.update(svi_state, batch_feats, batch_obs)
-            loss_sum += loss
-            return loss_sum, svi_state
-
-        return fori_loop(0, num_train, body_fn, (0., svi_state))
-
-    n, _ = feats.shape
     guide = AutoDiagonalNormal(model)
-    svi = SVI(model, guide, optim.Adam(0.0003), loss=ELBO())
-    svi_state = svi.init(rng_key, feats, obs)
-    train_init, train_fetch = load_dataset(obs, feats, batch_size=batch_size)
-
-    for i in range(num_epochs):
-        num_train, train_idx = train_init()
-        train_loss, svi_state = epoch_train(svi_state)
-    return svi.get_params(svi_state), svi, svi_state
-
-
-def breast_cancer_data():
-    """ Logistic regression model as implemetned in https://arxiv.org/pdf/1708.00955.pdf with Higgs Dataset """
-    dataset = load_breast_cancer()
-    feats = dataset.data
-    feats = (feats - feats.mean(0)) / feats.std(0)
-    feats = jnp.hstack((feats, jnp.ones((feats.shape[0], 1))))
-
-    return feats, dataset.target
+    svi = SVI(model, guide, optim.Adam(0.0003), loss=Trace_ELBO())
+    svi_rng_key, data_rng_key = jax.random.split(rng_key)
+    (init_train, next_train), _, _ = dataloader(feats, obs, train_size=0.9, batch_size=batch_size)
+    batch_fn = jax.jit(svi.update)
+    svi_state = None
+    data_state = init_train(data_rng_key)
+    num_batches = 0
+    for _ in range(num_epochs):
+        for j in range(data_state.max_iter):
+            xs, data_state = next_train(data_state)
+            if svi_state is None:
+                svi_state = svi.init(svi_rng_key, *xs)
+            svi_state, _ = batch_fn(svi_state, *xs)
+            num_batches += 1
+    return svi, svi_state
 
 
-def model(feats, obs):
-    """  Logistic regression model """
-    n, m = feats.shape
-    theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), 2 * jnp.ones(m)))
-    numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(feats, theta)), obs=obs)
+def infer_nuts(rng_key, features, obs, samples, warmup):
+    kernel = NUTS(model=logistic_regression, target_accept_prob=0.8)
+    mcmc = MCMC(kernel, num_warmup=warmup, num_samples=samples)
+    mcmc.run(rng_key, features, obs)
+    samples = mcmc.get_samples()
+    samples = tree_map(lambda x: x[None, ...], samples)
+    r_hat_average = np_jax.sum(summary(samples)["theta"]["r_hat"]) / len(summary(samples)["theta"]["r_hat"])
+
+    return mcmc.get_samples(), r_hat_average
 
 
-def infer_hmcecs(rng_key, feats, obs, m=None, g=None, n_samples=None, warmup=None, algo="NUTS", subsample_method=None,
-                 map_method=None, proxy="taylor", estimator=None, num_epochs=None, postprocess_fn=None):
+def infer_hmcecs(rng_key, obs, features, m=None, g=None, n_samples=None, warmup=None, algo="NUTS",
+                 subsample_method=None, map_method=None, proxy="taylor", estimator=None, num_epochs=None):
     hmcecs_key, map_key = jax.random.split(rng_key)
-    n, _ = feats.shape
+    n, _ = features.shape
 
-    if map_method == "SVI":
-        factor_SVI = obs.shape[0]
-        batch_size = 32
+    svi = None
+    if map_method == "nuts":
+        samples, r_hat_average = infer_nuts(map_key, features, obs, samples=10, warmup=5)
+        z_ref = {key: value.mean(0) for key, value in samples.items()}
+    elif map_method == "svi":
         map_key, post_key = jax.random.split(map_key)
-        z_ref, svi, svi_state = svi_map(model, map_key, feats=feats[:factor_SVI], obs=obs[:factor_SVI],
-                                        num_epochs=num_epochs, batch_size=batch_size)
+        svi, svi_state = svi_map(logistic_regression,
+                                 map_key,
+                                 feats=features,
+                                 obs=obs,
+                                 num_epochs=num_epochs,
+                                 batch_size=256)
         z_ref = svi.guide.sample_posterior(post_key, svi.get_params(svi_state), (100,))
         z_ref = {name: value.mean(0) for name, value in z_ref.items()}
-    else:
-        svi = None
-        map_samples = 10
-        map_warmup = 5
-        if map_method == "NUTS":
-            kernel = NUTS(model=model, target_accept_prob=0.8)
-        if map_method == 'HMC':
-            kernel = NUTS(model=model, target_accept_prob=0.8)
-        mcmc = MCMC(kernel, num_warmup=map_warmup, num_samples=map_samples)
-        mcmc.run(rng_key, feats, obs)
-        samples = mcmc.get_samples()
-        z_ref = {key: value.mean(0) for key, value in samples.items()}
 
-    extra_fields = []
-    if estimator == "poisson":
-        postprocess_fn = None
-        extra_fields = ("sign",)
+    kernel = HMCECS(model=logistic_regression, z_ref=z_ref, m=m, g=g, algo=algo.upper(),
+                    subsample_method=subsample_method, proxy=proxy, svi_fn=svi,
+                    estimator=estimator, target_accept_prob=0.8)
 
-    kernel = HMCECS(model=model, z_ref=z_ref, m=m, g=g, algo=algo, subsample_method=subsample_method, proxy=proxy,
-                    svi_fn=svi, estimator=estimator, target_accept_prob=0.8)
-
-    mcmc = MCMC(kernel, num_warmup=warmup, num_samples=n_samples, num_chains=1, postprocess_fn=postprocess_fn)
-    mcmc.run(rng_key, feats, obs, extra_fields=extra_fields)
+    mcmc = MCMC(kernel, num_warmup=warmup, num_samples=n_samples, num_chains=1)
+    mcmc.run(rng_key, features, obs)
 
     return mcmc.get_samples()
 
 
+def logistic_regression(features, obs):
+    n, m = features.shape
+    theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), 2 * jnp.ones(m)))
+    numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(features, theta)), obs=obs)
+
+
+def higgs_data():
+    return _load_higgs()
+
+
 if __name__ == '__main__':
-    num_samples = 10
-    num_warmup = 5
-    ecs_algo = 'NUTS'
-    ecs_proxy = 'taylor'
-    estimator = 'perturb'
-    map_init = 'SVI'
-    epochs = 1000
     rng_key = jax.random.PRNGKey(37)
+    obs, feats = higgs_data()
+    num_examples = 1000
 
-    feats, obs = breast_cancer_data()
-
-    n, = obs.shape
-    m = int(jnp.sqrt(n))
-    g = 5
-
-    infer_hmcecs(rng_key, feats=feats, obs=obs, n_samples=num_samples,
-                 warmup=num_warmup, m=m, g=g, algo=ecs_algo, subsample_method="perturb",
-                 proxy=ecs_proxy, estimator=estimator, map_method=map_init, num_epochs=epochs)
+    est_posterior_ECS = infer_hmcecs(rng_key, obs[:num_examples], feats[:num_examples],
+                                     n_samples=10,
+                                     warmup=5,
+                                     m=30, g=5,
+                                     algo='nuts',
+                                     subsample_method="perturb",
+                                     proxy='svi',
+                                     estimator='',
+                                     map_method='svi',
+                                     num_epochs=100)

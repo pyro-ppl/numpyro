@@ -1,15 +1,16 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
 import csv
 import gzip
 import os
 import pickle
 import struct
+import warnings
+from collections import namedtuple
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
-import warnings
+
 import numpy as np
 import pandas as pd
 from jax import device_put, lax
@@ -22,19 +23,15 @@ else:
                                             '.data'))
 os.makedirs(DATA_DIR, exist_ok=True)
 
-
 dset = namedtuple('dset', ['name', 'urls'])
-
 
 BASEBALL = dset('baseball', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt',
 ])
 
-
 COVTYPE = dset('covtype', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip',
 ])
-
 
 MNIST = dset('mnist', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz',
@@ -43,29 +40,26 @@ MNIST = dset('mnist', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz',
 ])
 
-
 SP500 = dset('SP500', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/SP500.csv',
 ])
-
 
 UCBADMIT = dset('ucbadmit', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv',
 ])
 
-
 LYNXHARE = dset('lynxhare', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt',
 ])
-
 
 JSB_CHORALES = dset('jsb_chorales', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle',
 ])
 
-HIGGS = dset("higgs",[
+HIGGS = dset("higgs", [
     "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz",
 ])
+
 
 def _download(dset):
     for url in dset.urls:
@@ -219,6 +213,7 @@ def _load_jsb_chorales():
         processed_dataset[k] = (lengths, _pad_sequence(sequences).astype("int32"))
     return processed_dataset
 
+
 def _load_higgs():
     warnings.warn("Downloading 2.6 GB dataset")
     _download(HIGGS)
@@ -226,24 +221,6 @@ def _load_higgs():
     df = pd.read_csv(file_path, header=None)
     obs, feats = df.iloc[:, 0], df.iloc[:, 1:]
     return obs.to_numpy(), feats.to_numpy()
-
-    #SLOW (no pandas) option
-    # observations,features = [],[]
-    # with gzip.open(file_path, mode='rt') as f:
-    #     csv_reader = csv.DictReader(
-    #         f,
-    #         delimiter=',',
-    #         restkey="30",
-    #         fieldnames=['observations'] +['feature_{}'.format(i) for i in range(28)],
-    #     )
-    #
-    #     for row in csv_reader:
-    #         observations.append(row["observations"])
-    #         for i in range(28):
-    #             print(row["feature_{}".format(i)])
-    #             features.append(row["feature_{}".format(i)])
-    # return {"observations": np.stack(observations),"features": np.stack(features)}
-
 
 
 def _load(dset):
