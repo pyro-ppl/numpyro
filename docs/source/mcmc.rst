@@ -22,7 +22,7 @@ MCMC Kernels
     :show-inheritance:
     :member-order: bysource
 
-.. autoclass:: numpyro.infer.hmc.HMCGibbs
+.. autoclass:: numpyro.infer.hmc_gibbs.HMCGibbs
     :members:
     :undoc-members:
     :show-inheritance:
