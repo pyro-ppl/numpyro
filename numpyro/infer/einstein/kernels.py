@@ -85,10 +85,7 @@ class RBFKernel(SteinKernel):
             diff_norms = safe_norm(diffs, ord=2, axis=-1)
         else:
             diff_norms = diffs
-        median = jnp.argsort(diff_norms)[int(diffs.shape[0] / 2)]
-        bandwidth = jnp.abs(diffs)[median] ** 2 * factor + 1e-5
-        if self._normed():
-            bandwidth = bandwidth[0]
+        bandwidth = jnp.median(diff_norms) ** 2 * factor + 1e-5
 
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2) if self._normed() and x.ndim >= 1 else x - y
@@ -316,7 +313,10 @@ class PrecondMatrixKernel(SteinKernel):
             qs = jnp.expand_dims(jnp.mean(qs, axis=0), axis=0)
         qs_inv = jnp.linalg.inv(qs)
         qs_sqrt = sqrth(qs)
+
         qs_inv_sqrt = sqrth(qs_inv)
+
+        # qs_sqrt, qs_inv, qs_inv_sqrt = sqrth_and_inv_sqrth(qs)
         inner_kernel = self.inner_kernel_fn.compute(particles, particle_info, loss_fn)
 
         def kernel(x, y):
