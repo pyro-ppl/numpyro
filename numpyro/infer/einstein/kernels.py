@@ -313,10 +313,7 @@ class PrecondMatrixKernel(SteinKernel):
             qs = jnp.expand_dims(jnp.mean(qs, axis=0), axis=0)
         qs_inv = jnp.linalg.inv(qs)
         qs_sqrt = sqrth(qs)
-
         qs_inv_sqrt = sqrth(qs_inv)
-
-        # qs_sqrt, qs_inv, qs_inv_sqrt = sqrth_and_inv_sqrth(qs)
         inner_kernel = self.inner_kernel_fn.compute(particles, particle_info, loss_fn)
 
         def kernel(x, y):
