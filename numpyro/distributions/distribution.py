@@ -195,7 +195,7 @@ class Distribution(metaclass=DistributionMeta):
 
     @property
     def has_rsample(self):
-        return self.is_discrete
+        return not self.is_discrete
 
     def rsample(self, key, sample_shape=()):
         if self.has_rsample:
@@ -400,22 +400,32 @@ class ExpandedDistribution(Distribution):
         return self.base_dist.is_discrete
 
     @property
-    def support(self):
-        return self.base_dist.support
+    def has_rsample(self):
+        return self.base_dist.has_rsample
 
-    def sample(self, key, sample_shape=()):
+    def _sample(self, sample_fn, key, sample_shape=()):
         interstitial_dims = tuple(self._interstitial_sizes.keys())
         event_dim = len(self.event_shape)
         interstitial_dims = tuple(i - event_dim for i in interstitial_dims)
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
-        samples = self.base_dist(rng_key=key, sample_shape=sample_shape + batch_shape)
+        samples = sample_fn(key, sample_shape=sample_shape + batch_shape)
         interstitial_idx = len(sample_shape) + len(expanded_sizes)
         interstitial_sample_dims = tuple(range(interstitial_idx, interstitial_idx + len(interstitial_sizes)))
         for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
             samples = jnp.swapaxes(samples, dim1, dim2)
         return samples.reshape(sample_shape + self.batch_shape + self.event_shape)
+
+    def rsample(self, key, sample_shape=()):
+        return self._sample(self.base_dist.rsample, sample_shape)
+
+    @property
+    def support(self):
+        return self.base_dist.support
+
+    def sample(self, key, sample_shape=()):
+        return self._sample(self.base_dist.sample, sample_shape)
 
     def log_prob(self, value):
         shape = lax.broadcast_shapes(self.batch_shape,
@@ -594,6 +604,13 @@ class Independent(Distribution):
     def variance(self):
         return self.base_dist.variance
 
+    @property
+    def has_rsample(self):
+        return self.base_dist.has_rsample
+
+    def rsample(self, key, sample_shape=()):
+        return self.base_dist.rsample(key, sample_shape=sample_shape)
+
     def sample(self, key, sample_shape=()):
         return self.base_dist(rng_key=key, sample_shape=sample_shape)
 
@@ -652,6 +669,9 @@ class MaskedDistribution(Distribution):
     @property
     def has_rsample(self):
         return self.base_dist.has_rsample
+
+    def rsample(self, key, sample_shape=()):
+        return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     @property
     def support(self):
