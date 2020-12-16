@@ -80,6 +80,5 @@ def test_kernel_forward(kernel, particles, particle_info, loss_fn, tparticles, m
     d, = tparticles[0].shape
     kernel_fn = kernel(mode=mode).compute(particles, particle_info(d), loss_fn)
     value = kernel_fn(*tparticles)
-    print(value)
 
     assert_allclose(value, kval[mode])
