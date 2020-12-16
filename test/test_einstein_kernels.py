@@ -84,7 +84,7 @@ def test_kernel_forward(kernel, particles, particle_info, loss_fn, tparticles, m
     kernel_fn = kernel(mode=mode).compute(particles, particle_info(d), loss_fn)
     value = kernel_fn(*tparticles)
 
-    assert_allclose(value, kval[mode])
+    assert_allclose(value, kval[mode], atol=1e-9)
 
 
 @pytest.mark.parametrize('batch_shape', [(), (2,), (3, 1)])
