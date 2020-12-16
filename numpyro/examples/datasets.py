@@ -38,7 +38,7 @@ COVTYPE = dset('covtype', [
 
 
 DIPPER_VOLE = dset('dipper_vole', [
-    'https://d2hg8soec8ck9v.cloudfront.net/datasets/dipper_vole.zip',
+    'https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true',
 ])
 
 
@@ -112,7 +112,7 @@ def _load_covtype():
 
 
 def _load_dipper_vole():
-    _download(COVTYPE)
+    _download(DIPPER_VOLE)
 
     file_path = os.path.join(DATA_DIR, 'dipper_vole.zip')
     data = {}
