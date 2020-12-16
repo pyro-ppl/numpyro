@@ -85,10 +85,7 @@ class RBFKernel(SteinKernel):
             diff_norms = safe_norm(diffs, ord=2, axis=-1)
         else:
             diff_norms = diffs
-        median = jnp.argsort(diff_norms)[int(diffs.shape[0] / 2)]
-        bandwidth = jnp.abs(diffs)[median] ** 2 * factor + 1e-5
-        if self._normed():
-            bandwidth = bandwidth[0]
+        bandwidth = jnp.median(diff_norms) ** 2 * factor + 1e-5
 
         def kernel(x, y):
             diff = safe_norm(x - y, ord=2) if self._normed() and x.ndim >= 1 else x - y
