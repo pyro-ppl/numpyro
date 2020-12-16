@@ -874,10 +874,7 @@ def test_constraints(constraint, x, expected):
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
     transform = biject_to(constraint)
-    if transform.event_dim == 2:
-        event_dim = 1  # actual dim of unconstrained domain
-    else:
-        event_dim = transform.event_dim
+    event_dim = transform.input_event_dim
     if isinstance(constraint, constraints._Interval):
         assert transform.codomain.upper_bound == constraint.upper_bound
         assert transform.codomain.lower_bound == constraint.lower_bound
@@ -986,6 +983,65 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
 
         assert_allclose(actual, expected, atol=1e-6)
         assert_allclose(actual, -inv_expected, atol=1e-6)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (5,)])
+def test_composed_transform(batch_shape):
+    t1 = transforms.AffineTransform(0, 2)
+    t2 = transforms.LowerCholeskyTransform()
+    t = transforms.ComposeTransform([t1, t2, t1])
+    assert t.input_event_dim == 1
+    assert t.output_event_dim == 2
+
+    x = np.random.normal(size=batch_shape + (6,))
+    y = t(x)
+    log_det = t.log_abs_det_jacobian(x, y)
+    assert log_det.shape == batch_shape
+    expected_log_det = jnp.log(2) * 6 + t2.log_abs_det_jacobian(x * 2, y / 2) + jnp.log(2) * 9
+    assert_allclose(log_det, expected_log_det)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (5,)])
+def test_composed_transform_1(batch_shape):
+    t1 = transforms.AffineTransform(0, 2)
+    t2 = transforms.LowerCholeskyTransform()
+    t = transforms.ComposeTransform([t1, t2, t2])
+    assert t.input_event_dim == 1
+    assert t.output_event_dim == 3
+
+    x = np.random.normal(size=batch_shape + (6,))
+    y = t(x)
+    log_det = t.log_abs_det_jacobian(x, y)
+    assert log_det.shape == batch_shape
+    z = t2(x * 2)
+    expected_log_det = jnp.log(2) * 6 + t2.log_abs_det_jacobian(x * 2, z) + \
+        t2.log_abs_det_jacobian(z, t2(z)).sum(-1)
+    assert_allclose(log_det, expected_log_det)
+
+
+@pytest.mark.parametrize('batch_shape', [(), (5,)])
+@pytest.mark.parametrize('prepend_event_shape', [(), (4,)])
+@pytest.mark.parametrize('sample_shape', [(), (7,)])
+def test_transformed_distribution(batch_shape, prepend_event_shape, sample_shape):
+    base_dist = dist.Normal(0, 1).expand(batch_shape + prepend_event_shape + (6,)).to_event(
+        1 + len(prepend_event_shape)
+    )
+    t1 = transforms.AffineTransform(0, 2)
+    t2 = transforms.LowerCholeskyTransform()
+    d = dist.TransformedDistribution(base_dist, [t1, t2, t1])
+    assert d.event_dim == 2 + len(prepend_event_shape)
+
+    y = d.sample(random.PRNGKey(0), sample_shape)
+    t = transforms.ComposeTransform([t1, t2, t1])
+    x = t.inv(y)
+    assert x.shape == sample_shape + base_dist.shape()
+    log_prob = d.log_prob(y)
+    assert log_prob.shape == sample_shape + batch_shape
+    t_log_det = t.log_abs_det_jacobian(x, y)
+    if prepend_event_shape:
+        t_log_det = t_log_det.sum(-1)
+    expected_log_prob = base_dist.log_prob(x) - t_log_det
+    assert_allclose(log_prob, expected_log_prob, atol=1e-5)
 
 
 @pytest.mark.parametrize('transformed_dist', [

@@ -35,6 +35,14 @@ do
     :show-inheritance:
     :member-order: bysource
 
+infer_config
+------------
+.. autoclass:: numpyro.handlers.infer_config
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 lift
 ----
 .. autoclass:: numpyro.handlers.lift
