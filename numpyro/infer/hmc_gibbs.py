@@ -147,3 +147,22 @@ class HMCGibbs(MCMCKernel):
         z = {**z_gibbs, **hmc_state.z}
 
         return HMCGibbsState(z, hmc_state, rng_key)
+
+
+#def discrete_gibbs_fn(...)
+
+
+#def subsample_gibbs_fn(model):
+    """
+    Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for subsampling
+    statements using :class:`~numpyro.plate` primitive. This implements the Algorithm 1
+    of reference [1] but uses a naive estimation of log likelihood, hence might incur a
+    high bias (more explanation can be found in [2]).
+
+    **References:**
+
+    1. *Hamiltonian Monte Carlo with energy conserving subsampling*,
+       Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
+    2. *The Fundamental Incompatibility ofScalable Hamiltonian Monte Carlo and Naive Data Subsampling*,
+       Michael Betancourt
+    """
