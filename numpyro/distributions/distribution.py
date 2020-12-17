@@ -33,7 +33,6 @@ import warnings
 import numpy as np
 
 from jax import lax, tree_util
-from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
 
 from numpyro.distributions.constraints import is_dependent, real
@@ -863,14 +862,14 @@ class Delta(Distribution):
         batch_dim = jnp.ndim(v) - event_dim
         batch_shape = jnp.shape(v)[:batch_dim]
         event_shape = jnp.shape(v)[batch_dim:]
-        self.v = lax.convert_element_type(v, canonicalize_dtype(jnp.float64))
+        self.v = v
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
-        return jnp.broadcast_to(device_put(self.v), shape)
+        return jnp.broadcast_to(self.v, shape)
 
     @validate_sample
     def log_prob(self, value):

@@ -47,7 +47,6 @@ from numpyro.distributions.util import (
     lazy_property,
     multinomial,
     promote_shapes,
-    sum_rightmost,
     validate_sample
 )
 from numpyro.util import not_jax_tracer
