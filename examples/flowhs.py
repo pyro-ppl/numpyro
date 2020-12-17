@@ -6,9 +6,11 @@ import pickle
 
 import numpy as np
 
+from jax import grad, vmap, jit
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
+from jax.lax import while_loop, stop_gradient
 
 import numpyro
 import numpyro.distributions as dist
@@ -16,61 +18,78 @@ from numpyro.infer import MCMC, NUTS, HMC, HMCGibbs, init_to_value
 from numpyro.util import enable_x64
 
 
-BETA_COV = 0.2
+BETA_COV = 1.0
 
 
-def kernel(X, Z, var, length, noise, jitter=1.0e-6, include_noise=True):
-    deltaXsq = jnp.power((X[:, None] - Z) / length, 2.0)
-    k = var * jnp.exp(-0.5 * deltaXsq)
-    if include_noise:
-        k += (noise + jitter) * jnp.eye(X.shape[0])
-    return k
+def forward(alpha, x):
+    return x + (2.0 / 3.0) * alpha * jnp.power(x, 3.0) + 0.2 * jnp.square(alpha) * jnp.power(x, 5.0)
+
+def cond_fn(val):
+    return (val[2] > 1.0e-6) & (val[3] < 200)
+
+def body_fn(alpha, val):
+    x, y, _, i = val
+    f = partial(forward, alpha)
+    df = grad(f)
+    delta = (f(x) - y) / df(x)
+    x = x - delta
+    return (x, y, jnp.fabs(delta), i + 1)
+
+@jit
+def inverse(alpha, y):
+    return while_loop(cond_fn, partial(body_fn, alpha), (y, y, 9.9e9, 0))[0]
+
+def jacobian_and_inverse(alpha, Y):
+    inv = partial(inverse, alpha)
+    Y_tilde = vmap(lambda y: stop_gradient(inv(y)))(Y)
+    log_det_jacobian = -2.0 * jnp.sum(jnp.log(1.0 + alpha * jnp.square(Y_tilde)))
+    return Y_tilde, log_det_jacobian
 
 
 def model(X, Y):
     N, P = X.shape
 
-    #var = numpyro.sample("kernel_var", dist.LogNormal(0.0, 2.0))
-    noise = numpyro.sample("kernel_noise", dist.LogNormal(0.0, 5.0))
-    #length = numpyro.sample("kernel_length", dist.LogNormal(0.0, 2.0))
-    a = numpyro.sample("coeff_a", dist.Normal(0.0, 0.1))
-    b = numpyro.sample("coeff_b", dist.Normal(0.0, 0.1))
-    c = numpyro.sample("coeff_c", dist.Normal(0.0, 0.1))
-    d = numpyro.sample("coeff_d", dist.Normal(0.0, 0.1))
-
-    sigma_phi = numpyro.sample("sigma_phi", dist.HalfCauchy(0.01))
+    noise = numpyro.sample("noise", dist.LogNormal(0.0, 3.0))
 
     beta = numpyro.sample("beta", dist.Normal(jnp.zeros(P), math.sqrt(BETA_COV) * jnp.ones(P)))
+    #bias = numpyro.sample("bias", dist.Normal(0.0, 1.0))
+    betaX = jnp.sum(beta * X, axis=-1)
+    #betaX = bias + jnp.sum(beta * X, axis=-1)
 
-    #mean_phi = numpyro.deterministic("mean_phi", jnp.sum(beta * X, axis=-1))
-    mean_phi = jnp.sum(beta * X, axis=-1)
+    flow = True
 
-    phi = mean_phi + sigma_phi * numpyro.sample("phi", dist.Normal(0.0, jnp.ones(N)))
+    if flow:
+        alpha = numpyro.sample("alpha", dist.Normal(0.0, 0.5))
+        #inv = partial(inverse, alpha)
+        #Y_tilde = vmap(lambda y: stop_gradient(inv(y)))(Y)
+        Y_tilde, jacobian = jacobian_and_inverse(alpha, Y)
 
-    #k = kernel(phi, phi, var, length, noise)
-    #numpyro.sample("Y", dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k), obs=Y)
+        numpyro.factor("jacobian", jacobian)
+        numpyro.sample("Y", dist.Normal(betaX, noise), obs=Y_tilde)
+    else:
+        numpyro.sample("Y", dist.Normal(betaX, noise), obs=Y)
 
-    Y_mean = a + b * phi + c * jnp.square(phi) + d * jnp.power(phi, 3.0)
-    numpyro.sample("Y", dist.Normal(Y_mean, noise), obs=Y)
 
-
-def _gibbs_fn(X, rng_key, gibbs_sites, hmc_sites):
+def _gibbs_fn(X, Y, rng_key, gibbs_sites, hmc_sites):
     N, P = X.shape
 
-    sigma_phi, phi = hmc_sites['sigma_phi'], hmc_sites['phi']
-    mean_phi = jnp.sum(gibbs_sites['beta'] * X, axis=-1)
-    phi = mean_phi + sigma_phi * phi
+    sigma = hmc_sites['noise']
+    alpha = hmc_sites['alpha']
+    inv = partial(inverse, alpha)
+    Y_tilde = vmap(lambda y: stop_gradient(inv(y)))(Y)
 
-    X_phi = jnp.sum(X * phi[:, None], axis=0)
+    betaX = jnp.sum(gibbs_sites['beta'] * X, axis=-1)
+
+    X_Y_tilde = jnp.sum(X * Y_tilde[:, None], axis=0)
 
     XX = np.matmul(np.transpose(X), X)
 
-    sigma_sq = jnp.square(sigma_phi)
+    sigma_sq = jnp.square(sigma)
     covar_inv = XX / sigma_sq + jnp.eye(P) / BETA_COV
 
     L = cho_factor(covar_inv, lower=True)[0]
     L_inv = solve_triangular(L, jnp.eye(P), lower=True)
-    loc = cho_solve((L, True), X_phi) / sigma_sq
+    loc = cho_solve((L, True), X_Y_tilde) / sigma_sq
 
     beta_proposal = dist.MultivariateNormal(loc=loc, scale_tril=L_inv).sample(rng_key)
 
@@ -92,12 +111,12 @@ def run_inference(args, rng_key, X, Y):
     #                                      "kernel_length": 2.0, "phi": Y / 0.01})
 
     if args.strategy == "gibbs":
-        gibbs_fn = partial(_gibbs_fn, X)
-        hmc_kernel = NUTS(model, max_tree_depth=7)#, init_strategy=init_strategy)
+        gibbs_fn = partial(_gibbs_fn, X, Y)
+        hmc_kernel = NUTS(model, max_tree_depth=6)#, init_strategy=init_strategy)
         kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['beta'])
         mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
     else:
-        hmc_kernel = NUTS(model, max_tree_depth=7)#, init_strategy=init_strategy)
+        hmc_kernel = NUTS(model, max_tree_depth=6)#, init_strategy=init_strategy)
         mcmc = MCMC(hmc_kernel, args.num_warmup, args.num_samples, progress_bar=True)
 
     start = time.time()
@@ -109,14 +128,16 @@ def run_inference(args, rng_key, X, Y):
 
 
 # create artificial regression dataset
-def get_data(N=50, P=30, sigma_obs=0.05):
+def get_data(N=50, P=30, sigma_obs=0.02):
     np.random.seed(0)
 
     X = np.random.randn(N * P).reshape((N, P))
-    Y = np.power(0.4 * X[:, 0] + 0.2 * X[:, 1], 3.0)
+    Y = 1.0 * X[:, 0] - 0.5 * X[:, 1]
+    #Y = np.power(2.4 * X[:, 0] + 1.2 * X[:, 1], 3.0)
     Y += sigma_obs * np.random.randn(N)
-    Y -= jnp.mean(Y)
-    Y /= jnp.std(Y)
+    Y = forward(0.5, Y)
+    #Y -= jnp.mean(Y)
+    #Y /= jnp.std(Y)
 
     assert X.shape == (N, P)
     assert Y.shape == (N,)
@@ -147,12 +168,12 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=10000, type=int)
-    parser.add_argument("--num-warmup", default=10000, type=int)
+    parser.add_argument("-n", "--num-samples", default=15000, type=int)
+    parser.add_argument("--num-warmup", default=5000, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
-    parser.add_argument("--num-data", default=81, type=int)
+    parser.add_argument("--num-data", default=128, type=int)
     parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
-    parser.add_argument("--P", default=8, type=int)
+    parser.add_argument("--P", default=4, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
