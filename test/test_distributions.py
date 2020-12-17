@@ -99,7 +99,7 @@ _DIST_MAP = {
 }
 
 CONTINUOUS = [
-    T(dist.Beta, 1., 2.),
+    T(dist.Beta, 0.2, 1.1),
     T(dist.Beta, 1., jnp.array([2., 2.])),
     T(dist.Beta, 1., jnp.array([[1., 1.], [2., 2.]])),
     T(dist.Chi2, 2.),
@@ -357,25 +357,30 @@ def test_unit(batch_shape):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
 def test_sample_gradient(jax_dist, sp_dist, params):
-    # skip those distributions because with a fixed random seed, gamma sampler might not be
-    # continuous w.r.t. the concentration parameters
-    gamma_derived_dists = [
-        dist.Gamma, dist.Beta, dist.Chi2, dist.Dirichlet, dist.LKJCholesky, dist.StudentT
-    ]
-    if not jax_dist.reparametrized_params or jax_dist in gamma_derived_dists:
+    # we have pathwise gradient for gamma sampler
+    gamma_derived_params = {
+        "Gamma": ["concentration"],
+        "Beta": ["concentration1", "concentration0"],
+        "Chi2": ["df"],
+        "LKJCholesky": ["concentration"],
+        "StudentT": ["df"]
+    }.get(jax_dist.__name__, [])
+    reparameterized_params = [p for p in jax_dist.reparametrized_params
+                              if p not in gamma_derived_params]
+    if not reparameterized_params:
         pytest.skip('{} not reparametrized.'.format(jax_dist.__name__))
 
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
     params_dict = dict(zip(dist_args[:len(params)], params))
     nonrepara_params_dict = {k: v for k, v in params_dict.items()
-                             if k not in jax_dist.reparametrized_params}
+                             if k not in reparameterized_params}
     repara_params = tuple(v for k, v in params_dict.items()
-                          if k in jax_dist.reparametrized_params)
+                          if k in reparameterized_params)
 
     rng_key = random.PRNGKey(0)
 
     def fn(args):
-        args_dict = dict(zip(jax_dist.reparametrized_params, args))
+        args_dict = dict(zip(reparameterized_params, args))
         return jnp.sum(jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng_key))
 
     actual_grad = jax.grad(fn)(repara_params)
