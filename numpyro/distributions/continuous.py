@@ -66,8 +66,7 @@ class Beta(Distribution):
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
-        #return self._dirichlet.sample(key, sample_shape)[..., 0]
-        return random.beta(key, self.concentration1, self.concentration0, sample_shape + self.shape())
+        return self._dirichlet.sample(key, sample_shape)[..., 0]
 
     @validate_sample
     def log_prob(self, value):
