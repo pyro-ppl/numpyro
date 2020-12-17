@@ -18,7 +18,7 @@ from numpyro.infer import MCMC, NUTS, HMC, HMCGibbs, init_to_value
 from numpyro.util import enable_x64
 
 
-BETA_COV = 1.0
+BETA_COV = 0.1
 
 
 def forward(alpha, x):
@@ -50,18 +50,16 @@ def model(X, Y):
     N, P = X.shape
 
     noise = numpyro.sample("noise", dist.LogNormal(0.0, 3.0))
+    #noise2 = numpyro.sample("noise2", dist.LogNormal(0.0, 3.0))
 
     beta = numpyro.sample("beta", dist.Normal(jnp.zeros(P), math.sqrt(BETA_COV) * jnp.ones(P)))
-    #bias = numpyro.sample("bias", dist.Normal(0.0, 1.0))
     betaX = jnp.sum(beta * X, axis=-1)
-    #betaX = bias + jnp.sum(beta * X, axis=-1)
 
     flow = True
 
     if flow:
         alpha = numpyro.sample("alpha", dist.Normal(0.0, 0.5))
-        #inv = partial(inverse, alpha)
-        #Y_tilde = vmap(lambda y: stop_gradient(inv(y)))(Y)
+        #obs_noise = noise2 * numpyro.sample("obs_noise", dist.Normal(jnp.zeros(N), jnp.ones(N)))
         Y_tilde, jacobian = jacobian_and_inverse(alpha, Y)
 
         numpyro.factor("jacobian", jacobian)
@@ -75,8 +73,10 @@ def _gibbs_fn(X, Y, rng_key, gibbs_sites, hmc_sites):
 
     sigma = hmc_sites['noise']
     alpha = hmc_sites['alpha']
-    inv = partial(inverse, alpha)
-    Y_tilde = vmap(lambda y: stop_gradient(inv(y)))(Y)
+
+    #Y_tilde = hmc_sites['Y_tilde']
+    #obs_noise = hmc_sites['noise2'] * hmc_sites['obs_noise']
+    Y_tilde, _ = jacobian_and_inverse(alpha, Y)
 
     betaX = jnp.sum(gibbs_sites['beta'] * X, axis=-1)
 
@@ -97,26 +97,13 @@ def _gibbs_fn(X, Y, rng_key, gibbs_sites, hmc_sites):
 
 
 def run_inference(args, rng_key, X, Y):
-    #if False:
-    #    samples = pickle.load(open('samples.pkl', "rb" ))
-    #    values = {}
-    #    for k, v in samples.items():
-            #if k in ['mean_phi']: continue
-    #        if k != 'phi': continue
-    #        values[k] = np.mean(v, axis=0)
-    #        print(k, values[k].shape)
-
-    #init_strategy = init_to_value(values=values)
-    #init_strategy = init_to_value(values={"kernel_var": 0.5, "kernel_noise": 0.1, "phi_sigma": 0.01,
-    #                                      "kernel_length": 2.0, "phi": Y / 0.01})
-
     if args.strategy == "gibbs":
         gibbs_fn = partial(_gibbs_fn, X, Y)
-        hmc_kernel = NUTS(model, max_tree_depth=6)#, init_strategy=init_strategy)
+        hmc_kernel = NUTS(model, max_tree_depth=6, target_accept_prob=0.6)
         kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['beta'])
         mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
     else:
-        hmc_kernel = NUTS(model, max_tree_depth=6)#, init_strategy=init_strategy)
+        hmc_kernel = NUTS(model, max_tree_depth=6)
         mcmc = MCMC(hmc_kernel, args.num_warmup, args.num_samples, progress_bar=True)
 
     start = time.time()
@@ -168,12 +155,12 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=15000, type=int)
-    parser.add_argument("--num-warmup", default=5000, type=int)
+    parser.add_argument("-n", "--num-samples", default=10000, type=int)
+    parser.add_argument("--num-warmup", default=3000, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
-    parser.add_argument("--num-data", default=128, type=int)
+    parser.add_argument("--num-data", default=80, type=int)
     parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
-    parser.add_argument("--P", default=4, type=int)
+    parser.add_argument("--P", default=16, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
