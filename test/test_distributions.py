@@ -152,9 +152,9 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, jnp.arange(6, dtype=jnp.float32).reshape((3, 2)), None, None,
       jnp.array([[1., 0.], [0., 1.]])),
     T(dist.MultivariateNormal, 0., None, jnp.broadcast_to(jnp.identity(3), (2, 3, 3)), None),
-    T(dist.LowRankMultivariateNormal, jnp.zeros(2), jnp.array([[1], [0]]), jnp.array([1, 1])),
+    T(dist.LowRankMultivariateNormal, jnp.zeros(2), jnp.array([[1.], [0.]]), jnp.array([1., 1.])),
     T(dist.LowRankMultivariateNormal, jnp.arange(6, dtype=jnp.float32).reshape((2, 3)),
-      jnp.arange(6, dtype=jnp.float32).reshape((3, 2)), jnp.array([1, 2, 3])),
+      jnp.arange(6, dtype=jnp.float32).reshape((3, 2)), jnp.array([1., 2., 3.])),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., jnp.array([1., 2.])),
     T(dist.Normal, jnp.array([0., 1.]), jnp.array([[1.], [2.]])),
@@ -163,7 +163,7 @@ CONTINUOUS = [
     T(dist.Pareto, jnp.array([[1.], [3.]]), jnp.array([1., 0.5])),
     T(dist.StudentT, 1., 1., 0.5),
     T(dist.StudentT, 2., jnp.array([1., 2.]), 2.),
-    T(dist.StudentT, jnp.array([3, 5]), jnp.array([[1.], [2.]]), 2.),
+    T(dist.StudentT, jnp.array([3., 5.]), jnp.array([[1.], [2.]]), 2.),
     T(dist.TruncatedCauchy, -1., 0., 1.),
     T(dist.TruncatedCauchy, 1., 0., jnp.array([1., 2.])),
     T(dist.TruncatedCauchy, jnp.array([-2., 2.]), jnp.array([0., 1.]), jnp.array([[1.], [2.]])),
@@ -326,10 +326,29 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         assert_allclose(jax_dist.precision_matrix, jnp.linalg.inv(jax_dist.covariance_matrix), rtol=1e-6)
 
 
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
+def test_has_rsample(jax_dist, sp_dist, params):
+    jax_dist = jax_dist(*params)
+    masked_dist = jax_dist.mask(False)
+    indept_dist = jax_dist.expand_by([2]).to_event(1)
+    assert masked_dist.has_rsample == jax_dist.has_rsample
+    assert indept_dist.has_rsample == jax_dist.has_rsample
+
+    if jax_dist.has_rsample:
+        assert not jax_dist.is_discrete
+        if isinstance(jax_dist, dist.TransformedDistribution):
+            assert jax_dist.base_dist.has_rsample
+        else:
+            assert set(jax_dist.arg_constraints) == set(jax_dist.reparametrized_params)
+        jax_dist.rsample(random.PRNGKey(0))
+    else:
+        with pytest.raises(NotImplementedError):
+            jax_dist.rsample(random.PRNGKey(0))
+
+
 @pytest.mark.parametrize('batch_shape', [(), (4,), (3, 2)])
 def test_unit(batch_shape):
     log_factor = random.normal(random.PRNGKey(0), batch_shape)
-
     d = dist.Unit(log_factor=log_factor)
     x = d.sample(random.PRNGKey(1))
     assert x.shape == batch_shape + (0,)
@@ -358,6 +377,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     assert len(actual_grad) == len(repara_params)
 
     eps = 1e-3
+    rtol = 0.1 if jax_dist is dist.Gamma else 0.02
     for i in range(len(repara_params)):
         if repara_params[i] is None:
             continue
@@ -368,13 +388,16 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert jnp.shape(actual_grad[i]) == jnp.shape(repara_params[i])
-        assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=0.02)
+        assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=rtol)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', [
     (dist.Gamma, osp.gamma, (1.,)),
     (dist.Gamma, osp.gamma, (0.1,)),
     (dist.Gamma, osp.gamma, (10.,)),
+    (dist.Chi2, osp.chi2, (1.,)),
+    (dist.Chi2, osp.chi2, (0.1,)),
+    (dist.Chi2, osp.chi2, (10.,)),
     # TODO: add more test cases for Beta/StudentT (and Dirichlet too) when
     # their pathwise grad (independent of standard_gamma grad) is implemented.
     pytest.param(dist.Beta, osp.beta, (1., 1.), marks=pytest.mark.xfail(

@@ -175,7 +175,7 @@ class Gamma(Distribution):
     arg_constraints = {'concentration': constraints.positive,
                        'rate': constraints.positive}
     support = constraints.positive
-    reparametrized_params = ['rate']
+    reparametrized_params = ['concentration', 'rate']
 
     def __init__(self, concentration, rate=1., validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
@@ -205,6 +205,7 @@ class Gamma(Distribution):
 
 class Chi2(Gamma):
     arg_constraints = {'df': constraints.positive}
+    reparametrized_params = ['df']
 
     def __init__(self, df, validate_args=None):
         self.df = df
@@ -212,12 +213,13 @@ class Chi2(Gamma):
 
 
 class GaussianRandomWalk(Distribution):
-    arg_constraints = {'scale': constraints.positive, 'num_steps': constraints.positive_integer}
+    arg_constraints = {'scale': constraints.positive}
     support = constraints.real_vector
     reparametrized_params = ['scale']
 
     def __init__(self, scale=1., num_steps=1, validate_args=None):
-        assert jnp.shape(num_steps) == ()
+        assert isinstance(num_steps, int) and num_steps > 0, \
+            "`num_steps` argument should be an positive integer."
         self.scale = scale
         self.num_steps = num_steps
         batch_shape, event_shape = jnp.shape(scale), (num_steps,)
@@ -813,8 +815,9 @@ class LowRankMultivariateNormal(Distribution):
         "loc": constraints.real_vector,
         "cov_factor": constraints.real,
         "cov_diag": constraints.positive
-        }
+    }
     support = constraints.real_vector
+    reparametrized_params = ['loc', 'cov_factor', 'cov_diag']
 
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
         if jnp.ndim(loc) < 1:
@@ -1022,6 +1025,7 @@ class StudentT(Distribution):
 
 class _BaseTruncatedCauchy(Distribution):
     # NB: this is a truncated cauchy with low=0, scale=1
+    arg_constraints = {"base_loc": constraints.real}
     support = constraints.positive
 
     def __init__(self, base_loc):
@@ -1049,7 +1053,6 @@ class _BaseTruncatedCauchy(Distribution):
 class TruncatedCauchy(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
-    reparametrized_params = ['low', 'loc', 'scale']
 
     def __init__(self, low=0., loc=0., scale=1., validate_args=None):
         self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
@@ -1089,6 +1092,7 @@ class TruncatedCauchy(TransformedDistribution):
 
 class _BaseTruncatedNormal(Distribution):
     # NB: this is a truncated normal with low=0, scale=1
+    arg_constraints = {"base_loc": constraints.real}
     support = constraints.positive
 
     def __init__(self, base_loc):
@@ -1116,7 +1120,6 @@ class _BaseTruncatedNormal(Distribution):
 class TruncatedNormal(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
-    reparametrized_params = ['low', 'loc', 'scale']
 
     # TODO: support `high` arg
     def __init__(self, low=0., loc=0., scale=1., validate_args=None):

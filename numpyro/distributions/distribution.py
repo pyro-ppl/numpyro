@@ -195,13 +195,13 @@ class Distribution(metaclass=DistributionMeta):
 
     @property
     def has_rsample(self):
-        return not self.is_discrete
+        return set(self.reparametrized_params) == set(self.arg_constraints)
 
     def rsample(self, key, sample_shape=()):
         if self.has_rsample:
-            self.sample(key, sample_shape=sample_shape)
-        else:
-            raise NotImplementedError
+            return self.sample(key, sample_shape=sample_shape)
+
+        raise NotImplementedError
 
     def shape(self, sample_shape=()):
         """
