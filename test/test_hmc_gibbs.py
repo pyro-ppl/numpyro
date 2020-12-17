@@ -48,6 +48,7 @@ def test_linear_model_log_sigma(kernel_cls, N=100, P=50, sigma=0.11, warmup_step
         sigma = jnp.exp(log_sigma)
         beta = numpyro.sample("beta", dist.Normal(jnp.zeros(P), jnp.ones(P)))
         mean = jnp.sum(beta * X, axis=-1)
+        numpyro.deterministic("mean", mean)
 
         numpyro.sample("obs", dist.Normal(mean, sigma), obs=Y)
 
@@ -141,7 +142,7 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
     x1_std = np.std(mcmc.get_samples()['x1'], axis=0)
 
     assert_allclose(x0_mean, np.zeros(D), atol=0.15)
-    assert_allclose(x1_mean, np.zeros(D), atol=0.15)
+    assert_allclose(x1_mean, np.zeros(D), atol=0.2)
 
     assert_allclose(x0_std, np.sqrt(np.diagonal(cov00)), rtol=0.05)
-    assert_allclose(x1_std, np.sqrt(np.diagonal(cov11)), rtol=0.05)
+    assert_allclose(x1_std, np.sqrt(np.diagonal(cov11)), rtol=0.1)
