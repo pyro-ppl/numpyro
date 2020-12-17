@@ -93,6 +93,7 @@ __all__ = [
     'block',
     'collapse',
     'condition',
+    'infer_config',
     'lift',
     'mask',
     'reparam',
@@ -374,6 +375,24 @@ class condition(Messenger):
         if value is not None:
             msg['value'] = value
             msg['is_observed'] = True
+
+
+class infer_config(Messenger):
+    """
+    Given a callable `fn` that contains Pyro primitive calls
+    and a callable `config_fn` taking a trace site and returning a dictionary,
+    updates the value of the infer kwarg at a sample site to config_fn(site).
+
+    :param fn: a stochastic function (callable containing NumPyro primitive calls)
+    :param config_fn: a callable taking a site and returning an infer dict
+    """
+    def __init__(self, fn=None, config_fn=None):
+        super().__init__(fn)
+        self.config_fn = config_fn
+
+    def process_message(self, msg):
+        if msg["type"] in ("sample", "param"):
+            msg["infer"].update(self.config_fn(msg))
 
 
 class lift(Messenger):

@@ -12,7 +12,7 @@ from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 import numpyro
-from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
+from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.distributions.util import is_identically_one, sum_rightmost
 from numpyro.handlers import seed, substitute, trace
@@ -118,9 +118,18 @@ def _unconstrain_reparam(params, site):
     if name in params:
         p = params[name]
         support = site['fn'].support
-        if support in [real, real_vector]:
-            return p
         t = biject_to(support)
+        # in scan, we might only want to substitute an item at index i, rather than the whole sequence
+        i = site['infer'].get('_scan_current_index', None)
+        if i is not None:
+            event_dim_shift = t.output_event_dim - t.input_event_dim
+            expected_unconstrained_dim = len(site["fn"].shape()) - event_dim_shift
+            # check if p has additional time dimension
+            if jnp.ndim(p) > expected_unconstrained_dim:
+                p = p[i]
+
+        if support in [constraints.real, constraints.real_vector]:
+            return p
         value = t(p)
 
         log_det = t.log_abs_det_jacobian(p, value)
@@ -278,9 +287,9 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
                 inv_transforms[k] = biject_to(support)
                 # XXX: the following code filters out most situations with dynamic supports
                 args = ()
-                if isinstance(support, _GreaterThan):
+                if isinstance(support, constraints._GreaterThan):
                     args = ('lower_bound',)
-                elif isinstance(support, _Interval):
+                elif isinstance(support, constraints._Interval):
                     args = ('lower_bound', 'upper_bound')
                 for arg in args:
                     if not isinstance(getattr(support, arg), (int, float)):

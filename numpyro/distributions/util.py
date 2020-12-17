@@ -261,7 +261,7 @@ def sum_rightmost(x, dim):
     Sum out ``dim`` many rightmost dimensions of a given tensor.
     """
     out_dim = jnp.ndim(x) - dim
-    x = jnp.reshape(x[..., jnp.newaxis], jnp.shape(x)[:out_dim] + (-1,))
+    x = jnp.reshape(jnp.expand_dims(x, -1), jnp.shape(x)[:out_dim] + (-1,))
     return jnp.sum(x, axis=-1)
 
 

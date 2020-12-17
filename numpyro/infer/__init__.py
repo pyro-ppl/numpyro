@@ -3,6 +3,7 @@
 
 from numpyro.infer.elbo import ELBO, RenyiELBO, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.hmc import HMC, NUTS
+from numpyro.infer.hmc_gibbs import HMCGibbs
 from numpyro.infer.initialization import (
     init_to_feasible,
     init_to_median,
@@ -27,6 +28,7 @@ __all__ = [
     'Trace_ELBO',
     'TraceMeanField_ELBO',
     'HMC',
+    'HMCGibbs',
     'MCMC',
     'NUTS',
     'Predictive',
