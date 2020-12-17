@@ -33,6 +33,7 @@ import warnings
 import numpy as np
 
 from jax import lax, tree_util
+from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
 
 from numpyro.distributions.constraints import is_dependent, real
@@ -847,6 +848,50 @@ class TransformedDistribution(Distribution):
             " Consider using `TransformReparam` to convert this distribution to the base_dist,"
             " which is supported in most situtations. In addition, please reach out to us with"
             " your usage cases.")
+
+
+class Delta(Distribution):
+    arg_constraints = {'v': real, 'log_density': real}
+    reparameterized_params = ['v', 'log_density']
+    support = real
+    is_discrete = True
+
+    def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None):
+        if event_dim > jnp.ndim(v):
+            raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
+                             .format(event_dim, jnp.ndim(v)))
+        batch_dim = jnp.ndim(v) - event_dim
+        batch_shape = jnp.shape(v)[:batch_dim]
+        event_shape = jnp.shape(v)[batch_dim:]
+        self.v = lax.convert_element_type(v, canonicalize_dtype(jnp.float64))
+        # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
+        self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
+        super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        shape = sample_shape + self.batch_shape + self.event_shape
+        return jnp.broadcast_to(device_put(self.v), shape)
+
+    @validate_sample
+    def log_prob(self, value):
+        log_prob = jnp.log(value == self.v)
+        log_prob = sum_rightmost(log_prob, len(self.event_shape))
+        return log_prob + self.log_density
+
+    @property
+    def mean(self):
+        return self.v
+
+    @property
+    def variance(self):
+        return jnp.zeros(self.batch_shape + self.event_shape)
+
+    def tree_flatten(self):
+        return (self.v, self.log_density), self.event_dim
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params, event_dim=aux_data)
 
 
 class Unit(Distribution):

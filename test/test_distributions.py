@@ -337,7 +337,7 @@ def test_has_rsample(jax_dist, sp_dist, params):
     assert transf_dist.has_rsample == jax_dist.has_rsample
 
     if jax_dist.has_rsample:
-        assert not jax_dist.is_discrete
+        assert isinstance(jax_dist, dist.Delta) or not jax_dist.is_discrete
         if isinstance(jax_dist, dist.TransformedDistribution):
             assert jax_dist.base_dist.has_rsample
         else:
@@ -758,6 +758,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     dependent_constraint = False
     for i in range(len(params)):
         if jax_dist in (_ImproperWrapper, dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
+            continue
+        if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
             continue
         if params[i] is None:
             oob_params[i] = None
