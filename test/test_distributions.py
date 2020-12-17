@@ -331,8 +331,10 @@ def test_has_rsample(jax_dist, sp_dist, params):
     jax_dist = jax_dist(*params)
     masked_dist = jax_dist.mask(False)
     indept_dist = jax_dist.expand_by([2]).to_event(1)
+    transf_dist = dist.TransformedDistribution(jax_dist, biject_to(constraints.real))
     assert masked_dist.has_rsample == jax_dist.has_rsample
     assert indept_dist.has_rsample == jax_dist.has_rsample
+    assert transf_dist.has_rsample == jax_dist.has_rsample
 
     if jax_dist.has_rsample:
         assert not jax_dist.is_discrete
@@ -341,9 +343,20 @@ def test_has_rsample(jax_dist, sp_dist, params):
         else:
             assert set(jax_dist.arg_constraints) == set(jax_dist.reparametrized_params)
         jax_dist.rsample(random.PRNGKey(0))
+        if isinstance(jax_dist, dist.Normal):
+            masked_dist.rsample(random.PRNGKey(0))
+            indept_dist.rsample(random.PRNGKey(0))
+            transf_dist.rsample(random.PRNGKey(0))
     else:
         with pytest.raises(NotImplementedError):
             jax_dist.rsample(random.PRNGKey(0))
+        if isinstance(jax_dist, dist.BernoulliProbs):
+            with pytest.raises(NotImplementedError):
+                masked_dist.rsample(random.PRNGKey(0))
+            with pytest.raises(NotImplementedError):
+                indept_dist.rsample(random.PRNGKey(0))
+            with pytest.raises(NotImplementedError):
+                transf_dist.rsample(random.PRNGKey(0))
 
 
 @pytest.mark.parametrize('batch_shape', [(), (4,), (3, 2)])
@@ -362,6 +375,8 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         "Gamma": ["concentration"],
         "Beta": ["concentration1", "concentration0"],
         "Chi2": ["df"],
+        "InverseGamma": ["concentration"],
+        "LKJ": ["concentration"],
         "LKJCholesky": ["concentration"],
         "StudentT": ["df"]
     }.get(jax_dist.__name__, [])

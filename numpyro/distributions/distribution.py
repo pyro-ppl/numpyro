@@ -418,14 +418,14 @@ class ExpandedDistribution(Distribution):
         return samples.reshape(sample_shape + self.batch_shape + self.event_shape)
 
     def rsample(self, key, sample_shape=()):
-        return self._sample(self.base_dist.rsample, sample_shape)
+        return self._sample(self.base_dist.rsample, key, sample_shape)
 
     @property
     def support(self):
         return self.base_dist.support
 
     def sample(self, key, sample_shape=()):
-        return self._sample(self.base_dist.sample, sample_shape)
+        return self._sample(self.base_dist.sample, key, sample_shape)
 
     def log_prob(self, value):
         shape = lax.broadcast_shapes(self.batch_shape,

@@ -319,6 +319,7 @@ class InverseGamma(TransformedDistribution):
         (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
     """
     arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
+    reparametrized_params = ["concentration", "rate"]
     support = constraints.positive
 
     def __init__(self, concentration, rate=1., validate_args=None):
@@ -433,6 +434,7 @@ class LKJ(TransformedDistribution):
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
     arg_constraints = {'concentration': constraints.positive}
+    reparametrized_params = ["concentration"]
     support = constraints.corr_matrix
 
     def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
@@ -957,6 +959,7 @@ class Normal(Distribution):
 
 class Pareto(TransformedDistribution):
     arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
+    reparametrized_params = ["scale", "alpha"]
 
     def __init__(self, scale, alpha, validate_args=None):
         self.scale, self.alpha = promote_shapes(scale, alpha)
@@ -1029,6 +1032,7 @@ class StudentT(Distribution):
 class _BaseTruncatedCauchy(Distribution):
     # NB: this is a truncated cauchy with low=0, scale=1
     arg_constraints = {"base_loc": constraints.real}
+    reparametrized_params = ["base_loc"]
     support = constraints.positive
 
     def __init__(self, base_loc):
@@ -1056,6 +1060,7 @@ class _BaseTruncatedCauchy(Distribution):
 class TruncatedCauchy(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
+    reparametrized_params = ["low", "loc", "scale"]
 
     def __init__(self, low=0., loc=0., scale=1., validate_args=None):
         self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
@@ -1096,6 +1101,7 @@ class TruncatedCauchy(TransformedDistribution):
 class _BaseTruncatedNormal(Distribution):
     # NB: this is a truncated normal with low=0, scale=1
     arg_constraints = {"base_loc": constraints.real}
+    reparametrized_params = ["base_loc"]
     support = constraints.positive
 
     def __init__(self, base_loc):
@@ -1123,6 +1129,7 @@ class _BaseTruncatedNormal(Distribution):
 class TruncatedNormal(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
+    reparametrized_params = ["low", "loc", "scale"]
 
     # TODO: support `high` arg
     def __init__(self, low=0., loc=0., scale=1., validate_args=None):
@@ -1221,7 +1228,7 @@ class Uniform(TransformedDistribution):
 class Logistic(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'real']
+    reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc=0., scale=1., validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
