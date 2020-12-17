@@ -52,6 +52,7 @@ EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
 
 class Beta(Distribution):
     arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive}
+    reparametrized_params = ['concentration1', 'concentration0']
     support = constraints.unit_interval
 
     def __init__(self, concentration1, concentration0, validate_args=None):
@@ -111,6 +112,7 @@ class Cauchy(Distribution):
 
 class Dirichlet(Distribution):
     arg_constraints = {'concentration': constraints.positive}
+    reparametrized_params = ['concentration']
     support = constraints.simplex
 
     def __init__(self, concentration, validate_args=None):
@@ -317,7 +319,6 @@ class InverseGamma(TransformedDistribution):
     """
     arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
     support = constraints.positive
-    reparametrized_params = ['rate']
 
     def __init__(self, concentration, rate=1., validate_args=None):
         base_dist = Gamma(concentration, rate)
@@ -482,6 +483,7 @@ class LKJCholesky(Distribution):
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
     arg_constraints = {'concentration': constraints.positive}
+    reparametrized_params = ['concentration']
     support = constraints.corr_cholesky
 
     def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
@@ -987,7 +989,7 @@ class Pareto(TransformedDistribution):
 class StudentT(Distribution):
     arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale']
+    reparametrized_params = ['df', 'loc', 'scale']
 
     def __init__(self, df, loc=0., scale=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(df), jnp.shape(loc), jnp.shape(scale))

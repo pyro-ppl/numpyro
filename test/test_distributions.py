@@ -357,7 +357,12 @@ def test_unit(batch_shape):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
 def test_sample_gradient(jax_dist, sp_dist, params):
-    if not jax_dist.reparametrized_params:
+    # skip those distributions because with a fixed random seed, gamma sampler might not be
+    # continuous w.r.t. the concentration parameters
+    gamma_derived_dists = [
+        dist.Gamma, dist.Beta, dist.Chi2, dist.Dirichlet, dist.LKJCholesky, dist.StudentT
+    ]
+    if not jax_dist.reparametrized_params or jax_dist in gamma_derived_dists:
         pytest.skip('{} not reparametrized.'.format(jax_dist.__name__))
 
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
@@ -377,7 +382,6 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     assert len(actual_grad) == len(repara_params)
 
     eps = 1e-3
-    rtol = 0.1 if jax_dist is dist.Gamma else 0.02
     for i in range(len(repara_params)):
         if repara_params[i] is None:
             continue
@@ -388,7 +392,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         # finite diff approximation
         expected_grad = (fn_rhs - fn_lhs) / (2. * eps)
         assert jnp.shape(actual_grad[i]) == jnp.shape(repara_params[i])
-        assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=rtol)
+        assert_allclose(jnp.sum(actual_grad[i]), expected_grad, rtol=0.02)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', [
