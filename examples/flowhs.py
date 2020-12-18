@@ -68,6 +68,34 @@ def model(X, Y):
         numpyro.sample("Y", dist.Normal(betaX, noise), obs=Y)
 
 
+def mvn_sample(rng_key, X, D, sigma, alpha, truncation=None):
+    N, P = X.shape
+    assert D.shape == (P,)
+    assert alpha.shape == (N,)
+    assert truncation is None or (truncation > 0 and truncation <= P)
+
+    Xr = X
+    Dr = D
+
+    u = dist.Normal(0.0, jnp.sqrt(D)).sample(rng_key)
+    delta = dist.Normal(0.0, jnp.ones(N)).sample(rng_key)
+
+    v = jnp.matmul(X, u) / sigma + delta
+
+    X_D_X = jnp.matmul(Xr, jnp.transpose(Xr) * Dr[:, None])
+    precision = X_D_X / jnp.square(sigma) + jnp.eye(N)
+
+    Z = jnp.median(jnp.diagonal(precision))
+    prec_scale = precision / Z
+
+    L = cho_factor(prec_scale, lower=True)[0]
+    w = cho_solve((L, True), alpha - v) / Z
+
+    theta = jnp.matmul(jnp.transpose(X) * D[:, None], w) / sigma
+
+    return theta + u
+
+
 def _gibbs_fn(X, Y, rng_key, gibbs_sites, hmc_sites):
     N, P = X.shape
 
@@ -78,20 +106,23 @@ def _gibbs_fn(X, Y, rng_key, gibbs_sites, hmc_sites):
     #obs_noise = hmc_sites['noise2'] * hmc_sites['obs_noise']
     Y_tilde, _ = jacobian_and_inverse(alpha, Y)
 
-    betaX = jnp.sum(gibbs_sites['beta'] * X, axis=-1)
+    #betaX = jnp.sum(gibbs_sites['beta'] * X, axis=-1)
 
-    X_Y_tilde = jnp.sum(X * Y_tilde[:, None], axis=0)
+    #X_Y_tilde = jnp.sum(X * Y_tilde[:, None], axis=0)
 
-    XX = np.matmul(np.transpose(X), X)
+    #XX = np.matmul(np.transpose(X), X)
 
-    sigma_sq = jnp.square(sigma)
-    covar_inv = XX / sigma_sq + jnp.eye(P) / BETA_COV
+    #sigma_sq = jnp.square(sigma)
+    #covar_inv = XX / sigma_sq + jnp.eye(P) / BETA_COV
 
-    L = cho_factor(covar_inv, lower=True)[0]
-    L_inv = solve_triangular(L, jnp.eye(P), lower=True)
-    loc = cho_solve((L, True), X_Y_tilde) / sigma_sq
+    ##L = cho_factor(covar_inv, lower=True)[0]
+    #L_inv = solve_triangular(L, jnp.eye(P), lower=True)
+    #loc = cho_solve((L, True), X_Y_tilde) / sigma_sq
 
-    beta_proposal = dist.MultivariateNormal(loc=loc, scale_tril=L_inv).sample(rng_key)
+    #beta_proposal = dist.MultivariateNormal(loc=loc, scale_tril=L_inv).sample(rng_key)
+    alpha = Y_tilde / sigma
+    D = BETA_COV * jnp.ones(X.shape[-1])
+    beta_proposal = mvn_sample(rng_key, X, D, sigma, alpha, truncation=None)
 
     return {'beta': beta_proposal}
 
@@ -115,14 +146,15 @@ def run_inference(args, rng_key, X, Y):
 
 
 # create artificial regression dataset
-def get_data(N=50, P=30, sigma_obs=0.02):
+def get_data(N=50, P=30, sigma_obs=0.07):
     np.random.seed(0)
 
     X = np.random.randn(N * P).reshape((N, P))
     Y = 1.0 * X[:, 0] - 0.5 * X[:, 1]
     #Y = np.power(2.4 * X[:, 0] + 1.2 * X[:, 1], 3.0)
     Y += sigma_obs * np.random.randn(N)
-    Y = forward(0.5, Y)
+    alpha = 0.33
+    Y = forward(alpha, Y)
     #Y -= jnp.mean(Y)
     #Y /= jnp.std(Y)
 
@@ -155,12 +187,12 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=10000, type=int)
-    parser.add_argument("--num-warmup", default=3000, type=int)
+    parser.add_argument("-n", "--num-samples", default=5000, type=int)
+    parser.add_argument("--num-warmup", default=5000, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
-    parser.add_argument("--num-data", default=80, type=int)
+    parser.add_argument("--num-data", default=32, type=int)
     parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
-    parser.add_argument("--P", default=16, type=int)
+    parser.add_argument("--P", default=3, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
