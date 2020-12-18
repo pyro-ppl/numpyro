@@ -417,7 +417,7 @@ class AutoContinuous(AutoGuide):
             transform = biject_to(site['fn'].support)
             value = transform(unconstrained_value)
             log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-            event_ndim = len(site['fn'].event_shape)
+            event_ndim = site['fn'].event_dim
             log_density = sum_rightmost(log_density,
                                         jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_dim=event_ndim)
