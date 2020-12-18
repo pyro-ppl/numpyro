@@ -74,8 +74,13 @@ def mvn_sample(rng_key, X, D, sigma, alpha, truncation=None):
     assert alpha.shape == (N,)
     assert truncation is None or (truncation > 0 and truncation <= P)
 
-    Xr = X
-    Dr = D
+    if truncation is not None and truncation < P:
+        idx = torch.sort(D, dim=-1, descending=True)[1][..., :truncation]
+        Xr = X.unsqueeze(0).expand(K, N, P).gather(-1, idx.unsqueeze(-2).expand(K, N, truncation))
+        Dr = D.gather(-1, idx)
+    else:
+        Xr = X
+        Dr = D
 
     u = dist.Normal(0.0, jnp.sqrt(D)).sample(rng_key)
     delta = dist.Normal(0.0, jnp.ones(N)).sample(rng_key)
@@ -102,24 +107,8 @@ def _gibbs_fn(X, Y, rng_key, gibbs_sites, hmc_sites):
     sigma = hmc_sites['noise']
     alpha = hmc_sites['alpha']
 
-    #Y_tilde = hmc_sites['Y_tilde']
-    #obs_noise = hmc_sites['noise2'] * hmc_sites['obs_noise']
     Y_tilde, _ = jacobian_and_inverse(alpha, Y)
 
-    #betaX = jnp.sum(gibbs_sites['beta'] * X, axis=-1)
-
-    #X_Y_tilde = jnp.sum(X * Y_tilde[:, None], axis=0)
-
-    #XX = np.matmul(np.transpose(X), X)
-
-    #sigma_sq = jnp.square(sigma)
-    #covar_inv = XX / sigma_sq + jnp.eye(P) / BETA_COV
-
-    ##L = cho_factor(covar_inv, lower=True)[0]
-    #L_inv = solve_triangular(L, jnp.eye(P), lower=True)
-    #loc = cho_solve((L, True), X_Y_tilde) / sigma_sq
-
-    #beta_proposal = dist.MultivariateNormal(loc=loc, scale_tril=L_inv).sample(rng_key)
     alpha = Y_tilde / sigma
     D = BETA_COV * jnp.ones(X.shape[-1])
     beta_proposal = mvn_sample(rng_key, X, D, sigma, alpha, truncation=None)
