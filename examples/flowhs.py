@@ -18,7 +18,7 @@ from numpyro.infer import MCMC, NUTS, HMCGibbs
 from numpyro.util import enable_x64
 
 
-BETA_COV = 0.1
+#BETA_COV = 0.1
 
 
 def forward(alpha, x):
@@ -54,16 +54,19 @@ def model(X, Y):
     N, P = X.shape
 
     noise = numpyro.sample("noise", dist.LogNormal(0.0, 3.0))
-    # noise2 = numpyro.sample("noise2", dist.LogNormal(0.0, 3.0))
+    tausq = numpyro.sample("tausq", dist.HalfCauchy(1.0))
+    lamsq = numpyro.sample("lamsq", dist.HalfCauchy(jnp.ones(P)))
+    #noise2 = numpyro.sample("noise2", dist.HalfCauchy(0.1))
 
-    beta = numpyro.sample("beta", dist.Normal(jnp.zeros(P), math.sqrt(BETA_COV) * jnp.ones(P)))
+    scale = numpyro.deterministic("scale", jnp.sqrt(tausq * lamsq))
+    beta = numpyro.sample("beta", dist.Normal(0.0, scale))
     betaX = jnp.sum(beta * X, axis=-1)
 
     flow = True
 
     if flow:
         alpha = numpyro.sample("alpha", dist.Normal(0.0, 0.5))
-        # obs_noise = noise2 * numpyro.sample("obs_noise", dist.Normal(jnp.zeros(N), jnp.ones(N)))
+        #obs_noise = noise2 * numpyro.sample("obs_noise", dist.Normal(jnp.zeros(N), jnp.ones(N)))
         Y_tilde, jacobian = jacobian_and_inverse(alpha, Y)
 
         numpyro.deterministic("Y_tilde", Y_tilde)
@@ -110,7 +113,7 @@ def mvn_sample(rng_key, X, D, sigma, alpha, truncation=None):
 
 def _gibbs_fn(X, Y, rng_key, gibbs_sites, hmc_sites):
     alpha = hmc_sites['Y_tilde'] / hmc_sites['noise']
-    D = BETA_COV * jnp.ones(X.shape[-1])
+    D = jnp.square(hmc_sites['scale'])
     beta_proposal = mvn_sample(rng_key, X, D, hmc_sites['noise'], alpha, truncation=None)
     return {'beta': beta_proposal}
 
@@ -174,12 +177,12 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=500, type=int)
-    parser.add_argument("--num-warmup", default=500, type=int)
+    parser.add_argument("-n", "--num-samples", default=10000, type=int)
+    parser.add_argument("--num-warmup", default=5000, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
-    parser.add_argument("--num-data", default=32, type=int)
+    parser.add_argument("--num-data", default=128, type=int)
     parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
-    parser.add_argument("--P", default=3, type=int)
+    parser.add_argument("--P", default=64, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
