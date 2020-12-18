@@ -9,12 +9,12 @@ import numpy as np
 from jax import grad, vmap, jit
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
-from jax.lax import while_loop, stop_gradient
+from jax.scipy.linalg import cho_factor, cho_solve
+from jax.lax import while_loop, stop_gradient, dynamic_slice_in_dim
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS, HMC, HMCGibbs, init_to_value
+from numpyro.infer import MCMC, NUTS, HMCGibbs
 from numpyro.util import enable_x64
 
 
@@ -24,8 +24,10 @@ BETA_COV = 0.1
 def forward(alpha, x):
     return x + (2.0 / 3.0) * alpha * jnp.power(x, 3.0) + 0.2 * jnp.square(alpha) * jnp.power(x, 5.0)
 
+
 def cond_fn(val):
     return (val[2] > 1.0e-6) & (val[3] < 200)
+
 
 def body_fn(alpha, val):
     x, y, _, i = val
@@ -35,9 +37,11 @@ def body_fn(alpha, val):
     x = x - delta
     return (x, y, jnp.fabs(delta), i + 1)
 
+
 @jit
 def inverse(alpha, y):
     return while_loop(cond_fn, partial(body_fn, alpha), (y, y, 9.9e9, 0))[0]
+
 
 def jacobian_and_inverse(alpha, Y):
     inv = partial(inverse, alpha)
@@ -50,7 +54,7 @@ def model(X, Y):
     N, P = X.shape
 
     noise = numpyro.sample("noise", dist.LogNormal(0.0, 3.0))
-    #noise2 = numpyro.sample("noise2", dist.LogNormal(0.0, 3.0))
+    # noise2 = numpyro.sample("noise2", dist.LogNormal(0.0, 3.0))
 
     beta = numpyro.sample("beta", dist.Normal(jnp.zeros(P), math.sqrt(BETA_COV) * jnp.ones(P)))
     betaX = jnp.sum(beta * X, axis=-1)
@@ -59,8 +63,10 @@ def model(X, Y):
 
     if flow:
         alpha = numpyro.sample("alpha", dist.Normal(0.0, 0.5))
-        #obs_noise = noise2 * numpyro.sample("obs_noise", dist.Normal(jnp.zeros(N), jnp.ones(N)))
+        # obs_noise = noise2 * numpyro.sample("obs_noise", dist.Normal(jnp.zeros(N), jnp.ones(N)))
         Y_tilde, jacobian = jacobian_and_inverse(alpha, Y)
+
+        numpyro.deterministic("Y_tilde", Y_tilde)
 
         numpyro.factor("jacobian", jacobian)
         numpyro.sample("Y", dist.Normal(betaX, noise), obs=Y_tilde)
@@ -75,9 +81,10 @@ def mvn_sample(rng_key, X, D, sigma, alpha, truncation=None):
     assert truncation is None or (truncation > 0 and truncation <= P)
 
     if truncation is not None and truncation < P:
-        idx = torch.sort(D, dim=-1, descending=True)[1][..., :truncation]
-        Xr = X.unsqueeze(0).expand(K, N, P).gather(-1, idx.unsqueeze(-2).expand(K, N, truncation))
-        Dr = D.gather(-1, idx)
+        idx = jnp.argsort(D)
+        idx = dynamic_slice_in_dim(idx, P - truncation, truncation)
+        Xr = jnp.take(X, idx, -1)
+        Dr = jnp.take(D, idx, -1)
     else:
         Xr = X
         Dr = D
@@ -102,17 +109,9 @@ def mvn_sample(rng_key, X, D, sigma, alpha, truncation=None):
 
 
 def _gibbs_fn(X, Y, rng_key, gibbs_sites, hmc_sites):
-    N, P = X.shape
-
-    sigma = hmc_sites['noise']
-    alpha = hmc_sites['alpha']
-
-    Y_tilde, _ = jacobian_and_inverse(alpha, Y)
-
-    alpha = Y_tilde / sigma
+    alpha = hmc_sites['Y_tilde'] / hmc_sites['noise']
     D = BETA_COV * jnp.ones(X.shape[-1])
-    beta_proposal = mvn_sample(rng_key, X, D, sigma, alpha, truncation=None)
-
+    beta_proposal = mvn_sample(rng_key, X, D, hmc_sites['noise'], alpha, truncation=None)
     return {'beta': beta_proposal}
 
 
@@ -128,7 +127,7 @@ def run_inference(args, rng_key, X, Y):
 
     start = time.time()
     mcmc.run(rng_key, X, Y)
-    mcmc.print_summary(exclude_deterministic=False)
+    mcmc.print_summary(exclude_deterministic=True)
     print('\nMCMC elapsed time:', time.time() - start)
 
     return mcmc.get_samples()
@@ -140,12 +139,12 @@ def get_data(N=50, P=30, sigma_obs=0.07):
 
     X = np.random.randn(N * P).reshape((N, P))
     Y = 1.0 * X[:, 0] - 0.5 * X[:, 1]
-    #Y = np.power(2.4 * X[:, 0] + 1.2 * X[:, 1], 3.0)
+    # Y = np.power(2.4 * X[:, 0] + 1.2 * X[:, 1], 3.0)
     Y += sigma_obs * np.random.randn(N)
     alpha = 0.33
     Y = forward(alpha, Y)
-    #Y -= jnp.mean(Y)
-    #Y /= jnp.std(Y)
+    # Y -= jnp.mean(Y)
+    # Y /= jnp.std(Y)
 
     assert X.shape == (N, P)
     assert Y.shape == (N,)
@@ -172,12 +171,11 @@ def main(args):
     #print("mean_phi/Y", mean_phi/Y)
 
 
-
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=5000, type=int)
-    parser.add_argument("--num-warmup", default=5000, type=int)
+    parser.add_argument("-n", "--num-samples", default=500, type=int)
+    parser.add_argument("--num-warmup", default=500, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
     parser.add_argument("--num-data", default=32, type=int)
     parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
