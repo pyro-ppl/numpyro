@@ -52,6 +52,7 @@ EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
 
 class Beta(Distribution):
     arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive}
+    reparametrized_params = ['concentration1', 'concentration0']
     support = constraints.unit_interval
 
     def __init__(self, concentration1, concentration0, validate_args=None):
@@ -111,6 +112,7 @@ class Cauchy(Distribution):
 
 class Dirichlet(Distribution):
     arg_constraints = {'concentration': constraints.positive}
+    reparametrized_params = ['concentration']
     support = constraints.simplex
 
     def __init__(self, concentration, validate_args=None):
@@ -175,7 +177,7 @@ class Gamma(Distribution):
     arg_constraints = {'concentration': constraints.positive,
                        'rate': constraints.positive}
     support = constraints.positive
-    reparametrized_params = ['rate']
+    reparametrized_params = ['concentration', 'rate']
 
     def __init__(self, concentration, rate=1., validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
@@ -205,6 +207,7 @@ class Gamma(Distribution):
 
 class Chi2(Gamma):
     arg_constraints = {'df': constraints.positive}
+    reparametrized_params = ['df']
 
     def __init__(self, df, validate_args=None):
         self.df = df
@@ -212,12 +215,13 @@ class Chi2(Gamma):
 
 
 class GaussianRandomWalk(Distribution):
-    arg_constraints = {'scale': constraints.positive, 'num_steps': constraints.positive_integer}
+    arg_constraints = {'scale': constraints.positive}
     support = constraints.real_vector
     reparametrized_params = ['scale']
 
     def __init__(self, scale=1., num_steps=1, validate_args=None):
-        assert jnp.shape(num_steps) == ()
+        assert isinstance(num_steps, int) and num_steps > 0, \
+            "`num_steps` argument should be an positive integer."
         self.scale = scale
         self.num_steps = num_steps
         batch_shape, event_shape = jnp.shape(scale), (num_steps,)
@@ -314,8 +318,8 @@ class InverseGamma(TransformedDistribution):
         (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
     """
     arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
+    reparametrized_params = ["concentration", "rate"]
     support = constraints.positive
-    reparametrized_params = ['rate']
 
     def __init__(self, concentration, rate=1., validate_args=None):
         base_dist = Gamma(concentration, rate)
@@ -429,6 +433,7 @@ class LKJ(TransformedDistribution):
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
     arg_constraints = {'concentration': constraints.positive}
+    reparametrized_params = ["concentration"]
     support = constraints.corr_matrix
 
     def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
@@ -480,6 +485,7 @@ class LKJCholesky(Distribution):
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
     arg_constraints = {'concentration': constraints.positive}
+    reparametrized_params = ['concentration']
     support = constraints.corr_cholesky
 
     def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
@@ -813,8 +819,9 @@ class LowRankMultivariateNormal(Distribution):
         "loc": constraints.real_vector,
         "cov_factor": constraints.real,
         "cov_diag": constraints.positive
-        }
+    }
     support = constraints.real_vector
+    reparametrized_params = ['loc', 'cov_factor', 'cov_diag']
 
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
         if jnp.ndim(loc) < 1:
@@ -951,6 +958,7 @@ class Normal(Distribution):
 
 class Pareto(TransformedDistribution):
     arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
+    reparametrized_params = ["scale", "alpha"]
 
     def __init__(self, scale, alpha, validate_args=None):
         self.scale, self.alpha = promote_shapes(scale, alpha)
@@ -984,7 +992,7 @@ class Pareto(TransformedDistribution):
 class StudentT(Distribution):
     arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale']
+    reparametrized_params = ['df', 'loc', 'scale']
 
     def __init__(self, df, loc=0., scale=1., validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(df), jnp.shape(loc), jnp.shape(scale))
@@ -1022,6 +1030,8 @@ class StudentT(Distribution):
 
 class _BaseTruncatedCauchy(Distribution):
     # NB: this is a truncated cauchy with low=0, scale=1
+    arg_constraints = {"base_loc": constraints.real}
+    reparametrized_params = ["base_loc"]
     support = constraints.positive
 
     def __init__(self, base_loc):
@@ -1049,7 +1059,7 @@ class _BaseTruncatedCauchy(Distribution):
 class TruncatedCauchy(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
-    reparametrized_params = ['low', 'loc', 'scale']
+    reparametrized_params = ["low", "loc", "scale"]
 
     def __init__(self, low=0., loc=0., scale=1., validate_args=None):
         self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
@@ -1089,6 +1099,8 @@ class TruncatedCauchy(TransformedDistribution):
 
 class _BaseTruncatedNormal(Distribution):
     # NB: this is a truncated normal with low=0, scale=1
+    arg_constraints = {"base_loc": constraints.real}
+    reparametrized_params = ["base_loc"]
     support = constraints.positive
 
     def __init__(self, base_loc):
@@ -1116,7 +1128,7 @@ class _BaseTruncatedNormal(Distribution):
 class TruncatedNormal(TransformedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
                        'scale': constraints.positive}
-    reparametrized_params = ['low', 'loc', 'scale']
+    reparametrized_params = ["low", "loc", "scale"]
 
     # TODO: support `high` arg
     def __init__(self, low=0., loc=0., scale=1., validate_args=None):
@@ -1215,7 +1227,7 @@ class Uniform(TransformedDistribution):
 class Logistic(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'real']
+    reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc=0., scale=1., validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
