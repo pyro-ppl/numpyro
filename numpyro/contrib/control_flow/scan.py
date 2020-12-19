@@ -309,6 +309,7 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         is supported. A :class:`~numpyro.handlers.trace` of `scan` with discrete latent
         variables will contain the following sites:
 
+            # TODO: revise the docs here
             + init sites: those sites belong to the first trace of `f`. Each of
                 them will have name prefixed with `_init/`.
             + scanned sites: those sites collect the values of the remaining scan
