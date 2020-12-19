@@ -71,7 +71,8 @@ def config_enumerate(fn, default='parallel'):
     return infer_config(fn, config_fn)
 
 
-def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_dims, sum_vars, prod_vars):
+def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_dims,
+                           sum_vars, prod_vars, history):
     """
     :param dict time_to_factors: a map from time variable to the log prob factors.
     :param dict time_to_init_vars: a map from time variable to init discrete sites.
@@ -79,13 +80,13 @@ def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_di
         (discrete sites that depend on previous steps).
     :param frozenset sum_vars: all plate and enum dimensions in the trace.
     :param frozenset prod_vars: all plate dimensions in the trace.
+    :param int history: The number of previous contexts visible from the current context.
     :returns: a list of factors after eliminate time dimensions
     """
     markov_factors = []
     for time_var, log_factors in time_to_factors.items():
         prev_vars = time_to_init_vars[time_var]
-        # remove `_init/` prefix to convert prev to curr
-        prev_to_curr = {k: "/".join(k.split("/")[1:]) for k in prev_vars}
+
         # we eliminate all plate and enum dimensions not available at markov sites.
         eliminate_vars = (sum_vars | prod_vars) - time_to_markov_dims[time_var]
         with funsor.interpreter.interpretation(funsor.terms.lazy):
@@ -93,8 +94,18 @@ def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_di
                 funsor.ops.logaddexp, funsor.ops.add, log_factors,
                 eliminate=eliminate_vars, plates=prod_vars)
         trans = funsor.optimizer.apply_optimizer(lazy_result)
-        markov_factors.append(funsor.sum_product.sequential_sum_product(
-            funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr))
+
+        if history > 1:
+            global_vars = frozenset(trans.inputs - {time_var.name} - prev_vars
+                                    - {k.lstrip("P") for k in prev_vars})
+            markov_factors.append(funsor.sum_product.sarkka_bilmes_product(
+                funsor.ops.logaddexp, funsor.ops.add, trans, time_var, global_vars
+            ))
+        else:
+            # remove `P` prefix to convert prev to curr
+            prev_to_curr = {k: k.lstrip("P") for k in prev_vars}
+            markov_factors.append(funsor.sum_product.sequential_sum_product(
+                funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr))
     return markov_factors
 
 
@@ -124,9 +135,10 @@ def log_density(model, model_args, model_kwargs, params):
         model_trace = packed_trace(model).get_trace(*model_args, **model_kwargs)
     log_factors = []
     time_to_factors = defaultdict(list)  # log prob factors
-    time_to_init_vars = defaultdict(frozenset)  # _init/... variables
+    time_to_init_vars = defaultdict(frozenset)  # PP... variables
     time_to_markov_dims = defaultdict(frozenset)  # dimensions at markov sites
     sum_vars, prod_vars = frozenset(), frozenset()
+    history = 1
     for site in model_trace.values():
         if site['type'] == 'sample':
             value = site['value']
@@ -148,8 +160,9 @@ def log_density(model, model_args, model_kwargs, params):
                 if name.startswith("_time"):
                     time_dim = funsor.Variable(name, funsor.domains.bint(log_prob.shape[dim]))
                     time_to_factors[time_dim].append(log_prob_factor)
+                    history = max(history, max((len(s) - len(s.lstrip("P"))) for s in dim_to_name.values()))
                     time_to_init_vars[time_dim] |= frozenset(
-                        s for s in dim_to_name.values() if s.startswith("_init"))
+                        s for s in dim_to_name.values() if s.startswith("P"))
                     break
             if time_dim is None:
                 log_factors.append(log_prob_factor)
@@ -160,14 +173,14 @@ def log_density(model, model_args, model_kwargs, params):
 
     for time_dim, init_vars in time_to_init_vars.items():
         for var in init_vars:
-            curr_var = "/".join(var.split("/")[1:])
+            curr_var = var.lstrip("P")
             dim_to_name = model_trace[curr_var]["infer"]["dim_to_name"]
             if var in dim_to_name.values():  # i.e. _init (i.e. prev) in dim_to_name
                 time_to_markov_dims[time_dim] |= frozenset(name for name in dim_to_name.values())
 
     if len(time_to_factors) > 0:
         markov_factors = compute_markov_factors(time_to_factors, time_to_init_vars,
-                                                time_to_markov_dims, sum_vars, prod_vars)
+                                                time_to_markov_dims, sum_vars, prod_vars, history)
         log_factors = log_factors + markov_factors
 
     with funsor.interpreter.interpretation(funsor.terms.lazy):

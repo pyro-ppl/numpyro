@@ -585,13 +585,14 @@ class scope(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
     """
-    def __init__(self, fn=None, prefix=''):
+    def __init__(self, fn=None, prefix='', divider='/'):
         self.prefix = prefix
+        self.divider = divider
         super().__init__(fn)
 
     def process_message(self, msg):
         if msg.get('name'):
-            msg['name'] = f"{self.prefix}/{msg['name']}"
+            msg['name'] = f"{self.prefix}{self.divider}{msg['name']}"
 
 
 class seed(Messenger):

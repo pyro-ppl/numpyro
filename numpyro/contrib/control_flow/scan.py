@@ -137,7 +137,8 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
                 seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
         if init:
-            with handlers.scope(prefix="_init{}".format(i if i > 0 else "")):
+            # handler the name to match the pattern of sakkar_bilmes product
+            with handlers.scope(prefix='P' * (history - i), divider='_'):
                 new_carry, y = seeded_fn(carry, x)
                 trace = {}
         else:
@@ -148,7 +149,8 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
                 # at each site have the same batch dims (e.g. if `fn.batch_shape = (2, 3)`,
                 # and value's batch_shape is (3,), then we promote shape of
                 # value so that its batch shape is (1, 3)).
-                new_carry, y = config_enumerate(seeded_fn)(carry, x)
+                with handlers.scope(divider='_'):
+                    new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
             # store shape of new_carry at a global variable
             if len(carry_shapes) < (history + 1):
@@ -163,11 +165,11 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
         wrapped_carry = (0, rng_key, init)
         y0s = []
         for i in range(history):
-            wrapped_carry, (_, y0) = body_fn(wrapped_carry, x0[i])
+            wrapped_carry, (_, y0) = body_fn(wrapped_carry, tree_map(lambda z: z[i], x0))
             if i > 0:
                 # reshape y1, y2,... to have the same shape as y0
                 y0 = tree_multimap(lambda z0, z: jnp.reshape(z, jnp.shape(z0)), y0s[0], y0)
-            y0s.append[y0]
+            y0s.append(y0)
             carry_shapes.append([jnp.shape(x) for x in tree_flatten(wrapped_carry[-1])[0]])
         y0s = tree_multimap(lambda *z: jnp.stack(z, axis=0), *y0s)
         if length == history:
@@ -304,14 +306,11 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         evaluated using parallel-scan (reference [1]) over time dimension, which
         reduces parallel complexity to `O(log(length))`.
 
-        Currently, only the equivalence to
-        :class:`~numpyro.contrib.funsor.enum_messenger.markov(history_size=1)`
-        is supported. A :class:`~numpyro.handlers.trace` of `scan` with discrete latent
+        A :class:`~numpyro.handlers.trace` of `scan` with discrete latent
         variables will contain the following sites:
 
-            # TODO: revise the docs here
-            + init sites: those sites belong to the first trace of `f`. Each of
-                them will have name prefixed with `_init/`.
+            + init sites: those sites belong to the first `history` traces of `f`.
+                Sites at the `i`-th trace will have name prefixed with `P` * (history - i).
             + scanned sites: those sites collect the values of the remaining scan
                 loop over `f`. An addition time dimension `_time_foo` will be
                 added to those sites, where `foo` is the name of the first site
