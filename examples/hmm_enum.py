@@ -70,7 +70,7 @@ logger.setLevel(logging.INFO)
 
 # %%
 # Let's start with a simple Hidden Markov Model.
-#
+
 #     x[t-1] --> x[t] --> x[t+1]
 #        |        |         |
 #        V        V         V
@@ -79,7 +79,6 @@ logger.setLevel(logging.INFO)
 # This model includes a plate for the data_dim = 44 keys on the piano. This
 # model has two "style" parameters probs_x and probs_y that we'll draw from a
 # prior. The latent state is x, and the observed state is y.
-
 def model_1(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with mask(mask=include_prior):
@@ -104,15 +103,13 @@ def model_1(sequences, lengths, args, include_prior=True):
     # NB swapaxes: we move time dimension of `sequences` to the front to scan over it
     scan(transition_fn, (x_init, 0), jnp.swapaxes(sequences, 0, 1))
 
-
 # %%
 # Next let's add a dependency of y[t] on y[t-1].
-#
+
 #     x[t-1] --> x[t] --> x[t+1]
 #        |        |         |
 #        V        V         V
 #     y[t-1] --> y[t] --> y[t+1]
-
 def model_2(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with mask(mask=include_prior):
@@ -146,7 +143,7 @@ def model_2(sequences, lengths, args, include_prior=True):
 
 # %%
 # Next consider a Factorial HMM with two hidden states.
-#
+
 #    w[t-1] ----> w[t] ---> w[t+1]
 #        \ x[t-1] --\-> x[t] --\-> x[t+1]
 #         \  /       \  /       \  /
@@ -158,7 +155,6 @@ def model_2(sequences, lengths, args, include_prior=True):
 # entire joint space of these variables w[t],x[t] needs to be enumerated.
 # For that reason, we set the dimension of each to the square root of the
 # target hidden dimension.
-
 def model_3(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
@@ -197,7 +193,7 @@ def model_3(sequences, lengths, args, include_prior=True):
 # %%
 # By adding a dependency of x on w, we generalize to a
 # Dynamic Bayesian Network.
-#
+
 #     w[t-1] ----> w[t] ---> w[t+1]
 #        |  \       |  \       |   \
 #        | x[t-1] ----> x[t] ----> x[t+1]
@@ -207,7 +203,6 @@ def model_3(sequences, lengths, args, include_prior=True):
 #
 # Note that message passing here has roughly the same cost as with the
 # Factorial HMM, but this model has more parameters.
-
 def model_4(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
@@ -244,7 +239,7 @@ def model_4(sequences, lengths, args, include_prior=True):
 # %%
 # Next let's consider a second-order HMM model
 # in which x[t+1] depends on both x[t] and x[t-1].
-#
+
 #                     _______>______
 #         _____>_____/______        \
 #        /          /       \        \
@@ -257,7 +252,6 @@ def model_4(sequences, lengths, args, include_prior=True):
 #  the transition and emission probabilities as parameters (so they have no prior).
 #
 # Note that this is the "2HMM" model in reference [4].
-
 def model_6(sequences, lengths, args, include_prior=False):
     num_sequences, max_length, data_dim = sequences.shape
 
