@@ -491,7 +491,7 @@ class MCMC(object):
         states = self._states if group_by_chain else self._states_flat
         return {k: v for k, v in states.items() if k != self._sample_field}
 
-    def print_summary(self, prob=0.9, exclude_deterministic=True):
+    def print_summary(self, prob=0.9, exclude_deterministic=True, exclude_sites=None):
         """
         Print the statistics of posterior samples collected during running this MCMC instance.
 
@@ -511,6 +511,8 @@ class MCMC(object):
             if isinstance(state_sample_field, dict):
                 sites = {k: v for k, v in self._states[self._sample_field].items()
                          if k in state_sample_field}
+        if exclude_sites is not None:
+            sites = {k: v for k, v in sites.items() if k not in exclude_sites}
         print_summary(sites, prob=prob)
         extra_fields = self.get_extra_fields()
         if 'diverging' in extra_fields:
