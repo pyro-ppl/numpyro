@@ -434,9 +434,8 @@ def test_scan_enum_scan_enum():
 
 
 @pytest.mark.parametrize('history', [2, 3])
-def test_scan_history(history):
-    T = history + 10
-
+@pytest.mark.parametrize('T', [1, 2, 3, 4, 10, 11, 12, 13])
+def test_scan_history(history, T):
     def model():
         p = numpyro.param("p", 0.25 * jnp.ones((2, 2, 2)))
         q = numpyro.param("q", 0.25 * jnp.ones(2))
@@ -447,6 +446,7 @@ def test_scan_history(history):
             probs = p[x_prev, x_curr, z]
             x_prev, x_curr = x_curr, numpyro.sample("x_{}".format(t), dist.Bernoulli(probs))
             numpyro.sample("y_{}".format(t), dist.Bernoulli(q[x_curr]), obs=0)
+        return x_prev, x_curr
 
     def fun_model():
         p = numpyro.param("p", 0.25 * jnp.ones((2, 2, 2)))
@@ -460,11 +460,17 @@ def test_scan_history(history):
             numpyro.sample("y", dist.Bernoulli(q[x_curr]), obs=y)
             return (x_prev, x_curr), None
 
-        scan(transition_fn, (0, 0), jnp.zeros(T), history=history)
+        (x_prev, x_curr), _ = scan(transition_fn, (0, 0), jnp.zeros(T), history=history)
+        return x_prev, x_curr
 
     expected_log_joint = log_density(enum(config_enumerate(model)), (), {}, {})[0]
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
+
+    expected_x_prev, expected_x_curr = enum(config_enumerate(model))()
+    actual_x_prev, actual_x_curr = enum(config_enumerate(model))()
+    assert_allclose(actual_x_prev, expected_x_prev)
+    assert_allclose(actual_x_curr, expected_x_curr)
 
 
 def test_missing_plate(monkeypatch):

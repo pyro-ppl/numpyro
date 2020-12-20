@@ -109,19 +109,21 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
     from numpyro.contrib.funsor import config_enumerate, enum, markov
     from numpyro.contrib.funsor import trace as packed_trace
 
+    # amount number of steps to unroll
     history = min(history, length)
+    unroll_steps = min(2 * history - 1, length)
     if reverse:
-        x0 = tree_map(lambda x: x[-history:][::-1], xs)
-        xs_ = tree_map(lambda x: x[:-history], xs)
+        x0 = tree_map(lambda x: x[-unroll_steps:][::-1], xs)
+        xs_ = tree_map(lambda x: x[:-unroll_steps], xs)
     else:
-        x0 = tree_map(lambda x: x[:history], xs)
-        xs_ = tree_map(lambda x: x[history:], xs)
+        x0 = tree_map(lambda x: x[:unroll_steps], xs)
+        xs_ = tree_map(lambda x: x[unroll_steps:], xs)
 
     carry_shapes = []
 
     def body_fn(wrapped_carry, x, prefix=None):
         i, rng_key, carry = wrapped_carry
-        init = True if (not_jax_tracer(i) and i in range(history)) else False
+        init = True if (not_jax_tracer(i) and i in range(unroll_steps)) else False
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
         # we need to tell unconstrained messenger in potential energy computation
@@ -138,7 +140,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
 
         if init:
             # handler the name to match the pattern of sakkar_bilmes product
-            with handlers.scope(prefix='P' * (history - i), divider='_'):
+            with handlers.scope(prefix='P' * (unroll_steps - i), divider='_'):
                 new_carry, y = seeded_fn(carry, x)
                 trace = {}
         else:
@@ -164,18 +166,22 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
     with markov(history=history):
         wrapped_carry = (0, rng_key, init)
         y0s = []
-        for i in range(history):
+        for i in range(unroll_steps):
             wrapped_carry, (_, y0) = body_fn(wrapped_carry, tree_map(lambda z: z[i], x0))
             if i > 0:
                 # reshape y1, y2,... to have the same shape as y0
                 y0 = tree_multimap(lambda z0, z: jnp.reshape(z, jnp.shape(z0)), y0s[0], y0)
             y0s.append(y0)
-            carry_shapes.append([jnp.shape(x) for x in tree_flatten(wrapped_carry[-1])[0]])
+            # shapes of the first `history - 1` steps are not useful to interpret the last carry
+            # shape so we don't need to record them here
+            if i >= history - 1:
+                carry_shapes.append([jnp.shape(x) for x in tree_flatten(wrapped_carry[-1])[0]])
         y0s = tree_multimap(lambda *z: jnp.stack(z, axis=0), *y0s)
-        if length == history:
+        if length == unroll_steps:
             return wrapped_carry, (PytreeTrace({}), y0s)
         wrapped_carry = device_put(wrapped_carry)
-        wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs_, length - history, reverse)
+        wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs_,
+                                                     length - unroll_steps, reverse)
 
     first_var = None
     for name, site in pytree_trace.trace.items():
@@ -197,14 +203,9 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
     # then join with y0s
     ys = tree_multimap(lambda z0, z: jnp.concatenate([z0, z], axis=0), y0s, ys)
     # we also need to reshape `carry` to match sequential behavior
-    i = (length - 1) % (history + 1)
-    # XXX: unless we unroll more steps, we only know the correct shapes starting from
-    # the `history`-th iteration; that means we only know carry shapes when
-    # i == history - 1 or i == history, which corresponds to input carry or output carry
-    # at the `history`-th iteration.
-
+    i = (length + 2) % (history + 1)
     # NB: no need to reshape if i == history - 1
-    if i == history:
+    if i != (history - 1):
         t, rng_key, carry = wrapped_carry
         carry_shape = carry_shapes[i]
         flatten_carry, treedef = tree_flatten(carry)
@@ -327,8 +328,7 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         Not all transition functions `f` are supported. All of the restrictions from
         Pyro's enumeration tutorial [2] still apply here. In addition, there should
         not have any site outside of `scan` depend on the first output of `scan`
-        (the last carry value). In addition, when `history > 1`, under enumeration,
-        the last carry value might not have correct shapes.
+        (the last carry value).
 
     ** References **
 

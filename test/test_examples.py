@@ -30,9 +30,7 @@ EXAMPLES = [
     'hmm_enum.py -m 3 -t 3 -d 3 --num-warmup 1 -n 4',
     'hmm_enum.py -m 3 -t 3 -d 4 --num-warmup 1 -n 4',
     'hmm_enum.py -m 4 -t 3 -d 4 --num-warmup 1 -n 4',
-    pytest.param('hmm_enum.py -m 6 -t 4 -d 3 --num-warmup 1 -n 4',
-                 marks=[pytest.mark.xfail(
-                     reason="sarkka_bilmes_product does not handle partial windows yet")]),
+    'hmm_enum.py -m 6 -t 4 -d 3 --num-warmup 1 -n 4',
     'minipyro.py',
     'neutra.py --num-samples 100 --num-warmup 100',
     'ode.py --num-samples 100 --num-warmup 100 --num-chains 1',
