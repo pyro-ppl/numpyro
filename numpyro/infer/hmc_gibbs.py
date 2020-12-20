@@ -5,11 +5,14 @@ from collections import namedtuple
 import copy
 from functools import partial
 
-from jax import device_put, random, value_and_grad
+from jax import device_put, ops, random, value_and_grad
+from jax.flatten_util import ravel_pytree
+import jax.numpy as jnp
 
 from numpyro.handlers import condition, seed, trace, substitute
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.hmc import HMC
+from numpyro.util import cond, identity
 
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
@@ -151,10 +154,41 @@ class HMCGibbs(MCMCKernel):
         return HMCGibbsState(z, hmc_state, rng_key)
 
 
-#def discrete_gibbs_fn(...)
+def _discrete_step(rng_key, z_discrete, pe, idx, potential_fn, z_continuous, support_sizes):
+    rng_key, rng_proposal, rng_accept = random.split(rng_key)
+
+    # get z proposal
+    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
+    proposal = random.randint(rng_proposal, (), minval=0, maxval=support_sizes[idx] - 1)
+    proposal = jnp.where(proposal >= z_discrete_flat[idx], proposal + 1, proposal)
+    z_discrete_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_discrete_new = unravel_fn(z_discrete_new_flat)
+
+    pe_new = potential_fn(z_discrete_new)
+    z_discrete, pe = cond(random.exponential(rng_accept) < pe_new - pe,
+                          (z_discrete_new, pe_new), identity,
+                          (z_discrete, pe), identity)
+    return rng_key, z_discrete, pe
 
 
-#def subsample_gibbs_fn(model):
+def discrete_gibbs_fn(model, model_args=(), model_kwargs={}):
+    prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
+    supports = {
+        name: jnp.broadcast_to(
+            site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
+        for name, site in prototype_trace.items()
+        if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
+    }
+    support_sizes, _ = ravel_pytree(supports)
+    model = _wrap_model(model)
+
+    def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
+        return gibbs_sites
+
+    return gibbs_fn
+
+
+def subsample_gibbs_fn(model):
     """
     Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for subsampling
     statements using :class:`~numpyro.plate` primitive. This implements the Algorithm 1
