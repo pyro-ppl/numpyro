@@ -103,6 +103,7 @@ def model_1(sequences, lengths, args, include_prior=True):
     # NB swapaxes: we move time dimension of `sequences` to the front to scan over it
     scan(transition_fn, (x_init, 0), jnp.swapaxes(sequences, 0, 1))
 
+
 # %%
 # Next let's add a dependency of y[t] on y[t-1].
 
