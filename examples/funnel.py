@@ -21,6 +21,9 @@ the automatic reparameterisation technique introduced in [2].
     1. *Stan User's Guide*, https://mc-stan.org/docs/2_19/stan-users-guide/reparameterization-section.html
     2. Maria I. Gorinova, Dave Moore, Matthew D. Hoffman (2019), "Automatic
        Reparameterisation of Probabilistic Programs", (https://arxiv.org/abs/1906.03028)
+
+.. image:: ../_static/img/examples/funnel.png
+    :align: center
 """
 
 import argparse
@@ -70,7 +73,7 @@ def main(args):
         random.PRNGKey(1))
 
     # make plots
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 8))
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(8, 8), constrained_layout=True)
 
     ax1.plot(samples['x'][:, 0], samples['y'], "go", alpha=0.3)
     ax1.set(xlim=(-20, 20), ylim=(-9, 9), ylabel='y',
@@ -81,7 +84,6 @@ def main(args):
             title='Funnel samples with non-centered parameterization')
 
     plt.savefig('funnel_plot.pdf')
-    plt.tight_layout()
 
 
 if __name__ == "__main__":

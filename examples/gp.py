@@ -7,6 +7,9 @@ Example: Gaussian Process
 
 In this example we show how to use NUTS to sample from the posterior
 over the hyperparameters of a gaussian process.
+
+.. image:: ../_static/img/examples/gp.png
+    :align: center
 """
 
 import argparse
@@ -125,7 +128,7 @@ def main(args):
     percentiles = np.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
-    fig, ax = plt.subplots(1, 1)
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
 
     # plot training data
     ax.plot(X, Y, 'kx')
@@ -136,7 +139,6 @@ def main(args):
     ax.set(xlabel="X", ylabel="Y", title="Mean predictions with 90% CI")
 
     plt.savefig("gp_plot.pdf")
-    plt.tight_layout()
 
 
 if __name__ == "__main__":
