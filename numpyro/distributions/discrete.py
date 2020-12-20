@@ -89,6 +89,10 @@ class BernoulliProbs(Distribution):
     def log_prob(self, value):
         return xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
 
+    @lazy_property
+    def logits(self):
+        return _to_logits_bernoulli(self.probs)
+
     @property
     def mean(self):
         return self.probs
@@ -173,6 +177,10 @@ class BinomialProbs(Distribution):
         log_factorial_nmk = gammaln(self.total_count - value + 1)
         return (log_factorial_n - log_factorial_k - log_factorial_nmk +
                 xlogy(value, self.probs) + xlog1py(self.total_count - value, -self.probs))
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_bernoulli(self.probs)
 
     @property
     def mean(self):
@@ -274,9 +282,13 @@ class CategoricalProbs(Distribution):
         batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         value = jnp.expand_dims(value, axis=-1)
         value = jnp.broadcast_to(value, batch_shape + (1,))
-        logits = _to_logits_multinom(self.probs)
+        logits = self.logits
         log_pmf = jnp.broadcast_to(logits, batch_shape + jnp.shape(logits)[-1:])
         return jnp.take_along_axis(log_pmf, value, axis=-1)[..., 0]
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_multinom(self.probs)
 
     @property
     def mean(self):
@@ -429,6 +441,10 @@ class MultinomialProbs(Distribution):
             self._validate_sample(value)
         return gammaln(self.total_count + 1) \
             + jnp.sum(xlogy(value, self.probs) - gammaln(value + 1), axis=-1)
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_multinom(self.probs)
 
     @property
     def mean(self):
@@ -584,6 +600,10 @@ class GeometricProbs(Distribution):
     def log_prob(self, value):
         probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
         return value * jnp.log1p(-probs) + jnp.log(probs)
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_bernoulli(self.probs)
 
     @property
     def mean(self):
