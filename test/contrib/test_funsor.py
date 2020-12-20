@@ -226,10 +226,10 @@ def test_scan_enum_one_latent(num_steps):
             probs = init_probs if x is None else transition_probs[x]
             x = numpyro.sample("x", dist.Categorical(probs))
             numpyro.sample("y", dist.Normal(locs[x], 1), obs=y)
-            return x, None
+            return x, 1
 
         x, collections = scan(transition_fn, None, data)
-        assert collections is None
+        assert collections.shape == data.shape[:1]
         return x
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
@@ -430,6 +430,40 @@ def test_scan_enum_scan_enum():
 
     actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
     expected_log_joint = log_density(enum(config_enumerate(model)), (data_x, data_w), {}, {})[0]
+    assert_allclose(actual_log_joint, expected_log_joint)
+
+
+@pytest.mark.parametrize('history', [2, 3])
+def test_scan_history(history):
+    T = history + 10
+
+    def model():
+        p = numpyro.param("p", 0.25 * jnp.ones((2, 2, 2)))
+        q = numpyro.param("q", 0.25 * jnp.ones(2))
+        z = numpyro.sample("z", dist.Bernoulli(0.5))
+        x_prev = 0
+        x_curr = 0
+        for t in markov(range(T), history=history):
+            probs = p[x_prev, x_curr, z]
+            x_prev, x_curr = x_curr, numpyro.sample("x_{}".format(t), dist.Bernoulli(probs))
+            numpyro.sample("y_{}".format(t), dist.Bernoulli(q[x_curr]), obs=0)
+
+    def fun_model():
+        p = numpyro.param("p", 0.25 * jnp.ones((2, 2, 2)))
+        q = numpyro.param("q", 0.25 * jnp.ones(2))
+        z = numpyro.sample("z", dist.Bernoulli(0.5))
+
+        def transition_fn(carry, y):
+            x_prev, x_curr = carry
+            probs = p[x_prev, x_curr, z]
+            x_prev, x_curr = x_curr, numpyro.sample("x", dist.Bernoulli(probs))
+            numpyro.sample("y", dist.Bernoulli(q[x_curr]), obs=y)
+            return (x_prev, x_curr), None
+
+        scan(transition_fn, (0, 0), jnp.zeros(T), history=history)
+
+    expected_log_joint = log_density(enum(config_enumerate(model)), (), {}, {})[0]
+    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 

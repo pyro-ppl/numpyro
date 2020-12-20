@@ -4,7 +4,7 @@
 from collections import OrderedDict
 from functools import partial
 
-from jax import lax, random, tree_flatten, tree_map, tree_multimap, tree_unflatten
+from jax import device_put, lax, random, tree_flatten, tree_map, tree_multimap, tree_unflatten
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
@@ -159,7 +159,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
             # FIXME: is this rigorous?
             new_carry = tree_multimap(lambda a, b: jnp.reshape(a, jnp.shape(b)),
                                       new_carry, carry)
-        return (i + jnp.array(1), rng_key, new_carry), (PytreeTrace(trace), y)
+        return (i + 1, rng_key, new_carry), (PytreeTrace(trace), y)
 
     with markov(history=history):
         wrapped_carry = (0, rng_key, init)
@@ -174,6 +174,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
         y0s = tree_multimap(lambda *z: jnp.stack(z, axis=0), *y0s)
         if length == history:
             return wrapped_carry, (PytreeTrace({}), y0s)
+        wrapped_carry = device_put(wrapped_carry)
         wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs_, length - history, reverse)
 
     first_var = None
@@ -197,7 +198,13 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
     ys = tree_multimap(lambda z0, z: jnp.concatenate([z0, z], axis=0), y0s, ys)
     # we also need to reshape `carry` to match sequential behavior
     i = (length - 1) % (history + 1)
-    if i != history - 1:  # no need to reshape if i == history - 1 (i.e. before scanning)
+    # XXX: unless we unroll more steps, we only know the correct shapes starting from
+    # the `history`-th iteration; that means we only know carry shapes when
+    # i == history - 1 or i == history, which corresponds to input carry or output carry
+    # at the `history`-th iteration.
+
+    # NB: no need to reshape if i == history - 1
+    if i == history:
         t, rng_key, carry = wrapped_carry
         carry_shape = carry_shapes[i]
         flatten_carry, treedef = tree_flatten(carry)
@@ -238,7 +245,8 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    return lax.scan(body_fn, (jnp.array(0), rng_key, init), xs, length=length, reverse=reverse)
+    wrapped_carry = device_put((0, rng_key, init))
+    return lax.scan(body_fn, wrapped_carry, xs, length=length, reverse=reverse)
 
 
 def scan(f, init, xs, length=None, reverse=False, history=1):
@@ -319,7 +327,8 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         Not all transition functions `f` are supported. All of the restrictions from
         Pyro's enumeration tutorial [2] still apply here. In addition, there should
         not have any site outside of `scan` depend on the first output of `scan`
-        (the last carry value).
+        (the last carry value). In addition, when `history > 1`, under enumeration,
+        the last carry value might not have correct shapes.
 
     ** References **
 

@@ -391,7 +391,7 @@ class infer_config(Messenger):
         self.config_fn = config_fn
 
     def process_message(self, msg):
-        if msg["type"] in ("sample", "param"):
+        if msg["type"] in ("sample",):
             msg["infer"].update(self.config_fn(msg))
 
 
@@ -565,7 +565,7 @@ class scale(Messenger):
 
 class scope(Messenger):
     """
-    This handler prepend a prefix followed by a ``/`` to the name of sample sites.
+    This handler prepend a prefix followed by a divider to the name of sample sites.
 
     Example::
 
@@ -577,13 +577,14 @@ class scope(Messenger):
        >>>
        >>> def model():
        ...     with scope(prefix="a"):
-       ...         with scope(prefix="b"):
+       ...         with scope(prefix="b", divider="."):
        ...             return numpyro.sample("x", dist.Bernoulli(0.5))
        ...
-       >>> assert "a/b/x" in trace(seed(model, 0)).get_trace()
+       >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
 
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
+    :param str divider: a string to join the prefix and sample name; default to `'/'`
     """
     def __init__(self, fn=None, prefix='', divider='/'):
         self.prefix = prefix

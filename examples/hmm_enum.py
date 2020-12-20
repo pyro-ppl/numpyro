@@ -43,6 +43,9 @@ at Universitaet Karlsruhe.
     3. *Modeling Temporal Dependencies in High-Dimensional Sequences:
        Application to Polyphonic Music Generation and Transcription*,
        Boulanger-Lewandowski, N., Bengio, Y. and Vincent, P.
+    4. *Tensor Variable Elimination for Plated Factor Graphs*,
+       Fritz Obermeyer, Eli Bingham, Martin Jankowiak, Justin Chiu,
+       Neeraj Pradhan, Alexander Rush, Noah Goodman (https://arxiv.org/abs/1902.03210)
 """
 
 import argparse
@@ -65,6 +68,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+# %%
 # Let's start with a simple Hidden Markov Model.
 #
 #     x[t-1] --> x[t] --> x[t+1]
@@ -75,6 +79,7 @@ logger.setLevel(logging.INFO)
 # This model includes a plate for the data_dim = 44 keys on the piano. This
 # model has two "style" parameters probs_x and probs_y that we'll draw from a
 # prior. The latent state is x, and the observed state is y.
+
 def model_1(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with mask(mask=include_prior):
@@ -100,12 +105,14 @@ def model_1(sequences, lengths, args, include_prior=True):
     scan(transition_fn, (x_init, 0), jnp.swapaxes(sequences, 0, 1))
 
 
+# %%
 # Next let's add a dependency of y[t] on y[t-1].
 #
 #     x[t-1] --> x[t] --> x[t+1]
 #        |        |         |
 #        V        V         V
 #     y[t-1] --> y[t] --> y[t+1]
+
 def model_2(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     with mask(mask=include_prior):
@@ -137,6 +144,7 @@ def model_2(sequences, lengths, args, include_prior=True):
     scan(transition_fn, (x_init, y_init, 0), jnp.swapaxes(sequences, 0, 1))
 
 
+# %%
 # Next consider a Factorial HMM with two hidden states.
 #
 #    w[t-1] ----> w[t] ---> w[t+1]
@@ -150,6 +158,7 @@ def model_2(sequences, lengths, args, include_prior=True):
 # entire joint space of these variables w[t],x[t] needs to be enumerated.
 # For that reason, we set the dimension of each to the square root of the
 # target hidden dimension.
+
 def model_3(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
@@ -185,6 +194,7 @@ def model_3(sequences, lengths, args, include_prior=True):
     scan(transition_fn, (w_init, x_init, 0), jnp.swapaxes(sequences, 0, 1))
 
 
+# %%
 # By adding a dependency of x on w, we generalize to a
 # Dynamic Bayesian Network.
 #
@@ -197,6 +207,7 @@ def model_3(sequences, lengths, args, include_prior=True):
 #
 # Note that message passing here has roughly the same cost as with the
 # Factorial HMM, but this model has more parameters.
+
 def model_4(sequences, lengths, args, include_prior=True):
     num_sequences, max_length, data_dim = sequences.shape
     hidden_dim = int(args.hidden_dim ** 0.5)  # split between w and x
@@ -229,6 +240,60 @@ def model_4(sequences, lengths, args, include_prior=True):
     x_init = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
     scan(transition_fn, (w_init, x_init, 0), jnp.swapaxes(sequences, 0, 1))
 
+
+# %%
+# Next let's consider a second-order HMM model
+# in which x[t+1] depends on both x[t] and x[t-1].
+#
+#                     _______>______
+#         _____>_____/______        \
+#        /          /       \        \
+#     x[t-1] --> x[t] --> x[t+1] --> x[t+2]
+#        |        |          |          |
+#        V        V          V          V
+#     y[t-1]     y[t]     y[t+1]     y[t+2]
+#
+#  Note that in this model (in contrast to the previous model) we treat
+#  the transition and emission probabilities as parameters (so they have no prior).
+#
+# Note that this is the "2HMM" model in reference [4].
+
+def model_6(sequences, lengths, args, include_prior=False):
+    num_sequences, max_length, data_dim = sequences.shape
+
+    with mask(mask=include_prior):
+        # Explicitly parameterize the full tensor of transition probabilities, which
+        # has hidden_dim cubed entries.
+        probs_x = numpyro.sample("probs_x",
+                                 dist.Dirichlet(0.9 * jnp.eye(args.hidden_dim) + 0.1)
+                                     .expand([args.hidden_dim, args.hidden_dim])
+                                     .to_event(2))
+
+        probs_y = numpyro.sample("probs_y",
+                                 dist.Beta(0.1, 0.9)
+                                     .expand([args.hidden_dim, data_dim])
+                                     .to_event(2))
+
+    def transition_fn(carry, y):
+        x_prev, x_curr, t = carry
+        with numpyro.plate("sequences", num_sequences, dim=-2):
+            with mask(mask=(t < lengths)[..., None]):
+                probs_x_t = Vindex(probs_x)[x_prev, x_curr]
+                x_prev, x_curr = x_curr, numpyro.sample("x", dist.Categorical(probs_x_t))
+                with numpyro.plate("tones", data_dim, dim=-1):
+                    probs_y_t = probs_y[x_curr.squeeze(-1)]
+                    numpyro.sample("y",
+                                   dist.Bernoulli(probs_y_t),
+                                   obs=y)
+        return (x_prev, x_curr, t + 1), None
+
+    x_prev = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
+    x_curr = jnp.zeros((num_sequences, 1), dtype=jnp.int32)
+    scan(transition_fn, (x_prev, x_curr, 0), jnp.swapaxes(sequences, 0, 1), history=2)
+
+
+# %%
+# Do inference
 
 models = {name[len('model_'):]: model
           for name, model in globals().items()

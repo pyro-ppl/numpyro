@@ -96,7 +96,7 @@ def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_di
         trans = funsor.optimizer.apply_optimizer(lazy_result)
 
         if history > 1:
-            global_vars = frozenset(trans.inputs - {time_var.name} - prev_vars
+            global_vars = frozenset(set(trans.inputs) - {time_var.name} - prev_vars
                                     - {k.lstrip("P") for k in prev_vars})
             markov_factors.append(funsor.sum_product.sarkka_bilmes_product(
                 funsor.ops.logaddexp, funsor.ops.add, trans, time_var, global_vars
@@ -105,7 +105,8 @@ def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_di
             # remove `P` prefix to convert prev to curr
             prev_to_curr = {k: k.lstrip("P") for k in prev_vars}
             markov_factors.append(funsor.sum_product.sequential_sum_product(
-                funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr))
+                funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr
+            ))
     return markov_factors
 
 
@@ -175,7 +176,7 @@ def log_density(model, model_args, model_kwargs, params):
         for var in init_vars:
             curr_var = var.lstrip("P")
             dim_to_name = model_trace[curr_var]["infer"]["dim_to_name"]
-            if var in dim_to_name.values():  # i.e. _init (i.e. prev) in dim_to_name
+            if var in dim_to_name.values():  # i.e. P* (i.e. prev) in dim_to_name
                 time_to_markov_dims[time_dim] |= frozenset(name for name in dim_to_name.values())
 
     if len(time_to_factors) > 0:

@@ -526,7 +526,7 @@ class trace(OrigTraceMessenger):
         if msg["type"] == "sample":
             total_batch_shape = lax.broadcast_shapes(
                 tuple(msg["fn"].batch_shape),
-                msg["value"].shape[:len(msg["value"].shape) - msg["fn"].event_dim]
+                jnp.shape(msg["value"])[:jnp.ndim(msg["value"]) - msg["fn"].event_dim]
             )
             msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(total_batch_shape)
         if msg["type"] in ("sample", "param"):
