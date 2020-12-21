@@ -242,7 +242,6 @@ class MCMC(object):
         self.num_warmup = num_warmup
         self.num_samples = num_samples
         self.num_chains = num_chains
-        print("thin", thinning)
         self.thinning = thinning
         self.postprocess_fn = postprocess_fn
         if chain_method not in ['parallel', 'vectorized', 'sequential']:
