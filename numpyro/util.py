@@ -200,7 +200,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         collected along the leading axis of `np.ndarray` objects.
     """
     assert lower <= upper
-    assert thinning >= 0
+    assert thinning >= 1
     collection_size = (upper - lower) // thinning if collection_size is None else collection_size // thinning
     assert collection_size >= (upper - lower) // thinning
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
