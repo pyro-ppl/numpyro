@@ -12,6 +12,7 @@ from jax.tree_util import tree_flatten, tree_multimap
 
 from numpyro.util import fori_collect, ravel_pytree, soft_vmap
 
+
 def test_fori_collect_thinning():
     def f(x):
         return x + 1.0
