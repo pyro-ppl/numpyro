@@ -12,6 +12,22 @@ from jax.tree_util import tree_flatten, tree_multimap
 
 from numpyro.util import fori_collect, ravel_pytree, soft_vmap
 
+def test_fori_collect_thinning():
+    def f(x):
+        return x + 1.0
+
+    actual_tree2 = fori_collect(0, 9, f, jnp.array([-1]), thinning=2)
+    expected_tree2 = jnp.array([[2], [4], [6], [8]])
+    check_eq(actual_tree2, expected_tree2)
+
+    actual_tree3 = fori_collect(0, 9, f, jnp.array([-1]), thinning=3)
+    expected_tree3 = jnp.array([[2], [5], [8]])
+    check_eq(actual_tree3, expected_tree3)
+
+    actual_tree4 = fori_collect(0, 9, f, jnp.array([-1]), thinning=4)
+    expected_tree4 = jnp.array([[4], [8]])
+    check_eq(actual_tree4, expected_tree4)
+
 
 def test_fori_collect():
     def f(x):
