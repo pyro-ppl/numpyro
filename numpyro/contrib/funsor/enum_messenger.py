@@ -494,6 +494,7 @@ class enum(BaseEnumMessenger):
                 msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
             if msg["type"] == "control_flow":
                 msg["kwargs"]["enum"] = True
+                msg["kwargs"]["first_available_dim"] = self.first_available_dim
             return super().process_message(msg)
 
         if msg["infer"].get("num_samples", None) is not None:

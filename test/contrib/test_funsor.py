@@ -232,8 +232,8 @@ def test_scan_enum_one_latent(num_steps):
         assert collections.shape == data.shape[:1]
         return x
 
-    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
     expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
+    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
     actual_last_x = enum(config_enumerate(fun_model))(data)
@@ -267,8 +267,8 @@ def test_scan_enum_plate():
 
         scan(transition_fn, None, data)
 
-    actual_log_joint = log_density(enum(config_enumerate(fun_model), -2), (data,), {}, {})[0]
     expected_log_joint = log_density(enum(config_enumerate(model), -2), (data,), {}, {})[0]
+    actual_log_joint = log_density(enum(config_enumerate(fun_model), -2), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -468,7 +468,7 @@ def test_scan_history(history, T):
     assert_allclose(actual_log_joint, expected_log_joint)
 
     expected_x_prev, expected_x_curr = enum(config_enumerate(model))()
-    actual_x_prev, actual_x_curr = enum(config_enumerate(model))()
+    actual_x_prev, actual_x_curr = enum(config_enumerate(fun_model))()
     assert_allclose(actual_x_prev, expected_x_prev)
     assert_allclose(actual_x_curr, expected_x_curr)
 
