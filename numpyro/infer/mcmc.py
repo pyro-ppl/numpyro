@@ -231,6 +231,7 @@ class MCMC(object):
                  num_warmup,
                  num_samples,
                  num_chains=1,
+                 thinning=1,
                  postprocess_fn=None,
                  chain_method='parallel',
                  progress_bar=True,
@@ -241,6 +242,8 @@ class MCMC(object):
         self.num_warmup = num_warmup
         self.num_samples = num_samples
         self.num_chains = num_chains
+        print("thin", thinning)
+        self.thinning = thinning
         self.postprocess_fn = postprocess_fn
         if chain_method not in ['parallel', 'vectorized', 'sequential']:
             raise ValueError('Only supporting the following methods to draw chains:'
@@ -262,7 +265,7 @@ class MCMC(object):
         self._init_state_cache = {}
         self._cache = {}
         self._collection_params = {}
-        self._set_collection_params()
+        self._set_collection_params(thinning=self.thinning)
 
     def _get_cached_fn(self):
         if self._jit_model_args:
@@ -320,6 +323,7 @@ class MCMC(object):
                                     transform=_collect_fn(collect_fields),
                                     progbar=self.progress_bar,
                                     return_last_val=True,
+                                    thinning=self._collection_params["thinning"],
                                     collection_size=self._collection_params["collection_size"],
                                     progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
                                     diagnostics_fn=diagnostics)
@@ -340,14 +344,15 @@ class MCMC(object):
             states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
         return states, last_state
 
-    def _set_collection_params(self, lower=None, upper=None, collection_size=None, phase=None):
+    def _set_collection_params(self, lower=None, upper=None, collection_size=None, phase=None, thinning=1):
         self._collection_params["lower"] = self.num_warmup if lower is None else lower
         self._collection_params["upper"] = self.num_warmup + self.num_samples if upper is None else upper
         self._collection_params["collection_size"] = collection_size
         self._collection_params["phase"] = phase
+        self._collection_params["thinning"] = thinning
 
     def _compile(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
-        self._set_collection_params(0, 0, self.num_samples)
+        self._set_collection_params(0, 0, self.num_samples, thinning=self.thinning)
         self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
         rng_key = (_hashable(rng_key),)
         args = tree_map(lambda x: _hashable(x), args)
@@ -416,7 +421,7 @@ class MCMC(object):
             rng_key = random.split(rng_key, self.num_chains)
 
         if self._warmup_state is not None:
-            self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
+            self._set_collection_params(0, self.num_samples, self.num_samples, "sample", thinning=self.thinning)
             init_state = self._warmup_state._replace(rng_key=rng_key)
 
         chain_method = self.chain_method

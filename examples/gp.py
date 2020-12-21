@@ -70,7 +70,7 @@ def run_inference(model, args, rng_key, X, Y):
     elif args.init_strategy == "uniform":
         init_strategy = init_to_uniform(radius=1)
     kernel = NUTS(model, init_strategy=init_strategy)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, thinning=2,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y)
     mcmc.print_summary()
@@ -125,6 +125,7 @@ def main(args):
                               predict(rng_key, X, Y, X_test, var, length, noise))(*vmap_args)
 
     mean_prediction = np.mean(means, axis=0)
+
     percentiles = np.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
