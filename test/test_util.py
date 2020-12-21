@@ -29,6 +29,10 @@ def test_fori_collect_thinning():
     expected4 = jnp.array([[4], [8]])
     check_eq(actual4, expected4)
 
+    actual5 = fori_collect(12, 37, f, jnp.array([-1]), thinning=5)
+    expected5 = jnp.array([[16], [21], [26], [31], [36]])
+    check_eq(actual5, expected5)
+
 
 def test_fori_collect():
     def f(x):
