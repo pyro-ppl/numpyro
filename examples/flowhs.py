@@ -14,11 +14,13 @@ from jax.lax import while_loop, stop_gradient, dynamic_slice_in_dim
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS, HMCGibbs
+from numpyro.infer import MCMC, NUTS, HMCGibbs, init_to_median
 from numpyro.util import enable_x64
 
 from taigapy import default_tc as tc
 
+from sklearn.model_selection import KFold
+from scipy.stats import pearsonr
 
 #def forward(alpha, x):
 #    return x + (2.0 / 3.0) * alpha * jnp.power(x, 3.0) + 0.2 * jnp.square(alpha) * jnp.power(x, 5.0)
@@ -80,8 +82,7 @@ def linear_model(X, Y, mask):
     numpyro.sample("Y", dist.Normal(omegaX, sigma_obs), obs=Y)
 
 
-
-def model(X, Y, mask):
+def flow_model(X, Y, mask):
     N, P = X.shape
 
     tau_obs = numpyro.sample("tau_obs", dist.Gamma(1.0, 2.0))
@@ -134,11 +135,9 @@ def mvn_sample(rng_key, X, D, sigma, alpha, truncation=None):
 
     X_D_X = jnp.matmul(Xr, jnp.transpose(Xr) * Dr[:, None])
     precision = X_D_X / jnp.square(sigma) + jnp.eye(N)
-
     Z = jnp.median(jnp.diagonal(precision))
-    prec_scale = precision / Z
 
-    L = cho_factor(prec_scale, lower=True)[0]
+    L = cho_factor(precision / Z, lower=True)[0]
     w = cho_solve((L, True), alpha - v) / Z
 
     theta = jnp.matmul(jnp.transpose(X) * D[:, None], w) / sigma
@@ -209,17 +208,17 @@ def _gibbs_fn(X, Y, truncation, rng_key, gibbs_sites, hmc_sites):
 
 
 def run_inference(args, rng_key, X, Y):
+    model = flow_model if args.model == 'flow' else linear_model
+    gibbs_fn = _gibbs_fn if args.model == 'flow' else _linear_gibbs_fn
     if args.strategy == "gibbs":
+        #init_strategy = init_to_median(num_samples=10)
         truncation = args.truncation if args.truncation > 0 else None
-        gibbs_fn = partial(_gibbs_fn, X, Y, truncation)
-        #gibbs_fn = partial(_linear_gibbs_fn, X, Y, truncation)
-        hmc_kernel = NUTS(model, max_tree_depth=6, target_accept_prob=0.6, dense_mass=True)
-        #hmc_kernel = NUTS(linear_model, max_tree_depth=6, target_accept_prob=0.6, dense_mass=True)
+        gibbs_fn = partial(gibbs_fn, X, Y, truncation)
+        hmc_kernel = NUTS(model, max_tree_depth=6, target_accept_prob=0.6, dense_mass=True)#, init_strategy=init_strategy)
         kernel = HMCGibbs(hmc_kernel, gibbs_fn=gibbs_fn, gibbs_sites=['omega', 'lamsq', 'nu', 'tausq', 'xi'])
         mcmc = MCMC(kernel, args.num_warmup, args.num_samples, progress_bar=True)
     else:
         hmc_kernel = NUTS(model, max_tree_depth=6, target_accept_prob=0.6)
-        #hmc_kernel = NUTS(linear_model, max_tree_depth=6, target_accept_prob=0.6)
         mcmc = MCMC(hmc_kernel, args.num_warmup, args.num_samples, progress_bar=True)
 
     start = time.time()
@@ -233,14 +232,14 @@ def run_inference(args, rng_key, X, Y):
 
 
 # create artificial regression dataset
-def get_data(N=50, P=30, sigma_obs=0.07):
+def get_data(N=50, P=30, sigma_obs=0.03):
     np.random.seed(0)
 
     X = np.random.randn(N * P).reshape((N, P))
     Y = 1.0 * X[:, 0] - 0.5 * X[:, 1]
     # Y = np.power(2.4 * X[:, 0] + 1.2 * X[:, 1], 3.0)
     Y += sigma_obs * np.random.randn(N)
-    alpha = 0.33
+    alpha = 0.09
     beta = 0.00
     Y = forward(alpha, beta, Y)
     #Y -= jnp.mean(Y)
@@ -250,8 +249,11 @@ def get_data(N=50, P=30, sigma_obs=0.07):
     assert Y.shape == (N,)
 
     return X, Y
+    #return X[:N], Y[:N], X[N:], Y[N:]
 
-def get_cancer_data(gene='BRAF (673)'):
+def get_cancer_data(gene='SOX10 (6663)'):
+#def get_cancer_data(gene='SOX9 (6662)'):
+#def get_cancer_data(gene='BRAF (673)'):
     gene_effect = tc.get(name="avana-public-tentative-20q4-0828", file="gene_effect")
     expression = tc.get(name="depmap-a0ab", file="CCLE_expression")
 
@@ -270,7 +272,22 @@ def get_cancer_data(gene='BRAF (673)'):
 
     print("X, Y", X.shape, Y.shape)
 
+    #idx = np.random.permutation(X.shape[0])
+    #idx_train = idx[:500]
+    #idx_test = idx[500:]
+
+    #X_train, Y_train = X[idx_train], Y[idx_train]
+    #X_test, Y_test = X[idx_test], Y[idx_test]
+
+    #return X_train, Y_train, X_test, Y_test, expression
     return X, Y, expression
+
+
+def predict(X, rng_key, omega, alpha, beta, tau_obs):
+    sigma_obs = 1.0 / jnp.sqrt(tau_obs)
+    Y_tilde = jnp.matmul(X, omega) + dist.Normal(jnp.zeros(X.shape[0]), sigma_obs).sample(rng_key)
+    Y = forward(alpha, beta, Y_tilde)
+    return Y
 
 
 def main(args):
@@ -282,8 +299,39 @@ def main(args):
     #Y = Y[:500]
     #X = X[:500]
 
-    rng_key, rng_key_predict = random.split(random.PRNGKey(0))
-    samples = run_inference(args, rng_key, X, Y)
+    splits = KFold(args.num_folds, random_state=0, shuffle=True).split(X)
+    out = np.zeros(X.shape[0])
+
+    for split, (train, test) in enumerate(splits):
+        if split != args.split:
+            continue
+
+        print("Starting split {}...".format(split))
+        X_train, Y_train = X[train], Y[train]
+        X_test, Y_test = X[test], Y[test]
+
+        rng_key, rng_key_predict = random.split(random.PRNGKey(split))
+        samples = run_inference(args, rng_key, X_train, Y_train)
+
+        rng_key_predict = random.split(rng_key_predict, args.num_samples)
+
+        alpha = samples['alpha'] if args.model == 'flow' else jnp.zeros(args.num_samples)
+        beta = jnp.zeros(args.num_samples)
+        predictions = vmap(partial(predict, X_test))(rng_key_predict, samples['omega'], alpha,
+                                                     beta, samples['tau_obs'])
+        test_mean = jnp.mean(predictions, axis=0)
+        test_rmse = jnp.sqrt(jnp.mean(jnp.square(test_mean - Y_test)))
+        print("[split {}] test_rmse".format(split), test_rmse)
+
+        out[test] = test_mean
+
+    np.save('out.{}.npy'.format(args.split), out)
+
+    #p = pearsonr(out, Y)[0]
+    #print("PEARSON", p)
+
+    import sys;sys.exit()
+
 
     lamsq = samples['lamsq']
     tausq = samples['tausq']
@@ -311,14 +359,17 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=4000, type=int)
-    parser.add_argument("--num-warmup", default=2000, type=int)
+    parser.add_argument("-n", "--num-samples", default=2500, type=int)
+    parser.add_argument("--num-warmup", default=1000, type=int)
     parser.add_argument("--truncation", default=0, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
+    parser.add_argument("--split", default=0, type=int)
     parser.add_argument("--num-data", default=256, type=int)
+    parser.add_argument("--num-folds", default=5, type=int)
     parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
-    parser.add_argument("--P", default=4, type=int)
+    parser.add_argument("--P", default=128, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--model", default='flow', type=str, choices=['flow', 'linear'])
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
