@@ -125,7 +125,6 @@ def main(args):
                               predict(rng_key, X, Y, X_test, var, length, noise))(*vmap_args)
 
     mean_prediction = np.mean(means, axis=0)
-
     percentiles = np.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
