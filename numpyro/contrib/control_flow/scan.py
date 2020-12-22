@@ -225,15 +225,13 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
     ys = tree_multimap(lambda z0, z: jnp.concatenate([z0, z], axis=0), y0s, ys)
     # we also need to reshape `carry` to match sequential behavior
     i = (length + 1) % (history + 1)
-    # NB: no need to reshape if i == history - 1
-    if i != (history - 1):
-        t, rng_key, carry = wrapped_carry
-        carry_shape = carry_shapes[i]
-        flatten_carry, treedef = tree_flatten(carry)
-        flatten_carry = [jnp.reshape(x, t1_shape)
-                         for x, t1_shape in zip(flatten_carry, carry_shape)]
-        carry = tree_unflatten(treedef, flatten_carry)
-        wrapped_carry = (t, rng_key, carry)
+    t, rng_key, carry = wrapped_carry
+    carry_shape = carry_shapes[i]
+    flatten_carry, treedef = tree_flatten(carry)
+    flatten_carry = [jnp.reshape(x, t1_shape)
+                     for x, t1_shape in zip(flatten_carry, carry_shape)]
+    carry = tree_unflatten(treedef, flatten_carry)
+    wrapped_carry = (t, rng_key, carry)
     return wrapped_carry, (pytree_trace, ys)
 
 
