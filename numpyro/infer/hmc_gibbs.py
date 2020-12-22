@@ -13,7 +13,7 @@ from numpyro.distributions import biject_to
 from numpyro.handlers import condition, seed, trace, substitute
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import potential_energy
+from numpyro.infer.util import log_likelihood, potential_energy
 from numpyro.util import cond, fori_loop, identity
 
 
@@ -159,7 +159,7 @@ class HMCGibbs(MCMCKernel):
 def _discrete_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
     # idx: current index of `z_discrete_flat` to update
     # support_size: support size of z_discrete at the index idx
-    rng_key, rng_proposal, rng_accept = random.split(rng_key)
+    rng_key, rng_proposal, rng_accept = random.split(rng_key, 3)
 
     # get z proposal
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
@@ -169,7 +169,8 @@ def _discrete_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
     z_discrete_new = unravel_fn(z_discrete_new_flat)
 
     pe_new = potential_fn(z_discrete_new)
-    z_discrete, pe = cond(random.exponential(rng_accept) < pe_new - pe,
+    accept_prob = jnp.clip(jnp.exp(pe - pe_new), a_max=1.0)
+    z_discrete, pe = cond(random.bernoulli(rng_accept, accept_prob),
                           (z_discrete_new, pe_new), identity,
                           (z_discrete, pe), identity)
     return rng_key, z_discrete, pe
@@ -186,8 +187,7 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
     # simplify the api of `gibbs_fn`
     prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
     support_sizes = {
-        name: jnp.broadcast_to(
-            site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
+        name: jnp.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
         for name, site in prototype_trace.items()
         if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
     }
@@ -239,9 +239,30 @@ def subsample_gibbs_fn(model, *model_args, **model_kwargs):
        Michael Betancourt
     """
     prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
-    support_sizes = {
-        name: jnp.broadcast_to(
-            site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
+    plate_sizes = {
+        name: site["args"]
         for name, site in prototype_trace.items()
-        if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
+        if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
     }
+    enum = any(site["type"] == "sample"
+               and not site["is_observed"]
+               and site["fn"].has_enumerate_support
+               for name, site in prototype_trace.items())
+    assert not enum, "Enumeration is not supported for subsample_gibbs_fn."
+
+    def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
+        assert set(gibbs_sites) == set(plate_sizes)
+        u_new = {}
+        for name in gibbs_sites:
+            size, subsample_size = plate_sizes[name]
+            rng_key, subkey = random.split(rng_key)
+            u_new[name] = random.choice(subkey, size, (subsample_size,), replace=False)
+
+        u_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
+                                  **model_kwargs, _gibbs_sites=gibbs_sites)
+        u_loglik = sum(v.sum() for v in u_loglik.values())
+        u_new_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
+                                      **model_kwargs, _gibbs_sites=u_new)
+        u_new_loglik = sum(v.sum() for v in u_new_loglik.values())
+        accept_prob = jnp.clip(jnp.exp(u_new_loglik - u_loglik), a_max=1.0)
+        return cond(random.bernoulli(rng_key, accept_prob), u_new, identity, gibbs_sites, identity)
