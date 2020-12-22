@@ -160,6 +160,9 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
             # at each site have the same batch dims (e.g. if `fn.batch_shape = (2, 3)`,
             # and value's batch_shape is (3,), then we promote shape of
             # value so that its batch shape is (1, 3)).
+            # Here we will promote `fn` shape first. `value` shape will be promoted after scanned.
+            # We don't promote `value` shape here because we need to store carry shape
+            # at this step. If we reshape the `value` here, output carry might get wrong shape.
             with _promote_fn_shapes(), packed_trace() as trace, handlers.scope(divider='_'):
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
