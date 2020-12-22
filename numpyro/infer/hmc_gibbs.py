@@ -6,7 +6,6 @@ import copy
 from functools import partial
 
 from jax import device_put, ops, random, value_and_grad
-from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
 from numpyro.distributions import biject_to
@@ -14,7 +13,7 @@ from numpyro.handlers import condition, seed, trace, substitute
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import log_likelihood, potential_energy
-from numpyro.util import cond, fori_loop, identity
+from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
@@ -180,7 +179,17 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
     """
     [EXPERIMENTAL INTERFACE]
 
-    This 
+    Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for discrete latent sites
+    with enumerate support. Proposals are sampled uniformly over the set of possible values
+    in `enumerate_support` except for the current value (reference [1]).
+
+    Note that those discrete latent sites that are not specified in the constructor of
+    :class:`HMCGibbs` will be marginalized out by default (if they have enumerate supports).
+
+    **References**
+
+    1. *Peskun's theorem and a modified discrete-state Gibbs sampler*,
+       Liu, Jun S. (1996)
     """
     # NB: all of the information such as `model`, `model_args`, `model_kwargs`
     # can be accessed from HMCGibbs.sample but we require them here to
@@ -195,7 +204,7 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         # convert to unconstrained values
         z_hmc = {k: biject_to(prototype_trace[k]["fn"].support).inv(v)
-                 for k, v in hmc_sites if k in prototype_trace}
+                 for k, v in hmc_sites.items() if k in prototype_trace}
         enum = any(site["type"] == "sample"
                    and not site["is_observed"]
                    and site["fn"].has_enumerate_support
@@ -226,17 +235,19 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
 
 def subsample_gibbs_fn(model, *model_args, **model_kwargs):
     """
+    [EXPERIMENTAL INTERFACE]
+
     Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for subsampling
     statements using :class:`~numpyro.plate` primitive. This implements the Algorithm 1
-    of reference [1] but uses a naive estimation of log likelihood, hence might incur a
-    high bias (more explanation can be found in [2]).
+    of reference [1] but uses a naive estimation (without control variates) of log likelihood,
+    hence might incur a high bias (reference [2]).
 
     **References:**
 
     1. *Hamiltonian Monte Carlo with energy conserving subsampling*,
        Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
     2. *The Fundamental Incompatibility ofScalable Hamiltonian Monte Carlo and Naive Data Subsampling*,
-       Michael Betancourt
+       Michael Betancourt (2015)
     """
     prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
     plate_sizes = {
@@ -266,3 +277,5 @@ def subsample_gibbs_fn(model, *model_args, **model_kwargs):
         u_new_loglik = sum(v.sum() for v in u_new_loglik.values())
         accept_prob = jnp.clip(jnp.exp(u_new_loglik - u_loglik), a_max=1.0)
         return cond(random.bernoulli(rng_key, accept_prob), u_new, identity, gibbs_sites, identity)
+
+    return gibbs_fn

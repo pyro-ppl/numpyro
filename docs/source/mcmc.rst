@@ -40,6 +40,10 @@ MCMC Kernels
     :show-inheritance:
     :member-order: bysource
 
+.. autofunction:: numpyro.infer.hmc_gibbs.discrete_gibbs_fn
+
+.. autofunction:: numpyro.infer.hmc_gibbs.subsample_gibbs_fn
+
 .. autofunction:: numpyro.infer.hmc.hmc
 
 .. autofunction:: numpyro.infer.hmc.hmc.init_kernel
