@@ -9,10 +9,12 @@ from jax import device_put, ops, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
+from numpyro.distributions import biject_to
 from numpyro.handlers import condition, seed, trace, substitute
-from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.hmc import HMC
-from numpyro.util import cond, identity
+from numpyro.infer.mcmc import MCMCKernel
+from numpyro.infer.util import potential_energy
+from numpyro.util import cond, fori_loop, identity
 
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
@@ -154,12 +156,14 @@ class HMCGibbs(MCMCKernel):
         return HMCGibbsState(z, hmc_state, rng_key)
 
 
-def _discrete_step(rng_key, z_discrete, pe, idx, potential_fn, z_continuous, support_sizes):
+def _discrete_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+    # idx: current index of `z_discrete_flat` to update
+    # support_size: support size of z_discrete at the index idx
     rng_key, rng_proposal, rng_accept = random.split(rng_key)
 
     # get z proposal
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-    proposal = random.randint(rng_proposal, (), minval=0, maxval=support_sizes[idx] - 1)
+    proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size - 1)
     proposal = jnp.where(proposal >= z_discrete_flat[idx], proposal + 1, proposal)
     z_discrete_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
     z_discrete_new = unravel_fn(z_discrete_new_flat)
@@ -171,24 +175,56 @@ def _discrete_step(rng_key, z_discrete, pe, idx, potential_fn, z_continuous, sup
     return rng_key, z_discrete, pe
 
 
-def discrete_gibbs_fn(model, model_args=(), model_kwargs={}):
+def discrete_gibbs_fn(model, *model_args, **model_kwargs):
+    """
+    [EXPERIMENTAL INTERFACE]
+
+    This 
+    """
+    # NB: all of the information such as `model`, `model_args`, `model_kwargs`
+    # can be accessed from HMCGibbs.sample but we require them here to
+    # simplify the api of `gibbs_fn`
     prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
-    supports = {
+    support_sizes = {
         name: jnp.broadcast_to(
             site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
         for name, site in prototype_trace.items()
         if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
     }
-    support_sizes, _ = ravel_pytree(supports)
-    model = _wrap_model(model)
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
+        # convert to unconstrained values
+        z_hmc = {k: biject_to(prototype_trace[k]["fn"].support).inv(v)
+                 for k, v in hmc_sites if k in prototype_trace}
+        enum = any(site["type"] == "sample"
+                   and not site["is_observed"]
+                   and site["fn"].has_enumerate_support
+                   and name not in gibbs_sites
+                   for name, site in prototype_trace.items())
+
+        def potential_fn(z_discrete):
+            model_kwargs["_gibbs_sites"] = z_discrete
+            return potential_energy(_wrap_model(model), model_args, model_kwargs, z_hmc, enum=enum)
+
+        # get support_sizes of gibbs_sites
+        support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
+        num_discretes = support_sizes_flat.shape[0]
+
+        rng_key, rng_permute = random.split(rng_key)
+        idxs = random.permutation(rng_key, jnp.arange(num_discretes))
+
+        def body_fn(i, val):
+            idx, support_size = idxs[i], support_sizes_flat[i]
+            return _discrete_step(*val, potential_fn=potential_fn, idx=idx, support_size=support_size)
+
+        init_val = (rng_key, gibbs_sites, potential_fn(gibbs_sites))
+        _, gibbs_sites, _ = fori_loop(0, num_discretes, body_fn, init_val)
         return gibbs_sites
 
     return gibbs_fn
 
 
-def subsample_gibbs_fn(model):
+def subsample_gibbs_fn(model, *model_args, **model_kwargs):
     """
     Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for subsampling
     statements using :class:`~numpyro.plate` primitive. This implements the Algorithm 1
@@ -202,3 +238,10 @@ def subsample_gibbs_fn(model):
     2. *The Fundamental Incompatibility ofScalable Hamiltonian Monte Carlo and Naive Data Subsampling*,
        Michael Betancourt
     """
+    prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
+    support_sizes = {
+        name: jnp.broadcast_to(
+            site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
+        for name, site in prototype_trace.items()
+        if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
+    }
