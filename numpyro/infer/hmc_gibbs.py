@@ -190,6 +190,30 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
 
     1. *Peskun's theorem and a modified discrete-state Gibbs sampler*,
        Liu, Jun S. (1996)
+
+    **Example**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS, HMCGibbs, discrete_gibbs_fn
+        ...
+        >>> def model(probs, locs):
+        ...     c = numpyro.sample("c", dist.Categorical(probs))
+        ...     numpyro.sample("x", dist.Normal(locs[c], 0.5))
+        ...
+        >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
+        >>> locs = jnp.array([-2, 0, 2, 4])
+        >>> gibbs_fn = discrete_gibbs_fn(model, probs, locs)
+        >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
+        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
+        >>> mcmc.run(random.PRNGKey(0), probs, locs)
+        >>> samples = mcmc.get_samples()["x"]
+        >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
+
     """
     # NB: all of the information such as `model`, `model_args`, `model_kwargs`
     # can be accessed from HMCGibbs.sample but we require them here to
@@ -248,6 +272,31 @@ def subsample_gibbs_fn(model, *model_args, **model_kwargs):
        Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
     2. *The Fundamental Incompatibility ofScalable Hamiltonian Monte Carlo and Naive Data Subsampling*,
        Michael Betancourt (2015)
+
+    **Example**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS, HMCGibbs, subsample_gibbs_fn
+        ...
+        >>> def model(data):
+        ...     x = numpyro.sample("x", dist.Normal(0, 1))
+        ...     with numpyro.plate("N", data.shape[0], subsample_size=100):
+        ...         batch = numpyro.subsample(data, event_dim=0)
+        ...         numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
+        ...
+        >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
+        >>> gibbs_fn = subsample_gibbs_fn(model, data)
+        >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["N"])
+        >>> mcmc = MCMC(kernel, 1000, 1000)
+        >>> mcmc.run(random.PRNGKey(0), data)
+        >>> samples = mcmc.get_samples()["x"]
+        >>> assert abs(jnp.mean(samples).copy() - 1.) < 0.1
+
     """
     prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
     plate_sizes = {

@@ -13,7 +13,7 @@ from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular, inv
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import HMC, MCMC, NUTS, HMCGibbs, discrete_gibbs_fn, subsample_gibbs_fn
+from numpyro.infer import HMC, MCMC, NUTS, HMCGibbs
 
 
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
@@ -146,35 +146,3 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
 
     assert_allclose(x0_std, np.sqrt(np.diagonal(cov00)), rtol=0.05)
     assert_allclose(x1_std, np.sqrt(np.diagonal(cov11)), rtol=0.1)
-
-
-def test_discrete_gibbs():
-    def model(probs, locs):
-        c = numpyro.sample("c", dist.Categorical(probs))
-        numpyro.sample("x", dist.Normal(locs[c], 0.5))
-
-    probs = jnp.array([0.15, 0.3, 0.3, 0.25])
-    locs = jnp.array([-2, 0, 2, 4])
-    gibbs_fn = discrete_gibbs_fn(model, probs, locs)
-    kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
-    mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
-    mcmc.run(random.PRNGKey(0), probs, locs)
-    samples = mcmc.get_samples()["x"]
-    # actual value 1.3 is obtained by drawing 1e7 samples from prior distribution
-    assert_allclose(jnp.mean(samples, 0), 1.3, atol=0.1)
-
-
-def test_subsample_gibbs():
-    def model(data):
-        x = numpyro.sample("x", dist.Normal(0, 1))
-        with numpyro.plate("N", data.shape[0], subsample_size=100):
-            batch = numpyro.subsample(data, event_dim=0)
-            numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
-
-    data = random.normal(random.PRNGKey(0), (10000,)) + 1
-    gibbs_fn = subsample_gibbs_fn(model, data)
-    kernel = HMCGibbs(NUTS(model), gibbs_fn=gibbs_fn, gibbs_sites="N")
-    mcmc = MCMC(kernel, 500, 500)
-    mcmc.run(random.PRNGKey(1), data)
-    samples = mcmc.get_samples()["x"]
-    assert_allclose(jnp.mean(samples, 0), 1., atol=0.1)
