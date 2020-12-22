@@ -258,15 +258,15 @@ def predict(X, rng_key, omega, alpha, beta, tau_obs):
 def main(args):
     print(args)
 
-    X, Y = get_data(N=args.num_data, P=args.P)
+    N = args.num_data
+    X, Y = get_data(N=2 * N, P=args.P)
     #X, Y, expression = get_cancer_data()
     #X = X[:, :5000]
     #Y = Y[:500]
     #X = X[:500]
 
     #splits = KFold(args.num_folds, random_state=0, shuffle=True).split(X)
-    N = args.num_data
-    splits = [(np.arange(N//2), np.arange(N//2, N))]
+    splits = [(np.arange(N), np.arange(N, 2 * N))]
     out = np.zeros(X.shape[0])
 
     for split, (train, test) in enumerate(splits):
@@ -283,7 +283,7 @@ def main(args):
         rng_key_predict = random.split(rng_key_predict, args.num_samples)
 
         alpha = samples['alpha'] if args.model == 'flow' else jnp.zeros(args.num_samples)
-        beta = jnp.zeros(args.num_samples)
+        beta = samples['beta'] if args.model == 'flow' else jnp.zeros(args.num_samples)
         predictions = vmap(partial(predict, X_test))(rng_key_predict, samples['omega'], alpha,
                                                      beta, samples['tau_obs'])
         test_mean = jnp.mean(predictions, axis=0)
@@ -326,15 +326,15 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=1000, type=int)
+    parser.add_argument("-n", "--num-samples", default=4000, type=int)
     parser.add_argument("--num-warmup", default=1000, type=int)
     parser.add_argument("--truncation", default=0, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
     parser.add_argument("--split", default=0, type=int)
-    parser.add_argument("--num-data", default=128, type=int)
+    parser.add_argument("--num-data", default=256, type=int)
     parser.add_argument("--num-folds", default=1, type=int)
     parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
-    parser.add_argument("--P", default=8, type=int)
+    parser.add_argument("--P", default=128, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--model", default='flow', type=str, choices=['flow', 'linear'])
     args = parser.parse_args()
