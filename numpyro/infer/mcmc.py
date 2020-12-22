@@ -356,7 +356,7 @@ class MCMC(object):
         self._collection_params["phase"] = phase
 
     def _compile(self, rng_key, *args, extra_fields=(), init_params=None, **kwargs):
-        self._set_collection_params(0, 0, self.num_samples, thinning=self.thinning)
+        self._set_collection_params(0, 0, self.num_samples)
         self.run(rng_key, *args, extra_fields=extra_fields, init_params=init_params, **kwargs)
         rng_key = (_hashable(rng_key),)
         args = tree_map(lambda x: _hashable(x), args)
@@ -425,7 +425,7 @@ class MCMC(object):
             rng_key = random.split(rng_key, self.num_chains)
 
         if self._warmup_state is not None:
-            self._set_collection_params(0, self.num_samples, self.num_samples, "sample", thinning=self.thinning)
+            self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
             init_state = self._warmup_state._replace(rng_key=rng_key)
 
         chain_method = self.chain_method
