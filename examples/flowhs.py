@@ -22,41 +22,7 @@ from taigapy import default_tc as tc
 from sklearn.model_selection import KFold
 from scipy.stats import pearsonr
 
-#def forward(alpha, x):
-#    return x + (2.0 / 3.0) * alpha * jnp.power(x, 3.0) + 0.2 * jnp.square(alpha) * jnp.power(x, 5.0)
-
-#def forward(alpha, beta, x):
-#    return x + (1.0 / 3.0) * jnp.square(alpha) * jnp.power(x, 3.0) + \
-#           0.5 * alpha * beta * jnp.power(x, 4.0) + \
-#           0.2 * jnp.square(beta) * jnp.power(x, 5.0)
-def forward(alpha, beta, x):
-    return x + (2.0 / 3.0) * alpha * jnp.power(x, 3.0) + 0.2 * jnp.square(alpha) * jnp.power(x, 5.0)
-
-
-def cond_fn(val):
-    return (val[2] > 1.0e-6) & (val[3] < 200)
-
-
-def body_fn(alpha, beta, val):
-    x, y, _, i = val
-    f = partial(forward, alpha, beta)
-    df = grad(f)
-    delta = (f(x) - y) / df(x)
-    x = x - delta
-    return (x, y, jnp.fabs(delta), i + 1)
-
-
-@jit
-def inverse(alpha, beta, y):
-    return while_loop(cond_fn, partial(body_fn, alpha, beta), (y, y, 9.9e9, 0))[0]
-
-
-def jacobian_and_inverse(alpha, beta, Y):
-    inv = partial(inverse, alpha, beta)
-    Y_tilde = vmap(lambda y: stop_gradient(inv(y)))(Y)
-    #log_det_jacobian = -2.0 * jnp.sum(jnp.log(jnp.fabs(1.0 + alpha * jnp.square(Y_tilde))))
-    log_det_jacobian = -jnp.sum(jnp.log(1.0 + jnp.square(alpha * Y_tilde + beta * jnp.square(Y_tilde))))
-    return Y_tilde, log_det_jacobian
+from func import jacobian_and_inverse, forward
 
 
 def linear_model(X, Y, mask):
@@ -103,8 +69,7 @@ def flow_model(X, Y, mask):
     omegaX = jnp.sum(omega * X, axis=-1)
 
     alpha = numpyro.sample("alpha", dist.Normal(0.0, 2.0))
-    #beta = numpyro.sample("beta", dist.Normal(0.0, 0.5))
-    beta = 0.0
+    beta = numpyro.sample("beta", dist.Normal(0.0, 0.5))
     Y_tilde, jacobian = jacobian_and_inverse(alpha, beta, Y)
 
     numpyro.deterministic("Y_tilde", Y_tilde)
@@ -224,7 +189,7 @@ def run_inference(args, rng_key, X, Y):
     start = time.time()
     mcmc.run(rng_key, X, Y, args.strategy != "gibbs")
     exclude_sites = ["lamsq", "nu", "omega"]
-    #exclude_sites = None
+    exclude_sites = None
     mcmc.print_summary(exclude_deterministic=True, exclude_sites=exclude_sites)
     print('\nMCMC elapsed time:', time.time() - start)
 
@@ -239,8 +204,8 @@ def get_data(N=50, P=30, sigma_obs=0.03):
     Y = 1.0 * X[:, 0] - 0.5 * X[:, 1]
     # Y = np.power(2.4 * X[:, 0] + 1.2 * X[:, 1], 3.0)
     Y += sigma_obs * np.random.randn(N)
-    alpha = 0.09
-    beta = 0.00
+    alpha = 0.22
+    beta = 0.11
     Y = forward(alpha, beta, Y)
     #Y -= jnp.mean(Y)
     #Y /= jnp.std(Y)
@@ -293,13 +258,15 @@ def predict(X, rng_key, omega, alpha, beta, tau_obs):
 def main(args):
     print(args)
 
-    #X, Y = get_data(N=args.num_data, P=args.P)
-    X, Y, expression = get_cancer_data()
+    X, Y = get_data(N=args.num_data, P=args.P)
+    #X, Y, expression = get_cancer_data()
     #X = X[:, :5000]
     #Y = Y[:500]
     #X = X[:500]
 
-    splits = KFold(args.num_folds, random_state=0, shuffle=True).split(X)
+    #splits = KFold(args.num_folds, random_state=0, shuffle=True).split(X)
+    N = args.num_data
+    splits = [(np.arange(N//2), np.arange(N//2, N))]
     out = np.zeros(X.shape[0])
 
     for split, (train, test) in enumerate(splits):
@@ -325,7 +292,7 @@ def main(args):
 
         out[test] = test_mean
 
-    np.save('out.{}.npy'.format(args.split), out)
+    #np.save('out.{}.npy'.format(args.split), out)
 
     #p = pearsonr(out, Y)[0]
     #print("PEARSON", p)
@@ -359,15 +326,15 @@ def main(args):
 if __name__ == "__main__":
     assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="non-linear horseshoe")
-    parser.add_argument("-n", "--num-samples", default=2500, type=int)
+    parser.add_argument("-n", "--num-samples", default=1000, type=int)
     parser.add_argument("--num-warmup", default=1000, type=int)
     parser.add_argument("--truncation", default=0, type=int)
     parser.add_argument("--num-chains", default=1, type=int)
     parser.add_argument("--split", default=0, type=int)
-    parser.add_argument("--num-data", default=256, type=int)
-    parser.add_argument("--num-folds", default=5, type=int)
+    parser.add_argument("--num-data", default=128, type=int)
+    parser.add_argument("--num-folds", default=1, type=int)
     parser.add_argument("--strategy", default="gibbs", type=str, choices=["nuts", "gibbs"])
-    parser.add_argument("--P", default=128, type=int)
+    parser.add_argument("--P", default=8, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument("--model", default='flow', type=str, choices=['flow', 'linear'])
     args = parser.parse_args()
