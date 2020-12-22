@@ -200,8 +200,8 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         collected along the leading axis of `np.ndarray` objects.
     """
     assert lower <= upper
-    assert thinning >= 1
-    collection_size = (upper - lower) // thinning if collection_size is None else collection_size // thinning
+    assert thinning >= 1 and thinning <= upper - lower
+    collection_size = (upper - lower) // thinning if collection_size is None else collection_size
     assert collection_size >= (upper - lower) // thinning
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
@@ -211,7 +211,11 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         val, collection, start_idx, thinning = vals
         val = body_fun(val)
         idx = (i - start_idx) // thinning
-        collection = ops.index_update(collection, idx, ravel_pytree(transform(val))[0])
+        collection = cond(idx >= 0,
+                          collection,
+                          lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
+                          collection,
+                          identity)
         return val, collection, start_idx, thinning
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
