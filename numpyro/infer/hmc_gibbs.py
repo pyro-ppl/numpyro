@@ -196,7 +196,7 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
     [EXPERIMENTAL INTERFACE]
 
     Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for discrete latent sites
-    with enumerate support. The order of updated index is permuted at each step.
+    with enumerate support. The site update order is randomly permuted at each step.
 
     Note that those discrete latent sites that are not specified in the constructor of
     :class:`HMCGibbs` will be marginalized out by default (if they have enumerate supports).
@@ -240,11 +240,7 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
         # convert to unconstrained values
         z_hmc = {k: biject_to(prototype_trace[k]["fn"].support).inv(v)
                  for k, v in hmc_sites.items() if k in prototype_trace}
-        enum = any(site["type"] == "sample"
-                   and not site["is_observed"]
-                   and site["fn"].has_enumerate_support
-                   and name not in gibbs_sites
-                   for name, site in prototype_trace.items())
+        enum = len(set(support_sizes) - set(gibbs_sites)) > 0
 
         def potential_fn(z_discrete):
             model_kwargs["_gibbs_sites"] = z_discrete
