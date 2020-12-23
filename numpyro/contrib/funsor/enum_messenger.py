@@ -494,6 +494,7 @@ class enum(BaseEnumMessenger):
                 msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
             if msg["type"] == "control_flow":
                 msg["kwargs"]["enum"] = True
+                msg["kwargs"]["first_available_dim"] = self.first_available_dim
             return super().process_message(msg)
 
         if msg["infer"].get("num_samples", None) is not None:
@@ -526,7 +527,7 @@ class trace(OrigTraceMessenger):
         if msg["type"] == "sample":
             total_batch_shape = lax.broadcast_shapes(
                 tuple(msg["fn"].batch_shape),
-                msg["value"].shape[:len(msg["value"].shape) - msg["fn"].event_dim]
+                jnp.shape(msg["value"])[:jnp.ndim(msg["value"]) - msg["fn"].event_dim]
             )
             msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(total_batch_shape)
         if msg["type"] in ("sample", "param"):
