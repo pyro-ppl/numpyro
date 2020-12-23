@@ -7,6 +7,7 @@ from functools import partial
 
 from jax import device_put, ops, random, value_and_grad
 import jax.numpy as jnp
+from jax.scipy.special import expit
 
 from numpyro.distributions import biject_to
 from numpyro.handlers import condition, seed, trace, substitute
@@ -158,21 +159,36 @@ class HMCGibbs(MCMCKernel):
 def _discrete_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
     # idx: current index of `z_discrete_flat` to update
     # support_size: support size of z_discrete at the index idx
-    rng_key, rng_proposal, rng_accept = random.split(rng_key, 3)
 
     # get z proposal
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-    proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size - 1)
-    proposal = jnp.where(proposal >= z_discrete_flat[idx], proposal + 1, proposal)
-    z_discrete_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
-    z_discrete_new = unravel_fn(z_discrete_new_flat)
 
-    pe_new = potential_fn(z_discrete_new)
-    accept_prob = jnp.clip(jnp.exp(pe - pe_new), a_max=1.0)
-    z_discrete, pe = cond(random.bernoulli(rng_accept, accept_prob),
-                          (z_discrete_new, pe_new), identity,
-                          (z_discrete, pe), identity)
-    return rng_key, z_discrete, pe
+    # XXX: we can't vmap potential_fn over all proposals and sample from the conditional
+    # categorical distribution because support_size is a traced value, i.e. its value
+    # might change across different discrete variables;
+    # so here we will loop over all proposals and use an online scheme to sample from
+    # the conditional categorical distribution
+    def body_fn(i, val):
+        rng_key, z, pe, weight_logsumexp = val
+        rng_key, rng_accept = random.split(rng_key)
+        proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
+        z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+        z_new = unravel_fn(z_new_flat)
+        pe_new = potential_fn(z_new)
+        weight_new = pe - pe_new
+        # Handles the NaN case...
+        weight_new = jnp.where(jnp.isnan(weight_new), -jnp.inf, weight_new)
+        # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
+        transition_prob = expit(weight_new - weight_logsumexp)
+        z, pe = cond(random.bernoulli(rng_accept, transition_prob),
+                     (z_new, pe_new), identity,
+                     (z, pe), identity)
+        weight_logsumexp = jnp.logaddexp(weight_new, weight_logsumexp)
+        return rng_key, z, pe, weight_logsumexp
+
+    init_val = (rng_key, z_discrete, pe, jnp.array(0.))
+    rng_key, z, pe, _ = fori_loop(0, support_size - 1, body_fn, init_val)
+    return rng_key, z, pe
 
 
 def discrete_gibbs_fn(model, *model_args, **model_kwargs):
@@ -180,16 +196,10 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
     [EXPERIMENTAL INTERFACE]
 
     Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for discrete latent sites
-    with enumerate support. Proposals are sampled uniformly over the set of possible values
-    in `enumerate_support` except for the current value (reference [1]).
+    with enumerate support. The order of updated index is permuted at each step.
 
     Note that those discrete latent sites that are not specified in the constructor of
     :class:`HMCGibbs` will be marginalized out by default (if they have enumerate supports).
-
-    **References**
-
-    1. *Peskun's theorem and a modified discrete-state Gibbs sampler*,
-       Liu, Jun S. (1996)
 
     **Example**
 
@@ -213,6 +223,7 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
+        >>> assert abs(jnp.var(samples) - 4.36) < 0.5
 
     """
     # NB: all of the information such as `model`, `model_args`, `model_kwargs`
@@ -264,14 +275,14 @@ def subsample_gibbs_fn(model, *model_args, **model_kwargs):
     Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for subsampling
     statements using :class:`~numpyro.plate` primitive. This implements the Algorithm 1
     of reference [1] but uses a naive estimation (without control variates) of log likelihood,
-    hence might incur a high bias (reference [2]).
+    hence might incur a high variance.
 
     **References:**
 
     1. *Hamiltonian Monte Carlo with energy conserving subsampling*,
        Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
-    2. *The Fundamental Incompatibility ofScalable Hamiltonian Monte Carlo and Naive Data Subsampling*,
-       Michael Betancourt (2015)
+    2. *Speeding Up MCMC by Efficient Data Subsampling*,
+       Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
 
     **Example**
 
