@@ -177,7 +177,7 @@ def _discrete_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
         pe_new = potential_fn(z_new)
         weight_new = pe - pe_new
         # Handles the NaN case...
-        weight_new = jnp.where(jnp.isnan(weight_new), -jnp.inf, weight_new)
+        weight_new = jnp.where(jnp.isfinite(weight_new), weight_new, -jnp.inf)
         # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
         transition_prob = expit(weight_new - weight_logsumexp)
         z, pe = cond(random.bernoulli(rng_accept, transition_prob),
