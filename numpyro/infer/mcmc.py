@@ -208,6 +208,9 @@ class MCMC(object):
         and :class:`~numpyro.infer.mcmc.NUTS` are available.
     :param int num_warmup: Number of warmup steps.
     :param int num_samples: Number of samples to generate from the Markov chain.
+    :param int thinning: Positive integer that controls the fraction of post-warmup samples that are
+        retained. For example if thinning is 2 then every other sample is retained.
+        Defaults to 1, i.e. no thinning.
     :param int num_chains: Number of Number of MCMC chains to run. By default,
         chains will be run in parallel using :func:`jax.pmap`, failing which,
         chains will be run in sequence.
@@ -231,6 +234,7 @@ class MCMC(object):
                  num_warmup,
                  num_samples,
                  num_chains=1,
+                 thinning=1,
                  postprocess_fn=None,
                  chain_method='parallel',
                  progress_bar=True,
@@ -241,6 +245,9 @@ class MCMC(object):
         self.num_warmup = num_warmup
         self.num_samples = num_samples
         self.num_chains = num_chains
+        if not isinstance(thinning, int) or thinning < 1:
+            raise ValueError('thinning must be a positive integer')
+        self.thinning = thinning
         self.postprocess_fn = postprocess_fn
         if chain_method not in ['parallel', 'vectorized', 'sequential']:
             raise ValueError('Only supporting the following methods to draw chains:'
@@ -312,7 +319,8 @@ class MCMC(object):
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
         phase = self._collection_params["phase"]
-
+        collection_size = self._collection_params["collection_size"]
+        collection_size = collection_size if collection_size is None else collection_size // self.thinning
         collect_vals = fori_collect(lower_idx,
                                     upper_idx,
                                     self._get_cached_fn(),
@@ -320,7 +328,8 @@ class MCMC(object):
                                     transform=_collect_fn(collect_fields),
                                     progbar=self.progress_bar,
                                     return_last_val=True,
-                                    collection_size=self._collection_params["collection_size"],
+                                    thinning=self.thinning,
+                                    collection_size=collection_size,
                                     progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
                                     diagnostics_fn=diagnostics)
         states, last_val = collect_vals
