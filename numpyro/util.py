@@ -188,9 +188,10 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         This has the same type as `init_val`.
     :param thinning: Positive integer that controls the thinning ratio for retained
         values. Defaults to 1, i.e. no thinning.
-    :param int collection_size: Size of the returned collection. If not specified,
-        the size will be ``upper - lower``. If the size is larger than
-        ``upper - lower``, only the top ``upper - lower`` entries will be non-zero.
+    :param int collection_size: Size of the returned collection. If not
+        specified, the size will be ``(upper - lower) // thinning``. If the
+        size is larger than ``(upper - lower) // thinning``, only the top
+        ``(upper - lower) // thinning`` entries will be non-zero.
     :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
         from `body_fun` returns a string that is used to update the progress
@@ -200,7 +201,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         collected along the leading axis of `np.ndarray` objects.
     """
     assert lower <= upper
-    assert thinning >= 1 and thinning <= upper - lower
+    assert thinning >= 1
     collection_size = (upper - lower) // thinning if collection_size is None else collection_size
     assert collection_size >= (upper - lower) // thinning
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
