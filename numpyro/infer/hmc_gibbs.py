@@ -5,11 +5,16 @@ from collections import namedtuple
 import copy
 from functools import partial
 
-from jax import device_put, random, value_and_grad
+from jax import device_put, ops, random, value_and_grad
+import jax.numpy as jnp
+from jax.scipy.special import expit
 
+from numpyro.distributions import biject_to
 from numpyro.handlers import condition, seed, trace, substitute
-from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.hmc import HMC
+from numpyro.infer.mcmc import MCMCKernel
+from numpyro.infer.util import log_likelihood, potential_energy
+from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
@@ -149,3 +154,184 @@ class HMCGibbs(MCMCKernel):
         z = {**z_gibbs, **hmc_state.z}
 
         return HMCGibbsState(z, hmc_state, rng_key)
+
+
+def _discrete_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+    # idx: current index of `z_discrete_flat` to update
+    # support_size: support size of z_discrete at the index idx
+
+    # get z proposal
+    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
+
+    # XXX: we can't vmap potential_fn over all proposals and sample from the conditional
+    # categorical distribution because support_size is a traced value, i.e. its value
+    # might change across different discrete variables;
+    # so here we will loop over all proposals and use an online scheme to sample from
+    # the conditional categorical distribution
+    def body_fn(i, val):
+        rng_key, z, pe, weight_logsumexp = val
+        rng_key, rng_accept = random.split(rng_key)
+        proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
+        z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+        z_new = unravel_fn(z_new_flat)
+        pe_new = potential_fn(z_new)
+        weight_new = pe - pe_new
+        # Handles the NaN case...
+        weight_new = jnp.where(jnp.isfinite(weight_new), weight_new, -jnp.inf)
+        # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
+        transition_prob = expit(weight_new - weight_logsumexp)
+        z, pe = cond(random.bernoulli(rng_accept, transition_prob),
+                     (z_new, pe_new), identity,
+                     (z, pe), identity)
+        weight_logsumexp = jnp.logaddexp(weight_new, weight_logsumexp)
+        return rng_key, z, pe, weight_logsumexp
+
+    init_val = (rng_key, z_discrete, pe, jnp.array(0.))
+    rng_key, z, pe, _ = fori_loop(0, support_size - 1, body_fn, init_val)
+    return rng_key, z, pe
+
+
+def discrete_gibbs_fn(model, *model_args, **model_kwargs):
+    """
+    [EXPERIMENTAL INTERFACE]
+
+    Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for discrete latent sites
+    with enumerate support. The site update order is randomly permuted at each step.
+
+    Note that those discrete latent sites that are not specified in the constructor of
+    :class:`HMCGibbs` will be marginalized out by default (if they have enumerate supports).
+
+    **Example**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS, HMCGibbs, discrete_gibbs_fn
+        ...
+        >>> def model(probs, locs):
+        ...     c = numpyro.sample("c", dist.Categorical(probs))
+        ...     numpyro.sample("x", dist.Normal(locs[c], 0.5))
+        ...
+        >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
+        >>> locs = jnp.array([-2, 0, 2, 4])
+        >>> gibbs_fn = discrete_gibbs_fn(model, probs, locs)
+        >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
+        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
+        >>> mcmc.run(random.PRNGKey(0), probs, locs)
+        >>> samples = mcmc.get_samples()["x"]
+        >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
+        >>> assert abs(jnp.var(samples) - 4.36) < 0.5
+
+    """
+    # NB: all of the information such as `model`, `model_args`, `model_kwargs`
+    # can be accessed from HMCGibbs.sample but we require them here to
+    # simplify the api of `gibbs_fn`
+    prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
+    support_sizes = {
+        name: jnp.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
+        for name, site in prototype_trace.items()
+        if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
+    }
+
+    def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
+        # convert to unconstrained values
+        z_hmc = {k: biject_to(prototype_trace[k]["fn"].support).inv(v)
+                 for k, v in hmc_sites.items() if k in prototype_trace}
+        enum = len(set(support_sizes) - set(gibbs_sites)) > 0
+
+        def potential_fn(z_discrete):
+            model_kwargs["_gibbs_sites"] = z_discrete
+            return potential_energy(_wrap_model(model), model_args, model_kwargs, z_hmc, enum=enum)
+
+        # get support_sizes of gibbs_sites
+        support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
+        num_discretes = support_sizes_flat.shape[0]
+
+        rng_key, rng_permute = random.split(rng_key)
+        idxs = random.permutation(rng_key, jnp.arange(num_discretes))
+
+        def body_fn(i, val):
+            idx, support_size = idxs[i], support_sizes_flat[i]
+            return _discrete_step(*val, potential_fn=potential_fn, idx=idx, support_size=support_size)
+
+        init_val = (rng_key, gibbs_sites, potential_fn(gibbs_sites))
+        _, gibbs_sites, _ = fori_loop(0, num_discretes, body_fn, init_val)
+        return gibbs_sites
+
+    return gibbs_fn
+
+
+def subsample_gibbs_fn(model, *model_args, **model_kwargs):
+    """
+    [EXPERIMENTAL INTERFACE]
+
+    Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for subsampling
+    statements using :class:`~numpyro.plate` primitive. This implements the Algorithm 1
+    of reference [1] but uses a naive estimation (without control variates) of log likelihood,
+    hence might incur a high variance.
+
+    **References:**
+
+    1. *Hamiltonian Monte Carlo with energy conserving subsampling*,
+       Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
+    2. *Speeding Up MCMC by Efficient Data Subsampling*,
+       Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
+
+    **Example**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, NUTS, HMCGibbs, subsample_gibbs_fn
+        ...
+        >>> def model(data):
+        ...     x = numpyro.sample("x", dist.Normal(0, 1))
+        ...     with numpyro.plate("N", data.shape[0], subsample_size=100):
+        ...         batch = numpyro.subsample(data, event_dim=0)
+        ...         numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
+        ...
+        >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
+        >>> gibbs_fn = subsample_gibbs_fn(model, data)
+        >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["N"])
+        >>> mcmc = MCMC(kernel, 1000, 1000)
+        >>> mcmc.run(random.PRNGKey(0), data)
+        >>> samples = mcmc.get_samples()["x"]
+        >>> assert abs(jnp.mean(samples).copy() - 1.) < 0.1
+
+    """
+    prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
+    plate_sizes = {
+        name: site["args"]
+        for name, site in prototype_trace.items()
+        if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
+    }
+    enum = any(site["type"] == "sample"
+               and not site["is_observed"]
+               and site["fn"].has_enumerate_support
+               for name, site in prototype_trace.items())
+    assert not enum, "Enumeration is not supported for subsample_gibbs_fn."
+
+    def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
+        assert set(gibbs_sites) == set(plate_sizes)
+        u_new = {}
+        for name in gibbs_sites:
+            size, subsample_size = plate_sizes[name]
+            rng_key, subkey = random.split(rng_key)
+            u_new[name] = random.choice(subkey, size, (subsample_size,), replace=False)
+
+        u_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
+                                  **model_kwargs, _gibbs_sites=gibbs_sites)
+        u_loglik = sum(v.sum() for v in u_loglik.values())
+        u_new_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
+                                      **model_kwargs, _gibbs_sites=u_new)
+        u_new_loglik = sum(v.sum() for v in u_new_loglik.values())
+        accept_prob = jnp.clip(jnp.exp(u_new_loglik - u_loglik), a_max=1.0)
+        return cond(random.bernoulli(rng_key, accept_prob), u_new, identity, gibbs_sites, identity)
+
+    return gibbs_fn
