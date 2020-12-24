@@ -160,3 +160,16 @@ def test_discrete_gibbs_multiple_sites():
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["x"], 0), 0.7 * jnp.ones(3), atol=0.01)
     assert_allclose(jnp.mean(samples["y"], 0), 0.3 * 10, atol=0.1)
+
+
+def test_discrete_gibbs_enum():
+
+    def model():
+        numpyro.sample("x", dist.Bernoulli(0.7))
+        numpyro.sample("y", dist.Binomial(10, 0.3))
+
+    kernel = HMCGibbs(NUTS(model), discrete_gibbs_fn(model), gibbs_sites=["y"])
+    mcmc = MCMC(kernel, 1000, 10000, progress_bar=False)
+    mcmc.run(random.PRNGKey(0))
+    samples = mcmc.get_samples()
+    assert_allclose(jnp.mean(samples["y"], 0), 0.3 * 10, atol=0.1)
