@@ -254,7 +254,8 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
         idxs = random.permutation(rng_key, jnp.arange(num_discretes))
 
         def body_fn(i, val):
-            idx, support_size = idxs[i], support_sizes_flat[i]
+            idx = idxs[i]
+            support_size = support_sizes_flat[idx]
             return _discrete_step(*val, potential_fn=potential_fn, idx=idx, support_size=support_size)
 
         init_val = (rng_key, gibbs_sites, potential_fn(gibbs_sites))
