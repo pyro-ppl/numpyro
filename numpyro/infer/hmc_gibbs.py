@@ -13,7 +13,7 @@ from numpyro.distributions import biject_to
 from numpyro.handlers import condition, seed, trace, substitute
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import log_likelihood, potential_energy
+from numpyro.infer.util import log_likelihood, potential_energy, _guess_max_plate_nesting
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 
@@ -235,16 +235,22 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
         for name, site in prototype_trace.items()
         if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
     }
+    max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         # convert to unconstrained values
         z_hmc = {k: biject_to(prototype_trace[k]["fn"].support).inv(v)
                  for k, v in hmc_sites.items() if k in prototype_trace}
-        enum = len(set(support_sizes) - set(gibbs_sites)) > 0
+        use_enum = len(set(support_sizes) - set(gibbs_sites)) > 0
+        wrapped_model = _wrap_model(model)
+        if use_enum:
+            from numpyro.contrib.funsor import config_enumerate, enum
+
+            wrapped_model = enum(config_enumerate(wrapped_model), -max_plate_nesting - 1)
 
         def potential_fn(z_discrete):
             model_kwargs["_gibbs_sites"] = z_discrete
-            return potential_energy(_wrap_model(model), model_args, model_kwargs, z_hmc, enum=enum)
+            return potential_energy(wrapped_model, model_args, model_kwargs, z_hmc, enum=use_enum)
 
         # get support_sizes of gibbs_sites
         support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
@@ -254,7 +260,8 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
         idxs = random.permutation(rng_key, jnp.arange(num_discretes))
 
         def body_fn(i, val):
-            idx, support_size = idxs[i], support_sizes_flat[i]
+            idx = idxs[i]
+            support_size = support_sizes_flat[idx]
             return _discrete_step(*val, potential_fn=potential_fn, idx=idx, support_size=support_size)
 
         init_val = (rng_key, gibbs_sites, potential_fn(gibbs_sites))
