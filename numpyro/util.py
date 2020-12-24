@@ -165,7 +165,8 @@ def cached_by(outer_fn, *keys):
 
 
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
-                 progbar=True, return_last_val=False, collection_size=None, **progbar_opts):
+                 progbar=True, return_last_val=False, collection_size=None,
+                 thinning=1, **progbar_opts):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
@@ -185,9 +186,12 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     :param progbar: whether to post progress bar updates.
     :param bool return_last_val: If `True`, the last value is also returned.
         This has the same type as `init_val`.
-    :param int collection_size: Size of the returned collection. If not specified,
-        the size will be ``upper - lower``. If the size is larger than
-        ``upper - lower``, only the top ``upper - lower`` entries will be non-zero.
+    :param thinning: Positive integer that controls the thinning ratio for retained
+        values. Defaults to 1, i.e. no thinning.
+    :param int collection_size: Size of the returned collection. If not
+        specified, the size will be ``(upper - lower) // thinning``. If the
+        size is larger than ``(upper - lower) // thinning``, only the top
+        ``(upper - lower) // thinning`` entries will be non-zero.
     :param `**progbar_opts`: optional additional progress bar arguments. A
         `diagnostics_fn` can be supplied which when passed the current value
         from `body_fun` returns a string that is used to update the progress
@@ -197,26 +201,32 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         collected along the leading axis of `np.ndarray` objects.
     """
     assert lower <= upper
-    collection_size = upper - lower if collection_size is None else collection_size
-    assert collection_size >= upper - lower
+    assert thinning >= 1
+    collection_size = (upper - lower) // thinning if collection_size is None else collection_size
+    assert collection_size >= (upper - lower) // thinning
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
+    start_idx = lower + (upper - lower) % thinning
 
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
-        val, collection, lower_idx = vals
+        val, collection, start_idx, thinning = vals
         val = body_fun(val)
-        i = jnp.where(i >= lower_idx, i - lower_idx, 0)
-        collection = ops.index_update(collection, i, ravel_pytree(transform(val))[0])
-        return val, collection, lower_idx
+        idx = (i - start_idx) // thinning
+        collection = cond(idx >= 0,
+                          collection,
+                          lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
+                          collection,
+                          identity)
+        return val, collection, start_idx, thinning
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
-        last_val, collection, _ = fori_loop(0, upper, _body_fn, (init_val, collection, lower))
+        last_val, collection, _, _ = fori_loop(0, upper, _body_fn, (init_val, collection, start_idx, thinning))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
 
-        vals = (init_val, collection, device_put(lower))
+        vals = (init_val, collection, device_put(start_idx), device_put(thinning))
         if upper == 0:
             # special case, only compiling
             jit(_body_fn)(0, vals)
@@ -228,7 +238,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
                     if diagnostics_fn:
                         t.set_postfix_str(diagnostics_fn(vals[0]), refresh=False)
 
-        last_val, collection, _ = vals
+        last_val, collection, _, _ = vals
 
     unravel_collection = vmap(unravel_fn)(collection)
     return (unravel_collection, last_val) if return_last_val else unravel_collection

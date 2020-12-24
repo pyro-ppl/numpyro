@@ -30,7 +30,6 @@ import warnings
 import numpy as np
 
 from jax import device_put, lax
-from jax.dtypes import canonicalize_dtype
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
 import jax.random as random
@@ -48,7 +47,6 @@ from numpyro.distributions.util import (
     lazy_property,
     multinomial,
     promote_shapes,
-    sum_rightmost,
     validate_sample
 )
 from numpyro.util import not_jax_tracer
@@ -90,6 +88,10 @@ class BernoulliProbs(Distribution):
     @validate_sample
     def log_prob(self, value):
         return xlogy(value, self.probs) + xlog1py(1 - value, -self.probs)
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_bernoulli(self.probs)
 
     @property
     def mean(self):
@@ -175,6 +177,10 @@ class BinomialProbs(Distribution):
         log_factorial_nmk = gammaln(self.total_count - value + 1)
         return (log_factorial_n - log_factorial_k - log_factorial_nmk +
                 xlogy(value, self.probs) + xlog1py(self.total_count - value, -self.probs))
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_bernoulli(self.probs)
 
     @property
     def mean(self):
@@ -276,9 +282,13 @@ class CategoricalProbs(Distribution):
         batch_shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         value = jnp.expand_dims(value, axis=-1)
         value = jnp.broadcast_to(value, batch_shape + (1,))
-        logits = _to_logits_multinom(self.probs)
+        logits = self.logits
         log_pmf = jnp.broadcast_to(logits, batch_shape + jnp.shape(logits)[-1:])
         return jnp.take_along_axis(log_pmf, value, axis=-1)[..., 0]
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_multinom(self.probs)
 
     @property
     def mean(self):
@@ -356,54 +366,6 @@ def Categorical(probs=None, logits=None, validate_args=None):
         raise ValueError('One of `probs` or `logits` must be specified.')
 
 
-class Delta(Distribution):
-    arg_constraints = {'v': constraints.real, 'log_density': constraints.real}
-    support = constraints.real
-    is_discrete = True
-
-    def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None, value=None):
-        if value is not None:
-            v = value
-            warnings.warn("`value` argument has been deprecated in favor of `v` argument.",
-                          FutureWarning)
-
-        if event_dim > jnp.ndim(v):
-            raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
-                             .format(event_dim, jnp.ndim(v)))
-        batch_dim = jnp.ndim(v) - event_dim
-        batch_shape = jnp.shape(v)[:batch_dim]
-        event_shape = jnp.shape(v)[batch_dim:]
-        self.v = lax.convert_element_type(v, canonicalize_dtype(jnp.float64))
-        # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
-        self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
-        super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        shape = sample_shape + self.batch_shape + self.event_shape
-        return jnp.broadcast_to(device_put(self.v), shape)
-
-    @validate_sample
-    def log_prob(self, value):
-        log_prob = jnp.log(value == self.v)
-        log_prob = sum_rightmost(log_prob, len(self.event_shape))
-        return log_prob + self.log_density
-
-    @property
-    def mean(self):
-        return self.v
-
-    @property
-    def variance(self):
-        return jnp.zeros(self.batch_shape + self.event_shape)
-
-    def tree_flatten(self):
-        return (self.v, self.log_density), self.event_dim
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        return cls(*params, event_dim=aux_data)
-
-
 class OrderedLogistic(CategoricalProbs):
     """
     A categorical distribution with ordered outcomes.
@@ -479,6 +441,10 @@ class MultinomialProbs(Distribution):
             self._validate_sample(value)
         return gammaln(self.total_count + 1) \
             + jnp.sum(xlogy(value, self.probs) - gammaln(value + 1), axis=-1)
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_multinom(self.probs)
 
     @property
     def mean(self):
@@ -634,6 +600,10 @@ class GeometricProbs(Distribution):
     def log_prob(self, value):
         probs = jnp.where((self.probs == 1) & (value == 0), 0, self.probs)
         return value * jnp.log1p(-probs) + jnp.log(probs)
+
+    @lazy_property
+    def logits(self):
+        return _to_logits_bernoulli(self.probs)
 
     @property
     def mean(self):

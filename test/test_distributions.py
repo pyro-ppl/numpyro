@@ -99,7 +99,7 @@ _DIST_MAP = {
 }
 
 CONTINUOUS = [
-    T(dist.Beta, 1., 2.),
+    T(dist.Beta, 0.2, 1.1),
     T(dist.Beta, 1., jnp.array([2., 2.])),
     T(dist.Beta, 1., jnp.array([[1., 1.], [2., 2.]])),
     T(dist.Chi2, 2.),
@@ -152,9 +152,9 @@ CONTINUOUS = [
     T(dist.MultivariateNormal, jnp.arange(6, dtype=jnp.float32).reshape((3, 2)), None, None,
       jnp.array([[1., 0.], [0., 1.]])),
     T(dist.MultivariateNormal, 0., None, jnp.broadcast_to(jnp.identity(3), (2, 3, 3)), None),
-    T(dist.LowRankMultivariateNormal, jnp.zeros(2), jnp.array([[1], [0]]), jnp.array([1, 1])),
+    T(dist.LowRankMultivariateNormal, jnp.zeros(2), jnp.array([[1.], [0.]]), jnp.array([1., 1.])),
     T(dist.LowRankMultivariateNormal, jnp.arange(6, dtype=jnp.float32).reshape((2, 3)),
-      jnp.arange(6, dtype=jnp.float32).reshape((3, 2)), jnp.array([1, 2, 3])),
+      jnp.arange(6, dtype=jnp.float32).reshape((3, 2)), jnp.array([1., 2., 3.])),
     T(dist.Normal, 0., 1.),
     T(dist.Normal, 1., jnp.array([1., 2.])),
     T(dist.Normal, jnp.array([0., 1.]), jnp.array([[1.], [2.]])),
@@ -163,7 +163,7 @@ CONTINUOUS = [
     T(dist.Pareto, jnp.array([[1.], [3.]]), jnp.array([1., 0.5])),
     T(dist.StudentT, 1., 1., 0.5),
     T(dist.StudentT, 2., jnp.array([1., 2.]), 2.),
-    T(dist.StudentT, jnp.array([3, 5]), jnp.array([[1.], [2.]]), 2.),
+    T(dist.StudentT, jnp.array([3., 5.]), jnp.array([[1.], [2.]]), 2.),
     T(dist.TruncatedCauchy, -1., 0., 1.),
     T(dist.TruncatedCauchy, 1., 0., jnp.array([1., 2.])),
     T(dist.TruncatedCauchy, jnp.array([-2., 2.]), jnp.array([0., 1.]), jnp.array([[1.], [2.]])),
@@ -326,10 +326,42 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         assert_allclose(jax_dist.precision_matrix, jnp.linalg.inv(jax_dist.covariance_matrix), rtol=1e-6)
 
 
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
+def test_has_rsample(jax_dist, sp_dist, params):
+    jax_dist = jax_dist(*params)
+    masked_dist = jax_dist.mask(False)
+    indept_dist = jax_dist.expand_by([2]).to_event(1)
+    transf_dist = dist.TransformedDistribution(jax_dist, biject_to(constraints.real))
+    assert masked_dist.has_rsample == jax_dist.has_rsample
+    assert indept_dist.has_rsample == jax_dist.has_rsample
+    assert transf_dist.has_rsample == jax_dist.has_rsample
+
+    if jax_dist.has_rsample:
+        assert isinstance(jax_dist, dist.Delta) or not jax_dist.is_discrete
+        if isinstance(jax_dist, dist.TransformedDistribution):
+            assert jax_dist.base_dist.has_rsample
+        else:
+            assert set(jax_dist.arg_constraints) == set(jax_dist.reparametrized_params)
+        jax_dist.rsample(random.PRNGKey(0))
+        if isinstance(jax_dist, dist.Normal):
+            masked_dist.rsample(random.PRNGKey(0))
+            indept_dist.rsample(random.PRNGKey(0))
+            transf_dist.rsample(random.PRNGKey(0))
+    else:
+        with pytest.raises(NotImplementedError):
+            jax_dist.rsample(random.PRNGKey(0))
+        if isinstance(jax_dist, dist.BernoulliProbs):
+            with pytest.raises(NotImplementedError):
+                masked_dist.rsample(random.PRNGKey(0))
+            with pytest.raises(NotImplementedError):
+                indept_dist.rsample(random.PRNGKey(0))
+            with pytest.raises(NotImplementedError):
+                transf_dist.rsample(random.PRNGKey(0))
+
+
 @pytest.mark.parametrize('batch_shape', [(), (4,), (3, 2)])
 def test_unit(batch_shape):
     log_factor = random.normal(random.PRNGKey(0), batch_shape)
-
     d = dist.Unit(log_factor=log_factor)
     x = d.sample(random.PRNGKey(1))
     assert x.shape == batch_shape + (0,)
@@ -338,20 +370,32 @@ def test_unit(batch_shape):
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
 def test_sample_gradient(jax_dist, sp_dist, params):
-    if not jax_dist.reparametrized_params:
+    # we have pathwise gradient for gamma sampler
+    gamma_derived_params = {
+        "Gamma": ["concentration"],
+        "Beta": ["concentration1", "concentration0"],
+        "Chi2": ["df"],
+        "InverseGamma": ["concentration"],
+        "LKJ": ["concentration"],
+        "LKJCholesky": ["concentration"],
+        "StudentT": ["df"]
+    }.get(jax_dist.__name__, [])
+    reparameterized_params = [p for p in jax_dist.reparametrized_params
+                              if p not in gamma_derived_params]
+    if not reparameterized_params:
         pytest.skip('{} not reparametrized.'.format(jax_dist.__name__))
 
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
     params_dict = dict(zip(dist_args[:len(params)], params))
     nonrepara_params_dict = {k: v for k, v in params_dict.items()
-                             if k not in jax_dist.reparametrized_params}
+                             if k not in reparameterized_params}
     repara_params = tuple(v for k, v in params_dict.items()
-                          if k in jax_dist.reparametrized_params)
+                          if k in reparameterized_params)
 
     rng_key = random.PRNGKey(0)
 
     def fn(args):
-        args_dict = dict(zip(jax_dist.reparametrized_params, args))
+        args_dict = dict(zip(reparameterized_params, args))
         return jnp.sum(jax_dist(**args_dict, **nonrepara_params_dict).sample(key=rng_key))
 
     actual_grad = jax.grad(fn)(repara_params)
@@ -375,6 +419,9 @@ def test_sample_gradient(jax_dist, sp_dist, params):
     (dist.Gamma, osp.gamma, (1.,)),
     (dist.Gamma, osp.gamma, (0.1,)),
     (dist.Gamma, osp.gamma, (10.,)),
+    (dist.Chi2, osp.chi2, (1.,)),
+    (dist.Chi2, osp.chi2, (0.1,)),
+    (dist.Chi2, osp.chi2, (10.,)),
     # TODO: add more test cases for Beta/StudentT (and Dirichlet too) when
     # their pathwise grad (independent of standard_gamma grad) is implemented.
     pytest.param(dist.Beta, osp.beta, (1., 1.), marks=pytest.mark.xfail(
@@ -711,6 +758,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     dependent_constraint = False
     for i in range(len(params)):
         if jax_dist in (_ImproperWrapper, dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
+            continue
+        if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
             continue
         if params[i] is None:
             oob_params[i] = None

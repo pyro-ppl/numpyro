@@ -42,7 +42,6 @@ from numpyro.distributions.discrete import (
     Categorical,
     CategoricalLogits,
     CategoricalProbs,
-    Delta,
     Geometric,
     GeometricLogits,
     GeometricProbs,
@@ -55,6 +54,7 @@ from numpyro.distributions.discrete import (
     ZeroInflatedPoisson
 )
 from numpyro.distributions.distribution import (
+    Delta,
     Distribution,
     ExpandedDistribution,
     ImproperUniform,
