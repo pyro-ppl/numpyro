@@ -303,10 +303,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         model_kwargs = {} if model_kwargs is None else model_kwargs
         rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
         r = cond(reset_momentum,
-                 hmc_state.r,
-                 identity,
                  (hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum),
-                 lambda args: momentum_generator(*args))
+                 lambda args: momentum_generator(*args),
+                 hmc_state.r,
+                 identity)
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
                                                                     hmc_state.adapt_state.inverse_mass_matrix,
