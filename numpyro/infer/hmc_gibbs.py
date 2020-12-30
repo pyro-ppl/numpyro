@@ -156,7 +156,7 @@ class HMCGibbs(MCMCKernel):
         return HMCGibbsState(z, hmc_state, rng_key)
 
 
-def _discrete_gibbs_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+def _discrete_gibbs_propose(rng_key, z_discrete, pe, potential_fn, idx, support_size):
     # idx: current index of `z_discrete_flat` to update
     # support_size: support size of z_discrete at the index idx
 
@@ -193,7 +193,7 @@ def _discrete_gibbs_step(rng_key, z_discrete, pe, potential_fn, idx, support_siz
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_modified_gibbs_step(rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.):
+def _discrete_modified_gibbs_propose(rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.):
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
     pe_0 = pe
 
@@ -229,8 +229,8 @@ def _discrete_modified_gibbs_step(rng_key, z_discrete, pe, potential_fn, idx, su
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_rw_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
-    rng_key, rng_proposal, rng_accept = random.split(rng_key, 3)
+def _discrete_rw_propose(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+    rng_key, rng_proposal = random.split(rng_key, 2)
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
     proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size)
@@ -241,7 +241,7 @@ def _discrete_rw_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_modified_rw_step(rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.):
+def _discrete_modified_rw_propose(rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.):
     rng_key, rng_proposal, rng_stay = random.split(rng_key, 3)
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
@@ -255,7 +255,7 @@ def _discrete_modified_rw_step(rng_key, z_discrete, pe, potential_fn, idx, suppo
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=False, stay_prob=None):
+def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=False, modified=False):
     """
     [EXPERIMENTAL INTERFACE]
 
@@ -272,11 +272,10 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
     :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
         conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
         from the domain of `gibbs_site`.
-    :param float stay_prob: if not None, propose a new sample with
-        - probability to stay at the current value is `stay_prob`
-        - probability to move to a new value is scaled down by `(1 - stay_prob)`
-        The special case `stay_prob=0.`, which is suggested in reference [1], appears in literature
-        under the name "modified Gibbs sampler" or "Metropolised Gibbs sampler".
+    :param bool modified: whether to use a modified proposal, as suggested in reference [1], which
+        always proposes a new state for the current Gibbs site.
+        The modified scheme appears in literature under the name "modified Gibbs sampler" or
+        "Metropolised Gibbs sampler".
     :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs
 
     **References:**
@@ -318,17 +317,15 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
     }
     max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
     if random_walk:
-        if stay_prob is not None:
-            assert isinstance(stay_prob, float) and (stay_prob >= 0) and (stay_prob < 1)
-            step_fn = partial(_discrete_modified_rw_step, stay_prob=stay_prob)
+        if modified:
+            proposal_fn = partial(_discrete_modified_rw_propose, stay_prob=0.)
         else:
-            step_fn = _discrete_rw_step
+            proposal_fn = _discrete_rw_propose
     else:
-        if stay_prob is not None:
-            assert isinstance(stay_prob, float) and (stay_prob >= 0) and (stay_prob < 1)
-            step_fn = partial(_discrete_modified_gibbs_step, stay_prob=stay_prob)
+        if modified:
+            proposal_fn = partial(_discrete_modified_gibbs_propose, stay_prob=0.)
         else:
-            step_fn = _discrete_gibbs_step
+            proposal_fn = _discrete_gibbs_propose
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         # convert to unconstrained values
@@ -357,7 +354,7 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
             idx = idxs[i]
             support_size = support_sizes_flat[idx]
             rng_key, z, pe = val
-            rng_key, z_new, pe_new, log_accept_ratio = step_fn(
+            rng_key, z_new, pe_new, log_accept_ratio = proposal_fn(
                 rng_key, z, pe, potential_fn=potential_fn, idx=idx, support_size=support_size)
             rng_key, rng_accept = random.split(rng_key)
             # u ~ Uniform(0, 1), u < accept_ratio => -log(u) > -log_accept_ratio

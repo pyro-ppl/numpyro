@@ -176,13 +176,13 @@ def test_discrete_gibbs_enum():
 
 
 @pytest.mark.parametrize("random_walk", [False, True])
-@pytest.mark.parametrize("stay_prob", [None, 0., 0.2])
-def test_discrete_gibbs_bernoulli(random_walk, stay_prob):
+@pytest.mark.parametrize("modified", [False, True])
+def test_discrete_gibbs_bernoulli(random_walk, modified):
 
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
 
-    gibbs_fn = discrete_gibbs_fn(model, random_walk=random_walk, stay_prob=stay_prob)
+    gibbs_fn = discrete_gibbs_fn(model, random_walk=random_walk, modified=modified)
     kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
     mcmc = MCMC(kernel, 1000, 200000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
@@ -190,8 +190,8 @@ def test_discrete_gibbs_bernoulli(random_walk, stay_prob):
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
 
 
-@pytest.mark.parametrize("stay_prob", [None, 0., 0.2])
-def test_discrete_gibbs_gmm_1d(stay_prob):
+@pytest.mark.parametrize("modified", [False, True])
+def test_discrete_gibbs_gmm_1d(modified):
 
     def model(probs, locs):
         c = numpyro.sample("c", dist.Categorical(probs))
@@ -199,7 +199,7 @@ def test_discrete_gibbs_gmm_1d(stay_prob):
 
     probs = jnp.array([0.15, 0.3, 0.3, 0.25])
     locs = jnp.array([-2, 0, 2, 4])
-    gibbs_fn = discrete_gibbs_fn(model, (probs, locs), stay_prob=stay_prob)
+    gibbs_fn = discrete_gibbs_fn(model, (probs, locs), modified=modified)
     kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
     mcmc = MCMC(kernel, 1000, 200000, progress_bar=False)
     mcmc.run(random.PRNGKey(0), probs, locs)
