@@ -21,8 +21,8 @@ from numpyro.util import cond, fori_loop, identity
 
 HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy',
                                    'r', 'reset_momentum', 'mh_correction', 'trajectory_length',
-                                   'num_steps', 'accept_prob', 'mean_accept_prob', 'diverging',
-                                   'adapt_state', 'rng_key'])
+                                   'num_steps', 'accept_prob',
+                                   'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
 
