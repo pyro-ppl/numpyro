@@ -187,9 +187,9 @@ def log_density(model, model_args, model_kwargs, params):
 
     for time_dim, init_vars in time_to_init_vars.items():
         for var in init_vars:
-            curr_var = var.lstrip("P")
+            curr_var = _shift_name(var, -_get_shift(var))
             dim_to_name = model_trace[curr_var]["infer"]["dim_to_name"]
-            if var in dim_to_name.values():  # i.e. P* (i.e. prev) in dim_to_name
+            if var in dim_to_name.values():  # i.e. _PREV_* (i.e. prev) in dim_to_name
                 time_to_markov_dims[time_dim] |= frozenset(name for name in dim_to_name.values())
 
     if len(time_to_factors) > 0:
