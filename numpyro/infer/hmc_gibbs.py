@@ -156,65 +156,50 @@ class HMCGibbs(MCMCKernel):
         return HMCGibbsState(z, hmc_state, rng_key)
 
 
-def _discrete_gibbs_propose(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+def _discrete_gibbs_proposal_body_fn(z_init_flat, unravel_fn, pe_init, potential_fn, idx, i, val):
+    rng_key, z, pe, log_weight_sum = val
+    rng_key, rng_transition = random.split(rng_key)
+    proposal = jnp.where(i >= z_init_flat[idx], i + 1, i)
+    z_new_flat = ops.index_update(z_init_flat, idx, proposal)
+    z_new = unravel_fn(z_new_flat)
+    pe_new = potential_fn(z_new)
+    log_weight_new = pe_init - pe_new
+    # Handles the NaN case...
+    log_weight_new = jnp.where(jnp.isfinite(log_weight_new), log_weight_new, -jnp.inf)
+    # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
+    transition_prob = expit(log_weight_new - log_weight_sum)
+    z, pe = cond(random.bernoulli(rng_transition, transition_prob),
+                 (z_new, pe_new), identity,
+                 (z, pe), identity)
+    log_weight_sum = jnp.logaddexp(log_weight_new, log_weight_sum)
+    return rng_key, z, pe, log_weight_sum
+
+
+def _discrete_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size):
     # idx: current index of `z_discrete_flat` to update
     # support_size: support size of z_discrete at the index idx
 
-    # get z proposal
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-    pe_0 = pe
-
+    # Here we loop over the support of z_flat[idx] to get z_new
     # XXX: we can't vmap potential_fn over all proposals and sample from the conditional
     # categorical distribution because support_size is a traced value, i.e. its value
     # might change across different discrete variables;
     # so here we will loop over all proposals and use an online scheme to sample from
     # the conditional categorical distribution
-    def body_fn(i, val):
-        rng_key, z, pe, log_weight_sum = val
-        rng_key, rng_transition = random.split(rng_key)
-        proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
-        z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
-        z_new = unravel_fn(z_new_flat)
-        pe_new = potential_fn(z_new)
-        log_weight_new = pe_0 - pe_new
-        # Handles the NaN case...
-        log_weight_new = jnp.where(jnp.isfinite(log_weight_new), log_weight_new, -jnp.inf)
-        # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
-        transition_prob = expit(log_weight_new - log_weight_sum)
-        z, pe = cond(random.bernoulli(rng_transition, transition_prob),
-                     (z_new, pe_new), identity,
-                     (z, pe), identity)
-        log_weight_sum = jnp.logaddexp(log_weight_new, log_weight_sum)
-        return rng_key, z, pe, log_weight_sum
-
+    body_fn = partial(_discrete_gibbs_proposal_body_fn,
+                      z_discrete_flat, unravel_fn, pe, potential_fn, idx)
     init_val = (rng_key, z_discrete, pe, jnp.array(0.))
     rng_key, z_new, pe_new, _ = fori_loop(0, support_size - 1, body_fn, init_val)
     log_accept_ratio = jnp.array(0.)
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_modified_gibbs_propose(rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.):
+def _discrete_modified_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size,
+                                      stay_prob=0.):
+    assert isinstance(stay_prob, float) and stay_prob >= 0. and stay_prob < 1
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-    pe_0 = pe
-
-    def body_fn(i, val):
-        rng_key, z, pe, log_weight_sum = val
-        rng_key, rng_transition = random.split(rng_key)
-        proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
-        z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
-        z_new = unravel_fn(z_new_flat)
-        pe_new = potential_fn(z_new)
-        log_weight_new = pe_0 - pe_new
-        # Handles the NaN case...
-        log_weight_new = jnp.where(jnp.isfinite(log_weight_new), log_weight_new, -jnp.inf)
-        # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
-        transition_prob = expit(log_weight_new - log_weight_sum)
-        z, pe = cond(random.bernoulli(rng_transition, transition_prob),
-                     (z_new, pe_new), identity,
-                     (z, pe), identity)
-        weight_logsumexp = jnp.logaddexp(log_weight_new, log_weight_sum)
-        return rng_key, z, pe, weight_logsumexp
-
+    body_fn = partial(_discrete_gibbs_proposal_body_fn,
+                      z_discrete_flat, unravel_fn, pe, potential_fn, idx)
     # like gibbs_step but here, weight of the current value is 0
     init_val = (rng_key, z_discrete, pe, jnp.array(-jnp.inf))
     rng_key, z_new, pe_new, log_weight_sum = fori_loop(0, support_size - 1, body_fn, init_val)
@@ -229,7 +214,7 @@ def _discrete_modified_gibbs_propose(rng_key, z_discrete, pe, potential_fn, idx,
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_rw_propose(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+def _discrete_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size):
     rng_key, rng_proposal = random.split(rng_key, 2)
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
@@ -241,7 +226,9 @@ def _discrete_rw_propose(rng_key, z_discrete, pe, potential_fn, idx, support_siz
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_modified_rw_propose(rng_key, z_discrete, pe, potential_fn, idx, support_size, stay_prob=0.):
+def _discrete_modified_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size,
+                                   stay_prob=0.):
+    assert isinstance(stay_prob, float) and stay_prob >= 0. and stay_prob < 1
     rng_key, rng_proposal, rng_stay = random.split(rng_key, 3)
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
 
@@ -274,7 +261,7 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
         from the domain of `gibbs_site`.
     :param bool modified: whether to use a modified proposal, as suggested in reference [1], which
         always proposes a new state for the current Gibbs site.
-        The modified scheme appears in literature under the name "modified Gibbs sampler" or
+        The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
     :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs
 
@@ -318,14 +305,14 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
     max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
     if random_walk:
         if modified:
-            proposal_fn = partial(_discrete_modified_rw_propose, stay_prob=0.)
+            proposal_fn = partial(_discrete_modified_rw_proposal, stay_prob=0.)
         else:
-            proposal_fn = _discrete_rw_propose
+            proposal_fn = _discrete_rw_proposal
     else:
         if modified:
-            proposal_fn = partial(_discrete_modified_gibbs_propose, stay_prob=0.)
+            proposal_fn = partial(_discrete_modified_gibbs_proposal, stay_prob=0.)
         else:
-            proposal_fn = _discrete_gibbs_propose
+            proposal_fn = _discrete_gibbs_proposal
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         # convert to unconstrained values
