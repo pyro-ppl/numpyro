@@ -150,7 +150,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
 
         if init:
             # handler the name to match the pattern of sakkar_bilmes product
-            with handlers.scope(prefix='P' * (unroll_steps - i), divider='_'):
+            with handlers.scope(prefix='_PREV_' * (unroll_steps - i), divider=''):
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
                 trace = {}
         else:
@@ -163,7 +163,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
             # Here we will promote `fn` shape first. `value` shape will be promoted after scanned.
             # We don't promote `value` shape here because we need to store carry shape
             # at this step. If we reshape the `value` here, output carry might get wrong shape.
-            with _promote_fn_shapes(), packed_trace() as trace, handlers.scope(divider='_'):
+            with _promote_fn_shapes(), packed_trace() as trace:
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
             # store shape of new_carry at a global variable
@@ -175,7 +175,7 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
                                       new_carry, carry)
         return (i + 1, rng_key, new_carry), (PytreeTrace(trace), y)
 
-    with handlers.block(hide_fn=lambda site: site["name"].startswith("_")), \
+    with handlers.block(hide_fn=lambda site: not site["name"].startswith("_PREV_")), \
             enum(first_available_dim=first_available_dim):
         wrapped_carry = (0, rng_key, init)
         y0s = []
@@ -340,7 +340,8 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         variables will contain the following sites:
 
             + init sites: those sites belong to the first `history` traces of `f`.
-                Sites at the `i`-th trace will have name prefixed with `P` * (2 * history - 1 - i).
+                Sites at the `i`-th trace will have name prefixed with
+                `'_PREV_' * (2 * history - 1 - i)`.
             + scanned sites: those sites collect the values of the remaining scan
                 loop over `f`. An addition time dimension `_time_foo` will be
                 added to those sites, where `foo` is the name of the first site
