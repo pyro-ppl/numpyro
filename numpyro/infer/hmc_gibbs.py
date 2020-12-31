@@ -156,42 +156,93 @@ class HMCGibbs(MCMCKernel):
         return HMCGibbsState(z, hmc_state, rng_key)
 
 
-def _discrete_step(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+def _discrete_gibbs_proposal_body_fn(z_init_flat, unravel_fn, pe_init, potential_fn, idx, i, val):
+    rng_key, z, pe, log_weight_sum = val
+    rng_key, rng_transition = random.split(rng_key)
+    proposal = jnp.where(i >= z_init_flat[idx], i + 1, i)
+    z_new_flat = ops.index_update(z_init_flat, idx, proposal)
+    z_new = unravel_fn(z_new_flat)
+    pe_new = potential_fn(z_new)
+    log_weight_new = pe_init - pe_new
+    # Handles the NaN case...
+    log_weight_new = jnp.where(jnp.isfinite(log_weight_new), log_weight_new, -jnp.inf)
+    # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
+    transition_prob = expit(log_weight_new - log_weight_sum)
+    z, pe = cond(random.bernoulli(rng_transition, transition_prob),
+                 (z_new, pe_new), identity,
+                 (z, pe), identity)
+    log_weight_sum = jnp.logaddexp(log_weight_new, log_weight_sum)
+    return rng_key, z, pe, log_weight_sum
+
+
+def _discrete_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size):
     # idx: current index of `z_discrete_flat` to update
     # support_size: support size of z_discrete at the index idx
 
-    # get z proposal
     z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
-
+    # Here we loop over the support of z_flat[idx] to get z_new
     # XXX: we can't vmap potential_fn over all proposals and sample from the conditional
     # categorical distribution because support_size is a traced value, i.e. its value
     # might change across different discrete variables;
     # so here we will loop over all proposals and use an online scheme to sample from
     # the conditional categorical distribution
-    def body_fn(i, val):
-        rng_key, z, pe, weight_logsumexp = val
-        rng_key, rng_accept = random.split(rng_key)
-        proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
-        z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
-        z_new = unravel_fn(z_new_flat)
-        pe_new = potential_fn(z_new)
-        weight_new = pe - pe_new
-        # Handles the NaN case...
-        weight_new = jnp.where(jnp.isfinite(weight_new), weight_new, -jnp.inf)
-        # transition_prob = e^weight_new / (e^weight_logsumexp + e^weight_new)
-        transition_prob = expit(weight_new - weight_logsumexp)
-        z, pe = cond(random.bernoulli(rng_accept, transition_prob),
-                     (z_new, pe_new), identity,
-                     (z, pe), identity)
-        weight_logsumexp = jnp.logaddexp(weight_new, weight_logsumexp)
-        return rng_key, z, pe, weight_logsumexp
-
+    body_fn = partial(_discrete_gibbs_proposal_body_fn,
+                      z_discrete_flat, unravel_fn, pe, potential_fn, idx)
     init_val = (rng_key, z_discrete, pe, jnp.array(0.))
-    rng_key, z, pe, _ = fori_loop(0, support_size - 1, body_fn, init_val)
-    return rng_key, z, pe
+    rng_key, z_new, pe_new, _ = fori_loop(0, support_size - 1, body_fn, init_val)
+    log_accept_ratio = jnp.array(0.)
+    return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def discrete_gibbs_fn(model, *model_args, **model_kwargs):
+def _discrete_modified_gibbs_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size,
+                                      stay_prob=0.):
+    assert isinstance(stay_prob, float) and stay_prob >= 0. and stay_prob < 1
+    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
+    body_fn = partial(_discrete_gibbs_proposal_body_fn,
+                      z_discrete_flat, unravel_fn, pe, potential_fn, idx)
+    # like gibbs_step but here, weight of the current value is 0
+    init_val = (rng_key, z_discrete, pe, jnp.array(-jnp.inf))
+    rng_key, z_new, pe_new, log_weight_sum = fori_loop(0, support_size - 1, body_fn, init_val)
+    rng_key, rng_stay = random.split(rng_key)
+    z_new, pe_new = cond(random.bernoulli(rng_stay, stay_prob),
+                         (z_discrete, pe), identity,
+                         (z_new, pe_new), identity)
+    # here we calculate the MH correction: (1 - P(z)) / (1 - P(z_new))
+    # where 1 - P(z) ~ weight_sum
+    # and 1 - P(z_new) ~ 1 + weight_sum - z_new_weight
+    log_accept_ratio = log_weight_sum - jnp.log(jnp.exp(log_weight_sum) - jnp.expm1(pe - pe_new))
+    return rng_key, z_new, pe_new, log_accept_ratio
+
+
+def _discrete_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size):
+    rng_key, rng_proposal = random.split(rng_key, 2)
+    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
+
+    proposal = random.randint(rng_proposal, (), minval=0, maxval=support_size)
+    z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_new = unravel_fn(z_new_flat)
+    pe_new = potential_fn(z_new)
+    log_accept_ratio = pe - pe_new
+    return rng_key, z_new, pe_new, log_accept_ratio
+
+
+def _discrete_modified_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, support_size,
+                                   stay_prob=0.):
+    assert isinstance(stay_prob, float) and stay_prob >= 0. and stay_prob < 1
+    rng_key, rng_proposal, rng_stay = random.split(rng_key, 3)
+    z_discrete_flat, unravel_fn = ravel_pytree(z_discrete)
+
+    i = random.randint(rng_proposal, (), minval=0, maxval=support_size - 1)
+    proposal = jnp.where(i >= z_discrete_flat[idx], i + 1, i)
+    proposal = jnp.where(random.bernoulli(rng_stay, stay_prob), idx, proposal)
+    z_new_flat = ops.index_update(z_discrete_flat, idx, proposal)
+    z_new = unravel_fn(z_new_flat)
+    pe_new = potential_fn(z_new)
+    log_accept_ratio = pe - pe_new
+    return rng_key, z_new, pe_new, log_accept_ratio
+
+
+def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=False, modified=False):
     """
     [EXPERIMENTAL INTERFACE]
 
@@ -200,6 +251,24 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
 
     Note that those discrete latent sites that are not specified in the constructor of
     :class:`HMCGibbs` will be marginalized out by default (if they have enumerate supports).
+
+    :param callable model: a callable with NumPyro primitives. This should be the same model
+        as the one used in the `inner_kernel` of :class:`HMCGibbs`.
+    :param tuple model_args: Arguments provided to the model.
+    :param dict model_kwargs: Keyword arguments provided to the model.
+    :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
+        conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
+        from the domain of `gibbs_site`.
+    :param bool modified: whether to use a modified proposal, as suggested in reference [1], which
+        always proposes a new state for the current Gibbs site.
+        The modified scheme appears in the literature under the name "modified Gibbs sampler" or
+        "Metropolised Gibbs sampler".
+    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs
+
+    **References:**
+
+    1. *Peskun's theorem and a modified discrete-state Gibbs sampler*,
+       Liu, J. S. (1996)
 
     **Example**
 
@@ -217,13 +286,11 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
         ...
         >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
         >>> locs = jnp.array([-2, 0, 2, 4])
-        >>> gibbs_fn = discrete_gibbs_fn(model, probs, locs)
+        >>> gibbs_fn = discrete_gibbs_fn(model, (probs, locs))
         >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
         >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
-        >>> samples = mcmc.get_samples()["x"]
-        >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
-        >>> assert abs(jnp.var(samples) - 4.36) < 0.5
+        >>> mcmc.print_summary()  # doctest: +SKIP
 
     """
     # NB: all of the information such as `model`, `model_args`, `model_kwargs`
@@ -236,6 +303,16 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
         if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
     }
     max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
+    if random_walk:
+        if modified:
+            proposal_fn = partial(_discrete_modified_rw_proposal, stay_prob=0.)
+        else:
+            proposal_fn = _discrete_rw_proposal
+    else:
+        if modified:
+            proposal_fn = partial(_discrete_modified_gibbs_proposal, stay_prob=0.)
+        else:
+            proposal_fn = _discrete_gibbs_proposal
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         # convert to unconstrained values
@@ -249,8 +326,9 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
             wrapped_model = enum(config_enumerate(wrapped_model), -max_plate_nesting - 1)
 
         def potential_fn(z_discrete):
-            model_kwargs["_gibbs_sites"] = z_discrete
-            return potential_energy(wrapped_model, model_args, model_kwargs, z_hmc, enum=use_enum)
+            model_kwargs_ = model_kwargs.copy()
+            model_kwargs_["_gibbs_sites"] = z_discrete
+            return potential_energy(wrapped_model, model_args, model_kwargs_, z_hmc, enum=use_enum)
 
         # get support_sizes of gibbs_sites
         support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
@@ -262,7 +340,16 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
         def body_fn(i, val):
             idx = idxs[i]
             support_size = support_sizes_flat[idx]
-            return _discrete_step(*val, potential_fn=potential_fn, idx=idx, support_size=support_size)
+            rng_key, z, pe = val
+            rng_key, z_new, pe_new, log_accept_ratio = proposal_fn(
+                rng_key, z, pe, potential_fn=potential_fn, idx=idx, support_size=support_size)
+            rng_key, rng_accept = random.split(rng_key)
+            # u ~ Uniform(0, 1), u < accept_ratio => -log(u) > -log_accept_ratio
+            # and -log(u) ~ exponential(1)
+            z, pe = cond(random.exponential(rng_accept) > -log_accept_ratio,
+                         (z_new, pe_new), identity,
+                         (z, pe), identity)
+            return rng_key, z, pe
 
         init_val = (rng_key, gibbs_sites, potential_fn(gibbs_sites))
         _, gibbs_sites, _ = fori_loop(0, num_discretes, body_fn, init_val)
@@ -271,7 +358,7 @@ def discrete_gibbs_fn(model, *model_args, **model_kwargs):
     return gibbs_fn
 
 
-def subsample_gibbs_fn(model, *model_args, **model_kwargs):
+def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
     """
     [EXPERIMENTAL INTERFACE]
 
@@ -286,6 +373,12 @@ def subsample_gibbs_fn(model, *model_args, **model_kwargs):
        Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
     2. *Speeding Up MCMC by Efficient Data Subsampling*,
        Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
+
+    :param callable model: a callable with NumPyro primitives. This should be the same model
+        as the one used in the `inner_kernel` of :class:`HMCGibbs`.
+    :param tuple model_args: Arguments provided to the model.
+    :param dict model_kwargs: Keyword arguments provided to the model.
+    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs
 
     **Example**
 
@@ -304,7 +397,7 @@ def subsample_gibbs_fn(model, *model_args, **model_kwargs):
         ...         numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
         ...
         >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
-        >>> gibbs_fn = subsample_gibbs_fn(model, data)
+        >>> gibbs_fn = subsample_gibbs_fn(model, (data,))
         >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["N"])
         >>> mcmc = MCMC(kernel, 1000, 1000)
         >>> mcmc.run(random.PRNGKey(0), data)
