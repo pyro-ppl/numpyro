@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import Callable, List, Dict, Tuple
 
+from jax import random
 import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 import numpy as np
-import numpy.random as npr
 
 import numpyro.distributions as dist
 from numpyro.infer.einstein.utils import safe_norm, sqrth_and_inv_sqrth
@@ -45,6 +45,15 @@ class SteinKernel(ABC):
                  Modes: norm `(d,) (d,)-> ()`,  vector `(d,) (d,) -> (d)`, or matrix `(d,) (d,) -> (d,d)`
         """
         raise NotImplementedError
+
+    def init(self, rng_key, particles_shape):
+        """
+        Initializes the kernel
+
+        :param rng_key: a JAX PRNGKey to initialize the kernel
+        :param tuple particles_shape: shape of the input `particles` in :meth:`compute`
+        """
+        pass
 
 
 class RBFKernel(SteinKernel):
@@ -196,19 +205,29 @@ class RandomFeatureKernel(SteinKernel):
         self.bandwidth_factor = bandwidth_factor
         self._random_weights = None
         self._random_biases = None
+        self._bandwidth_subset_indices = None
 
     @property
     def mode(self):
         return self._mode
 
+    def init(self, rng_key, particles_shape):
+        self._random_weights = random.normal(rng_key, shape=particles_shape)
+        self._random_biases = random.uniform(rng_key, shape=particles_shape, maxval=(2 * np.pi))
+        if self.bandwidth_subset is not None:
+            self._bandwidth_subset_indices = random.choice(
+                rng_key, particles_shape[0], (self.bandwidth_subset,))
+
     def compute(self, particles, particle_info, loss_fn):
-        # FIXME(fehiepsi): is the usage of `numpy.random` here safe?
         if self._random_weights is None:
-            self._random_weights = jnp.array(npr.randn(*particles.shape))
-            self._random_biases = jnp.array(npr.rand(*particles.shape) * 2 * np.pi)
+            raise RuntimeError("The `.init` method should be called first to initialize the"
+                               " random weights, biases and subset indices.")
+        if particles.shape != self._random_weights.shape:
+            raise ValueError("Shapes of `particles` and the random weights are mismatched, got {}"
+                             " and {}.".format(particles.shape, self._random_weights.shape))
         factor = self.bandwidth_factor(particles.shape[0])
         if self.bandwidth_subset is not None:
-            particles = particles[npr.choice(particles.shape[0], self.bandwidth_subset)]
+            particles = particles[self._bandwidth_subset_indices]
         diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1)  # N x N x D
         if particles.ndim == 2:
             diffs = safe_norm(diffs, ord=2, axis=-1)  # N x N x D -> N x N

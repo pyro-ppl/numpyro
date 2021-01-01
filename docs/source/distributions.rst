@@ -49,6 +49,14 @@ TransformedDistribution
     :show-inheritance:
     :member-order: bysource
 
+Delta
+-----
+.. autoclass:: numpyro.distributions.distribution.Delta
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 Unit
 ----
 .. autoclass:: numpyro.distributions.distribution.Unit
@@ -328,14 +336,6 @@ CategoricalLogits
 CategoricalProbs
 ----------------
 .. autoclass:: numpyro.distributions.discrete.CategoricalProbs
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-Delta
------
-.. autoclass:: numpyro.distributions.discrete.Delta
     :members:
     :undoc-members:
     :show-inheritance:

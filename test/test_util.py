@@ -13,6 +13,27 @@ from jax.tree_util import tree_flatten, tree_multimap
 from numpyro.util import fori_collect, ravel_pytree, soft_vmap
 
 
+def test_fori_collect_thinning():
+    def f(x):
+        return x + 1.0
+
+    actual2 = fori_collect(0, 9, f, jnp.array([-1]), thinning=2)
+    expected2 = jnp.array([[2], [4], [6], [8]])
+    check_eq(actual2, expected2)
+
+    actual3 = fori_collect(0, 9, f, jnp.array([-1]), thinning=3)
+    expected3 = jnp.array([[2], [5], [8]])
+    check_eq(actual3, expected3)
+
+    actual4 = fori_collect(0, 9, f, jnp.array([-1]), thinning=4)
+    expected4 = jnp.array([[4], [8]])
+    check_eq(actual4, expected4)
+
+    actual5 = fori_collect(12, 37, f, jnp.array([-1]), thinning=5)
+    expected5 = jnp.array([[16], [21], [26], [31], [36]])
+    check_eq(actual5, expected5)
+
+
 def test_fori_collect():
     def f(x):
         return {'i': x['i'] + x['j'], 'j': x['i'] - x['j']}

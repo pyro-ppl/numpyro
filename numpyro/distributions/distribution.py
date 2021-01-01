@@ -193,6 +193,16 @@ class Distribution(metaclass=DistributionMeta):
         """
         return len(self.event_shape)
 
+    @property
+    def has_rsample(self):
+        return set(self.reparametrized_params) == set(self.arg_constraints)
+
+    def rsample(self, key, sample_shape=()):
+        if self.has_rsample:
+            return self.sample(key, sample_shape=sample_shape)
+
+        raise NotImplementedError
+
     def shape(self, sample_shape=()):
         """
         The tensor shape of samples from this distribution.
@@ -390,22 +400,32 @@ class ExpandedDistribution(Distribution):
         return self.base_dist.is_discrete
 
     @property
-    def support(self):
-        return self.base_dist.support
+    def has_rsample(self):
+        return self.base_dist.has_rsample
 
-    def sample(self, key, sample_shape=()):
+    def _sample(self, sample_fn, key, sample_shape=()):
         interstitial_dims = tuple(self._interstitial_sizes.keys())
         event_dim = len(self.event_shape)
         interstitial_dims = tuple(i - event_dim for i in interstitial_dims)
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
-        samples = self.base_dist(rng_key=key, sample_shape=sample_shape + batch_shape)
+        samples = sample_fn(key, sample_shape=sample_shape + batch_shape)
         interstitial_idx = len(sample_shape) + len(expanded_sizes)
         interstitial_sample_dims = tuple(range(interstitial_idx, interstitial_idx + len(interstitial_sizes)))
         for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
             samples = jnp.swapaxes(samples, dim1, dim2)
         return samples.reshape(sample_shape + self.batch_shape + self.event_shape)
+
+    def rsample(self, key, sample_shape=()):
+        return self._sample(self.base_dist.rsample, key, sample_shape)
+
+    @property
+    def support(self):
+        return self.base_dist.support
+
+    def sample(self, key, sample_shape=()):
+        return self._sample(self.base_dist.sample, key, sample_shape)
 
     def log_prob(self, value):
         shape = lax.broadcast_shapes(self.batch_shape,
@@ -584,6 +604,13 @@ class Independent(Distribution):
     def variance(self):
         return self.base_dist.variance
 
+    @property
+    def has_rsample(self):
+        return self.base_dist.has_rsample
+
+    def rsample(self, key, sample_shape=()):
+        return self.base_dist.rsample(key, sample_shape=sample_shape)
+
     def sample(self, key, sample_shape=()):
         return self.base_dist(rng_key=key, sample_shape=sample_shape)
 
@@ -638,6 +665,13 @@ class MaskedDistribution(Distribution):
     @property
     def is_discrete(self):
         return self.base_dist.is_discrete
+
+    @property
+    def has_rsample(self):
+        return self.base_dist.has_rsample
+
+    def rsample(self, key, sample_shape=()):
+        return self.base_dist.rsample(key, sample_shape=sample_shape)
 
     @property
     def support(self):
@@ -745,6 +779,16 @@ class TransformedDistribution(Distribution):
         super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @property
+    def has_rsample(self):
+        return self.base_dist.has_rsample
+
+    def rsample(self, key, sample_shape=()):
+        x = self.base_dist.rsample(key, sample_shape=sample_shape)
+        for transform in self.transforms:
+            x = transform(x)
+        return x
+
+    @property
     def support(self):
         domain = self.base_dist.support
         for t in self.transforms:
@@ -803,6 +847,50 @@ class TransformedDistribution(Distribution):
             " Consider using `TransformReparam` to convert this distribution to the base_dist,"
             " which is supported in most situtations. In addition, please reach out to us with"
             " your usage cases.")
+
+
+class Delta(Distribution):
+    arg_constraints = {'v': real, 'log_density': real}
+    reparameterized_params = ['v', 'log_density']
+    support = real
+    is_discrete = True
+
+    def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None):
+        if event_dim > jnp.ndim(v):
+            raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
+                             .format(event_dim, jnp.ndim(v)))
+        batch_dim = jnp.ndim(v) - event_dim
+        batch_shape = jnp.shape(v)[:batch_dim]
+        event_shape = jnp.shape(v)[batch_dim:]
+        self.v = v
+        # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
+        self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
+        super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        shape = sample_shape + self.batch_shape + self.event_shape
+        return jnp.broadcast_to(self.v, shape)
+
+    @validate_sample
+    def log_prob(self, value):
+        log_prob = jnp.log(value == self.v)
+        log_prob = sum_rightmost(log_prob, len(self.event_shape))
+        return log_prob + self.log_density
+
+    @property
+    def mean(self):
+        return self.v
+
+    @property
+    def variance(self):
+        return jnp.zeros(self.batch_shape + self.event_shape)
+
+    def tree_flatten(self):
+        return (self.v, self.log_density), self.event_dim
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        return cls(*params, event_dim=aux_data)
 
 
 class Unit(Distribution):

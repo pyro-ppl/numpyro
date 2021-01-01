@@ -32,8 +32,8 @@ from jax import lax
 import jax.numpy as jnp
 
 from numpyro.distributions.continuous import Normal
-from numpyro.distributions.discrete import Delta
-from numpyro.distributions.distribution import Distribution, ExpandedDistribution, Independent, MaskedDistribution
+from numpyro.distributions.distribution import (Delta, Distribution, ExpandedDistribution,
+                                                Independent, MaskedDistribution)
 from numpyro.distributions.util import scale_and_mask, sum_rightmost
 
 

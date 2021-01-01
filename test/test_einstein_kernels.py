@@ -4,6 +4,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
+from jax import random
 import jax.numpy as jnp
 
 from numpyro.infer.einstein.kernels import (
@@ -37,7 +38,7 @@ TEST_CASES = [
     T(RandomFeatureKernel,
       lambda d: {},
       lambda x: x,
-      {'norm': 12.190277}),
+      {'norm': 15.486456}),
     T(IMQKernel,
       lambda d: {},
       lambda x: x,
@@ -81,7 +82,9 @@ def test_kernel_forward(kernel, particles, particle_info, loss_fn, tparticles, m
     if mode not in kval:
         return
     d, = tparticles[0].shape
-    kernel_fn = kernel(mode=mode).compute(particles, particle_info(d), loss_fn)
+    kernel = kernel(mode=mode)
+    kernel.init(random.PRNGKey(0), particles.shape)
+    kernel_fn = kernel.compute(particles, particle_info(d), loss_fn)
     value = kernel_fn(*tparticles)
 
     assert_allclose(value, kval[mode], atol=1e-9)
