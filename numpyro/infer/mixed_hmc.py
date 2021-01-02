@@ -8,7 +8,7 @@ import jax.numpy as jnp
 
 from numpyro.handlers import seed, trace
 from numpyro.infer.hmc import momentum_generator
-from numpyro.infer.hmc_gibbs import HMCGibbs, HMCGibbsState, _discrete_modified_gibbs_proposal
+from numpyro.infer.hmc_gibbs import HMCGibbs, HMCGibbsState, _discrete_gibbs_proposal, _discrete_modified_gibbs_proposal
 from numpyro.infer.hmc_util import euclidean_kinetic_energy
 from numpyro.util import cond, fori_loop, identity, ravel_pytree, while_loop
 
@@ -183,29 +183,32 @@ class ModifiedHMCGibbs(HMCGibbs):
         z_gibbs = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
         num_discretes = self._support_sizes_flat.shape[0]
         rng_key, rng_permute = random.split(state.rng_key)
-        idxs = random.permutation(rng_permute, jnp.arange(num_discretes + 1))
+        # idxs = random.permutation(rng_permute, jnp.arange(num_discretes + 1))
+        idxs = jnp.arange(num_discretes + 1)
 
         def update_gibbs(idx, rng_key, z_gibbs, hmc_state):
             rng_key, z_gibbs, pe_new, log_accept_ratio = _discrete_modified_gibbs_proposal(
                 rng_key, z_gibbs, hmc_state.potential_energy,
                 partial(potential_fn, z_hmc=hmc_state.z), idx, self._support_sizes_flat[idx])
+            log_proposal_ratio = log_accept_ratio - hmc_state.potential_energy + pe_new
             z_grad = grad(partial(potential_fn, z_gibbs))(hmc_state.z)
-            energy = hmc_state.energy - hmc_state.potential_energy + pe_new
-            hmc_state = hmc_state._replace(potential_energy=pe_new, z_grad=z_grad, energy=energy)
-            log_proposal_ratio = log_accept_ratio - pe + pe_new
+            hmc_state = hmc_state._replace(potential_energy=pe_new, z_grad=z_grad)
+            print("gibbs prob", log_proposal_ratio)
             return rng_key, z_gibbs, hmc_state, log_proposal_ratio
 
         def update_hmc(rng_key, z_gibbs, hmc_state):
             model_kwargs_ = model_kwargs.copy()
             model_kwargs_["_gibbs_sites"] = z_gibbs
-            hmc_state_new = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_)
-            log_proposal_ratio = hmc_state_new.energy - hmc_state.energy
-            return rng_key, z_gibbs, hmc_state_new, log_proposal_ratio
+            start_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, hmc_state.r)
+            start_energy = hmc_state.potential_energy + start_ke
+            hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_)
+            log_proposal_ratio = hmc_state.energy - start_energy
+            return rng_key, z_gibbs, hmc_state, log_proposal_ratio
 
         def body_fn(i, val):
             rng_key, z_gibbs, hmc_state, log_proposal_ratio_sum = val
             rng_key, z_gibbs, hmc_state, log_proposal_ratio = cond(
-                i < num_discretes,
+                idxs[i] < num_discretes,
                 (idxs[i], rng_key, z_gibbs, hmc_state),
                 lambda vals: update_gibbs(*vals),
                 (rng_key, z_gibbs, hmc_state),
@@ -213,20 +216,24 @@ class ModifiedHMCGibbs(HMCGibbs):
             )
             return rng_key, z_gibbs, hmc_state, log_proposal_ratio_sum + log_proposal_ratio
 
-        init_val = (rng_key, z_gibbs, state.hmc_state, 0.)
+        rng_key, rng_r = random.split(rng_key)
+        r = momentum_generator(state.hmc_state.r, state.hmc_state.adapt_state.mass_matrix_sqrt, rng_r)
+        hmc_state = state.hmc_state._replace(r=r, reset_momentum=jnp.array(False))
+        init_val = (rng_key, z_gibbs, hmc_state, 0.)
         rng_key, z_gibbs_new, hmc_state_new, log_proposal_ratio_sum = fori_loop(
             0, num_discretes + 1, body_fn, init_val)
         # delay accept
         rng_key, rng_accept = random.split(rng_key)
         log_accept_ratio = state.hmc_state.potential_energy - hmc_state_new.potential_energy \
             + log_proposal_ratio_sum
-        z_gibbs, z_hmc, z_grad, pe, energy = cond(
+        print(jnp.exp(log_accept_ratio), log_proposal_ratio_sum)
+        z_gibbs, z_hmc, z_grad, pe = cond(
             random.exponential(rng_accept) > - log_accept_ratio,
             (z_gibbs_new, hmc_state_new),
-            lambda vals: (vals[0], vals[1].z, vals[1].z_grad, vals[1].potential_energy, vals[1].energy),
-            (z_gibbs, state.hmc_state),
-            lambda vals: (vals[0], vals[1].z, vals[1].z_grad, vals[1].potential_energy, vals[1].energy),
+            lambda vals: (vals[0], vals[1].z, vals[1].z_grad, vals[1].potential_energy),
+            (z_gibbs, hmc_state),
+            lambda vals: (vals[0], vals[1].z, vals[1].z_grad, vals[1].potential_energy),
         )
-        hmc_state = hmc_state_new._replace(z=z_hmc, z_grad=z_grad, potential_energy=pe, energy=energy)
+        hmc_state = hmc_state_new._replace(z=z_hmc, z_grad=z_grad, potential_energy=pe)
         z = {**z_gibbs, **hmc_state.z}
         return HMCGibbsState(z, hmc_state, rng_key)
