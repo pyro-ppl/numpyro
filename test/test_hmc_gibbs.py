@@ -166,7 +166,8 @@ def test_discrete_gibbs_enum():
 
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7))
-        numpyro.sample("y", dist.Binomial(10, 0.3))
+        y = numpyro.sample("y", dist.Binomial(10, 0.3))
+        numpyro.deterministic("y2", y ** 2)
 
     kernel = HMCGibbs(NUTS(model), discrete_gibbs_fn(model), gibbs_sites=["y"])
     mcmc = MCMC(kernel, 1000, 10000, progress_bar=False)
