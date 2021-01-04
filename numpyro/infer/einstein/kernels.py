@@ -212,8 +212,9 @@ class RandomFeatureKernel(SteinKernel):
         return self._mode
 
     def init(self, rng_key, particles_shape):
-        self._random_weights = random.normal(rng_key, shape=particles_shape)
-        self._random_biases = random.uniform(rng_key, shape=particles_shape, maxval=(2 * np.pi))
+        rng_key, rng_weight, rng_bias = random.split(rng_key, 3)
+        self._random_weights = random.normal(rng_weight, shape=particles_shape)
+        self._random_biases = random.uniform(rng_bias, shape=particles_shape, maxval=(2 * np.pi))
         if self.bandwidth_subset is not None:
             self._bandwidth_subset_indices = random.choice(
                 rng_key, particles_shape[0], (self.bandwidth_subset,))

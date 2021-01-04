@@ -38,7 +38,7 @@ TEST_CASES = [
     T(RandomFeatureKernel,
       lambda d: {},
       lambda x: x,
-      {'norm': 15.486456}),
+      {'norm': 15.251404}),
     T(IMQKernel,
       lambda d: {},
       lambda x: x,
