@@ -288,10 +288,7 @@ class MCMC(object):
 
             def laxmap_postprocess_fn(states, args, kwargs):
                 if self.postprocess_fn is None:
-                    if self._jit_model_args:
-                        body_fn = self.sampler.postprocess_fn(args, kwargs)
-                    else:
-                        body_fn = sampler_postprocess_fn
+                    body_fn = self.sampler.postprocess_fn(args, kwargs)
                 else:
                     body_fn = self.postprocess_fn
                 if self.chain_method == "vectorized" and self.num_chains > 1:
@@ -305,7 +302,6 @@ class MCMC(object):
             else:
                 sample_fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
                                     args=self._args, kwargs=self._kwargs)
-                sampler_postprocess_fn = self.sampler.postprocess_fn(self._args, self._kwargs)
                 postprocess_fn = jit(partial(laxmap_postprocess_fn,
                                              args=self._args, kwargs=self._kwargs))
 
