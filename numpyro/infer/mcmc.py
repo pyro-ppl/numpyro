@@ -271,7 +271,7 @@ class MCMC(object):
         self._collection_params = {}
         self._set_collection_params()
 
-    def _get_cached_fn(self):
+    def _get_cached_fns(self):
         if self._jit_model_args:
             args, kwargs = (None,), (None,)
         else:
@@ -279,20 +279,40 @@ class MCMC(object):
             kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(self._kwargs.items())))
         key = args + kwargs
         try:
-            fn = self._cache.get(key, None)
+            fns = self._cache.get(key, None)
         # If unhashable arguments are provided, proceed normally
         # without caching
         except TypeError:
-            fn, key = None, None
-        if fn is None:
+            fns, key = None, None
+        if fns is None:
+
+            def laxmap_postprocess_fn(states, args, kwargs):
+                if self.postprocess_fn is None:
+                    if self._jit_model_args:
+                        body_fn = self.sampler.postprocess_fn(args, kwargs)
+                    else:
+                        body_fn = sampler_postprocess_fn
+                else:
+                    body_fn = self.postprocess_fn
+                if self.chain_method == "vectorized" and self.num_chains > 1:
+                    body_fn = vmap(body_fn)
+
+                return lax.map(body_fn, states)
+
             if self._jit_model_args:
-                fn = partial(_sample_fn_jit_args, sampler=self.sampler)
+                sample_fn = partial(_sample_fn_jit_args, sampler=self.sampler)
+                postprocess_fn = jit(laxmap_postprocess_fn)
             else:
-                fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
-                             args=self._args, kwargs=self._kwargs)
+                sample_fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
+                                    args=self._args, kwargs=self._kwargs)
+                sampler_postprocess_fn = self.sampler.postprocess_fn(self._args, self._kwargs)
+                postprocess_fn = jit(partial(laxmap_postprocess_fn,
+                                             args=self._args, kwargs=self._kwargs))
+
+            fns = sample_fn, postprocess_fn
             if key is not None:
-                self._cache[key] = fn
-        return fn
+                self._cache[key] = fns
+        return fns
 
     def _get_cached_init_state(self, rng_key, args, kwargs):
         rng_key = (_hashable(rng_key),)
@@ -310,10 +330,7 @@ class MCMC(object):
         if init_state is None:
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
-        if self.postprocess_fn is None:
-            postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
-        else:
-            postprocess_fn = self.postprocess_fn
+        sample_fn, postprocess_fn = self._get_cached_fns()
         diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else ''   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
@@ -323,7 +340,7 @@ class MCMC(object):
         collection_size = collection_size if collection_size is None else collection_size // self.thinning
         collect_vals = fori_collect(lower_idx,
                                     upper_idx,
-                                    self._get_cached_fn(),
+                                    sample_fn,
                                     init_val,
                                     transform=_collect_fn(collect_fields),
                                     progbar=self.progress_bar,
@@ -344,9 +361,10 @@ class MCMC(object):
         # so we only need to filter out the case site_value.shape[0] == 0
         # (which happens when lower_idx==upper_idx)
         if len(site_values) > 0 and jnp.shape(site_values[0])[0] > 0:
-            if self.chain_method == "vectorized" and self.num_chains > 1:
-                postprocess_fn = vmap(postprocess_fn)
-            states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
+            if self._jit_model_args:
+                states[self._sample_field] = postprocess_fn(states[self._sample_field], args, kwargs)
+            else:
+                states[self._sample_field] = postprocess_fn(states[self._sample_field])
         return states, last_state
 
     def _set_collection_params(self, lower=None, upper=None, collection_size=None, phase=None):
