@@ -3,6 +3,7 @@
 
 from collections import defaultdict
 from contextlib import contextmanager
+import re
 
 import funsor
 import numpyro
@@ -71,6 +72,18 @@ def config_enumerate(fn, default='parallel'):
     return infer_config(fn, config_fn)
 
 
+def _get_shift(name):
+    """helper function used internally in sarkka_bilmes_product"""
+    return len(re.search(r"^(_PREV_)*", name).group(0)) // 6
+
+
+def _shift_name(name, t):
+    """helper function used internally in sarkka_bilmes_product"""
+    if t >= 0:
+        return t * "_PREV_" + name
+    return name.replace("_PREV_" * -t, "", 1)
+
+
 def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_dims,
                            sum_vars, prod_vars, history):
     """
@@ -97,13 +110,13 @@ def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_di
 
         if history > 1:
             global_vars = frozenset(set(trans.inputs) - {time_var.name} - prev_vars
-                                    - {k.lstrip("P") for k in prev_vars})
+                                    - {_shift_name(k, -_get_shift(k)) for k in prev_vars})
             markov_factors.append(funsor.sum_product.sarkka_bilmes_product(
                 funsor.ops.logaddexp, funsor.ops.add, trans, time_var, global_vars
             ))
         else:
-            # remove `P` prefix to convert prev to curr
-            prev_to_curr = {k: k.lstrip("P") for k in prev_vars}
+            # remove `_PREV_` prefix to convert prev to curr
+            prev_to_curr = {k: _shift_name(k, -_get_shift(k)) for k in prev_vars}
             markov_factors.append(funsor.sum_product.sequential_sum_product(
                 funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr
             ))
@@ -161,9 +174,9 @@ def log_density(model, model_args, model_kwargs, params):
                 if name.startswith("_time"):
                     time_dim = funsor.Variable(name, funsor.domains.bint(log_prob.shape[dim]))
                     time_to_factors[time_dim].append(log_prob_factor)
-                    history = max(history, max((len(s) - len(s.lstrip("P"))) for s in dim_to_name.values()))
+                    history = max(history, max(_get_shift(s) for s in dim_to_name.values()))
                     time_to_init_vars[time_dim] |= frozenset(
-                        s for s in dim_to_name.values() if s.startswith("P"))
+                        s for s in dim_to_name.values() if s.startswith("_PREV_"))
                     break
             if time_dim is None:
                 log_factors.append(log_prob_factor)
@@ -174,9 +187,9 @@ def log_density(model, model_args, model_kwargs, params):
 
     for time_dim, init_vars in time_to_init_vars.items():
         for var in init_vars:
-            curr_var = var.lstrip("P")
+            curr_var = _shift_name(var, -_get_shift(var))
             dim_to_name = model_trace[curr_var]["infer"]["dim_to_name"]
-            if var in dim_to_name.values():  # i.e. P* (i.e. prev) in dim_to_name
+            if var in dim_to_name.values():  # i.e. _PREV_* (i.e. prev) in dim_to_name
                 time_to_markov_dims[time_dim] |= frozenset(name for name in dim_to_name.values())
 
     if len(time_to_factors) > 0:

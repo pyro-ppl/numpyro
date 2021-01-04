@@ -263,7 +263,7 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
         always proposes a new state for the current Gibbs site.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
-    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs
+    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs`
 
     **References:**
 
@@ -317,7 +317,8 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         # convert to unconstrained values
         z_hmc = {k: biject_to(prototype_trace[k]["fn"].support).inv(v)
-                 for k, v in hmc_sites.items() if k in prototype_trace}
+                 for k, v in hmc_sites.items()
+                 if k in prototype_trace and prototype_trace[k]["type"] == "sample"}
         use_enum = len(set(support_sizes) - set(gibbs_sites)) > 0
         wrapped_model = _wrap_model(model)
         if use_enum:
@@ -378,7 +379,7 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
         as the one used in the `inner_kernel` of :class:`HMCGibbs`.
     :param tuple model_args: Arguments provided to the model.
     :param dict model_kwargs: Keyword arguments provided to the model.
-    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs
+    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs`
 
     **Example**
 
