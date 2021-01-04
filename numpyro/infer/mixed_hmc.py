@@ -8,7 +8,7 @@ import jax.numpy as jnp
 
 from numpyro.handlers import seed, trace
 from numpyro.infer.hmc import momentum_generator
-from numpyro.infer.hmc_gibbs import HMCGibbs, HMCGibbsState, _discrete_gibbs_proposal, _discrete_modified_gibbs_proposal
+from numpyro.infer.hmc_gibbs import HMCGibbs, HMCGibbsState, _discrete_modified_gibbs_proposal
 from numpyro.infer.hmc_util import euclidean_kinetic_energy
 from numpyro.util import cond, fori_loop, identity, ravel_pytree, while_loop
 
@@ -39,18 +39,12 @@ def _discrete_step(rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time,
     return rng_key, z_discrete, pe, ke_discrete, time_to_go, max_time
 
 
-def _identity_gibbs_fn(rng_key, gibbs_sites, hmc_sites):
-    return gibbs_sites
-
-
 class MixedHMC(HMCGibbs):
 
-    def __init__(self, inner_kernel, discrete_sites=None, num_trajectories=1,
-                 num_discrete_steps=1, discrete_mass=1.):
-        super().__init__(inner_kernel, _identity_gibbs_fn, discrete_sites)
+    def __init__(self, inner_kernel, discrete_sites=None, num_trajectories=1, num_discrete_steps=1):
+        super().__init__(inner_kernel, lambda: None, discrete_sites)
         self._num_trajectories = num_trajectories
         self._num_discrete_steps = num_discrete_steps
-        self._discrete_mass = discrete_mass
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
@@ -157,10 +151,17 @@ class MixedHMC(HMCGibbs):
         return HMCGibbsState(z, hmc_state, rng_key)
 
 
-class ModifiedHMCGibbs(HMCGibbs):
+class MixedHMCGibbs(HMCGibbs):
 
-    def __init__(self, inner_kernel, discrete_sites=None):
-        super().__init__(inner_kernel, _identity_gibbs_fn, discrete_sites)
+    def __init__(self, inner_kernel, discrete_sites=None, num_gibbs_steps=20, gibbs_mass=None):
+        # gibbs_mass: a vector with the first num_discretes value are discrete mass and the
+        # last value is hmc clock mass.
+        # NB: num_gibbs_steps can be skipped by adapting clock_mass
+        # The interaction between discrete_clock_mass and hmc_clock_mass can be learned
+        # during warmup phase. So the number of gibbs_steps might change for each MCMC step.
+        # This might also explain why U-turn behavior happens in MixedHMC paper.
+        super().__init__(inner_kernel, lambda: None, discrete_sites)
+        self._gibbs_mass = gibbs_mass
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs
@@ -171,10 +172,19 @@ class ModifiedHMCGibbs(HMCGibbs):
             if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
         }
         self._support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in self._gibbs_sites})
+        if self._clock_mass is None:
+            self._clock_mass = jnp.ones(self._support_sizes_flat.shape[0] + 1)
         return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
 
     def sample(self, state, model_args, model_kwargs):
+        # NB: this adjusts MixedHMC algorithm a bit to be more compatible to NUTS sampling
         model_kwargs = {} if model_kwargs is None else model_kwargs
+        rng_key, rng_ke, rng_time = random.split(state.rng_key, 3)
+        num_discretes = self._support_sizes_flat.shape[0]
+
+        ke_discrete = random.exponential(rng_ke, self._support_sizes.shape)
+        # NB: velocity = +-1 / mass
+        arrival_time = random.uniform(rng_time, num_discretes + 1) * self._gibbs_mass
 
         def potential_fn(z_gibbs, z_hmc):
             return self.inner_kernel._potential_fn_gen(
