@@ -3,7 +3,7 @@
 
 from functools import partial
 
-from jax import grad, lax, ops, random
+from jax import grad, lax, ops, random, tree_map
 import jax.numpy as jnp
 
 from numpyro.handlers import seed, trace
@@ -123,7 +123,8 @@ class MixedHMC(HMCGibbs):
 class MixedHMCGibbs(HMCGibbs):
     """Works for NUTS"""
 
-    def __init__(self, inner_kernel, discrete_sites=None, num_trajectories=20, discrete_mass=None):
+    def __init__(self, inner_kernel, discrete_sites=None, num_trajectories=20, discrete_mass=None,
+                 discrete_temperature=1., keep_hmc_kinetic_energy=False):
         # NB: num_trajectories, which equals to int(1/hmc_mass), can be skipped by adapting hmc_mass
         # The interaction between discrete_mass and hmc_mass can be learned
         # during warmup phase. So the number of discrete/hmc steps might change for each MCMC step.
@@ -131,6 +132,8 @@ class MixedHMCGibbs(HMCGibbs):
         super().__init__(inner_kernel, lambda: None, discrete_sites)
         self._num_trajectories = num_trajectories
         self._discrete_mass = discrete_mass
+        self._discrete_temperature = discrete_temperature
+        self._keep_hmc_kinetic_energy = keep_hmc_kinetic_energy
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs
@@ -183,6 +186,15 @@ class MixedHMCGibbs(HMCGibbs):
             model_kwargs_ = model_kwargs.copy()
             model_kwargs_["_gibbs_sites"] = z_discrete
             hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_)
+            # XXX: keep kinetic energy but make direction diffuse
+            rng_key, rng_r = random.split(rng_key)
+            r = momentum_generator(hmc_state.r, hmc_state.adapt_state.mass_matrix_sqrt, rng_r)
+            if self._keep_hmc_kinetic_energy:
+                # scale to keep the same kinetic energy
+                prev_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, hmc_state.r)
+                curr_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, r)
+                r = tree_map(lambda x: x * jnp.sqrt(prev_ke / curr_ke), r)
+            hmc_state = hmc_state._replace(r=r)
             return rng_key, hmc_state, z_discrete, ke_discrete
 
         def cond_fn(vals):
@@ -206,13 +218,15 @@ class MixedHMCGibbs(HMCGibbs):
             return rng_key, hmc_state, z_discrete, ke_discrete, arrival_times, time_left
 
         z_discrete = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
-        rng_key, rng_ke, rng_time = random.split(state.rng_key, 3)
-        ke_discrete = random.exponential(rng_ke, (num_discretes,))
+        rng_key, rng_ke, rng_time, rng_r = random.split(state.rng_key, 4)
+        ke_discrete = random.exponential(rng_ke, (num_discretes,)) / self._discrete_temperature
         # NB: velocity = +-1 / mass
         arrival_times = random.uniform(rng_time, (num_discretes + 1,)) * self._clock_mass
         total_time = 1.
 
-        init_val = (rng_key, state.hmc_state, z_discrete, ke_discrete, arrival_times, total_time)
+        r = momentum_generator(state.hmc_state.r, state.hmc_state.adapt_state.mass_matrix_sqrt, rng_r)
+        hmc_state = state.hmc_state._replace(r=r, reset_momentum=False)
+        init_val = (rng_key, hmc_state, z_discrete, ke_discrete, arrival_times, total_time)
         rng_key, hmc_state, z_discrete, *_ = while_loop(cond_fn, body_fn, init_val)
         z = {**z_discrete, **hmc_state.z}
         return HMCGibbsState(z, hmc_state, rng_key)
