@@ -392,23 +392,24 @@ class MCMC(object):
 
         .. warning:: If you want to set a value for this attribute, then making sure
             that some fields such as `HMCState.i`, `HMCState.mean_accept_prob` are
-            reseted to 0. For example
+            reseted to 0. In addition, if the initial state has invalid fields such as
+            `HMCState.potential_energy` (because e.g. `data` of the new `run` has been
+            changed), the sampler might get trouble during some initial MCMC steps.
+            To resolve that, we can set `potential_energy` to a high value (says `1e38`),
+            so that it is more likely to accept a new proposal (which will have a correct
+            `potential_energy` field) in the first MCMC step.
+            For example
 
             .. code-block:: python
 
                 mcmc = MCMC(NUTS(model), 100, 100)
                 mcmc.run(random.PRNGKey(0), data0)
                 samples_for_data0 = mcmc.get_samples()
-                mcmc.init_state = mcmc.last_state._replace(i=0, mean_accept_prob=0.)
+                mcmc.init_state = mcmc.last_state._replace(
+                    i=0, potential_energy=1e38, mean_accept_prob=0.)
                 mcmc.run(random.PRNGKey(1), data1)
                 samples_for_data1 = mcmc.get_samples()
 
-            In addition, if the initial state has invalid fields such as
-            `HMCState.potential_energy` (because e.g. `data` of the new `run` has been changed),
-            the sampler might get trouble during some initial MCMC steps.
-            To resolve that, we can set `potential_energy` to a high value (says `1e38`),
-            so that it is more likely to accept a new proposal in the
-            first MCMC step.
         """
         return self._init_state
 
