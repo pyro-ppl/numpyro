@@ -266,6 +266,7 @@ class MCMC(object):
         # HMCState returned by last warmup
         self._warmup_state = None
         # HMCState returned by hmc.init_kernel
+        self._init_state = None
         self._init_state_cache = {}
         self._cache = {}
         self._collection_params = {}
@@ -382,11 +383,75 @@ class MCMC(object):
         except TypeError:
             pass
 
+    @property
+    def init_state(self):
+        """
+        The initial state to run MCMC. If this attribute is not None,
+        :meth:`run` will skip calling `self.sampler.init(...)` method to
+        obtain the initial state.
+
+        .. warning:: If you want to set a value for this attribute, then making sure
+            that some fields such as `HMCState.i`, `HMCState.mean_accept_prob` are
+            reseted to 0. For example
+
+            .. code-block:: python
+
+                mcmc = MCMC(NUTS(model), 100, 100)
+                mcmc.run(random.PRNGKey(0), data0)
+                samples_for_data0 = mcmc.get_samples()
+                mcmc.init_state = mcmc.last_state._replace(i=0, mean_accept_prob=0.)
+                mcmc.run(random.PRNGKey(1), data1)
+                samples_for_data1 = mcmc.get_samples()
+
+            In addition, if the initial state has invalid fields such as
+            `HMCState.potential_energy` (because e.g. `data` of the new `run` has been changed),
+            the sampler might get trouble during some initial MCMC steps.
+            To resolve that, we can set `potential_energy` to a high value (says `1e38`),
+            so that it is more likely to accept a new proposal in the
+            first MCMC step.
+        """
+        return self._init_state
+
+    @init_state.setter
+    def init_state(self, state):
+        self._init_state = state
+
+    @property
+    def warmup_state(self):
+        """
+        The state before sampling phase. If this attribute is not None,
+        :meth:`run` will skip warmup phase and start with the state
+        specified in this attribute.
+
+        .. note:: This attribute can be used to sequentially draw MCMC samples. For example,
+
+            .. code-block:: python
+
+                mcmc = MCMC(NUTS(model), 100, 100)
+                mcmc.run(random.PRNGKey(0))
+                first_100_samples = mcmc.get_samples()
+                mcmc.warmup_state = mcmc.last_state
+                mcmc.run(mcmc.warmup_state.rng_key)  # or mcmc.run(random.PRNGKey(1))
+                second_100_samples = mcmc.get_samples()
+        """
+        return self._warmup_state
+
+    @warmup_state.setter
+    def warmup_state(self, state):
+        self._warmup_state = state
+
+    @property
+    def last_state(self):
+        """
+        The state obtained at the end of sampling phase.
+        """
+        return self._last_state
+
     def warmup(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
-        Run the MCMC warmup adaptation phase. After this call, the :meth:`run` method
-        will skip the warmup adaptation phase. To run `warmup` again for the new data,
-        it is required to run :meth:`warmup` again.
+        Run the MCMC warmup adaptation phase. After this call, `self.warmup_state` will be set
+        and the :meth:`run` method will skip the warmup adaptation phase. To run `warmup` again
+        for the new data, it is required to run :meth:`warmup` again.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
@@ -441,6 +506,8 @@ class MCMC(object):
         if self._warmup_state is not None:
             self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
             init_state = self._warmup_state._replace(rng_key=rng_key)
+        elif self._init_state is not None:
+            init_state = self._init_state._replace(rng_key=rng_key)
 
         chain_method = self.chain_method
         if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:

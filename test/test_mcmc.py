@@ -115,10 +115,17 @@ def test_uniform_normal():
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.warmup(random.PRNGKey(2), data, collect_warmup=True)
+    assert mcmc.warmup_state is not None
     warmup_samples = mcmc.get_samples()
     mcmc.run(random.PRNGKey(3), data)
     samples = mcmc.get_samples()
     assert len(warmup_samples['loc']) == num_warmup
+    assert len(samples['loc']) == num_samples
+    assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
+
+    mcmc.warmup_state = mcmc.last_state
+    mcmc.run(random.PRNGKey(3), data)
+    samples = mcmc.get_samples()
     assert len(samples['loc']) == num_samples
     assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
 
@@ -546,6 +553,7 @@ def test_reuse_mcmc_run(jit_args, shape):
     mcmc.run(random.PRNGKey(32), y1)
 
     # Re-run on new data - should be much faster.
+    mcmc.init_state = mcmc.last_state._replace(i=0, potential_energy=1e38, mean_accept_prob=0.)
     mcmc.run(random.PRNGKey(32), y2)
     assert_allclose(mcmc.get_samples()['mu'].mean(), -3., atol=0.1)
 
