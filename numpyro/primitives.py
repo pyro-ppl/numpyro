@@ -236,6 +236,7 @@ def module(name, nn, input_shape=None):
 def _subsample_fn(size, subsample_size, rng_key=None):
     assert rng_key is not None, "Missing random key to generate subsample indices."
     if xla_bridge.get_backend().platform == 'cpu':
+        # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
         u = random.uniform(rng_key, (subsample_size,))
 
         def body_fn(idx, val):
