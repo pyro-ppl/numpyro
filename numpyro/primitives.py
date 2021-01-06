@@ -5,7 +5,8 @@ from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
 
-from jax import lax, random
+from jax import lax, ops, random
+from jax.lib import xla_bridge
 import jax.numpy as jnp
 
 import numpyro
@@ -234,7 +235,20 @@ def module(name, nn, input_shape=None):
 
 def _subsample_fn(size, subsample_size, rng_key=None):
     assert rng_key is not None, "Missing random key to generate subsample indices."
-    return random.permutation(rng_key, size)[:subsample_size]
+    if xla_bridge.get_backend().platform == 'cpu':
+        u = random.uniform(rng_key, (subsample_size,))
+
+        def body_fn(idx, val):
+            i_p1 = size - idx
+            i = i_p1 - 1
+            j = (u[idx] * i_p1).astype(i.dtype)
+            val = ops.index_update(val, ops.index[[i, j], ], val[ops.index[[j, i], ]])
+            return val
+
+        val = lax.fori_loop(0, subsample_size, body_fn, jnp.arange(size))
+        return val[-subsample_size:]
+    else:
+        return random.choice(rng_key, size, (subsample_size,), replace=False)
 
 
 class plate(Messenger):

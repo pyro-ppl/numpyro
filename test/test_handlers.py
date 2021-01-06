@@ -612,3 +612,23 @@ def test_prng_key_with_vmap():
     z0 = handlers.seed(model, 0)()
     assert (z[1:] != z0).all()
     assert (z[0] == z0).all()
+
+
+def test_subsample_fn():
+    size = 20
+    subsample_size = 11
+    num_samples = 1000000
+
+    @jit
+    def subsample_fn(rng_key):
+        return numpyro.primitives._subsample_fn(size, subsample_size, rng_key)
+
+    # test that keys are not duplicated
+    for i in range(10):
+        x = subsample_fn(random.PRNGKey(i))
+        assert len(set(x)) == subsample_size
+
+    rng_keys = random.split(random.PRNGKey(0), num_samples)
+    subsamples = vmap(subsample_fn)(rng_keys)
+    i = random.randint(random.PRNGKey(1), (), 0, size)
+    assert_allclose(jnp.mean(subsamples == i, axis=0), jnp.full(subsample_size, 1 / size), atol=1e-3)
