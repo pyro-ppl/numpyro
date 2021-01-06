@@ -14,6 +14,7 @@ from numpyro.handlers import condition, seed, trace, substitute
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import log_likelihood, potential_energy, _guess_max_plate_nesting
+from numpyro.primitives import _subsample_fn
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 
@@ -424,7 +425,7 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
         for name in gibbs_sites:
             size, subsample_size = plate_sizes[name]
             rng_key, subkey = random.split(rng_key)
-            u_new[name] = random.choice(subkey, size, (subsample_size,), replace=False)
+            u_new[name] = _subsample_fn(size, subsample_size, rng_key=subkey)
 
         u_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
                                   **model_kwargs, _gibbs_sites=gibbs_sites)
