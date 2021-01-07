@@ -31,6 +31,8 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **potential_energy** - Potential energy computed at the given value of ``z``.
  - **energy** - Sum of potential energy and kinetic energy of the current state.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
+   In NUTS sampler, the tree depth of a trajectory can be computed from this field
+   with `tree_depth = np.log2(num_steps).astype(int) + 1`.
  - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
    does not correspond to the proposal if it is rejected.
  - **mean_accept_prob** - Mean acceptance probability until current iteration
