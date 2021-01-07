@@ -237,16 +237,16 @@ def _subsample_fn(size, subsample_size, rng_key=None):
     assert rng_key is not None, "Missing random key to generate subsample indices."
     if xla_bridge.get_backend().platform == 'cpu':
         # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
-        u = random.uniform(rng_key, (subsample_size,))
+        rng_keys = random.split(rng_key, subsample_size)
 
-        def body_fn(idx, val):
+        def body_fn(val, idx):
             i_p1 = size - idx
             i = i_p1 - 1
-            j = (u[idx] * i_p1).astype(i.dtype)
+            j = random.randint(rng_keys[idx], (), 0, i_p1)
             val = ops.index_update(val, ops.index[[i, j], ], val[ops.index[[j, i], ]])
-            return val
+            return val, None
 
-        val = lax.fori_loop(0, subsample_size, body_fn, jnp.arange(size))
+        val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))
         return val[-subsample_size:]
     else:
         return random.choice(rng_key, size, (subsample_size,), replace=False)
