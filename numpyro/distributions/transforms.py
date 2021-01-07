@@ -54,6 +54,14 @@ class Transform(object):
     codomain = constraints.real
     event_dim = 0
 
+    @property
+    def input_event_dim(self):
+        return self.event_dim
+
+    @property
+    def output_event_dim(self):
+        return self.event_dim
+
     def __call__(self, x):
         return NotImplementedError
 
@@ -98,19 +106,19 @@ class AffineTransform(Transform):
         elif self.domain is constraints.real_vector:
             return constraints.real_vector
         elif isinstance(self.domain, constraints.greater_than):
-            if not_jax_tracer(self.scale) and np.all(self.scale < 0):
+            if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
                 return constraints.less_than(self(self.domain.lower_bound))
             # we suppose scale > 0 for any tracer
             else:
                 return constraints.greater_than(self(self.domain.lower_bound))
         elif isinstance(self.domain, constraints.less_than):
-            if not_jax_tracer(self.scale) and np.all(self.scale < 0):
+            if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
                 return constraints.greater_than(self(self.domain.upper_bound))
             # we suppose scale > 0 for any tracer
             else:
                 return constraints.less_than(self(self.domain.upper_bound))
         elif isinstance(self.domain, constraints.interval):
-            if not_jax_tracer(self.scale) and np.all(self.scale < 0):
+            if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
                 return constraints.interval(self(self.domain.upper_bound),
                                             self(self.domain.lower_bound))
             else:
@@ -147,7 +155,21 @@ class ComposeTransform(Transform):
 
     @property
     def event_dim(self):
-        return max(p.event_dim for p in self.parts)
+        raise ValueError("Please use `.input_event_dim` or `.output_event_dim` instead.")
+
+    @property
+    def input_event_dim(self):
+        input_event_dim = self.parts[-1].input_event_dim
+        for part in self.parts[len(self.parts) - 1::-1]:
+            input_event_dim = part.input_event_dim + max(input_event_dim - part.output_event_dim, 0)
+        return input_event_dim
+
+    @property
+    def output_event_dim(self):
+        output_event_dim = self.parts[0].output_event_dim
+        for part in self.parts[1:]:
+            output_event_dim = part.output_event_dim + max(output_event_dim - part.input_event_dim, 0)
+        return output_event_dim
 
     def __call__(self, x):
         for part in self.parts:
@@ -166,16 +188,20 @@ class ComposeTransform(Transform):
                                  .format(len(intermediates), len(self.parts)))
 
         result = 0.
+        input_event_dim = self.input_event_dim
         for i, part in enumerate(self.parts[:-1]):
             y_tmp = part(x) if intermediates is None else intermediates[i][0]
             inter = None if intermediates is None else intermediates[i][1]
             logdet = part.log_abs_det_jacobian(x, y_tmp, intermediates=inter)
-            result = result + sum_rightmost(logdet, self.event_dim - part.event_dim)
+            batch_ndim = input_event_dim - part.input_event_dim
+            result = result + sum_rightmost(logdet, batch_ndim)
+            input_event_dim = part.output_event_dim + batch_ndim
             x = y_tmp
         # account the the last transform, where y is available
         inter = None if intermediates is None else intermediates[-1]
-        logdet = self.parts[-1].log_abs_det_jacobian(x, y, intermediates=inter)
-        result = result + sum_rightmost(logdet, self.event_dim - self.parts[-1].event_dim)
+        part = self.parts[-1]
+        logdet = part.log_abs_det_jacobian(x, y, intermediates=inter)
+        result = result + sum_rightmost(logdet, input_event_dim - part.input_event_dim)
         return result
 
     def call_with_intermediates(self, x):
@@ -217,7 +243,12 @@ class CorrCholeskyTransform(Transform):
     """
     domain = constraints.real_vector
     codomain = constraints.corr_cholesky
-    event_dim = 2
+    input_event_dim = 1
+    output_event_dim = 2
+
+    @property
+    def event_dim(self):
+        raise ValueError("Please use `.input_event_dim` or `.output_event_dim` instead.")
 
     def __call__(self, x):
         # we interchange step 1 and step 2.a for a better performance
@@ -371,7 +402,12 @@ class LowerCholeskyAffine(Transform):
 class LowerCholeskyTransform(Transform):
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
-    event_dim = 2
+    input_event_dim = 1
+    output_event_dim = 2
+
+    @property
+    def event_dim(self):
+        raise ValueError("Please use `.input_event_dim` or `.output_event_dim` instead.")
 
     def __call__(self, x):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)

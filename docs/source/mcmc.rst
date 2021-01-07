@@ -22,6 +22,12 @@ MCMC Kernels
     :show-inheritance:
     :member-order: bysource
 
+.. autoclass:: numpyro.infer.hmc_gibbs.HMCGibbs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 .. autoclass:: numpyro.infer.hmc.NUTS
     :members:
     :undoc-members:
@@ -33,6 +39,10 @@ MCMC Kernels
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+.. autofunction:: numpyro.infer.hmc_gibbs.discrete_gibbs_fn
+
+.. autofunction:: numpyro.infer.hmc_gibbs.subsample_gibbs_fn
 
 .. autofunction:: numpyro.infer.hmc.hmc
 

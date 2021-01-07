@@ -24,7 +24,7 @@ def _get_codomain(bijector):
         return constraints.positive
     elif bijector.__class__.__name__ == "GeneralizedPareto":
         loc, scale, concentration = bijector.loc, bijector.scale, bijector.concentration
-        if not_jax_tracer(concentration) and np.all(concentration < 0):
+        if not_jax_tracer(concentration) and np.all(np.less(concentration, 0)):
             return constraints.interval(loc, loc + scale / jnp.abs(concentration))
         # XXX: here we suppose concentration > 0
         # which is not true in general, but should cover enough usage cases
@@ -119,7 +119,9 @@ class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('rng_key')
-        kwargs.pop('sample_intermediates', False)
+        sample_intermediates = kwargs.pop('sample_intermediates', False)
+        if sample_intermediates:
+            return self.sample(*args, seed=key, **kwargs), []
         return self.sample(*args, seed=key, **kwargs)
 
     @property

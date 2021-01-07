@@ -39,10 +39,10 @@ class MCMCKernel(ABC):
         >>> import numpyro.distributions as dist
         >>> from numpyro.infer import MCMC
 
-        >>> MHState = namedtuple("MHState", ["z", "rng_key"])
+        >>> MHState = namedtuple("MHState", ["u", "rng_key"])
 
         >>> class MetropolisHastings(numpyro.infer.mcmc.MCMCKernel):
-        ...     sample_field = "z"
+        ...     sample_field = "u"
         ...
         ...     def __init__(self, potential_fn, step_size=0.1):
         ...         self.potential_fn = potential_fn
@@ -52,12 +52,12 @@ class MCMCKernel(ABC):
         ...         return MHState(init_params, rng_key)
         ...
         ...     def sample(self, state, model_args, model_kwargs):
-        ...         z, rng_key = state
+        ...         u, rng_key = state
         ...         rng_key, key_proposal, key_accept = random.split(rng_key, 3)
-        ...         z_proposal = dist.Normal(z, self.step_size).sample(key_proposal)
-        ...         accept_prob = jnp.exp(self.potential_fn(z) - self.potential_fn(z_proposal))
-        ...         z_new = jnp.where(dist.Uniform().sample(key_accept) < accept_prob, z_proposal, z)
-        ...         return MHState(z_new, rng_key)
+        ...         u_proposal = dist.Normal(u, self.step_size).sample(key_proposal)
+        ...         accept_prob = jnp.exp(self.potential_fn(u) - self.potential_fn(u_proposal))
+        ...         u_new = jnp.where(dist.Uniform().sample(key_accept) < accept_prob, u_proposal, u)
+        ...         return MHState(u_new, rng_key)
 
         >>> def f(x):
         ...     return ((x - 2) ** 2).sum()
@@ -66,6 +66,7 @@ class MCMCKernel(ABC):
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
         >>> mcmc.run(random.PRNGKey(0), init_params=jnp.array([1., 2.]))
         >>> samples = mcmc.get_samples()
+        >>> mcmc.print_summary()  # doctest: +SKIP
     """
     def postprocess_fn(self, model_args, model_kwargs):
         """
@@ -207,6 +208,9 @@ class MCMC(object):
         and :class:`~numpyro.infer.mcmc.NUTS` are available.
     :param int num_warmup: Number of warmup steps.
     :param int num_samples: Number of samples to generate from the Markov chain.
+    :param int thinning: Positive integer that controls the fraction of post-warmup samples that are
+        retained. For example if thinning is 2 then every other sample is retained.
+        Defaults to 1, i.e. no thinning.
     :param int num_chains: Number of Number of MCMC chains to run. By default,
         chains will be run in parallel using :func:`jax.pmap`, failing which,
         chains will be run in sequence.
@@ -230,6 +234,7 @@ class MCMC(object):
                  num_warmup,
                  num_samples,
                  num_chains=1,
+                 thinning=1,
                  postprocess_fn=None,
                  chain_method='parallel',
                  progress_bar=True,
@@ -240,6 +245,9 @@ class MCMC(object):
         self.num_warmup = num_warmup
         self.num_samples = num_samples
         self.num_chains = num_chains
+        if not isinstance(thinning, int) or thinning < 1:
+            raise ValueError('thinning must be a positive integer')
+        self.thinning = thinning
         self.postprocess_fn = postprocess_fn
         if chain_method not in ['parallel', 'vectorized', 'sequential']:
             raise ValueError('Only supporting the following methods to draw chains:'
@@ -263,7 +271,7 @@ class MCMC(object):
         self._collection_params = {}
         self._set_collection_params()
 
-    def _get_cached_fn(self):
+    def _get_cached_fns(self):
         if self._jit_model_args:
             args, kwargs = (None,), (None,)
         else:
@@ -271,20 +279,36 @@ class MCMC(object):
             kwargs = tree_map(lambda x: _hashable(x), tuple(sorted(self._kwargs.items())))
         key = args + kwargs
         try:
-            fn = self._cache.get(key, None)
+            fns = self._cache.get(key, None)
         # If unhashable arguments are provided, proceed normally
         # without caching
         except TypeError:
-            fn, key = None, None
-        if fn is None:
+            fns, key = None, None
+        if fns is None:
+
+            def laxmap_postprocess_fn(states, args, kwargs):
+                if self.postprocess_fn is None:
+                    body_fn = self.sampler.postprocess_fn(args, kwargs)
+                else:
+                    body_fn = self.postprocess_fn
+                if self.chain_method == "vectorized" and self.num_chains > 1:
+                    body_fn = vmap(body_fn)
+
+                return lax.map(body_fn, states)
+
             if self._jit_model_args:
-                fn = partial(_sample_fn_jit_args, sampler=self.sampler)
+                sample_fn = partial(_sample_fn_jit_args, sampler=self.sampler)
+                postprocess_fn = jit(laxmap_postprocess_fn)
             else:
-                fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
-                             args=self._args, kwargs=self._kwargs)
+                sample_fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
+                                    args=self._args, kwargs=self._kwargs)
+                postprocess_fn = jit(partial(laxmap_postprocess_fn,
+                                             args=self._args, kwargs=self._kwargs))
+
+            fns = sample_fn, postprocess_fn
             if key is not None:
-                self._cache[key] = fn
-        return fn
+                self._cache[key] = fns
+        return fns
 
     def _get_cached_init_state(self, rng_key, args, kwargs):
         rng_key = (_hashable(rng_key),)
@@ -302,24 +326,23 @@ class MCMC(object):
         if init_state is None:
             init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
                                            model_args=args, model_kwargs=kwargs)
-        if self.postprocess_fn is None:
-            postprocess_fn = self.sampler.postprocess_fn(args, kwargs)
-        else:
-            postprocess_fn = self.postprocess_fn
+        sample_fn, postprocess_fn = self._get_cached_fns()
         diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else ''   # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
         phase = self._collection_params["phase"]
-
+        collection_size = self._collection_params["collection_size"]
+        collection_size = collection_size if collection_size is None else collection_size // self.thinning
         collect_vals = fori_collect(lower_idx,
                                     upper_idx,
-                                    self._get_cached_fn(),
+                                    sample_fn,
                                     init_val,
                                     transform=_collect_fn(collect_fields),
                                     progbar=self.progress_bar,
                                     return_last_val=True,
-                                    collection_size=self._collection_params["collection_size"],
+                                    thinning=self.thinning,
+                                    collection_size=collection_size,
                                     progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
                                     diagnostics_fn=diagnostics)
         states, last_val = collect_vals
@@ -334,9 +357,10 @@ class MCMC(object):
         # so we only need to filter out the case site_value.shape[0] == 0
         # (which happens when lower_idx==upper_idx)
         if len(site_values) > 0 and jnp.shape(site_values[0])[0] > 0:
-            if self.chain_method == "vectorized" and self.num_chains > 1:
-                postprocess_fn = vmap(postprocess_fn)
-            states[self._sample_field] = lax.map(postprocess_fn, states[self._sample_field])
+            if self._jit_model_args:
+                states[self._sample_field] = postprocess_fn(states[self._sample_field], args, kwargs)
+            else:
+                states[self._sample_field] = postprocess_fn(states[self._sample_field])
         return states, last_state
 
     def _set_collection_params(self, lower=None, upper=None, collection_size=None, phase=None):
@@ -491,11 +515,25 @@ class MCMC(object):
         return {k: v for k, v in states.items() if k != self._sample_field}
 
     def print_summary(self, prob=0.9, exclude_deterministic=True):
+        """
+        Print the statistics of posterior samples collected during running this MCMC instance.
+
+        :param float prob: the probability mass of samples within the credible interval.
+        :param bool exclude_deterministic: whether or not print out the statistics
+            at deterministic sites.
+        """
         # Exclude deterministic sites by default
         sites = self._states[self._sample_field]
         if isinstance(sites, dict) and exclude_deterministic:
-            sites = {k: v for k, v in self._states[self._sample_field].items()
-                     if k in self._last_state.z}
+            state_sample_field = attrgetter(self._sample_field)(self._last_state)
+            # XXX: there might be the case that state.z is not a dictionary but
+            # its postprocessed value `sites` is a dictionary.
+            # TODO: in general, when both `sites` and `state.z` are dictionaries,
+            # they can have different key names, not necessary due to deterministic
+            # behavior. We might revise this logic if needed in the future.
+            if isinstance(state_sample_field, dict):
+                sites = {k: v for k, v in self._states[self._sample_field].items()
+                         if k in state_sample_field}
         print_summary(sites, prob=prob)
         extra_fields = self.get_extra_fields()
         if 'diverging' in extra_fields:

@@ -52,9 +52,21 @@ class Messenger(object):
     def __enter__(self):
         _PYRO_STACK.append(self)
 
-    def __exit__(self, *args, **kwargs):
-        assert _PYRO_STACK[-1] is self
-        _PYRO_STACK.pop()
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is None:
+            assert _PYRO_STACK[-1] is self
+            _PYRO_STACK.pop()
+        else:
+            # NB: this mimics Pyro exception handling
+            # the wrapped function or block raised an exception
+            # handler exception handling:
+            # when the callee or enclosed block raises an exception,
+            # find this handler's position in the stack,
+            # then remove it and everything below it in the stack.
+            if self in _PYRO_STACK:
+                loc = _PYRO_STACK.index(self)
+                for i in range(loc, len(_PYRO_STACK)):
+                    _PYRO_STACK.pop()
 
     def process_message(self, msg):
         pass
@@ -118,13 +130,15 @@ def param(name, init_value=None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.experimental.optimizers`. For an example of how `param` statements
-    can be used in inference algorithms, refer to :func:`~numpyro.svi.svi`.
+    can be used in inference algorithms, refer to :class:`~numpyro.infer.SVI`.
 
     :param str name: name of site.
-    :param numpy.ndarray init_value: initial value specified by the user. Note that
-        the onus of using this to initialize the optimizer is on the user /
-        inference algorithm, since there is no global parameter store in
-        NumPyro.
+    :param init_value: initial value specified by the user or a lazy callable
+        that accepts a JAX random PRNGKey and returns an array.
+        Note that the onus of using this to initialize the optimizer is
+        on the user inference algorithm, since there is no global parameter
+        store in NumPyro.
+    :type init_value: numpy.ndarray or callable
     :param constraint: NumPyro constraint, defaults to ``constraints.real``.
     :type constraint: numpyro.distributions.constraints.Constraint
     :param int event_dim: (optional) number of rightmost dimensions unrelated
@@ -139,13 +153,21 @@ def param(name, init_value=None, **kwargs):
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
+        assert not callable(init_value), \
+            "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
         return init_value
+
+    if callable(init_value):
+        def fn(init_fn, *args, **kwargs):
+            return init_fn(prng_key())
+    else:
+        fn = identity
 
     # Otherwise, we initialize a message...
     initial_msg = {
         'type': 'param',
         'name': name,
-        'fn': identity,
+        'fn': fn,
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,

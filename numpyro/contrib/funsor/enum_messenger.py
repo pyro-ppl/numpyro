@@ -9,7 +9,7 @@ from jax import lax
 import jax.numpy as jnp
 
 import funsor
-from numpyro.handlers import trace as OrigTraceMessenger
+from numpyro.handlers import infer_config, trace as OrigTraceMessenger
 from numpyro.primitives import Messenger, apply_stack
 from numpyro.primitives import plate as OrigPlateMessenger
 
@@ -494,6 +494,7 @@ class enum(BaseEnumMessenger):
                 msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
             if msg["type"] == "control_flow":
                 msg["kwargs"]["enum"] = True
+                msg["kwargs"]["first_available_dim"] = self.first_available_dim
             return super().process_message(msg)
 
         if msg["infer"].get("num_samples", None) is not None:
@@ -526,7 +527,7 @@ class trace(OrigTraceMessenger):
         if msg["type"] == "sample":
             total_batch_shape = lax.broadcast_shapes(
                 tuple(msg["fn"].batch_shape),
-                msg["value"].shape[:len(msg["value"].shape)-len(msg["fn"].event_shape)]
+                jnp.shape(msg["value"])[:jnp.ndim(msg["value"]) - msg["fn"].event_dim]
             )
             msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(total_batch_shape)
         if msg["type"] in ("sample", "param"):
@@ -551,24 +552,6 @@ def markov(fn=None, history=1, keep=False):
     if fn is not None and not callable(fn):  # Used as a generator
         return LocalNamedMessenger(fn=None, history=history, keep=keep).generator(iterable=fn)
     return LocalNamedMessenger(fn, history=history, keep=keep)
-
-
-class infer_config(Messenger):
-    """
-    Given a callable `fn` that contains Pyro primitive calls
-    and a callable `config_fn` taking a trace site and returning a dictionary,
-    updates the value of the infer kwarg at a sample site to config_fn(site).
-
-    :param fn: a stochastic function (callable containing Pyro primitive calls)
-    :param config_fn: a callable taking a site and returning an infer dict
-    """
-    def __init__(self, fn, config_fn):
-        super().__init__(fn)
-        self.config_fn = config_fn
-
-    def process_message(self, msg):
-        if msg["type"] in ("sample", "param"):
-            msg["infer"].update(self.config_fn(msg))
 
 
 ####################

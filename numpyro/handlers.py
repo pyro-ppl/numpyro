@@ -79,6 +79,8 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 from collections import OrderedDict
 import warnings
 
+import numpy as np
+
 from jax import lax, random
 import jax.numpy as jnp
 
@@ -91,6 +93,7 @@ __all__ = [
     'block',
     'collapse',
     'condition',
+    'infer_config',
     'lift',
     'mask',
     'reparam',
@@ -278,18 +281,23 @@ class collapse(trace):
         COERCIONS.append(self._coerce)
         return super().__enter__()
 
-    def __exit__(self, *args, **kwargs):
+    def __exit__(self, exc_type, exc_value, traceback):
         import funsor
 
         _coerce = COERCIONS.pop()
         assert _coerce is self._coerce
-        super().__exit__(*args, **kwargs)
+        super().__exit__(exc_type, exc_value, traceback)
+
+        if exc_type is not None:
+            return
 
         # Convert delayed statements to pyro.factor()
         reduced_vars = []
         log_prob_terms = []
         plates = frozenset()
         for name, site in self.trace.items():
+            if site["type"] != "sample":
+                continue
             if not site["is_observed"]:
                 reduced_vars.append(name)
             dim_to_name = {f.dim: f.name for f in site["cond_indep_stack"]}
@@ -367,6 +375,24 @@ class condition(Messenger):
         if value is not None:
             msg['value'] = value
             msg['is_observed'] = True
+
+
+class infer_config(Messenger):
+    """
+    Given a callable `fn` that contains Pyro primitive calls
+    and a callable `config_fn` taking a trace site and returning a dictionary,
+    updates the value of the infer kwarg at a sample site to config_fn(site).
+
+    :param fn: a stochastic function (callable containing NumPyro primitive calls)
+    :param config_fn: a callable taking a site and returning an infer dict
+    """
+    def __init__(self, fn=None, config_fn=None):
+        super().__init__(fn)
+        self.config_fn = config_fn
+
+    def process_message(self, msg):
+        if msg["type"] in ("sample",):
+            msg["infer"].update(self.config_fn(msg))
 
 
 class lift(Messenger):
@@ -519,12 +545,14 @@ class scale(Messenger):
     This is typically used for data subsampling or for stratified sampling of data
     (e.g. in fraud detection where negatives vastly outnumber positives).
 
-    :param float scale: a positive scaling factor
+    :param scale: a positive scaling factor that is broadcastable to the shape
+        of log probability.
+    :type scale: float or numpy.ndarray
     """
     def __init__(self, fn=None, scale=1.):
         if not_jax_tracer(scale):
-            if scale <= 0:
-                raise ValueError("'scale' argument should be a positive number.")
+            if np.any(np.less_equal(scale, 0)):
+                raise ValueError("'scale' argument should be positive.")
         self.scale = scale
         super().__init__(fn)
 
@@ -537,7 +565,7 @@ class scale(Messenger):
 
 class scope(Messenger):
     """
-    This handler prepend a prefix followed by a ``/`` to the name of sample sites.
+    This handler prepend a prefix followed by a divider to the name of sample sites.
 
     Example::
 
@@ -549,21 +577,23 @@ class scope(Messenger):
        >>>
        >>> def model():
        ...     with scope(prefix="a"):
-       ...         with scope(prefix="b"):
+       ...         with scope(prefix="b", divider="."):
        ...             return numpyro.sample("x", dist.Bernoulli(0.5))
        ...
-       >>> assert "a/b/x" in trace(seed(model, 0)).get_trace()
+       >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
 
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
+    :param str divider: a string to join the prefix and sample name; default to `'/'`
     """
-    def __init__(self, fn=None, prefix=''):
+    def __init__(self, fn=None, prefix='', divider='/'):
         self.prefix = prefix
+        self.divider = divider
         super().__init__(fn)
 
     def process_message(self, msg):
         if msg.get('name'):
-            msg['name'] = f"{self.prefix}/{msg['name']}"
+            msg['name'] = f"{self.prefix}{self.divider}{msg['name']}"
 
 
 class seed(Messenger):

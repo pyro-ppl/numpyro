@@ -4,7 +4,7 @@
 from collections import OrderedDict
 from functools import partial
 
-from jax import lax, random, tree_flatten, tree_map, tree_multimap, tree_unflatten
+from jax import device_put, lax, random, tree_flatten, tree_map, tree_multimap, tree_unflatten
 import jax.numpy as jnp
 from jax.tree_util import register_pytree_node_class
 
@@ -29,14 +29,20 @@ class PytreeTrace:
                     # scanned sites have stop field because we trace them inside a block handler
                     elif key != 'stop':
                         aux_trace[name][key] = site[key]
-        return (trace,), aux_trace
+        # keep the site order information because in JAX, flatten and unflatten do not preserve
+        # the order of keys in a dict
+        site_names = list(trace.keys())
+        return (trace,), (aux_trace, site_names)
 
     @classmethod
     def tree_unflatten(cls, aux_data, children):
+        aux_trace, site_names = aux_data
         trace, = children
-        for name, site in trace.items():
-            site.update(aux_data[name])
-        return cls(trace)
+        trace_with_aux = {}
+        for name in site_names:
+            trace[name].update(aux_trace[name])
+            trace_with_aux[name] = trace[name]
+        return cls(trace_with_aux)
 
 
 def _subs_wrapper(subs_map, i, length, site):
@@ -81,48 +87,60 @@ def _subs_wrapper(subs_map, i, length, site):
                                " which is currently not supported. Please report the issue to us!")
 
 
-class promote_shapes(Messenger):
-    # a helper messenger to promote shapes of `fn` and `value`
-    #   + msg: fn.batch_shape = (2, 3), value.shape = (3,) + fn.event_shape
-    #     process_message(msg): promote value so that value.shape = (1, 3) + fn.event_shape
+class _promote_fn_shapes(Messenger):
+    # a helper messenger to promote shapes of `fn`
     #   + msg: fn.batch_shape = (3,), value.shape = (2, 3) + fn.event_shape
     #     process_message(msg): promote fn so that fn.batch_shape = (1, 3).
-    def process_message(self, msg):
+    def postprocess_message(self, msg):
         if msg["type"] == "sample" and msg["value"] is not None:
             fn, value = msg["fn"], msg["value"]
             value_batch_ndims = jnp.ndim(value) - fn.event_dim
             fn_batch_ndim = len(fn.batch_shape)
-            prepend_shapes = (1,) * abs(fn_batch_ndim - value_batch_ndims)
-            if fn_batch_ndim > value_batch_ndims:
-                msg["value"] = jnp.reshape(value, prepend_shapes + jnp.shape(value))
-            elif fn_batch_ndim < value_batch_ndims:
+            if fn_batch_ndim < value_batch_ndims:
+                prepend_shapes = (1,) * (value_batch_ndims - fn_batch_ndim)
                 msg["fn"] = tree_map(lambda x: jnp.reshape(x, prepend_shapes + jnp.shape(x)), fn)
 
 
-def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None):
+def _promote_scanned_value_shapes(value, fn):
+    # a helper function to promote shapes of `value`
+    #   + msg: fn.batch_shape = (T, 2, 3), value.shape = (T, 3,) + fn.event_shape
+    #     process_message(msg): promote value so that value.shape = (T, 1, 3) + fn.event_shape
+    value_batch_ndims = jnp.ndim(value) - fn.event_dim
+    fn_batch_ndim = len(fn.batch_shape)
+    if fn_batch_ndim > value_batch_ndims:
+        prepend_shapes = (1,) * (fn_batch_ndim - value_batch_ndims)
+        return jnp.reshape(value, jnp.shape(value)[:1] + prepend_shapes + jnp.shape(value)[1:])
+    else:
+        return value
+
+
+def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None, history=1,
+              first_available_dim=None):
     from numpyro.contrib.funsor import config_enumerate, enum, markov
     from numpyro.contrib.funsor import trace as packed_trace
 
-    # XXX: This implementation only works for history size=1 but can be
-    # extended to history size > 1 by running `f` `history_size` times
-    # for initialization. However, `sequential_sum_product` does not
-    # support history size > 1, so we skip supporting it here.
-    # Note that `funsor.sum_product.sarkka_bilmes_product` does support history > 1.
+    # amount number of steps to unroll
+    history = min(history, length)
+    unroll_steps = min(2 * history - 1, length)
     if reverse:
-        x0 = tree_map(lambda x: x[-1], xs)
-        xs_ = tree_map(lambda x: x[:-1], xs)
+        x0 = tree_map(lambda x: x[-unroll_steps:][::-1], xs)
+        xs_ = tree_map(lambda x: x[:-unroll_steps], xs)
     else:
-        x0 = tree_map(lambda x: x[0], xs)
-        xs_ = tree_map(lambda x: x[1:], xs)
+        x0 = tree_map(lambda x: x[:unroll_steps], xs)
+        xs_ = tree_map(lambda x: x[unroll_steps:], xs)
 
-    carry_shape_at_t1 = None
+    carry_shapes = []
 
     def body_fn(wrapped_carry, x, prefix=None):
         i, rng_key, carry = wrapped_carry
-        init = True if (not_jax_tracer(i) and i == 0) else False
+        init = True if (not_jax_tracer(i) and i in range(unroll_steps)) else False
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
-        seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
+        # we need to tell unconstrained messenger in potential energy computation
+        # that only the item at time `i` is needed when transforming
+        fn = handlers.infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
+
+        seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
         for subs_type, subs_map in substitute_stack:
             subs_fn = partial(_subs_wrapper, subs_map, i, length)
             if subs_type == 'condition':
@@ -131,35 +149,57 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
                 seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
         if init:
-            with handlers.scope(prefix="_init"):
-                new_carry, y = seeded_fn(carry, x)
+            # handler the name to match the pattern of sakkar_bilmes product
+            with handlers.scope(prefix='_PREV_' * (unroll_steps - i), divider=''):
+                new_carry, y = config_enumerate(seeded_fn)(carry, x)
                 trace = {}
         else:
-            with handlers.block(), packed_trace() as trace, promote_shapes(), enum(), markov():
-                # Like scan_wrapper, we collect the trace of scan's transition function
-                # `seeded_fn` here. To put time dimension to the correct position, we need to
-                # promote shapes to make `fn` and `value`
-                # at each site have the same batch dims (e.g. if `fn.batch_shape = (2, 3)`,
-                # and value's batch_shape is (3,), then we promote shape of
-                # value so that its batch shape is (1, 3)).
+            # Like scan_wrapper, we collect the trace of scan's transition function
+            # `seeded_fn` here. To put time dimension to the correct position, we need to
+            # promote shapes to make `fn` and `value`
+            # at each site have the same batch dims (e.g. if `fn.batch_shape = (2, 3)`,
+            # and value's batch_shape is (3,), then we promote shape of
+            # value so that its batch shape is (1, 3)).
+            # Here we will promote `fn` shape first. `value` shape will be promoted after scanned.
+            # We don't promote `value` shape here because we need to store carry shape
+            # at this step. If we reshape the `value` here, output carry might get wrong shape.
+            with _promote_fn_shapes(), packed_trace() as trace:
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
 
             # store shape of new_carry at a global variable
-            nonlocal carry_shape_at_t1
-            carry_shape_at_t1 = [jnp.shape(x) for x in tree_flatten(new_carry)[0]]
+            if len(carry_shapes) < (history + 1):
+                carry_shapes.append([jnp.shape(x) for x in tree_flatten(new_carry)[0]])
             # make new_carry have the same shape as carry
             # FIXME: is this rigorous?
             new_carry = tree_multimap(lambda a, b: jnp.reshape(a, jnp.shape(b)),
                                       new_carry, carry)
-        return (i + jnp.array(1), rng_key, new_carry), (PytreeTrace(trace), y)
+        return (i + 1, rng_key, new_carry), (PytreeTrace(trace), y)
 
-    with markov():
+    with handlers.block(hide_fn=lambda site: not site["name"].startswith("_PREV_")), \
+            enum(first_available_dim=first_available_dim):
         wrapped_carry = (0, rng_key, init)
-        wrapped_carry, (_, y0) = body_fn(wrapped_carry, x0)
-        if length == 1:
-            ys = tree_map(lambda x: jnp.expand_dims(x, 0), y0)
-            return wrapped_carry, (PytreeTrace({}), ys)
-        wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs_, length - 1, reverse)
+        y0s = []
+        # We run unroll_steps + 1 where the last step is used for rolling with `lax.scan`
+        for i in markov(range(unroll_steps + 1), history=history):
+            if i < unroll_steps:
+                wrapped_carry, (_, y0) = body_fn(wrapped_carry, tree_map(lambda z: z[i], x0))
+                if i > 0:
+                    # reshape y1, y2,... to have the same shape as y0
+                    y0 = tree_multimap(lambda z0, z: jnp.reshape(z, jnp.shape(z0)), y0s[0], y0)
+                y0s.append(y0)
+                # shapes of the first `history - 1` steps are not useful to interpret the last carry
+                # shape so we don't need to record them here
+                if (i >= history - 1) and (len(carry_shapes) < history + 1):
+                    carry_shapes.append(jnp.shape(x) for x in tree_flatten(wrapped_carry[-1])[0])
+            else:
+                # this is the last rolling step
+                y0s = tree_multimap(lambda *z: jnp.stack(z, axis=0), *y0s)
+                # return early if length = unroll_steps
+                if length == unroll_steps:
+                    return wrapped_carry, (PytreeTrace({}), y0s)
+                wrapped_carry = device_put(wrapped_carry)
+                wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs_,
+                                                             length - unroll_steps, reverse)
 
     first_var = None
     for name, site in pytree_trace.trace.items():
@@ -171,37 +211,50 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None)
         if first_var is None:
             first_var = name
 
+        # we haven't promote shapes of values yet during `lax.scan`, so we do it here
+        site["value"] = _promote_scanned_value_shapes(site["value"], site["fn"])
+
         # XXX: site['infer']['dim_to_name'] is not enough to determine leftmost dimension because
         # we don't record 1-size dimensions in this field
         time_dim = -min(len(site['fn'].batch_shape), jnp.ndim(site['value']) - site['fn'].event_dim)
         site['infer']['dim_to_name'][time_dim] = '_time_{}'.format(first_var)
 
     # similar to carry, we need to reshape due to shape alternating in markov
-    ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)), y0, ys)
+    ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)[1:]), y0s, ys)
+    # then join with y0s
+    ys = tree_multimap(lambda z0, z: jnp.concatenate([z0, z], axis=0), y0s, ys)
     # we also need to reshape `carry` to match sequential behavior
-    if length % 2 == 0:
-        t, rng_key, carry = wrapped_carry
-        flatten_carry, treedef = tree_flatten(carry)
-        flatten_carry = [jnp.reshape(x, t1_shape)
-                         for x, t1_shape in zip(flatten_carry, carry_shape_at_t1)]
-        carry = tree_unflatten(treedef, flatten_carry)
-        wrapped_carry = (t, rng_key, carry)
+    i = (length + 1) % (history + 1)
+    t, rng_key, carry = wrapped_carry
+    carry_shape = carry_shapes[i]
+    flatten_carry, treedef = tree_flatten(carry)
+    flatten_carry = [jnp.reshape(x, t1_shape)
+                     for x, t1_shape in zip(flatten_carry, carry_shape)]
+    carry = tree_unflatten(treedef, flatten_carry)
+    wrapped_carry = (t, rng_key, carry)
     return wrapped_carry, (pytree_trace, ys)
 
 
-def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False):
+def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False,
+                 history=1, first_available_dim=None):
     if length is None:
         length = tree_flatten(xs)[0][0].shape[0]
 
-    if enum:
-        return scan_enum(f, init, xs, length, reverse, rng_key, substitute_stack)
+    if enum and history > 0:
+        return scan_enum(f, init, xs, length, reverse, rng_key, substitute_stack, history,
+                         first_available_dim)
 
     def body_fn(wrapped_carry, x):
         i, rng_key, carry = wrapped_carry
         rng_key, subkey = random.split(rng_key) if rng_key is not None else (None, None)
 
         with handlers.block():
-            seeded_fn = handlers.seed(f, subkey) if subkey is not None else f
+
+            # we need to tell unconstrained messenger in potential energy computation
+            # that only the item at time `i` is needed when transforming
+            fn = handlers.infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
+
+            seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
             for subs_type, subs_map in substitute_stack:
                 subs_fn = partial(_subs_wrapper, subs_map, i, length)
                 if subs_type == 'condition':
@@ -214,10 +267,11 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
 
         return (i + 1, rng_key, carry), (PytreeTrace(trace), y)
 
-    return lax.scan(body_fn, (jnp.array(0), rng_key, init), xs, length=length, reverse=reverse)
+    wrapped_carry = device_put((0, rng_key, init))
+    return lax.scan(body_fn, wrapped_carry, xs, length=length, reverse=reverse)
 
 
-def scan(f, init, xs, length=None, reverse=False):
+def scan(f, init, xs, length=None, reverse=False, history=1):
     """
     This primitive scans a function over the leading array axes of
     `xs` while carrying along state. See :func:`jax.lax.scan` for more
@@ -282,13 +336,12 @@ def scan(f, init, xs, length=None, reverse=False):
         evaluated using parallel-scan (reference [1]) over time dimension, which
         reduces parallel complexity to `O(log(length))`.
 
-        Currently, only the equivalence to
-        :class:`~numpyro.contrib.funsor.enum_messenger.markov(history_size=1)`
-        is supported. A :class:`~numpyro.handlers.trace` of `scan` with discrete latent
+        A :class:`~numpyro.handlers.trace` of `scan` with discrete latent
         variables will contain the following sites:
 
-            + init sites: those sites belong to the first trace of `f`. Each of
-                them will have name prefixed with `_init/`.
+            + init sites: those sites belong to the first `history` traces of `f`.
+                Sites at the `i`-th trace will have name prefixed with
+                `'_PREV_' * (2 * history - 1 - i)`.
             + scanned sites: those sites collect the values of the remaining scan
                 loop over `f`. An addition time dimension `_time_foo` will be
                 added to those sites, where `foo` is the name of the first site
@@ -316,6 +369,8 @@ def scan(f, init, xs, length=None, reverse=False):
         but can be used when `xs` is an empty pytree (e.g. None)
     :param bool reverse: optional boolean specifying whether to run the scan iteration
         forward (the default) or in reverse
+    :param int history: The number of previous contexts visible from the current context.
+        Defaults to 1. If zero, this is similar to :class:`numpyro.plate`.
     :return: output of scan, quoted from :func:`jax.lax.scan` docs:
         "pair of type (c, [b]) where the first element represents the final loop
         carry value and the second element represents the stacked outputs of the
@@ -332,7 +387,8 @@ def scan(f, init, xs, length=None, reverse=False):
             'fn': scan_wrapper,
             'args': (f, init, xs, length, reverse),
             'kwargs': {'rng_key': None,
-                       'substitute_stack': []},
+                       'substitute_stack': [],
+                       'history': history},
             'value': None,
         }
 

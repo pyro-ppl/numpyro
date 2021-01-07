@@ -7,6 +7,9 @@ Example: Gaussian Process
 
 In this example we show how to use NUTS to sample from the posterior
 over the hyperparameters of a gaussian process.
+
+.. image:: ../_static/img/examples/gp.png
+    :align: center
 """
 
 import argparse
@@ -24,7 +27,7 @@ import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, init_to_value, init_to_median, init_to_feasible, init_to_sample, init_to_uniform
 
 matplotlib.use('Agg')  # noqa: E402
 
@@ -55,8 +58,19 @@ def model(X, Y):
 # helper function for doing hmc inference
 def run_inference(model, args, rng_key, X, Y):
     start = time.time()
-    kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
+    # demonstrate how to use different HMC initialization strategies
+    if args.init_strategy == "value":
+        init_strategy = init_to_value(values={"kernel_var": 1.0, "kernel_noise": 0.05, "kernel_length": 0.5})
+    elif args.init_strategy == "median":
+        init_strategy = init_to_median(num_samples=10)
+    elif args.init_strategy == "feasible":
+        init_strategy = init_to_feasible()
+    elif args.init_strategy == "sample":
+        init_strategy = init_to_sample()
+    elif args.init_strategy == "uniform":
+        init_strategy = init_to_uniform(radius=1)
+    kernel = NUTS(model, init_strategy=init_strategy)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, thinning=args.thinning,
                 progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y)
     mcmc.print_summary()
@@ -105,8 +119,8 @@ def main(args):
     samples = run_inference(model, args, rng_key, X, Y)
 
     # do prediction
-    vmap_args = (random.split(rng_key_predict, args.num_samples * args.num_chains), samples['kernel_var'],
-                 samples['kernel_length'], samples['kernel_noise'])
+    vmap_args = (random.split(rng_key_predict, samples['kernel_var'].shape[0]),
+                 samples['kernel_var'], samples['kernel_length'], samples['kernel_noise'])
     means, predictions = vmap(lambda rng_key, var, length, noise:
                               predict(rng_key, X, Y, X_test, var, length, noise))(*vmap_args)
 
@@ -114,7 +128,7 @@ def main(args):
     percentiles = np.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
-    fig, ax = plt.subplots(1, 1)
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
 
     # plot training data
     ax.plot(X, Y, 'kx')
@@ -125,7 +139,6 @@ def main(args):
     ax.set(xlabel="X", ylabel="Y", title="Mean predictions with 90% CI")
 
     plt.savefig("gp_plot.pdf")
-    plt.tight_layout()
 
 
 if __name__ == "__main__":
@@ -134,8 +147,11 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
+    parser.add_argument("--thinning", nargs='?', default=2, type=int)
     parser.add_argument("--num-data", nargs='?', default=25, type=int)
     parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--init-strategy", default='median', type=str,
+                        choices=['median', 'feasible', 'value', 'uniform', 'sample'])
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
