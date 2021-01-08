@@ -3,11 +3,11 @@ import copy
 from collections import namedtuple
 
 import jax.numpy as jnp
-from jax import device_put, lax, random, partial, jit, jacobian, hessian, make_jaxpr
+from jax import device_put, lax, random, partial, jit, jacobian, hessian
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.contrib.hmcecs_utils import (
+from numpyro.contrib.ecs_utils import (
     init_near_values,
     difference_estimator_fn,
     taylor_proxy,
@@ -68,6 +68,11 @@ def _update_block(rng_key, u, n, m, g):
 
 
 class ECS(MCMCKernel):
+    """ Energy conserving subsampling as first described in [1].
+
+    ** Reference: **
+      1. *Hamiltonian Monte Carlo with Energy ConservingSubsampling* by Dang, Khue-Dang et al.
+    """
     sample_field = "uz"
 
     def __init__(self, inner_kernel, estimator_fn=None, proxy_gen_fn=None, z_ref=None):
@@ -97,9 +102,12 @@ class ECS(MCMCKernel):
         u = {name: site["value"] for name, site in prototype_trace.items()
              if site["type"] == "plate" and site["args"][0] > site["args"][1]}
 
+        # TODO: estimate good block size
         self._plate_sizes = {name: prototype_trace[name]["args"] + (min(prototype_trace[name]["args"][1] // 2, 100),)
                              for name in u}
 
+        # Precompute Jaccobian and Hessian for Taylor Proxy
+        # TODO: check proxy type and branch
         plate_sizes_all = {name: (prototype_trace[name]["args"][0], prototype_trace[name]["args"][0]) for name in u}
         with subsample_size(model, plate_sizes_all):
             ref_trace = trace(substitute(model, data=z_ref)).get_trace(*model_args, **model_kwargs)
