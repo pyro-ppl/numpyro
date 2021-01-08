@@ -1,21 +1,17 @@
-from collections import namedtuple
-from numpyro.primitives import Messenger
 from functools import partial
-import numpyro
 
 import jax
 import jax.numpy as jnp
-from jax import grad, value_and_grad
-from jax.tree_util import tree_multimap
-from jax import random
+from jax import random, hessian, jacfwd
 
+import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.util import is_identically_one
-from numpyro.handlers import substitute, trace, seed, block
-from numpyro.primitives import _subsample_fn
+from numpyro.contrib.hmcecs_utils import log_density_obs_hmcecs
+from numpyro.contrib.hmcecs_utils import potential_est, taylor_proxy
+from numpyro.handlers import substitute, trace, seed
+from numpyro.infer.util import log_density
+from numpyro.primitives import Messenger, _subsample_fn
 from numpyro.util import ravel_pytree
-from numpyro.contrib.hmcecs_utils import log_density_obs_hmcecs, log_density_prior_hmcecs
-import jax.numpy as jnp
 
 
 def _wrap_model(model):
@@ -37,11 +33,16 @@ def _wrap_est_model(model, estimators, plate_sizes):
     return fn
 
 
-def model(data, *args, **kwargs):
+def model(data):
     x = numpyro.sample("x", dist.Normal(0., 1.))
     with numpyro.plate("N", data.shape[0], subsample_size=100):
         batch = numpyro.subsample(data, event_dim=0)
         obs = numpyro.sample("obs", dist.Normal(x, 1.), obs=batch)
+
+
+def plain_model(data):
+    x = numpyro.sample("x", dist.Normal(0., 1.))
+    obs = numpyro.sample("obs", dist.Normal(x, 1.), obs=data)
 
 
 class estimator(Messenger):
@@ -53,6 +54,7 @@ class estimator(Messenger):
     def process_message(self, msg):
         if msg['type'] == 'sample' and msg['is_observed'] and msg['cond_indep_stack']:
             log_prob = msg['fn'].log_prob
+            msg['scale'] = 1.
             msg['fn'].log_prob = lambda *args, **kwargs: \
                 self.estimators[msg['name']](*args, name=msg['name'], z=_extract_params(msg['fn']), log_prob=log_prob,
                                              sizes=self.plate_sizes[msg['cond_indep_stack'][0].name],
@@ -60,7 +62,7 @@ class estimator(Messenger):
 
 
 def my_estimator(value, name, z, sizes, log_prob, proxy_fn=lambda x, y: x, uproxy_fn=lambda x: x, **kwargs, ):
-    n, m = sizes
+    n, m, g = sizes
     ll_sub = log_prob(value).sum()
     diff = ll_sub - uproxy_fn(name, value, z)
     l_hat = proxy_fn(name, z) + n / m * diff
@@ -82,8 +84,8 @@ def my_taylor(ref_trace, ll_ref, jac_all, hess_all):
             z_diff = z[argnum] - z_ref[argnum]
             j, h = jac[argnum], hess[argnum]
             k, = j.shape
-            log_like += j.T @ z_diff + .5 * z_diff.T @ h.reshape(k, k) @ z_diff  # TODO: factor out
-        return ll_ref[name] + log_like
+            log_like += j.T @ z_diff + .5 * z_diff.T @ h.reshape(k, k) @ z_diff
+        return ll_ref[name].sum() + log_like
 
     def uproxy(name, value, z):
         ref_dist = ref_trace[name]['fn']
@@ -98,7 +100,7 @@ def my_taylor(ref_trace, ll_ref, jac_all, hess_all):
             hess = jax.hessian(log_prob, argnum)(*z_ref)
             log_like += jac @ z_diff + .5 * z_diff @ hess.reshape(k, k) @ z_diff.T
 
-        return log_prob(*z_ref) + log_like
+        return log_prob(*z_ref).sum() + log_like
 
     return proxy, uproxy
 
@@ -123,31 +125,6 @@ def _tangent_curve(dist, value, tangent_fn):
     return tuple(tangent_fn(log_prob, argnum)(*z) for argnum in range(len(z)))
 
 
-def check_estimator_handler():
-    data = random.normal(random.PRNGKey(1), (10000,)) + 1
-    z = {'x': jnp.array(0.9511842)}
-    model_trace = trace(seed(model, random.PRNGKey(2))).get_trace(data)
-    u = {name: site["value"] for name, site in model_trace.items()
-         if site["type"] == "plate" and site["args"][0] > site["args"][1]}
-    z_ref = {k: v + .1 for k, v in z.items()}
-    plate_sizes_all = {name: (model_trace[name]["args"][0], model_trace[name]["args"][0]) for name in u}
-    with subsample_size(model, plate_sizes_all):
-        ref_trace = trace(substitute(model, data=z_ref)).get_trace(data)
-        jac_all = {name: _tangent_curve(site['fn'], site['value'], jax.jacobian) for name, site in ref_trace.items() if
-                   (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-        hess_all = {name: _tangent_curve(site['fn'], site['value'], jax.hessian) for name, site in ref_trace.items() if
-                    (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-        ll_ref = {name: site['fn'].log_prob(site['value']) for name, site in ref_trace.items() if
-                  (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-
-    plate_sizes = {name: model_trace[name]["args"] for name in u}
-    ref_trace = trace(substitute(model, data={**u, **z_ref})).get_trace(data)
-    z_ref, _ = ravel_pytree(z_ref)
-    proxy_fn, uproxy_fn = my_taylor(ref_trace, ll_ref, jac_all, hess_all)
-    with estimator(model, {'obs': partial(my_estimator, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)}, plate_sizes):
-        print(log_density_obs_hmcecs(_wrap_model(model), (data,), {"_subsample_sites": u}, z))
-
-
 def check_handler():
     data = random.normal(random.PRNGKey(1), (10000,)) + 1
     z = {'x': jnp.array(0.9511842)}
@@ -155,23 +132,25 @@ def check_handler():
     u = {name: site["value"] for name, site in model_trace.items()
          if site["type"] == "plate" and site["args"][0] > site["args"][1]}
     z_ref = {k: v + .1 for k, v in z.items()}
-    plate_sizes_all = {name: (model_trace[name]["args"][0], model_trace[name]["args"][0]) for name in u}
-    with subsample_size(model, plate_sizes_all):
-        ref_trace = trace(substitute(model, data=z_ref)).get_trace(data)
-        jac_all = {name: _tangent_curve(site['fn'], site['value'], jax.jacobian) for name, site in ref_trace.items() if
-                   (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-        hess_all = {name: _tangent_curve(site['fn'], site['value'], jax.hessian) for name, site in ref_trace.items() if
-                    (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-        ll_ref = {name: site['fn'].log_prob(site['value']) for name, site in ref_trace.items() if
-                  (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+    proxy_fn, uproxy_fn = my_taylor(model, (data,), {}, model_trace, z_ref, u)
+    plate_sizes = {name: model_trace[name]["args"] + (1,) for name in u}
+    wrapped_model = _wrap_est_model(model, {'obs': partial(my_estimator, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)},
+                                    plate_sizes)
+    new_potential, _ = log_density(wrapped_model, (data,), {"_subsample_sites": u}, z)
+    print('new potential', new_potential)
 
-    plate_sizes = {name: model_trace[name]["args"] for name in u}
-    ref_trace = trace(substitute(model, data={**u, **z_ref})).get_trace(data)
-    z_ref, _ = ravel_pytree(z_ref)
-    proxy_fn, uproxy_fn = my_taylor(ref_trace, ll_ref, jac_all, hess_all)
-    print(log_density_obs_hmcecs(
-        _wrap_est_model(model, {'obs': partial(my_estimator, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)}, plate_sizes),
-        (data,), {"_subsample_sites": u}, z))
+    ld_fn = lambda args: jnp.sum(partial(log_density_obs_hmcecs, plain_model, (data,), {})(args)[0])
+    jac_all, _ = ravel_pytree(jacfwd(ld_fn)(z_ref))
+    print('ref jac all', jac_all)
+    hess_all, _ = ravel_pytree(hessian(ld_fn)(z_ref))
+    k, = jac_all.shape
+    hess_all = hess_all.reshape((k, k))
+    print('ref hess all', hess_all)
+    ll_ref = ld_fn(z_ref)
+    print('ref ll', ll_ref)
+    proxy_fn, uproxy_fn = taylor_proxy(z_ref, plain_model, ll_ref, jac_all, hess_all)
+
+    print('reference potential', potential_est(plain_model, (data[u['N']],), {}, z, 10000, 100, proxy_fn, uproxy_fn))
 
 
 if __name__ == '__main__':

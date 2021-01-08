@@ -1,18 +1,18 @@
 """ Based on fehiepsi implementation: https://gist.github.com/fehiepsi/b4a5a80b245600b99467a0264be05fd5 """
-from collections import namedtuple
 import copy
+from collections import namedtuple
 
-from jax import device_put, lax, random, partial, jit, ops
 import jax.numpy as jnp
+from jax import device_put, lax, random, partial, jit, jacobian, hessian, make_jaxpr
 
 import numpyro
 import numpyro.distributions as dist
+from check_potential import my_estimator, my_taylor, estimator, subsample_size, _tangent_curve
+from numpyro.contrib.hmcecs_utils import init_near_values
 from numpyro.handlers import substitute, trace, seed
 from numpyro.infer import MCMC, NUTS, log_likelihood
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.util import identity
-from numpyro.contrib.hmcecs_utils import init_near_values
-from check_potential import my_estimator, my_taylor, estimator
 
 HMC_ECS_State = namedtuple("HMC_ECS_State", "uz, hmc_state, accept_prob, rng_key")
 """
@@ -59,18 +59,14 @@ def _update_block(rng_key, u, n, m, g):
     :param g: number of subsample blocks
     """
 
-    if not (0 < g <= m):
-        raise ValueError(f'Block size 0 < {g} <= {m}')
     rng_key_block, rng_key_index = random.split(rng_key)
 
     chosen_block = random.randint(rng_key_block, shape=(), minval=0, maxval=g + 1)
-    idxs_new = random.choice(rng_key_index, n, shape=(m // g,), replace=False)
+    new_idx = random.randint(rng_key_index, minval=0, maxval=n, shape=(m,))
+    block_mask = (jnp.arange(m) // g == chosen_block).astype(int)
+    rest_mask = (block_mask - 1) ** 2
 
-    u_new = jnp.zeros(m, jnp.dtype(u))
-    for i in range(m):  # TODO: look into block update
-        u_new = ops.index_add(u_new, i, lax.cond(i // g == chosen_block,
-                                                 i, lambda _: idxs_new[i % (m // g)],
-                                                 i, lambda _: u[i]))
+    u_new = u * rest_mask + block_mask * new_idx
     return u_new
 
 
@@ -107,7 +103,21 @@ class ECS(MCMCKernel):
         self._plate_sizes = {name: prototype_trace[name]["args"] + (min(prototype_trace[name]["args"][1] // 2, 100),)
                              for name in u}
 
-        proxy_fn, uproxy_fn = self._proxy_gen_fn(model, model_args, model_kwargs, prototype_trace, z_ref, u)
+        plate_sizes_all = {name: (prototype_trace[name]["args"][0], prototype_trace[name]["args"][0]) for name in u}
+        with subsample_size(model, plate_sizes_all):
+            ref_trace = trace(substitute(model, data=z_ref)).get_trace(*model_args, **model_kwargs)
+            jac_all = {name: _tangent_curve(site['fn'], site['value'], jacobian) for name, site in ref_trace.items()
+                       if
+                       (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+            hess_all = {name: _tangent_curve(site['fn'], site['value'], hessian) for name, site in ref_trace.items()
+                        if
+                        (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+            ll_ref = {name: site['fn'].log_prob(site['value']) for name, site in ref_trace.items() if
+                      (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+
+        ref_trace = trace(substitute(model, data={**z_ref, **u})).get_trace(*model_args,
+                                                                            **model_kwargs)  # TODO: check reparam
+        proxy_fn, uproxy_fn = self._proxy_gen_fn(ref_trace, ll_ref, jac_all, hess_all)
 
         estimators = {name: partial(self._estimator_fn, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)
                       for name, site in prototype_trace.items() if
@@ -145,7 +155,7 @@ class ECS(MCMCKernel):
 
 def model(data, *args, **kwargs):
     x = numpyro.sample("x", dist.Normal(0., 1.))
-    with numpyro.plate("N", data.shape[0], subsample_size=300):
+    with numpyro.plate("N", data.shape[0], subsample_size=1000):
         batch = numpyro.subsample(data, event_dim=0)
         numpyro.sample("obs", dist.Normal(x, 1.), obs=batch)
 
@@ -156,13 +166,18 @@ def plain_model(data, *args, **kwargs):
 
 
 if __name__ == '__main__':
-    data = random.normal(random.PRNGKey(1), (10000,)) + 1
+    data = random.normal(random.PRNGKey(1), (10_000,)) + 1
     kernel = NUTS(plain_model)
-    mcmc = MCMC(kernel, 3000, 3000)
+    state = kernel.init(random.PRNGKey(1), 500, None, (data,), {})
+    print(make_jaxpr(kernel.sample)(state, (data,), {}), file=open('nuts_jaxpr.txt', 'w'))
+    mcmc = MCMC(kernel, 500, 500)
     mcmc.run(random.PRNGKey(1), data)
+    mcmc.print_summary(exclude_deterministic=False)
     z_ref = {k: v.mean() for k, v in mcmc.get_samples().items()}
 
     kernel = ECS(NUTS(model), estimator_fn=my_estimator, proxy_gen_fn=my_taylor, z_ref=z_ref)
+    state = kernel.init(random.PRNGKey(1), 500, None, (data,), {})
+    print(make_jaxpr(kernel.sample)(state, (data,), {}), file=open('ecs_jaxpr.txt', 'w'))
     mcmc = MCMC(kernel, 1500, 1500)
     mcmc.run(random.PRNGKey(0), data, extra_fields=("accept_prob",))
     # there is a bug when exclude_deterministic=True, which will be fixed upstream

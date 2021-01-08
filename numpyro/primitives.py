@@ -13,7 +13,6 @@ from numpyro.util import identity
 
 _PYRO_STACK = []
 
-
 CondIndepStackFrame = namedtuple('CondIndepStackFrame', ['name', 'dim', 'size'])
 
 
@@ -36,7 +35,7 @@ def apply_stack(msg):
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
     # via the pointer variable from the process_message loop
-    for handler in _PYRO_STACK[-pointer-1:]:
+    for handler in _PYRO_STACK[-pointer - 1:]:
         handler.postprocess_message(msg)
     return msg
 
@@ -239,6 +238,7 @@ class plate(Messenger):
         is used as the plate dim. If `None` (default), the leftmost available dim
         is allocated.
     """
+
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         self.size = size
@@ -266,10 +266,11 @@ class plate(Messenger):
         }
         apply_stack(msg)
         subsample = msg['value']
+        subsample_size = msg['args'][1]  # TODO: rewrite plate
         if subsample_size is not None and subsample_size != subsample.shape[0]:
             raise ValueError("subsample_size does not match len(subsample), {} vs {}.".format(
                 subsample_size, len(subsample)) +
-                " Did you accidentally use different subsample_size in the model and guide?")
+                             " Did you accidentally use different subsample_size in the model and guide?")
         cond_indep_stack = msg['cond_indep_stack']
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
@@ -334,7 +335,7 @@ class plate(Messenger):
                             statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
                         raise ValueError(
                             "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
-                            .format(self.name, self.size, self.dim, statement, shape))
+                                .format(self.name, self.size, self.dim, statement, shape))
                     if self.subsample_size < self.size:
                         value = msg["value"]
                         new_value = jnp.take(value, self._indices, dim)
