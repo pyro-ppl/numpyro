@@ -7,8 +7,14 @@ from jax import device_put, lax, random, partial, jit, jacobian, hessian, make_j
 
 import numpyro
 import numpyro.distributions as dist
-from check_potential import my_estimator, my_taylor, estimator, subsample_size, _tangent_curve
-from numpyro.contrib.hmcecs_utils import init_near_values
+from numpyro.contrib.hmcecs_utils import (
+    init_near_values,
+    difference_estimator_fn,
+    taylor_proxy,
+    estimator,
+    subsample_size,
+    _tangent_curve
+)
 from numpyro.handlers import substitute, trace, seed
 from numpyro.infer import MCMC, NUTS, log_likelihood
 from numpyro.infer.mcmc import MCMCKernel
@@ -27,15 +33,6 @@ HMC_ECS_State = namedtuple("HMC_ECS_State", "uz, hmc_state, accept_prob, rng_key
 sample(...)
     will use check_potential handler method!
 """
-
-
-def _wrap_model(model):
-    def fn(*args, **kwargs):
-        subsample_values = kwargs.pop("_subsample_sites", {})
-        with substitute(data=subsample_values):
-            model(*args, **kwargs)
-
-    return fn
 
 
 def _wrap_est_model(model, estimators, plate_sizes):
@@ -75,7 +72,7 @@ class ECS(MCMCKernel):
 
     def __init__(self, inner_kernel, estimator_fn=None, proxy_gen_fn=None, z_ref=None):
         self.inner_kernel = copy.copy(inner_kernel)
-        self.inner_kernel._model = inner_kernel.model  # Removed wrapper!
+        self.inner_kernel._model = inner_kernel.model
         self._proxy_gen_fn = proxy_gen_fn
         self._estimator_fn = estimator_fn
         self._z_ref = z_ref
@@ -167,18 +164,14 @@ def plain_model(data, *args, **kwargs):
 
 if __name__ == '__main__':
     data = random.normal(random.PRNGKey(1), (10_000,)) + 1
+    # Get reference parameters
     kernel = NUTS(plain_model)
-    state = kernel.init(random.PRNGKey(1), 500, None, (data,), {})
-    print(make_jaxpr(kernel.sample)(state, (data,), {}), file=open('nuts_jaxpr.txt', 'w'))
     mcmc = MCMC(kernel, 500, 500)
     mcmc.run(random.PRNGKey(1), data)
     mcmc.print_summary(exclude_deterministic=False)
     z_ref = {k: v.mean() for k, v in mcmc.get_samples().items()}
-
-    kernel = ECS(NUTS(model), estimator_fn=my_estimator, proxy_gen_fn=my_taylor, z_ref=z_ref)
-    state = kernel.init(random.PRNGKey(1), 500, None, (data,), {})
-    print(make_jaxpr(kernel.sample)(state, (data,), {}), file=open('ecs_jaxpr.txt', 'w'))
+    # Compute HMCECS
+    kernel = ECS(NUTS(model), estimator_fn=difference_estimator_fn, proxy_gen_fn=taylor_proxy, z_ref=z_ref)
     mcmc = MCMC(kernel, 1500, 1500)
     mcmc.run(random.PRNGKey(0), data, extra_fields=("accept_prob",))
-    # there is a bug when exclude_deterministic=True, which will be fixed upstream
     mcmc.print_summary(exclude_deterministic=False)

@@ -1,15 +1,14 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
 from collections import namedtuple
 from functools import partial
-import warnings
 
+import jax.numpy as jnp
 import numpy as np
-
 from jax import device_get, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
-import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.constraints import _GreaterThan, _Interval, real, real_vector
@@ -458,7 +457,7 @@ def initialize_model(rng_key, model,
                             for w in ws:
                                 # at site information to the warning message
                                 w.message.args = ("Site {}: {}".format(site["name"], w.message.args[0]),) \
-                                    + w.message.args[1:]
+                                                 + w.message.args[1:]
                                 warnings.showwarning(w.message, w.category, w.filename, w.lineno,
                                                      file=w.file, line=w.line)
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
@@ -467,7 +466,6 @@ def initialize_model(rng_key, model,
 
 def _predictive(rng_key, model, posterior_samples, batch_shape, return_sites=None,
                 parallel=True, model_args=(), model_kwargs={}):
-
     def single_prediction(val):
         rng_key, samples = val
         model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(

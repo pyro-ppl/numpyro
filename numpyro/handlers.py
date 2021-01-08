@@ -133,6 +133,7 @@ class trace(Messenger):
                       'type': 'sample',
                       'value': DeviceArray(-0.20584235, dtype=float32)})])
     """
+
     def __enter__(self):
         super(trace, self).__enter__()
         self.trace = OrderedDict()
@@ -143,7 +144,7 @@ class trace(Messenger):
             # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
             # which has no name
             return
-        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), \
+        assert not (msg['type'] == 'sample' and msg['name'] in self.trace), \
             'all sites must have unique names but got `{}` duplicated'.format(msg['name'])
         self.trace[msg['name']] = msg.copy()
 
@@ -188,6 +189,7 @@ class replay(Messenger):
        -0.20584235
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
+
     def __init__(self, fn=None, guide_trace=None):
         assert guide_trace is not None
         self.guide_trace = guide_trace
@@ -231,6 +233,7 @@ class block(Messenger):
        >>> assert 'a' not in trace_block_a
        >>> assert 'b' in trace_block_a
     """
+
     def __init__(self, fn=None, hide_fn=None, hide=None):
         if hide_fn is not None:
             self.hide_fn = hide_fn
@@ -342,6 +345,7 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
+
     def __init__(self, fn=None, data=None, condition_fn=None):
         self.condition_fn = condition_fn
         self.data = data
@@ -443,6 +447,7 @@ class mask(Messenger):
     :param mask: a boolean or a boolean-valued array for masking elementwise log
         probability of sample sites (`True` includes a site, `False` excludes a site).
     """
+
     def __init__(self, fn=None, mask=True):
         if lax.dtype(mask) != 'bool':
             raise ValueError("`mask` should be a bool array.")
@@ -479,6 +484,7 @@ class reparam(Messenger):
         :class:`~numpyro.infer.reparam.Reparam` or None.
     :type config: dict or callable
     """
+
     def __init__(self, fn=None, config=None):
         assert isinstance(config, dict) or callable(config)
         self.config = config
@@ -521,6 +527,7 @@ class scale(Messenger):
 
     :param float scale: a positive scaling factor
     """
+
     def __init__(self, fn=None, scale=1.):
         if not_jax_tracer(scale):
             if scale <= 0:
@@ -557,6 +564,7 @@ class scope(Messenger):
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
     """
+
     def __init__(self, fn=None, prefix=''):
         self.prefix = prefix
         super().__init__(fn)
@@ -607,6 +615,7 @@ class seed(Messenger):
        >>> y = handlers.seed(model, rng_seed=1)()
        >>> assert x == y
     """
+
     def __init__(self, fn=None, rng_seed=None):
         if isinstance(rng_seed, int) or (isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)):
             rng_seed = random.PRNGKey(rng_seed)
@@ -617,7 +626,7 @@ class seed(Messenger):
 
     def process_message(self, msg):
         if (msg['type'] == 'sample' and not msg['is_observed'] and
-                msg['kwargs']['rng_key'] is None) or msg['type'] in ['prng_key', 'plate', 'control_flow']:
+            msg['kwargs']['rng_key'] is None) or msg['type'] in ['prng_key', 'plate', 'control_flow']:
             # no need to create a new key when value is available
             if msg['value'] is not None:
                 return
@@ -660,6 +669,7 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
+
     def __init__(self, fn=None, data=None, substitute_fn=None):
         self.substitute_fn = substitute_fn
         self.data = data
@@ -729,6 +739,7 @@ class do(Messenger):
       >>> assert not exec_trace['z'].get('stop', None)
       >>> assert z_square == 1
     """
+
     def __init__(self, fn=None, data=None):
         self.data = data
         self._intervener_id = str(id(self))
