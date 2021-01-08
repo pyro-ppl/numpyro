@@ -266,7 +266,6 @@ class MCMC(object):
         # HMCState returned by last warmup
         self._warmup_state = None
         # HMCState returned by hmc.init_kernel
-        self._init_state = None
         self._init_state_cache = {}
         self._cache = {}
         self._collection_params = {}
@@ -384,39 +383,7 @@ class MCMC(object):
             pass
 
     @property
-    def init_state(self):
-        """
-        The initial state of the MCMC chain. If this attribute is None,
-        :meth:`run` will call `self.sampler.init(...)` method for initialization.
-
-        .. warning:: If you want to set a value for this attribute, then you will need to make sure
-            that certain fields such as `HMCState.i` and `HMCState.mean_accept_prob` are
-            reset to 0. In addition, if any of the fields of the initial state have invalid values
-            (e.g. `HMCState.potential_energy` may be invalid if `data` of the new `run` has been
-            changed), the sampler might get stuck or otherwise perform suboptimally.
-            To resolve this issue, you can set `potential_energy` to a large value (say `1e38`),
-            so that the sampler is more likely to accept a new proposal in the first MCMC step
-            (and which will have a correct `potential_energy`). For example
-
-            .. code-block:: python
-
-                mcmc = MCMC(NUTS(model), 100, 100)
-                mcmc.run(random.PRNGKey(0), data0)
-                samples_for_data0 = mcmc.get_samples()
-                mcmc.init_state = mcmc.last_state._replace(
-                    i=0, potential_energy=1e38, mean_accept_prob=0.)
-                mcmc.run(random.PRNGKey(1), data1)
-                samples_for_data1 = mcmc.get_samples()
-
-        """
-        return self._init_state
-
-    @init_state.setter
-    def init_state(self, state):
-        self._init_state = state
-
-    @property
-    def warmup_state(self):
+    def post_warmup_state(self):
         """
         The state before the sampling phase. If this attribute is not None,
         :meth:`run` will skip the warmup phase and start with the state
@@ -429,14 +396,14 @@ class MCMC(object):
                 mcmc = MCMC(NUTS(model), 100, 100)
                 mcmc.run(random.PRNGKey(0))
                 first_100_samples = mcmc.get_samples()
-                mcmc.warmup_state = mcmc.last_state
-                mcmc.run(mcmc.warmup_state.rng_key)  # or mcmc.run(random.PRNGKey(1))
+                mcmc.post_warmup_state = mcmc.last_state
+                mcmc.run(mcmc.post_warmup_state.rng_key)  # or mcmc.run(random.PRNGKey(1))
                 second_100_samples = mcmc.get_samples()
         """
         return self._warmup_state
 
-    @warmup_state.setter
-    def warmup_state(self, state):
+    @post_warmup_state.setter
+    def post_warmup_state(self, state):
         self._warmup_state = state
 
     @property
@@ -505,8 +472,6 @@ class MCMC(object):
         if self._warmup_state is not None:
             self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
             init_state = self._warmup_state._replace(rng_key=rng_key)
-        elif self._init_state is not None:
-            init_state = self._init_state._replace(rng_key=rng_key)
 
         chain_method = self.chain_method
         if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:

@@ -115,7 +115,7 @@ def test_uniform_normal():
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.warmup(random.PRNGKey(2), data, collect_warmup=True)
-    assert mcmc.warmup_state is not None
+    assert mcmc.post_warmup_state is not None
     warmup_samples = mcmc.get_samples()
     mcmc.run(random.PRNGKey(3), data)
     samples = mcmc.get_samples()
@@ -123,7 +123,7 @@ def test_uniform_normal():
     assert len(samples['loc']) == num_samples
     assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
 
-    mcmc.warmup_state = mcmc.last_state
+    mcmc.post_warmup_state = mcmc.last_state
     mcmc.run(random.PRNGKey(3), data)
     samples = mcmc.get_samples()
     assert len(samples['loc']) == num_samples
@@ -300,7 +300,7 @@ def test_mcmc_progbar():
     mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data)
     check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
-    check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-4, rtol=1e-4)
+    check_close(mcmc1.post_warmup_state, mcmc.post_warmup_state, atol=1e-4, rtol=1e-4)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -553,7 +553,6 @@ def test_reuse_mcmc_run(jit_args, shape):
     mcmc.run(random.PRNGKey(32), y1)
 
     # Re-run on new data - should be much faster.
-    mcmc.init_state = mcmc.last_state._replace(i=0, potential_energy=1e38, mean_accept_prob=0.)
     mcmc.run(random.PRNGKey(32), y2)
     assert_allclose(mcmc.get_samples()['mu'].mean(), -3., atol=0.1)
 
@@ -611,7 +610,7 @@ def test_compile_warmup_run(num_chains, chain_method, progress_bar):
     mcmc._compile(rng_key)
     # no delay after compiling
     mcmc.warmup(rng_key)
-    mcmc.run(mcmc._warmup_state.rng_key)
+    mcmc.run(mcmc.last_state.rng_key)
     actual_samples = mcmc.get_samples()["x"]
 
     assert_allclose(actual_samples, expected_samples)
