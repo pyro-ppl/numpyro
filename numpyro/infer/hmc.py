@@ -121,12 +121,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
         >>> true_coefs = jnp.array([1., 2., 3.])
         >>> data = random.normal(random.PRNGKey(2), (2000, 3))
-        >>> dim = 3
         >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(3))
         >>>
         >>> def model(data, labels):
-        ...     coefs_mean = jnp.zeros(dim)
-        ...     coefs = numpyro.sample('beta', dist.Normal(coefs_mean, jnp.ones(3)))
+        ...     coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(3), jnp.ones(3)))
         ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
@@ -137,7 +135,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         ...                         num_warmup=300)
         >>> samples = fori_collect(0, 500, sample_kernel, hmc_state,
         ...                        transform=lambda state: model_info.postprocess_fn(state.z))
-        >>> print(jnp.mean(samples['beta'], axis=0))  # doctest: +SKIP
+        >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
         [0.9153987 2.0754058 2.9621222]
     """
     if kinetic_fn is None:
