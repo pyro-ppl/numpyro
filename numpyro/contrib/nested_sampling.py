@@ -82,7 +82,7 @@ def _(d):
 @uniform_reparam_transform.register(dist.CategoricalLogits)
 @uniform_reparam_transform.register(dist.CategoricalProbs)
 def _(d):
-    return lambda q: jnp.sum(jnp.cumsum(d.probs, axis=-1) < q, axis=-1)
+    return lambda q: jnp.sum(jnp.cumsum(d.probs, axis=-1) < q[..., None], axis=-1)
 
 
 @uniform_reparam_transform.register(dist.Dirichlet)
