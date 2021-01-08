@@ -37,3 +37,12 @@ Inference
    optimizers
    diagnostics
    utilities
+
+Contributed Code
+----------------
+
+.. toctree::
+   :glob:
+   :maxdepth: 1
+
+   contrib

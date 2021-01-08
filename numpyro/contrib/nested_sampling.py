@@ -135,7 +135,7 @@ class NestedSampler:
     :param int num_live_points: the number of live points. As a rule-of-thumb, we should
         allocate around 50 live points per possible mode.
     :param int max_samples: the maximum number of iterations and samples
-    :param depth: an integer which determines the maximum number of ellipsoids to
+    :param int depth: an integer which determines the maximum number of ellipsoids to
         construct via hierarchical splitting (typical range: 3 - 9)
     :param int num_slices: the number of slice sampling proposals at each sampling step
         (typical range: 1 - 5)
@@ -168,7 +168,7 @@ class NestedSampler:
         >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
         [0.91239292 1.91636061 2.81830897]
     """
-    def __init__(self, model, *, num_live_points=1000, max_samples=1e5,
+    def __init__(self, model, *, num_live_points=1000, max_samples=100000,
                  depth=3, num_slices=5, termination_frac=0.001):
         self.model = model
         self.num_live_points = num_live_points
