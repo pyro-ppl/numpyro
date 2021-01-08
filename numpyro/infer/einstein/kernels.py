@@ -1,14 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Callable, List, Dict, Tuple
+from typing import Callable, Dict, List, Tuple
+
+import numpy as np
+import numpy.random as npr
 
 import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
-import numpy as np
-import numpy.random as npr
 
 import numpyro.distributions as dist
-from numpyro.infer.einstein.utils import sqrth, posdef, safe_norm
+from numpyro.infer.einstein.utils import posdef, safe_norm, sqrth
 
 
 class PrecondMatrix(ABC):

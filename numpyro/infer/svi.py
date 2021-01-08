@@ -3,9 +3,10 @@
 
 from functools import namedtuple, partial
 
+import tqdm
+
 from jax import jit, lax, random
 import jax.numpy as jnp
-import tqdm
 
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
