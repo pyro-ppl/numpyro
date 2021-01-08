@@ -11,6 +11,10 @@ validation_enabled
 
 .. automodule:: numpyro.util
 
+enable_x64
+----------
+.. autofunction:: numpyro.util.enable_x64
+
 set_platform
 ------------
 .. autofunction:: numpyro.util.set_platform
@@ -56,22 +60,36 @@ find_valid_initial_params
 -------------------------
 .. autofunction:: numpyro.infer.util.find_valid_initial_params
 
-init_to_median
---------------
-.. autofunction:: numpyro.infer.util.init_to_median
+.. _init_strategy:
 
-init_to_prior
--------------
-.. autofunction:: numpyro.infer.util.init_to_prior
-
-init_to_uniform
----------------
-.. autofunction:: numpyro.infer.util.init_to_uniform
+Initialization Strategies
+-------------------------
 
 init_to_feasible
-----------------
-.. autofunction:: numpyro.infer.util.init_to_feasible
+^^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.initialization.init_to_feasible
+
+init_to_median
+^^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.initialization.init_to_median
+
+init_to_sample
+^^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.initialization.init_to_sample
+
+init_to_uniform
+^^^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.initialization.init_to_uniform
 
 init_to_value
--------------
-.. autofunction:: numpyro.infer.util.init_to_value
+^^^^^^^^^^^^^
+.. autofunction:: numpyro.infer.initialization.init_to_value
+
+Tensor Indexing
+---------------
+
+.. automodule:: numpyro.contrib.indexing
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource

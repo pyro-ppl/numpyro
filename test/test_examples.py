@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import os
 from subprocess import check_call
 import sys
@@ -9,13 +12,29 @@ EXAMPLES_DIR = os.path.join(os.path.dirname(TESTS_DIR), 'examples')
 
 
 EXAMPLES = [
+    'annotation.py --model mn',
+    'annotation.py --model ds',
+    'annotation.py --model mace',
+    'annotation.py --model hds',
+    'annotation.py --model id',
+    'annotation.py --model lre',
     'baseball.py --num-samples 100 --num-warmup 100 --num-chains 2',
-    'covtype.py --algo HMC --num-samples 10',
-    'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'bnn.py --num-samples 10 --num-warmup 10 --num-data 7 --num-chains 2',
-    'sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10',
+    'capture_recapture.py --num-samples 4 --num-warmup 1 -m 3',
+    'capture_recapture.py --num-samples 4 --num-warmup 1 -m 5',
+    'covtype.py --algo HMC --num-samples 10',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
+    'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
+    'hmm_enum.py -m 1 -t 3 -d 4 --num-warmup 1 -n 4',
+    'hmm_enum.py -m 2 -t 3 -d 4 --num-warmup 1 -n 4',
+    'hmm_enum.py -m 3 -t 3 -d 3 --num-warmup 1 -n 4',
+    'hmm_enum.py -m 3 -t 3 -d 4 --num-warmup 1 -n 4',
+    'hmm_enum.py -m 4 -t 3 -d 4 --num-warmup 1 -n 4',
+    'hmm_enum.py -m 6 -t 4 -d 3 --num-warmup 1 -n 4',
     'minipyro.py',
+    'neutra.py --num-samples 100 --num-warmup 100',
+    'ode.py --num-samples 100 --num-warmup 100 --num-chains 1',
+    'sparse_regression.py --num-samples 10 --num-warmup 10 --num-data 10 --num-dimensions 10',
     'stochastic_volatility.py --num-samples 100 --num-warmup 100',
     'ucbadmit.py --num-chains 2',
     'vae.py -n 1',

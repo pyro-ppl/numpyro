@@ -17,6 +17,20 @@ Adagrad
    :undoc-members:
    :inherited-members:
 
+ClippedAdam
+-----------
+.. autoclass:: numpyro.optim.ClippedAdam
+   :members:
+   :undoc-members:
+   :inherited-members:
+
+Minimize
+--------
+.. autoclass:: numpyro.optim.Minimize
+   :members:
+   :undoc-members:
+   :inherited-members:
+
 Momentum
 --------
 .. autoclass:: numpyro.optim.Momentum

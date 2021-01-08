@@ -1,14 +1,16 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 import math
 
 from jax import jit
 
 import numpyro
-import numpyro.distributions as dist
 from numpyro.compat.pyro import get_param_store
-from numpyro.infer import elbo, mcmc, svi
+from numpyro.infer import elbo, hmc, mcmc, svi
 
 
-class HMC(mcmc.HMC):
+class HMC(hmc.HMC):
     def __init__(self,
                  model=None,
                  potential_fn=None,
@@ -34,7 +36,7 @@ class HMC(mcmc.HMC):
                                   trajectory_length=trajectory_length)
 
 
-class NUTS(mcmc.NUTS):
+class NUTS(hmc.NUTS):
     def __init__(self,
                  model=None,
                  potential_fn=None,
@@ -88,7 +90,7 @@ class MCMC(object):
 
     def run(self, *args, rng_key=None, **kwargs):
         if rng_key is None:
-            rng_key = numpyro.sample('mcmc.run', dist.PRNGIdentity())
+            rng_key = numpyro.prng_key()
         self._mcmc.run(rng_key, *args, init_params=self._initial_params, **kwargs)
 
     def get_samples(self, num_samples=None, group_by_chain=False):
@@ -122,14 +124,14 @@ class SVI(svi.SVI):
     def step(self, *args, rng_key=None, **kwargs):
         if self.svi_state is None:
             if rng_key is None:
-                rng_key = numpyro.sample('svi.init', dist.PRNGIdentity())
+                rng_key = numpyro.prng_key()
             self.svi_state = self.init(rng_key, *args, **kwargs)
         try:
             self.svi_state, loss = jit(self.update)(self.svi_state, *args, **kwargs)
         except TypeError as e:
             if 'not a valid JAX type' in str(e):
                 raise TypeError('NumPyro backend requires args, kwargs to be arrays or tuples, '
-                                'dicts of arrays.')
+                                'dicts of arrays.') from e
             else:
                 raise e
         params = jit(super(SVI, self).get_params)(self.svi_state)
@@ -140,7 +142,7 @@ class SVI(svi.SVI):
         return super(SVI, self).get_params(self.svi_state)
 
 
-class Trace_ELBO(elbo.ELBO):
+class Trace_ELBO(elbo.Trace_ELBO):
     def __init__(self,
                  num_particles=1,
                  max_plate_nesting=float('inf'),

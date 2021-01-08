@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 # The implementation follows the design in PyTorch: torch.distributions.constraints.py
 #
 # Copyright (c) 2016-     Facebook, Inc            (Adam Paszke)
@@ -33,6 +36,7 @@ __all__ = [
     'integer_greater_than',
     'interval',
     'is_dependent',
+    'less_than',
     'lower_cholesky',
     'multinomial',
     'nonnegative_integer',
@@ -46,13 +50,28 @@ __all__ = [
     'Constraint',
 ]
 
+import numpy as np
 
-import jax.numpy as np
+import jax.numpy
 
 
 class Constraint(object):
+    """
+    Abstract base class for constraints.
+
+    A constraint object represents a region over which a variable is valid,
+    e.g. within which a variable can be optimized.
+    """
+
     def __call__(self, x):
         raise NotImplementedError
+
+    def check(self, value):
+        """
+        Returns a byte tensor of `sample_shape + batch_shape` indicating
+        whether each event in value satisfies this constraint.
+        """
+        return self(value)
 
 
 class _Boolean(Constraint):
@@ -62,22 +81,24 @@ class _Boolean(Constraint):
 
 class _CorrCholesky(Constraint):
     def __call__(self, x):
-        tril = np.tril(x)
-        lower_triangular = np.all(np.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
-        positive_diagonal = np.all(np.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
-        x_norm = np.linalg.norm(x, axis=-1)
-        unit_norm_row = np.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        tril = jnp.tril(x)
+        lower_triangular = jnp.all(jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
+        x_norm = jnp.linalg.norm(x, axis=-1)
+        unit_norm_row = jnp.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
 
 class _CorrMatrix(Constraint):
     def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
-        symmetric = np.all(np.all(x == np.swapaxes(x, -2, -1), axis=-1), axis=-1)
+        symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
         # check for the smallest eigenvalue is positive
-        positive = np.linalg.eigh(x)[0][..., 0] > 0
+        positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         # check for diagonal equal to 1
-        unit_variance = np.all(np.abs(np.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
+        unit_variance = jnp.all(jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
         return symmetric & positive & unit_variance
 
 
@@ -98,13 +119,21 @@ class _GreaterThan(Constraint):
         return x > self.lower_bound
 
 
+class _LessThan(Constraint):
+    def __init__(self, upper_bound):
+        self.upper_bound = upper_bound
+
+    def __call__(self, x):
+        return x < self.upper_bound
+
+
 class _IntegerInterval(Constraint):
     def __init__(self, lower_bound, upper_bound):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return (x >= self.lower_bound) & (x <= self.upper_bound) & (x == np.floor(x))
+        return (x >= self.lower_bound) & (x <= self.upper_bound) & (x % 1 == 0)
 
 
 class _IntegerGreaterThan(Constraint):
@@ -121,14 +150,15 @@ class _Interval(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return (x > self.lower_bound) & (x < self.upper_bound)
+        return (x >= self.lower_bound) & (x <= self.upper_bound)
 
 
 class _LowerCholesky(Constraint):
     def __call__(self, x):
-        tril = np.tril(x)
-        lower_triangular = np.all(np.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
-        positive_diagonal = np.all(np.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        tril = jnp.tril(x)
+        lower_triangular = jnp.all(jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         return lower_triangular & positive_diagonal
 
 
@@ -137,37 +167,39 @@ class _Multinomial(Constraint):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
-        return np.all(x >= 0, axis=-1) & (np.sum(x, -1) == self.upper_bound)
+        return (x >= 0).all(axis=-1) & (x.sum(axis=-1) == self.upper_bound)
 
 
 class _OrderedVector(Constraint):
     def __call__(self, x):
-        return np.all(x[..., 1:] > x[..., :-1], axis=-1)
+        return (x[..., 1:] > x[..., :-1]).all(axis=-1)
 
 
 class _PositiveDefinite(Constraint):
     def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
-        symmetric = np.all(np.all(x == np.swapaxes(x, -2, -1), axis=-1), axis=-1)
+        symmetric = jnp.all(jnp.all(x == jnp.swapaxes(x, -2, -1), axis=-1), axis=-1)
         # check for the smallest eigenvalue is positive
-        positive = np.linalg.eigh(x)[0][..., 0] > 0
+        positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         return symmetric & positive
 
 
 class _Real(Constraint):
     def __call__(self, x):
-        return np.isfinite(x)
+        # XXX: consider to relax this condition to [-inf, inf] interval
+        return (x == x) & (x != float('inf')) & (x != float('-inf'))
 
 
 class _RealVector(Constraint):
     def __call__(self, x):
-        return np.all(np.isfinite(x), axis=-1)
+        return ((x == x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
 
 
 class _Simplex(Constraint):
     def __call__(self, x):
-        x_sum = np.sum(x, axis=-1)
-        return np.all(x > 0, axis=-1) & (x_sum <= 1) & (x_sum > 1 - 1e-6)
+        x_sum = x.sum(axis=-1)
+        return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
 
 
 # TODO: Make types consistent
@@ -177,6 +209,7 @@ corr_cholesky = _CorrCholesky()
 corr_matrix = _CorrMatrix()
 dependent = _Dependent()
 greater_than = _GreaterThan
+less_than = _LessThan
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval

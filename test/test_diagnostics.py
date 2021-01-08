@@ -1,4 +1,7 @@
-import numpy as onp
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 from scipy.fftpack import next_fast_len
@@ -29,7 +32,7 @@ from numpyro.diagnostics import (
     (effective_sample_size, (4, 10, 3), (3,)),
 ])
 def test_shape(statistics, input_shape, output_shape):
-    x = onp.random.normal(size=input_shape)
+    x = np.random.normal(size=input_shape)
     y = statistics(x)
     assert y.shape == output_shape
 
@@ -45,44 +48,44 @@ def test_fft_next_fast_len(target):
 
 
 def test_hpdi():
-    x = onp.random.normal(size=20000)
-    assert_allclose(hpdi(x, prob=0.8), onp.quantile(x, [0.1, 0.9]), atol=0.01)
+    x = np.random.normal(size=20000)
+    assert_allclose(hpdi(x, prob=0.8), np.quantile(x, [0.1, 0.9]), atol=0.01)
 
-    x = onp.random.exponential(size=20000)
-    assert_allclose(hpdi(x, prob=0.2), onp.array([0., 0.22]), atol=0.01)
+    x = np.random.exponential(size=20000)
+    assert_allclose(hpdi(x, prob=0.2), np.array([0., 0.22]), atol=0.01)
 
 
 def test_autocorrelation():
-    x = onp.arange(10.)
+    x = np.arange(10.)
     actual = autocorrelation(x)
-    expected = onp.array([1, 0.78, 0.52, 0.21, -0.13, -0.52, -0.94, -1.4, -1.91, -2.45])
+    expected = np.array([1, 0.78, 0.52, 0.21, -0.13, -0.52, -0.94, -1.4, -1.91, -2.45])
     assert_allclose(actual, expected, atol=0.01)
 
 
 def test_autocovariance():
-    x = onp.arange(10.)
+    x = np.arange(10.)
     actual = autocovariance(x)
-    expected = onp.array([8.25, 6.42, 4.25, 1.75, -1.08, -4.25, -7.75, -11.58, -15.75, -20.25])
+    expected = np.array([8.25, 6.42, 4.25, 1.75, -1.08, -4.25, -7.75, -11.58, -15.75, -20.25])
     assert_allclose(actual, expected, atol=0.01)
 
 
 def test_gelman_rubin():
     # only need to test precision for small data
-    x = onp.empty((2, 10))
-    x[0, :] = onp.arange(10.)
-    x[1, :] = onp.arange(10.) + 1
+    x = np.empty((2, 10))
+    x[0, :] = np.arange(10.)
+    x[1, :] = np.arange(10.) + 1
 
     r_hat = gelman_rubin(x)
     assert_allclose(r_hat, 0.98, atol=0.01)
 
 
 def test_split_gelman_rubin_agree_with_gelman_rubin():
-    x = onp.random.normal(size=(2, 10))
+    x = np.random.normal(size=(2, 10))
     r_hat1 = gelman_rubin(x.reshape(2, 2, 5).reshape(4, 5))
     r_hat2 = split_gelman_rubin(x)
     assert_allclose(r_hat1, r_hat2)
 
 
 def test_effective_sample_size():
-    x = onp.arange(1000.).reshape(100, 10)
+    x = np.arange(1000.).reshape(100, 10)
     assert_allclose(effective_sample_size(x), 52.64, atol=0.01)

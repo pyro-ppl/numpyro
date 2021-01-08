@@ -3,34 +3,22 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to NumPyro Examples and Tutorials!
-==========================================
+Welcome to NumPyro Tutorials!
+=============================
 
 .. toctree::
    :maxdepth: 2
-   :caption: Examples:
+   :caption: Tutorials:
 
    bayesian_regression
    time_series_forecasting
-
-.. toctree::
-   :maxdepth: 2
-   :caption: Code Examples:
-
-   bnn
-   gp
-   ucbadmit
-   baseball
-   hmm
-   stochastic_volatility
-   vae
-   funnel
-   sparse_regression
+   bayesian_imputation
+   ordinal_regression
+   bayesian_hierarchical_linear_regression
+   discrete_imputation
 
 
-Indices and tables
-==================
+Indices
+=======
 
 * :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`

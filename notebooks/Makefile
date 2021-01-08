@@ -2,15 +2,15 @@
 #
 
 # You can set these variables from the command line.
-SPHINXOPTS    ?= -E 
-SPHINXBUILD   = python -msphinx
-SPHINXPROJ    = NumpyroTutorials
+SPHINXOPTS    ?= -E -W
+SPHINXBUILD   = NUMPYRO_SPHINXBUILD=1 python -msphinx
+SPHINXPROJ    = NumPyroTutorials
 SOURCEDIR     = source
 BUILDDIR      = build
 
 # Put it first so that "make" without argument is like "make help".
 help:
-	@$(SPHINXBUILD) -M -a -E help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
 .PHONY: help Makefile
 

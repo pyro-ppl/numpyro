@@ -1,8 +1,13 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 import csv
 import gzip
 import os
+import pickle
 import struct
+import zipfile
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 
@@ -28,7 +33,12 @@ BASEBALL = dset('baseball', [
 
 
 COVTYPE = dset('covtype', [
-    'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.data.gz',
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip',
+])
+
+
+DIPPER_VOLE = dset('dipper_vole', [
+    'https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true',
 ])
 
 
@@ -47,6 +57,16 @@ SP500 = dset('SP500', [
 
 UCBADMIT = dset('ucbadmit', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv',
+])
+
+
+LYNXHARE = dset('lynxhare', [
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt',
+])
+
+
+JSB_CHORALES = dset('jsb_chorales', [
+    'https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle',
 ])
 
 
@@ -83,12 +103,29 @@ def _load_baseball():
 def _load_covtype():
     _download(COVTYPE)
 
-    file_path = os.path.join(DATA_DIR, 'covtype.data.gz')
-    data = np.genfromtxt(gzip.GzipFile(file_path), delimiter=',')
+    file_path = os.path.join(DATA_DIR, 'covtype.zip')
+    data = np.load(file_path)
 
     return {
-        'train': (data[:, :-1], data[:, -1].astype(np.int32))
+        'train': (data['data'], data['target'])
     }
+
+
+def _load_dipper_vole():
+    _download(DIPPER_VOLE)
+
+    file_path = os.path.join(DATA_DIR, 'dipper_vole.zip')
+    data = {}
+    with zipfile.ZipFile(file_path) as zipper:
+        data['dipper'] = (
+            np.genfromtxt(zipper.open('dipper_capture_history.csv'), delimiter=',')[:, 1:].astype(int),
+            np.genfromtxt(zipper.open('dipper_sex.csv'), delimiter=',')[:, 1].astype(int)
+        )
+        data['vole'] = (
+            np.genfromtxt(zipper.open('meadow_voles_capture_history.csv'), delimiter=',')[:, 1:],
+        )
+
+    return data
 
 
 def _load_mnist():
@@ -147,17 +184,79 @@ def _load_ucbadmit():
     return {'train': (np.stack(dept), np.stack(male), np.stack(applications), np.stack(admit))}
 
 
+def _load_lynxhare():
+    _download(LYNXHARE)
+
+    file_path = os.path.join(DATA_DIR, 'LynxHare.txt')
+    data = np.loadtxt(file_path)
+
+    return {
+        'train': (data[:, 0].astype(int), data[:, 1:])
+    }
+
+
+def _pad_sequence(sequences):
+    # like torch.nn.utils.rnn.pad_sequence with batch_first=True
+    max_length = max(x.shape[0] for x in sequences)
+    padded_sequences = []
+    for x in sequences:
+        pad = [(0, 0)] * np.ndim(x)
+        pad[0] = (0, max_length - x.shape[0])
+        padded_sequences.append(np.pad(x, pad))
+    return np.stack(padded_sequences)
+
+
+def _load_jsb_chorales():
+    _download(JSB_CHORALES)
+
+    file_path = os.path.join(DATA_DIR, 'jsb_chorales.pickle')
+    with open(file_path, 'rb') as f:
+        data = pickle.load(f)
+
+    # XXX: we might expose those in `load_dataset` keywords
+    min_note = 21
+    note_range = 88
+    processed_dataset = {}
+    for split, data_split in data.items():
+        processed_dataset[split] = {}
+        n_seqs = len(data_split)
+        processed_dataset[split]['sequence_lengths'] = np.zeros(n_seqs, dtype=np.long)
+        processed_dataset[split]['sequences'] = []
+        for seq in range(n_seqs):
+            seq_length = len(data_split[seq])
+            processed_dataset[split]['sequence_lengths'][seq] = seq_length
+            processed_sequence = np.zeros((seq_length, note_range))
+            for t in range(seq_length):
+                note_slice = np.array(list(data_split[seq][t])) - min_note
+                slice_length = len(note_slice)
+                if slice_length > 0:
+                    processed_sequence[t, note_slice] = np.ones(slice_length)
+            processed_dataset[split]['sequences'].append(processed_sequence)
+
+    for k, v in processed_dataset.items():
+        lengths = v["sequence_lengths"]
+        sequences = v["sequences"]
+        processed_dataset[k] = (lengths, _pad_sequence(sequences).astype("int32"))
+    return processed_dataset
+
+
 def _load(dset):
     if dset == BASEBALL:
         return _load_baseball()
     elif dset == COVTYPE:
         return _load_covtype()
+    elif dset == DIPPER_VOLE:
+        return _load_dipper_vole()
     elif dset == MNIST:
         return _load_mnist()
     elif dset == SP500:
         return _load_sp500()
     elif dset == UCBADMIT:
         return _load_ucbadmit()
+    elif dset == LYNXHARE:
+        return _load_lynxhare()
+    elif dset == JSB_CHORALES:
+        return _load_jsb_chorales()
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 

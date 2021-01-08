@@ -1,16 +1,20 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from numpy.testing import assert_allclose
+import pytest
 
 from jax import jit, random, value_and_grad
-import jax.numpy as np
-from jax.test_util import check_eq
-import pytest
+import jax.numpy as jnp
+from jax.test_util import check_close
+
 import numpyro
 from numpyro import optim
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import ELBO, SVI, RenyiELBO
+from numpyro.infer import RenyiELBO, SVI, Trace_ELBO
 from numpyro.util import fori_loop
 
 
@@ -23,7 +27,7 @@ def test_renyi_elbo(alpha):
         pass
 
     def elbo_loss_fn(x):
-        return ELBO().loss(random.PRNGKey(0), {}, model, guide, x)
+        return Trace_ELBO().loss(random.PRNGKey(0), {}, model, guide, x)
 
     def renyi_loss_fn(x):
         return RenyiELBO(alpha=alpha, num_particles=10).loss(random.PRNGKey(0), {}, model, guide, x)
@@ -35,12 +39,11 @@ def test_renyi_elbo(alpha):
 
 
 @pytest.mark.parametrize('elbo', [
-    ELBO(),
-    pytest.param(RenyiELBO(num_particles=10),
-                 marks=pytest.mark.xfail(reason="https://github.com/pyro-ppl/numpyro/issues/414"))
+    Trace_ELBO(),
+    RenyiELBO(num_particles=10),
 ])
 def test_beta_bernoulli(elbo):
-    data = np.array([1.0] * 8 + [0.0] * 2)
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1., 1.))
@@ -62,13 +65,34 @@ def test_beta_bernoulli(elbo):
         svi_state, _ = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 300, body_fn, svi_state)
+    svi_state = fori_loop(0, 1000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
 
+@pytest.mark.parametrize('progress_bar', [True, False])
+def test_run(progress_bar):
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
+
+    def model(data):
+        f = numpyro.sample("beta", dist.Beta(1., 1.))
+        numpyro.sample("obs", dist.Bernoulli(f), obs=data)
+
+    def guide(data):
+        alpha_q = numpyro.param("alpha_q", lambda key: random.normal(key),
+                                constraint=constraints.positive)
+        beta_q = numpyro.param("beta_q", lambda key: random.exponential(key),
+                               constraint=constraints.positive)
+        numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
+
+    svi = SVI(model, guide, optim.Adam(0.05), Trace_ELBO())
+    params, losses = svi.run(random.PRNGKey(1), 1000, data, progress_bar=progress_bar)
+    assert losses.shape == (1000,)
+    assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
+
+
 def test_jitted_update_fn():
-    data = np.array([1.0] * 8 + [0.0] * 2)
+    data = jnp.array([1.0] * 8 + [0.0] * 2)
 
     def model(data):
         f = numpyro.sample("beta", dist.Beta(1., 1.))
@@ -82,12 +106,12 @@ def test_jitted_update_fn():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     adam = optim.Adam(0.05)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(1), data)
     expected = svi.get_params(svi.update(svi_state, data)[0])
 
     actual = svi.get_params(jit(svi.update)(svi_state, data=data)[0])
-    check_eq(actual, expected)
+    check_close(actual, expected, atol=1e-5)
 
 
 def test_param():
@@ -97,8 +121,8 @@ def test_param():
     a_minval = 1
     c_minval = -2
     c_maxval = -1
-    a_init = np.exp(random.normal(rng_keys[0])) + a_minval
-    b_init = np.exp(random.normal(rng_keys[1]))
+    a_init = jnp.exp(random.normal(rng_keys[0])) + a_minval
+    b_init = jnp.exp(random.normal(rng_keys[1]))
     c_init = random.uniform(rng_keys[2], minval=c_minval, maxval=c_maxval)
     d_init = random.uniform(rng_keys[3])
     obs = random.normal(rng_keys[4])
@@ -114,7 +138,7 @@ def test_param():
         numpyro.sample('y', dist.Normal(c, d), obs=obs)
 
     adam = optim.Adam(0.01)
-    svi = SVI(model, guide, adam, ELBO())
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0))
 
     params = svi.get_params(svi_state)
@@ -124,7 +148,7 @@ def test_param():
     assert_allclose(params['d'], d_init)
 
     actual_loss = svi.evaluate(svi_state)
-    assert np.isfinite(actual_loss)
+    assert jnp.isfinite(actual_loss)
     expected_loss = dist.Normal(c_init, d_init).log_prob(obs) - dist.Normal(a_init, b_init).log_prob(obs)
     # not so precisely because we do transform / inverse transform stuffs
     assert_allclose(actual_loss, expected_loss, rtol=1e-6)
@@ -142,13 +166,11 @@ def test_elbo_dynamic_support():
         numpyro.sample('x', x_guide)
 
     adam = optim.Adam(0.01)
-    # set base value of x_guide is 0.9
-    x_base = 0.9
-    guide = substitute(guide, base_param_map={'x': x_base})
-    svi = SVI(model, guide, adam, ELBO())
+    x = 2.
+    guide = substitute(guide, data={'x': x})
+    svi = SVI(model, guide, adam, Trace_ELBO())
     svi_state = svi.init(random.PRNGKey(0))
     actual_loss = svi.evaluate(svi_state)
-    assert np.isfinite(actual_loss)
-    x, _ = x_guide.transform_with_intermediates(x_base)
+    assert jnp.isfinite(actual_loss)
     expected_loss = x_guide.log_prob(x) - x_prior.log_prob(x)
     assert_allclose(actual_loss, expected_loss)

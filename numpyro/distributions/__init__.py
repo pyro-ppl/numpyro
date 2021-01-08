@@ -1,5 +1,9 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
+from numpyro.distributions.conjugate import BetaBinomial, DirichletMultinomial, GammaPoisson
 import numpyro.distributions.constraints  # noqa: F401
-from numpyro.distributions.conjugate import BetaBinomial, GammaPoisson
+from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -9,20 +13,25 @@ from numpyro.distributions.continuous import (
     Exponential,
     Gamma,
     GaussianRandomWalk,
+    Gumbel,
     HalfCauchy,
     HalfNormal,
     InverseGamma,
+    Laplace,
     LKJCholesky,
+    Logistic,
     LogNormal,
-    MultivariateNormal,
     LowRankMultivariateNormal,
+    MultivariateNormal,
     Normal,
     Pareto,
     StudentT,
     TruncatedCauchy,
     TruncatedNormal,
+    TruncatedPolyaGamma,
     Uniform
 )
+from numpyro.distributions.directional import VonMises
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -33,7 +42,9 @@ from numpyro.distributions.discrete import (
     Categorical,
     CategoricalLogits,
     CategoricalProbs,
-    Delta,
+    Geometric,
+    GeometricLogits,
+    GeometricProbs,
     Multinomial,
     MultinomialLogits,
     MultinomialProbs,
@@ -42,13 +53,23 @@ from numpyro.distributions.discrete import (
     PRNGIdentity,
     ZeroInflatedPoisson
 )
-from numpyro.distributions.distribution import Distribution, Independent, TransformedDistribution
+from numpyro.distributions.distribution import (
+    Delta,
+    Distribution,
+    ExpandedDistribution,
+    ImproperUniform,
+    Independent,
+    MaskedDistribution,
+    TransformedDistribution,
+    Unit
+)
 import numpyro.distributions.transforms  # noqa: F401
 from numpyro.distributions.transforms import biject_to
 
 __all__ = [
     'biject_to',
     'constraints',
+    'kl_divergence',
     'transforms',
     'Bernoulli',
     'BernoulliLogits',
@@ -65,18 +86,28 @@ __all__ = [
     'Chi2',
     'Delta',
     'Dirichlet',
+    'DirichletMultinomial',
     'Distribution',
     'Exponential',
+    'ExpandedDistribution',
     'Gamma',
     'GammaPoisson',
     'GaussianRandomWalk',
+    'Geometric',
+    'GeometricLogits',
+    'GeometricProbs',
+    'Gumbel',
     'HalfCauchy',
     'HalfNormal',
+    'ImproperUniform',
     'Independent',
     'InverseGamma',
+    'Laplace',
     'LKJ',
     'LKJCholesky',
+    'Logistic',
     'LogNormal',
+    'MaskedDistribution',
     'Multinomial',
     'MultinomialLogits',
     'MultinomialProbs',
@@ -91,6 +122,10 @@ __all__ = [
     'TransformedDistribution',
     'TruncatedCauchy',
     'TruncatedNormal',
+    'TruncatedPolyaGamma',
     'Uniform',
+    'Unit',
+    'VonMises',
     'ZeroInflatedPoisson',
+
 ]

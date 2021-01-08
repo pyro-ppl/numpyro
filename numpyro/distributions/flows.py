@@ -1,5 +1,8 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from jax import lax
-import jax.numpy as np
+import jax.numpy as jnp
 
 from numpyro.distributions.constraints import real_vector
 from numpyro.distributions.transforms import Transform
@@ -7,7 +10,7 @@ from numpyro.util import fori_loop
 
 
 def _clamp_preserve_gradients(x, min, max):
-    return x + lax.stop_gradient(np.clip(x, a_min=min, a_max=max) - x)
+    return x + lax.stop_gradient(jnp.clip(x, a_min=min, a_max=max) - x)
 
 
 # adapted from https://github.com/pyro-ppl/pyro/blob/dev/pyro/distributions/transforms/iaf.py
@@ -47,7 +50,7 @@ class InverseAutoregressiveTransform(Transform):
     def call_with_intermediates(self, x):
         mean, log_scale = self.arn(x)
         log_scale = _clamp_preserve_gradients(log_scale, self.log_scale_min_clip, self.log_scale_max_clip)
-        scale = np.exp(log_scale)
+        scale = jnp.exp(log_scale)
         return scale * x + mean, log_scale
 
     def inv(self, y):
@@ -57,12 +60,12 @@ class InverseAutoregressiveTransform(Transform):
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
         def _update_x(i, x):
             mean, log_scale = self.arn(x)
-            inverse_scale = np.exp(-_clamp_preserve_gradients(
+            inverse_scale = jnp.exp(-_clamp_preserve_gradients(
                 log_scale, min=self.log_scale_min_clip, max=self.log_scale_max_clip))
             x = (y - mean) * inverse_scale
             return x
 
-        x = fori_loop(0, y.shape[-1], _update_x, np.zeros(y.shape))
+        x = fori_loop(0, y.shape[-1], _update_x, jnp.zeros(y.shape))
         return x
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -106,8 +109,8 @@ class BlockNeuralAutoregressiveTransform(Transform):
         return y, logdet
 
     def inv(self, y):
-        raise RuntimeError("Block neural autoregressive transform does not have an analytic"
-                           " inverse implemented.")
+        raise NotImplementedError("Block neural autoregressive transform does not have an analytic"
+                                  " inverse implemented.")
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         """
