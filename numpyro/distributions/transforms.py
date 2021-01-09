@@ -312,6 +312,34 @@ class ExpTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return x
 
+class SoftplusTransform(Transform):
+    r"""
+    Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
+    The inverse is computed as :math:`y = \log(\exp(x) - 1)`.
+    """
+    def __init__(self, domain=constraints.real):
+        self.domain = domain
+
+    @property
+    def codomain(self):
+        if self.domain is constraints.real:
+            return constraints.positive
+        elif isinstance(self.domain, constraints.greater_than):
+            return constraints.greater_than(self.__call__(self.domain.lower_bound))
+        elif isinstance(self.domain, constraints.interval):
+            return constraints.interval(self.__call__(self.domain.lower_bound),
+                                        self.__call__(self.domain.upper_bound))
+        else:
+            raise NotImplementedError
+
+    def __call__(self, x):
+        return softplus(x)
+
+    def inv(self, x):
+        return jnp.log(jnp.expm1(x))
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return -softplus(-x)
 
 class IdentityTransform(Transform):
 
