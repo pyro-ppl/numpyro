@@ -1,15 +1,15 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from functools import partial
+
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from functools import partial
-
-import jax.numpy as jnp
 from jax import random
-from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular, inv
+import jax.numpy as jnp
+from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 
 import numpyro
 import numpyro.distributions as dist

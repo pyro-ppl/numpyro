@@ -1,18 +1,19 @@
 from collections import namedtuple
 
-import jax.numpy as jnp
-import pytest
 from numpy.testing import assert_allclose
+import pytest
+
+import jax.numpy as jnp
 
 from numpyro.infer.einstein.kernels import (
-    RBFKernel,
-    RandomFeatureKernel,
     GraphicalKernel,
+    HessianPrecondMatrix,
     IMQKernel,
     LinearKernel,
     MixtureKernel,
-    HessianPrecondMatrix,
-    PrecondMatrixKernel
+    PrecondMatrixKernel,
+    RandomFeatureKernel,
+    RBFKernel
 )
 
 jnp.set_printoptions(precision=100)

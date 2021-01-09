@@ -21,13 +21,13 @@ from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.autoguide import (
     AutoBNAFNormal,
+    AutoDelta,
     AutoDiagonalNormal,
     AutoIAFNormal,
     AutoLaplaceApproximation,
     AutoLowRankMultivariateNormal,
     AutoMultivariateNormal,
-    AutoNormal,
-    AutoDelta,
+    AutoNormal
 )
 from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import TransformReparam
