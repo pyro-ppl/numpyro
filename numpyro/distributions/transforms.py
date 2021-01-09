@@ -643,15 +643,15 @@ def _transform_to_corr_matrix(constraint):
 @biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
     if constraint is constraints.positive:
-        return ExpTransform()
-    return ComposeTransform([ExpTransform(),
+        return SoftplusTransform()
+    return ComposeTransform([SoftplusTransform(),
                              AffineTransform(constraint.lower_bound, 1,
                                              domain=constraints.positive)])
 
 
 @biject_to.register(constraints.less_than)
 def _transform_to_less_than(constraint):
-    return ComposeTransform([ExpTransform(),
+    return ComposeTransform([SoftplusTransform(),
                              AffineTransform(constraint.upper_bound, -1,
                                              domain=constraints.positive)])
 
