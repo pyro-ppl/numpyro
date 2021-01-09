@@ -382,11 +382,42 @@ class MCMC(object):
         except TypeError:
             pass
 
+    @property
+    def post_warmup_state(self):
+        """
+        The state before the sampling phase. If this attribute is not None,
+        :meth:`run` will skip the warmup phase and start with the state
+        specified in this attribute.
+
+        .. note:: This attribute can be used to sequentially draw MCMC samples. For example,
+
+            .. code-block:: python
+
+                mcmc = MCMC(NUTS(model), 100, 100)
+                mcmc.run(random.PRNGKey(0))
+                first_100_samples = mcmc.get_samples()
+                mcmc.post_warmup_state = mcmc.last_state
+                mcmc.run(mcmc.post_warmup_state.rng_key)  # or mcmc.run(random.PRNGKey(1))
+                second_100_samples = mcmc.get_samples()
+        """
+        return self._warmup_state
+
+    @post_warmup_state.setter
+    def post_warmup_state(self, state):
+        self._warmup_state = state
+
+    @property
+    def last_state(self):
+        """
+        The final MCMC state at the end of the sampling phase.
+        """
+        return self._last_state
+
     def warmup(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
-        Run the MCMC warmup adaptation phase. After this call, the :meth:`run` method
-        will skip the warmup adaptation phase. To run `warmup` again for the new data,
-        it is required to run :meth:`warmup` again.
+        Run the MCMC warmup adaptation phase. After this call, `self.warmup_state` will be set
+        and the :meth:`run` method will skip the warmup adaptation phase. To run `warmup` again
+        for the new data, it is required to run :meth:`warmup` again.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.

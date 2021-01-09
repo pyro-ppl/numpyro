@@ -10,13 +10,12 @@ import jax.numpy as jnp
 from jax.scipy.special import expit
 
 from numpyro.distributions import biject_to
-from numpyro.handlers import condition, seed, trace, substitute
+from numpyro.handlers import condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import log_likelihood, potential_energy, _guess_max_plate_nesting
+from numpyro.infer.util import _guess_max_plate_nesting, log_likelihood, potential_energy
 from numpyro.primitives import _subsample_fn
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
-
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """
