@@ -5,25 +5,22 @@ from collections import namedtuple
 import jax.numpy as jnp
 from jax import device_put, lax, random, partial, jit, jacobian, hessian
 
-import numpyro
-import numpyro.distributions as dist
 from numpyro.contrib.ecs_utils import (
     init_near_values,
-    difference_estimator_fn,
-    taylor_proxy,
     estimator,
     subsample_size,
     _tangent_curve
 )
 from numpyro.handlers import substitute, trace, seed
-from numpyro.infer import MCMC, NUTS, log_likelihood
+from numpyro.infer import log_likelihood
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.util import identity
 
 HMC_ECS_State = namedtuple("HMC_ECS_State", "uz, hmc_state, accept_prob, rng_key")
 """
  - **uz** - a dict of current subsample indices and the current latent values
- - **hmc_state** - current hmc_state
+ - **hmc_state** - current hmc_stat    log_like += j.T @ z_diff + .5 * z_diff.T @ h.reshape(k, k) @ z_diff
+e
  - **accept_prob** - acceptance probability of the proposal subsample indices
  - **rng_key** - random key to generate new subsample indices
 """
@@ -109,29 +106,28 @@ class ECS(MCMCKernel):
         # Precompute Jaccobian and Hessian for Taylor Proxy
         # TODO: check proxy type and branch
         plate_sizes_all = {name: (prototype_trace[name]["args"][0], prototype_trace[name]["args"][0]) for name in u}
-        with subsample_size(model, plate_sizes_all):
-            ref_trace = trace(substitute(model, data=z_ref)).get_trace(*model_args, **model_kwargs)
+        with subsample_size(self.model, plate_sizes_all):
+            ref_trace = trace(substitute(self.model, data=self._z_ref)).get_trace(*model_args, **model_kwargs)
             jac_all = {name: _tangent_curve(site['fn'], site['value'], jacobian) for name, site in ref_trace.items()
-                       if
-                       (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+                       if (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
             hess_all = {name: _tangent_curve(site['fn'], site['value'], hessian) for name, site in ref_trace.items()
-                        if
-                        (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+                        if (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
             ll_ref = {name: site['fn'].log_prob(site['value']) for name, site in ref_trace.items() if
                       (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
 
-        ref_trace = trace(substitute(model, data={**z_ref, **u})).get_trace(*model_args,
-                                                                            **model_kwargs)  # TODO: check reparam
+        ref_trace = trace(substitute(self.model, data={**self._z_ref, **u})).get_trace(*model_args,
+                                                                                       **model_kwargs)  # TODO: check reparam
         proxy_fn, uproxy_fn = self._proxy_gen_fn(ref_trace, ll_ref, jac_all, hess_all)
 
+        print(jac_all)
         estimators = {name: partial(self._estimator_fn, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)
                       for name, site in prototype_trace.items() if
                       (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-        self.inner_kernel._model = _wrap_est_model(model, estimators, self._plate_sizes)
+        self.inner_kernel._model = _wrap_est_model(self.model, estimators, self._plate_sizes)
         init_params = {name: init_near_values(site, self._z_ref) for name, site in prototype_trace.items()}
         model_kwargs["_subsample_sites"] = u
-        hmc_state = self.inner_kernel.init(key_z, num_warmup, init_params,
-                                           model_args, model_kwargs)
+
+        hmc_state = self.inner_kernel.init(key_z, num_warmup, init_params, model_args, model_kwargs)
         uz = {**u, **hmc_state.z}
         return device_put(HMC_ECS_State(uz, hmc_state, 1., rng_key))
 
@@ -156,30 +152,3 @@ class ECS(MCMCKernel):
         hmc_state = self.inner_kernel.sample(state.hmc_state, model_args, model_kwargs)
         uz = {**u, **hmc_state.z}
         return HMC_ECS_State(uz, hmc_state, accept_prob, rng_key)
-
-
-def model(data, *args, **kwargs):
-    x = numpyro.sample("x", dist.Normal(0., 1.))
-    with numpyro.plate("N", data.shape[0], subsample_size=1000):
-        batch = numpyro.subsample(data, event_dim=0)
-        numpyro.sample("obs", dist.Normal(x, 1.), obs=batch)
-
-
-def plain_model(data, *args, **kwargs):
-    x = numpyro.sample("x", dist.Normal(0., 1.))
-    numpyro.sample("obs", dist.Normal(x, 1.), obs=data)
-
-
-if __name__ == '__main__':
-    data = random.normal(random.PRNGKey(1), (10_000,)) + 1
-    # Get reference parameters
-    kernel = NUTS(plain_model)
-    mcmc = MCMC(kernel, 500, 500)
-    mcmc.run(random.PRNGKey(1), data)
-    mcmc.print_summary(exclude_deterministic=False)
-    z_ref = {k: v.mean() for k, v in mcmc.get_samples().items()}
-    # Compute HMCECS
-    kernel = ECS(NUTS(model), estimator_fn=difference_estimator_fn, proxy_gen_fn=taylor_proxy, z_ref=z_ref)
-    mcmc = MCMC(kernel, 1500, 1500)
-    mcmc.run(random.PRNGKey(0), data, extra_fields=("accept_prob",))
-    mcmc.print_summary(exclude_deterministic=False)
