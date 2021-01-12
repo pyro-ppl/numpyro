@@ -8,8 +8,7 @@ import numpy as np
 import pytest
 from jax import random
 from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
-from numpy.testing import assert_allclose, assert_array_compare
-import operator
+from numpy.testing import assert_allclose
 
 import numpyro
 import numpyro.distributions as dist
