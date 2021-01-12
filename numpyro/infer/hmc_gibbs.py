@@ -436,9 +436,9 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, block_updates={}):
             block_size = block_sizes[name]
             rng_key, subkey, block_key = random.split(rng_key, 3)
 
-            chosen_block = random.randint(block_key, shape=(), minval=0, maxval=block_size + 1)
+            chosen_block = random.randint(block_key, shape=(), minval=0, maxval=subsample_size // block_size + 1)
             new_idx = random.randint(subkey, minval=0, maxval=size, shape=(subsample_size,))
-            block_mask = (jnp.arange(size) // block_size == chosen_block).astype(int)
+            block_mask = (jnp.arange(subsample_size) // block_size == chosen_block).astype(int)
             rest_mask = (block_mask - 1) ** 2
 
             u_new[name] = gibbs_sites[name] * rest_mask + block_mask * new_idx
