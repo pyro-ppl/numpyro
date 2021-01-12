@@ -1,12 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
 import copy
+from collections import namedtuple
 from functools import partial
 
-from jax import device_put, ops, random, value_and_grad
 import jax.numpy as jnp
+from jax import device_put, ops, random, value_and_grad
 from jax.scipy.special import expit
 
 from numpyro.distributions import biject_to
@@ -29,6 +29,7 @@ def _wrap_model(model):
         gibbs_values = kwargs.pop("_gibbs_sites", {})
         with condition(data=gibbs_values), substitute(data=gibbs_values):
             model(*args, **kwargs)
+
     return fn
 
 
@@ -358,7 +359,7 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
     return gibbs_fn
 
 
-def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
+def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, block_updates={}):
     """
     [EXPERIMENTAL INTERFACE]
 
@@ -374,11 +375,13 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
     2. *Speeding Up MCMC by Efficient Data Subsampling*,
        Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
 
-    :param callable model: a callable with NumPyro primitives. This should be the same model
+    :param callable model: A callable with NumPyro primitives. This should be the same model
         as the one used in the `inner_kernel` of :class:`HMCGibbs`.
+
     :param tuple model_args: Arguments provided to the model.
     :param dict model_kwargs: Keyword arguments provided to the model.
-    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs`
+    :param dict block_updates: Size of block updates for named sites.
+    :return: A callable `gibbs_fn` to be used in :class:`HMCGibbs`
 
     **Example**
 
@@ -411,6 +414,14 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
         for name, site in prototype_trace.items()
         if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
     }
+    valid_blocks = all(prototype_trace[name][1] >= block_size for name, block_size in block_updates.items())
+    assert valid_blocks, "Blocks updates must use block_size <= subsample_size."
+
+    block_sizes = {
+        name: subsample_size for name, (size, subsample_size) in plate_sizes.items()
+        if name not in block_updates
+    }
+    block_sizes.update(block_updates)
     enum = any(site["type"] == "sample"
                and not site["is_observed"]
                and site["fn"].has_enumerate_support
@@ -422,8 +433,15 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
         u_new = {}
         for name in gibbs_sites:
             size, subsample_size = plate_sizes[name]
-            rng_key, subkey = random.split(rng_key)
-            u_new[name] = random.choice(subkey, size, (subsample_size,), replace=False)
+            block_size = block_sizes[name]
+            rng_key, subkey, block_key = random.split(rng_key, 3)
+
+            chosen_block = random.randint(block_key, shape=(), minval=0, maxval=block_size + 1)
+            new_idx = random.randint(subkey, minval=0, maxval=size, shape=(subsample_size,))
+            block_mask = (jnp.arange(size) // block_size == chosen_block).astype(int)
+            rest_mask = (block_mask - 1) ** 2
+
+            u_new[name] = gibbs_sites[name] * rest_mask + block_mask * new_idx
 
         u_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
                                   **model_kwargs, _gibbs_sites=gibbs_sites)
