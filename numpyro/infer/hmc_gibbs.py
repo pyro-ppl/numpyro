@@ -380,7 +380,7 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, block_updates={}):
 
     :param tuple model_args: Arguments provided to the model.
     :param dict model_kwargs: Keyword arguments provided to the model.
-    :param dict block_updates: Size of block updates for named sites.
+    :param dict block_updates: Number of blocks for named sites.
     :return: A callable `gibbs_fn` to be used in :class:`HMCGibbs`
 
     **Example**
@@ -414,14 +414,14 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, block_updates={}):
         for name, site in prototype_trace.items()
         if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
     }
-    valid_blocks = all(prototype_trace[name][1] >= block_size for name, block_size in block_updates.items())
+    valid_blocks = all(plate_sizes[name][1] >= num_block for name, num_block in block_updates.items())
     assert valid_blocks, "Blocks updates must use block_size <= subsample_size."
 
-    block_sizes = {
+    missing_blocks = {
         name: subsample_size for name, (size, subsample_size) in plate_sizes.items()
         if name not in block_updates
     }
-    block_sizes.update(block_updates)
+    block_updates.update(missing_blocks)
     enum = any(site["type"] == "sample"
                and not site["is_observed"]
                and site["fn"].has_enumerate_support
@@ -433,10 +433,11 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, block_updates={}):
         u_new = {}
         for name in gibbs_sites:
             size, subsample_size = plate_sizes[name]
-            block_size = block_sizes[name]
+            num_block = block_updates[name]
             rng_key, subkey, block_key = random.split(rng_key, 3)
+            block_size = subsample_size // num_block
 
-            chosen_block = random.randint(block_key, shape=(), minval=0, maxval=subsample_size // block_size + 1)
+            chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_block)
             new_idx = random.randint(subkey, minval=0, maxval=size, shape=(subsample_size,))
             block_mask = (jnp.arange(subsample_size) // block_size == chosen_block).astype(int)
             rest_mask = (block_mask - 1) ** 2

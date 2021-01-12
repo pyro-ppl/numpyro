@@ -101,7 +101,8 @@ def test_linear_model_sigma(kernel_cls, N=90, P=40, sigma=0.07, warmup_steps=500
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-def test_subsample_without_block_update(kernel_cls):
+@pytest.mark.parametrize('num_block', [1, 2, 50, 100])
+def test_subsample_gibbs_without_block_update(kernel_cls, num_block):
     def model(obs):
         with plate('N', obs.shape[0], subsample_size=100) as idx:
             numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
@@ -110,11 +111,13 @@ def test_subsample_without_block_update(kernel_cls):
     kernel = kernel_cls(model)
     hmc_state = kernel.init(random.PRNGKey(1), 10, model_args=(obs,))
     gibbs_sites = {'N': jnp.arange(100)}
-    gibbs_fn = subsample_gibbs_fn(model, (obs,), {}, {})
+
+    gibbs_fn = subsample_gibbs_fn(model, (obs,), {}, {'N': num_block})
 
     new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, hmc_state.z)  # accept_prob > .999
+    block_size = 100 // num_block
     for name in gibbs_sites:
-        assert_array_compare(operator.__ne__, gibbs_sites[name], new_gibbs_sites[name])
+        assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
