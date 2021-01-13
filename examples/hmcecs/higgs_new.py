@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import pystan
 from jax import random
 from sklearn.datasets import load_breast_cancer
 
@@ -32,10 +33,7 @@ def plain_log_reg_model(features, obs):
     numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(features, theta)), obs=obs)
 
 
-if __name__ == '__main__':
-    data, obs = breast_cancer_data()
-
-    # Get reference parameters
+def hmcecs_model(data, obs):
     kernel = NUTS(plain_log_reg_model)
     mcmc = MCMC(kernel, 500, 500)
     mcmc.run(random.PRNGKey(1), data, obs)
@@ -46,3 +44,27 @@ if __name__ == '__main__':
     mcmc = MCMC(kernel, 500, 500)
     mcmc.run(random.PRNGKey(0), data, obs, extra_fields=("accept_prob",))
     mcmc.print_summary(exclude_deterministic=False)
+
+
+# Stan
+
+def stan_model():
+    model_code = """
+        data {
+            int<lower=1> D;
+            int<lower=0> N;
+            matrix[N, D] x;
+            int<lower=0,upper=1> y[N];
+        }
+        parameters {
+            vector[D] beta;
+        }
+        model {
+            y ~ bernoulli_logit(x * beta);
+        }
+    """
+    return pystan.StanModel(model_code=model_code)
+
+
+if __name__ == '__main__':
+    data, obs = breast_cancer_data()
