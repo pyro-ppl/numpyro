@@ -910,7 +910,7 @@ def test_categorical_log_prob_grad():
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
-    default_value = constraint._default_value(jnp.shape(x))
+    default_value = constraint.default_like(x)
     assert jnp.shape(default_value) == jnp.shape(x)
     assert_allclose(constraint(default_value), jnp.full(jnp.shape(expected), True))
 
@@ -1306,13 +1306,18 @@ def test_mask(batch_shape, event_shape, mask_shape):
     assert_allclose(actual != 0, jnp.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
 
 
-def test_mask_grad():
+@pytest.mark.parametrize('event_shape', [(), (4,), (2, 4)])
+def test_mask_grad(event_shape):
     def f(x, data):
-        return dist.Beta(jnp.exp(x), 1).mask(jnp.isfinite(data)).log_prob(data).sum()
+        base_dist = dist.Beta(jnp.exp(x), jnp.ones(event_shape)).to_event()
+        mask = jnp.all(jnp.isfinite(data), tuple(-i-1 for i in range(len(event_shape))))
+        log_prob = base_dist.mask(mask).log_prob(data)
+        assert log_prob.shape == data.shape[:len(data.shape) - len(event_shape)]
+        return log_prob.sum()
 
-    data = jnp.array([0.4, jnp.nan, 0.2, jnp.nan])
-    grad = jax.grad(f)(1., data)
-    assert jnp.isfinite(grad)
+    data = jnp.array([[0.4, jnp.nan, 0.2, jnp.nan], [0.5, 0.5, 0.5, 0.5]])
+    log_prob, grad = jax.value_and_grad(f)(1., data)
+    assert jnp.isfinite(grad) and jnp.isfinite(log_prob)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)

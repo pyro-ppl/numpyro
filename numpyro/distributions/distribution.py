@@ -296,7 +296,7 @@ class Distribution(metaclass=DistributionMeta):
         """
         if reinterpreted_batch_ndims is None:
             reinterpreted_batch_ndims = len(self.batch_shape)
-        elif reinterpreted_batch_ndims == 0:
+        if reinterpreted_batch_ndims == 0:
             return self
         return Independent(self, reinterpreted_batch_ndims)
 
@@ -688,10 +688,12 @@ class MaskedDistribution(Distribution):
         if self._mask is True:
             return self.base_dist.log_prob(value)
         try:
-            default_value = self.base_dist.support._default_value(self.base_dist.event_shape)
-            value = jnp.where(self._mask, value, default_value)
+            default_value = self.base_dist.support.default_like(value)
         except NotImplementedError:
             pass
+        else:
+            mask = jnp.reshape(self._mask, jnp.shape(self._mask) + (1,) * self.event_dim)
+            value = jnp.where(mask, value, default_value)
         return jnp.where(self._mask, self.base_dist.log_prob(value), 0.)
 
     def enumerate_support(self, expand=True):

@@ -84,8 +84,8 @@ class _Boolean(Constraint):
     def __call__(self, x):
         return (x == 0) | (x == 1)
 
-    def _default_value(self, shape):
-        return jax.numpy.zeros(shape, dtype=jax.numpy.result_type(0, int))
+    def default_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
 
 
 class _CorrCholesky(Constraint):
@@ -98,9 +98,8 @@ class _CorrCholesky(Constraint):
         unit_norm_row = jnp.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
-    def _default_value(self, shape):
-        assert len(shape) >= 1
-        return jax.numpy.broadcast_to(jax.numpy.eye(shape[-1]), shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
 
 
 class _CorrMatrix(Constraint):
@@ -114,9 +113,8 @@ class _CorrMatrix(Constraint):
         unit_variance = jnp.all(jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
         return symmetric & positive & unit_variance
 
-    def _default_value(self, shape):
-        assert len(shape) >= 1
-        return jax.numpy.broadcast_to(jax.numpy.eye(shape[-1]), shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
 
 
 class _Dependent(Constraint):
@@ -135,8 +133,8 @@ class _GreaterThan(Constraint):
     def __call__(self, x):
         return x > self.lower_bound
 
-    def _default_value(self, shape):
-        return jax.numpy.broadcast_to(self.lower_bound + 1, shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
 
 
 class _LessThan(Constraint):
@@ -146,8 +144,8 @@ class _LessThan(Constraint):
     def __call__(self, x):
         return x < self.upper_bound
 
-    def _default_value(self, shape):
-        return jax.numpy.broadcast_to(self.upper_bound - 1, shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(self.upper_bound - 1, jax.numpy.shape(prototype))
 
 
 class _IntegerInterval(Constraint):
@@ -158,8 +156,8 @@ class _IntegerInterval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound) & (x % 1 == 0)
 
-    def _default_value(self, shape):
-        return jax.numpy.broadcast_to(self.lower_bound, shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
 
 class _IntegerGreaterThan(Constraint):
@@ -169,8 +167,8 @@ class _IntegerGreaterThan(Constraint):
     def __call__(self, x):
         return (x % 1 == 0) & (x >= self.lower_bound)
 
-    def _default_value(self, shape):
-        return jax.numpy.broadcast_to(self.lower_bound, shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
 
 class _Interval(Constraint):
@@ -181,8 +179,8 @@ class _Interval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound)
 
-    def _default_value(self, shape):
-        return jax.numpy.broadcast_to((self.lower_bound + self.upper_bound) / 2, shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to((self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype))
 
 
 class _LowerCholesky(Constraint):
@@ -193,9 +191,8 @@ class _LowerCholesky(Constraint):
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         return lower_triangular & positive_diagonal
 
-    def _default_value(self, shape):
-        assert len(shape) >= 1
-        return jax.numpy.broadcast_to(jax.numpy.eye(shape[-1]), shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
 
 
 class _Multinomial(Constraint):
@@ -205,20 +202,18 @@ class _Multinomial(Constraint):
     def __call__(self, x):
         return (x >= 0).all(axis=-1) & (x.sum(axis=-1) == self.upper_bound)
 
-    def _default_value(self, shape):
-        assert len(shape) >= 1
-        pad_width = ((0, 0),) * jax.numpy.ndim(self.upper_bound) + ((0, shape[-1] - 1),)
+    def default_like(self, prototype):
+        pad_width = ((0, 0),) * jax.numpy.ndim(self.upper_bound) + ((0, prototype.shape[-1] - 1),)
         value = jax.numpy.pad(jax.numpy.expand_dims(self.upper_bound, -1), pad_width)
-        return jax.numpy.broadcast_to(value, shape)
+        return jax.numpy.broadcast_to(value, prototype.shape)
 
 
 class _OrderedVector(Constraint):
     def __call__(self, x):
         return (x[..., 1:] > x[..., :-1]).all(axis=-1)
 
-    def _default_value(self, shape):
-        assert len(shape) >= 1
-        return jax.numpy.broadcast_to(jax.numpy.arange(float(shape[-1])), shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.arange(float(prototype.shape[-1])), prototype.shape)
 
 
 class _PositiveDefinite(Constraint):
@@ -230,9 +225,8 @@ class _PositiveDefinite(Constraint):
         positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         return symmetric & positive
 
-    def _default_value(self, shape):
-        assert len(shape) >= 1
-        return jax.numpy.broadcast_to(jax.numpy.eye(shape[-1]), shape)
+    def default_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
 
 
 class _Real(Constraint):
@@ -240,17 +234,16 @@ class _Real(Constraint):
         # XXX: consider to relax this condition to [-inf, inf] interval
         return (x == x) & (x != float('inf')) & (x != float('-inf'))
 
-    def _default_value(self, shape):
-        return jax.numpy.zeros(shape)
+    def default_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
 
 
 class _RealVector(Constraint):
     def __call__(self, x):
         return ((x == x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
 
-    def _default_value(self, shape):
-        assert len(shape) >= 1
-        return jax.numpy.zeros(shape)
+    def default_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
 
 
 class _Simplex(Constraint):
@@ -258,9 +251,8 @@ class _Simplex(Constraint):
         x_sum = x.sum(axis=-1)
         return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
 
-    def _default_value(self, shape):
-        assert len(shape) >= 1
-        return jax.numpy.full(shape, 1 / shape[-1])
+    def default_like(self, prototype):
+        return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
 # TODO: Make types consistent
