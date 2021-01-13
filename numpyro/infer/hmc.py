@@ -31,6 +31,8 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **potential_energy** - Potential energy computed at the given value of ``z``.
  - **energy** - Sum of potential energy and kinetic energy of the current state.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
+   In NUTS sampler, the tree depth of a trajectory can be computed from this field
+   with `tree_depth = np.log2(num_steps).astype(int) + 1`.
  - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
    does not correspond to the proposal if it is rejected.
  - **mean_accept_prob** - Mean acceptance probability until current iteration
@@ -121,12 +123,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
         >>> true_coefs = jnp.array([1., 2., 3.])
         >>> data = random.normal(random.PRNGKey(2), (2000, 3))
-        >>> dim = 3
         >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(3))
         >>>
         >>> def model(data, labels):
-        ...     coefs_mean = jnp.zeros(dim)
-        ...     coefs = numpyro.sample('beta', dist.Normal(coefs_mean, jnp.ones(3)))
+        ...     coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(3), jnp.ones(3)))
         ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
@@ -137,7 +137,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         ...                         num_warmup=300)
         >>> samples = fori_collect(0, 500, sample_kernel, hmc_state,
         ...                        transform=lambda state: model_info.postprocess_fn(state.z))
-        >>> print(jnp.mean(samples['beta'], axis=0))  # doctest: +SKIP
+        >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
         [0.9153987 2.0754058 2.9621222]
     """
     if kinetic_fn is None:
@@ -399,6 +399,7 @@ class HMC(MCMCKernel):
         self._find_heuristic_step_size = find_heuristic_step_size
         # Set on first call to init
         self._init_fn = None
+        self._potential_fn_gen = None
         self._postprocess_fn = None
         self._sample_fn = None
 
@@ -415,6 +416,7 @@ class HMC(MCMCKernel):
                 self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
                                                      kinetic_fn=self._kinetic_fn,
                                                      algo=self._algo)
+            self._potential_fn_gen = potential_fn
             self._postprocess_fn = postprocess_fn
         elif self._init_fn is None:
             self._init_fn, self._sample_fn = hmc(potential_fn=self._potential_fn,
