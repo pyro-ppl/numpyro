@@ -910,6 +910,10 @@ def test_categorical_log_prob_grad():
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
+    default_value = constraint._default_value(jnp.shape(x))
+    assert jnp.shape(default_value) == jnp.shape(x)
+    assert_allclose(constraint(default_value), jnp.full(jnp.shape(expected), True))
+
 
 @pytest.mark.parametrize('constraint', [
     constraints.corr_cholesky,
@@ -1300,6 +1304,15 @@ def test_mask(batch_shape, event_shape, mask_shape):
     samples = jax_dist.sample(random.PRNGKey(1))
     actual = jax_dist.mask(mask).log_prob(samples)
     assert_allclose(actual != 0, jnp.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
+
+
+def test_mask_grad():
+    def f(x, data):
+        return dist.Beta(jnp.exp(x), 1).mask(jnp.isfinite(data)).log_prob(data).sum()
+
+    data = jnp.array([0.4, jnp.nan, 0.2, jnp.nan])
+    grad = jax.grad(f)(1., data)
+    assert jnp.isfinite(grad)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)

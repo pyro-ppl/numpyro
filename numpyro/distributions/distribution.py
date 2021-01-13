@@ -687,6 +687,11 @@ class MaskedDistribution(Distribution):
             return jnp.zeros(shape)
         if self._mask is True:
             return self.base_dist.log_prob(value)
+        try:
+            default_value = self.base_dist.support._default_value(self.base_dist.event_shape)
+            value = jnp.where(self._mask, value, default_value)
+        except NotImplementedError:
+            pass
         return jnp.where(self._mask, self.base_dist.log_prob(value), 0.)
 
     def enumerate_support(self, expand=True):
