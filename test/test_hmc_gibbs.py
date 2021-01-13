@@ -100,8 +100,8 @@ def test_linear_model_sigma(kernel_cls, N=90, P=40, sigma=0.07, warmup_steps=500
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-@pytest.mark.parametrize('num_block', [1, 2, 50, 100])
-def test_subsample_gibbs_with_partitioning(kernel_cls, num_block):
+@pytest.mark.parametrize('num_blocks', [1, 2, 50, 100])
+def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
     def model(obs):
         with plate('N', obs.shape[0], subsample_size=100) as idx:
             numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
@@ -111,30 +111,12 @@ def test_subsample_gibbs_with_partitioning(kernel_cls, num_block):
     hmc_state = kernel.init(random.PRNGKey(1), 10, model_args=(obs,))
     gibbs_sites = {'N': jnp.arange(100)}
 
-    gibbs_fn = subsample_gibbs_fn(model, (obs,), {}, {'N': num_block})
+    gibbs_fn = subsample_gibbs_fn(model, (obs,), {}, num_blocks=num_blocks)
 
     new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, hmc_state.z)  # accept_prob > .999
-    block_size = 100 // num_block
+    block_size = 100 // num_blocks
     for name in gibbs_sites:
         assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
-
-
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-def test_subsample_gibbs_without_partitioning(kernel_cls):
-    def model(obs):
-        with plate('N', obs.shape[0], subsample_size=100) as idx:
-            numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
-
-    obs = random.normal(random.PRNGKey(0), (10000,)) / 100
-    kernel = kernel_cls(model)
-    hmc_state = kernel.init(random.PRNGKey(1), 10, model_args=(obs,))
-    gibbs_sites = {'N': jnp.arange(100)}
-
-    gibbs_fn = subsample_gibbs_fn(model, (obs,), {}, {})
-
-    new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, hmc_state.z)  # accept_prob > .999
-    for name in gibbs_sites:
-        assert 100 == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
