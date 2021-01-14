@@ -688,7 +688,7 @@ class MaskedDistribution(Distribution):
         if self._mask is True:
             return self.base_dist.log_prob(value)
         try:
-            default_value = self.base_dist.support.default_like(value)
+            default_value = self.base_dist.support.feasible_like(value)
         except NotImplementedError:
             pass
         else:

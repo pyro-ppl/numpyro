@@ -910,9 +910,16 @@ def test_categorical_log_prob_grad():
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
-    default_value = constraint.default_like(x)
-    assert jnp.shape(default_value) == jnp.shape(x)
-    assert_allclose(constraint(default_value), jnp.full(jnp.shape(expected), True))
+    feasible_value = constraint.feasible_like(x)
+    assert jnp.shape(feasible_value) == jnp.shape(x)
+    assert_allclose(constraint(feasible_value), jnp.full(jnp.shape(expected), True))
+
+    try:
+        inverse = biject_to(constraint).inv(feasible_value)
+    except NotImplementedError:
+        pass
+    else:
+        assert_allclose(inverse, jnp.zeros_like(inverse), atol=2e-7)
 
 
 @pytest.mark.parametrize('constraint', [
