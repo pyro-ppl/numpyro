@@ -73,10 +73,19 @@ class Constraint(object):
         """
         return self(value)
 
+    def feasible_like(self, prototype):
+        """
+        Get a feasible value which has the same shape as dtype as `prototype`.
+        """
+        raise NotImplementedError
+
 
 class _Boolean(Constraint):
     def __call__(self, x):
         return (x == 0) | (x == 1)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
 
 
 class _CorrCholesky(Constraint):
@@ -89,6 +98,9 @@ class _CorrCholesky(Constraint):
         unit_norm_row = jnp.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+
 
 class _CorrMatrix(Constraint):
     def __call__(self, x):
@@ -100,6 +112,9 @@ class _CorrMatrix(Constraint):
         # check for diagonal equal to 1
         unit_variance = jnp.all(jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
         return symmetric & positive & unit_variance
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
 
 
 class _Dependent(Constraint):
@@ -118,6 +133,9 @@ class _GreaterThan(Constraint):
     def __call__(self, x):
         return x > self.lower_bound
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
+
 
 class _LessThan(Constraint):
     def __init__(self, upper_bound):
@@ -125,6 +143,9 @@ class _LessThan(Constraint):
 
     def __call__(self, x):
         return x < self.upper_bound
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(self.upper_bound - 1, jax.numpy.shape(prototype))
 
 
 class _IntegerInterval(Constraint):
@@ -135,6 +156,9 @@ class _IntegerInterval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound) & (x % 1 == 0)
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
+
 
 class _IntegerGreaterThan(Constraint):
     def __init__(self, lower_bound):
@@ -142,6 +166,9 @@ class _IntegerGreaterThan(Constraint):
 
     def __call__(self, x):
         return (x % 1 == 0) & (x >= self.lower_bound)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
 
 class _Interval(Constraint):
@@ -152,6 +179,9 @@ class _Interval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound)
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to((self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype))
+
 
 class _LowerCholesky(Constraint):
     def __call__(self, x):
@@ -161,6 +191,9 @@ class _LowerCholesky(Constraint):
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         return lower_triangular & positive_diagonal
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+
 
 class _Multinomial(Constraint):
     def __init__(self, upper_bound):
@@ -169,10 +202,18 @@ class _Multinomial(Constraint):
     def __call__(self, x):
         return (x >= 0).all(axis=-1) & (x.sum(axis=-1) == self.upper_bound)
 
+    def feasible_like(self, prototype):
+        pad_width = ((0, 0),) * jax.numpy.ndim(self.upper_bound) + ((0, prototype.shape[-1] - 1),)
+        value = jax.numpy.pad(jax.numpy.expand_dims(self.upper_bound, -1), pad_width)
+        return jax.numpy.broadcast_to(value, prototype.shape)
+
 
 class _OrderedVector(Constraint):
     def __call__(self, x):
         return (x[..., 1:] > x[..., :-1]).all(axis=-1)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.arange(float(prototype.shape[-1])), prototype.shape)
 
 
 class _PositiveDefinite(Constraint):
@@ -184,22 +225,34 @@ class _PositiveDefinite(Constraint):
         positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         return symmetric & positive
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+
 
 class _Real(Constraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
         return (x == x) & (x != float('inf')) & (x != float('-inf'))
 
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
+
 
 class _RealVector(Constraint):
     def __call__(self, x):
         return ((x == x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
 
 
 class _Simplex(Constraint):
     def __call__(self, x):
         x_sum = x.sum(axis=-1)
         return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
 # TODO: Make types consistent
