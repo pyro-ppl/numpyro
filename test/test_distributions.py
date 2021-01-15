@@ -1031,12 +1031,16 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
     # test inv
     z = transform.inv(y)
     assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+    assert transform.inv.inv is transform
+    assert transform.domain is transform.inv.codomain
+    assert transform.codomain is transform.inv.domain
 
     # test domain
     assert_array_equal(transform.domain(z), jnp.ones(batch_shape))
 
     # test log_abs_det_jacobian
     actual = transform.log_abs_det_jacobian(x, y)
+    assert_allclose(actual, -transform.inv.log_abs_det_jacobian(y, x))
     assert jnp.shape(actual) == batch_shape
     if len(shape) == transform.event_dim:
         if len(event_shape) == 1:
