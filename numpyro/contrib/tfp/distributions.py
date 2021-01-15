@@ -47,6 +47,10 @@ class BijectorConstraint(constraints.Constraint):
     def __init__(self, bijector):
         self.bijector = bijector
 
+    @property
+    def event_dim(self):
+        return self.bijector.forward_min_event_ndims
+
     def __call__(self, x):
         return self.codomain(x)
 
@@ -64,10 +68,6 @@ class BijectorTransform(Transform):
     """
     def __init__(self, bijector):
         self.bijector = bijector
-
-    @property
-    def event_dim(self):
-        return self.bijector.forward_min_event_ndims
 
     @property
     def domain(self):

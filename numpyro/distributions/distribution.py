@@ -35,7 +35,7 @@ import numpy as np
 from jax import lax, tree_util
 import jax.numpy as jnp
 
-from numpyro.distributions.constraints import is_dependent, real
+from numpyro.distributions.constraints import independent, is_dependent, real
 from numpyro.distributions.transforms import ComposeTransform, Transform
 from numpyro.distributions.util import lazy_property, promote_shapes, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
@@ -582,7 +582,7 @@ class Independent(Distribution):
 
     @property
     def support(self):
-        return self.base_dist.support
+        return independent(self.base_dist.support, self.reinterpreted_batch_ndims)
 
     @property
     def has_enumerate_support(self):
@@ -768,11 +768,11 @@ class TransformedDistribution(Distribution):
         shape = base_distribution.batch_shape + base_distribution.event_shape
         base_ndim = len(shape)
         transform = ComposeTransform(self.transforms)
-        transform_input_event_dim = transform.input_event_dim
+        transform_input_event_dim = transform.domain.event_dim
         if base_ndim < transform_input_event_dim:
             raise ValueError("Base distribution needs to have shape with size at least {}, but got {}."
                              .format(transform_input_event_dim, base_ndim))
-        event_dim = transform.output_event_dim + max(self.base_dist.event_dim - transform_input_event_dim, 0)
+        event_dim = transform.codomain.event_dim + max(self.base_dist.event_dim - transform_input_event_dim, 0)
         # See the above note. Currently, there is no way to interpret the shape of output after
         # transforming. To solve this issue, we need something like Bijector.forward_event_shape
         # as in TFP. For now, we will prepend singleton dimensions to compromise, so that

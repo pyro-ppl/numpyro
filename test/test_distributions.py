@@ -935,11 +935,13 @@ def test_constraints(constraint, x, expected):
     constraints.real,
     constraints.simplex,
     constraints.unit_interval,
+    constraints.independent(constraints.real, 1),
 ], ids=lambda x: x.__class__)
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
+
     transform = biject_to(constraint)
-    event_dim = transform.input_event_dim
+    event_dim = transform.domain.event_dim
     if isinstance(constraint, constraints._Interval):
         assert transform.codomain.upper_bound == constraint.upper_bound
         assert transform.codomain.lower_bound == constraint.lower_bound
@@ -1059,8 +1061,8 @@ def test_composed_transform(batch_shape):
     t1 = transforms.AffineTransform(0, 2)
     t2 = transforms.LowerCholeskyTransform()
     t = transforms.ComposeTransform([t1, t2, t1])
-    assert t.input_event_dim == 1
-    assert t.output_event_dim == 2
+    assert t.domain.event_dim == 1
+    assert t.codomain.event_dim == 2
 
     x = np.random.normal(size=batch_shape + (6,))
     y = t(x)
@@ -1075,8 +1077,8 @@ def test_composed_transform_1(batch_shape):
     t1 = transforms.AffineTransform(0, 2)
     t2 = transforms.LowerCholeskyTransform()
     t = transforms.ComposeTransform([t1, t2, t2])
-    assert t.input_event_dim == 1
-    assert t.output_event_dim == 3
+    assert t.domain.event_dim == 1
+    assert t.codomain.event_dim == 3
 
     x = np.random.normal(size=batch_shape + (6,))
     y = t(x)
