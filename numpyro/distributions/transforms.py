@@ -115,9 +115,6 @@ class _InverseTransform(Transform):
         # NB: we don't use intermediates for inverse transform
         return -self._inv.log_abs_det_jacobian(y, x, None)
 
-    def call_with_intermediates(self, x):
-        return self(x), None
-
 
 class AbsTransform(Transform):
     domain = constraints.real
