@@ -564,13 +564,13 @@ class AutoDiagonalNormal(AutoContinuous):
     def get_transform(self, params):
         loc = params['{}_loc'.format(self.prefix)]
         scale = params['{}_scale'.format(self.prefix)]
-        return IndependentTransform(AffineTransform(loc, scale))
+        return IndependentTransform(AffineTransform(loc, scale), 1)
 
     def get_posterior(self, params):
         """
         Returns a diagonal Normal posterior distribution.
         """
-        transform = self.get_transform(params)
+        transform = self.get_transform(params).base_transform
         return dist.Normal(transform.loc, transform.scale)
 
     def median(self, params):

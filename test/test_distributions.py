@@ -230,81 +230,85 @@ def _is_batched_multivariate(jax_dist):
 def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
     eps = 1e-6
 
-    if isinstance(constraint, constraints._Boolean):
+    if constraint is constraints.boolean:
         return random.bernoulli(key, shape=size)
-    elif isinstance(constraint, constraints._GreaterThan):
+    elif isinstance(constraint, constraints.greater_than):
         return jnp.exp(random.normal(key, size)) + constraint.lower_bound + eps
-    elif isinstance(constraint, constraints._IntegerInterval):
+    elif isinstance(constraint, constraints.integer_interval):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
         upper_bound = jnp.broadcast_to(constraint.upper_bound, size)
         return random.randint(key, size, lower_bound, upper_bound + 1)
-    elif isinstance(constraint, constraints._IntegerGreaterThan):
+    elif isinstance(constraint, constraints.integer_greater_than):
         return constraint.lower_bound + random.poisson(key, np.array(5), shape=size)
-    elif isinstance(constraint, constraints._Interval):
+    elif isinstance(constraint, constraints.interval):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
         upper_bound = jnp.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=lower_bound, maxval=upper_bound)
-    elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
+    elif constraint in (constraints.real, constraints.real_vector):
         return random.normal(key, size)
-    elif isinstance(constraint, constraints._Simplex):
+    elif constraint is constraints.simplex:
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1])
-    elif isinstance(constraint, constraints._Multinomial):
+    elif isinstance(constraint, constraints.multinomial):
         n = size[-1]
         return multinomial(key, p=jnp.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1])
-    elif isinstance(constraint, constraints._CorrCholesky):
+    elif constraint is constraints.corr_cholesky:
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
-    elif isinstance(constraint, constraints._CorrMatrix):
+    elif constraint is constraints.corr_matrix:
         cholesky = signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
         return jnp.matmul(cholesky, jnp.swapaxes(cholesky, -2, -1))
-    elif isinstance(constraint, constraints._LowerCholesky):
+    elif constraint is constraints.lower_cholesky:
         return jnp.tril(random.uniform(key, size))
-    elif isinstance(constraint, constraints._PositiveDefinite):
+    elif constraint is constraints.positive_definite:
         x = random.normal(key, size)
         return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
-    elif isinstance(constraint, constraints._OrderedVector):
+    elif constraint is constraints.ordered_vector:
         x = jnp.cumsum(random.exponential(key, size), -1)
         return x - random.normal(key, size[:-1])
+    elif isinstance(constraint, constraints.independent):
+        return gen_values_within_bounds(constraint.base_constraint, size, key)
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
 
 def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
-    if isinstance(constraint, constraints._Boolean):
+    if constraint is constraints.boolean:
         return random.bernoulli(key, shape=size) - 2
-    elif isinstance(constraint, constraints._GreaterThan):
+    elif isinstance(constraint, constraints.greater_than):
         return constraint.lower_bound - jnp.exp(random.normal(key, size))
-    elif isinstance(constraint, constraints._IntegerInterval):
+    elif isinstance(constraint, constraints.integer_interval):
         lower_bound = jnp.broadcast_to(constraint.lower_bound, size)
         return random.randint(key, size, lower_bound - 1, lower_bound)
-    elif isinstance(constraint, constraints._IntegerGreaterThan):
+    elif isinstance(constraint, constraints.integer_greater_than):
         return constraint.lower_bound - random.poisson(key, np.array(5), shape=size)
-    elif isinstance(constraint, constraints._Interval):
+    elif isinstance(constraint, constraints.interval):
         upper_bound = jnp.broadcast_to(constraint.upper_bound, size)
         return random.uniform(key, size, minval=upper_bound, maxval=upper_bound + 1.)
-    elif isinstance(constraint, (constraints._Real, constraints._RealVector)):
+    elif constraint in [constraints.real, constraints.real_vector]:
         return lax.full(size, jnp.nan)
-    elif isinstance(constraint, constraints._Simplex):
+    elif constraint is constraints.simplex:
         return osp.dirichlet.rvs(alpha=jnp.ones((size[-1],)), size=size[:-1]) + 1e-2
-    elif isinstance(constraint, constraints._Multinomial):
+    elif isinstance(constraint, constraints.multinomial):
         n = size[-1]
         return multinomial(key, p=jnp.ones((n,)) / n, n=constraint.upper_bound, shape=size[:-1]) + 1
-    elif isinstance(constraint, constraints._CorrCholesky):
+    elif constraint is constraints.corr_cholesky:
         return signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,),
                            minval=-1, maxval=1)) + 1e-2
-    elif isinstance(constraint, constraints._CorrMatrix):
+    elif constraint is constraints.corr_matrix:
         cholesky = 1e-2 + signed_stick_breaking_tril(
             random.uniform(key, size[:-2] + (size[-1] * (size[-1] - 1) // 2,), minval=-1, maxval=1))
         return jnp.matmul(cholesky, jnp.swapaxes(cholesky, -2, -1))
-    elif isinstance(constraint, constraints._LowerCholesky):
+    elif constraint is constraints.lower_cholesky:
         return random.uniform(key, size)
-    elif isinstance(constraint, constraints._PositiveDefinite):
+    elif constraint is constraints.positive_definite:
         return random.normal(key, size)
-    elif isinstance(constraint, constraints._OrderedVector):
+    elif constraint is constraints.ordered_vector:
         x = jnp.cumsum(random.exponential(key, size), -1)
         return x[..., ::-1]
+    elif isinstance(constraint, constraints.independent):
+        return gen_values_outside_bounds(constraint.base_constraint, size, key)
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -1044,7 +1048,7 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
     actual = transform.log_abs_det_jacobian(x, y)
     assert_allclose(actual, -transform.inv.log_abs_det_jacobian(y, x))
     assert jnp.shape(actual) == batch_shape
-    if len(shape) == transform.event_dim:
+    if len(shape) == transform.domain.event_dim:
         if len(event_shape) == 1:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
