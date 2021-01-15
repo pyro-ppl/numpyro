@@ -161,7 +161,7 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
     x0_std = np.std(mcmc.get_samples()['x0'], axis=0)
     x1_std = np.std(mcmc.get_samples()['x1'], axis=0)
 
-    assert_allclose(x0_mean, np.zeros(D), atol=0.15)
+    assert_allclose(x0_mean, np.zeros(D), atol=0.2)
     assert_allclose(x1_mean, np.zeros(D), atol=0.2)
 
     assert_allclose(x0_std, np.sqrt(np.diagonal(cov00)), rtol=0.05)

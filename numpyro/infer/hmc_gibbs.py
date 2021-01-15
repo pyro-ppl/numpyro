@@ -245,7 +245,8 @@ def _discrete_modified_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, s
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_gibbs_fn(model, model_args, model_kwargs, prototype_trace, random_walk=False, modified=False):
+def _discrete_gibbs_fn(wrapped_model, model_args, model_kwargs, prototype_trace,
+                       random_walk=False, modified=False):
     support_sizes = {
         name: jnp.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
         for name, site in prototype_trace.items()
@@ -266,16 +267,17 @@ def _discrete_gibbs_fn(model, model_args, model_kwargs, prototype_trace, random_
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         z_hmc = hmc_sites
         use_enum = len(set(support_sizes) - set(gibbs_sites)) > 0
-        wrapped_model = model
         if use_enum:
             from numpyro.contrib.funsor import config_enumerate, enum
 
-            wrapped_model = enum(config_enumerate(wrapped_model), -max_plate_nesting - 1)
+            wrapped_model_ = enum(config_enumerate(wrapped_model), -max_plate_nesting - 1)
+        else:
+            wrapped_model_ = wrapped_model
 
         def potential_fn(z_discrete):
             model_kwargs_ = model_kwargs.copy()
             model_kwargs_["_gibbs_sites"] = z_discrete
-            return potential_energy(wrapped_model, model_args, model_kwargs_, z_hmc, enum=use_enum)
+            return potential_energy(wrapped_model_, model_args, model_kwargs_, z_hmc, enum=use_enum)
 
         # get support_sizes of gibbs_sites
         support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
@@ -376,7 +378,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
 
 
-def _subsample_gibbs_fn(model, model_args, model_kwargs, plate_sizes, num_blocks=1):
+def _subsample_gibbs_fn(wrapped_model, model_args, model_kwargs, plate_sizes, num_blocks=1):
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         assert set(gibbs_sites) == set(plate_sizes)
@@ -392,10 +394,10 @@ def _subsample_gibbs_fn(model, model_args, model_kwargs, plate_sizes, num_blocks
 
             u_new[name] = jnp.where(block_mask, new_idx, gibbs_sites[name])
 
-        u_loglik = log_likelihood(model, hmc_sites, *model_args, batch_ndims=0,
+        u_loglik = log_likelihood(wrapped_model, hmc_sites, *model_args, batch_ndims=0,
                                   **model_kwargs, _gibbs_sites=gibbs_sites)
         u_loglik = sum(v.sum() for v in u_loglik.values())
-        u_new_loglik = log_likelihood(model, hmc_sites, *model_args, batch_ndims=0,
+        u_new_loglik = log_likelihood(wrapped_model, hmc_sites, *model_args, batch_ndims=0,
                                       **model_kwargs, _gibbs_sites=u_new)
         u_new_loglik = sum(v.sum() for v in u_new_loglik.values())
         accept_prob = jnp.clip(jnp.exp(u_new_loglik - u_loglik), a_max=1.0)
