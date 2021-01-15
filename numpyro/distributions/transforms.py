@@ -381,10 +381,7 @@ class IndependentTransform(Transform):
         if jnp.ndim(result) < self.reinterpreted_batch_ndims:
             expected = self.domain.event_dim
             raise ValueError(f"Expected x.dim() >= {expected} but got {jnp.ndim(x)}")
-        result = result.reshape(
-            jnp.shape(result)[:jnp.ndim(result) - self.reinterpreted_batch_ndims] + (-1,))
-        result = result.sum(-1)
-        return result
+        return sum_rightmost(result, jnp.ndim(result) - self.reinterpreted_batch_ndims)
 
     def call_with_intermediates(self, x):
         return self.base_transform.call_with_intermediates(x)
