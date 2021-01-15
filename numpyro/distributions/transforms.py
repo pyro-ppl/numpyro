@@ -101,48 +101,6 @@ class _InverseTransform(Transform):
         return -self._inv.log_abs_det_jacobian(y, x, None)
 
 
-class IndependentTransform(Transform):
-    """
-    Wraps a transform by aggregating over ``reinterpreted_batch_ndims``-many
-    dims in :meth:`check`, so that an event is valid only if all its
-    independent entries are valid.
-    """
-    def __init__(self, base_transform, reinterpreted_batch_ndims):
-        assert isinstance(base_transform, Transform)
-        assert isinstance(reinterpreted_batch_ndims, int)
-        assert reinterpreted_batch_ndims >= 0
-        self.base_transform = base_transform
-        self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
-        super().__init__()
-
-    @property
-    def domain(self):
-        return constraints.independent(self.base_transform.domain, self.reinterpreted_batch_ndims)
-
-    @property
-    def codomain(self):
-        return constraints.independent(self.base_transform.codomain, self.reinterpreted_batch_ndims)
-
-    def __call__(self, x):
-        return self.base_transform(x)
-
-    def _inverse(self, y):
-        raise self.base_transform._inverse(y)
-
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        result = self.base_transform.log_abs_det_jacobian(x, y, intermediates=intermediates)
-        if jnp.ndim(result) < self.reinterpreted_batch_ndims:
-            expected = self.domain.event_dim
-            raise ValueError(f"Expected x.dim() >= {expected} but got {jnp.ndim(x)}")
-        result = result.reshape(
-            jnp.shape(result)[:jnp.ndim(result) - self.reinterpreted_batch_ndims] + (-1,))
-        result = result.sum(-1)
-        return result
-
-    def call_with_intermediates(self, x):
-        return self.base_transform.call_with_intermediates(x)
-
-
 class AbsTransform(Transform):
     domain = constraints.real
     codomain = constraints.positive
@@ -171,8 +129,6 @@ class AffineTransform(Transform):
     def codomain(self):
         if self.domain is constraints.real:
             return constraints.real
-        elif self.domain is constraints.real_vector:
-            return constraints.real_vector
         elif isinstance(self.domain, constraints.greater_than):
             if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
                 return constraints.less_than(self(self.domain.lower_bound))
@@ -202,14 +158,13 @@ class AffineTransform(Transform):
         return (y - self.loc) / self.scale
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return sum_rightmost(jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x)),
-                             self.domain.event_dim)
+        return jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x))
 
 
 def _get_compose_transform_input_event_dim(parts):
     input_event_dim = parts[-1].domain.event_dim
     for part in parts[len(parts) - 1::-1]:
-        input_event_dim = part.domain.event_dim + max(input_event_dim - part.domain.event_dim, 0)
+        input_event_dim = part.domain.event_dim + max(input_event_dim - part.codomain.event_dim, 0)
     return input_event_dim
 
 
@@ -382,13 +337,6 @@ class ExpTransform(Transform):
 
 class IdentityTransform(Transform):
 
-    def __init__(self, domain=constraints.real):
-        self.domain = domain
-
-    @property
-    def codomain(self):
-        return self.domain
-
     def __call__(self, x):
         return x
 
@@ -396,7 +344,49 @@ class IdentityTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return jnp.full(jnp.shape(x) if self.event_dim == 0 else jnp.shape(x)[:-1], 0.)
+        return jnp.zeros_like(x)
+
+
+class IndependentTransform(Transform):
+    """
+    Wraps a transform by aggregating over ``reinterpreted_batch_ndims``-many
+    dims in :meth:`check`, so that an event is valid only if all its
+    independent entries are valid.
+    """
+    def __init__(self, base_transform, reinterpreted_batch_ndims):
+        assert isinstance(base_transform, Transform)
+        assert isinstance(reinterpreted_batch_ndims, int)
+        assert reinterpreted_batch_ndims >= 0
+        self.base_transform = base_transform
+        self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
+        super().__init__()
+
+    @property
+    def domain(self):
+        return constraints.independent(self.base_transform.domain, self.reinterpreted_batch_ndims)
+
+    @property
+    def codomain(self):
+        return constraints.independent(self.base_transform.codomain, self.reinterpreted_batch_ndims)
+
+    def __call__(self, x):
+        return self.base_transform(x)
+
+    def _inverse(self, y):
+        return self.base_transform._inverse(y)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        result = self.base_transform.log_abs_det_jacobian(x, y, intermediates=intermediates)
+        if jnp.ndim(result) < self.reinterpreted_batch_ndims:
+            expected = self.domain.event_dim
+            raise ValueError(f"Expected x.dim() >= {expected} but got {jnp.ndim(x)}")
+        result = result.reshape(
+            jnp.shape(result)[:jnp.ndim(result) - self.reinterpreted_batch_ndims] + (-1,))
+        result = result.sum(-1)
+        return result
+
+    def call_with_intermediates(self, x):
+        return self.base_transform.call_with_intermediates(x)
 
 
 class InvCholeskyTransform(Transform):
@@ -413,7 +403,7 @@ class InvCholeskyTransform(Transform):
     def codomain(self):
         if self.domain is constraints.lower_cholesky:
             return constraints.positive_definite
-        elif self.domain:
+        elif self.domain is constraints.corr_cholesky:
             return constraints.corr_matrix
 
     def __call__(self, x):
@@ -669,7 +659,8 @@ def _transform_to_corr_cholesky(constraint):
 
 @biject_to.register(constraints.corr_matrix)
 def _transform_to_corr_matrix(constraint):
-    return ComposeTransform([CorrCholeskyTransform(), InvCholeskyTransform(domain=constraints.corr_cholesky)])
+    return ComposeTransform([CorrCholeskyTransform(),
+                             InvCholeskyTransform(domain=constraints.corr_cholesky)])
 
 
 @biject_to.register(constraints.greater_than)
@@ -690,7 +681,7 @@ def _transform_to_less_than(constraint):
 
 @biject_to.register(constraints.independent)
 def _biject_to_independent(constraint):
-    return IndependentTransform(biject_to(constraint.base_transform),
+    return IndependentTransform(biject_to(constraint.base_constraint),
                                 constraint.reinterpreted_batch_ndims)
 
 
@@ -720,9 +711,8 @@ def _transform_to_positive_definite(constraint):
 
 
 @biject_to.register(constraints.real)
-@biject_to.register(constraints.real_vector)
 def _transform_to_real(constraint):
-    return IdentityTransform(domain=constraint)
+    return IdentityTransform()
 
 
 @biject_to.register(constraints.simplex)

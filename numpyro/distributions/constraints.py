@@ -285,16 +285,6 @@ class _Real(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _RealVector(Constraint):
-    event_dim = 1
-
-    def __call__(self, x):
-        return ((x == x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
-
-    def feasible_like(self, prototype):
-        return jax.numpy.zeros_like(prototype)
-
-
 class _Simplex(Constraint):
     event_dim = 1
 
@@ -326,6 +316,6 @@ positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
 positive_integer = _IntegerGreaterThan(1)
 real = _Real()
-real_vector = _RealVector()
+real_vector = independent(real, 1)
 simplex = _Simplex()
 unit_interval = _Interval(0., 1.)

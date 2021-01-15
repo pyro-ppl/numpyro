@@ -933,9 +933,9 @@ def test_constraints(constraint, x, expected):
     constraints.positive,
     constraints.positive_definite,
     constraints.real,
+    constraints.real_vector,
     constraints.simplex,
     constraints.unit_interval,
-    constraints.independent(constraints.real, 1),
 ], ids=lambda x: x.__class__)
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
 def test_biject_to(constraint, shape):
@@ -977,7 +977,7 @@ def test_biject_to(constraint, shape):
         if constraint is constraints.simplex:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
-        elif constraint is constraints.ordered_vector:
+        elif constraint in [constraints.real_vector, constraints.ordered_vector]:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
         elif constraint in [constraints.corr_cholesky, constraints.corr_matrix]:
