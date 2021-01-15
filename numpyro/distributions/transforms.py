@@ -57,7 +57,7 @@ class Transform(object):
     def event_dim(self):
         warnings.warn("transform.event_dim is deprecated. Please use Transform.domain.event_dim to "
                       "get input event dim or Transform.codomain.event_dim to get output event dim.",
-                      DeprecationWarning)
+                      FutureWarning)
         return self.domain.event_dim
 
     @property
