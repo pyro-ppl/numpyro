@@ -53,7 +53,7 @@ class InverseAutoregressiveTransform(Transform):
         scale = jnp.exp(log_scale)
         return scale * x + mean, log_scale
 
-    def inv(self, y):
+    def _inverse(self, y):
         """
         :param numpy.ndarray y: the output of the transform to be inverted
         """
@@ -108,7 +108,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
         y, logdet = self.bn_arn(x)
         return y, logdet
 
-    def inv(self, y):
+    def _inverse(self, y):
         raise NotImplementedError("Block neural autoregressive transform does not have an analytic"
                                   " inverse implemented.")
 

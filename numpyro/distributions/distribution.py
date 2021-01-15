@@ -765,6 +765,7 @@ class TransformedDistribution(Distribution):
         # this is just an edge case, we might skip this issue but need
         # to pay attention to any inference function that inspects
         # transformed distribution's shape.
+        # TODO: address this and the comment below when infer_shapes is available
         shape = base_distribution.batch_shape + base_distribution.event_shape
         base_ndim = len(shape)
         transform = ComposeTransform(self.transforms)
@@ -797,11 +798,13 @@ class TransformedDistribution(Distribution):
 
     @property
     def support(self):
-        domain = self.base_dist.support
-        for t in self.transforms:
-            t.domain = domain
-            domain = t.codomain
-        return domain
+        codomain = self.transforms[-1].codomain
+        codomain_event_dim = codomain.event_dim
+        assert self.event_dim >= codomain_event_dim
+        if self.event_dim == codomain_event_dim:
+            return codomain
+        else:
+            return independent(codomain, self.event_dim - codomain_event_dim)
 
     def sample(self, key, sample_shape=()):
         x = self.base_dist(rng_key=key, sample_shape=sample_shape)
