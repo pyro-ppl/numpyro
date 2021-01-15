@@ -122,3 +122,51 @@ def _tangent_curve(dist, value, tangent_fn):
     z, aux_data = dist.tree_flatten()
     log_prob = lambda *params: dist.tree_unflatten(aux_data, params).log_prob(value).sum()
     return tuple(tangent_fn(log_prob, argnum)(*z) for argnum in range(len(z)))
+
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.distributions import constraints
+
+
+def model(data, obs):
+    theta = numpyro.sample("x", dist.Normal(0., 1.))
+    with numpyro.plate("N", data.shape[0], subsample_size=5) as idx:
+        numpyro.sample("obs", dist.Bernoulli(logits=data[idx] * theta), obs=obs[idx])
+
+
+def guide(data, obs):
+    mu = numpyro.param('mu', 0., constraints=constraints.real)
+    numpyro.sample("x", dist.Normal(mu, .5))
+
+
+if __name__ == '__main__':
+    from numpyro.handlers import substitute, block
+    from numpyro.infer.util import _predictive, log_likelihood, log_density
+    from numpyro.contrib.ecs_utils import subsample_size
+    from numpyro.infer import SVI, Trace_ELBO
+    from jax import random
+
+    data = random.normal(random.PRNGKey(0), (10,))
+    obs = jnp.concatenate([jnp.ones(6), jnp.zeros(4)])
+    optimizer = numpyro.optim.Adam(step_size=0.5)
+    svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
+
+    svi_result = svi.run(random.PRNGKey(1), 5000, data, obs)
+    guide = substitute(svi.guide, svi_result.params)
+    posterior_samples = _predictive(random.PRNGKey(2), guide, {},
+                                    (10,), return_sites='', parallel=True,
+                                    model_args=(data, obs), model_kwargs={})
+    model = subsample_size(model, {'N': (10, 10)})
+    ll = log_likelihood(model, posterior_samples, data, obs)
+    # likelihood = {name: value.mean(1) for name, value in ll.items()}
+    weights = {name: jnp.mean((ll['obs'].T / ll['obs'].sum(1).T).T, 0) for name, value in ll.items()}
+    prior, _ = log_density(block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
+                           (data, obs), {},
+                           {n: v.mean() for n, v in posterior_samples.items()})
+    variational, _ = log_density(guide, (data, obs), {}, {n: v.mean() for n, v in posterior_samples.items()})
+    print(ll['obs'].mean(1).sum())
+    print(variational, prior)
+    scale = variational - prior - ll['obs'].mean(1).sum()
+    print(variational - prior)
+    print(scale)
