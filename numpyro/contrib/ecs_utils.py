@@ -1,12 +1,7 @@
-from collections import namedtuple
-
 import jax
 import jax.numpy as jnp
 
 from numpyro.primitives import Messenger, _subsample_fn
-
-IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
-IntegratorState.__new__.__defaults__ = (None,) * len(IntegratorState._fields)
 
 
 def init_near_values(site=None, values={}):
@@ -29,19 +24,18 @@ def init_near_values(site=None, values={}):
                 return init_to_uniform(site)
 
 
-# TODO: SVI PROXY (previous code)
-# def svi_proxy(svi, model_args, model_kwargs):
-#     def proxy(z, *args, **kwargs):
-#         z_ref = svi.guide.expectation(z)
-#         ll, _ = log_density_obs_hmcecs(svi.model, model_args, model_kwargs, z_ref)
-#         return ll
-#
-#     def proxy_u(z, model_args, model_kwargs, *args, **kwargs):
-#         z_ref = svi.guide.expectation(z)
-#         ll, _ = log_density_prior_hmcecs(svi.model, model_args, model_kwargs, z_ref)
-#         return ll
-#
-#     return proxy, proxy_u
+def variational_proxy(svi, S, weights, model_args, model_kwargs, ):
+    # TODO: fuse computation for S + log_posterior_prob(z) - log_prior_prob(z)?
+    log_posterior_prob = lambda params: log_density(svi.guide, model_args, model_kwargs, params)
+    log_prior_prob = lambda params: log_density(model)
+
+    def proxy(z):
+        return S + log_posterior_prob(z) - log_prior_prob(z)
+
+    def uproxy(z, subsample):
+        return S + weights[subsample].sum() + log_posterior_prob(z) - log_prior_prob(z)
+
+    return proxy, uproxy
 
 
 def _extract_params(distribution):
