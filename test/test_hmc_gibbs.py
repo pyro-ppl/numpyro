@@ -3,17 +3,17 @@
 
 from functools import partial
 
-import numpy as np
-from numpy.testing import assert_allclose
-import pytest
-
-from jax import random
 import jax.numpy as jnp
+import numpy as np
+import pytest
+from jax import random
 from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
+from numpy.testing import assert_allclose
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import HMC, MCMC, NUTS, HMCGibbs, discrete_gibbs_fn
+from numpyro.handlers import plate
+from numpyro.infer import HMC, MCMC, NUTS, HMCGibbs, discrete_gibbs_fn, subsample_gibbs_fn
 
 
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
@@ -100,6 +100,26 @@ def test_linear_model_sigma(kernel_cls, N=90, P=40, sigma=0.07, warmup_steps=500
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('num_blocks', [1, 2, 50, 100])
+def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
+    def model(obs):
+        with plate('N', obs.shape[0], subsample_size=100) as idx:
+            numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
+
+    obs = random.normal(random.PRNGKey(0), (10000,)) / 100
+    kernel = kernel_cls(model)
+    hmc_state = kernel.init(random.PRNGKey(1), 10, model_args=(obs,))
+    gibbs_sites = {'N': jnp.arange(100)}
+
+    gibbs_fn = subsample_gibbs_fn(model, (obs,), {}, num_blocks=num_blocks)
+
+    new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, hmc_state.z)  # accept_prob > .999
+    block_size = 100 // num_blocks
+    for name in gibbs_sites:
+        assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
+
+
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
     np.random.seed(0)
     cov = np.random.randn(4 * D * D).reshape((2 * D, 2 * D))
@@ -149,7 +169,6 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
 
 
 def test_discrete_gibbs_multiple_sites():
-
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7).expand([3]))
         numpyro.sample("y", dist.Binomial(10, 0.3))
@@ -163,7 +182,6 @@ def test_discrete_gibbs_multiple_sites():
 
 
 def test_discrete_gibbs_enum():
-
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7))
         y = numpyro.sample("y", dist.Binomial(10, 0.3))
@@ -179,7 +197,6 @@ def test_discrete_gibbs_enum():
 @pytest.mark.parametrize("random_walk", [False, True])
 @pytest.mark.parametrize("modified", [False, True])
 def test_discrete_gibbs_bernoulli(random_walk, modified):
-
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
 
@@ -193,7 +210,6 @@ def test_discrete_gibbs_bernoulli(random_walk, modified):
 
 @pytest.mark.parametrize("modified", [False, True])
 def test_discrete_gibbs_gmm_1d(modified):
-
     def model(probs, locs):
         c = numpyro.sample("c", dist.Categorical(probs))
         numpyro.sample("x", dist.Normal(locs[c], 0.5))

@@ -4,6 +4,7 @@
 from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
+import warnings
 
 from jax import lax, ops, random
 from jax.lib import xla_bridge
@@ -304,7 +305,7 @@ class plate(Messenger):
         apply_stack(msg)
         subsample = msg['value']
         if subsample_size is not None and subsample_size != subsample.shape[0]:
-            raise ValueError("subsample_size does not match len(subsample), {} vs {}.".format(
+            warnings.warn("subsample_size does not match len(subsample), {} vs {}.".format(
                 subsample_size, len(subsample)) +
                 " Did you accidentally use different subsample_size in the model and guide?")
         cond_indep_stack = msg['cond_indep_stack']
