@@ -11,9 +11,11 @@ from numpyro.contrib.ecs_utils import (
     subsample_size,
     _tangent_curve
 )
-from numpyro.handlers import substitute, trace, seed
+from numpyro.contrib.ecs_utils import taylor_proxy, variational_proxy, difference_estimator_fn
+from numpyro.handlers import substitute, trace, seed, block
 from numpyro.infer import log_likelihood
 from numpyro.infer.mcmc import MCMCKernel
+from numpyro.infer.util import _predictive, log_density
 from numpyro.util import identity
 
 HMC_ECS_State = namedtuple("HMC_ECS_State", "uz, hmc_state, accept_prob, rng_key")
@@ -72,13 +74,14 @@ class ECS(MCMCKernel):
     """
     sample_field = "uz"
 
-    def __init__(self, inner_kernel, estimator_fn=None, proxy_gen_fn=None, z_ref=None):
+    def __init__(self, inner_kernel, proxy, ref=None, guide=None):
         self.inner_kernel = copy.copy(inner_kernel)
         self.inner_kernel._model = inner_kernel.model
-        self._proxy_gen_fn = proxy_gen_fn
-        self._estimator_fn = estimator_fn
-        self._z_ref = z_ref
+        self._guide = guide
+        self._proxy = proxy
+        self._ref = ref
         self._plate_sizes = None
+        self._estimator = difference_estimator_fn
 
     @property
     def model(self):
@@ -106,20 +109,40 @@ class ECS(MCMCKernel):
         # Precompute Jaccobian and Hessian for Taylor Proxy
         # TODO: check proxy type and branch
         plate_sizes_all = {name: (prototype_trace[name]["args"][0], prototype_trace[name]["args"][0]) for name in u}
-        with subsample_size(self.model, plate_sizes_all):
-            ref_trace = trace(substitute(self.model, data=self._z_ref)).get_trace(*model_args, **model_kwargs)
-            jac_all = {name: _tangent_curve(site['fn'], site['value'], jacobian) for name, site in ref_trace.items()
-                       if (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-            hess_all = {name: _tangent_curve(site['fn'], site['value'], hessian) for name, site in ref_trace.items()
-                        if (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-            ll_ref = {name: site['fn'].log_prob(site['value']) for name, site in ref_trace.items() if
-                      (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+        if self._proxy == 'taylor':
+            with subsample_size(self.model, plate_sizes_all):
+                ref_trace = trace(substitute(self.model, data=self._z_ref)).get_trace(*model_args, **model_kwargs)
+                jac_all = {name: _tangent_curve(site['fn'], site['value'], jacobian) for name, site in ref_trace.items()
+                           if (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+                hess_all = {name: _tangent_curve(site['fn'], site['value'], hessian) for name, site in ref_trace.items()
+                            if (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
+                ll_ref = {name: site['fn'].log_prob(site['value']) for name, site in ref_trace.items() if
+                          (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
 
-        ref_trace = trace(substitute(self.model, data={**self._z_ref, **u})).get_trace(*model_args,
-                                                                                       **model_kwargs)  # TODO: check reparam
-        proxy_fn, uproxy_fn = self._proxy_gen_fn(ref_trace, ll_ref, jac_all, hess_all)
+            ref_trace = trace(substitute(self.model, data={**self._z_ref, **u})).get_trace(*model_args,
+                                                                                           **model_kwargs)  # TODO: check reparam
+            proxy_fn, uproxy_fn = taylor_proxy(ref_trace, ll_ref, jac_all, hess_all)
+        elif self._proxy == 'variational':
+            num_samples = 10  # TODO: heuristic for this
+            guide = substitute(self._guide, self._ref)
+            posterior_samples = _predictive(random.PRNGKey(2), guide, {},
+                                            (num_samples,), return_sites='', parallel=True,
+                                            model_args=model_args, model_kwargs=model_kwargs)
+            with subsample_size(self.model, plate_sizes_all):
+                model = subsample_size(self.model, plate_sizes_all)
+                ll = log_likelihood(model, posterior_samples, *model_args, **model_kwargs)
+            # TODO: fix multiple likehoods
+            weights = {name: jnp.mean((value.T / value.sum(1).T).T, 0) for name, value in
+                       ll.items()}  # TODO: fix broadcast
+            prior, _ = log_density(block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
+                                   model_args, model_kwargs, posterior_samples)
+            variational, _ = log_density(guide, model_args, model_kwargs, posterior_samples)
+            evidence = {name: variational / num_samples - prior / num_samples - ll.mean(1).sum() for name, ll in
+                        ll.items()}
 
-        print(jac_all)
+            proxy_fn, uproxy_fn = variational_proxy(self.model, self._guide, evidence, weights, model_args,
+                                                    model_kwargs)
+
         estimators = {name: partial(self._estimator_fn, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)
                       for name, site in prototype_trace.items() if
                       (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
