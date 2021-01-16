@@ -315,8 +315,8 @@ class DiscreteHMCGibbs(HMCGibbs):
 
     .. note:: The site update order is randomly permuted at each step.
 
-    .. note:: This class supports mixing with enumeration. To marginalize out a discrete
-        latent site, we can specify `infer={'enumerate': 'parallel'}` keyword in its
+    .. note:: This class supports enumeration of discrete latent variables. To marginalize out a
+        discrete latent site, we can specify `infer={'enumerate': 'parallel'}` keyword in its
         corresponding :func:`~numpyro.primitives.sample` statement.
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
@@ -354,7 +354,10 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> kernel = DiscreteHMCGibbs(NUTS(model), modified=True)
         >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
-        >>> mcmc.print_summary()  # doctest: +SKIP
+        >>> mcmc.print_summary()
+        >>> samples = mcmc.get_samples()["x"]
+        >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
+        >>> assert abs(jnp.var(samples) - 4.36) < 0.5
 
     """
 
@@ -412,13 +415,13 @@ class HMCECS(HMCGibbs):
 
     HMC with Energy Conserving Subsampling.
 
-    A subclass of :class:`HMCGibbs` to perform HMC-within-Gibbs for model with subsampling
-    statements using :class:`~numpyro.plate` primitive. This implements the Algorithm 1
+    A subclass of :class:`HMCGibbs` for performing HMC-within-Gibbs for models with subsample
+    statements using the :class:`~numpyro.plate` primitive. This implements Algorithm 1
     of reference [1] but uses a naive estimation (without control variates) of log likelihood,
     hence might incur a high variance.
 
-    The function can partition named subsample statements and update only one block in the parition
-    to improve acceptance rate of proposed subsamples as detailed in [3].
+    The function can divide subsample indices into blocks and update only one block at each
+    MCMC step to improve the acceptance rate of proposed subsamples as detailed in [3].
 
     .. note:: New subsample indices are proposed randomly with replacement at each MCMC step.
 
@@ -455,7 +458,7 @@ class HMCECS(HMCGibbs):
         >>> mcmc = MCMC(kernel, 1000, 1000)
         >>> mcmc.run(random.PRNGKey(0), data)
         >>> samples = mcmc.get_samples()["x"]
-        >>> assert abs(jnp.mean(samples).copy() - 1.) < 0.1
+        >>> assert abs(jnp.mean(samples) - 1.) < 0.1
 
     """
     def __init__(self, inner_kernel, *, num_blocks=1):
