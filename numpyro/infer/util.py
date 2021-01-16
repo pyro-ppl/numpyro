@@ -7,7 +7,7 @@ import warnings
 
 import numpy as np
 
-from jax import device_get, lax, random, value_and_grad
+from jax import device_get, jacfwd, lax, random, value_and_grad
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -176,7 +176,8 @@ def find_valid_initial_params(rng_key, model,
                               enum=False,
                               model_args=(),
                               model_kwargs=None,
-                              prototype_params=None):
+                              prototype_params=None,
+                              forward_mode_differentiation=False):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
     valid unconstrained value for all the parameters. This function also returns
@@ -240,7 +241,11 @@ def find_valid_initial_params(rng_key, model,
                     key, subkey = random.split(key)
 
         potential_fn = partial(potential_energy, model, model_args, model_kwargs, enum=enum)
-        pe, z_grad = value_and_grad(potential_fn)(params)
+        if forward_mode_differentiation:
+            pe = potential_fn(params)
+            z_grad = jacfwd(potential_fn)(params)
+        else:
+            pe, z_grad = value_and_grad(potential_fn)(params)
         z_grad_flat = ravel_pytree(z_grad)[0]
         is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
         return i + 1, key, (params, pe, z_grad), is_valid
@@ -384,7 +389,8 @@ def initialize_model(rng_key, model,
                      init_strategy=init_to_uniform,
                      dynamic_args=False,
                      model_args=(),
-                     model_kwargs=None):
+                     model_kwargs=None,
+                     forward_mode_differentiation=False):
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
     and :func:`~numpyro.infer.util.find_valid_initial_params` under the hood
@@ -402,6 +408,13 @@ def initialize_model(rng_key, model,
         `potential_fn` and `constraints_fn` callables, respectively.
     :param tuple model_args: args provided to the model.
     :param dict model_kwargs: kwargs provided to the model.
+    :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+        or reverse-mode differentiation. By default, we use reverse mode but the forward
+        mode can be useful in some cases to improve the performance. In addition, some
+        control flow utility on JAX such as `jax.lax.while_loop` or `jax.lax.fori_loop`
+        only supports forward-mode differentiation. See
+        `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
+        for more information.
     :return: a namedtupe `ModelInfo` which contains the fields
         (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`), where
         `param_info` is a namedtuple `ParamInfo` containing values from the prior
@@ -446,12 +459,14 @@ def initialize_model(rng_key, model,
         unconstrained_values = transform_fn(inv_transforms, init_values, invert=True)
         init_strategy = _init_to_unconstrained_value(values=unconstrained_values)
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
-    (init_params, pe, grad), is_valid = find_valid_initial_params(rng_key, model,
-                                                                  init_strategy=init_strategy,
-                                                                  enum=has_enumerate_support,
-                                                                  model_args=model_args,
-                                                                  model_kwargs=model_kwargs,
-                                                                  prototype_params=prototype_params)
+    (init_params, pe, grad), is_valid = find_valid_initial_params(
+        rng_key, model,
+        init_strategy=init_strategy,
+        enum=has_enumerate_support,
+        model_args=model_args,
+        model_kwargs=model_kwargs,
+        prototype_params=prototype_params,
+        forward_mode_differentiation=forward_mode_differentiation)
 
     if not_jax_tracer(is_valid):
         if device_get(~jnp.all(is_valid)):
