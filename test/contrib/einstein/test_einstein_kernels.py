@@ -5,7 +5,7 @@ import pytest
 
 import jax.numpy as jnp
 
-from numpyro.infer.einstein.kernels import (
+from numpyro.contrib.einstein.kernels import (
     GraphicalKernel,
     HessianPrecondMatrix,
     IMQKernel,
