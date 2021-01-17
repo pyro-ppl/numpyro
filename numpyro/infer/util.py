@@ -122,7 +122,7 @@ def _unconstrain_reparam(params, site):
         # in scan, we might only want to substitute an item at index i, rather than the whole sequence
         i = site['infer'].get('_scan_current_index', None)
         if i is not None:
-            event_dim_shift = t.output_event_dim - t.input_event_dim
+            event_dim_shift = t.codomain.event_dim - t.domain.event_dim
             expected_unconstrained_dim = len(site["fn"].shape()) - event_dim_shift
             # check if p has additional time dimension
             if jnp.ndim(p) > expected_unconstrained_dim:
