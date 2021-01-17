@@ -80,7 +80,7 @@ class BijectorTransform(Transform):
     def __call__(self, x):
         return self.bijector.forward(x)
 
-    def inv(self, y):
+    def _inverse(self, y):
         return self.bijector.inverse(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):

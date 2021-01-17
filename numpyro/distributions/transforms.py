@@ -62,10 +62,14 @@ class Transform(object):
     def output_event_dim(self):
         return self.event_dim
 
+    @property
+    def inv(self):
+        return _InverseTransform(self)
+
     def __call__(self, x):
         return NotImplementedError
 
-    def inv(self, y):
+    def _inverse(self, y):
         raise NotImplementedError
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -73,6 +77,43 @@ class Transform(object):
 
     def call_with_intermediates(self, x):
         return self(x), None
+
+
+class _InverseTransform(Transform):
+    def __init__(self, transform):
+        super().__init__()
+        self._inv = transform
+
+    @property
+    def domain(self):
+        return self._inv.codomain
+
+    @property
+    def codomain(self):
+        return self._inv.domain
+
+    @property
+    def input_event_dim(self):
+        return self._inv.output_event_dim
+
+    @property
+    def output_event_dim(self):
+        return self._inv.input_event_dim
+
+    @property
+    def event_dim(self):
+        return self._inv.event_dim
+
+    @property
+    def inv(self):
+        return self._inv
+
+    def __call__(self, x):
+        return self._inv._inverse(x)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # NB: we don't use intermediates for inverse transform
+        return -self._inv.log_abs_det_jacobian(y, x, None)
 
 
 class AbsTransform(Transform):
@@ -85,7 +126,7 @@ class AbsTransform(Transform):
     def __call__(self, x):
         return jnp.abs(x)
 
-    def inv(self, y):
+    def _inverse(self, y):
         return y
 
 
@@ -134,7 +175,7 @@ class AffineTransform(Transform):
     def __call__(self, x):
         return self.loc + self.scale * x
 
-    def inv(self, y):
+    def _inverse(self, y):
         return (y - self.loc) / self.scale
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -176,7 +217,7 @@ class ComposeTransform(Transform):
             x = part(x)
         return x
 
-    def inv(self, y):
+    def _inverse(self, y):
         for part in self.parts[::-1]:
             y = part.inv(y)
         return y
@@ -255,7 +296,7 @@ class CorrCholeskyTransform(Transform):
         t = jnp.tanh(x)
         return signed_stick_breaking_tril(t)
 
-    def inv(self, y):
+    def _inverse(self, y):
         # inverse stick-breaking
         z1m_cumprod = 1 - jnp.cumsum(y * y, axis=-1)
         pad_width = [(0, 0)] * y.ndim
@@ -306,7 +347,7 @@ class ExpTransform(Transform):
         # XXX consider to clamp from below for stability if necessary
         return jnp.exp(x)
 
-    def inv(self, y):
+    def _inverse(self, y):
         return jnp.log(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -321,7 +362,7 @@ class IdentityTransform(Transform):
     def __call__(self, x):
         return x
 
-    def inv(self, y):
+    def _inverse(self, y):
         return y
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -349,7 +390,7 @@ class InvCholeskyTransform(Transform):
     def __call__(self, x):
         return jnp.matmul(x, jnp.swapaxes(x, -2, -1))
 
-    def inv(self, y):
+    def _inverse(self, y):
         return jnp.linalg.cholesky(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -387,7 +428,7 @@ class LowerCholeskyAffine(Transform):
     def __call__(self, x):
         return self.loc + jnp.squeeze(jnp.matmul(self.scale_tril, x[..., jnp.newaxis]), axis=-1)
 
-    def inv(self, y):
+    def _inverse(self, y):
         y = y - self.loc
         original_shape = jnp.shape(y)
         yt = jnp.reshape(y, (-1, original_shape[-1])).T
@@ -415,7 +456,7 @@ class LowerCholeskyTransform(Transform):
         diag = jnp.exp(x[..., -n:])
         return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
 
-    def inv(self, y):
+    def _inverse(self, y):
         z = matrix_to_tril_vec(y, diagonal=-1)
         return jnp.concatenate([z, jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
 
@@ -442,7 +483,7 @@ class OrderedTransform(Transform):
         z = jnp.concatenate([x[..., :1], jnp.exp(x[..., 1:])], axis=-1)
         return jnp.cumsum(z, axis=-1)
 
-    def inv(self, y):
+    def _inverse(self, y):
         x = jnp.log(y[..., 1:] - y[..., :-1])
         return jnp.concatenate([y[..., :1], x], axis=-1)
 
@@ -461,7 +502,7 @@ class PermuteTransform(Transform):
     def __call__(self, x):
         return x[..., self.permutation]
 
-    def inv(self, y):
+    def _inverse(self, y):
         size = self.permutation.size
         permutation_inv = ops.index_update(jnp.zeros(size, dtype=canonicalize_dtype(jnp.int64)),
                                            self.permutation,
@@ -482,7 +523,7 @@ class PowerTransform(Transform):
     def __call__(self, x):
         return jnp.power(x, self.exponent)
 
-    def inv(self, y):
+    def _inverse(self, y):
         return jnp.power(y, 1 / self.exponent)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -495,7 +536,7 @@ class SigmoidTransform(Transform):
     def __call__(self, x):
         return _clipped_expit(x)
 
-    def inv(self, y):
+    def _inverse(self, y):
         return logit(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -522,7 +563,7 @@ class StickBreakingTransform(Transform):
         z1m_cumprod_shifted = jnp.pad(z1m_cumprod, pad_width, mode="constant", constant_values=1.)
         return z_padded * z1m_cumprod_shifted
 
-    def inv(self, y):
+    def _inverse(self, y):
         y_crop = y[..., :-1]
         z1m_cumprod = jnp.clip(1 - jnp.cumsum(y_crop, axis=-1), a_min=jnp.finfo(y.dtype).tiny)
         # hence x = logit(z) = log(z / (1 - z)) = y[::-1] / z1m_cumprod
@@ -559,7 +600,7 @@ class UnpackTransform(Transform):
         else:
             return self.unpack_fn(x)
 
-    def inv(self, y):
+    def _inverse(self, y):
         leading_dims = [v.shape[0] if jnp.ndim(v) > 0 else 0
                         for v in tree_flatten(y)[0]]
         d0 = leading_dims[0]

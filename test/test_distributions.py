@@ -22,8 +22,13 @@ from numpyro.distributions import constraints, kl_divergence, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.transforms import LowerCholeskyAffine, PermuteTransform, PowerTransform, biject_to
-from numpyro.distributions.util import (matrix_to_tril_vec, multinomial, signed_stick_breaking_tril,
-                                        sum_rightmost, vec_to_tril_matrix)
+from numpyro.distributions.util import (
+    matrix_to_tril_vec,
+    multinomial,
+    signed_stick_breaking_tril,
+    sum_rightmost,
+    vec_to_tril_matrix
+)
 from numpyro.nn import AutoregressiveNN
 
 
@@ -905,6 +910,17 @@ def test_categorical_log_prob_grad():
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
 
+    feasible_value = constraint.feasible_like(x)
+    assert jnp.shape(feasible_value) == jnp.shape(x)
+    assert_allclose(constraint(feasible_value), jnp.full(jnp.shape(expected), True))
+
+    try:
+        inverse = biject_to(constraint).inv(feasible_value)
+    except NotImplementedError:
+        pass
+    else:
+        assert_allclose(inverse, jnp.zeros_like(inverse), atol=2e-7)
+
 
 @pytest.mark.parametrize('constraint', [
     constraints.corr_cholesky,
@@ -1015,12 +1031,16 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
     # test inv
     z = transform.inv(y)
     assert_allclose(x, z, atol=1e-6, rtol=1e-6)
+    assert transform.inv.inv is transform
+    assert transform.domain is transform.inv.codomain
+    assert transform.codomain is transform.inv.domain
 
     # test domain
     assert_array_equal(transform.domain(z), jnp.ones(batch_shape))
 
     # test log_abs_det_jacobian
     actual = transform.log_abs_det_jacobian(x, y)
+    assert_allclose(actual, -transform.inv.log_abs_det_jacobian(y, x))
     assert jnp.shape(actual) == batch_shape
     if len(shape) == transform.event_dim:
         if len(event_shape) == 1:
@@ -1295,6 +1315,20 @@ def test_mask(batch_shape, event_shape, mask_shape):
     samples = jax_dist.sample(random.PRNGKey(1))
     actual = jax_dist.mask(mask).log_prob(samples)
     assert_allclose(actual != 0, jnp.broadcast_to(mask, lax.broadcast_shapes(batch_shape, mask_shape)))
+
+
+@pytest.mark.parametrize('event_shape', [(), (4,), (2, 4)])
+def test_mask_grad(event_shape):
+    def f(x, data):
+        base_dist = dist.Beta(jnp.exp(x), jnp.ones(event_shape)).to_event()
+        mask = jnp.all(jnp.isfinite(data), tuple(-i-1 for i in range(len(event_shape))))
+        log_prob = base_dist.mask(mask).log_prob(data)
+        assert log_prob.shape == data.shape[:len(data.shape) - len(event_shape)]
+        return log_prob.sum()
+
+    data = jnp.array([[0.4, jnp.nan, 0.2, jnp.nan], [0.5, 0.5, 0.5, 0.5]])
+    log_prob, grad = jax.value_and_grad(f)(1., data)
+    assert jnp.isfinite(grad) and jnp.isfinite(log_prob)
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)

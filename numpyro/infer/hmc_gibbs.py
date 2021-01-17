@@ -10,12 +10,11 @@ import jax.numpy as jnp
 from jax.scipy.special import expit
 
 from numpyro.distributions import biject_to
-from numpyro.handlers import condition, seed, trace, substitute
+from numpyro.handlers import condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import log_likelihood, potential_energy, _guess_max_plate_nesting
+from numpyro.infer.util import _guess_max_plate_nesting, log_likelihood, potential_energy
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
-
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """
@@ -30,6 +29,7 @@ def _wrap_model(model):
         gibbs_values = kwargs.pop("_gibbs_sites", {})
         with condition(data=gibbs_values), substitute(data=gibbs_values):
             model(*args, **kwargs)
+
     return fn
 
 
@@ -359,7 +359,7 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
     return gibbs_fn
 
 
-def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
+def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, *, num_blocks=1):
     """
     [EXPERIMENTAL INTERFACE]
 
@@ -368,18 +368,26 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
     of reference [1] but uses a naive estimation (without control variates) of log likelihood,
     hence might incur a high variance.
 
+    The function can partition named subsample statements and update only one block in the parition
+    to improve acceptance rate of proposed subsamples as detailed in [3].
+    .. note:: New subsample indices are proposed randomly with replacement at each MCMC step.
+
     **References:**
 
     1. *Hamiltonian Monte Carlo with energy conserving subsampling*,
        Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
     2. *Speeding Up MCMC by Efficient Data Subsampling*,
        Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
+    3. *The Block Pseudo-Margional Sampler*,
+        Tran, M.-N., Kohn, R., Quiroz, M. Villani, M. (2017)
 
-    :param callable model: a callable with NumPyro primitives. This should be the same model
+    :param callable model: A callable with NumPyro primitives. This should be the same model
         as the one used in the `inner_kernel` of :class:`HMCGibbs`.
+
     :param tuple model_args: Arguments provided to the model.
     :param dict model_kwargs: Keyword arguments provided to the model.
-    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs`
+    :param int num_blocks: Number of blocks to partition subsample into.
+    :return: A callable `gibbs_fn` to be used in :class:`HMCGibbs`
 
     **Example**
 
@@ -398,7 +406,7 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
         ...         numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
         ...
         >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
-        >>> gibbs_fn = subsample_gibbs_fn(model, (data,))
+        >>> gibbs_fn = subsample_gibbs_fn(model, (data,), num_blocks={'N': 10})
         >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["N"])
         >>> mcmc = MCMC(kernel, 1000, 1000)
         >>> mcmc.run(random.PRNGKey(0), data)
@@ -412,6 +420,7 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
         for name, site in prototype_trace.items()
         if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
     }
+
     enum = any(site["type"] == "sample"
                and not site["is_observed"]
                and site["fn"].has_enumerate_support
@@ -423,8 +432,14 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}):
         u_new = {}
         for name in gibbs_sites:
             size, subsample_size = plate_sizes[name]
-            rng_key, subkey = random.split(rng_key)
-            u_new[name] = random.choice(subkey, size, (subsample_size,), replace=False)
+            rng_key, subkey, block_key = random.split(rng_key, 3)
+            block_size = subsample_size // num_blocks
+
+            chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
+            new_idx = random.randint(subkey, minval=0, maxval=size, shape=(subsample_size,))
+            block_mask = jnp.arange(subsample_size) // block_size == chosen_block
+
+            u_new[name] = jnp.where(block_mask, new_idx, gibbs_sites[name])
 
         u_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
                                   **model_kwargs, _gibbs_sites=gibbs_sites)

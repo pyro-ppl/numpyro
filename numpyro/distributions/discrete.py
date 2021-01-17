@@ -53,7 +53,7 @@ from numpyro.util import not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):
-    return 1 / (1 + jnp.exp(-logits))
+    return expit(logits)
 
 
 def _to_logits_bernoulli(probs):

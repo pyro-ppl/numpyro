@@ -7,9 +7,9 @@ import gzip
 import os
 import pickle
 import struct
-import zipfile
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
+import zipfile
 
 import numpy as np
 
