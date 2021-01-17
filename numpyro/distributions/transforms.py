@@ -52,15 +52,13 @@ def _clipped_expit(x):
 class Transform(object):
     domain = constraints.real
     codomain = constraints.real
-    event_dim = 0
 
     @property
-    def input_event_dim(self):
-        return self.event_dim
-
-    @property
-    def output_event_dim(self):
-        return self.event_dim
+    def event_dim(self):
+        warnings.warn("transform.event_dim is deprecated. Please use Transform.domain.event_dim to "
+                      "get input event dim or Transform.codomain.event_dim to get output event dim.",
+                      FutureWarning)
+        return self.domain.event_dim
 
     @property
     def inv(self):
@@ -91,18 +89,6 @@ class _InverseTransform(Transform):
     @property
     def codomain(self):
         return self._inv.domain
-
-    @property
-    def input_event_dim(self):
-        return self._inv.output_event_dim
-
-    @property
-    def output_event_dim(self):
-        return self._inv.input_event_dim
-
-    @property
-    def event_dim(self):
-        return self._inv.event_dim
 
     @property
     def inv(self):
@@ -144,8 +130,6 @@ class AffineTransform(Transform):
     def codomain(self):
         if self.domain is constraints.real:
             return constraints.real
-        elif self.domain is constraints.real_vector:
-            return constraints.real_vector
         elif isinstance(self.domain, constraints.greater_than):
             if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
                 return constraints.less_than(self(self.domain.lower_bound))
@@ -168,10 +152,6 @@ class AffineTransform(Transform):
         else:
             raise NotImplementedError
 
-    @property
-    def event_dim(self):
-        return 1 if self.domain is constraints.real_vector else 0
-
     def __call__(self, x):
         return self.loc + self.scale * x
 
@@ -179,7 +159,21 @@ class AffineTransform(Transform):
         return (y - self.loc) / self.scale
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return sum_rightmost(jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x)), self.event_dim)
+        return jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x))
+
+
+def _get_compose_transform_input_event_dim(parts):
+    input_event_dim = parts[-1].domain.event_dim
+    for part in parts[len(parts) - 1::-1]:
+        input_event_dim = part.domain.event_dim + max(input_event_dim - part.codomain.event_dim, 0)
+    return input_event_dim
+
+
+def _get_compose_transform_output_event_dim(parts):
+    output_event_dim = parts[0].codomain.event_dim
+    for part in parts[1:]:
+        output_event_dim = part.codomain.event_dim + max(output_event_dim - part.domain.event_dim, 0)
+    return output_event_dim
 
 
 class ComposeTransform(Transform):
@@ -188,29 +182,23 @@ class ComposeTransform(Transform):
 
     @property
     def domain(self):
-        return self.parts[0].domain
+        input_event_dim = _get_compose_transform_input_event_dim(self.parts)
+        first_input_event_dim = self.parts[0].domain.event_dim
+        assert input_event_dim >= first_input_event_dim
+        if input_event_dim == first_input_event_dim:
+            return self.parts[0].domain
+        else:
+            return constraints.independent(self.parts[0].domain, input_event_dim - first_input_event_dim)
 
     @property
     def codomain(self):
-        return self.parts[-1].codomain
-
-    @property
-    def event_dim(self):
-        raise ValueError("Please use `.input_event_dim` or `.output_event_dim` instead.")
-
-    @property
-    def input_event_dim(self):
-        input_event_dim = self.parts[-1].input_event_dim
-        for part in self.parts[len(self.parts) - 1::-1]:
-            input_event_dim = part.input_event_dim + max(input_event_dim - part.output_event_dim, 0)
-        return input_event_dim
-
-    @property
-    def output_event_dim(self):
-        output_event_dim = self.parts[0].output_event_dim
-        for part in self.parts[1:]:
-            output_event_dim = part.output_event_dim + max(output_event_dim - part.input_event_dim, 0)
-        return output_event_dim
+        output_event_dim = _get_compose_transform_output_event_dim(self.parts)
+        last_output_event_dim = self.parts[-1].codomain.event_dim
+        assert output_event_dim >= last_output_event_dim
+        if output_event_dim == last_output_event_dim:
+            return self.parts[-1].codomain
+        else:
+            return constraints.independent(self.parts[-1].codomain, output_event_dim - last_output_event_dim)
 
     def __call__(self, x):
         for part in self.parts:
@@ -229,20 +217,20 @@ class ComposeTransform(Transform):
                                  .format(len(intermediates), len(self.parts)))
 
         result = 0.
-        input_event_dim = self.input_event_dim
+        input_event_dim = self.domain.event_dim
         for i, part in enumerate(self.parts[:-1]):
             y_tmp = part(x) if intermediates is None else intermediates[i][0]
             inter = None if intermediates is None else intermediates[i][1]
             logdet = part.log_abs_det_jacobian(x, y_tmp, intermediates=inter)
-            batch_ndim = input_event_dim - part.input_event_dim
+            batch_ndim = input_event_dim - part.domain.event_dim
             result = result + sum_rightmost(logdet, batch_ndim)
-            input_event_dim = part.output_event_dim + batch_ndim
+            input_event_dim = part.codomain.event_dim + batch_ndim
             x = y_tmp
         # account the the last transform, where y is available
         inter = None if intermediates is None else intermediates[-1]
         part = self.parts[-1]
         logdet = part.log_abs_det_jacobian(x, y, intermediates=inter)
-        result = result + sum_rightmost(logdet, input_event_dim - part.input_event_dim)
+        result = result + sum_rightmost(logdet, input_event_dim - part.domain.event_dim)
         return result
 
     def call_with_intermediates(self, x):
@@ -284,12 +272,6 @@ class CorrCholeskyTransform(Transform):
     """
     domain = constraints.real_vector
     codomain = constraints.corr_cholesky
-    input_event_dim = 1
-    output_event_dim = 2
-
-    @property
-    def event_dim(self):
-        raise ValueError("Please use `.input_event_dim` or `.output_event_dim` instead.")
 
     def __call__(self, x):
         # we interchange step 1 and step 2.a for a better performance
@@ -356,9 +338,6 @@ class ExpTransform(Transform):
 
 class IdentityTransform(Transform):
 
-    def __init__(self, event_dim=0):
-        self.event_dim = event_dim
-
     def __call__(self, x):
         return x
 
@@ -366,7 +345,46 @@ class IdentityTransform(Transform):
         return y
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return jnp.full(jnp.shape(x) if self.event_dim == 0 else jnp.shape(x)[:-1], 0.)
+        return jnp.zeros_like(x)
+
+
+class IndependentTransform(Transform):
+    """
+    Wraps a transform by aggregating over ``reinterpreted_batch_ndims``-many
+    dims in :meth:`check`, so that an event is valid only if all its
+    independent entries are valid.
+    """
+    def __init__(self, base_transform, reinterpreted_batch_ndims):
+        assert isinstance(base_transform, Transform)
+        assert isinstance(reinterpreted_batch_ndims, int)
+        assert reinterpreted_batch_ndims >= 0
+        self.base_transform = base_transform
+        self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
+        super().__init__()
+
+    @property
+    def domain(self):
+        return constraints.independent(self.base_transform.domain, self.reinterpreted_batch_ndims)
+
+    @property
+    def codomain(self):
+        return constraints.independent(self.base_transform.codomain, self.reinterpreted_batch_ndims)
+
+    def __call__(self, x):
+        return self.base_transform(x)
+
+    def _inverse(self, y):
+        return self.base_transform._inverse(y)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        result = self.base_transform.log_abs_det_jacobian(x, y, intermediates=intermediates)
+        if jnp.ndim(result) < self.reinterpreted_batch_ndims:
+            expected = self.domain.event_dim
+            raise ValueError(f"Expected x.dim() >= {expected} but got {jnp.ndim(x)}")
+        return sum_rightmost(result, self.reinterpreted_batch_ndims)
+
+    def call_with_intermediates(self, x):
+        return self.base_transform.call_with_intermediates(x)
 
 
 class InvCholeskyTransform(Transform):
@@ -374,7 +392,6 @@ class InvCholeskyTransform(Transform):
     Transform via the mapping :math:`y = x @ x.T`, where `x` is a lower
     triangular matrix with positive diagonal.
     """
-    event_dim = 2
 
     def __init__(self, domain=constraints.lower_cholesky):
         assert domain in [constraints.lower_cholesky, constraints.corr_cholesky]
@@ -384,7 +401,7 @@ class InvCholeskyTransform(Transform):
     def codomain(self):
         if self.domain is constraints.lower_cholesky:
             return constraints.positive_definite
-        elif self.domain:
+        elif self.domain is constraints.corr_cholesky:
             return constraints.corr_matrix
 
     def __call__(self, x):
@@ -415,7 +432,6 @@ class LowerCholeskyAffine(Transform):
     """
     domain = constraints.real_vector
     codomain = constraints.real_vector
-    event_dim = 1
 
     def __init__(self, loc, scale_tril):
         if jnp.ndim(scale_tril) != 2:
@@ -443,12 +459,6 @@ class LowerCholeskyAffine(Transform):
 class LowerCholeskyTransform(Transform):
     domain = constraints.real_vector
     codomain = constraints.lower_cholesky
-    input_event_dim = 1
-    output_event_dim = 2
-
-    @property
-    def event_dim(self):
-        raise ValueError("Please use `.input_event_dim` or `.output_event_dim` instead.")
 
     def __call__(self, x):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
@@ -477,7 +487,6 @@ class OrderedTransform(Transform):
     """
     domain = constraints.real_vector
     codomain = constraints.ordered_vector
-    event_dim = 1
 
     def __call__(self, x):
         z = jnp.concatenate([x[..., :1], jnp.exp(x[..., 1:])], axis=-1)
@@ -494,7 +503,6 @@ class OrderedTransform(Transform):
 class PermuteTransform(Transform):
     domain = constraints.real_vector
     codomain = constraints.real_vector
-    event_dim = 1
 
     def __init__(self, permutation):
         self.permutation = permutation
@@ -547,7 +555,6 @@ class SigmoidTransform(Transform):
 class StickBreakingTransform(Transform):
     domain = constraints.real_vector
     codomain = constraints.simplex
-    event_dim = 1
 
     def __call__(self, x):
         # we shift x to obtain a balanced mapping (0, 0, ..., 0) -> (1/K, 1/K, ..., 1/K)
@@ -587,7 +594,7 @@ class UnpackTransform(Transform):
     :param unpack_fn: callable used to unpack a contiguous array.
     """
     domain = constraints.real_vector
-    event_dim = 1
+    codomain = constraints.dependent
 
     def __init__(self, unpack_fn):
         self.unpack_fn = unpack_fn
@@ -650,7 +657,8 @@ def _transform_to_corr_cholesky(constraint):
 
 @biject_to.register(constraints.corr_matrix)
 def _transform_to_corr_matrix(constraint):
-    return ComposeTransform([CorrCholeskyTransform(), InvCholeskyTransform(domain=constraints.corr_cholesky)])
+    return ComposeTransform([CorrCholeskyTransform(),
+                             InvCholeskyTransform(domain=constraints.corr_cholesky)])
 
 
 @biject_to.register(constraints.greater_than)
@@ -667,6 +675,12 @@ def _transform_to_less_than(constraint):
     return ComposeTransform([ExpTransform(),
                              AffineTransform(constraint.upper_bound, -1,
                                              domain=constraints.positive)])
+
+
+@biject_to.register(constraints.independent)
+def _biject_to_independent(constraint):
+    return IndependentTransform(biject_to(constraint.base_constraint),
+                                constraint.reinterpreted_batch_ndims)
 
 
 @biject_to.register(constraints.interval)
@@ -697,11 +711,6 @@ def _transform_to_positive_definite(constraint):
 @biject_to.register(constraints.real)
 def _transform_to_real(constraint):
     return IdentityTransform()
-
-
-@biject_to.register(constraints.real_vector)
-def _transform_to_real_vector(constraint):
-    return IdentityTransform(event_dim=1)
 
 
 @biject_to.register(constraints.simplex)

@@ -47,6 +47,10 @@ class BijectorConstraint(constraints.Constraint):
     def __init__(self, bijector):
         self.bijector = bijector
 
+    @property
+    def event_dim(self):
+        return self.bijector.forward_min_event_ndims
+
     def __call__(self, x):
         return self.codomain(x)
 
@@ -66,10 +70,6 @@ class BijectorTransform(Transform):
         self.bijector = bijector
 
     @property
-    def event_dim(self):
-        return self.bijector.forward_min_event_ndims
-
-    @property
     def domain(self):
         return BijectorConstraint(tfb.Invert(self.bijector))
 
@@ -84,7 +84,7 @@ class BijectorTransform(Transform):
         return self.bijector.inverse(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return self.bijector.forward_log_det_jacobian(x, self.event_dim)
+        return self.bijector.forward_log_det_jacobian(x, self.domain.event_dim)
 
 
 @biject_to.register(BijectorConstraint)

@@ -9,7 +9,6 @@ from jax import device_put, ops, random, value_and_grad
 import jax.numpy as jnp
 from jax.scipy.special import expit
 
-from numpyro.distributions import biject_to
 from numpyro.handlers import condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
@@ -50,7 +49,7 @@ class HMCGibbs(MCMCKernel):
         Must also include arguments `hmc_sites` and `gibbs_sites`, each of which is a dictionary
         with keys that are site names and values that are sample values. Note that a given `gibbs_fn`
         may not need make use of all these sample values.
-    :param gibbs_sites: a list of site names for the latent variables that are covered by the Gibbs sampler.
+    :param list gibbs_sites: a list of site names for the latent variables that are covered by the Gibbs sampler.
 
     **Example**
 
@@ -93,6 +92,8 @@ class HMCGibbs(MCMCKernel):
         self.inner_kernel._model = _wrap_model(inner_kernel.model)
         self._gibbs_sites = gibbs_sites
         self._gibbs_fn = gibbs_fn
+        self._use_constrained_gibbs_fn = True
+        self._prototype_trace = None
 
     @property
     def model(self):
@@ -117,10 +118,12 @@ class HMCGibbs(MCMCKernel):
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
-        rng_key, key_u, key_z = random.split(rng_key, 3)
-        prototype_trace = trace(seed(self.model, key_u)).get_trace(*model_args, **model_kwargs)
+        if self._prototype_trace is None:
+            rng_key, key_u = random.split(rng_key)
+            self._prototype_trace = trace(seed(self.model, key_u)).get_trace(*model_args, **model_kwargs)
 
-        gibbs_sites = {name: site["value"] for name, site in prototype_trace.items() if name in self._gibbs_sites}
+        rng_key, key_z = random.split(rng_key)
+        gibbs_sites = {name: site["value"] for name, site in self._prototype_trace.items() if name in self._gibbs_sites}
         model_kwargs["_gibbs_sites"] = gibbs_sites
         hmc_state = self.inner_kernel.init(key_z, num_warmup, init_params, model_args, model_kwargs)
 
@@ -140,8 +143,8 @@ class HMCGibbs(MCMCKernel):
         z_hmc = {k: v for k, v in state.z.items() if k in state.hmc_state.z}
         model_kwargs_ = model_kwargs.copy()
         model_kwargs_["_gibbs_sites"] = z_gibbs
-        # TODO: give the user more control over which sites are transformed from unconstrained to constrained space
-        z_hmc = self.inner_kernel.postprocess_fn(model_args, model_kwargs_)(z_hmc)
+        if self._use_constrained_gibbs_fn:
+            z_hmc = self.inner_kernel.postprocess_fn(model_args, model_kwargs_)(z_hmc)
 
         z_gibbs = self._gibbs_fn(rng_key=rng_gibbs, gibbs_sites=z_gibbs, hmc_sites=z_hmc)
 
@@ -242,61 +245,8 @@ def _discrete_modified_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, s
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=False, modified=False):
-    """
-    [EXPERIMENTAL INTERFACE]
-
-    Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for discrete latent sites
-    with enumerate support. The site update order is randomly permuted at each step.
-
-    Note that those discrete latent sites that are not specified in the constructor of
-    :class:`HMCGibbs` will be marginalized out by default (if they have enumerate supports).
-
-    :param callable model: a callable with NumPyro primitives. This should be the same model
-        as the one used in the `inner_kernel` of :class:`HMCGibbs`.
-    :param tuple model_args: Arguments provided to the model.
-    :param dict model_kwargs: Keyword arguments provided to the model.
-    :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
-        conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
-        from the domain of `gibbs_site`.
-    :param bool modified: whether to use a modified proposal, as suggested in reference [1], which
-        always proposes a new state for the current Gibbs site.
-        The modified scheme appears in the literature under the name "modified Gibbs sampler" or
-        "Metropolised Gibbs sampler".
-    :return: a callable `gibbs_fn` to be used in :class:`HMCGibbs`
-
-    **References:**
-
-    1. *Peskun's theorem and a modified discrete-state Gibbs sampler*,
-       Liu, J. S. (1996)
-
-    **Example**
-
-    .. doctest::
-
-        >>> from jax import random
-        >>> import jax.numpy as jnp
-        >>> import numpyro
-        >>> import numpyro.distributions as dist
-        >>> from numpyro.infer import MCMC, NUTS, HMCGibbs, discrete_gibbs_fn
-        ...
-        >>> def model(probs, locs):
-        ...     c = numpyro.sample("c", dist.Categorical(probs))
-        ...     numpyro.sample("x", dist.Normal(locs[c], 0.5))
-        ...
-        >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
-        >>> locs = jnp.array([-2, 0, 2, 4])
-        >>> gibbs_fn = discrete_gibbs_fn(model, (probs, locs))
-        >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
-        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
-        >>> mcmc.run(random.PRNGKey(0), probs, locs)
-        >>> mcmc.print_summary()  # doctest: +SKIP
-
-    """
-    # NB: all of the information such as `model`, `model_args`, `model_kwargs`
-    # can be accessed from HMCGibbs.sample but we require them here to
-    # simplify the api of `gibbs_fn`
-    prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
+def _discrete_gibbs_fn(wrapped_model, model_args, model_kwargs, prototype_trace,
+                       random_walk=False, modified=False):
     support_sizes = {
         name: jnp.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
         for name, site in prototype_trace.items()
@@ -315,21 +265,19 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
             proposal_fn = _discrete_gibbs_proposal
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
-        # convert to unconstrained values
-        z_hmc = {k: biject_to(prototype_trace[k]["fn"].support).inv(v)
-                 for k, v in hmc_sites.items()
-                 if k in prototype_trace and prototype_trace[k]["type"] == "sample"}
+        z_hmc = hmc_sites
         use_enum = len(set(support_sizes) - set(gibbs_sites)) > 0
-        wrapped_model = _wrap_model(model)
         if use_enum:
             from numpyro.contrib.funsor import config_enumerate, enum
 
-            wrapped_model = enum(config_enumerate(wrapped_model), -max_plate_nesting - 1)
+            wrapped_model_ = enum(config_enumerate(wrapped_model), -max_plate_nesting - 1)
+        else:
+            wrapped_model_ = wrapped_model
 
         def potential_fn(z_discrete):
             model_kwargs_ = model_kwargs.copy()
             model_kwargs_["_gibbs_sites"] = z_discrete
-            return potential_energy(wrapped_model, model_args, model_kwargs_, z_hmc, enum=use_enum)
+            return potential_energy(wrapped_model_, model_args, model_kwargs_, z_hmc, enum=use_enum)
 
         # get support_sizes of gibbs_sites
         support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
@@ -359,35 +307,33 @@ def discrete_gibbs_fn(model, model_args=(), model_kwargs={}, *, random_walk=Fals
     return gibbs_fn
 
 
-def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, *, num_blocks=1):
+class DiscreteHMCGibbs(HMCGibbs):
     """
     [EXPERIMENTAL INTERFACE]
 
-    Returns a gibbs_fn to be used in :class:`HMCGibbs`, which works for subsampling
-    statements using :class:`~numpyro.plate` primitive. This implements the Algorithm 1
-    of reference [1] but uses a naive estimation (without control variates) of log likelihood,
-    hence might incur a high variance.
+    A subclass of :class:`HMCGibbs` which performs Metropolis updates for discrete latent sites.
 
-    The function can partition named subsample statements and update only one block in the parition
-    to improve acceptance rate of proposed subsamples as detailed in [3].
-    .. note:: New subsample indices are proposed randomly with replacement at each MCMC step.
+    .. note:: The site update order is randomly permuted at each step.
+
+    .. note:: This class supports enumeration of discrete latent variables. To marginalize out a
+        discrete latent site, we can specify `infer={'enumerate': 'parallel'}` keyword in its
+        corresponding :func:`~numpyro.primitives.sample` statement.
+
+    :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
+    :param list discrete_sites: a list of site names for the discrete latent variables
+        that are covered by the Gibbs sampler.
+    :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
+        conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
+        from the domain of `gibbs_site`.
+    :param bool modified: whether to use a modified proposal, as suggested in reference [1], which
+        always proposes a new state for the current Gibbs site.
+        The modified scheme appears in the literature under the name "modified Gibbs sampler" or
+        "Metropolised Gibbs sampler".
 
     **References:**
 
-    1. *Hamiltonian Monte Carlo with energy conserving subsampling*,
-       Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
-    2. *Speeding Up MCMC by Efficient Data Subsampling*,
-       Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
-    3. *The Block Pseudo-Margional Sampler*,
-        Tran, M.-N., Kohn, R., Quiroz, M. Villani, M. (2017)
-
-    :param callable model: A callable with NumPyro primitives. This should be the same model
-        as the one used in the `inner_kernel` of :class:`HMCGibbs`.
-
-    :param tuple model_args: Arguments provided to the model.
-    :param dict model_kwargs: Keyword arguments provided to the model.
-    :param int num_blocks: Number of blocks to partition subsample into.
-    :return: A callable `gibbs_fn` to be used in :class:`HMCGibbs`
+    1. *Peskun's theorem and a modified discrete-state Gibbs sampler*,
+       Liu, J. S. (1996)
 
     **Example**
 
@@ -397,35 +343,45 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, *, num_blocks=1):
         >>> import jax.numpy as jnp
         >>> import numpyro
         >>> import numpyro.distributions as dist
-        >>> from numpyro.infer import MCMC, NUTS, HMCGibbs, subsample_gibbs_fn
+        >>> from numpyro.infer import DiscreteHMCGibbs, MCMC, NUTS
         ...
-        >>> def model(data):
-        ...     x = numpyro.sample("x", dist.Normal(0, 1))
-        ...     with numpyro.plate("N", data.shape[0], subsample_size=100):
-        ...         batch = numpyro.subsample(data, event_dim=0)
-        ...         numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
+        >>> def model(probs, locs):
+        ...     c = numpyro.sample("c", dist.Categorical(probs))
+        ...     numpyro.sample("x", dist.Normal(locs[c], 0.5))
         ...
-        >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
-        >>> gibbs_fn = subsample_gibbs_fn(model, (data,), num_blocks={'N': 10})
-        >>> kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["N"])
-        >>> mcmc = MCMC(kernel, 1000, 1000)
-        >>> mcmc.run(random.PRNGKey(0), data)
+        >>> probs = jnp.array([0.15, 0.3, 0.3, 0.25])
+        >>> locs = jnp.array([-2, 0, 2, 4])
+        >>> kernel = DiscreteHMCGibbs(NUTS(model), modified=True)
+        >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
+        >>> mcmc.run(random.PRNGKey(0), probs, locs)
+        >>> mcmc.print_summary()
         >>> samples = mcmc.get_samples()["x"]
-        >>> assert abs(jnp.mean(samples).copy() - 1.) < 0.1
+        >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
+        >>> assert abs(jnp.var(samples) - 4.36) < 0.5
 
     """
-    prototype_trace = trace(seed(model, rng_seed=0)).get_trace(*model_args, **model_kwargs)
-    plate_sizes = {
-        name: site["args"]
-        for name, site in prototype_trace.items()
-        if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
-    }
 
-    enum = any(site["type"] == "sample"
-               and not site["is_observed"]
-               and site["fn"].has_enumerate_support
-               for name, site in prototype_trace.items())
-    assert not enum, "Enumeration is not supported for subsample_gibbs_fn."
+    def __init__(self, inner_kernel, *, random_walk=False, modified=False):
+        super().__init__(inner_kernel, lambda *args: None, None)
+        self._random_walk = random_walk
+        self._modified = modified
+        self._use_unconstrained_gibbs_fn = True
+
+    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
+        model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
+        rng_key, key_u = random.split(rng_key)
+        self._prototype_trace = trace(seed(self.model, key_u)).get_trace(*model_args, **model_kwargs)
+        self._gibbs_fn = _discrete_gibbs_fn(self.model, model_args, model_kwargs, self._prototype_trace,
+                                            random_walk=self._random_walk, modified=self._modified)
+        self._gibbs_sites = [name for name, site in self._prototype_trace.items()
+                             if site["type"] == "sample"
+                             and site["fn"].has_enumerate_support
+                             and not site["is_observed"]
+                             and site["infer"].get("enumerate", "") != "parallel"]
+        return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
+
+
+def _subsample_gibbs_fn(wrapped_model, model_args, model_kwargs, plate_sizes, num_blocks=1):
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         assert set(gibbs_sites) == set(plate_sizes)
@@ -441,13 +397,90 @@ def subsample_gibbs_fn(model, model_args=(), model_kwargs={}, *, num_blocks=1):
 
             u_new[name] = jnp.where(block_mask, new_idx, gibbs_sites[name])
 
-        u_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
+        u_loglik = log_likelihood(wrapped_model, hmc_sites, *model_args, batch_ndims=0,
                                   **model_kwargs, _gibbs_sites=gibbs_sites)
         u_loglik = sum(v.sum() for v in u_loglik.values())
-        u_new_loglik = log_likelihood(_wrap_model(model), hmc_sites, *model_args, batch_ndims=0,
+        u_new_loglik = log_likelihood(wrapped_model, hmc_sites, *model_args, batch_ndims=0,
                                       **model_kwargs, _gibbs_sites=u_new)
         u_new_loglik = sum(v.sum() for v in u_new_loglik.values())
         accept_prob = jnp.clip(jnp.exp(u_new_loglik - u_loglik), a_max=1.0)
         return cond(random.bernoulli(rng_key, accept_prob), u_new, identity, gibbs_sites, identity)
 
     return gibbs_fn
+
+
+class HMCECS(HMCGibbs):
+    """
+    [EXPERIMENTAL INTERFACE]
+
+    HMC with Energy Conserving Subsampling.
+
+    A subclass of :class:`HMCGibbs` for performing HMC-within-Gibbs for models with subsample
+    statements using the :class:`~numpyro.plate` primitive. This implements Algorithm 1
+    of reference [1] but uses a naive estimation (without control variates) of log likelihood,
+    hence might incur a high variance.
+
+    The function can divide subsample indices into blocks and update only one block at each
+    MCMC step to improve the acceptance rate of proposed subsamples as detailed in [3].
+
+    .. note:: New subsample indices are proposed randomly with replacement at each MCMC step.
+
+    **References:**
+
+    1. *Hamiltonian Monte Carlo with energy conserving subsampling*,
+       Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
+    2. *Speeding Up MCMC by Efficient Data Subsampling*,
+       Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
+    3. *The Block Pseudo-Margional Sampler*,
+        Tran, M.-N., Kohn, R., Quiroz, M. Villani, M. (2017)
+
+    :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
+    :param int num_blocks: Number of blocks to partition subsample into.
+
+    **Example**
+
+    .. doctest::
+
+        >>> from jax import random
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import HMCECS, MCMC, NUTS
+        ...
+        >>> def model(data):
+        ...     x = numpyro.sample("x", dist.Normal(0, 1))
+        ...     with numpyro.plate("N", data.shape[0], subsample_size=100):
+        ...         batch = numpyro.subsample(data, event_dim=0)
+        ...         numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
+        ...
+        >>> data = random.normal(random.PRNGKey(0), (10000,)) + 1
+        >>> kernel = HMCECS(NUTS(model), num_blocks=10)
+        >>> mcmc = MCMC(kernel, 1000, 1000)
+        >>> mcmc.run(random.PRNGKey(0), data)
+        >>> samples = mcmc.get_samples()["x"]
+        >>> assert abs(jnp.mean(samples) - 1.) < 0.1
+
+    """
+    def __init__(self, inner_kernel, *, num_blocks=1):
+        super().__init__(inner_kernel, lambda *args: None, None)
+        self._num_blocks = num_blocks
+
+    def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
+        model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
+        rng_key, key_u = random.split(rng_key)
+        self._prototype_trace = trace(seed(self.model, key_u)).get_trace(*model_args, **model_kwargs)
+        plate_sizes = {
+            name: site["args"]
+            for name, site in self._prototype_trace.items()
+            if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
+        }
+        self._gibbs_sites = list(plate_sizes.keys())
+
+        enum = any(site["type"] == "sample"
+                   and not site["is_observed"]
+                   and site["fn"].has_enumerate_support
+                   for name, site in self._prototype_trace.items())
+        assert not enum, "Enumeration is not supported for subsample_gibbs_fn."
+        self._gibbs_fn = _subsample_gibbs_fn(self.model, model_args, model_kwargs, plate_sizes,
+                                             num_blocks=self._num_blocks)
+        return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)

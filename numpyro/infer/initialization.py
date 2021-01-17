@@ -61,6 +61,7 @@ def init_to_uniform(site=None, radius=2):
             # we can't use this logic for general priors
             # because some distributions such as TransformedDistribution might
             # have wrong event_shape.
+            # TODO: address this when infer_shapes is available
             prototype_value = jnp.full(site['fn'].shape(), jnp.nan)
 
         transform = biject_to(site['fn'].support)

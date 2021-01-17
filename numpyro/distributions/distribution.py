@@ -35,7 +35,7 @@ import numpy as np
 from jax import lax, tree_util
 import jax.numpy as jnp
 
-from numpyro.distributions.constraints import is_dependent, real
+from numpyro.distributions.constraints import independent, is_dependent, real
 from numpyro.distributions.transforms import ComposeTransform, Transform
 from numpyro.distributions.util import lazy_property, promote_shapes, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
@@ -582,7 +582,7 @@ class Independent(Distribution):
 
     @property
     def support(self):
-        return self.base_dist.support
+        return independent(self.base_dist.support, self.reinterpreted_batch_ndims)
 
     @property
     def has_enumerate_support(self):
@@ -765,14 +765,15 @@ class TransformedDistribution(Distribution):
         # this is just an edge case, we might skip this issue but need
         # to pay attention to any inference function that inspects
         # transformed distribution's shape.
+        # TODO: address this and the comment below when infer_shapes is available
         shape = base_distribution.batch_shape + base_distribution.event_shape
         base_ndim = len(shape)
         transform = ComposeTransform(self.transforms)
-        transform_input_event_dim = transform.input_event_dim
+        transform_input_event_dim = transform.domain.event_dim
         if base_ndim < transform_input_event_dim:
             raise ValueError("Base distribution needs to have shape with size at least {}, but got {}."
                              .format(transform_input_event_dim, base_ndim))
-        event_dim = transform.output_event_dim + max(self.base_dist.event_dim - transform_input_event_dim, 0)
+        event_dim = transform.codomain.event_dim + max(self.base_dist.event_dim - transform_input_event_dim, 0)
         # See the above note. Currently, there is no way to interpret the shape of output after
         # transforming. To solve this issue, we need something like Bijector.forward_event_shape
         # as in TFP. For now, we will prepend singleton dimensions to compromise, so that
@@ -797,11 +798,13 @@ class TransformedDistribution(Distribution):
 
     @property
     def support(self):
-        domain = self.base_dist.support
-        for t in self.transforms:
-            t.domain = domain
-            domain = t.codomain
-        return domain
+        codomain = self.transforms[-1].codomain
+        codomain_event_dim = codomain.event_dim
+        assert self.event_dim >= codomain_event_dim
+        if self.event_dim == codomain_event_dim:
+            return codomain
+        else:
+            return independent(codomain, self.event_dim - codomain_event_dim)
 
     def sample(self, key, sample_shape=()):
         x = self.base_dist(rng_key=key, sample_shape=sample_shape)
@@ -831,9 +834,9 @@ class TransformedDistribution(Distribution):
             x = transform.inv(y) if intermediates is None else intermediates[-i - 1][0]
             t_inter = None if intermediates is None else intermediates[-i - 1][1]
             t_log_det = transform.log_abs_det_jacobian(x, y, t_inter)
-            batch_ndim = event_dim - transform.output_event_dim
+            batch_ndim = event_dim - transform.codomain.event_dim
             log_prob = log_prob - sum_rightmost(t_log_det, batch_ndim)
-            event_dim = transform.input_event_dim + batch_ndim
+            event_dim = transform.domain.event_dim + batch_ndim
             y = x
 
         log_prob = log_prob + sum_rightmost(self.base_dist.log_prob(y),

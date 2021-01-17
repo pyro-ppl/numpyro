@@ -27,7 +27,7 @@ import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS, init_to_value, init_to_median, init_to_feasible, init_to_sample, init_to_uniform
+from numpyro.infer import MCMC, NUTS, init_to_feasible, init_to_median, init_to_sample, init_to_uniform, init_to_value
 
 matplotlib.use('Agg')  # noqa: E402
 
