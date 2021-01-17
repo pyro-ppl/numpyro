@@ -14,7 +14,7 @@ from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 import numpyro
 import numpyro.distributions as dist
 from numpyro.handlers import plate
-from numpyro.infer import HMC, MCMC, NUTS, HMCGibbs, discrete_gibbs_fn, subsample_gibbs_fn
+from numpyro.infer import HMC, HMCECS, MCMC, NUTS, DiscreteHMCGibbs, HMCGibbs
 
 
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
@@ -108,12 +108,11 @@ def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
             numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
 
     obs = random.normal(random.PRNGKey(0), (10000,)) / 100
-    kernel = kernel_cls(model)
-    hmc_state = kernel.init(random.PRNGKey(1), 10, model_args=(obs,))
+    kernel = HMCECS(kernel_cls(model), num_blocks=num_blocks)
+    hmc_state = kernel.init(random.PRNGKey(1), 10, None, model_args=(obs,), model_kwargs=None)
     gibbs_sites = {'N': jnp.arange(100)}
 
-    gibbs_fn = subsample_gibbs_fn(model, (obs,), {}, num_blocks=num_blocks)
-
+    gibbs_fn = kernel._gibbs_fn
     new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, hmc_state.z)  # accept_prob > .999
     block_size = 100 // num_blocks
     for name in gibbs_sites:
@@ -174,7 +173,7 @@ def test_discrete_gibbs_multiple_sites():
         numpyro.sample("x", dist.Bernoulli(0.7).expand([3]))
         numpyro.sample("y", dist.Binomial(10, 0.3))
 
-    kernel = HMCGibbs(NUTS(model), discrete_gibbs_fn(model), gibbs_sites=["x", "y"])
+    kernel = DiscreteHMCGibbs(NUTS(model))
     mcmc = MCMC(kernel, 1000, 10000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()
@@ -184,11 +183,11 @@ def test_discrete_gibbs_multiple_sites():
 
 def test_discrete_gibbs_enum():
     def model():
-        numpyro.sample("x", dist.Bernoulli(0.7))
+        numpyro.sample("x", dist.Bernoulli(0.7), infer={"enumerate": "parallel"})
         y = numpyro.sample("y", dist.Binomial(10, 0.3))
         numpyro.deterministic("y2", y ** 2)
 
-    kernel = HMCGibbs(NUTS(model), discrete_gibbs_fn(model), gibbs_sites=["y"])
+    kernel = DiscreteHMCGibbs(NUTS(model))
     mcmc = MCMC(kernel, 1000, 10000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()
@@ -201,8 +200,7 @@ def test_discrete_gibbs_bernoulli(random_walk, modified):
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
 
-    gibbs_fn = discrete_gibbs_fn(model, random_walk=random_walk, modified=modified)
-    kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
+    kernel = DiscreteHMCGibbs(NUTS(model), random_walk=random_walk, modified=modified)
     mcmc = MCMC(kernel, 1000, 200000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()["c"]
@@ -217,8 +215,7 @@ def test_discrete_gibbs_gmm_1d(modified):
 
     probs = jnp.array([0.15, 0.3, 0.3, 0.25])
     locs = jnp.array([-2, 0, 2, 4])
-    gibbs_fn = discrete_gibbs_fn(model, (probs, locs), modified=modified)
-    kernel = HMCGibbs(NUTS(model), gibbs_fn, gibbs_sites=["c"])
+    kernel = DiscreteHMCGibbs(NUTS(model), modified=modified)
     mcmc = MCMC(kernel, 1000, 200000, progress_bar=False)
     mcmc.run(random.PRNGKey(0), probs, locs)
     samples = mcmc.get_samples()
