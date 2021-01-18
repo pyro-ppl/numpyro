@@ -1,7 +1,15 @@
+from collections import OrderedDict, defaultdict
+
 import jax
 import jax.numpy as jnp
 
 from numpyro.primitives import Messenger, _subsample_fn
+
+
+def _tangent_curve(dist, value, tangent_fn):
+    z, aux_data = dist.tree_flatten()
+    log_prob = lambda *params: dist.tree_unflatten(aux_data, params).log_prob(value).sum()
+    return tuple(tangent_fn(log_prob, argnum)(*z) for argnum in range(len(z)))
 
 
 def init_near_values(site=None, values={}):
@@ -24,43 +32,36 @@ def init_near_values(site=None, values={}):
                 return init_to_uniform(site)
 
 
-def variational_proxy(model_trace, guide_trace, evidence, weights, model_struct):
-    def proxy(name, z):
-        successors = model_struct.soccessor[name]
-        log_prob = jnp.array(0.)
-        for succ in successors:
-            log_prob += guide_trace[succ]['fn'].log_prob(z) - model_trace[succ]['fn'].log_prob(z)
-        return evidence[name] + log_prob
-
-    def uproxy(name, z, subsample):
-        successors = model_struct.soccessor[name]
-        log_prob = jnp.array(0.)
-        for succ in successors:
-            log_prob += guide_trace[succ]['fn'].log_prob(z) - model_trace[succ]['fn'].log_prob(z)
-        return evidence[name] + weights[subsample].sum() * log_prob
-
-    return proxy, uproxy
-
-
 def _extract_params(distribution):
     params, _ = distribution.tree_flatten()
     return params
 
 
 class estimator(Messenger):
-    def __init__(self, fn, estimators, plate_sizes):
+    def __init__(self, fn, estimators, predecessors):
         self.estimators = estimators
-        self.plate_sizes = plate_sizes
+        self.predecessors = predecessors
+        self.predecessor_sites = defaultdict(OrderedDict)
+        self._successors = None
+
         super(estimator, self).__init__(fn)
 
-    def process_message(self, msg):
-        if msg['type'] == 'sample' and msg['is_observed'] and msg['cond_indep_stack']:
-            log_prob = msg['fn'].log_prob
-            msg['scale'] = 1.
-            msg['fn'].log_prob = lambda *args, **kwargs: \
-                self.estimators[msg['name']](*args, name=msg['name'], z=_extract_params(msg['fn']), log_prob=log_prob,
-                                             sizes=self.plate_sizes[msg['cond_indep_stack'][0].name],
-                                             **kwargs)  # TODO: check multiple levels
+    @property
+    def successors(self):
+        if getattr(self, '_successors') is None:
+            successors = {}
+            for site_name, preds in self.predecessors.items():
+                successors.update({pred_name: site_name for pred_name in preds})  # TODO: handle shared priors
+            self._successors = successors
+        return self._successors
+
+    def postprocess_message(self, msg):
+        name = msg['name']
+        if name in self.successors:
+            self.predecessor_sites[self.successors[name]][name] = msg.copy()
+
+        if msg['type'] == 'sample' and msg['is_observed'] and msg['cond_indep_stack']:  # TODO: is subsampled
+            msg['fn'] = self.estimators[name](msg['fn'], self.predecessor_sites[name])
 
 
 def taylor_proxy(ref_trace, ll_ref, jac_all, hess_all):
@@ -107,16 +108,47 @@ class subsample_size(Messenger):
                     0] else jnp.arange(msg["args"][0])
 
 
-def difference_estimator_fn(value, name, z, sizes, log_prob, proxy_fn, uproxy_fn, *args, **kwargs, ):
-    n, m, g = sizes
-    ll_sub = log_prob(value).sum()
-    diff = ll_sub - uproxy_fn(name, value, z)
-    l_hat = proxy_fn(name, z) + n / m * diff
-    sigma = n ** 2 / m * jnp.var(diff)
-    return l_hat - .5 * sigma
+class DifferenceEstimator:
+    def __init__(self, name, proxy, uproxy, plate_name, plate_size):
+        self._name = name
+        self.plate_name = plate_name
+        self.size = plate_size
+        self.proxy = proxy
+        self.uproxy = uproxy
+        self.subsample = None
+        self._dist = None
+        self._predecessors = None
+
+    def __call__(self, dist, predecessors):
+        self.dist = dist
+        self.predecessors = predecessors
+
+    def log_prob(self, value):
+        n, m, g = self.size
+        ll_sub = self.dist.log_prob(value).sum()
+        diff = ll_sub - self.uproxy(name=self._name,
+                                    value=value,
+                                    subsample=self.predecessors[self.plate_name],
+                                    predecessors=self.predecessors)
+        l_hat = self.proxy(self._name) + n / m * diff
+        sigma = n ** 2 / m * jnp.var(diff)
+        return l_hat - .5 * sigma
 
 
-def _tangent_curve(dist, value, tangent_fn):
-    z, aux_data = dist.tree_flatten()
-    log_prob = lambda *params: dist.tree_unflatten(aux_data, params).log_prob(value).sum()
-    return tuple(tangent_fn(log_prob, argnum)(*z) for argnum in range(len(z)))
+def variational_proxy(guide_trace, evidence, weights):
+    def _log_like(predecessors):
+        log_prob = jnp.array(0.)
+        for pred in predecessors:
+            if pred['type'] == 'sample':
+                val = pred['value']
+                name = pred['name']
+                log_prob += guide_trace[name]['fn'].log_prob(val) - pred['fn'].log_prob(val)
+        return log_prob
+
+    def proxy(name, predecessors, *args, **kwargs):
+        return evidence[name] + _log_like(predecessors)
+
+    def uproxy(name, predecessors, subsample, *args, **kwargs):
+        return evidence[name] + weights[name][subsample].sum() * _log_like(predecessors)
+
+    return proxy, uproxy

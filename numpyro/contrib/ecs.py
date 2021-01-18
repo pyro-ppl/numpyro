@@ -11,7 +11,7 @@ from numpyro.contrib.ecs_utils import (
     subsample_size,
     _tangent_curve
 )
-from numpyro.contrib.ecs_utils import taylor_proxy, variational_proxy, difference_estimator_fn
+from numpyro.contrib.ecs_utils import taylor_proxy, variational_proxy, DifferenceEstimator
 from numpyro.handlers import substitute, trace, seed, block
 from numpyro.infer import log_likelihood
 from numpyro.infer.mcmc import MCMCKernel
@@ -34,11 +34,11 @@ sample(...)
 """
 
 
-def _wrap_est_model(model, estimators, plate_sizes):
+def _wrap_est_model(model, estimators, predecessors):
     def fn(*args, **kwargs):
         subsample_values = kwargs.pop("_subsample_sites", {})
         with substitute(data=subsample_values):
-            with estimator(model, estimators, plate_sizes):
+            with estimator(model, estimators, predecessors):
                 model(*args, **kwargs)
 
     return fn
@@ -83,7 +83,7 @@ class ECS(MCMCKernel):
         self._model_struct = model_struct
         self._ref = ref
         self._plate_sizes = None
-        self._estimator = difference_estimator_fn
+        self._estimator = DifferenceEstimator
 
     @property
     def model(self):
@@ -108,9 +108,9 @@ class ECS(MCMCKernel):
         self._plate_sizes = {name: prototype_trace[name]["args"] + (min(prototype_trace[name]["args"][1] // 2, 100),)
                              for name in u}
 
-        # Precompute Jaccobian and Hessian for Taylor Proxy
         plate_sizes_all = {name: (prototype_trace[name]["args"][0], prototype_trace[name]["args"][0]) for name in u}
         if self._proxy == 'taylor':
+            # Precompute Jaccobian and Hessian for Taylor Proxy
             with subsample_size(self.model, plate_sizes_all):
                 ref_trace = trace(substitute(self.model, data=self._z_ref)).get_trace(*model_args, **model_kwargs)
                 jac_all = {name: _tangent_curve(site['fn'], site['value'], jacobian) for name, site in ref_trace.items()
@@ -120,19 +120,19 @@ class ECS(MCMCKernel):
                 ll_ref = {name: site['fn'].log_prob(site['value']) for name, site in ref_trace.items() if
                           (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
 
-            ref_trace = trace(substitute(self.model, data={**self._z_ref, **u})).get_trace(*model_args,
-                                                                                           **model_kwargs)  # TODO: check reparam
+            ref_trace = trace(substitute(self.model, data={**self._z_ref, **u})).get_trace(*model_args, **model_kwargs)
             proxy_fn, uproxy_fn = taylor_proxy(ref_trace, ll_ref, jac_all, hess_all)
         elif self._proxy == 'variational':
             pos_key, guide_key, rng_key = random.split(rng_key, 3)
             num_samples = 10  # TODO: heuristic for this
             guide = substitute(self._guide, self._ref)
-            posterior_samples = _predictive(random.pos_key, guide, {},
+            posterior_samples = _predictive(pos_key, guide, {},
                                             (num_samples,), return_sites='', parallel=True,
                                             model_args=model_args, model_kwargs=model_kwargs)
             with subsample_size(self.model, plate_sizes_all):
                 model = subsample_size(self.model, plate_sizes_all)
                 ll = log_likelihood(model, posterior_samples, *model_args, **model_kwargs)
+
             # TODO: fix multiple likehoods
             weights = {name: jnp.mean((value.T / value.sum(1).T).T, 0) for name, value in
                        ll.items()}  # TODO: fix broadcast
@@ -140,22 +140,26 @@ class ECS(MCMCKernel):
                                    model_args, model_kwargs, posterior_samples)
             variational, _ = log_density(guide, model_args, model_kwargs, posterior_samples)
             evidence = {name: variational / num_samples - prior / num_samples - ll.mean(1).sum() for name, ll in
-                        ll.items()}
+                        ll.items()}  # TODO: must depend on structure!
 
             guide_trace = trace(seed(self._guide, guide_key)).get_trace(model_args, model_kwargs)
-
-            proxy_fn, uproxy_fn = variational_proxy(guide_trace, evidence, weights, self._model_struct)
+            proxy_fn, uproxy_fn = variational_proxy(guide_trace, evidence, weights)
         else:
-            # TODO: alternatives
             raise NotImplementedError
 
-        estimators = {name: partial(self._estimator, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)
+        estimators = {name: self._estimator(name=name,
+                                            proxy=proxy_fn, uproxy=uproxy_fn,
+                                            plate_name=site['cond_indep_stack'][0].name,
+                                            plate_size=self._plate_sizes[site['cond_indep_stack'][0].name])
                       for name, site in prototype_trace.items() if
                       (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
-        self.inner_kernel._model = _wrap_est_model(self.model, estimators, self._plate_sizes)
+
+        predecessors = {name: self._model_struct[name] for name in estimators}
+
+        self.inner_kernel._model = _wrap_est_model(self.model, estimators, predecessors)
+
         init_params = {name: init_near_values(site, self._ref) for name, site in prototype_trace.items()}
         model_kwargs["_subsample_sites"] = u
-
         hmc_state = self.inner_kernel.init(key_z, num_warmup, init_params, model_args, model_kwargs)
         uz = {**u, **hmc_state.z}
         return device_put(HMC_ECS_State(uz, hmc_state, 1., rng_key))
