@@ -31,6 +31,7 @@ class MixedHMC(DiscreteHMCGibbs):
         }
         self._support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in self._gibbs_sites})
         self._num_warmup = num_warmup
+        init_state = init_state._replace(hmc_state=init_state.hmc_state._replace(reset_momentum=jnp.array(False)))
         return init_state
 
     def sample(self, state, model_args, model_kwargs):
@@ -92,7 +93,7 @@ class MixedHMC(DiscreteHMCGibbs):
         trajectory_length_ratio = state.hmc_state.trajectory_length / total_time
 
         r = momentum_generator(state.hmc_state.r, state.hmc_state.adapt_state.mass_matrix_sqrt, rng_r)
-        hmc_state = state.hmc_state._replace(r=r, reset_momentum=False, num_steps=0)
+        hmc_state = state.hmc_state._replace(r=r, num_steps=0)
         hmc_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, r)
         energy_old = ke_discrete.sum() + hmc_ke + hmc_state.potential_energy
 
@@ -154,15 +155,16 @@ class MixedHMCGibbs(DiscreteHMCGibbs):
         discrete_mass = jnp.ones(num_discretes)
         # TODO: we can also adapt hmc_mass by using some statistics
         self._num_warmup = num_warmup
-        self._hmc_mass = jnp.array(1 / self._num_trajectories)
+        self._hmc_mass = jnp.array(2 * jnp.pi / self._num_trajectories)
         self._da_init, self._da_update = dual_averaging()
         da_state = vmap(self._da_init)(jnp.log(10 * discrete_mass))
         self._adaptation_schedule = jnp.array(build_adaptation_schedule(num_warmup))
-        return MixedHMCGibbsState(init_state.z, init_state.hmc_state, init_state.rng_key,
+        hmc_state = init_state.hmc_state._replace(reset_momentum=jnp.array(False))
+        return MixedHMCGibbsState(init_state.z, hmc_state, init_state.rng_key,
                                   ClockAdaptState(jnp.array(0), jnp.array(0), discrete_mass, da_state))
 
     def sample(self, state, model_args, model_kwargs):
-        discrete_mass = jnp.array([1 / self._num_trajectories])  # state.adapt_state.discrete_mass
+        discrete_mass = jnp.array([2 * jnp.pi / self._num_trajectories])  # state.adapt_state.discrete_mass
         clock_mass = jnp.concatenate([discrete_mass, self._hmc_mass[None]])
 
         # NB: this adjusts MixedHMC algorithm a bit to be more compatible to NUTS sampling
@@ -231,13 +233,10 @@ class MixedHMCGibbs(DiscreteHMCGibbs):
         ke_discrete = random.exponential(rng_ke, (num_discretes,))
         # NB: velocity = +-1 / mass
         arrival_times = random.uniform(rng_time, (num_discretes + 1,)) * clock_mass
-        # TODO: remove this line, only used to force HMCGibbs behavior
-        arrival_times = jnp.stack([jnp.min(arrival_times), jnp.max(arrival_times)])
-        total_time = 1  # 2 * jnp.pi
+        total_time = 2 * jnp.pi
 
         r = momentum_generator(state.hmc_state.r, state.hmc_state.adapt_state.mass_matrix_sqrt, rng_r)
-        # TODO: debug why reset_momentum=True gives quite different result
-        hmc_state = state.hmc_state._replace(r=r, reset_momentum=False)
+        hmc_state = state.hmc_state._replace(r=r)
         accept_prob = jnp.zeros(num_discretes)
         init_val = (rng_key, hmc_state, z_discrete, ke_discrete, accept_prob, arrival_times, total_time)
         rng_key, hmc_state, z_discrete, _, accept_prob, _, _ = while_loop(cond_fn, body_fn, init_val)
