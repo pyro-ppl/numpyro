@@ -133,7 +133,7 @@ def infer_hmcecs(rng_key, feats, obs, m=None,g=None,n_samples=None, warmup=None,
         map_key, post_key = jax.random.split(map_key)
         z_ref, svi, svi_state = svi_map(model, map_key, feats=feats[:factor_SVI], obs=obs[:factor_SVI],
                                         num_epochs=num_epochs, batch_size=batch_size)
-        z_ref = svi.guide.sample_posterior(post_key, svi.get_params(svi_state), (100,))
+        z_ref = svi.log_reg_guide.sample_posterior(post_key, svi.get_params(svi_state), (100,))
         z_ref = {name: value.mean(0) for name, value in z_ref.items()} #highlight: AutoDiagonalNormal does not have auto_ in front of the parmeters
 
         save_obj(z_ref,"{}/MAP_Dict_Samples_Proxy_{}.pkl".format("PLOTS_{}".format(now.strftime("%Y_%m_%d_%Hh%Mmin%Ss%fms")),

@@ -56,6 +56,8 @@ class estimator(Messenger):
         return self._successors
 
     def postprocess_message(self, msg):
+        if 'name' not in msg:
+            return
         name = msg['name']
         if name in self.successors:
             self.predecessor_sites[self.successors[name]][name] = msg.copy()

@@ -142,7 +142,7 @@ class ECS(MCMCKernel):
             evidence = {name: variational / num_samples - prior / num_samples - ll.mean(1).sum() for name, ll in
                         ll.items()}  # TODO: must depend on structure!
 
-            guide_trace = trace(seed(self._guide, guide_key)).get_trace(model_args, model_kwargs)
+            guide_trace = trace(seed(self._guide, guide_key)).get_trace(*model_args, **model_kwargs)
             proxy_fn, uproxy_fn = variational_proxy(guide_trace, evidence, weights)
         else:
             raise NotImplementedError

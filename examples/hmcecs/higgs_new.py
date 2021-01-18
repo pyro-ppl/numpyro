@@ -1,13 +1,12 @@
 import jax.numpy as jnp
-import pystan
 from jax import random
 from sklearn.datasets import load_breast_cancer
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.contrib.ecs import ECS
-from numpyro.contrib.ecs_utils import difference_estimator_fn, taylor_proxy
-from numpyro.infer import MCMC, NUTS
+from numpyro.distributions import constraints
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 
 
 def breast_cancer_data():
@@ -21,50 +20,47 @@ def breast_cancer_data():
 def log_reg_model(features, obs):
     n, m = features.shape
     theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), .5 * jnp.ones(m)))
-    with numpyro.plate('N', n, subsample_size=75) as idx:
+    with numpyro.plate('N', n, subsample_size=75):
         batch_feats = numpyro.subsample(features, event_dim=1)
-        batch_obs = numpyro.subsample(obs, event_dim=1)
-        numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(batch_feats, theta)), obs=batch_obs)
+        batch_obs = numpyro.subsample(obs, event_dim=0)
+        numpyro.sample('obs', dist.Bernoulli(logits=theta @ batch_feats.T), obs=batch_obs)
 
 
-def plain_log_reg_model(features, obs):
-    n, m = features.shape
-    theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), 2 * jnp.ones(m)))
-    numpyro.sample('obs', dist.Bernoulli(logits=jnp.matmul(features, theta)), obs=obs)
+def log_reg_guide(feature, obs):
+    _, m = feature.shape
+    mean = numpyro.param('mean', jnp.zeros(m), constraints=constraints.real)
+    var = numpyro.param('var', jnp.ones(m), constraints=constraints.positive)
+    numpyro.sample('theta', dist.continuous.Normal(mean, var))
 
 
 def hmcecs_model(data, obs):
-    kernel = NUTS(plain_log_reg_model)
-    mcmc = MCMC(kernel, 500, 500)
-    mcmc.run(random.PRNGKey(1), data, obs)
-    z_ref = {k: v.mean(0) for k, v in mcmc.get_samples().items()}
+    optimizer = numpyro.optim.Adam(step_size=0.005)
+    svi = SVI(log_reg_model, log_reg_guide, optimizer, loss=Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(1), 1000, data, obs)
 
     # Compute HMCECS
-    kernel = ECS(NUTS(log_reg_model), estimator_fn=difference_estimator_fn, proxy_gen_fn=taylor_proxy, z_ref=z_ref)
-    mcmc = MCMC(kernel, 500, 500)
+    kernel = ECS(NUTS(log_reg_model),
+                 proxy='variational',
+                 model_struct={'obs': ['theta']},
+                 ref=svi_result.params,
+                 guide=svi.guide)
+    mcmc = MCMC(kernel, 1500, 8500)
+    mcmc.run(random.PRNGKey(0), data, obs, extra_fields=("accept_prob",))
+    mcmc.print_summary(exclude_deterministic=False)
+
+def plain_log_reg_model(features, obs):
+    n, m = features.shape
+    theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), .5 * jnp.ones(m)))
+    numpyro.sample('obs', dist.Bernoulli(logits=theta @ features.T), obs=obs)
+
+def hmc(data, obs):
+    kernel = NUTS(log_reg_model)
+    mcmc = MCMC(kernel, 1500, 8500)
     mcmc.run(random.PRNGKey(0), data, obs, extra_fields=("accept_prob",))
     mcmc.print_summary(exclude_deterministic=False)
 
 
-# Stan
-
-def stan_model():
-    model_code = """
-        data {
-            int<lower=1> D;
-            int<lower=0> N;
-            matrix[N, D] x;
-            int<lower=0,upper=1> y[N];
-        }
-        parameters {
-            vector[D] beta;
-        }
-        model {
-            y ~ bernoulli_logit(x * beta);
-        }
-    """
-    return pystan.StanModel(model_code=model_code)
-
-
 if __name__ == '__main__':
     data, obs = breast_cancer_data()
+    # hmcecs_model(data, obs)
+    hmc(data, obs)
