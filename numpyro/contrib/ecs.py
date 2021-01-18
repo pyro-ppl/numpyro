@@ -74,11 +74,13 @@ class ECS(MCMCKernel):
     """
     sample_field = "uz"
 
-    def __init__(self, inner_kernel, proxy, ref=None, guide=None):
+    def __init__(self, inner_kernel, proxy, model_struct, ref=None, guide=None):
+        assert proxy in ('taylor', 'variational')
         self.inner_kernel = copy.copy(inner_kernel)
         self.inner_kernel._model = inner_kernel.model
         self._guide = guide
         self._proxy = proxy
+        self._model_struct = model_struct
         self._ref = ref
         self._plate_sizes = None
         self._estimator = difference_estimator_fn
@@ -107,7 +109,6 @@ class ECS(MCMCKernel):
                              for name in u}
 
         # Precompute Jaccobian and Hessian for Taylor Proxy
-        # TODO: check proxy type and branch
         plate_sizes_all = {name: (prototype_trace[name]["args"][0], prototype_trace[name]["args"][0]) for name in u}
         if self._proxy == 'taylor':
             with subsample_size(self.model, plate_sizes_all):
@@ -123,9 +124,10 @@ class ECS(MCMCKernel):
                                                                                            **model_kwargs)  # TODO: check reparam
             proxy_fn, uproxy_fn = taylor_proxy(ref_trace, ll_ref, jac_all, hess_all)
         elif self._proxy == 'variational':
+            pos_key, guide_key, rng_key = random.split(rng_key, 3)
             num_samples = 10  # TODO: heuristic for this
             guide = substitute(self._guide, self._ref)
-            posterior_samples = _predictive(random.PRNGKey(2), guide, {},
+            posterior_samples = _predictive(random.pos_key, guide, {},
                                             (num_samples,), return_sites='', parallel=True,
                                             model_args=model_args, model_kwargs=model_kwargs)
             with subsample_size(self.model, plate_sizes_all):
@@ -140,14 +142,18 @@ class ECS(MCMCKernel):
             evidence = {name: variational / num_samples - prior / num_samples - ll.mean(1).sum() for name, ll in
                         ll.items()}
 
-            proxy_fn, uproxy_fn = variational_proxy(self.model, self._guide, evidence, weights, model_args,
-                                                    model_kwargs)
+            guide_trace = trace(seed(self._guide, guide_key)).get_trace(model_args, model_kwargs)
 
-        estimators = {name: partial(self._estimator_fn, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)
+            proxy_fn, uproxy_fn = variational_proxy(guide_trace, evidence, weights, self._model_struct)
+        else:
+            # TODO: alternatives
+            raise NotImplementedError
+
+        estimators = {name: partial(self._estimator, proxy_fn=proxy_fn, uproxy_fn=uproxy_fn)
                       for name, site in prototype_trace.items() if
                       (site['type'] == 'sample' and site['is_observed'] and site['cond_indep_stack'])}
         self.inner_kernel._model = _wrap_est_model(self.model, estimators, self._plate_sizes)
-        init_params = {name: init_near_values(site, self._z_ref) for name, site in prototype_trace.items()}
+        init_params = {name: init_near_values(site, self._ref) for name, site in prototype_trace.items()}
         model_kwargs["_subsample_sites"] = u
 
         hmc_state = self.inner_kernel.init(key_z, num_warmup, init_params, model_args, model_kwargs)

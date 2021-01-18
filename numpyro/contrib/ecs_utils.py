@@ -1,7 +1,6 @@
 import jax
 import jax.numpy as jnp
 
-from numpyro.infer.util import log_density
 from numpyro.primitives import Messenger, _subsample_fn
 
 
@@ -25,16 +24,20 @@ def init_near_values(site=None, values={}):
                 return init_to_uniform(site)
 
 
-def variational_proxy(model, guide, evidence, weights, model_args, model_kwargs, ):
-    # TODO: fuse computation for S + log_posterior_prob(z) - log_prior_prob(z)?
-    log_posterior_prob = lambda params: log_density(guide, model_args, model_kwargs, params)
-    log_prior_prob = lambda params: log_density(model, model_args, model_kwargs, params)
-
+def variational_proxy(model_trace, guide_trace, evidence, weights, model_struct):
     def proxy(name, z):
-        return evidence[name] + log_posterior_prob(z) - log_prior_prob(z)
+        successors = model_struct.soccessor[name]
+        log_prob = jnp.array(0.)
+        for succ in successors:
+            log_prob += guide_trace[succ]['fn'].log_prob(z) - model_trace[succ]['fn'].log_prob(z)
+        return evidence[name] + log_prob
 
     def uproxy(name, z, subsample):
-        return evidence[name] + weights[subsample].sum() + log_posterior_prob(z) - log_prior_prob(z)
+        successors = model_struct.soccessor[name]
+        log_prob = jnp.array(0.)
+        for succ in successors:
+            log_prob += guide_trace[succ]['fn'].log_prob(z) - model_trace[succ]['fn'].log_prob(z)
+        return evidence[name] + weights[subsample].sum() * log_prob
 
     return proxy, uproxy
 
