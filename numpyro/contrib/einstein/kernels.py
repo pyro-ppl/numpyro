@@ -12,7 +12,7 @@ import jax.scipy.linalg
 import jax.scipy.stats
 
 import numpyro.distributions as dist
-from numpyro.infer.einstein.utils import posdef, safe_norm, sqrth
+from numpyro.contrib.einstein.utils import posdef, safe_norm, sqrth
 
 
 class PrecondMatrix(ABC):
