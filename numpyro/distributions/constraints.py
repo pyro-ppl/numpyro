@@ -62,6 +62,7 @@ class Constraint(object):
     A constraint object represents a region over which a variable is valid,
     e.g. within which a variable can be optimized.
     """
+    event_dim = 0
 
     def __call__(self, x):
         raise NotImplementedError
@@ -89,6 +90,8 @@ class _Boolean(Constraint):
 
 
 class _CorrCholesky(Constraint):
+    event_dim = 2
+
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
@@ -103,6 +106,8 @@ class _CorrCholesky(Constraint):
 
 
 class _CorrMatrix(Constraint):
+    event_dim = 2
+
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
@@ -135,6 +140,40 @@ class _GreaterThan(Constraint):
 
     def feasible_like(self, prototype):
         return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
+
+
+class _IndependentConstraint(Constraint):
+    """
+    Wraps a constraint by aggregating over ``reinterpreted_batch_ndims``-many
+    dims in :meth:`check`, so that an event is valid only if all its
+    independent entries are valid.
+    """
+    def __init__(self, base_constraint, reinterpreted_batch_ndims):
+        assert isinstance(base_constraint, Constraint)
+        assert isinstance(reinterpreted_batch_ndims, int)
+        assert reinterpreted_batch_ndims >= 0
+        self.base_constraint = base_constraint
+        self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
+        super().__init__()
+
+    @property
+    def event_dim(self):
+        return self.base_constraint.event_dim + self.reinterpreted_batch_ndims
+
+    def __call__(self, value):
+        result = self.base_constraint(value)
+        if self.reinterpreted_batch_ndims == 0:
+            return result
+        elif jax.numpy.ndim(result) < self.reinterpreted_batch_ndims:
+            expected = self.event_dim
+            raise ValueError(f"Expected value.dim() >= {expected} but got {jax.numpy.ndim(value)}")
+        result = result.reshape(
+            jax.numpy.shape(result)[:jax.numpy.ndim(result) - self.reinterpreted_batch_ndims] + (-1,))
+        result = result.all(-1)
+        return result
+
+    def feasible_like(self, prototype):
+        return self.base_constraint.feasible_like(prototype)
 
 
 class _LessThan(Constraint):
@@ -184,6 +223,8 @@ class _Interval(Constraint):
 
 
 class _LowerCholesky(Constraint):
+    event_dim = 2
+
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
@@ -196,6 +237,8 @@ class _LowerCholesky(Constraint):
 
 
 class _Multinomial(Constraint):
+    event_dim = 1
+
     def __init__(self, upper_bound):
         self.upper_bound = upper_bound
 
@@ -209,6 +252,8 @@ class _Multinomial(Constraint):
 
 
 class _OrderedVector(Constraint):
+    event_dim = 1
+
     def __call__(self, x):
         return (x[..., 1:] > x[..., :-1]).all(axis=-1)
 
@@ -217,6 +262,8 @@ class _OrderedVector(Constraint):
 
 
 class _PositiveDefinite(Constraint):
+    event_dim = 2
+
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
@@ -238,15 +285,9 @@ class _Real(Constraint):
         return jax.numpy.zeros_like(prototype)
 
 
-class _RealVector(Constraint):
-    def __call__(self, x):
-        return ((x == x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
-
-    def feasible_like(self, prototype):
-        return jax.numpy.zeros_like(prototype)
-
-
 class _Simplex(Constraint):
+    event_dim = 1
+
     def __call__(self, x):
         x_sum = x.sum(axis=-1)
         return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
@@ -263,6 +304,7 @@ corr_matrix = _CorrMatrix()
 dependent = _Dependent()
 greater_than = _GreaterThan
 less_than = _LessThan
+independent = _IndependentConstraint
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
@@ -274,6 +316,6 @@ positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
 positive_integer = _IntegerGreaterThan(1)
 real = _Real()
-real_vector = _RealVector()
+real_vector = independent(real, 1)
 simplex = _Simplex()
 unit_interval = _Interval(0., 1.)

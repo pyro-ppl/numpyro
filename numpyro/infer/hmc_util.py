@@ -170,6 +170,13 @@ def welford_covariance(diagonal=True):
     return init_fn, update_fn, final_fn
 
 
+def _kinetic_grad(kinetic_fn, inverse_mass_matrix, r):
+    if hasattr(kinetic_fn, "_kinetic_grad"):
+        return kinetic_fn._kinetic_grad(inverse_mass_matrix, r)
+    else:
+        return grad(kinetic_fn, argnums=1)(inverse_mass_matrix, r)
+
+
 def velocity_verlet(potential_fn, kinetic_fn):
     r"""
     Second order symplectic integrator that uses the velocity verlet algorithm
@@ -204,7 +211,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
         """
         z, r, _, z_grad = state
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
-        r_grad = grad(kinetic_fn, argnums=1)(inverse_mass_matrix, r)
+        r_grad = _kinetic_grad(kinetic_fn, inverse_mass_matrix, r)
         z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1)
@@ -725,6 +732,20 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
         v = jnp.multiply(inverse_mass_matrix, r)
 
     return 0.5 * jnp.dot(v, r)
+
+
+def _euclidean_kinetic_energy_grad(inverse_mass_matrix, r):
+    r, unravel_fn = ravel_pytree(r)
+
+    if inverse_mass_matrix.ndim == 2:
+        v = jnp.matmul(inverse_mass_matrix, r)
+    elif inverse_mass_matrix.ndim == 1:
+        v = jnp.multiply(inverse_mass_matrix, r)
+
+    return unravel_fn(v)
+
+
+euclidean_kinetic_energy._kinetic_grad = _euclidean_kinetic_energy_grad
 
 
 def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):

@@ -817,8 +817,8 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
 class LowRankMultivariateNormal(Distribution):
     arg_constraints = {
         "loc": constraints.real_vector,
-        "cov_factor": constraints.real,
-        "cov_diag": constraints.positive
+        "cov_factor": constraints.independent(constraints.real, 2),
+        "cov_diag": constraints.independent(constraints.positive, 1)
     }
     support = constraints.real_vector
     reparametrized_params = ['loc', 'cov_factor', 'cov_diag']

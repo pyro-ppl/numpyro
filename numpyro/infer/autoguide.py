@@ -21,6 +21,7 @@ from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, Inve
 from numpyro.distributions.transforms import (
     AffineTransform,
     ComposeTransform,
+    IndependentTransform,
     LowerCholeskyAffine,
     PermuteTransform,
     UnpackTransform,
@@ -563,13 +564,13 @@ class AutoDiagonalNormal(AutoContinuous):
     def get_transform(self, params):
         loc = params['{}_loc'.format(self.prefix)]
         scale = params['{}_scale'.format(self.prefix)]
-        return AffineTransform(loc, scale, domain=constraints.real_vector)
+        return IndependentTransform(AffineTransform(loc, scale), 1)
 
     def get_posterior(self, params):
         """
         Returns a diagonal Normal posterior distribution.
         """
-        transform = self.get_transform(params)
+        transform = self.get_transform(params).base_transform
         return dist.Normal(transform.loc, transform.scale)
 
     def median(self, params):
