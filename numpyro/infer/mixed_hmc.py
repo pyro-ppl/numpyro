@@ -143,7 +143,7 @@ class MixedHMC(DiscreteHMCGibbs):
 
 
 ClockState = namedtuple("ClockState", "t, window_idx, discrete_mass, da_state")
-MixedHMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key, clock_state")
+AdaptiveMixedHMCState = namedtuple("AdaptiveMixedHMCState", "z, hmc_state, rng_key, clock_state")
 
 
 class _ClockAdapter:
@@ -191,7 +191,7 @@ class _ClockAdapter:
         return ClockState(t + 1, window_idx, discrete_mass, da_state)
 
 
-class MixedHMCGibbs(MixedHMC):
+class AdaptiveMixedHMC(MixedHMC):
 
     def __init__(self, inner_kernel, *, num_trajectories=20, random_walk=False, modified=True):
         super().__init__(inner_kernel, num_trajectories=num_trajectories,
@@ -208,7 +208,7 @@ class MixedHMCGibbs(MixedHMC):
         self._hmc_mass = jnp.array(1 / self._num_trajectories)
         self._clock_adapter = _ClockAdapter(num_warmup)
         clock_state = self._clock_adapter.init_state(discrete_mass)
-        return MixedHMCGibbsState(init_state.z, init_state.hmc_state, init_state.rng_key, clock_state)
+        return AdaptiveMixedHMCState(init_state.z, init_state.hmc_state, init_state.rng_key, clock_state)
 
     def sample(self, state, model_args, model_kwargs):
         discrete_mass = jnp.array([1 / self._num_trajectories])  # state.clock_state.discrete_mass
@@ -318,4 +318,4 @@ class MixedHMCGibbs(MixedHMC):
                            state.clock_state,
                            identity)
         z = {**z_discrete, **hmc_state.z}
-        return MixedHMCGibbsState(z, hmc_state, rng_key, clock_state)
+        return AdaptiveMixedHMCState(z, hmc_state, rng_key, clock_state)
