@@ -31,12 +31,11 @@ setup(
     packages=find_packages(include=['numpyro', 'numpyro.*']),
     url='https://github.com/pyro-ppl/numpyro',
     author='Uber AI Labs',
-    author_email='npradhan@uber.com',
     install_requires=[
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
-        'jax==0.2.7',
+        'jax>=0.2.7',
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L26
-        'jaxlib==0.1.56',
+        'jaxlib>=0.1.56',
         'tqdm',
     ],
     extras_require={
@@ -47,12 +46,12 @@ setup(
             'pyro-api>=0.1.1'
         ],
         'dev': [
+            'dm-haiku',
+            'flax',
             'funsor',
             'ipython',
             'isort',
-            'flax',
-            'dm-haiku',
-            'tfp-nightly',  # TODO: change this to stable release or a specific nightly release
+            'tensorflow_probability',
         ],
         'examples': ['matplotlib', 'seaborn', 'graphviz', 'arviz'],
     },
@@ -69,5 +68,7 @@ setup(
         'Operating System :: MacOS :: MacOS X',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
     ],
 )
