@@ -432,7 +432,7 @@ class HMCECS(HMCGibbs):
     2. *Speeding Up MCMC by Efficient Data Subsampling*,
        Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
     3. *The Block Pseudo-Margional Sampler*,
-        Tran, M.-N., Kohn, R., Quiroz, M. Villani, M. (2017)
+       Tran, M.-N., Kohn, R., Quiroz, M. Villani, M. (2017)
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
     :param int num_blocks: Number of blocks to partition subsample into.
