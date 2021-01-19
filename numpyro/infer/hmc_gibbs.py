@@ -245,24 +245,13 @@ def _discrete_modified_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, s
     return rng_key, z_new, pe_new, log_accept_ratio
 
 
-def _discrete_gibbs_fn(wrapped_model, model_args, model_kwargs, prototype_trace,
-                       random_walk=False, modified=False):
+def _discrete_gibbs_fn(wrapped_model, model_args, model_kwargs, prototype_trace, proposal_fn):
     support_sizes = {
         name: jnp.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
         for name, site in prototype_trace.items()
         if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
     }
     max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
-    if random_walk:
-        if modified:
-            proposal_fn = partial(_discrete_modified_rw_proposal, stay_prob=0.)
-        else:
-            proposal_fn = _discrete_rw_proposal
-    else:
-        if modified:
-            proposal_fn = partial(_discrete_modified_gibbs_proposal, stay_prob=0.)
-        else:
-            proposal_fn = _discrete_gibbs_proposal
 
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
         z_hmc = hmc_sites
@@ -366,13 +355,23 @@ class DiscreteHMCGibbs(HMCGibbs):
         self._random_walk = random_walk
         self._modified = modified
         self._use_unconstrained_gibbs_fn = True
+        if random_walk:
+            if modified:
+                self._discrete_proposal_fn = partial(_discrete_modified_rw_proposal, stay_prob=0.)
+            else:
+                self._discrete_proposal_fn = _discrete_rw_proposal
+        else:
+            if modified:
+                self._discrete_proposal_fn = partial(_discrete_modified_gibbs_proposal, stay_prob=0.)
+            else:
+                self._discrete_proposal_fn = _discrete_gibbs_proposal
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u = random.split(rng_key)
         self._prototype_trace = trace(seed(self.model, key_u)).get_trace(*model_args, **model_kwargs)
         self._gibbs_fn = _discrete_gibbs_fn(self.model, model_args, model_kwargs, self._prototype_trace,
-                                            random_walk=self._random_walk, modified=self._modified)
+                                            self._discrete_proposal_fn)
         self._gibbs_sites = [name for name, site in self._prototype_trace.items()
                              if site["type"] == "sample"
                              and site["fn"].has_enumerate_support
