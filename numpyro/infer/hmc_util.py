@@ -3,7 +3,7 @@
 
 from collections import namedtuple
 
-from jax import grad, random, value_and_grad, vmap
+from jax import jacfwd, grad, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.ops import index_update
@@ -170,6 +170,13 @@ def welford_covariance(diagonal=True):
     return init_fn, update_fn, final_fn
 
 
+def _value_and_grad(f, x, forward_mode_differentiation=False):
+    if forward_mode_differentiation:
+        return f(x), jacfwd(f)(x)
+    else:
+        return value_and_grad(f)(x)
+
+
 def _kinetic_grad(kinetic_fn, inverse_mass_matrix, r):
     if hasattr(kinetic_fn, "_kinetic_grad"):
         return kinetic_fn._kinetic_grad(inverse_mass_matrix, r)
@@ -177,7 +184,7 @@ def _kinetic_grad(kinetic_fn, inverse_mass_matrix, r):
         return grad(kinetic_fn, argnums=1)(inverse_mass_matrix, r)
 
 
-def velocity_verlet(potential_fn, kinetic_fn):
+def velocity_verlet(potential_fn, kinetic_fn, forward_mode_differentiation=False):
     r"""
     Second order symplectic integrator that uses the velocity verlet algorithm
     for position `z` and momentum `r`.
@@ -198,7 +205,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
         :return: initial state for the integrator.
         """
         if potential_energy is None or z_grad is None:
-            potential_energy, z_grad = value_and_grad(potential_fn)(z)
+            potential_energy, z_grad = _value_and_grad(potential_fn, z, forward_mode_differentiation)
         return IntegratorState(z, r, potential_energy, z_grad)
 
     def update_fn(step_size, inverse_mass_matrix, state):
@@ -213,7 +220,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
         r_grad = _kinetic_grad(kinetic_fn, inverse_mass_matrix, r)
         z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
-        potential_energy, z_grad = value_and_grad(potential_fn)(z)
+        potential_energy, z_grad = _value_and_grad(potential_fn, z, forward_mode_differentiation)
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1)
         return IntegratorState(z, r, potential_energy, z_grad)
 
