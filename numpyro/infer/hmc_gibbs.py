@@ -145,7 +145,11 @@ class HMCGibbs(MCMCKernel):
 
         z_gibbs = self._gibbs_fn(rng_key=rng_gibbs, gibbs_sites=z_gibbs, hmc_sites=z_hmc)
 
-        pe, z_grad = value_and_grad(partial(potential_fn, z_gibbs))(state.hmc_state.z)
+        if self.inner_kernel._forward_mode_differentiation:
+            pe = potential_fn(z_gibbs, state.hmc_state.z)
+            z_grad = jacfwd(partial(potential_fn, z_gibbs))(state.hmc_state.z)
+        else:
+            pe, z_grad = value_and_grad(partial(potential_fn, z_gibbs))(state.hmc_state.z)
         hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
 
         model_kwargs_["_gibbs_sites"] = z_gibbs
