@@ -1038,6 +1038,7 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
     z = transform.inv(y)
     assert_allclose(x, z, atol=1e-6, rtol=1e-6)
     assert transform.inv.inv is transform
+    assert transform.inv is transform.inv
     assert transform.domain is transform.inv.codomain
     assert transform.codomain is transform.inv.domain
 

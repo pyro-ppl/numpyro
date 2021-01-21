@@ -3,6 +3,7 @@
 
 import math
 import warnings
+import weakref
 
 import numpy as np
 
@@ -52,6 +53,7 @@ def _clipped_expit(x):
 class Transform(object):
     domain = constraints.real
     codomain = constraints.real
+    _inv = None
 
     @property
     def event_dim(self):
@@ -62,7 +64,13 @@ class Transform(object):
 
     @property
     def inv(self):
-        return _InverseTransform(self)
+        inv = None
+        if self._inv is not None:
+            inv = self._inv()
+        if inv is None:
+            inv = _InverseTransform(self)
+            self._inv = weakref.ref(inv)
+        return inv
 
     def __call__(self, x):
         return NotImplementedError
