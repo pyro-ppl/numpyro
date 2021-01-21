@@ -43,7 +43,8 @@ def test_log_normal(batch_shape, event_shape):
         fn = dist.TransformedDistribution(
             dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)),
             [AffineTransform(loc, scale), ExpTransform()])
-        fn = fn.to_event(len(event_shape)).expand_by([100000])
+        if event_shape:
+            fn = fn.to_event(len(event_shape)).expand_by([100000])
         with numpyro.plate_stack("plates", batch_shape):
             with numpyro.plate("particles", 100000):
                 return numpyro.sample("x", fn)
