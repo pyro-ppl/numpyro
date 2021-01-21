@@ -32,20 +32,21 @@ def get_moments(x):
     return jnp.stack([m1, m2, m3, m4])
 
 
-@pytest.mark.parametrize("shape", [(), (4,), (2, 3)], ids=str)
-def test_log_normal(shape):
+@pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
+@pytest.mark.parametrize("event_shape", [(), (5,)], ids=str)
+def test_log_normal(batch_shape, event_shape):
+    shape = batch_shape + event_shape
     loc = np.random.rand(*shape) * 2 - 1
     scale = np.random.rand(*shape) + 0.5
 
     def model():
-        with numpyro.plate_stack("plates", shape):
+        fn = dist.TransformedDistribution(
+            dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)),
+            [AffineTransform(loc, scale), ExpTransform()])
+        fn = fn.to_event(len(event_shape)).expand_by([100000])
+        with numpyro.plate_stack("plates", batch_shape):
             with numpyro.plate("particles", 100000):
-                return numpyro.sample("x",
-                                      dist.TransformedDistribution(
-                                          dist.Normal(jnp.zeros_like(loc),
-                                                      jnp.ones_like(scale)),
-                                          [AffineTransform(loc, scale),
-                                           ExpTransform()]).expand_by([100000]))
+                return numpyro.sample("x", fn)
 
     with handlers.trace() as tr:
         value = handlers.seed(model, 0)()
@@ -56,7 +57,7 @@ def test_log_normal(shape):
             value = handlers.seed(model, 0)()
     assert tr["x"]["type"] == "deterministic"
     actual_moments = get_moments(jnp.log(value))
-    assert_allclose(actual_moments, expected_moments, atol=0.05)
+    assert_allclose(actual_moments, expected_moments, atol=0.05, rtol=0.01)
 
 
 def neals_funnel(dim):
