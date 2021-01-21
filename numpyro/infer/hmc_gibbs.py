@@ -244,7 +244,7 @@ def _discrete_modified_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, s
 
 def _discrete_gibbs_fn(potential_fn, support_sizes, proposal_fn):
 
-    def gibbs_fn(rng_key, gibbs_sites, hmc_sites):
+    def gibbs_fn(rng_key, gibbs_sites, hmc_sites, pe):
         # get support_sizes of gibbs_sites
         support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
         num_discretes = support_sizes_flat.shape[0]
@@ -267,7 +267,7 @@ def _discrete_gibbs_fn(potential_fn, support_sizes, proposal_fn):
                          (z, pe), identity)
             return rng_key, z, pe
 
-        init_val = (rng_key, gibbs_sites, potential_fn(gibbs_sites, hmc_sites))
+        init_val = (rng_key, gibbs_sites, pe)
         _, gibbs_sites, pe = fori_loop(0, num_discretes, body_fn, init_val)
         return gibbs_sites, pe
 
@@ -375,7 +375,7 @@ class DiscreteHMCGibbs(HMCGibbs):
 
         # different from the implementation in HMCGibbs.sample, we feed the current potential energy
         # and get new potential energy from gibbs_fn
-        gibbs_fn = _subsample_gibbs_fn(potential_fn, self._support_sizes, self._proposal_fn)
+        gibbs_fn = _discrete_gibbs_fn(potential_fn, self._support_sizes, self._discrete_proposal_fn)
         z_gibbs, pe = gibbs_fn(rng_key=rng_gibbs, gibbs_sites=z_gibbs, hmc_sites=z_hmc,
                                pe=state.hmc_state.potential_energy)
 
