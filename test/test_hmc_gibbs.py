@@ -218,8 +218,12 @@ def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
     state = kernel.init(random.PRNGKey(1), 10, None, model_args=(obs,), model_kwargs=None)
     gibbs_sites = {'N': jnp.arange(100)}
 
-    gibbs_fn = kernel._gibbs_fn
-    new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, state.hmc_state.z)  # accept_prob > .999
+    def potential_fn(z_gibbs, z_hmc):
+        return kernel.inner_kernel._potential_fn_gen(obs, _gibbs_sites=z_gibbs)(z_hmc)
+
+    gibbs_fn = numpyro.infer.hmc_gibbs._subsample_gibbs_fn(potential_fn, kernel._plate_sizes, num_blocks)
+    new_gibbs_sites, _ = gibbs_fn(random.PRNGKey(2), gibbs_sites, state.hmc_state.z,
+                                  state.hmc_state.potential_energy)  # accept_prob > .999
     block_size = 100 // num_blocks
     for name in gibbs_sites:
         assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
@@ -233,6 +237,6 @@ def test_enum_subsample_smoke():
             numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
 
     data = random.normal(random.PRNGKey(0), (10000,)) + 1
-    kernel = HMCECS(NUTS(model, forward_mode_differentiation=True), num_blocks=10)
+    kernel = HMCECS(NUTS(model), num_blocks=10)
     mcmc = MCMC(kernel, 10, 10)
     mcmc.run(random.PRNGKey(0), data)
