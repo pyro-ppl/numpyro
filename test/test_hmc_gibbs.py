@@ -101,25 +101,6 @@ def test_linear_model_sigma(kernel_cls, N=90, P=40, sigma=0.07, warmup_steps=500
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-@pytest.mark.parametrize('num_blocks', [1, 2, 50, 100])
-def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
-    def model(obs):
-        with plate('N', obs.shape[0], subsample_size=100) as idx:
-            numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
-
-    obs = random.normal(random.PRNGKey(0), (10000,)) / 100
-    kernel = HMCECS(kernel_cls(model), num_blocks=num_blocks)
-    hmc_state = kernel.init(random.PRNGKey(1), 10, None, model_args=(obs,), model_kwargs=None)
-    gibbs_sites = {'N': jnp.arange(100)}
-
-    gibbs_fn = kernel._gibbs_fn
-    new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, hmc_state.z)  # accept_prob > .999
-    block_size = 100 // num_blocks
-    for name in gibbs_sites:
-        assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
-
-
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
     np.random.seed(0)
     cov = np.random.randn(4 * D * D).reshape((2 * D, 2 * D))
@@ -223,3 +204,35 @@ def test_discrete_gibbs_gmm_1d(modified):
     assert_allclose(jnp.var(samples["x"]), 4.36, atol=0.1)
     assert_allclose(jnp.mean(samples["c"]), 1.65, atol=0.1)
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
+
+
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('num_blocks', [1, 2, 50, 100])
+def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
+    def model(obs):
+        with plate('N', obs.shape[0], subsample_size=100) as idx:
+            numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
+
+    obs = random.normal(random.PRNGKey(0), (10000,)) / 100
+    kernel = HMCECS(kernel_cls(model), num_blocks=num_blocks)
+    state = kernel.init(random.PRNGKey(1), 10, None, model_args=(obs,), model_kwargs=None)
+    gibbs_sites = {'N': jnp.arange(100)}
+
+    gibbs_fn = kernel._gibbs_fn
+    new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, state.hmc_state.z)  # accept_prob > .999
+    block_size = 100 // num_blocks
+    for name in gibbs_sites:
+        assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
+
+
+def test_enum_subsample_smoke():
+    def model(data):
+        x = numpyro.sample("x", dist.Bernoulli(0.5))
+        with numpyro.plate("N", data.shape[0], subsample_size=100, dim=-1):
+            batch = numpyro.subsample(data, event_dim=0)
+            numpyro.sample("obs", dist.Normal(x, 1), obs=batch)
+
+    data = random.normal(random.PRNGKey(0), (10000,)) + 1
+    kernel = HMCECS(NUTS(model, forward_mode_differentiation=True), num_blocks=10)
+    mcmc = MCMC(kernel, 10, 10)
+    mcmc.run(random.PRNGKey(0), data)
