@@ -6,7 +6,7 @@ import warnings
 
 import numpy as np
 
-from jax import ops, tree_flatten, tree_map, vmap
+from jax import lax, ops, tree_flatten, tree_map, vmap
 from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
 from jax.nn import softplus
@@ -76,6 +76,20 @@ class Transform(object):
     def call_with_intermediates(self, x):
         return self(x), None
 
+    def forward_shape(self, shape):
+        """
+        Infers the shape of the forward computation, given the input shape.
+        Defaults to preserving shape.
+        """
+        return shape
+
+    def inverse_shape(self, shape):
+        """
+        Infers the shapes of the inverse computation, given the output shape.
+        Defaults to preserving shape.
+        """
+        return shape
+
 
 class _InverseTransform(Transform):
     def __init__(self, transform):
@@ -100,6 +114,12 @@ class _InverseTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # NB: we don't use intermediates for inverse transform
         return -self._inv.log_abs_det_jacobian(y, x, None)
+
+    def forward_shape(self, shape):
+        return self._inv.inverse_shape(shape)
+
+    def inverse_shape(self, shape):
+        return self._inv.forward_shape(shape)
 
 
 class AbsTransform(Transform):
@@ -160,6 +180,16 @@ class AffineTransform(Transform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x))
+
+    def forward_shape(self, shape):
+        return lax.broadcast_shapes(shape,
+                                    getattr(self.loc, "shape", ()),
+                                    getattr(self.scale, "shape", ()))
+
+    def inverse_shape(self, shape):
+        return lax.broadcast_shapes(shape,
+                                    getattr(self.loc, "shape", ()),
+                                    getattr(self.scale, "shape", ()))
 
 
 def _get_compose_transform_input_event_dim(parts):
@@ -243,6 +273,39 @@ class ComposeTransform(Transform):
         intermediates.append(inter)
         return x, intermediates
 
+    def forward_shape(self, shape):
+        for part in self.parts:
+            shape = part.forward_shape(shape)
+        return shape
+
+    def inverse_shape(self, shape):
+        for part in reversed(self.parts):
+            shape = part.inverse_shape(shape)
+        return shape
+
+
+def _matrix_forward_shape(shape, offset=0):
+    # Reshape from (..., N) to (..., D, D).
+    if len(shape) < 1:
+        raise ValueError("Too few dimensions in input")
+    N = shape[-1]
+    D = round((0.25 + 2 * N) ** 0.5 - 0.5)
+    if D * (D + 1) // 2 != N:
+        raise ValueError("Input is not a flattend lower-diagonal number")
+    D = D - offset
+    return shape[:-1] + (D, D)
+
+
+def _matrix_inverse_shape(shape, offset=0):
+    # Reshape from (..., D, D) to (..., N).
+    if len(shape) < 2:
+        raise ValueError("Too few dimensions on input")
+    if shape[-2] != shape[-1]:
+        raise ValueError("Input is not square")
+    D = shape[-1] + offset
+    N = D * (D - 1) // 2
+    return shape[:-2] + (N,)
+
 
 class CorrCholeskyTransform(Transform):
     r"""
@@ -305,6 +368,12 @@ class CorrCholeskyTransform(Transform):
 
         tanh_logdet = -2 * jnp.sum(x + softplus(-2 * x) - jnp.log(2.), axis=-1)
         return stick_breaking_logdet + tanh_logdet
+
+    def forward_shape(self, shape):
+        return _matrix_forward_shape(shape, diagonal=-1)
+
+    def inverse_shape(self, shape):
+        return _matrix_inverse_shape(shape, diagonal=-1)
 
 
 class ExpTransform(Transform):
@@ -385,6 +454,12 @@ class IndependentTransform(Transform):
 
     def call_with_intermediates(self, x):
         return self.base_transform.call_with_intermediates(x)
+
+    def forward_shape(self, shape):
+        return self.base_transform.forward_shape(shape)
+
+    def inverse_shape(self, shape):
+        return self.base_transform.inverse_shape(shape)
 
 
 class InvCholeskyTransform(Transform):
@@ -475,6 +550,12 @@ class LowerCholeskyTransform(Transform):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
         return x[..., -n:].sum(-1)
 
+    def forward_shape(self, shape):
+        return _matrix_forward_shape(shape)
+
+    def inverse_shape(self, shape):
+        return _matrix_inverse_shape(shape)
+
 
 class OrderedTransform(Transform):
     """
@@ -537,6 +618,12 @@ class PowerTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.log(jnp.abs(self.exponent * y / x))
 
+    def forward_shape(self, shape):
+        return lax.broadcast_shapes(shape, getattr(self.exponent, "shape", ()))
+
+    def inverse_shape(self, shape):
+        return lax.broadcast_shapes(shape, getattr(self.exponent, "shape", ()))
+
 
 class SigmoidTransform(Transform):
     codomain = constraints.unit_interval
@@ -586,6 +673,16 @@ class StickBreakingTransform(Transform):
         # the case z ~ 1
         return jnp.sum(jnp.log(y[..., :-1] * z) - x, axis=-1)
 
+    def forward_shape(self, shape):
+        if len(shape) < 1:
+            raise ValueError("Too few dimensions on input")
+        return shape[:-1] + (shape[-1] + 1,)
+
+    def inverse_shape(self, shape):
+        if len(shape) < 1:
+            raise ValueError("Too few dimensions on input")
+        return shape[:-1] + (shape[-1] - 1,)
+
 
 class UnpackTransform(Transform):
     """
@@ -619,6 +716,12 @@ class UnpackTransform(Transform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.zeros(jnp.shape(x)[:-1])
+
+    def forward_shape(self, shape):
+        raise NotImplementedError
+
+    def inverse_shape(self, shape):
+        raise NotImplementedError
 
 
 ##########################################################
