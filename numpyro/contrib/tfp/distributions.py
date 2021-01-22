@@ -86,6 +86,12 @@ class BijectorTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return self.bijector.forward_log_det_jacobian(x, self.domain.event_dim)
 
+    def forward_shape(self, shape):
+        return self.bijector.forward_event_shape(shape)
+
+    def inverse_shape(self, shape):
+        return self.bijector.inverse_event_shape(shape)
+
 
 @biject_to.register(BijectorConstraint)
 def _transform_to_bijector_constraint(constraint):

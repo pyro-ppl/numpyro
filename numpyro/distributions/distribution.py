@@ -748,24 +748,12 @@ class TransformedDistribution(Distribution):
                 raise ValueError("transforms must be a Transform or a list of Transforms")
         else:
             raise ValueError("transforms must be a Transform or list, but was {}".format(transforms))
-        # XXX: this logic will not be valid when IndependentDistribution is support;
-        # in that case, it is more involved to support Transform(Indep(Transform));
-        # however, we might not need to support such kind of distribution
-        # and should raise an error if base_distribution is an Indep one
         if isinstance(base_distribution, TransformedDistribution):
             self.base_dist = base_distribution.base_dist
             self.transforms = base_distribution.transforms + transforms
         else:
             self.base_dist = base_distribution
             self.transforms = transforms
-        # NB: here we assume that base_dist.shape == transformed_dist.shape
-        # but that might not be True for some transforms such as StickBreakingTransform
-        # because the event dimension is transformed from (n - 1,) to (n,).
-        # Currently, we have no mechanism to fix this issue. Given that
-        # this is just an edge case, we might skip this issue but need
-        # to pay attention to any inference function that inspects
-        # transformed distribution's shape.
-        # TODO: address this and the comment below when infer_shapes is available
         shape = base_distribution.batch_shape + base_distribution.event_shape
         base_ndim = len(shape)
         transform = ComposeTransform(self.transforms)
@@ -774,10 +762,6 @@ class TransformedDistribution(Distribution):
             raise ValueError("Base distribution needs to have shape with size at least {}, but got {}."
                              .format(transform_input_event_dim, base_ndim))
         event_dim = transform.codomain.event_dim + max(self.base_dist.event_dim - transform_input_event_dim, 0)
-        # See the above note. Currently, there is no way to interpret the shape of output after
-        # transforming. To solve this issue, we need something like Bijector.forward_event_shape
-        # as in TFP. For now, we will prepend singleton dimensions to compromise, so that
-        # event_dim, len(batch_shape) are still correct.
         if event_dim <= base_ndim:
             batch_shape = shape[:base_ndim - event_dim]
             event_shape = shape[base_ndim - event_dim:]

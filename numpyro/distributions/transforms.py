@@ -303,7 +303,7 @@ def _matrix_inverse_shape(shape, offset=0):
     if shape[-2] != shape[-1]:
         raise ValueError("Input is not square")
     D = shape[-1] + offset
-    N = D * (D - 1) // 2
+    N = D * (D + 1) // 2
     return shape[:-2] + (N,)
 
 
@@ -370,10 +370,10 @@ class CorrCholeskyTransform(Transform):
         return stick_breaking_logdet + tanh_logdet
 
     def forward_shape(self, shape):
-        return _matrix_forward_shape(shape, diagonal=-1)
+        return _matrix_forward_shape(shape, offset=-1)
 
     def inverse_shape(self, shape):
-        return _matrix_inverse_shape(shape, diagonal=-1)
+        return _matrix_inverse_shape(shape, offset=-1)
 
 
 class ExpTransform(Transform):
@@ -529,6 +529,12 @@ class LowerCholeskyAffine(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return jnp.broadcast_to(jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
                                 jnp.shape(x)[:-1])
+
+    def forward_shape(self, shape):
+        return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
+
+    def inverse_shape(self, shape):
+        return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
 
 
 class LowerCholeskyTransform(Transform):
