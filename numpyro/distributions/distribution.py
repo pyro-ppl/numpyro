@@ -518,7 +518,7 @@ class ImproperUniform(Distribution):
     arg_constraints = {}
 
     def __init__(self, support, batch_shape, event_shape, validate_args=None):
-        self.support = support
+        self.support = independent(support, len(event_shape) - support.event_dim)
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @validate_sample
@@ -762,12 +762,10 @@ class TransformedDistribution(Distribution):
             raise ValueError("Base distribution needs to have shape with size at least {}, but got {}."
                              .format(transform_input_event_dim, base_ndim))
         event_dim = transform.codomain.event_dim + max(self.base_dist.event_dim - transform_input_event_dim, 0)
-        if event_dim <= base_ndim:
-            batch_shape = shape[:base_ndim - event_dim]
-            event_shape = shape[base_ndim - event_dim:]
-        else:
-            event_shape = (-1,) * event_dim
-            batch_shape = ()
+        shape = transform.forward_shape(shape)
+        cut = len(shape) - event_dim
+        batch_shape = shape[:cut]
+        event_shape = shape[cut:]
         super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @property
@@ -846,7 +844,6 @@ class TransformedDistribution(Distribution):
 class Delta(Distribution):
     arg_constraints = {'v': real, 'log_density': real}
     reparameterized_params = ['v', 'log_density']
-    support = real
     is_discrete = True
 
     def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None):
@@ -860,6 +857,9 @@ class Delta(Distribution):
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    def support(self):
+        return independent(real, self.event_dim)
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
