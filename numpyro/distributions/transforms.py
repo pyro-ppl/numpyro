@@ -531,9 +531,13 @@ class LowerCholeskyAffine(Transform):
                                 jnp.shape(x)[:-1])
 
     def forward_shape(self, shape):
+        if len(shape) < 1:
+            raise ValueError("Too few dimensions on input")
         return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
 
     def inverse_shape(self, shape):
+        if len(shape) < 1:
+            raise ValueError("Too few dimensions on input")
         return lax.broadcast_shapes(shape, self.loc.shape, self.scale_tril.shape[:-1])
 
 
