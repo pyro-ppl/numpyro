@@ -87,10 +87,16 @@ class BijectorTransform(Transform):
         return self.bijector.forward_log_det_jacobian(x, self.domain.event_dim)
 
     def forward_shape(self, shape):
-        return self.bijector.forward_event_shape(shape)
+        out_shape = self.bijector.forward_event_shape(shape)
+        in_event_shape = self.bijector.inverse_event_shape(out_shape)
+        batch_shape = shape[:len(shape) - len(in_event_shape)]
+        return batch_shape + out_shape
 
     def inverse_shape(self, shape):
-        return self.bijector.inverse_event_shape(shape)
+        in_shape = self.bijector.inverse_event_shape(shape)
+        out_event_shape = self.bijector.forward_event_shape(in_shape)
+        batch_shape = shape[:len(shape) - len(out_event_shape)]
+        return batch_shape + in_shape
 
 
 @biject_to.register(BijectorConstraint)

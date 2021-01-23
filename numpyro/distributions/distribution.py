@@ -749,20 +749,31 @@ class TransformedDistribution(Distribution):
         else:
             raise ValueError("transforms must be a Transform or list, but was {}".format(transforms))
         if isinstance(base_distribution, TransformedDistribution):
-            self.base_dist = base_distribution.base_dist
+            base_dist = base_distribution.base_dist
             self.transforms = base_distribution.transforms + transforms
         else:
-            self.base_dist = base_distribution
+            base_dist = base_distribution
             self.transforms = transforms
-        shape = base_distribution.batch_shape + base_distribution.event_shape
-        base_ndim = len(shape)
+        base_shape = base_dist.shape()
+        base_event_dim = base_dist.event_dim
         transform = ComposeTransform(self.transforms)
-        transform_input_event_dim = transform.domain.event_dim
-        if base_ndim < transform_input_event_dim:
+        domain_event_dim = transform.domain.event_dim
+        if len(base_shape) < domain_event_dim:
             raise ValueError("Base distribution needs to have shape with size at least {}, but got {}."
-                             .format(transform_input_event_dim, base_ndim))
-        event_dim = transform.codomain.event_dim + max(self.base_dist.event_dim - transform_input_event_dim, 0)
-        shape = transform.forward_shape(shape)
+                             .format(domain_event_dim, base_shape))
+        shape = transform.forward_shape(base_shape)
+        expanded_base_shape = transform.inverse_shape(shape)
+        if base_shape != expanded_base_shape:
+            base_batch_shape = expanded_base_shape[:len(expanded_base_shape) - base_event_dim]
+            base_dist = base_dist.expand(base_batch_shape)
+        reinterpreted_batch_ndims = domain_event_dim - base_event_dim
+        if reinterpreted_batch_ndims > 0:
+            base_dist = base_dist.to_event(reinterpreted_batch_ndims)
+        self.base_dist = base_dist
+
+        # Compute shapes.
+        event_dim = transform.codomain.event_dim + max(base_event_dim - domain_event_dim, 0)
+        assert len(shape) >= event_dim
         cut = len(shape) - event_dim
         batch_shape = shape[:cut]
         event_shape = shape[cut:]
@@ -858,6 +869,7 @@ class Delta(Distribution):
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
+    @property
     def support(self):
         return independent(real, self.event_dim)
 
