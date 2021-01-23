@@ -475,7 +475,28 @@ class plate(GlobalNamedMessenger):
     def postprocess_message(self, msg):
         if msg["type"] in ["to_funsor", "to_data"]:
             return super().postprocess_message(msg)
-        return OrigPlateMessenger.postprocess_message(self, msg)
+        # NB: copied literally from original plate messenger, with self._indices is replaced
+        # by self.indices
+        # TODO: resolve the above inconsistency
+        if msg["type"] in ("subsample", "param") and self.dim is not None:
+            event_dim = msg["kwargs"].get("event_dim")
+            if event_dim is not None:
+                assert event_dim >= 0
+                dim = self.dim - event_dim
+                shape = jnp.shape(msg["value"])
+                if len(shape) >= -dim and shape[dim] != 1:
+                    if shape[dim] != self.size:
+                        if msg["type"] == "param":
+                            statement = "numpyro.param({}, ..., event_dim={})".format(msg["name"], event_dim)
+                        else:
+                            statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
+                        raise ValueError(
+                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
+                            .format(self.name, self.size, self.dim, statement, shape))
+                    if self.subsample_size < self.size:
+                        value = msg["value"]
+                        new_value = jnp.take(value, self.indices, dim)
+                        msg["value"] = new_value
 
 
 class enum(BaseEnumMessenger):

@@ -109,11 +109,11 @@ def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
 
     obs = random.normal(random.PRNGKey(0), (10000,)) / 100
     kernel = HMCECS(kernel_cls(model), num_blocks=num_blocks)
-    hmc_state = kernel.init(random.PRNGKey(1), 10, None, model_args=(obs,), model_kwargs=None)
+    state = kernel.init(random.PRNGKey(1), 10, None, model_args=(obs,), model_kwargs=None)
     gibbs_sites = {'N': jnp.arange(100)}
 
     gibbs_fn = kernel._gibbs_fn
-    new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, hmc_state.z)  # accept_prob > .999
+    new_gibbs_sites = gibbs_fn(random.PRNGKey(2), gibbs_sites, state.hmc_state.z)  # accept_prob > .999
     block_size = 100 // num_blocks
     for name in gibbs_sites:
         assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()

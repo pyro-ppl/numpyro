@@ -365,7 +365,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         super().__init__(inner_kernel, lambda *args: None, None)
         self._random_walk = random_walk
         self._modified = modified
-        self._use_unconstrained_gibbs_fn = True
+        self._use_constrained_gibbs_fn = False
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
