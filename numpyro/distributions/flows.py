@@ -30,7 +30,6 @@ class InverseAutoregressiveTransform(Transform):
     """
     domain = real_vector
     codomain = real_vector
-    event_dim = 1
 
     def __init__(self, autoregressive_nn, log_scale_min_clip=-5., log_scale_max_clip=3.):
         """
@@ -93,7 +92,8 @@ class BlockNeuralAutoregressiveTransform(Transform):
     1. *Block Neural Autoregressive Flow*,
        Nicola De Cao, Ivan Titov, Wilker Aziz
     """
-    event_dim = 1
+    domain = real_vector
+    codomain = real_vector
 
     def __init__(self, bn_arn):
         self.bn_arn = bn_arn

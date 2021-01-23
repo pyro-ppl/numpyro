@@ -959,6 +959,9 @@ def test_biject_to(constraint, shape):
     x = random.normal(rng_key, shape)
     y = transform(x)
 
+    assert transform.forward_shape(x.shape) == y.shape
+    assert transform.inverse_shape(y.shape) == x.shape
+
     # test inv work for NaN arrays:
     x_nan = transform.inv(jnp.full(jnp.shape(y), jnp.nan))
     assert (x_nan.shape == x.shape)

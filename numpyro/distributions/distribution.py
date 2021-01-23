@@ -518,7 +518,7 @@ class ImproperUniform(Distribution):
     arg_constraints = {}
 
     def __init__(self, support, batch_shape, event_shape, validate_args=None):
-        self.support = support
+        self.support = independent(support, len(event_shape) - support.event_dim)
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @validate_sample
@@ -748,42 +748,35 @@ class TransformedDistribution(Distribution):
                 raise ValueError("transforms must be a Transform or a list of Transforms")
         else:
             raise ValueError("transforms must be a Transform or list, but was {}".format(transforms))
-        # XXX: this logic will not be valid when IndependentDistribution is support;
-        # in that case, it is more involved to support Transform(Indep(Transform));
-        # however, we might not need to support such kind of distribution
-        # and should raise an error if base_distribution is an Indep one
         if isinstance(base_distribution, TransformedDistribution):
-            self.base_dist = base_distribution.base_dist
+            base_dist = base_distribution.base_dist
             self.transforms = base_distribution.transforms + transforms
         else:
-            self.base_dist = base_distribution
+            base_dist = base_distribution
             self.transforms = transforms
-        # NB: here we assume that base_dist.shape == transformed_dist.shape
-        # but that might not be True for some transforms such as StickBreakingTransform
-        # because the event dimension is transformed from (n - 1,) to (n,).
-        # Currently, we have no mechanism to fix this issue. Given that
-        # this is just an edge case, we might skip this issue but need
-        # to pay attention to any inference function that inspects
-        # transformed distribution's shape.
-        # TODO: address this and the comment below when infer_shapes is available
-        shape = base_distribution.batch_shape + base_distribution.event_shape
-        base_ndim = len(shape)
+        base_shape = base_dist.shape()
+        base_event_dim = base_dist.event_dim
         transform = ComposeTransform(self.transforms)
-        transform_input_event_dim = transform.domain.event_dim
-        if base_ndim < transform_input_event_dim:
+        domain_event_dim = transform.domain.event_dim
+        if len(base_shape) < domain_event_dim:
             raise ValueError("Base distribution needs to have shape with size at least {}, but got {}."
-                             .format(transform_input_event_dim, base_ndim))
-        event_dim = transform.codomain.event_dim + max(self.base_dist.event_dim - transform_input_event_dim, 0)
-        # See the above note. Currently, there is no way to interpret the shape of output after
-        # transforming. To solve this issue, we need something like Bijector.forward_event_shape
-        # as in TFP. For now, we will prepend singleton dimensions to compromise, so that
-        # event_dim, len(batch_shape) are still correct.
-        if event_dim <= base_ndim:
-            batch_shape = shape[:base_ndim - event_dim]
-            event_shape = shape[base_ndim - event_dim:]
-        else:
-            event_shape = (-1,) * event_dim
-            batch_shape = ()
+                             .format(domain_event_dim, base_shape))
+        shape = transform.forward_shape(base_shape)
+        expanded_base_shape = transform.inverse_shape(shape)
+        if base_shape != expanded_base_shape:
+            base_batch_shape = expanded_base_shape[:len(expanded_base_shape) - base_event_dim]
+            base_dist = base_dist.expand(base_batch_shape)
+        reinterpreted_batch_ndims = domain_event_dim - base_event_dim
+        if reinterpreted_batch_ndims > 0:
+            base_dist = base_dist.to_event(reinterpreted_batch_ndims)
+        self.base_dist = base_dist
+
+        # Compute shapes.
+        event_dim = transform.codomain.event_dim + max(base_event_dim - domain_event_dim, 0)
+        assert len(shape) >= event_dim
+        cut = len(shape) - event_dim
+        batch_shape = shape[:cut]
+        event_shape = shape[cut:]
         super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @property
@@ -862,7 +855,6 @@ class TransformedDistribution(Distribution):
 class Delta(Distribution):
     arg_constraints = {'v': real, 'log_density': real}
     reparameterized_params = ['v', 'log_density']
-    support = real
     is_discrete = True
 
     def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None):
@@ -876,6 +868,10 @@ class Delta(Distribution):
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+
+    @property
+    def support(self):
+        return independent(real, self.event_dim)
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
