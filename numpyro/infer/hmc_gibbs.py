@@ -5,7 +5,7 @@ from collections import namedtuple
 import copy
 from functools import partial
 
-from jax import device_put, jacfwd, grad, ops, random, value_and_grad
+from jax import device_put, grad, jacfwd, ops, random, value_and_grad
 import jax.numpy as jnp
 from jax.scipy.special import expit
 

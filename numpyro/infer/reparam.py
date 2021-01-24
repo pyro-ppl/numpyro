@@ -3,8 +3,8 @@
 
 from abc import ABC, abstractmethod
 
-import jax.numpy as jnp
 from jax import lax
+import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist

@@ -3,7 +3,7 @@
 
 from collections import namedtuple
 
-from jax import jacfwd, grad, random, value_and_grad, vmap
+from jax import grad, jacfwd, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.ops import index_update
