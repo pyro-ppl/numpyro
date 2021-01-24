@@ -33,9 +33,9 @@ setup(
     author='Uber AI Labs',
     install_requires=[
         # TODO: pin to a specific version for the release (until JAX's API becomes stable)
-        'jax>=0.2.7',
+        'jax==0.2.8',
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L26
-        'jaxlib>=0.1.56',
+        'jaxlib==0.1.59',
         'tqdm',
     ],
     extras_require={

@@ -11,8 +11,8 @@ import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
-import numpyro.distributions as dist
 from numpyro.contrib.einstein.utils import posdef, safe_norm, sqrth
+import numpyro.distributions as dist
 
 
 class PrecondMatrix(ABC):
