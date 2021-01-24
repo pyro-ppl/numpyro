@@ -484,7 +484,7 @@ def test_extra_fields():
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_functional_beta_bernoulli_x64(algo):
-    warmup_steps, num_samples = 500, 20000
+    warmup_steps, num_samples = 410, 100
 
     def model(data):
         alpha = jnp.array([1.1, 1.1])
