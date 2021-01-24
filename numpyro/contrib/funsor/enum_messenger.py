@@ -477,7 +477,6 @@ class plate(GlobalNamedMessenger):
             return super().postprocess_message(msg)
         # NB: copied literally from original plate messenger, with self._indices is replaced
         # by self.indices
-        # TODO: resolve the above inconsistency
         if msg["type"] in ("subsample", "param") and self.dim is not None:
             event_dim = msg["kwargs"].get("event_dim")
             if event_dim is not None:

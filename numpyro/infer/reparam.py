@@ -4,6 +4,7 @@
 from abc import ABC, abstractmethod
 
 import jax.numpy as jnp
+from jax import lax
 
 import numpyro
 import numpyro.distributions as dist
@@ -36,10 +37,18 @@ class Reparam(ABC):
             fn = fn.base_dist
         return fn, batch_shape, event_dim
 
-    def _wrap(self, fn, event_dim):
+    def _wrap(self, fn, batch_shape, event_dim):
         """
-        Wrap in Independent distributions.
+        Wrap in Independent and ExpandedDistribution distributions.
         """
+        # Match batch_shape.
+        assert fn.event_dim <= event_dim
+        fn_batch_shape = batch_shape + (1,) * (event_dim - fn.event_dim)
+        fn_batch_shape = lax.broadcast_shapes(fn_batch_shape, fn.batch_shape)
+        if fn.batch_shape != fn_batch_shape:
+            fn = fn.expand(fn_batch_shape)
+
+        # Match event_dim.
         if fn.event_dim < event_dim:
             fn = fn.to_event(event_dim - fn.event_dim)
         assert fn.event_dim == event_dim
@@ -91,9 +100,7 @@ class LocScaleReparam(Reparam):
                                      constraint=constraints.unit_interval)
         params["loc"] = fn.loc * centered
         params["scale"] = fn.scale ** centered
-        decentered_fn = type(fn)(**params)
-        decentered_fn = self._wrap(decentered_fn, event_dim)
-        decentered_fn = decentered_fn.expand(batch_shape)
+        decentered_fn = self._wrap(type(fn)(**params), batch_shape, event_dim)
 
         # Draw decentered noise.
         decentered_value = numpyro.sample("{}_decentered".format(name),
@@ -128,7 +135,7 @@ class TransformReparam(Reparam):
         for t in reversed(fn.transforms):
             base_event_dim += t.domain.event_dim - t.codomain.event_dim
         x = numpyro.sample("{}_base".format(name),
-                           self._wrap(fn.base_dist, base_event_dim).expand(batch_shape))
+                           self._wrap(fn.base_dist, batch_shape, base_event_dim))
 
         # Differentiably transform.
         for t in fn.transforms:
