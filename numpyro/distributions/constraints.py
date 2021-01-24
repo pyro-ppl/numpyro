@@ -152,6 +152,9 @@ class _IndependentConstraint(Constraint):
         assert isinstance(base_constraint, Constraint)
         assert isinstance(reinterpreted_batch_ndims, int)
         assert reinterpreted_batch_ndims >= 0
+        if isinstance(base_constraint, _IndependentConstraint):
+            reinterpreted_batch_ndims = reinterpreted_batch_ndims + base_constraint.reinterpreted_batch_ndims
+            base_constraint = base_constraint.base_constraint
         self.base_constraint = base_constraint
         self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
         super().__init__()
