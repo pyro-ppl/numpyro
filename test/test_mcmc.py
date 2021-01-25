@@ -69,7 +69,7 @@ def test_correlated_mvn():
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples), true_mean, atol=0.02)
-    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D**2 < 0.02
+    assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D ** 2 < 0.02
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
@@ -213,12 +213,12 @@ def test_change_point_x64():
         numpyro.sample('obs', dist.Poisson(lambda12), obs=data)
 
     count_data = jnp.array([
-        13,  24,   8,  24,   7,  35,  14,  11,  15,  11,  22,  22,  11,  57,
-        11,  19,  29,   6,  19,  12,  22,  12,  18,  72,  32,   9,   7,  13,
-        19,  23,  27,  20,   6,  17,  13,  10,  14,   6,  16,  15,   7,   2,
-        15,  15,  19,  70,  49,   7,  53,  22,  21,  31,  19,  11,  18,  20,
-        12,  35,  17,  23,  17,   4,   2,  31,  30,  13,  27,   0,  39,  37,
-        5,  14,  13,  22,
+        13, 24, 8, 24, 7, 35, 14, 11, 15, 11, 22, 22, 11, 57,
+        11, 19, 29, 6, 19, 12, 22, 12, 18, 72, 32, 9, 7, 13,
+        19, 23, 27, 20, 6, 17, 13, 10, 14, 6, 16, 15, 7, 2,
+        15, 15, 19, 70, 49, 7, 53, 22, 21, 31, 19, 11, 18, 20,
+        12, 35, 17, 23, 17, 4, 2, 31, 30, 13, 27, 0, 39, 37,
+        5, 14, 13, 22,
     ])
     kernel = NUTS(model=model)
     mcmc = MCMC(kernel, warmup_steps, num_samples)
@@ -412,6 +412,7 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     step_size = 1.
     target_accept_prob = 0.8
     trajectory_length = 1.
+
     # Not supported yet:
     #   + adapt_step_size
     #   + adapt_mass_matrix
@@ -681,3 +682,14 @@ def test_forward_mode_differentiation():
     # this fails in reverse mode
     mcmc = MCMC(NUTS(model, forward_mode_differentiation=True), 10, 10)
     mcmc.run(random.PRNGKey(0))
+
+
+def test_model_with_lift_handler():
+    def model(data):
+        c = numpyro.param("c", jnp.array(1.), constraint=dist.constraints.positive)
+        x = numpyro.sample("x", dist.LogNormal(c, 1.), obs=data)
+        return x
+    
+    nuts_kernel = NUTS(numpyro.handlers.lift(model, prior={"c": dist.Gamma(0.01, 0.01)}))
+    mcmc = MCMC(nuts_kernel, num_warmup=10, num_samples=10)
+    mcmc.run(random.PRNGKey(1), jnp.exp(random.normal(random.PRNGKey(0), (1000,))))
