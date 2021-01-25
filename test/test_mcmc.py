@@ -692,4 +692,3 @@ def test_model_with_lift_handler():
     nuts_kernel = NUTS(numpyro.handlers.lift(model, prior={"c": dist.Gamma(0.01, 0.01)}))
     mcmc = MCMC(nuts_kernel, num_warmup=10, num_samples=10)
     mcmc.run(random.PRNGKey(1), jnp.exp(random.normal(random.PRNGKey(0), (1000,))))
-    
