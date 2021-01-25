@@ -447,6 +447,7 @@ class lift(Messenger):
             msg["kwargs"] = {"rng_key": msg["kwargs"].get("rng_key", None),
                              "sample_shape": msg["kwargs"].get("sample_shape", ())}
             msg["intermediates"] = []
+            msg["infer"] = msg.get("infer", {})
         else:
             # otherwise leave as is
             return
