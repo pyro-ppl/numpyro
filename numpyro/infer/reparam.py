@@ -3,6 +3,7 @@
 
 from abc import ABC, abstractmethod
 
+from jax import lax
 import jax.numpy as jnp
 
 import numpyro
@@ -28,30 +29,30 @@ class Reparam(ABC):
 
     def _unwrap(self, fn):
         """
-        Unwrap Independent(...) distributions.
+        Unwrap Independent(...) and ExpandedDistribution(...) distributions.
         """
+        batch_shape = fn.batch_shape
         event_dim = fn.event_dim
-        while isinstance(fn, dist.Independent):
+        while isinstance(fn, (dist.Independent, dist.ExpandedDistribution)):
             fn = fn.base_dist
-        return fn, event_dim
+        return fn, batch_shape, event_dim
 
-    def _wrap(self, fn, event_dim):
+    def _wrap(self, fn, batch_shape, event_dim):
         """
-        Wrap in Independent distributions.
+        Wrap in Independent and ExpandedDistribution distributions.
         """
+        # Match batch_shape.
+        assert fn.event_dim <= event_dim
+        fn_batch_shape = batch_shape + (1,) * (event_dim - fn.event_dim)
+        fn_batch_shape = lax.broadcast_shapes(fn_batch_shape, fn.batch_shape)
+        if fn.batch_shape != fn_batch_shape:
+            fn = fn.expand(fn_batch_shape)
+
+        # Match event_dim.
         if fn.event_dim < event_dim:
             fn = fn.to_event(event_dim - fn.event_dim)
         assert fn.event_dim == event_dim
         return fn
-
-    def _unexpand(self, fn):
-        """
-        Unexpand ExpandedDistribution(...) distributions.
-        """
-        batch_shape = fn.batch_shape
-        if isinstance(fn, dist.ExpandedDistribution):
-            fn = fn.base_dist
-        return fn, batch_shape
 
 
 class LocScaleReparam(Reparam):
@@ -89,8 +90,7 @@ class LocScaleReparam(Reparam):
         if is_identically_one(centered):
             return name, fn, obs
         event_shape = fn.event_shape
-        fn, event_dim = self._unwrap(fn)
-        fn, batch_shape = self._unexpand(fn)
+        fn, batch_shape, event_dim = self._unwrap(fn)
 
         # Apply a partial decentering transform.
         params = {key: getattr(fn, key) for key in self.shape_params}
@@ -100,11 +100,11 @@ class LocScaleReparam(Reparam):
                                      constraint=constraints.unit_interval)
         params["loc"] = fn.loc * centered
         params["scale"] = fn.scale ** centered
-        decentered_fn = type(fn)(**params).expand(batch_shape)
+        decentered_fn = self._wrap(type(fn)(**params), batch_shape, event_dim)
 
         # Draw decentered noise.
         decentered_value = numpyro.sample("{}_decentered".format(name),
-                                          self._wrap(decentered_fn, event_dim))
+                                          decentered_fn)
 
         # Differentiably transform.
         delta = decentered_value - centered * fn.loc
@@ -127,14 +127,15 @@ class TransformReparam(Reparam):
     """
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
-        fn, batch_shape = self._unexpand(fn)
+        fn, batch_shape, event_dim = self._unwrap(fn)
         assert isinstance(fn, dist.TransformedDistribution)
 
         # Draw noise from the base distribution.
-        # We need to make sure that we have the same batch_shape
-        reinterpreted_batch_ndims = fn.event_dim - fn.base_dist.event_dim
+        base_event_dim = event_dim
+        for t in reversed(fn.transforms):
+            base_event_dim += t.domain.event_dim - t.codomain.event_dim
         x = numpyro.sample("{}_base".format(name),
-                           fn.base_dist.to_event(reinterpreted_batch_ndims).expand(batch_shape))
+                           self._wrap(fn.base_dist, batch_shape, base_event_dim))
 
         # Differentiably transform.
         for t in fn.transforms:

@@ -52,20 +52,8 @@ def init_to_uniform(site=None, radius=2):
         sample_shape = site['kwargs'].get('sample_shape')
         rng_key, subkey = random.split(rng_key)
 
-        # this is used to interpret the changes of event_shape in
-        # domain and codomain spaces
-        try:
-            prototype_value = site['fn'](rng_key=subkey, sample_shape=())
-        except NotImplementedError:
-            # XXX: this works for ImproperUniform prior,
-            # we can't use this logic for general priors
-            # because some distributions such as TransformedDistribution might
-            # have wrong event_shape.
-            # TODO: address this when infer_shapes is available
-            prototype_value = jnp.full(site['fn'].shape(), jnp.nan)
-
         transform = biject_to(site['fn'].support)
-        unconstrained_shape = jnp.shape(transform.inv(prototype_value))
+        unconstrained_shape = transform.inverse_shape(site["fn"].shape())
         unconstrained_samples = dist.Uniform(-radius, radius)(
             rng_key=rng_key, sample_shape=sample_shape + unconstrained_shape)
         return transform(unconstrained_samples)

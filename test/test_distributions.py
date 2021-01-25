@@ -959,6 +959,9 @@ def test_biject_to(constraint, shape):
     x = random.normal(rng_key, shape)
     y = transform(x)
 
+    assert transform.forward_shape(x.shape) == y.shape
+    assert transform.inverse_shape(y.shape) == x.shape
+
     # test inv work for NaN arrays:
     x_nan = transform.inv(jnp.full(jnp.shape(y), jnp.nan))
     assert (x_nan.shape == x.shape)
@@ -1038,6 +1041,7 @@ def test_bijective_transforms(transform, event_shape, batch_shape):
     z = transform.inv(y)
     assert_allclose(x, z, atol=1e-6, rtol=1e-6)
     assert transform.inv.inv is transform
+    assert transform.inv is transform.inv
     assert transform.domain is transform.inv.codomain
     assert transform.codomain is transform.inv.domain
 

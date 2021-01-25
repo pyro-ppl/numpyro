@@ -40,6 +40,12 @@ MCMC Kernels
     :show-inheritance:
     :member-order: bysource
 
+.. autoclass:: numpyro.infer.mixed_hmc.MixedHMC
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 .. autoclass:: numpyro.infer.hmc_gibbs.HMCECS
     :members:
     :undoc-members:

@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 
 from numpy.testing import assert_allclose
@@ -5,7 +8,7 @@ import pytest
 
 import jax.numpy as jnp
 
-from numpyro.infer.einstein.kernels import (
+from numpyro.contrib.einstein.kernels import (
     GraphicalKernel,
     HessianPrecondMatrix,
     IMQKernel,

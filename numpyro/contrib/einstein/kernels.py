@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from abc import ABC, abstractmethod
 from typing import Callable, Dict, List, Tuple
 
@@ -8,8 +11,8 @@ import jax.numpy as jnp
 import jax.scipy.linalg
 import jax.scipy.stats
 
+from numpyro.contrib.einstein.utils import posdef, safe_norm, sqrth
 import numpyro.distributions as dist
-from numpyro.infer.einstein.utils import posdef, safe_norm, sqrth
 
 
 class PrecondMatrix(ABC):

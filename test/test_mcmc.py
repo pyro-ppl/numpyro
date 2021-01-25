@@ -7,7 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import device_get, jit, pmap, random, vmap
+from jax import device_get, jit, lax, pmap, random, vmap
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.special import logit
@@ -101,7 +101,8 @@ def test_logistic_regression_x64(kernel_cls):
         assert samples['coefs'].dtype == jnp.float64
 
 
-def test_uniform_normal():
+@pytest.mark.parametrize("forward_mode_differentiation", [True, False])
+def test_uniform_normal(forward_mode_differentiation):
     true_coef = 0.9
     num_warmup, num_samples = 1000, 1000
 
@@ -112,7 +113,7 @@ def test_uniform_normal():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
-    kernel = NUTS(model=model)
+    kernel = NUTS(model=model, forward_mode_differentiation=forward_mode_differentiation)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.warmup(random.PRNGKey(2), data, collect_warmup=True)
     assert mcmc.post_warmup_state is not None
@@ -483,7 +484,7 @@ def test_extra_fields():
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_functional_beta_bernoulli_x64(algo):
-    warmup_steps, num_samples = 500, 20000
+    warmup_steps, num_samples = 410, 100
 
     def model(data):
         alpha = jnp.array([1.1, 1.1])
@@ -669,3 +670,14 @@ def test_trivial_dirichlet(batch_shape):
     mcmc.run(random.PRNGKey(0))
     # because event_shape of x is (1,), x should only take value 1
     assert_allclose(mcmc.get_samples()["x"], jnp.ones((num_samples,) + batch_shape + (1,)))
+
+
+def test_forward_mode_differentiation():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
+        numpyro.sample("obs", dist.Normal(y, 1), obs=1.)
+
+    # this fails in reverse mode
+    mcmc = MCMC(NUTS(model, forward_mode_differentiation=True), 10, 10)
+    mcmc.run(random.PRNGKey(0))

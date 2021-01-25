@@ -3,7 +3,7 @@
 
 from collections import namedtuple
 
-from jax import grad, random, value_and_grad, vmap
+from jax import grad, jacfwd, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.ops import index_update
@@ -170,7 +170,21 @@ def welford_covariance(diagonal=True):
     return init_fn, update_fn, final_fn
 
 
-def velocity_verlet(potential_fn, kinetic_fn):
+def _value_and_grad(f, x, forward_mode_differentiation=False):
+    if forward_mode_differentiation:
+        return f(x), jacfwd(f)(x)
+    else:
+        return value_and_grad(f)(x)
+
+
+def _kinetic_grad(kinetic_fn, inverse_mass_matrix, r):
+    if hasattr(kinetic_fn, "_kinetic_grad"):
+        return kinetic_fn._kinetic_grad(inverse_mass_matrix, r)
+    else:
+        return grad(kinetic_fn, argnums=1)(inverse_mass_matrix, r)
+
+
+def velocity_verlet(potential_fn, kinetic_fn, forward_mode_differentiation=False):
     r"""
     Second order symplectic integrator that uses the velocity verlet algorithm
     for position `z` and momentum `r`.
@@ -191,7 +205,7 @@ def velocity_verlet(potential_fn, kinetic_fn):
         :return: initial state for the integrator.
         """
         if potential_energy is None or z_grad is None:
-            potential_energy, z_grad = value_and_grad(potential_fn)(z)
+            potential_energy, z_grad = _value_and_grad(potential_fn, z, forward_mode_differentiation)
         return IntegratorState(z, r, potential_energy, z_grad)
 
     def update_fn(step_size, inverse_mass_matrix, state):
@@ -204,9 +218,9 @@ def velocity_verlet(potential_fn, kinetic_fn):
         """
         z, r, _, z_grad = state
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1/2)
-        r_grad = grad(kinetic_fn, argnums=1)(inverse_mass_matrix, r)
+        r_grad = _kinetic_grad(kinetic_fn, inverse_mass_matrix, r)
         z = tree_multimap(lambda z, r_grad: z + step_size * r_grad, z, r_grad)  # z(n+1)
-        potential_energy, z_grad = value_and_grad(potential_fn)(z)
+        potential_energy, z_grad = _value_and_grad(potential_fn, z, forward_mode_differentiation)
         r = tree_multimap(lambda r, z_grad: r - 0.5 * step_size * z_grad, r, z_grad)  # r(n+1)
         return IntegratorState(z, r, potential_energy, z_grad)
 
@@ -725,6 +739,20 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
         v = jnp.multiply(inverse_mass_matrix, r)
 
     return 0.5 * jnp.dot(v, r)
+
+
+def _euclidean_kinetic_energy_grad(inverse_mass_matrix, r):
+    r, unravel_fn = ravel_pytree(r)
+
+    if inverse_mass_matrix.ndim == 2:
+        v = jnp.matmul(inverse_mass_matrix, r)
+    elif inverse_mass_matrix.ndim == 1:
+        v = jnp.multiply(inverse_mass_matrix, r)
+
+    return unravel_fn(v)
+
+
+euclidean_kinetic_energy._kinetic_grad = _euclidean_kinetic_energy_grad
 
 
 def consensus(subposteriors, num_draws=None, diagonal=False, rng_key=None):
