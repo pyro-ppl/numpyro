@@ -252,6 +252,13 @@ class MCMC(object):
         if chain_method not in ['parallel', 'vectorized', 'sequential']:
             raise ValueError('Only supporting the following methods to draw chains:'
                              ' "sequential", "parallel", or "vectorized"')
+        if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
+            chain_method = 'sequential'
+            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
+                          ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
+                          ' consider to use `numpyro.set_host_device_count({})` at the beginning'
+                          ' of your program.'
+                          .format(self.num_chains, xla_bridge.device_count(), self.num_chains))
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
@@ -473,15 +480,6 @@ class MCMC(object):
             self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
             init_state = self._warmup_state._replace(rng_key=rng_key)
 
-        chain_method = self.chain_method
-        if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
-            chain_method = 'sequential'
-            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
-                          ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
-                          ' consider to use `numpyro.set_host_device_count({})` at the beginning'
-                          ' of your program.'
-                          .format(self.num_chains, xla_bridge.device_count(), self.num_chains))
-
         if init_params is not None and self.num_chains > 1:
             prototype_init_val = tree_flatten(init_params)[0][0]
             if jnp.shape(prototype_init_val)[0] != self.num_chains:
@@ -499,17 +497,17 @@ class MCMC(object):
             states_flat, last_state = partial_map_fn(map_args)
             states = tree_map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
-            if chain_method == 'sequential':
+            if self.chain_method == 'sequential':
                 if self.progress_bar:
                     states, last_state = _laxmap(partial_map_fn, map_args)
                 else:
                     states, last_state = lax.map(partial_map_fn, map_args)
-            elif chain_method == 'parallel':
+            elif self.chain_method == 'parallel':
                 states, last_state = pmap(partial_map_fn)(map_args)
                 # TODO: remove when https://github.com/google/jax/issues/3597 is resolved
                 states = device_put(states)
             else:
-                assert chain_method == 'vectorized'
+                assert self.chain_method == 'vectorized'
                 states, last_state = partial_map_fn(map_args)
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
