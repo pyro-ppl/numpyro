@@ -7,10 +7,9 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import device_put, jit, lax, pmap, random, vmap
+from jax import device_put, jit, lax, local_device_count, pmap, random, vmap
 from jax.core import Tracer
 from jax.interpreters.xla import DeviceArray
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
@@ -252,13 +251,13 @@ class MCMC(object):
         if chain_method not in ['parallel', 'vectorized', 'sequential']:
             raise ValueError('Only supporting the following methods to draw chains:'
                              ' "sequential", "parallel", or "vectorized"')
-        if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
+        if chain_method == 'parallel' and local_device_count() < self.num_chains:
             chain_method = 'sequential'
             warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
                           ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
                           ' consider to use `numpyro.set_host_device_count({})` at the beginning'
                           ' of your program.'
-                          .format(self.num_chains, xla_bridge.device_count(), self.num_chains))
+                          .format(self.num_chains, local_device_count(), self.num_chains))
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
