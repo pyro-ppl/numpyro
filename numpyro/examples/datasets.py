@@ -220,7 +220,7 @@ def _load_higgs():
     file_path = os.path.join(DATA_DIR, 'HIGGS.csv.gz')
     df = pd.read_csv(file_path, header=None)
     obs, feats = df.iloc[:, 0], df.iloc[:, 1:]
-    return obs.to_numpy(), feats.to_numpy()
+    return obs.to_numpy().astype(int), feats.to_numpy()
 
 
 def _load(dset):

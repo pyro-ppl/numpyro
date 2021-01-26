@@ -64,7 +64,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--num-chains', nargs='?', default=1, type=int)
     parser.add_argument('--algo', default='NUTS', type=str, help='whether to run "HMC" or "NUTS"')
-    parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument('--device', default='gpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

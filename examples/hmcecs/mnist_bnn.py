@@ -165,12 +165,11 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.4.1')
     parser = argparse.ArgumentParser(description="Bayesian neural network example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=20, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=10, type=int)
     parser.add_argument("--num-chains", nargs='?', default=1, type=int)
-    parser.add_argument("--num-data", nargs='?', default=1000, type=int)
+    parser.add_argument("--num-data", nargs='?', default=10000, type=int)
     parser.add_argument("--num-hidden", nargs='?', default=5, type=int)
     parser.add_argument("--device", default='gpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
