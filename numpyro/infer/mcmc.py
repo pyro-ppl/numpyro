@@ -498,10 +498,7 @@ class MCMC(object):
             states = tree_map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
             if self.chain_method == 'sequential':
-                if self.progress_bar:
-                    states, last_state = _laxmap(partial_map_fn, map_args)
-                else:
-                    states, last_state = lax.map(partial_map_fn, map_args)
+                states, last_state = _laxmap(partial_map_fn, map_args)
             elif self.chain_method == 'parallel':
                 states, last_state = pmap(partial_map_fn)(map_args)
             else:
