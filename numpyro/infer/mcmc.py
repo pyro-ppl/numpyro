@@ -210,9 +210,9 @@ class MCMC(object):
     :param int thinning: Positive integer that controls the fraction of post-warmup samples that are
         retained. For example if thinning is 2 then every other sample is retained.
         Defaults to 1, i.e. no thinning.
-    :param int num_chains: Number of Number of MCMC chains to run. By default,
-        chains will be run in parallel using :func:`jax.pmap`, failing which,
-        chains will be run in sequence.
+    :param int num_chains: Number of MCMC chains to run. By default, chains will be
+        run in parallel using :func:`jax.pmap`. If there are not enough devices
+        available, chains will be run in sequence.
     :param postprocess_fn: Post-processing callable - used to convert a collection of unconstrained
         sample values returned from the sampler to constrained values that lie within the support
         of the sample sites. Additionally, this is used to return values at deterministic sites in
