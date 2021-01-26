@@ -10,6 +10,7 @@ import warnings
 from collections import namedtuple
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
+import zipfile
 
 import numpy as np
 import pandas as pd
@@ -32,6 +33,12 @@ BASEBALL = dset('baseball', [
 COVTYPE = dset('covtype', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip',
 ])
+
+
+DIPPER_VOLE = dset('dipper_vole', [
+    'https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true',
+])
+
 
 MNIST = dset('mnist', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz',
@@ -100,6 +107,23 @@ def _load_covtype():
     return {
         'train': (data['data'], data['target'])
     }
+
+
+def _load_dipper_vole():
+    _download(DIPPER_VOLE)
+
+    file_path = os.path.join(DATA_DIR, 'dipper_vole.zip')
+    data = {}
+    with zipfile.ZipFile(file_path) as zipper:
+        data['dipper'] = (
+            np.genfromtxt(zipper.open('dipper_capture_history.csv'), delimiter=',')[:, 1:].astype(int),
+            np.genfromtxt(zipper.open('dipper_sex.csv'), delimiter=',')[:, 1].astype(int)
+        )
+        data['vole'] = (
+            np.genfromtxt(zipper.open('meadow_voles_capture_history.csv'), delimiter=',')[:, 1:],
+        )
+
+    return data
 
 
 def _load_mnist():
@@ -228,6 +252,8 @@ def _load(dset):
         return _load_baseball()
     elif dset == COVTYPE:
         return _load_covtype()
+    elif dset == DIPPER_VOLE:
+        return _load_dipper_vole()
     elif dset == MNIST:
         return _load_mnist()
     elif dset == SP500:

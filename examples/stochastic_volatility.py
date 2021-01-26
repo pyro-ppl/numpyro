@@ -29,6 +29,9 @@ and has more features supported.
     2. *The No-U-Turn Sampler: Adaptively Setting Path Lengths in Hamiltonian Monte Carlo*,
        https://arxiv.org/pdf/1111.4246.pdf
     3. Pyro forum discussion, https://forum.pyro.ai/t/problems-transforming-a-pymc3-model-to-pyro-mcmc/208/14
+
+.. image:: ../_static/img/examples/stochastic_volatility.png
+    :align: center
 """
 
 import argparse
@@ -92,7 +95,7 @@ def main(args):
                               progbar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     print_results(hmc_states, dates)
 
-    fig, ax = plt.subplots(1, 1)
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
     dates = mdates.num2date(mdates.datestr2num(dates))
     ax.plot(dates, returns, lw=0.5)
     # format the ticks
@@ -106,11 +109,10 @@ def main(args):
     ax.set(xlabel='time', ylabel='returns', title='Volatility of S&P500 over time')
 
     plt.savefig("stochastic_volatility_plot.pdf")
-    plt.tight_layout()
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.4.1')
+    assert numpyro.__version__.startswith('0.5.0')
     parser = argparse.ArgumentParser(description="Stochastic Volatility Model")
     parser.add_argument('-n', '--num-samples', nargs='?', default=600, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=600, type=int)

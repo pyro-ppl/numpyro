@@ -7,6 +7,9 @@ Example: Bayesian Neural Network
 
 We demonstrate how to use NUTS to do inference on a simple (small)
 Bayesian neural network with two hidden layers.
+
+.. image:: ../_static/img/examples/bnn.png
+    :align: center
 """
 
 import argparse
@@ -121,7 +124,7 @@ def main(args):
     percentiles = np.percentile(predictions, [5.0, 95.0], axis=0)
 
     # make plots
-    fig, ax = plt.subplots(1, 1)
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
 
     # plot training data
     ax.plot(X[:, 1], Y[:, 0], 'kx')
@@ -132,11 +135,10 @@ def main(args):
     ax.set(xlabel="X", ylabel="Y", title="Mean predictions with 90% CI")
 
     plt.savefig('bnn_plot.pdf')
-    plt.tight_layout()
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.4.1')
+    assert numpyro.__version__.startswith('0.5.0')
     parser = argparse.ArgumentParser(description="Bayesian neural network example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)

@@ -7,13 +7,8 @@ from enum import Enum
 
 from jax import lax
 import jax.numpy as jnp
-try:
-    import funsor
-except ImportError as e:
-    raise ImportError("Looking like you want to do inference for models with "
-                      "discrete latent variables. This is an experimental feature. "
-                      "You need to install `funsor` to be able to use this feature. "
-                      "It can be installed with `pip install funsor`.") from e
+import funsor
+from numpyro.handlers import infer_config
 from numpyro.handlers import trace as OrigTraceMessenger
 from numpyro.primitives import Messenger, apply_stack
 from numpyro.primitives import plate as OrigPlateMessenger
@@ -479,7 +474,27 @@ class plate(GlobalNamedMessenger):
     def postprocess_message(self, msg):
         if msg["type"] in ["to_funsor", "to_data"]:
             return super().postprocess_message(msg)
-        return OrigPlateMessenger.postprocess_message(self, msg)
+        # NB: copied literally from original plate messenger, with self._indices is replaced
+        # by self.indices
+        if msg["type"] in ("subsample", "param") and self.dim is not None:
+            event_dim = msg["kwargs"].get("event_dim")
+            if event_dim is not None:
+                assert event_dim >= 0
+                dim = self.dim - event_dim
+                shape = jnp.shape(msg["value"])
+                if len(shape) >= -dim and shape[dim] != 1:
+                    if shape[dim] != self.size:
+                        if msg["type"] == "param":
+                            statement = "numpyro.param({}, ..., event_dim={})".format(msg["name"], event_dim)
+                        else:
+                            statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
+                        raise ValueError(
+                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
+                            .format(self.name, self.size, self.dim, statement, shape))
+                    if self.subsample_size < self.size:
+                        value = msg["value"]
+                        new_value = jnp.take(value, self.indices, dim)
+                        msg["value"] = new_value
 
 
 class enum(BaseEnumMessenger):
@@ -499,6 +514,7 @@ class enum(BaseEnumMessenger):
                 msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
             if msg["type"] == "control_flow":
                 msg["kwargs"]["enum"] = True
+                msg["kwargs"]["first_available_dim"] = self.first_available_dim
             return super().process_message(msg)
 
         if msg["infer"].get("num_samples", None) is not None:
@@ -531,7 +547,7 @@ class trace(OrigTraceMessenger):
         if msg["type"] == "sample":
             total_batch_shape = lax.broadcast_shapes(
                 tuple(msg["fn"].batch_shape),
-                msg["value"].shape[:len(msg["value"].shape)-len(msg["fn"].event_shape)]
+                jnp.shape(msg["value"])[:jnp.ndim(msg["value"]) - msg["fn"].event_dim]
             )
             msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(total_batch_shape)
         if msg["type"] in ("sample", "param"):
@@ -556,24 +572,6 @@ def markov(fn=None, history=1, keep=False):
     if fn is not None and not callable(fn):  # Used as a generator
         return LocalNamedMessenger(fn=None, history=history, keep=keep).generator(iterable=fn)
     return LocalNamedMessenger(fn, history=history, keep=keep)
-
-
-class infer_config(Messenger):
-    """
-    Given a callable `fn` that contains Pyro primitive calls
-    and a callable `config_fn` taking a trace site and returning a dictionary,
-    updates the value of the infer kwarg at a sample site to config_fn(site).
-
-    :param fn: a stochastic function (callable containing Pyro primitive calls)
-    :param config_fn: a callable taking a site and returning an infer dict
-    """
-    def __init__(self, fn, config_fn):
-        super().__init__(fn)
-        self.config_fn = config_fn
-
-    def process_message(self, msg):
-        if msg["type"] in ("sample", "param"):
-            msg["infer"].update(self.config_fn(msg))
 
 
 ####################

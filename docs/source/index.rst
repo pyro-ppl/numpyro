@@ -35,6 +35,7 @@ NumPyro documentation
 
    examples/annotation
    examples/hmm_enum
+   examples/capture_recapture
    tutorials/discrete_imputation
 
 .. nbgallery::
@@ -50,6 +51,7 @@ NumPyro documentation
    examples/sparse_regression
    examples/proportion_test
    examples/ucbadmit
+   examples/hmm
    examples/ode
    examples/neutra
 

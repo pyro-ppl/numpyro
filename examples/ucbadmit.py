@@ -48,6 +48,9 @@ found in Chapter 10 (Counting and Classification) and Chapter 13 (Adventures in 
     2. McElreath, R. (2018), "Statistical Rethinking: A Bayesian Course with Examples in R and Stan",
        Chapman and Hall/CRC.
     3. https://github.com/rmcelreath/rethinking/tree/Experimental#multilevel-model-formulas
+
+.. image:: ../_static/img/examples/ucbadmit.png
+    :align: center
 """
 
 import argparse
@@ -114,7 +117,7 @@ def main(args):
     print_results(header, pred_probs, dept, male, admit / applications)
 
     # make plots
-    fig, ax = plt.subplots(1, 1)
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
 
     ax.plot(range(1, 13), admit / applications, "o", ms=7, label="actual rate")
     ax.errorbar(range(1, 13), jnp.mean(pred_probs, 0), jnp.std(pred_probs, 0),
@@ -125,11 +128,10 @@ def main(args):
     ax.legend()
 
     plt.savefig("ucbadmit_plot.pdf")
-    plt.tight_layout()
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.4.1')
+    assert numpyro.__version__.startswith('0.5.0')
     parser = argparse.ArgumentParser(description='UCBadmit gender discrimination using HMC')
     parser.add_argument('-n', '--num-samples', nargs='?', default=2000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)

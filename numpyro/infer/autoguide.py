@@ -21,6 +21,7 @@ from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, Inve
 from numpyro.distributions.transforms import (
     AffineTransform,
     ComposeTransform,
+    IndependentTransform,
     LowerCholeskyAffine,
     PermuteTransform,
     UnpackTransform,
@@ -28,6 +29,7 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.util import cholesky_of_inverse, periodic_repeat, sum_rightmost
 from numpyro.infer.elbo import Trace_ELBO
+from numpyro.infer.initialization import init_to_median
 from numpyro.infer.util import init_to_uniform, initialize_model
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
@@ -43,6 +45,7 @@ __all__ = [
     'AutoMultivariateNormal',
     'AutoBNAFNormal',
     'AutoIAFNormal',
+    'AutoDelta',
 ]
 
 
@@ -261,6 +264,97 @@ class AutoNormal(AutoGuide):
         return self._constrain(latent)
 
 
+class AutoDelta(AutoGuide):
+    """
+    This implementation of :class:`AutoGuide` uses Delta distributions to
+    construct a MAP guide over the entire latent space. The guide does not
+    depend on the model's ``*args, **kwargs``.
+
+    .. note:: This class does MAP inference in constrained space.
+
+    Usage::
+
+        guide = AutoDelta(model)
+        svi = SVI(model, guide, ...)
+
+    :param callable model: A NumPyro model.
+    :param str prefix: a prefix that will be prefixed to all param internal sites.
+    :param callable init_loc_fn: A per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    :param callable create_plates: An optional function inputing the same
+        ``*args,**kwargs`` as ``model()`` and returning a :class:`numpyro.plate`
+        or iterable of plates. Plates not returned will be created
+        automatically as usual. This is useful for data subsampling.
+    """
+    def __init__(self, model, *, prefix='auto', init_loc_fn=init_to_median,
+                 create_plates=None):
+        self.init_loc_fn = init_loc_fn
+        self._event_dims = {}
+        super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates)
+
+    def _setup_prototype(self, *args, **kwargs):
+        super()._setup_prototype(*args, **kwargs)
+        self._init_locs = {
+            k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs
+        }
+        for name, site in self.prototype_trace.items():
+            if site["type"] != "sample" or site["is_observed"]:
+                continue
+
+            event_dim = site["fn"].event_dim
+            self._event_dims[name] = event_dim
+
+            # If subsampling, repeat init_value to full size.
+            for frame in site["cond_indep_stack"]:
+                full_size = self._prototype_frame_full_sizes[frame.name]
+                if full_size != frame.size:
+                    dim = frame.dim - event_dim
+                    self._init_locs[name] = periodic_repeat(self._init_locs[name], full_size, dim)
+
+    def __call__(self, *args, **kwargs):
+        if self.prototype_trace is None:
+            # run model to inspect the model structure
+            self._setup_prototype(*args, **kwargs)
+
+        plates = self._create_plates(*args, **kwargs)
+        result = {}
+        for name, site in self.prototype_trace.items():
+            if site["type"] != "sample" or site["is_observed"]:
+                continue
+
+            event_dim = self._event_dims[name]
+            init_loc = self._init_locs[name]
+            with ExitStack() as stack:
+                for frame in site["cond_indep_stack"]:
+                    stack.enter_context(plates[frame.name])
+
+                site_loc = numpyro.param("{}_{}_loc".format(name, self.prefix), init_loc,
+                                         constraint=site['fn'].support,
+                                         event_dim=event_dim)
+
+                site_fn = dist.Delta(site_loc).to_event(event_dim)
+                result[name] = numpyro.sample(name, site_fn)
+
+        return result
+
+    def sample_posterior(self, rng_key, params, sample_shape=()):
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
+        latent_samples = {
+            k: jnp.broadcast_to(v, sample_shape + jnp.shape(v)) for k, v in locs.items()
+        }
+        return latent_samples
+
+    def median(self, params):
+        """
+        Returns the posterior median value of each latent variable.
+
+        :return: A dict mapping sample site name to median tensor.
+        :rtype: dict
+        """
+        locs = {k: params["{}_{}_loc".format(k, self.prefix)] for k in self._init_locs}
+        return locs
+
+
 class AutoContinuous(AutoGuide):
     """
     Base class for implementations of continuous-valued Automatic
@@ -324,7 +418,7 @@ class AutoContinuous(AutoGuide):
             transform = biject_to(site['fn'].support)
             value = transform(unconstrained_value)
             log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-            event_ndim = len(site['fn'].event_shape)
+            event_ndim = site['fn'].event_dim
             log_density = sum_rightmost(log_density,
                                         jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_dim=event_ndim)
@@ -470,13 +564,13 @@ class AutoDiagonalNormal(AutoContinuous):
     def get_transform(self, params):
         loc = params['{}_loc'.format(self.prefix)]
         scale = params['{}_scale'.format(self.prefix)]
-        return AffineTransform(loc, scale, domain=constraints.real_vector)
+        return IndependentTransform(AffineTransform(loc, scale), 1)
 
     def get_posterior(self, params):
         """
         Returns a diagonal Normal posterior distribution.
         """
-        transform = self.get_transform(params)
+        transform = self.get_transform(params).base_transform
         return dist.Normal(transform.loc, transform.scale)
 
     def median(self, params):

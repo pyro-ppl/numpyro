@@ -536,7 +536,7 @@ def test_collapse_beta_binomial():
     assert "obs" in trace2
 
     svi1 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
-    svi2 = SVI(model1, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
+    svi2 = SVI(model2, lambda: None, numpyro.optim.Adam(1), Trace_ELBO())
     svi_state1 = svi1.init(random.PRNGKey(0))
     svi_state2 = svi2.init(random.PRNGKey(0))
     params1 = svi1.get_params(svi_state1)
@@ -612,3 +612,22 @@ def test_prng_key_with_vmap():
     z0 = handlers.seed(model, 0)()
     assert (z[1:] != z0).all()
     assert (z[0] == z0).all()
+
+
+def test_subsample_fn():
+    size = 20
+    subsample_size = 11
+    num_samples = 1000000
+
+    @jit
+    def subsample_fn(rng_key):
+        return numpyro.primitives._subsample_fn(size, subsample_size, rng_key)
+
+    rng_keys = random.split(random.PRNGKey(0), num_samples)
+    subsamples = vmap(subsample_fn)(rng_keys)
+    for k in range(1, 11):
+        i = random.randint(random.PRNGKey(k), (), 0, size)
+        assert_allclose(jnp.mean(subsamples == i, axis=0), jnp.full(subsample_size, 1 / size), atol=1e-3)
+
+        # test that values are not duplicated
+        assert len(set(subsamples[k])) == subsample_size

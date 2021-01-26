@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 
 from jax import device_put, lax, random, vmap
@@ -243,6 +246,7 @@ class SA(MCMCKernel):
         self._dense_mass = dense_mass
         self._init_strategy = init_strategy
         self._init_fn = None
+        self._potential_fn_gen = None
         self._postprocess_fn = None
         self._sample_fn = None
 
@@ -258,6 +262,7 @@ class SA(MCMCKernel):
             init_params = init_params[0]
             # NB: init args is different from HMC
             self._init_fn, sample_fn = _sa(potential_fn_gen=potential_fn)
+            self._potential_fn_gen = potential_fn
             if self._postprocess_fn is None:
                 self._postprocess_fn = postprocess_fn
         else:

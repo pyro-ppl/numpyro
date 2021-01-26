@@ -1,5 +1,6 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
+
 import math
 
 from jax import lax
@@ -8,12 +9,12 @@ from jax.scipy.special import i0e, i1e
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.util import promote_shapes, validate_sample, von_mises_centered
+from numpyro.distributions.util import is_prng_key, promote_shapes, validate_sample, von_mises_centered
 
 
 class VonMises(Distribution):
     arg_constraints = {'loc': constraints.real, 'concentration': constraints.positive}
-
+    reparametrized_params = ['loc']
     support = constraints.interval(-math.pi, math.pi)
 
     def __init__(self, loc, concentration, validate_args=None):
@@ -32,10 +33,11 @@ class VonMises(Distribution):
     def sample(self, key, sample_shape=()):
         """ Generate sample from von Mises distribution
 
-            :param sample_shape: shape of samples
-            :param key: random number generator key
-            :return: samples from von Mises
+        :param key: random number generator key
+        :param sample_shape: shape of samples
+        :return: samples from von Mises
         """
+        assert is_prng_key(key)
         samples = von_mises_centered(key, self.concentration, sample_shape + self.shape())
         samples = samples + self.loc  # VM(0, concentration) -> VM(loc,concentration)
         samples = (samples + jnp.pi) % (2. * jnp.pi) - jnp.pi

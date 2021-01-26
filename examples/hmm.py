@@ -24,6 +24,9 @@ model.
     2. http://pyro.ai/examples/hmm.html
     3. https://en.wikipedia.org/wiki/Forward_algorithm
     4. https://discourse.pymc.io/t/how-to-marginalized-markov-chain-with-categorical/2230
+
+.. image:: ../_static/img/examples/hmm.png
+    :align: center
 """
 
 import argparse
@@ -172,7 +175,7 @@ def main(args):
     print('\nMCMC elapsed time:', time.time() - start)
 
     # make plots
-    fig, ax = plt.subplots(1, 1)
+    fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
 
     x = np.linspace(0, 1, 101)
     for i in range(transition_prob.shape[0]):
@@ -185,11 +188,10 @@ def main(args):
     ax.legend()
 
     plt.savefig("hmm_plot.pdf")
-    plt.tight_layout()
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.4.1')
+    assert numpyro.__version__.startswith('0.5.0')
     parser = argparse.ArgumentParser(description='Semi-supervised Hidden Markov Model')
     parser.add_argument('--num-categories', default=3, type=int)
     parser.add_argument('--num-words', default=10, type=int)

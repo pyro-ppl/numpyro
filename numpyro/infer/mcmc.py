@@ -26,7 +26,7 @@ __all__ = [
 class MCMCKernel(ABC):
     """
     Defines the interface for the Markov transition kernel that is
-    used for :class:`~numpyro.infer.MCMC` inference.
+    used for :class:`~numpyro.infer.mcmc.MCMC` inference.
 
     **Example:**
 
@@ -204,8 +204,8 @@ class MCMC(object):
     .. note:: Setting `progress_bar=False` will improve the speed for many cases.
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
-        determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.mcmc.HMC`
-        and :class:`~numpyro.infer.mcmc.NUTS` are available.
+        determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
+        and :class:`~numpyro.infer.hmc.NUTS` are available.
     :param int num_warmup: Number of warmup steps.
     :param int num_samples: Number of samples to generate from the Markov chain.
     :param int thinning: Positive integer that controls the fraction of post-warmup samples that are
@@ -422,8 +422,8 @@ class MCMC(object):
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.MCMCKernel.default_fields`)
-            from the state object (e.g. :data:`numpyro.infer.mcmc.HMCState` for HMC) to collect during
+        :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.mcmc.MCMCKernel.default_fields`)
+            from the state object (e.g. :data:`numpyro.infer.hmc.HMCState` for HMC) to collect during
             the MCMC run.
         :type extra_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults

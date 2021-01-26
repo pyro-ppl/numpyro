@@ -4,8 +4,10 @@
 from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
+import warnings
 
-from jax import lax, random
+from jax import lax, ops, random
+from jax.lib import xla_bridge
 import jax.numpy as jnp
 
 import numpyro
@@ -51,9 +53,21 @@ class Messenger(object):
     def __enter__(self):
         _PYRO_STACK.append(self)
 
-    def __exit__(self, *args, **kwargs):
-        assert _PYRO_STACK[-1] is self
-        _PYRO_STACK.pop()
+    def __exit__(self, exc_type, exc_value, traceback):
+        if exc_type is None:
+            assert _PYRO_STACK[-1] is self
+            _PYRO_STACK.pop()
+        else:
+            # NB: this mimics Pyro exception handling
+            # the wrapped function or block raised an exception
+            # handler exception handling:
+            # when the callee or enclosed block raises an exception,
+            # find this handler's position in the stack,
+            # then remove it and everything below it in the stack.
+            if self in _PYRO_STACK:
+                loc = _PYRO_STACK.index(self)
+                for i in range(loc, len(_PYRO_STACK)):
+                    _PYRO_STACK.pop()
 
     def process_message(self, msg):
         pass
@@ -117,13 +131,15 @@ def param(name, init_value=None, **kwargs):
     """
     Annotate the given site as an optimizable parameter for use with
     :mod:`jax.experimental.optimizers`. For an example of how `param` statements
-    can be used in inference algorithms, refer to :func:`~numpyro.svi.svi`.
+    can be used in inference algorithms, refer to :class:`~numpyro.infer.SVI`.
 
     :param str name: name of site.
-    :param numpy.ndarray init_value: initial value specified by the user. Note that
-        the onus of using this to initialize the optimizer is on the user /
-        inference algorithm, since there is no global parameter store in
-        NumPyro.
+    :param init_value: initial value specified by the user or a lazy callable
+        that accepts a JAX random PRNGKey and returns an array.
+        Note that the onus of using this to initialize the optimizer is
+        on the user inference algorithm, since there is no global parameter
+        store in NumPyro.
+    :type init_value: numpy.ndarray or callable
     :param constraint: NumPyro constraint, defaults to ``constraints.real``.
     :type constraint: numpyro.distributions.constraints.Constraint
     :param int event_dim: (optional) number of rightmost dimensions unrelated
@@ -138,13 +154,21 @@ def param(name, init_value=None, **kwargs):
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
+        assert not callable(init_value), \
+            "A callable init_value needs to be put inside a numpyro.handlers.seed handler."
         return init_value
+
+    if callable(init_value):
+        def fn(init_fn, *args, **kwargs):
+            return init_fn(prng_key())
+    else:
+        fn = identity
 
     # Otherwise, we initialize a message...
     initial_msg = {
         'type': 'param',
         'name': name,
-        'fn': identity,
+        'fn': fn,
         'args': (init_value,),
         'kwargs': kwargs,
         'value': None,
@@ -211,7 +235,21 @@ def module(name, nn, input_shape=None):
 
 def _subsample_fn(size, subsample_size, rng_key=None):
     assert rng_key is not None, "Missing random key to generate subsample indices."
-    return random.permutation(rng_key, size)[:subsample_size]
+    if xla_bridge.get_backend().platform == 'cpu':
+        # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
+        rng_keys = random.split(rng_key, subsample_size)
+
+        def body_fn(val, idx):
+            i_p1 = size - idx
+            i = i_p1 - 1
+            j = random.randint(rng_keys[idx], (), 0, i_p1)
+            val = ops.index_update(val, ops.index[[i, j], ], val[ops.index[[j, i], ]])
+            return val, None
+
+        val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))
+        return val[-subsample_size:]
+    else:
+        return random.choice(rng_key, size, (subsample_size,), replace=False)
 
 
 class plate(Messenger):
@@ -268,7 +306,7 @@ class plate(Messenger):
         subsample = msg['value']
         subsample_size = msg['args'][1]  # TODO: rewrite plate
         if subsample_size is not None and subsample_size != subsample.shape[0]:
-            raise ValueError("subsample_size does not match len(subsample), {} vs {}.".format(
+            warnings.warn("subsample_size does not match len(subsample), {} vs {}.".format(
                 subsample_size, len(subsample)) +
                              " Did you accidentally use different subsample_size in the model and guide?")
         cond_indep_stack = msg['cond_indep_stack']

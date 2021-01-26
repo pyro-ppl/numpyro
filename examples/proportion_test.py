@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 """
 Example: Proportion Test
 ========================
@@ -125,7 +128,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.4.1')
+    assert numpyro.__version__.startswith('0.5.0')
     parser = argparse.ArgumentParser(description='Testing whether  ')
     parser.add_argument('-n', '--num-samples', nargs='?', default=500, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=1500, type=int)

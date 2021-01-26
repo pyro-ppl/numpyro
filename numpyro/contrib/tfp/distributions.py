@@ -24,7 +24,7 @@ def _get_codomain(bijector):
         return constraints.positive
     elif bijector.__class__.__name__ == "GeneralizedPareto":
         loc, scale, concentration = bijector.loc, bijector.scale, bijector.concentration
-        if not_jax_tracer(concentration) and np.all(concentration < 0):
+        if not_jax_tracer(concentration) and np.all(np.less(concentration, 0)):
             return constraints.interval(loc, loc + scale / jnp.abs(concentration))
         # XXX: here we suppose concentration > 0
         # which is not true in general, but should cover enough usage cases
@@ -47,6 +47,10 @@ class BijectorConstraint(constraints.Constraint):
     def __init__(self, bijector):
         self.bijector = bijector
 
+    @property
+    def event_dim(self):
+        return self.bijector.forward_min_event_ndims
+
     def __call__(self, x):
         return self.codomain(x)
 
@@ -66,10 +70,6 @@ class BijectorTransform(Transform):
         self.bijector = bijector
 
     @property
-    def event_dim(self):
-        return self.bijector.forward_min_event_ndims
-
-    @property
     def domain(self):
         return BijectorConstraint(tfb.Invert(self.bijector))
 
@@ -80,11 +80,23 @@ class BijectorTransform(Transform):
     def __call__(self, x):
         return self.bijector.forward(x)
 
-    def inv(self, y):
+    def _inverse(self, y):
         return self.bijector.inverse(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return self.bijector.forward_log_det_jacobian(x, self.event_dim)
+        return self.bijector.forward_log_det_jacobian(x, self.domain.event_dim)
+
+    def forward_shape(self, shape):
+        out_shape = self.bijector.forward_event_shape(shape)
+        in_event_shape = self.bijector.inverse_event_shape(out_shape)
+        batch_shape = shape[:len(shape) - len(in_event_shape)]
+        return batch_shape + out_shape
+
+    def inverse_shape(self, shape):
+        in_shape = self.bijector.inverse_event_shape(shape)
+        out_event_shape = self.bijector.forward_event_shape(in_shape)
+        batch_shape = shape[:len(shape) - len(out_event_shape)]
+        return batch_shape + in_shape
 
 
 @biject_to.register(BijectorConstraint)
@@ -119,7 +131,9 @@ class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
 
     def __call__(self, *args, **kwargs):
         key = kwargs.pop('rng_key')
-        kwargs.pop('sample_intermediates', False)
+        sample_intermediates = kwargs.pop('sample_intermediates', False)
+        if sample_intermediates:
+            return self.sample(*args, seed=key, **kwargs), []
         return self.sample(*args, seed=key, **kwargs)
 
     @property

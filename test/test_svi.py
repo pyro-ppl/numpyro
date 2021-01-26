@@ -14,7 +14,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import RenyiELBO, SVI, Trace_ELBO
+from numpyro.infer import SVI, RenyiELBO, Trace_ELBO
 from numpyro.util import fori_loop
 
 
@@ -79,9 +79,9 @@ def test_run(progress_bar):
         numpyro.sample("obs", dist.Bernoulli(f), obs=data)
 
     def guide(data):
-        alpha_q = numpyro.param("alpha_q", 1.0,
+        alpha_q = numpyro.param("alpha_q", lambda key: random.normal(key),
                                 constraint=constraints.positive)
-        beta_q = numpyro.param("beta_q", 1.0,
+        beta_q = numpyro.param("beta_q", lambda key: random.exponential(key),
                                constraint=constraints.positive)
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 

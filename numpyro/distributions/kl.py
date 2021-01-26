@@ -32,10 +32,14 @@ from jax import lax
 import jax.numpy as jnp
 
 from numpyro.distributions.continuous import Normal
-from numpyro.distributions.discrete import Delta
-from numpyro.distributions.distribution import Distribution, ExpandedDistribution, Independent, MaskedDistribution
+from numpyro.distributions.distribution import (
+    Delta,
+    Distribution,
+    ExpandedDistribution,
+    Independent,
+    MaskedDistribution
+)
 from numpyro.distributions.util import scale_and_mask, sum_rightmost
-
 
 _KL_REGISTRY = {}  # Source of truth mapping a few general (type, type) pairs to functions.
 _KL_MEMOIZE = {}  # Memoized version mapping many specific (type, type) pairs to functions.

@@ -12,6 +12,9 @@ Gaussian-like one. The transform will be used to get better mixing rate for NUTS
 
     1. Hoffman, M. et al. (2019), "NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport",
        (https://arxiv.org/abs/1903.03704)
+
+.. image:: ../_static/img/examples/neutra.png
+    :align: center
 """
 
 import argparse
@@ -143,7 +146,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.4.1')
+    assert numpyro.__version__.startswith('0.5.0')
     parser = argparse.ArgumentParser(description="NeuTra HMC")
     parser.add_argument('-n', '--num-samples', nargs='?', default=4000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=1000, type=int)
