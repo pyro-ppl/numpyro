@@ -34,6 +34,10 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **z_grad** - Gradient of potential energy w.r.t. latent sample sites.
  - **potential_energy** - Potential energy computed at the given value of ``z``.
  - **energy** - Sum of potential energy and kinetic energy of the current state.
+ - **r** - The current momentum variable. If this is None, a new momentum variable
+   will be drawn at the beginning of each sampling step.
+ - **trajectory_length** - The amount of time to run HMC dynamics in each sampling step.
+   This field is not used in NUTS.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
    In NUTS sampler, the tree depth of a trajectory can be computed from this field
    with `tree_depth = np.log2(num_steps).astype(int) + 1`.
