@@ -10,10 +10,11 @@ import jax.numpy as jnp
 from jax import device_put, jacfwd, jacobian, grad, hessian, ops, random, value_and_grad
 from jax.scipy.special import expit
 
-from numpyro.handlers import block, condition, seed, substitute, trace, estimate_likelihood
+import numpyro
+from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import _unconstrain_reparam
+from numpyro.infer.util import _unconstrain_reparam, _predictive, log_density
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
@@ -647,25 +648,122 @@ def _sum_all_except_at_dim(x, dim):
     return x.reshape(x.shape[:1] + (-1,)).sum(-1)
 
 
-def variational_proxy(rng_key, model, model_args, model_kwargs, subsample_plate_sizes, reference_params, using_lookup=False):
+def variational_proxy(rng_key, model, model_args, model_kwargs,
+                      guide, reference_params,
+                      subsample_plate_sizes, num_samples=10):
     pos_key, guide_key, rng_key = random.split(rng_key, 3)
-    num_samples = 10  # TODO: heuristic for this
-    guide = substitute(self._guide, self._ref)
-    posterior_samples = _predictive(pos_key, guide, {},
-                                    (num_samples,), return_sites='', parallel=True,
+    guide = substitute(guide, reference_params)
+
+    def log_likelihood(params, subsample_indices=None):
+        params_flat, unravel_fn = ravel_pytree(params)
+        if subsample_indices is None:
+            subsample_indices = {k: jnp.arange(v[0]) for k, v in subsample_plate_sizes.items()}
+        params = unravel_fn(params_flat)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            with block(), trace() as tr, substitute(data=subsample_indices), \
+                    substitute(substitute_fn=partial(_unconstrain_reparam, params)):
+                model(*model_args, **model_kwargs)
+
+        log_lik = defaultdict(float)
+        for site in tr.values():
+            if site["type"] == "sample" and site["is_observed"]:
+                for frame in site["cond_indep_stack"]:
+                    if frame.name in subsample_plate_sizes:
+                        log_lik[frame.name] += _sum_all_except_at_dim(
+                            site["fn"].log_prob(site["value"]), frame.dim)
+        return log_lik
+
+    def log_prior(params):
+        prior_prob, _ = log_density(block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
+                                    model_args, model_kwargs, params)
+        return prior_prob
+
+    def log_posterior(params):
+        posterior_prob, _ = log_density(guide, model_args, model_kwargs, params)
+        return posterior_prob
+
+    # TODO: get MAP from guide!
+    posterior_samples = _predictive(pos_key, guide, {}, (num_samples,), return_sites='', parallel=True,
                                     model_args=model_args, model_kwargs=model_kwargs)
-    with subsample_size(self.model, plate_sizes_all):
-        model = subsample_size(self.model, plate_sizes_all)
-        ll = log_likelihood(model, posterior_samples, *model_args, **model_kwargs)
+    log_likelihood_ref = log_likelihood(posterior_samples)
 
-    # TODO: fix multiple likehoods
-    weights = {name: jnp.mean((value.T / value.sum(1).T).T, 0) for name, value in
-               ll.items()}  # TODO: fix broadcast
-    prior, _ = log_density(block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
-                           model_args, model_kwargs, posterior_samples)
-    variational, _ = log_density(guide, model_args, model_kwargs, posterior_samples)
-    evidence = {name: variational / num_samples - prior / num_samples - ll.mean(1).sum() for name, ll in
-                ll.items()}  # TODO: must depend on structure!
+    weights = {name: log_like.mean(1) / log_like.mean(1).sum() for name, log_like in log_likelihood_ref.items()}
 
-    guide_trace = trace(seed(self._guide, guide_key)).get_trace(*model_args, **model_kwargs)
-    proxy_fn, uproxy_fn = variational_proxy(guide_trace, evidence, weights)
+    log_prior_prob = log_prior(posterior_samples)
+    log_posterior_prob = log_posterior(posterior_samples)
+
+    evidence = {name: (log_posterior_prob - log_prior_prob - log_like.sum(0)).mean()  # [1] - [1] - [10]
+                for name, log_like in log_likelihood_ref.items()}
+
+    def proxy_fn(params, subsample_indices):
+        proxy_sum = defaultdict(float)
+        proxy_subsample = defaultdict(float)
+        log_prior_prob = log_prior(params)
+        log_posterior_prob = log_prior(params)
+        for name, subsample_idx in subsample_indices.items():
+            proxy_sum[name] = evidence[name] + log_posterior_prob - log_prior_prob
+            proxy_subsample[name] = evidence[name] + \
+                                    weights[name][subsample_idx].sum() * (log_posterior_prob - log_prior_prob)
+        return proxy_sum, proxy_subsample
+
+    return proxy_fn
+
+
+class estimate_likelihood(numpyro.primitives.Messenger):
+    def __init__(self, fn=None, estimator=None):
+        # estimate_likelihood: accept likelihood tuple (fn, value, subsample_name, subsample_dim, subsample_idx)
+        # and current unconstrained params
+        # and returns log of the bias-corrected likelihood
+        assert estimator is not None
+        super().__init__(fn)
+        self.estimator = estimator
+        self.params = None
+        self.likelihoods = {}
+        self.subsample_plates = {}
+
+    def __enter__(self):
+        # trace(substitute(substitute(control_variate(model), unconstrained_reparam)))
+        for handler in numpyro.primitives._PYRO_STACK[::-1]:
+            if isinstance(handler, substitute) and isinstance(handler.substitute_fn, partial) \
+                    and handler.substitute_fn.func is _unconstrain_reparam:
+                self.params = handler.substitute_fn.args[0]
+                break
+        return super().__enter__()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # make sure exit trackback is nice if an error happens
+        super().__exit__(exc_type, exc_value, traceback)
+        if exc_type is not None:
+            return
+
+        if self.params is None:
+            return
+
+        # add numpyro.factor; ideally, we will want to skip this computation when making prediction
+        # see: https://github.com/pyro-ppl/pyro/issues/2744
+        numpyro.factor("_biased_corrected_log_likelihood", self.estimator(self.likelihoods, self.params))
+
+        # clean up
+        self.params = None
+        self.likelihoods = {}
+        self.subsample_plates = {}
+
+    def process_message(self, msg):
+        if self.params is None:
+            return
+
+        if msg["type"] == "sample" and msg["is_observed"]:
+            assert msg["name"] not in self.params
+            # store the likelihood for the estimator
+            for frame in msg["cond_indep_stack"]:
+                if frame.name in self.subsample_plates:
+                    if msg["name"] in self.likelihoods:
+                        raise RuntimeError(f"Multiple subsample plates at site {msg['name']} "
+                                           "are not allowed. Please reshape your data.")
+                    subsample_idx = self.subsample_plates[frame.name]
+                    self.likelihoods[msg["name"]] = (msg["fn"], msg["value"], frame.name, frame.dim, subsample_idx)
+                    # mask the current likelihood
+                    msg["fn"] = msg["fn"].mask(False)
+        elif msg["type"] == "plate" and msg["args"][0] > msg["args"][1]:
+            self.subsample_plates[msg["name"]] = msg["value"]
