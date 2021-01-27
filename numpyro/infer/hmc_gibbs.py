@@ -648,12 +648,18 @@ def _sum_all_except_at_dim(x, dim):
     return x.reshape(x.shape[:1] + (-1,)).sum(-1)
 
 
-def variational_proxy(rng_key, model, model_args, model_kwargs,
-                      guide, reference_params,
-                      subsample_plate_sizes, num_samples=10):
+def variational_proxy(rng_key, model, model_args, model_kwargs, guide, reference_params, num_samples=10):
+    prototype_trace = trace(seed(model, rng_key)).get_trace(*model_args, **model_kwargs)
+    subsample_plate_sizes = {
+        name: site["args"]
+        for name, site in prototype_trace.items()
+        if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
+    }
+
     pos_key, guide_key, rng_key = random.split(rng_key, 3)
     guide = substitute(guide, reference_params)
 
+    # factor out?
     def log_likelihood(params, subsample_indices=None):
         params_flat, unravel_fn = ravel_pytree(params)
         if subsample_indices is None:
@@ -674,33 +680,40 @@ def variational_proxy(rng_key, model, model_args, model_kwargs,
                             site["fn"].log_prob(site["value"]), frame.dim)
         return log_lik
 
-    def log_prior(params):
-        prior_prob, _ = log_density(block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
-                                    model_args, model_kwargs, params)
-        return prior_prob
-
     def log_posterior(params):
-        posterior_prob, _ = log_density(guide, model_args, model_kwargs, params)
+        with numpyro.primitives.inner_stack():
+            posterior_prob, _ = log_density(guide, model_args, model_kwargs, params)
         return posterior_prob
+
+    def log_prior(params):
+        with numpyro.primitives.inner_stack():
+            prior_prob, _ = log_density(block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
+                                        model_args, model_kwargs, params)
+        return prior_prob
 
     # TODO: get MAP from guide!
     posterior_samples = _predictive(pos_key, guide, {}, (num_samples,), return_sites='', parallel=True,
                                     model_args=model_args, model_kwargs=model_kwargs)
     log_likelihood_ref = log_likelihood(posterior_samples)
 
-    weights = {name: log_like.mean(1) / log_like.mean(1).sum() for name, log_like in log_likelihood_ref.items()}
+    posterior_samples = {**posterior_samples, **{k: jnp.arange(v[0]) for k, v in subsample_plate_sizes.items()}}
 
-    log_prior_prob = log_prior(posterior_samples)
-    log_posterior_prob = log_posterior(posterior_samples)
+    weights = {name: log_like / log_like.sum() for name, log_like in log_likelihood_ref.items()}
 
-    evidence = {name: (log_posterior_prob - log_prior_prob - log_like.sum(0)).mean()  # [1] - [1] - [10]
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=UserWarning)
+        log_prior_prob = log_prior(posterior_samples)
+        log_posterior_prob = log_posterior(posterior_samples)
+
+    evidence = {name: (log_posterior_prob - log_prior_prob - log_like.sum()) / num_samples
                 for name, log_like in log_likelihood_ref.items()}
 
     def proxy_fn(params, subsample_indices):
+        params = {**params, **subsample_indices}
         proxy_sum = defaultdict(float)
         proxy_subsample = defaultdict(float)
         log_prior_prob = log_prior(params)
-        log_posterior_prob = log_prior(params)
+        log_posterior_prob = log_posterior(params)
         for name, subsample_idx in subsample_indices.items():
             proxy_sum[name] = evidence[name] + log_posterior_prob - log_prior_prob
             proxy_subsample[name] = evidence[name] + \
@@ -708,6 +721,7 @@ def variational_proxy(rng_key, model, model_args, model_kwargs,
         return proxy_sum, proxy_subsample
 
     return proxy_fn
+
 
 
 class estimate_likelihood(numpyro.primitives.Messenger):
