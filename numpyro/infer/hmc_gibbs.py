@@ -293,9 +293,9 @@ class DiscreteHMCGibbs(HMCGibbs):
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
     :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
         conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
-        from the domain of `gibbs_site`.
+        from the domain of `gibbs_site`. Defaults to False.
     :param bool modified: whether to use a modified proposal, as suggested in reference [1], which
-        always proposes a new state for the current Gibbs site.
+        always proposes a new state for the current Gibbs site. Defaults to False.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
 

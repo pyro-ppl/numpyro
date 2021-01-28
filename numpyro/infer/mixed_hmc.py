@@ -16,8 +16,8 @@ class MixedHMC(DiscreteHMCGibbs):
     """
     Implementation of Mixed Hamiltonian Monte Carlo (reference [1]).
 
-    .. note:: The number of discrete sites to update each time (`n_D` in reference [1])
-        is fixed at value 1.
+    .. note:: The number of discrete sites to update at each MCMC iteration
+        (`n_D` in reference [1]) is fixed at value 1.
 
     **References**
 
@@ -28,11 +28,12 @@ class MixedHMC(DiscreteHMCGibbs):
 
     :param inner_kernel: A :class:`~numpyro.infer.hmc.HMC` kernel.
     :param int num_discrete_updates: Number of times to update discrete variables.
+        Defaults to the number of discrete latent variables.
     :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
         conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
-        from the domain of `gibbs_site`.
+        from the domain of `gibbs_site`. Defaults to False.
     :param bool modified: whether to use a modified proposal, as suggested in reference [2], which
-        always proposes a new state for the current Gibbs site.
+        always proposes a new state for the current Gibbs site. Defaults to True.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
 
@@ -61,16 +62,18 @@ class MixedHMC(DiscreteHMCGibbs):
         >>> assert abs(jnp.var(samples) - 4.36) < 0.5
     """
 
-    def __init__(self, inner_kernel, num_discrete_updates, *, random_walk=False, modified=True):
+    def __init__(self, inner_kernel, *, num_discrete_updates=None, random_walk=False, modified=True):
         super().__init__(inner_kernel, random_walk=random_walk, modified=modified)
         if inner_kernel._algo == "NUTS":
-            raise ValueError("The algorithm is designed to work with HMC and not to work with NUTS.")
+            raise ValueError("The algorithm only works with HMC and and does not support NUTS.")
         self._num_discrete_updates = num_discrete_updates
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         rng_key, rng_r = random.split(rng_key)
         state = super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
         self._support_sizes_flat, _ = ravel_pytree({k: self._support_sizes[k] for k in self._gibbs_sites})
+        if self._num_discrete_updates is None:
+            self._num_discrete_updates = self._support_sizes_flat.shape[0]
         self._num_warmup = num_warmup
 
         # NB: the warmup adaptation can not be performed in sub-trajectories (i.e. the hmc trajectory
