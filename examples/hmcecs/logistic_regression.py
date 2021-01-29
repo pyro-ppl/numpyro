@@ -12,25 +12,24 @@ from sklearn.datasets import load_breast_cancer
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.contrib.ecs import ECS
 from numpyro.distributions import constraints
 from numpyro.examples.datasets import _load_higgs
-from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, init_to_sample
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, init_to_sample, init_to_median
+from numpyro.infer.hmc_gibbs import HMCECS, difference_estimator, variational_proxy, taylor_proxy
+from numpyro.infer.util import _predictive
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 
-numpyro.set_platform("gpu")
+numpyro.set_platform("cpu")
 
 
-def summary(dataset, name, mcmc, sample_time, svi_time=0.):
+def summary(dataset, name, mcmc, sample_time, svi_time=0., plates={}):
     n_eff_mean = np.mean([numpyro.diagnostics.effective_sample_size(device_get(v))
-                          for v in mcmc.get_samples(True).values()])
+                          for k, v in mcmc.get_samples(True).items() if k not in plates])
     pickle.dump(mcmc.get_samples(True), open(f'{dataset}/{name}_posterior_samples.pkl', 'wb'))
     step_field = 'num_steps' if name == 'hmc' else 'hmc_state.num_steps'
     num_step = np.sum(mcmc.get_extra_fields()[step_field])
     accpt_prob = 1.
-    if name == 'ecs':
-        accpt_prob = np.mean(mcmc.get_extra_fields()['accept_prob'])
 
     with open(f'{dataset}/{name}_chain_stats.txt', 'w') as f:
         print('sample_time', 'svi_time', 'n_eff_mean', 'gibbs_accpt_prob', 'tot_num_steps', 'time_per_step',
@@ -63,7 +62,7 @@ def copsac_data():
     return jnp.array(data.values), jnp.array(data['trait'].astype(int))
 
 
-def log_reg_model(features, obs, subsample_size):
+def model(features, obs, subsample_size):
     n, m = features.shape
     theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), .5 * jnp.ones(m)))
     with numpyro.plate('N', n, subsample_size=subsample_size):
@@ -72,36 +71,44 @@ def log_reg_model(features, obs, subsample_size):
         numpyro.sample('obs', dist.Bernoulli(logits=theta @ batch_feats.T), obs=batch_obs)
 
 
-def log_reg_guide(feature, obs, subsample_size):
+def guide(feature, obs, subsample_size):
     _, m = feature.shape
     mean = numpyro.param('mean', jnp.zeros(m), constraints=constraints.real)
     # var = numpyro.param('var', jnp.ones(m), constraints=constraints.positive)
     numpyro.sample('theta', dist.continuous.Normal(mean, .5))
 
 
-def hmcecs_model(dataset, data, obs, subsample_size):
+def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='taylor'):
+    model_args, model_kwargs = (data, obs, subsample_size), {}
+
+    svi_key, proxy_key, estimator_key, mcmc_key = random.split(random.PRNGKey(0), 4)
     optimizer = numpyro.optim.Adam(step_size=5e-5)
-    svi = SVI(log_reg_model, log_reg_guide, optimizer, loss=Trace_ELBO())
+    svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
     start = time()
-    svi_result = svi.run(random.PRNGKey(2), 1000, data, obs, subsample_size, )
+    svi_result = svi.run(svi_key, 1000, *model_args)
     svi_time = time() - start
 
     pickle.dump(svi_result.params, open(f'{dataset}/svi_params.pkl', 'wb'))
     params = svi_result.params
 
+    if proxy_name == 'taylor':
+        proxy_key, ref_key = random.split(proxy_key)
+        ref_params = _predictive(ref_key, guide, {}, (1,), return_sites='', parallel=True,
+                                 model_args=model_args, model_kwargs=model_kwargs)
+        proxy_fn = taylor_proxy(proxy_key, model, model_args, model_kwargs, ref_params)
+
+    else:
+        proxy_fn = variational_proxy(proxy_key, model, model_args, model_kwargs, guide, params)
+    estimator = difference_estimator(estimator_key, model, model_args, model_kwargs, proxy_fn)
+
     # Compute HMCECS
-    kernel = ECS(NUTS(log_reg_model),
-                 proxy='variational',
-                 model_struct={'obs': ['theta']},
-                 ref=params,
-                 guide=log_reg_guide)
-    mcmc = MCMC(kernel, 10000, 10000)
+
+    kernel = HMCECS(NUTS(model), estimator=estimator)
+    mcmc = MCMC(kernel, 1000, 1000)
     start = time()
-    mcmc.run(random.PRNGKey(3), data, obs, subsample_size, extra_fields=("accept_prob",
-                                                                         "hmc_state.accept_prob",
+    mcmc.run(random.PRNGKey(3), data, obs, subsample_size, extra_fields=("hmc_state.accept_prob",
                                                                          "hmc_state.num_steps"))
-    print(mcmc.get_extra_fields(True)['hmc_state.accept_prob'])
-    summary(dataset, 'ecs', mcmc, time() - start, svi_time=svi_time)
+    summary(dataset, 'ecs', mcmc, time() - start, svi_time=svi_time, plates={'N': ''})
 
 
 def plain_log_reg_model(features, obs):
@@ -111,8 +118,8 @@ def plain_log_reg_model(features, obs):
 
 
 def hmc(dataset, data, obs):
-    kernel = NUTS(plain_log_reg_model, init_strategy=init_to_sample)
-    mcmc = MCMC(kernel, 100, 200)
+    kernel = NUTS(plain_log_reg_model,trajectory_length=1.2, init_strategy=init_to_median)
+    mcmc = MCMC(kernel, 100, 100)
     mcmc._compile(random.PRNGKey(0), data, obs, extra_fields=("num_steps",))
     start = time()
     mcmc.run(random.PRNGKey(0), data, obs, extra_fields=('num_steps',))
@@ -121,15 +128,15 @@ def hmc(dataset, data, obs):
 
 if __name__ == '__main__':
 
-    datasets = ('copsac',)
-    load_data = {'breast': breast_cancer_data, 'higgs': higgs_data, 'copsac': copsac_data}
-    subsample_sizes = {'breast': 75, 'higgs': 1300, 'copsac': 1000}
+    load_data = {'higgs': higgs_data, 'breast': breast_cancer_data, 'copsac': copsac_data}
+    subsample_sizes = {'higgs': 1300, 'copsac': 1000, 'breast': 75, }
     data, obs = breast_cancer_data()
 
-    for dataset in datasets:
+    for dataset in load_data.keys():
         dir = f'{dataset}_{datetime.now().strftime("%Y_%m_%d_%H%M%S")}'
         if not os.path.exists(dir):
             os.mkdir(dir)
         data, obs = load_data[dataset]()
-        hmcecs_model(dir, data, obs, subsample_sizes[dataset])
+        # hmcecs_model(dir, data, obs, subsample_sizes[dataset])
         hmc(dir, data, obs)
+        exit()
