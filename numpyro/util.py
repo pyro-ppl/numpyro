@@ -166,11 +166,10 @@ def cached_by(outer_fn, *keys):
     return _wrapped
 
 
-
-
 def _print_consumer(arg, transrorm):
     i, n_iter = arg
     print(f"Iteration {i}/{n_iter}")
+
 
 @jit
 def progress_bar(arg, result):
@@ -181,11 +180,12 @@ def progress_bar(arg, result):
     """
     i, n_iter, print_rate = arg
     result = lax.cond(
-        i%print_rate==0,
+        i % print_rate == 0,
         lambda _: host_callback.id_tap(_print_consumer, (i, n_iter), result=result),
         lambda _: result,
         operand=None)
     return result
+
 
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
                  progbar=True, return_last_val=False, collection_size=None,
@@ -238,7 +238,6 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
             return func(i, vals)
         return wrapper_progress_bar
 
-
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
         val, collection, start_idx, thinning = vals
@@ -253,7 +252,8 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
-        last_val, collection, _, _ = fori_loop(0, upper, add_progress_bar(_body_fn), (init_val, collection, start_idx, thinning))
+        _body_fn_pbar = add_progress_bar(_body_fn)
+        last_val, collection, _, _ = fori_loop(0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
