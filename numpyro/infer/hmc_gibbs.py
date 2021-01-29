@@ -570,6 +570,9 @@ def taylor_proxy(rng_key, model, model_args, model_kwargs, reference_params, usi
         for name, site in prototype_trace.items()
         if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
     }
+
+    reference_params =  {k:v for k,v in reference_params.items() if k in prototype_trace}
+
     # subsample_plate_sizes: name -> (size, subsample_size)
     ref_params_flat, unravel_fn = ravel_pytree(reference_params)
 
@@ -687,11 +690,11 @@ def variational_proxy(rng_key, model, model_args, model_kwargs, guide, reference
 
     def log_prior(params):
         with numpyro.primitives.inner_stack():
-            prior_prob, _ = log_density(block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
-                                        model_args, model_kwargs, params)
+            prior_prob, _ = log_density(
+                block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
+                model_args, model_kwargs, params)
         return prior_prob
 
-    # TODO: get MAP from guide!
     posterior_samples = _predictive(pos_key, guide, {}, (num_samples,), return_sites='', parallel=True,
                                     model_args=model_args, model_kwargs=model_kwargs)
     log_likelihood_ref = log_likelihood(posterior_samples)
@@ -721,7 +724,6 @@ def variational_proxy(rng_key, model, model_args, model_kwargs, guide, reference
         return proxy_sum, proxy_subsample
 
     return proxy_fn
-
 
 
 class estimate_likelihood(numpyro.primitives.Messenger):
