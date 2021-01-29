@@ -16,6 +16,7 @@ from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
+from jax.experimental import host_callback
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 
@@ -164,6 +165,27 @@ def cached_by(outer_fn, *keys):
     return _wrapped
 
 
+
+
+def _print_consumer(arg, transrorm):
+    i, n_iter = arg
+    print(f"Iteration {i}/{n_iter}")
+
+@jit
+def progress_bar(arg, result):
+    """
+    Print progress of loop only if iteration number is a multiple of the print_rate
+
+    Usage: carry = progress_bar((iter_num, n_iter, print_rate), carry)
+    """
+    i, n_iter, print_rate = arg
+    result = lax.cond(
+        i%print_rate==0,
+        lambda _: host_callback.id_tap(_print_consumer, (i, n_iter), result=result),
+        lambda _: result,
+        operand=None)
+    return result
+
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
                  progbar=True, return_last_val=False, collection_size=None,
                  thinning=1, **progbar_opts):
@@ -212,6 +234,8 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         val, collection, start_idx, thinning = vals
         val = body_fun(val)
         idx = (i - start_idx) // thinning
+        print_rate = int(upper/10)
+        i = progress_bar((i, upper, print_rate), i)
         collection = cond(idx >= 0,
                           collection,
                           lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
