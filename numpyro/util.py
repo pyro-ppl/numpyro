@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import os
 import random
 import re
+import functools
 
 import numpy as np
 import tqdm
@@ -229,13 +230,20 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
 
+    def add_progress_bar(func):
+        @functools.wraps(func)
+        def wrapper_progress_bar(i, vals):
+            print_rate = int(upper/10)
+            i = progress_bar((i, upper, print_rate), i)
+            return func(i, vals)
+        return wrapper_progress_bar
+
+
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
         val, collection, start_idx, thinning = vals
         val = body_fun(val)
         idx = (i - start_idx) // thinning
-        print_rate = int(upper/10)
-        i = progress_bar((i, upper, print_rate), i)
         collection = cond(idx >= 0,
                           collection,
                           lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
@@ -245,7 +253,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
-        last_val, collection, _, _ = fori_loop(0, upper, _body_fn, (init_val, collection, start_idx, thinning))
+        last_val, collection, _, _ = fori_loop(0, upper, add_progress_bar(_body_fn), (init_val, collection, start_idx, thinning))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
