@@ -85,7 +85,6 @@ from jax import lax, random
 
 import numpyro
 from numpyro.distributions.distribution import COERCIONS
-from numpyro.infer.util import _unconstrain_reparam
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
 from numpyro.util import not_jax_tracer
 
@@ -800,60 +799,3 @@ class do(Messenger):
             msg['stop'] = True
 
 
-class estimate_likelihood(numpyro.primitives.Messenger):
-    def __init__(self, fn=None, estimator=None):
-        # estimate_likelihood: accept likelihood tuple (fn, value, subsample_name, subsample_dim, subsample_idx)
-        # and current unconstrained params
-        # and returns log of the bias-corrected likelihood
-        assert estimator is not None
-        super().__init__(fn)
-        self.estimator = estimator
-        self.params = None
-        self.likelihoods = {}
-        self.subsample_plates = {}
-
-    def __enter__(self):
-        # trace(substitute(substitute(control_variate(model), unconstrained_reparam)))
-        for handler in numpyro.primitives._PYRO_STACK[::-1]:
-            if isinstance(handler, substitute) and isinstance(handler.substitute_fn, partial) \
-                    and handler.substitute_fn.func is _unconstrain_reparam:
-                self.params = handler.substitute_fn.args[0]
-                break
-        return super().__enter__()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        # make sure exit trackback is nice if an error happens
-        super().__exit__(exc_type, exc_value, traceback)
-        if exc_type is not None:
-            return
-
-        if self.params is None:
-            return
-
-        # add numpyro.factor; ideally, we will want to skip this computation when making prediction
-        # see: https://github.com/pyro-ppl/pyro/issues/2744
-        numpyro.factor("_biased_corrected_log_likelihood", self.estimator(self.likelihoods, self.params))
-
-        # clean up
-        self.params = None
-        self.likelihoods = {}
-        self.subsample_plates = {}
-
-    def process_message(self, msg):
-        if self.params is None:
-            return
-
-        if msg["type"] == "sample" and msg["is_observed"]:
-            assert msg["name"] not in self.params
-            # store the likelihood for the estimator
-            for frame in msg["cond_indep_stack"]:
-                if frame.name in self.subsample_plates:
-                    if msg["name"] in self.likelihoods:
-                        raise RuntimeError(f"Multiple subsample plates at site {msg['name']} "
-                                           "are not allowed. Please reshape your data.")
-                    subsample_idx = self.subsample_plates[frame.name]
-                    self.likelihoods[msg["name"]] = (msg["fn"], msg["value"], frame.name, frame.dim, subsample_idx)
-                    # mask the current likelihood
-                    msg["fn"] = msg["fn"].mask(False)
-        elif msg["type"] == "plate" and msg["args"][0] > msg["args"][1]:
-            self.subsample_plates[msg["name"]] = msg["value"]

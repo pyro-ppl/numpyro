@@ -10,10 +10,11 @@ import jax.numpy as jnp
 from jax import device_put, jacfwd, jacobian, grad, hessian, ops, random, value_and_grad
 from jax.scipy.special import expit
 
-from numpyro.handlers import block, condition, seed, substitute, trace, estimate_likelihood
+import numpyro
+from numpyro.handlers import block, condition, seed, substitute, trace, Messenger
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import _unconstrain_reparam
+from numpyro.infer.util import _unconstrain_reparam, _predictive, log_density
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
@@ -564,6 +565,7 @@ def difference_estimator(rng_key, model, model_args, model_kwargs, proxy_fn):
 
 def taylor_proxy(rng_key, model, model_args, model_kwargs, reference_params, using_lookup=False):
     prototype_trace = trace(seed(model, rng_key)).get_trace(*model_args, **model_kwargs)
+    reference_params = {k: v for k, v in reference_params.items() if k in prototype_trace}
     subsample_plate_sizes = {
         name: site["args"]
         for name, site in prototype_trace.items()
@@ -647,16 +649,16 @@ def _sum_all_except_at_dim(x, dim):
     return x.reshape(x.shape[:1] + (-1,)).sum(-1)
 
 
-def variational_proxy(rng_key, model, model_args, model_kwargs, subsample_plate_sizes, reference_params, using_lookup=False):
+def variational_proxy(rng_key, model, model_args, model_kwargs, guide, reference_params):
     pos_key, guide_key, rng_key = random.split(rng_key, 3)
     num_samples = 10  # TODO: heuristic for this
-    guide = substitute(self._guide, self._ref)
+    guide = substitute(guide, reference_params)
     posterior_samples = _predictive(pos_key, guide, {},
                                     (num_samples,), return_sites='', parallel=True,
                                     model_args=model_args, model_kwargs=model_kwargs)
-    with subsample_size(self.model, plate_sizes_all):
-        model = subsample_size(self.model, plate_sizes_all)
-        ll = log_likelihood(model, posterior_samples, *model_args, **model_kwargs)
+
+    model = subsample_size(self.model, plate_sizes_all)
+    ll = log_likelihood(model, posterior_samples, *model_args, **model_kwargs)
 
     # TODO: fix multiple likehoods
     weights = {name: jnp.mean((value.T / value.sum(1).T).T, 0) for name, value in
@@ -669,3 +671,62 @@ def variational_proxy(rng_key, model, model_args, model_kwargs, subsample_plate_
 
     guide_trace = trace(seed(self._guide, guide_key)).get_trace(*model_args, **model_kwargs)
     proxy_fn, uproxy_fn = variational_proxy(guide_trace, evidence, weights)
+
+
+class estimate_likelihood(Messenger):
+    def __init__(self, fn=None, estimator=None):
+        # estimate_likelihood: accept likelihood tuple (fn, value, subsample_name, subsample_dim, subsample_idx)
+        # and current unconstrained params
+        # and returns log of the bias-corrected likelihood
+        assert estimator is not None
+        super().__init__(fn)
+        self.estimator = estimator
+        self.params = None
+        self.likelihoods = {}
+        self.subsample_plates = {}
+
+    def __enter__(self):
+        # trace(substitute(substitute(control_variate(model), unconstrained_reparam)))
+        for handler in numpyro.primitives._PYRO_STACK[::-1]:
+            if isinstance(handler, substitute) and isinstance(handler.substitute_fn, partial) \
+                    and handler.substitute_fn.func is _unconstrain_reparam:
+                self.params = handler.substitute_fn.args[0]
+                break
+        return super().__enter__()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # make sure exit trackback is nice if an error happens
+        super().__exit__(exc_type, exc_value, traceback)
+        if exc_type is not None:
+            return
+
+        if self.params is None:
+            return
+
+        # add numpyro.factor; ideally, we will want to skip this computation when making prediction
+        # see: https://github.com/pyro-ppl/pyro/issues/2744
+        numpyro.factor("_biased_corrected_log_likelihood", self.estimator(self.likelihoods, self.params))
+
+        # clean up
+        self.params = None
+        self.likelihoods = {}
+        self.subsample_plates = {}
+
+    def process_message(self, msg):
+        if self.params is None:
+            return
+
+        if msg["type"] == "sample" and msg["is_observed"]:
+            assert msg["name"] not in self.params
+            # store the likelihood for the estimator
+            for frame in msg["cond_indep_stack"]:
+                if frame.name in self.subsample_plates:
+                    if msg["name"] in self.likelihoods:
+                        raise RuntimeError(f"Multiple subsample plates at site {msg['name']} "
+                                           "are not allowed. Please reshape your data.")
+                    subsample_idx = self.subsample_plates[frame.name]
+                    self.likelihoods[msg["name"]] = (msg["fn"], msg["value"], frame.name, frame.dim, subsample_idx)
+                    # mask the current likelihood
+                    msg["fn"] = msg["fn"].mask(False)
+        elif msg["type"] == "plate" and msg["args"][0] > msg["args"][1]:
+            self.subsample_plates[msg["name"]] = msg["value"]
