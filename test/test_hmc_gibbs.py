@@ -184,18 +184,17 @@ def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
 
 
 @pytest.mark.parametrize("random_walk", [False, True])
-@pytest.mark.parametrize("modified", [False, True])
 @pytest.mark.parametrize("kernel, inner_kernel, kwargs", [
     (MixedHMC, HMC, {"num_discrete_updates": 20}),
-    (DiscreteHMCGibbs, NUTS, {})
+    (DiscreteHMCGibbs, NUTS, {"modified": True}),
+    (DiscreteHMCGibbs, NUTS, {"modified": False}),
 ])
-def test_discrete_gibbs_bernoulli(random_walk, modified, kernel, inner_kernel, kwargs):
+def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
 
-    sampler = kernel(inner_kernel(model), random_walk=random_walk,
-                     modified=modified, **kwargs)
-    mcmc = MCMC(sampler, 1000, 1000000, progress_bar=False)
+    sampler = kernel(inner_kernel(model), random_walk=random_walk, **kwargs)
+    mcmc = MCMC(sampler, 1000, 10000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()["c"]
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)

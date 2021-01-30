@@ -415,7 +415,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
-            ss_state = ss_init(jnp.log(10 * step_size))
+            ss_state = ss_init(jnp.log(10) + jnp.log(step_size))
 
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
                              ss_state, mm_state, window_idx, rng_key)

@@ -260,7 +260,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
 
-        num_steps = _get_num_steps(step_size, trajectory_length)
+        # no need to spend too many steps if the state z has 0 size (i.e. z is empty)
+        if inverse_mass_matrix.shape[0] == 0:
+            num_steps = 1
+        else:
+            num_steps = _get_num_steps(step_size, trajectory_length)
         # makes sure trajectory length is constant, rather than step_size * num_steps
         step_size = trajectory_length / num_steps
         vv_state_new = fori_loop(0, num_steps,
