@@ -639,7 +639,7 @@ class LKJCholesky(Distribution):
 
 class LogNormal(TransformedDistribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
-    support = constraints.real
+    support = constraints.positive
     reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc=0., scale=1., validate_args=None):
