@@ -146,6 +146,12 @@ class Dirichlet(Distribution):
         con0 = jnp.sum(self.concentration, axis=-1, keepdims=True)
         return self.concentration * (con0 - self.concentration) / (con0 ** 2 * (con0 + 1))
 
+    @staticmethod
+    def infer_shapes(concentration):
+        batch_shape = concentration[:-1]
+        event_shape = concentration[-1:]
+        return batch_shape, event_shape
+
 
 class Exponential(Distribution):
     reparametrized_params = ['rate']
@@ -633,6 +639,7 @@ class LKJCholesky(Distribution):
 
 class LogNormal(TransformedDistribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
     reparametrized_params = ['loc', 'scale']
 
     def __init__(self, loc=0., scale=1., validate_args=None):
@@ -708,6 +715,8 @@ class MultivariateNormal(Distribution):
                  validate_args=None):
         if jnp.ndim(loc) == 0:
             loc, = promote_shapes(loc, shape=(1,))
+        # FIXME this expansion can lead to expensive gradient computation; for
+        # discussion see https://github.com/pytorch/pytorch/issues/43837
         # temporary append a new axis to loc
         loc = loc[..., jnp.newaxis]
         if covariance_matrix is not None:
@@ -765,6 +774,15 @@ class MultivariateNormal(Distribution):
     def tree_unflatten(cls, aux_data, params):
         loc, scale_tril = params
         return cls(loc, scale_tril=scale_tril)
+
+    @staticmethod
+    def infer_shapes(loc=(), covariance_matrix=None, precision_matrix=None, scale_tril=None):
+        batch_shape, event_shape = loc[:-1], loc[-1:]
+        for matrix in [covariance_matrix, precision_matrix, scale_tril]:
+            if matrix is not None:
+                batch_shape = lax.broadcast_shapes(batch_shape, matrix[:-2])
+                event_shape = lax.broadcast_shapes(event_shape, matrix[-1:])
+        return batch_shape, event_shape
 
 
 def _batch_mv(bmat, bvec):
@@ -836,6 +854,8 @@ class LowRankMultivariateNormal(Distribution):
         if jnp.shape(cov_diag)[-1:] != event_shape:
             raise ValueError("`cov_diag` must be a batch of vectors with shape {}".format(self.event_shape))
 
+        # FIXME this expansion can lead to expensive gradient computation; for
+        # discussion see https://github.com/pytorch/pytorch/issues/43837
         loc, cov_factor, cov_diag = promote_shapes(loc[..., jnp.newaxis], cov_factor, cov_diag[..., jnp.newaxis])
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(cov_factor), jnp.shape(cov_diag))[:-2]
         self.loc = loc[..., 0]
@@ -922,6 +942,12 @@ class LowRankMultivariateNormal(Distribution):
         H = 0.5 * (self.loc.shape[-1] * (1.0 + jnp.log(2 * jnp.pi)) + log_det)
         return jnp.broadcast_to(H, self.batch_shape)
 
+    @staticmethod
+    def infer_shapes(loc, cov_factor, cov_diag):
+        event_shape = loc[-1:]
+        batch_shape = lax.broadcast_shapes(loc[:-1], cov_factor[:-2], cov_diag[:-1])
+        return batch_shape, event_shape
+
 
 class Normal(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
@@ -981,7 +1007,7 @@ class Pareto(TransformedDistribution):
         return jnp.where(self.alpha <= 2, jnp.inf, a)
 
     # override the default behaviour to save computations
-    @property
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return constraints.greater_than(self.scale)
 
@@ -1069,7 +1095,7 @@ class TruncatedCauchy(TransformedDistribution):
         super(TruncatedCauchy, self).__init__(base_dist, AffineTransform(low, scale),
                                               validate_args=validate_args)
 
-    @property
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return self._support
 
@@ -1139,7 +1165,7 @@ class TruncatedNormal(TransformedDistribution):
         super(TruncatedNormal, self).__init__(base_dist, AffineTransform(low, scale),
                                               validate_args=validate_args)
 
-    @property
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return self._support
 
@@ -1196,7 +1222,7 @@ class Uniform(TransformedDistribution):
         self._support = constraints.interval(low, high)
         super(Uniform, self).__init__(base_dist, AffineTransform(low, high - low), validate_args=validate_args)
 
-    @property
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return self._support
 

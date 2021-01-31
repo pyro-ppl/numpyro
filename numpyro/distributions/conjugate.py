@@ -67,7 +67,7 @@ class BetaBinomial(Distribution):
     def variance(self):
         return self._beta.variance * self.total_count * (self.concentration0 + self.concentration1 + self.total_count)
 
-    @property
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
@@ -125,9 +125,15 @@ class DirichletMultinomial(Distribution):
         alpha_ratio = alpha / alpha_sum
         return n * alpha_ratio * (1 - alpha_ratio) * (n + alpha_sum) / (1 + alpha_sum)
 
-    @property
+    @constraints.dependent_property(is_discrete=True, event_dim=1)
     def support(self):
         return constraints.multinomial(self.total_count)
+
+    @staticmethod
+    def infer_shapes(concentration, total_count=()):
+        batch_shape = lax.broadcast_shapes(concentration[:-1], total_count)
+        event_shape = concentration[-1:]
+        return batch_shape, event_shape
 
 
 class GammaPoisson(Distribution):
