@@ -14,13 +14,13 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.examples.datasets import _load_higgs
-from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, init_to_sample, init_to_median
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, init_to_median
 from numpyro.infer.hmc_gibbs import HMCECS, difference_estimator, variational_proxy, taylor_proxy
 from numpyro.infer.util import _predictive
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 
-numpyro.set_platform("cpu")
+numpyro.set_platform("gpu")
 
 
 def summary(dataset, name, mcmc, sample_time, svi_time=0., plates={}):
@@ -78,7 +78,7 @@ def guide(feature, obs, subsample_size):
     numpyro.sample('theta', dist.continuous.Normal(mean, .5))
 
 
-def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='taylor'):
+def hmcecs_model( dataset, data, obs, subsample_size, proxy_name='taylor'):
     model_args, model_kwargs = (data, obs, subsample_size), {}
 
     svi_key, proxy_key, estimator_key, mcmc_key = random.split(random.PRNGKey(0), 4)
@@ -118,7 +118,7 @@ def plain_log_reg_model(features, obs):
 
 
 def hmc(dataset, data, obs):
-    kernel = NUTS(plain_log_reg_model,trajectory_length=1.2, init_strategy=init_to_median)
+    kernel = NUTS(plain_log_reg_model, trajectory_length=1.2, init_strategy=init_to_median)
     mcmc = MCMC(kernel, 100, 100)
     mcmc._compile(random.PRNGKey(0), data, obs, extra_fields=("num_steps",))
     start = time()
