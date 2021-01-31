@@ -5,14 +5,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from flax import nn
-from flax.nn.activation import tanh
+from flax.nn.activation import relu, tanh
 from jax import random, vmap
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro import handlers
 from numpyro.contrib.module import random_flax_module
-from numpyro.infer import MCMC, NUTS, init_to_median
+from numpyro.infer import MCMC, NUTS, init_to_sample
 
 uci_base_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/'
 
@@ -57,7 +57,7 @@ def load_agw_1d(get_feats=False):
     def features(x):
         return np.hstack([x[:, None] / 2.0, (x[:, None] / 2.0) ** 2])
 
-    data = np.load(str(Path(__file__).parent / 'hmcecs' / 'data' / 'data.npy'))
+    data = np.load(str(Path(__file__).parent / 'data' / 'data.npy'))
     x, y = data[:, 0], data[:, 1]
     y = y[:, None]
     f = features(x)
@@ -87,31 +87,35 @@ def protein():
 
 class Network(nn.Module):
     def apply(self, x, out_channels):
-        l1 = tanh(nn.Dense(x, features=100))
-        l2 = tanh(nn.Dense(l1, features=100))
-        l3 = tanh(nn.Dense(l2, features=100))
-        means = nn.Dense(l3, features=out_channels)
+        l1 = relu(nn.Dense(x, features=100))
+        l2 = relu(nn.Dense(l1, features=100))
+        means = nn.Dense(l2, features=out_channels)
         return means
+
+
+def nonlin(x):
+    return tanh(x)
 
 
 def model(data, obs=None):
     module = Network.partial(out_channels=1)
-    net = random_flax_module('fnn', module, dist.Normal(0, 1.), input_shape=data.shape)
+
+    net = random_flax_module('fnn', module, dist.Normal(0, 2.), input_shape=data.shape[1])
 
     if obs is not None:
         obs = obs[..., None]
 
-    prec_obs = numpyro.sample("prec_obs", dist.Gamma(3.0, 1.0))
+    prec_obs = numpyro.sample("prec_obs", dist.Normal(110.4, .1))
     sigma_obs = 1.0 / jnp.sqrt(prec_obs)  # prior
 
     numpyro.sample('obs', dist.Normal(net(data), sigma_obs), obs=obs)
 
 
 def hmc(dataset, data, obs, warmup, num_sample):
-    kernel = NUTS(model, init_strategy=init_to_median)
+    kernel = NUTS(model, max_tree_depth=4, step_size=.0005, init_strategy=init_to_sample)
     mcmc = MCMC(kernel, warmup, num_sample)
-    mcmc._compile(random.PRNGKey(0), data, obs, extra_fields=("num_steps",))
-    mcmc.run(random.PRNGKey(0), data, obs, extra_fields=('num_steps',))
+    mcmc.run(random.PRNGKey(37), data, obs, extra_fields=('num_steps',))
+    print(mcmc.print_summary())
     return mcmc.get_samples()
 
 
@@ -125,8 +129,8 @@ def predict(model, rng_key, samples, *args, **kwargs):
 
 def main():
     data, obs = load_agw_1d()
-    warmup = 100
-    num_samples = 100
+    warmup = 20
+    num_samples = 10
     test_data = np.linspace(-2, 2, 500).reshape(-1, 1)
     samples = hmc('protein', data, obs, warmup, num_samples)
     vmap_args = (samples, random.split(random.PRNGKey(1), num_samples))
