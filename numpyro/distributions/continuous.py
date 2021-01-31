@@ -111,7 +111,7 @@ class Cauchy(Distribution):
 
 
 class Dirichlet(Distribution):
-    arg_constraints = {'concentration': constraints.positive}
+    arg_constraints = {'concentration': constraints.independent(constraints.positive, 1)}
     reparametrized_params = ['concentration']
     support = constraints.simplex
 

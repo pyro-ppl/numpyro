@@ -84,7 +84,7 @@ class DirichletMultinomial(Distribution):
         Dirichlet distribution.
     :param numpy.ndarray total_count: number of Categorical trials.
     """
-    arg_constraints = {'concentration': constraints.positive,
+    arg_constraints = {'concentration': constraints.independent(constraints.positive, 1),
                        'total_count': constraints.nonnegative_integer}
     is_discrete = True
 
