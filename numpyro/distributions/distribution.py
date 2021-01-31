@@ -36,10 +36,11 @@ import numpy as np
 from jax import lax, tree_util
 import jax.numpy as jnp
 
-import numpyro.distributions.constraints as constraints
 from numpyro.distributions.transforms import ComposeTransform, Transform
 from numpyro.distributions.util import lazy_property, promote_shapes, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
+
+from . import constraints
 
 _VALIDATION_ENABLED = False
 
