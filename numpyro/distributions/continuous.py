@@ -715,8 +715,6 @@ class MultivariateNormal(Distribution):
                  validate_args=None):
         if jnp.ndim(loc) == 0:
             loc, = promote_shapes(loc, shape=(1,))
-        # FIXME this expansion can lead to expensive gradient computation; for
-        # discussion see https://github.com/pytorch/pytorch/issues/43837
         # temporary append a new axis to loc
         loc = loc[..., jnp.newaxis]
         if covariance_matrix is not None:
@@ -854,8 +852,6 @@ class LowRankMultivariateNormal(Distribution):
         if jnp.shape(cov_diag)[-1:] != event_shape:
             raise ValueError("`cov_diag` must be a batch of vectors with shape {}".format(self.event_shape))
 
-        # FIXME this expansion can lead to expensive gradient computation; for
-        # discussion see https://github.com/pytorch/pytorch/issues/43837
         loc, cov_factor, cov_diag = promote_shapes(loc[..., jnp.newaxis], cov_factor, cov_diag[..., jnp.newaxis])
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(cov_factor), jnp.shape(cov_diag))[:-2]
         self.loc = loc[..., 0]

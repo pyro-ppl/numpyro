@@ -387,8 +387,6 @@ class OrderedLogistic(CategoricalProbs):
             predictor, = promote_shapes(predictor, shape=(1,))
         else:
             predictor = predictor[..., None]
-        # FIXME this expansion can lead to expensive gradient computation; for
-        # discussion see https://github.com/pytorch/pytorch/issues/43837
         predictor, self.cutpoints = promote_shapes(predictor, cutpoints)
         self.predictor = predictor[..., 0]
         cumulative_probs = expit(cutpoints - predictor)
