@@ -335,12 +335,12 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         assert_allclose(jax_dist.precision_matrix, jnp.linalg.inv(jax_dist.covariance_matrix), rtol=1e-6)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 @pytest.mark.parametrize('prepend_shape', [
     (),
     (2,),
     (2, 3),
-])
+], ids=str)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
     shapes = tuple(getattr(p, "shape", ()) for p in params)
     try:
