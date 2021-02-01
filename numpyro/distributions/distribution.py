@@ -378,7 +378,8 @@ class Distribution(metaclass=DistributionMeta):
         try:
             arg_names = cls._arg_names
         except AttributeError:
-            arg_names = cls._arg_names = inspect.getargspec(cls.__init__)[0][1:]
+            sig = inspect.signature(cls.__init__)
+            arg_names = cls._arg_names = tuple(sig.parameters)[1:]
         kwargs.update(zip(arg_names, args))
 
         # Assumes distribution is univariate.
