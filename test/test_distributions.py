@@ -334,15 +334,22 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         assert jax_dist.covariance_matrix.ndim == len(jax_dist.batch_shape) + 2
         assert_allclose(jax_dist.precision_matrix, jnp.linalg.inv(jax_dist.covariance_matrix), rtol=1e-6)
 
-    # Test static .infer_shapes() method.
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
+@pytest.mark.parametrize('prepend_shape', [
+    (),
+    (2,),
+    (2, 3),
+])
+def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
     shapes = tuple(getattr(p, "shape", ()) for p in params)
     try:
-        expected_batch_shape, expected_event_shape = type(jax_dist).infer_shapes(*shapes)
+        expected_batch_shape, expected_event_shape = jax_dist.infer_shapes(*shapes)
     except NotImplementedError:
-        pass
-    else:
-        assert jax_dist.batch_shape == expected_batch_shape
-        assert jax_dist.event_shape == expected_event_shape
+        pytest.skip(f'{jax_dist.__name__}.infer_shapes() is not implemented')
+    jax_dist = jax_dist(*params)
+    assert jax_dist.batch_shape == expected_batch_shape
+    assert jax_dist.event_shape == expected_event_shape
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)

@@ -1245,6 +1245,12 @@ class Uniform(TransformedDistribution):
             d._support = constraints.interval(*aux_data)
         return d
 
+    @staticmethod
+    def infer_shapes(low=(), high=()):
+        batch_shape = lax.broadcast_shapes(low, high)
+        event_shape = ()
+        return batch_shape, event_shape
+
 
 class Logistic(Distribution):
     arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}

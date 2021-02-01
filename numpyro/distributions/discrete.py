@@ -396,6 +396,12 @@ class OrderedLogistic(CategoricalProbs):
         probs = cumulative_probs[..., 1:] - cumulative_probs[..., :-1]
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
+    @staticmethod
+    def infer_shapes(predictor, cutpoints):
+        batch_shape = lax.broadcast_shapes(predictor, cutpoints[:-1])
+        event_shape = ()
+        return batch_shape, event_shape
+
 
 class PRNGIdentity(Distribution):
     """
