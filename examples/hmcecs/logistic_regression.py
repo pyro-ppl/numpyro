@@ -78,7 +78,7 @@ def guide(feature, obs, subsample_size):
     numpyro.sample('theta', dist.continuous.Normal(mean, .5))
 
 
-def hmcecs_model( dataset, data, obs, subsample_size, proxy_name='taylor'):
+def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='taylor'):
     model_args, model_kwargs = (data, obs, subsample_size), {}
 
     svi_key, proxy_key, estimator_key, mcmc_key = random.split(random.PRNGKey(0), 4)
@@ -95,15 +95,14 @@ def hmcecs_model( dataset, data, obs, subsample_size, proxy_name='taylor'):
         proxy_key, ref_key = random.split(proxy_key)
         ref_params = _predictive(ref_key, guide, {}, (1,), return_sites='', parallel=True,
                                  model_args=model_args, model_kwargs=model_kwargs)
-        proxy_fn = taylor_proxy(proxy_key, model, model_args, model_kwargs, ref_params)
+        ref_params.pop('mean')
+        proxy_fn = taylor_proxy(ref_params)
 
     else:
-        proxy_fn = variational_proxy(proxy_key, model, model_args, model_kwargs, guide, params)
-    estimator = perturbed_method(estimator_key, model, model_args, model_kwargs, proxy_fn)
+        proxy_fn = variational_proxy(guide, params)
 
     # Compute HMCECS
-
-    kernel = HMCECS(NUTS(model), proxy=estimator)
+    kernel = HMCECS(NUTS(model), proxy=proxy_fn)
     mcmc = MCMC(kernel, 1000, 1000)
     start = time()
     mcmc.run(random.PRNGKey(3), data, obs, subsample_size, extra_fields=("hmc_state.accept_prob",
@@ -128,7 +127,7 @@ def hmc(dataset, data, obs):
 
 if __name__ == '__main__':
 
-    load_data = {'higgs': higgs_data, 'breast': breast_cancer_data, 'copsac': copsac_data}
+    load_data = {'breast': breast_cancer_data, 'higgs': higgs_data, 'copsac': copsac_data}
     subsample_sizes = {'higgs': 1300, 'copsac': 1000, 'breast': 75, }
     data, obs = breast_cancer_data()
 
@@ -137,6 +136,6 @@ if __name__ == '__main__':
         if not os.path.exists(dir):
             os.mkdir(dir)
         data, obs = load_data[dataset]()
-        # hmcecs_model(dir, data, obs, subsample_sizes[dataset])
-        hmc(dir, data, obs)
+        hmcecs_model(dir, data, obs, subsample_sizes[dataset])
+        # hmc(dir, data, obs)
         exit()

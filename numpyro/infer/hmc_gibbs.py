@@ -491,7 +491,9 @@ class HMCECS(HMCGibbs):
 
     def __init__(self, inner_kernel, *, num_blocks=1, proxy=None, method='perturbed'):
         super().__init__(inner_kernel, lambda *args: None, None)
-        assert method in ['perturbed']
+
+        assert method in {'perturbed'}
+        self.inner_kernel._model = _wrap_gibbs_state(self.inner_kernel._model)
         self._num_blocks = num_blocks
         self._proxy = proxy
         self._method = method
@@ -519,11 +521,11 @@ class HMCECS(HMCGibbs):
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         if self._proxy is not None:
             rng_key, proxy_key, method_key = random.split(rng_key, 3)
-            proxy_fn, gibbs_init, gibbs_update = self._proxy(rng_key,
-                                                             self.model,
-                                                             model_args,
-                                                             model_kwargs,
-                                                             num_blocks=self._num_blocks)
+            proxy_fn, gibbs_init, self._gibbs_update = self._proxy(rng_key,
+                                                                   self.model,
+                                                                   model_args,
+                                                                   model_kwargs,
+                                                                   num_blocks=self._num_blocks)
             method = perturbed_method(method_key, self.model, model_args, model_kwargs, proxy_fn)
             self.inner_kernel._model = estimate_likelihood(self.inner_kernel._model, method)
 
@@ -542,9 +544,9 @@ class HMCECS(HMCGibbs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, rng_gibbs = random.split(state.rng_key)
 
-        def potential_fn(z_gibbs, z_hmc):
+        def potential_fn(z_gibbs, gibbs_state, z_hmc):
             return self.inner_kernel._potential_fn_gen(
-                *model_args, _gibbs_sites=z_gibbs, **model_kwargs)(z_hmc)
+                *model_args, _gibbs_sites=z_gibbs, _gibbs_state=gibbs_state, **model_kwargs)(z_hmc)
 
         z_gibbs = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
         z_gibbs_new, gibbs_state_new = self._gibbs_update(rng_key, z_gibbs, state.gibbs_state)
@@ -559,9 +561,9 @@ class HMCECS(HMCGibbs):
 
         # TODO (very low priority): move this to the above cond, only compute grad when accepting
         if self.inner_kernel._forward_mode_differentiation:
-            z_grad = jacfwd(partial(potential_fn, z_gibbs))(state.hmc_state.z)
+            z_grad = jacfwd(partial(potential_fn, z_gibbs, gibbs_state))(state.hmc_state.z)
         else:
-            z_grad = grad(partial(potential_fn, z_gibbs))(state.hmc_state.z)
+            z_grad = grad(partial(potential_fn, z_gibbs, gibbs_state))(state.hmc_state.z)
         hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
 
         model_kwargs["_gibbs_sites"] = z_gibbs
@@ -585,7 +587,7 @@ def perturbed_method(rng_key, model, model_args, model_kwargs, proxy_fn):
 
     def estimator(likelihoods, params, gibbs_state):
         subsample_log_liks = defaultdict(float)
-        for (fn, value, name, subsample_dim, subsample_idx) in likelihoods.values():
+        for (fn, value, name, subsample_dim) in likelihoods.values():
             subsample_log_liks[name] += _sum_all_except_at_dim(fn.log_prob(value), subsample_dim)
 
         log_lik_sum = 0.
@@ -629,12 +631,15 @@ def taylor_proxy(reference_params):
                         substitute(substitute_fn=partial(_unconstrain_reparam, params)):
                     model(*model_args, **model_kwargs)
 
-            log_lik = defaultdict(float)
+            log_lik = {}
             for site in tr.values():
                 if site["type"] == "sample" and site["is_observed"]:
                     for frame in site["cond_indep_stack"]:
-                        if frame.name in subsample_plate_sizes:
+                        if frame.name in log_lik:
                             log_lik[frame.name] += _sum_all_except_at_dim(
+                                site["fn"].log_prob(site["value"]), frame.dim)
+                        else:
+                            log_lik[frame.name] = _sum_all_except_at_dim(
                                 site["fn"].log_prob(site["value"]), frame.dim)
             return log_lik
 
