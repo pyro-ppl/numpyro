@@ -15,7 +15,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.examples.datasets import _load_higgs
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, init_to_median
-from numpyro.infer.hmc_gibbs import HMCECS, difference_estimator, variational_proxy, taylor_proxy
+from numpyro.infer.hmc_gibbs import HMCECS, perturbed_method, variational_proxy, taylor_proxy
 from numpyro.infer.util import _predictive
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
@@ -99,11 +99,11 @@ def hmcecs_model( dataset, data, obs, subsample_size, proxy_name='taylor'):
 
     else:
         proxy_fn = variational_proxy(proxy_key, model, model_args, model_kwargs, guide, params)
-    estimator = difference_estimator(estimator_key, model, model_args, model_kwargs, proxy_fn)
+    estimator = perturbed_method(estimator_key, model, model_args, model_kwargs, proxy_fn)
 
     # Compute HMCECS
 
-    kernel = HMCECS(NUTS(model), estimator=estimator)
+    kernel = HMCECS(NUTS(model), proxy=estimator)
     mcmc = MCMC(kernel, 1000, 1000)
     start = time()
     mcmc.run(random.PRNGKey(3), data, obs, subsample_size, extra_fields=("hmc_state.accept_prob",
