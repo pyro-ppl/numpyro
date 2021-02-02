@@ -335,6 +335,23 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         assert_allclose(jax_dist.precision_matrix, jnp.linalg.inv(jax_dist.covariance_matrix), rtol=1e-6)
 
 
+@pytest.mark.parametrize('prepend_shape', [
+    (),
+    (2,),
+    (2, 3),
+], ids=str)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
+def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
+    shapes = tuple(getattr(p, "shape", ()) for p in params)
+    try:
+        expected_batch_shape, expected_event_shape = jax_dist.infer_shapes(*shapes)
+    except NotImplementedError:
+        pytest.skip(f'{jax_dist.__name__}.infer_shapes() is not implemented')
+    jax_dist = jax_dist(*params)
+    assert jax_dist.batch_shape == expected_batch_shape
+    assert jax_dist.event_shape == expected_event_shape
+
+
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_has_rsample(jax_dist, sp_dist, params):
     jax_dist = jax_dist(*params)
