@@ -700,6 +700,7 @@ def taylor_proxy(reference_params):
                 for name, subsample_idx in gibbs_sites.items():
                     size, subsample_size = subsample_plate_sizes[name]
                     pad, new_idx, start = pads[name], new_idxs[name], starts[name]
+                    print(last_values, type(last_values))
                     new_value = jnp.pad(last_values[name], [(0, pad)] + [(0, 0)] * (jnp.ndim(last_values[name]) - 1))
                     new_value = lax.dynamic_update_slice_in_dim(
                         new_value, new_block_values[name], start, 0)
@@ -774,7 +775,8 @@ def variational_proxy(guide, guide_params, num_samples=10):
 
         def log_posterior(params):
             with numpyro.primitives.inner_stack():
-                posterior_prob, _ = log_density(guide_with_params, model_args, model_kwargs, params)
+                guide_kwargs = {k: v for k, v in model_kwargs.items() if k != '_gibbs_state'}
+                posterior_prob, _ = log_density(guide_with_params, model_args, guide_kwargs, params)
             return posterior_prob
 
         def log_prior(params):
@@ -801,17 +803,18 @@ def variational_proxy(guide, guide_params, num_samples=10):
                     for name, log_like in log_likelihood_ref.items()}
 
         def gibbs_init(rng_key, gibbs_sites):
-            return VariationalProxyState({name: weights[subsample] for name, subsample in gibbs_sites.items()})
+            return VariationalProxyState(
+                {name: weights[name][subsample_idx] for name, subsample_idx in gibbs_sites.items()})
 
         def gibbs_update(rng_key, gibbs_sites, gibbs_state):
             u_new, pads, new_idxs, starts = _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
 
             new_subsample_weights = {}
-            for name, subsample_weights in gibbs_sites.subsample_weights.items():
-                size, subsample_size = subsample_plate_sizes[name]  # TODO: fix doublication!
+            for name, subsample_weights in gibbs_state.subsample_weights.items():
+                size, subsample_size = subsample_plate_sizes[name]  # TODO: fix duplication!
                 pad, new_idx, start = pads[name], new_idxs[name], starts[name]
-                new_value = jnp.pad(subsample_weights[name],
-                                    [(0, pad)] + [(0, 0)] * (jnp.ndim(subsample_weights[name]) - 1))
+                new_value = jnp.pad(subsample_weights,
+                                    [(0, pad)] + [(0, 0)] * (jnp.ndim(subsample_weights) - 1))
                 new_value = lax.dynamic_update_slice_in_dim(new_value, weights[name][new_idx], start, 0)
                 new_subsample_weights[name] = new_value[:subsample_size]
             gibbs_state = VariationalProxyState(new_subsample_weights)
@@ -829,7 +832,7 @@ def variational_proxy(guide, guide_params, num_samples=10):
 
             for name in subsample_lik_sites:
                 proxy_sum[name] = evidence[name] + log_posterior_prob - log_prior_prob
-                proxy_subsample[name] = evidence[name] + gibbs_state.subsample_weights.sum() * (
+                proxy_subsample[name] = evidence[name] + gibbs_state.subsample_weights[name].sum() * (
                         log_posterior_prob - log_prior_prob)
             return proxy_sum, proxy_subsample
 
