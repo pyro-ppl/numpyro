@@ -78,7 +78,7 @@ def guide(feature, obs, subsample_size):
     numpyro.sample('theta', dist.continuous.Normal(mean, .5))
 
 
-def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='taylor'):
+def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='variational'):
     model_args, model_kwargs = (data, obs, subsample_size), {}
 
     svi_key, proxy_key, estimator_key, mcmc_key = random.split(random.PRNGKey(0), 4)

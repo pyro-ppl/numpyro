@@ -407,16 +407,41 @@ def _block_update(plate_sizes, num_blocks, rng_key, gibbs_sites, gibbs_state):
         block_size = (subsample_size - 1) // num_blocks + 1
         pad = block_size - (subsample_size - 1) % block_size - 1
 
-        # subsample_size = 7, num_blocks=3, block_size=3: 3 + 3 + 1
         chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
         new_idx = random.randint(subkey, minval=0, maxval=size, shape=(block_size,))
-        subsample_idx_padded = jnp.pad(subsample_idx, (0, pad))  # size = 9
+        subsample_idx_padded = jnp.pad(subsample_idx, (0, pad))
         start = chosen_block * block_size
         subsample_idx_padded = lax.dynamic_update_slice_in_dim(
             subsample_idx_padded, new_idx, start, 0)
 
-        u_new[name] = subsample_idx_padded[:subsample_size]  # size = 7
+        u_new[name] = subsample_idx_padded[:subsample_size]
     return u_new, gibbs_state
+
+
+def _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes):
+    u_new = {}
+    pads = {}
+    new_idxs = {}
+    starts = {}
+    for name, subsample_idx in gibbs_sites.items():
+        # TODO: merge with _block_update
+        size, subsample_size = subsample_plate_sizes[name]
+        rng_key, subkey, block_key = random.split(rng_key, 3)
+        block_size = (subsample_size - 1) // num_blocks + 1
+        pad = block_size - (subsample_size - 1) % block_size - 1
+
+        chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
+        new_idx = random.randint(subkey, minval=0, maxval=size, shape=(block_size,))
+        subsample_idx_padded = jnp.pad(subsample_idx, (0, pad))
+        start = chosen_block * block_size
+        subsample_idx_padded = lax.dynamic_update_slice_in_dim(
+            subsample_idx_padded, new_idx, start, 0)
+
+        u_new[name] = subsample_idx_padded[:subsample_size]
+        pads[name] = pad
+        new_idxs[name] = new_idx
+        starts[name] = start
+    return u_new, pads, new_idxs, starts
 
 
 HMCECSState = namedtuple("HMCECSState", "z, hmc_state, rng_key, gibbs_state, accept_prob")
@@ -658,29 +683,9 @@ def taylor_proxy(reference_params):
             return TaylorProxyState(ref_subsample_log_liks, ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians)
 
         def gibbs_update(rng_key, gibbs_sites, gibbs_state):
-            u_new = {}
-            pads = {}
-            new_idxs = {}
-            starts = {}
+            u_new, pads, new_idxs, starts = _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
+
             new_states = defaultdict(dict)
-            for name, subsample_idx in gibbs_sites.items():
-                size, subsample_size = subsample_plate_sizes[name]
-                rng_key, subkey, block_key = random.split(rng_key, 3)
-                block_size = (subsample_size - 1) // num_blocks + 1
-                pad = block_size - (subsample_size - 1) % block_size - 1
-
-                chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
-                new_idx = random.randint(subkey, minval=0, maxval=size, shape=(block_size,))
-                subsample_idx_padded = jnp.pad(subsample_idx, (0, pad))
-                start = chosen_block * block_size
-                subsample_idx_padded = lax.dynamic_update_slice_in_dim(
-                    subsample_idx_padded, new_idx, start, 0)
-
-                u_new[name] = subsample_idx_padded[:subsample_size]
-                pads[name] = pad
-                new_idxs[name] = new_idx
-                starts[name] = start
-
             ref_subsample_log_liks = log_likelihood(ref_params_flat, new_idxs)
             ref_subsample_log_lik_grads = jacfwd(log_likelihood)(ref_params_flat, new_idxs)
             ref_subsample_log_lik_hessians = jacfwd(jacfwd(log_likelihood))(ref_params_flat, new_idxs)
@@ -795,19 +800,40 @@ def variational_proxy(guide, guide_params, num_samples=10):
         evidence = {name: (log_posterior_prob - log_prior_prob - log_like.sum()) / num_samples
                     for name, log_like in log_likelihood_ref.items()}
 
-        def proxy_fn(params, subsample_indices, gibbs_state):
-            params = {**params, **subsample_indices}
+        def gibbs_init(rng_key, gibbs_sites):
+            return VariationalProxyState({name: weights[subsample] for name, subsample in gibbs_sites.items()})
+
+        def gibbs_update(rng_key, gibbs_sites, gibbs_state):
+            u_new, pads, new_idxs, starts = _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
+
+            new_subsample_weights = {}
+            for name, subsample_weights in gibbs_sites.subsample_weights.items():
+                size, subsample_size = subsample_plate_sizes[name]  # TODO: fix doublication!
+                pad, new_idx, start = pads[name], new_idxs[name], starts[name]
+                new_value = jnp.pad(subsample_weights[name],
+                                    [(0, pad)] + [(0, 0)] * (jnp.ndim(subsample_weights[name]) - 1))
+                new_value = lax.dynamic_update_slice_in_dim(new_value, weights[name][new_idx], start, 0)
+                new_subsample_weights[name] = new_value[:subsample_size]
+            gibbs_state = VariationalProxyState(new_subsample_weights)
+            return u_new, gibbs_state
+
+        dummy_subsample = {k: jnp.arange(v[1]) for k, v in subsample_plate_sizes.items()}
+
+        def proxy_fn(params, subsample_lik_sites, gibbs_state):
+
+            params = {**params, **dummy_subsample}
             proxy_sum = defaultdict(float)
             proxy_subsample = defaultdict(float)
             log_prior_prob = log_prior(params)
             log_posterior_prob = log_posterior(params)
-            for name, subsample_idx in subsample_indices.items():
+
+            for name in subsample_lik_sites:
                 proxy_sum[name] = evidence[name] + log_posterior_prob - log_prior_prob
-                proxy_subsample[name] = evidence[name] + \
-                                        weights[name][subsample_idx].sum() * (log_posterior_prob - log_prior_prob)
+                proxy_subsample[name] = evidence[name] + gibbs_state.subsample_weights.sum() * (
+                        log_posterior_prob - log_prior_prob)
             return proxy_sum, proxy_subsample
 
-        return proxy_fn
+        return proxy_fn, gibbs_init, gibbs_update
 
     return construct_proxy_fn
 
