@@ -460,7 +460,8 @@ def initialize_model(rng_key, model,
         init_strategy = _init_to_unconstrained_value(values=unconstrained_values)
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
     (init_params, pe, grad), is_valid = find_valid_initial_params(
-        rng_key, model,
+        rng_key, substitute(model, data={k: site["value"] for k, site in model_trace.items()
+                                         if site["type"] in ["plate"]}),
         init_strategy=init_strategy,
         enum=has_enumerate_support,
         model_args=model_args,

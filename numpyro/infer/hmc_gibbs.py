@@ -7,7 +7,7 @@ from collections import defaultdict, namedtuple
 from functools import partial
 
 import jax.numpy as jnp
-from jax import device_put, jacfwd, jacobian, grad, hessian, lax, ops, random, value_and_grad
+from jax import device_put, jacfwd, jacobian, grad, hessian, lax, ops, random, value_and_grad, vmap
 from jax.scipy.special import expit
 
 import numpyro
@@ -742,6 +742,8 @@ def _sum_all_except_at_dim(x, dim):
 
 def variational_proxy(guide, guide_params, num_samples=10):
     def construct_proxy_fn(rng_key, model, model_args, model_kwargs, num_blocks=1):
+        # TODO: assert that there is no auxiliary latent variable in the guide
+        model_kwargs = model_kwargs.copy()
         prototype_trace = trace(seed(model, rng_key)).get_trace(*model_args, **model_kwargs)
         subsample_plate_sizes = {
             name: site["args"]
@@ -775,30 +777,28 @@ def variational_proxy(guide, guide_params, num_samples=10):
 
         def log_posterior(params):
             with block():
-                guide_kwargs = {k: v for k, v in model_kwargs.items() if k != '_gibbs_state'}
-                posterior_prob, _ = log_density(guide_with_params, model_args, guide_kwargs, params)
+                posterior_prob, _ = log_density(guide_with_params, model_args, model_kwargs, params)
             return posterior_prob
 
         def log_prior(params):
-            with block():
-                prior_prob, _ = log_density(
-                    block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']), model_args,
-                    model_kwargs, params)
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=UserWarning)
+                dummy_subsample = {k: jnp.array([], dtype=jnp.int32) for k in subsample_plate_sizes}
+                with block(), substitute(data=dummy_subsample):
+                    prior_prob, _ = log_density(model, model_args, model_kwargs, params)
             return prior_prob
 
-        posterior_samples = _predictive(pos_key, guide_with_params, {}, (num_samples,), return_sites='', parallel=True,
-                                        model_args=model_args, model_kwargs=model_kwargs)
-        log_likelihood_ref = log_likelihood(posterior_samples)
-
-        posterior_samples = {**posterior_samples, **{k: jnp.arange(v[0]) for k, v in subsample_plate_sizes.items()}}
+        return_sites = [k for k, site in prototype_trace.items()
+                        if site["type"] == "sample" and not site["is_observed"]]
+        posterior_samples = _predictive(pos_key, guide_with_params, {}, (num_samples,), return_sites=return_sites,
+                                        parallel=True, model_args=model_args, model_kwargs=model_kwargs)
+        log_likelihood_ref = vmap(log_likelihood)(posterior_samples)
+        log_likelihood_ref = {k: v.sum(0) for k, v in log_likelihood_ref.items()}
 
         weights = {name: log_like / log_like.sum() for name, log_like in log_likelihood_ref.items()}
 
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', category=UserWarning)
-            log_prior_prob = log_prior(posterior_samples)
-            log_posterior_prob = log_posterior(posterior_samples)
-
+        log_prior_prob = vmap(log_prior)(posterior_samples).sum()
+        log_posterior_prob = vmap(log_posterior)(posterior_samples).sum()
         evidence = {name: (log_posterior_prob - log_prior_prob - log_like.sum()) / num_samples
                     for name, log_like in log_likelihood_ref.items()}
 
@@ -820,20 +820,20 @@ def variational_proxy(guide, guide_params, num_samples=10):
             gibbs_state = VariationalProxyState(new_subsample_weights)
             return u_new, gibbs_state
 
-        dummy_subsample = {k: jnp.arange(v[1]) for k, v in subsample_plate_sizes.items()}
-
         def proxy_fn(params, subsample_lik_sites, gibbs_state):
 
-            params = {**params, **dummy_subsample}
-            proxy_sum = defaultdict(float)
-            proxy_subsample = defaultdict(float)
+            proxy_sum = {}
+            proxy_subsample = {}
+            # TODO: convert params to constrained space
             log_prior_prob = log_prior(params)
             log_posterior_prob = log_posterior(params)
 
             for name in subsample_lik_sites:
                 proxy_sum[name] = log_posterior_prob - log_prior_prob - evidence[name]
-                proxy_subsample[name] = gibbs_state.subsample_weights[name].sum() * (
-                        log_posterior_prob - log_prior_prob) - evidence[name]
+                # FIXME: what is a correct formula?
+                # proxy_subsample[name] = gibbs_state.subsample_weights[name] * (
+                #     log_posterior_prob - log_prior_prob) - evidence[name]
+                proxy_subsample[name] = gibbs_state.subsample_weights[name] * proxy_sum[name]
             return proxy_sum, proxy_subsample
 
         return proxy_fn, gibbs_init, gibbs_update

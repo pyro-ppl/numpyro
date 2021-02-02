@@ -15,7 +15,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.examples.datasets import _load_higgs
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, init_to_median, init_to_value, HMC
-from numpyro.infer.hmc_gibbs import HMCECS, perturbed_method, variational_proxy, taylor_proxy
+from numpyro.infer.hmc_gibbs import HMCECS, variational_proxy, taylor_proxy
 from numpyro.infer.util import _predictive
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
@@ -89,6 +89,7 @@ def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='vari'):
     params = svi_result.params
 
     proxy_key, ref_key = random.split(proxy_key)
+    # FIXME should we substitute params to here; or even better using the optimized mean for taylor proxy?
     ref_params = _predictive(ref_key, guide, {}, (1,), return_sites='', parallel=True,
                              model_args=model_args, model_kwargs=model_kwargs)
     ref_params.pop('mean')
@@ -138,6 +139,7 @@ if __name__ == '__main__':
     subsample_sizes = {'higgs': 1300, 'breast': 75, }  # 'copsac': 1000,
     data, obs = breast_cancer_data()
 
+    # FIXME: can we change platform in a JAX program?
     for platform in ['gpu', 'cpu']:
         numpyro.set_platform(platform)
         for dataset in load_data.keys():
