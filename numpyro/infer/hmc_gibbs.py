@@ -445,8 +445,9 @@ def _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
 
 
 HMCECSState = namedtuple("HMCECSState", "z, hmc_state, rng_key, gibbs_state, accept_prob")
+# TODO: rename to shorter names?
 TaylorProxyState = namedtuple("TaylorProxyState", "ref_subsample_log_liks, "
-                                                  "ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians")  # TODO: rename to shorter names?
+                                                  "ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians")
 VariationalProxyState = namedtuple('VariationalProxyState', 'subsample_weights')
 BlockPoissonEstState = namedtuple("BlockPoissonEstState", "block_rng_keys, sign")
 
@@ -699,7 +700,7 @@ def taylor_proxy(reference_params):
                      gibbs_state.ref_subsample_log_lik_hessians]):
                 for name, subsample_idx in gibbs_sites.items():
                     size, subsample_size = subsample_plate_sizes[name]
-                    pad, new_idx, start = pads[name], new_idxs[name], starts[name]
+                    pad, start = pads[name], starts[name]
                     new_value = jnp.pad(last_values[name], [(0, pad)] + [(0, 0)] * (jnp.ndim(last_values[name]) - 1))
                     new_value = lax.dynamic_update_slice_in_dim(
                         new_value, new_block_values[name], start, 0)
@@ -718,15 +719,15 @@ def taylor_proxy(reference_params):
             proxy_sum = defaultdict(float)
             proxy_subsample = defaultdict(float)
             for name in subsample_lik_sites:
-                proxy_subsample[name] = ref_subsample_log_liks[name] + \
-                                        jnp.dot(ref_subsample_log_lik_grads[name], params_diff) + \
-                                        0.5 * jnp.dot(jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
-                                                      params_diff)
+                proxy_subsample[name] = (ref_subsample_log_liks[name] +
+                                         jnp.dot(ref_subsample_log_lik_grads[name], params_diff) +
+                                         0.5 * jnp.dot(jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
+                                                       params_diff))
 
-                proxy_sum[name] = ref_log_likelihoods_sum[name] + \
-                                  jnp.dot(ref_log_likelihood_grads_sum[name], params_diff) + \
-                                  0.5 * jnp.dot(jnp.dot(ref_log_likelihood_hessians_sum[name], params_diff),
-                                                params_diff)
+                proxy_sum[name] = (ref_log_likelihoods_sum[name] +
+                                   jnp.dot(ref_log_likelihood_grads_sum[name], params_diff) +
+                                   0.5 * jnp.dot(jnp.dot(ref_log_likelihood_hessians_sum[name], params_diff),
+                                                 params_diff))
             return proxy_sum, proxy_subsample
 
         return proxy_fn, gibbs_init, gibbs_update
