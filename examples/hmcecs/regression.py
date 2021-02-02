@@ -16,32 +16,30 @@ from numpyro.infer import MCMC, NUTS, init_to_sample
 
 uci_base_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/'
 
+numpyro.set_platform("gpu")
+
 
 def visualize(train_data, train_obs, test_data, predictions):
-    fs = 16
+    fs = 14
 
     m = predictions.mean(0)
-    s = predictions.std(0)
-    # s_al = (pred_list[200:].var(0).to('cpu') + tau_out ** -1) ** 0.5
+    percentiles = np.percentile(predictions, [2.5, 97.5], axis=0)
 
     f, ax = plt.subplots(1, 1, figsize=(8, 4))
 
     # Get upper and lower confidence bounds
-    lower, upper = (m - s * 2).flatten(), (m + s * 2).flatten()
-    # + aleotoric
-    # lower_al, upper_al = (m - s_al*2).flatten(), (m + s_al*2).flatten()
+    lower, upper = (percentiles[0, :]).flatten(), (percentiles[1, :]).flatten()
 
     # Plot training data as black stars
-    ax.plot(train_data, train_obs, 'k*', rasterized=True)
+    ax.plot(train_data, train_obs, 'x', marker='x', color='forestgreen', rasterized=True, label='Observed Data')
     # Plot predictive means as blue line
-    ax.plot(test_data, m, 'b', rasterized=True)
+    ax.plot(test_data, m, 'b', rasterized=True, label="Mean Prediction")
     # Shade between the lower and upper confidence bounds
-    ax.fill_between(test_data, lower, upper, alpha=0.5, rasterized=True)
-    # ax.fill_between(X_test.flatten().numpy(), lower_al.numpy(), upper_al.numpy(), alpha=0.2, rasterized=True)
-    ax.set_ylim([-2, 2])
+    ax.fill_between(test_data, lower, upper, alpha=0.5, rasterized=True, label='95% C.I.')
+    ax.set_ylim([-2.5, 2.5])
     ax.set_xlim([-2, 2])
     plt.grid()
-    ax.legend(['Observed Data', 'Mean', 'Epistemic'], fontsize=fs)
+    ax.legend(fontsize=fs)
     ax.tick_params(axis='both', which='major', labelsize=14)
     ax.tick_params(axis='both', which='minor', labelsize=14)
 
@@ -87,8 +85,8 @@ def protein():
 
 class Network(nn.Module):
     def apply(self, x, out_channels):
-        l1 = relu(nn.Dense(x, features=100))
-        l2 = relu(nn.Dense(l1, features=100))
+        l1 = tanh(nn.Dense(x, features=100))
+        l2 = tanh(nn.Dense(l1, features=100))
         means = nn.Dense(l2, features=out_channels)
         return means
 
@@ -100,22 +98,19 @@ def nonlin(x):
 def model(data, obs=None):
     module = Network.partial(out_channels=1)
 
-    net = random_flax_module('fnn', module, dist.Normal(0, 2.), input_shape=data.shape[1])
+    net = random_flax_module('fnn', module, dist.Normal(0, 1.), input_shape=data.shape[1])
 
-    if obs is not None:
-        obs = obs[..., None]
-
-    prec_obs = numpyro.sample("prec_obs", dist.Normal(110.4, .1))
+    prec_obs = numpyro.sample("prec_obs", dist.LogNormal(jnp.log(110.4), .0001))
     sigma_obs = 1.0 / jnp.sqrt(prec_obs)  # prior
 
     numpyro.sample('obs', dist.Normal(net(data), sigma_obs), obs=obs)
 
 
 def hmc(dataset, data, obs, warmup, num_sample):
-    kernel = NUTS(model, max_tree_depth=4, step_size=.0005, init_strategy=init_to_sample)
+    kernel = NUTS(model, max_tree_depth=5, step_size=.0005, init_strategy=init_to_sample)
     mcmc = MCMC(kernel, warmup, num_sample)
     mcmc.run(random.PRNGKey(37), data, obs, extra_fields=('num_steps',))
-    print(mcmc.print_summary())
+    mcmc.print_summary()
     return mcmc.get_samples()
 
 
@@ -129,8 +124,8 @@ def predict(model, rng_key, samples, *args, **kwargs):
 
 def main():
     data, obs = load_agw_1d()
-    warmup = 20
-    num_samples = 10
+    warmup = 200
+    num_samples = 1000
     test_data = np.linspace(-2, 2, 500).reshape(-1, 1)
     samples = hmc('protein', data, obs, warmup, num_samples)
     vmap_args = (samples, random.split(random.PRNGKey(1), num_samples))
