@@ -87,8 +87,8 @@ def protein():
 
 class Network(nn.Module):
     def apply(self, x, out_channels):
-        l1 = relu(nn.Dense(x, features=100))
-        l2 = relu(nn.Dense(l1, features=100))
+        l1 = tanh(nn.Dense(x, features=100))
+        l2 = tanh(nn.Dense(l1, features=100))
         means = nn.Dense(l2, features=out_channels)
         return means
 
@@ -100,19 +100,16 @@ def nonlin(x):
 def model(data, obs=None):
     module = Network.partial(out_channels=1)
 
-    net = random_flax_module('fnn', module, dist.Normal(0, 2.), input_shape=data.shape[1])
+    net = random_flax_module('fnn', module, dist.Normal(0, 1.), input_shape=data.shape[1])
 
-    if obs is not None:
-        obs = obs[..., None]
-
-    prec_obs = numpyro.sample("prec_obs", dist.Normal(110.4, .1))
+    prec_obs = numpyro.sample("prec_obs", dist.LogNormal(jnp.log(110.4), .0001))
     sigma_obs = 1.0 / jnp.sqrt(prec_obs)  # prior
 
-    numpyro.sample('obs', dist.Normal(net(data), sigma_obs), obs=obs)
+    numpyro.sample('obs', dist.Normal(net(data), 1 / jnp.sqrt(110.4)), obs=obs)
 
 
 def hmc(dataset, data, obs, warmup, num_sample):
-    kernel = NUTS(model, max_tree_depth=4, step_size=.0005, init_strategy=init_to_sample)
+    kernel = NUTS(model, max_tree_depth=5, step_size=.0005, init_strategy=init_to_sample)
     mcmc = MCMC(kernel, warmup, num_sample)
     mcmc.run(random.PRNGKey(37), data, obs, extra_fields=('num_steps',))
     print(mcmc.print_summary())
@@ -129,8 +126,8 @@ def predict(model, rng_key, samples, *args, **kwargs):
 
 def main():
     data, obs = load_agw_1d()
-    warmup = 20
-    num_samples = 10
+    warmup = 200
+    num_samples = 1000
     test_data = np.linspace(-2, 2, 500).reshape(-1, 1)
     samples = hmc('protein', data, obs, warmup, num_samples)
     vmap_args = (samples, random.split(random.PRNGKey(1), num_samples))
