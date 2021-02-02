@@ -26,6 +26,7 @@ def inner_stack():
     yield
     _PYRO_STACK = current_stack
 
+
 def apply_stack(msg):
     pointer = 0
     for pointer, handler in enumerate(reversed(_PYRO_STACK)):
@@ -251,7 +252,7 @@ def _subsample_fn(size, subsample_size, rng_key=None):
             i_p1 = size - idx
             i = i_p1 - 1
             j = random.randint(rng_keys[idx], (), 0, i_p1)
-            val = ops.index_update(val, ops.index[[i, j], ], val[ops.index[[j, i], ]])
+            val = ops.index_update(val, ops.index[[i, j],], val[ops.index[[j, i],]])
             return val, None
 
         val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))
@@ -316,7 +317,7 @@ class plate(Messenger):
         if subsample_size is not None and subsample_size != subsample.shape[0]:
             warnings.warn("subsample_size does not match len(subsample), {} vs {}.".format(
                 subsample_size, len(subsample)) +
-                             " Did you accidentally use different subsample_size in the model and guide?")
+                          " Did you accidentally use different subsample_size in the model and guide?")
         cond_indep_stack = msg['cond_indep_stack']
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
@@ -382,7 +383,7 @@ class plate(Messenger):
                         raise ValueError(
                             "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
                                 .format(self.name, self.size, self.dim, statement, shape))
-                    if self.subsample_size < self.size:
+                    elif self.subsample_size < self.size:
                         value = msg["value"]
                         new_value = jnp.take(value, self._indices, dim)
                         msg["value"] = new_value

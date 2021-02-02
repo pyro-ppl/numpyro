@@ -700,7 +700,6 @@ def taylor_proxy(reference_params):
                 for name, subsample_idx in gibbs_sites.items():
                     size, subsample_size = subsample_plate_sizes[name]
                     pad, new_idx, start = pads[name], new_idxs[name], starts[name]
-                    print(last_values, type(last_values))
                     new_value = jnp.pad(last_values[name], [(0, pad)] + [(0, 0)] * (jnp.ndim(last_values[name]) - 1))
                     new_value = lax.dynamic_update_slice_in_dim(
                         new_value, new_block_values[name], start, 0)
@@ -774,16 +773,16 @@ def variational_proxy(guide, guide_params, num_samples=10):
             return log_lik
 
         def log_posterior(params):
-            with numpyro.primitives.inner_stack():
+            with block():
                 guide_kwargs = {k: v for k, v in model_kwargs.items() if k != '_gibbs_state'}
                 posterior_prob, _ = log_density(guide_with_params, model_args, guide_kwargs, params)
             return posterior_prob
 
         def log_prior(params):
-            with numpyro.primitives.inner_stack():
+            with block():
                 prior_prob, _ = log_density(
-                    block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']),
-                    model_args, model_kwargs, params)
+                    block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']), model_args,
+                    model_kwargs, params)
             return prior_prob
 
         posterior_samples = _predictive(pos_key, guide_with_params, {}, (num_samples,), return_sites='', parallel=True,
@@ -831,9 +830,9 @@ def variational_proxy(guide, guide_params, num_samples=10):
             log_posterior_prob = log_posterior(params)
 
             for name in subsample_lik_sites:
-                proxy_sum[name] = evidence[name] + log_posterior_prob - log_prior_prob
-                proxy_subsample[name] = evidence[name] + gibbs_state.subsample_weights[name].sum() * (
-                        log_posterior_prob - log_prior_prob)
+                proxy_sum[name] = log_posterior_prob - log_prior_prob - evidence[name]
+                proxy_subsample[name] = gibbs_state.subsample_weights[name].sum() * (
+                        log_posterior_prob - log_prior_prob) - evidence[name]
             return proxy_sum, proxy_subsample
 
         return proxy_fn, gibbs_init, gibbs_update
