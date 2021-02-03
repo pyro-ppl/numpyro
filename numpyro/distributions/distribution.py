@@ -894,8 +894,8 @@ class TransformedDistribution(Distribution):
 
 
 class Delta(Distribution):
-    # FIXME v and log_density should be constraints.independent(constraints.real, ???)
-    arg_constraints = {'v': constraints.real, 'log_density': constraints.real}
+    arg_constraints = {'v': constraints.dependent(is_discrete=False),
+                       'log_density': constraints.real}
     reparameterized_params = ['v', 'log_density']
     is_discrete = True
 
