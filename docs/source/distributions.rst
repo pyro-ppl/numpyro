@@ -538,6 +538,10 @@ simplex
 -------
 .. autodata:: numpyro.distributions.constraints.simplex
 
+sphere
+------
+.. autodata:: numpyro.distributions.constraints.sphere
+
 unit_interval
 -------------
 .. autodata:: numpyro.distributions.constraints.unit_interval

@@ -268,6 +268,9 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return x - random.normal(key, size[:-1])
     elif isinstance(constraint, constraints.independent):
         return gen_values_within_bounds(constraint.base_constraint, size, key)
+    elif constraint is constraints.sphere:
+        x = random.normal(key, size)
+        return x / jnp.linalg.norm(x, axis=-1)
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -309,6 +312,10 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return x[..., ::-1]
     elif isinstance(constraint, constraints.independent):
         return gen_values_outside_bounds(constraint.base_constraint, size, key)
+    elif constraint is constraints.sphere:
+        x = random.normal(key, size)
+        x = x / jnp.linalg.norm(x, axis=-1)
+        return 2 * x
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -927,6 +934,8 @@ def test_categorical_log_prob_grad():
     (constraints.unit_interval, 0.1, True),
     (constraints.unit_interval, jnp.array([-5, 0, 0.5, 1, 7]),
      jnp.array([False, True, True, True, False])),
+    (constraints.sphere, jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
+     jnp.arrray([True, False])),
 ])
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)

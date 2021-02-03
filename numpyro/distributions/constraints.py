@@ -353,7 +353,25 @@ class _Simplex(Constraint):
         return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
+class _Sphere(Constraint):
+    """
+    Constrain to the Euclidean sphere of any dimension.
+    """
+    reltol = 10.  # Relative to finfo.eps.
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        eps = jnp.finfo(x.dtype).eps
+        norm = jnp.linalg.norm(x, axis=-1)
+        error = jnp.abs(norm - 1)
+        return error < self.reltol * eps * x.shape[-1] ** 0.5
+
+    def feasible_like(self, prototype):
+        return jax.numpy.full_like(prototype, prototype.shape[-1] ** (-0.5))
+
+
 # TODO: Make types consistent
+# See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
 corr_cholesky = _CorrCholesky()
@@ -375,4 +393,5 @@ positive_integer = _IntegerGreaterThan(1)
 real = _Real()
 real_vector = independent(real, 1)
 simplex = _Simplex()
+sphere = _Sphere()
 unit_interval = _Interval(0., 1.)
