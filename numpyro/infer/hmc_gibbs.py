@@ -802,14 +802,12 @@ def variational_proxy(guide, guide_params, num_particles=10):
         log_posterior_prob = vmap(log_posterior)(posterior_samples)
 
         # softmax(E_{z~Q}[l(x_i,z)])
-        weights = {name: jax.nn.softmax(jnp.exp(log_posterior_prob / num_particles) @ log_like / num_particles) for
-                   name, log_like in
+        weights = {name: jax.nn.softmax(log_like.sum(0) / num_particles) for name, log_like in
                    log_likelihood_ref.items()}
 
         # ELBO = exp(log(Q(z)) @ (log(L(z)) + log(pi(z)) - log(Q(z)))
         elbo = {
-            name: jnp.exp(log_posterior_prob / num_particles) @ (
-                        log_prior_prob + log_like.sum(1) - log_posterior_prob) / num_particles
+            name: jnp.exp(log_posterior_prob/num_particles) @ (log_prior_prob + log_like.sum(1) - log_posterior_prob) / num_particles
             for name, log_like in log_likelihood_ref.items()}
 
         def gibbs_init(rng_key, gibbs_sites):
