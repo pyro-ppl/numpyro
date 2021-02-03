@@ -1,3 +1,4 @@
+import argparse
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -12,14 +13,41 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro import handlers
 from numpyro.contrib.module import random_flax_module
-from numpyro.infer import MCMC, NUTS, init_to_sample
+
+from numpyro.infer import MCMC, NUTS, init_to_sample, HMC
+import time
+
+import matplotlib.pyplot as plt
+
+from jax import random
+import jax.numpy as jnp
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.distributions import constraints
+from numpyro.examples.datasets import COVTYPE, load_dataset
+from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, init_to_value
+from numpyro.infer.autoguide import AutoBNAFNormal, AutoNormal
+from numpyro.infer.hmc_gibbs import taylor_proxy, variational_proxy
+from numpyro.infer.reparam import NeuTraReparam
 
 uci_base_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/'
 
-numpyro.set_platform("gpu")
+numpyro.set_platform("cpu")
 
 
-def visualize(train_data, train_obs, test_data, predictions):
+def visualize(alg, train_data, train_obs, samples, num_samples):
+    # helper function for prediction
+    def predict(model, rng_key, samples, *args, **kwargs):
+        model = handlers.substitute(handlers.seed(model, rng_key), samples)
+        # note that Y will be sampled in the model because we pass Y=None here
+        model_trace = handlers.trace(model).get_trace(*args, **kwargs)
+        return model_trace['obs']['value']
+
+    test_data = np.linspace(-2, 2, 500).reshape(-1, 1)
+    vmap_args = (samples, random.split(random.PRNGKey(1), num_samples))
+    predictions = vmap(lambda samples, rng_key: predict(model, rng_key, samples, test_data))(*vmap_args)
+    predictions = predictions[..., 0]
     fs = 14
 
     m = predictions.mean(0)
@@ -43,10 +71,8 @@ def visualize(train_data, train_obs, test_data, predictions):
     ax.tick_params(axis='both', which='major', labelsize=14)
     ax.tick_params(axis='both', which='minor', labelsize=14)
 
-    bbox = {'facecolor': 'white', 'alpha': 0.8, 'pad': 1, 'boxstyle': 'round', 'edgecolor': 'black'}
-
     plt.tight_layout()
-    # plt.savefig('plots/full_hmc.pdf', rasterized=True)
+    plt.savefig(f'plots/regression_{alg}.pdf', rasterized=True)
 
     plt.show()
 
@@ -74,15 +100,6 @@ def load_agw_1d(get_feats=False):
     return X[:, None], Y
 
 
-def protein():
-    # from hughsalimbeni/bayesian_benchmarks
-    # N, D, name = 45730, 9, 'protein'
-    url = uci_base_url + '00265/CASP.csv'
-
-    data = pd.read_csv(url).values
-    return data[:, 1:], data[:, 0].reshape(-1, 1)
-
-
 class Network(nn.Module):
     def apply(self, x, out_channels):
         l1 = tanh(nn.Dense(x, features=100))
@@ -95,44 +112,87 @@ def nonlin(x):
     return tanh(x)
 
 
-def model(data, obs=None):
+def model(data, obs=None, subsample_size=None):
     module = Network.partial(out_channels=1)
-
     net = random_flax_module('fnn', module, dist.Normal(0, 1.), input_shape=data.shape[1])
 
     prec_obs = numpyro.sample("prec_obs", dist.LogNormal(jnp.log(110.4), .0001))
     sigma_obs = 1.0 / jnp.sqrt(prec_obs)  # prior
 
-    numpyro.sample('obs', dist.Normal(net(data), sigma_obs), obs=obs)
+    with numpyro.plate('N', data.shape[0], subsample_size=subsample_size) as idx:
+        numpyro.sample('obs', dist.Normal(net(data[idx]), sigma_obs), obs=obs[idx])
 
 
-def hmc(dataset, data, obs, warmup, num_sample):
-    kernel = NUTS(model, max_tree_depth=5, step_size=.0005, init_strategy=init_to_sample)
-    mcmc = MCMC(kernel, warmup, num_sample)
-    mcmc.run(random.PRNGKey(37), data, obs, extra_fields=('num_steps',))
-    mcmc.print_summary()
+def benchmark_hmc(args, features, labels):
+    features = jnp.array(features)
+    labels = jnp.array(labels)
+    start = time.time()
+    rng_key, ref_key = random.split(random.PRNGKey(1))
+    subsample_size = 40
+    guide = AutoNormal(model)
+    svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+    params, losses = svi.run(random.PRNGKey(2), 2000, features, labels, subsample_size)
+    plt.plot(losses)
+    plt.show()
+    ref_params = svi.guide.sample_posterior(ref_key, params, (1,))
+    print(ref_params)
+    if args.alg == "HMC":
+        step_size = jnp.sqrt(0.5 / features.shape[0])
+        trajectory_length = step_size * args.num_steps
+        kernel = HMC(model, step_size=step_size, trajectory_length=trajectory_length, adapt_step_size=False,
+                     dense_mass=args.dense_mass)
+        subsample_size = None
+    elif args.alg == "NUTS":
+        kernel = NUTS(model, dense_mass=args.dense_mass)
+        subsample_size = None
+    elif args.alg == "HMCECS":
+        subsample_size = 40
+        inner_kernel = NUTS(model, init_strategy=init_to_value(values=ref_params),
+                            dense_mass=args.dense_mass)
+        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=taylor_proxy(ref_params))
+    elif args.alg == 'HMCVECS':
+        subsample_size = 40
+        guide = AutoNormal(model)
+        svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
+        params, losses = svi.run(random.PRNGKey(2), 2000, features, labels, subsample_size)
+        plt.plot(losses)
+        plt.show()
+
+        inner_kernel = NUTS(model, init_strategy=init_to_value(values=ref_params),
+                            dense_mass=args.dense_mass)
+        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=variational_proxy(guide, params, num_particles=100))
+    else:
+        raise ValueError('Alg not in HMC, NUTS, HMCECS, or HMCVECS.')
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
+    mcmc.run(rng_key, features, labels, subsample_size, extra_fields=("accept_prob",))
+    print("Mean accept prob:", jnp.mean(mcmc.get_extra_fields()["accept_prob"]))
+    mcmc.print_summary(exclude_deterministic=False)
+    print('\nMCMC elapsed time:', time.time() - start)
     return mcmc.get_samples()
 
 
-# helper function for prediction
-def predict(model, rng_key, samples, *args, **kwargs):
-    model = handlers.substitute(handlers.seed(model, rng_key), samples)
-    # note that Y will be sampled in the model because we pass Y=None here
-    model_trace = handlers.trace(model).get_trace(*args, **kwargs)
-    return model_trace['obs']['value']
-
-
-def main():
+def main(args):
     data, obs = load_agw_1d()
-    warmup = 200
-    num_samples = 1000
-    test_data = np.linspace(-2, 2, 500).reshape(-1, 1)
-    samples = hmc('protein', data, obs, warmup, num_samples)
-    vmap_args = (samples, random.split(random.PRNGKey(1), num_samples))
-    predictions = vmap(lambda samples, rng_key: predict(model, rng_key, samples, test_data))(*vmap_args)
-    predictions = predictions[..., 0]
-    visualize(data, obs, np.squeeze(test_data), predictions)
+    samples = benchmark_hmc(args, data, obs)
+    visualize(args.alg, data, obs, samples, args.num_samples)
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description="parse args")
+    parser.add_argument('-n', '--num-samples', default=1000, type=int, help='number of samples')
+    parser.add_argument('--num-warmup', default=200, type=int, help='number of warmup steps')
+    parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
+    parser.add_argument('--num-chains', nargs='?', default=1, type=int)
+    parser.add_argument('--alg', default='NUTS', type=str,
+                        help='whether to run "HMCVECS", "HMC", "NUTS", or "HMCECS"')
+    parser.add_argument('--dense-mass', action="store_true")
+    parser.add_argument('--x64', action="store_true")
+    parser.add_argument('--device', default='gpu', type=str, help='use "cpu" or "gpu".')
+    args = parser.parse_args()
+
+    numpyro.set_platform(args.device)
+    numpyro.set_host_device_count(args.num_chains)
+    if args.x64:
+        numpyro.enable_x64()
+
+    main(args)

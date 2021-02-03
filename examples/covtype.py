@@ -11,9 +11,10 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions import constraints
 from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, init_to_value
-from numpyro.infer.autoguide import AutoBNAFNormal, AutoNormal
+from numpyro.infer.autoguide import AutoBNAFNormal, AutoNormal, AutoDiagonalNormal
 from numpyro.infer.hmc_gibbs import taylor_proxy, variational_proxy
 from numpyro.infer.reparam import NeuTraReparam
 
@@ -129,11 +130,11 @@ if __name__ == '__main__':
     parser.add_argument('--num-warmup', default=1000, type=int, help='number of warmup steps')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--num-chains', nargs='?', default=1, type=int)
-    parser.add_argument('--algo', default='HMCECS', type=str,
-                        help='whether to run "HMC", "NUTS", "HMCECS", or "FlowHMCECS"')
+    parser.add_argument('--algo', default='HMCVECS', type=str,
+                        help='whether to run "HMCECS", "NUTS", "HMCECS", or "FlowHMCECS"')
     parser.add_argument('--dense-mass', action="store_true")
     parser.add_argument('--x64', action="store_true")
-    parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument('--device', default='gpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

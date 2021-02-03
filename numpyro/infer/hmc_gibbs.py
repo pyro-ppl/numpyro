@@ -777,8 +777,11 @@ def variational_proxy(guide, guide_params, num_particles=10):
             return log_lik
 
         def log_posterior(params):
-            with block():
-                posterior_prob, _ = log_density(guide_with_params, model_args, model_kwargs, params)
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', category=UserWarning)
+                dummy_subsample = {k: jnp.array([], dtype=jnp.int32) for k in subsample_plate_sizes}
+                with block(), substitute(data=dummy_subsample):
+                    posterior_prob, _ = log_density(guide_with_params, model_args, model_kwargs, params)
             return posterior_prob
 
         def log_prior(params):
@@ -799,12 +802,14 @@ def variational_proxy(guide, guide_params, num_particles=10):
         log_posterior_prob = vmap(log_posterior)(posterior_samples)
 
         # softmax(E_{z~Q}[l(x_i,z)])
-        weights = {name: jax.nn.softmax(jnp.exp(log_posterior_prob) @ log_like / num_particles) for name, log_like in
+        weights = {name: jax.nn.softmax(jnp.exp(log_posterior_prob / num_particles) @ log_like / num_particles) for
+                   name, log_like in
                    log_likelihood_ref.items()}
 
         # ELBO = exp(log(Q(z)) @ (log(L(z)) + log(pi(z)) - log(Q(z)))
         elbo = {
-            name: jnp.exp(log_posterior_prob) @ (log_prior_prob + log_like.sum(1) - log_posterior_prob) / num_particles
+            name: jnp.exp(log_posterior_prob / num_particles) @ (
+                        log_prior_prob + log_like.sum(1) - log_posterior_prob) / num_particles
             for name, log_like in log_likelihood_ref.items()}
 
         def gibbs_init(rng_key, gibbs_sites):

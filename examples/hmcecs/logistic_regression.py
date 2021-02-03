@@ -14,9 +14,10 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.examples.datasets import _load_higgs
-from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, init_to_median, init_to_value, HMC
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, init_to_median, init_to_value, HMC, autoguide
 from numpyro.infer.hmc_gibbs import HMCECS, variational_proxy, taylor_proxy
 from numpyro.infer.util import _predictive
+import matplotlib.pyplot as plt
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 
@@ -83,19 +84,24 @@ def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='vari'):
 
     svi_key, proxy_key, estimator_key, mcmc_key = random.split(random.PRNGKey(0), 4)
     optimizer = numpyro.optim.Adam(step_size=5e-5)
+    guide = autoguide.AutoNormal(model)
     svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
     start = time()
-    svi_result = svi.run(svi_key, 10000, *model_args)
+    params, losses = svi.run(svi_key, 10000, *model_args)
     svi_time = time() - start
+    plt.plot(losses)
+    plt.show()
 
-    pickle.dump(svi_result.params, open(f'{dataset}/svi_params.pkl', 'wb'))
-    params = svi_result.params
+    pickle.dump(params, open(f'{dataset}/svi_params.pkl', 'wb'))
+    params = params
 
     proxy_key, ref_key = random.split(proxy_key)
     # FIXME should we substitute params to here; or even better using the optimized mean for taylor proxy?
     ref_params = _predictive(ref_key, guide, {}, (1,), return_sites='', parallel=True,
                              model_args=model_args, model_kwargs=model_kwargs)
-    ref_params.pop('mean')
+
+    ref_params = {k: v for k, v in ref_params.items() if k in ['theta']}
+
     if proxy_name == 'taylor':
         proxy_fn = taylor_proxy(ref_params)
 
@@ -108,6 +114,7 @@ def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='vari'):
     start = time()
     mcmc.run(random.PRNGKey(3), data, obs, subsample_size, extra_fields=("accept_prob",
                                                                          "hmc_state.num_steps"))
+    mcmc.print_summary()
     summary(dataset, f'ecs_{proxy_name}', mcmc, time() - start, svi_time=svi_time, plates={'N': ''})
     return ref_params
 
@@ -138,7 +145,7 @@ def hmc(dataset, data, obs, ref_param):
 
 if __name__ == '__main__':
 
-    load_data = { 'breast': breast_cancer_data} #,'higgs': higgs_data}  , 'copsac': copsac_data}
+    load_data = {'breast': breast_cancer_data}  # ,'higgs': higgs_data}  , 'copsac': copsac_data}
     subsample_sizes = {'higgs': 1300, 'breast': 75, }  # 'copsac': 1000,
     data, obs = breast_cancer_data()
 
