@@ -834,7 +834,10 @@ def variational_proxy(guide, guide_params, num_particles=10):
             log_posterior_prob = log_posterior(params)
 
             for name in subsample_lik_sites:
-                proxy_sum[name] = log_posterior_prob - log_prior_prob - elbo[name]
+                # Q(z) = L(z)pi(z)/p(x) => L(z) = p(x)/Q(z)pi(z) >= exp(elbo)/Q(z)pi(z) =>
+                # log(L(z)) = elbo - Q(z) - pi(z)
+                proxy_sum[name] = elbo[name] - log_posterior_prob - log_prior_prob
+
                 # w_i = exp(E_{z~Q}[l(w_i, z)]) / sum_j^n exp(E_{z~Q}[l(w_j, z)])
                 proxy_subsample[name] = gibbs_state.subsample_weights[name] * proxy_sum[name]
             return proxy_sum, proxy_subsample
