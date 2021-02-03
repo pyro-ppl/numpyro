@@ -20,6 +20,9 @@ from numpyro.infer.util import _predictive
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 
+platform = 'gpu'
+numpyro.set_platform(platform)
+
 
 def summary(dataset, name, mcmc, sample_time, svi_time=0., plates={}):
     n_eff_mean = np.mean([numpyro.diagnostics.effective_sample_size(device_get(v))
@@ -82,7 +85,7 @@ def hmcecs_model(dataset, data, obs, subsample_size, proxy_name='vari'):
     optimizer = numpyro.optim.Adam(step_size=5e-5)
     svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
     start = time()
-    svi_result = svi.run(svi_key, 1000, *model_args)
+    svi_result = svi.run(svi_key, 10000, *model_args)
     svi_time = time() - start
 
     pickle.dump(svi_result.params, open(f'{dataset}/svi_params.pkl', 'wb'))
@@ -135,19 +138,18 @@ def hmc(dataset, data, obs, ref_param):
 
 if __name__ == '__main__':
 
-    load_data = {'higgs': higgs_data}  # 'breast': breast_cancer_data  , 'copsac': copsac_data}
+    load_data = { 'breast': breast_cancer_data} #,'higgs': higgs_data}  , 'copsac': copsac_data}
     subsample_sizes = {'higgs': 1300, 'breast': 75, }  # 'copsac': 1000,
     data, obs = breast_cancer_data()
 
     # FIXME: can we change platform in a JAX program?
-    for platform in ['gpu', 'cpu']:
-        numpyro.set_platform(platform)
-        for dataset in load_data.keys():
-            dir = f'{platform}_{dataset}_{datetime.now().strftime("%Y_%m_%d_%H%M%S")}'
-            if not os.path.exists(dir):
-                os.mkdir(dir)
-            data, obs = load_data[dataset]()
-            ref_param = hmcecs_model(dir, data, obs, subsample_sizes[dataset], proxy_name='taylor')
-            ref_param = hmcecs_model(dir, data, obs, subsample_sizes[dataset], proxy_name='variational')
-            hmc(dir, data, obs, ref_param)
-            nuts(dir, data, obs, ref_param)
+    for dataset in load_data.keys():
+        dir = f'{platform}_{dataset}_{datetime.now().strftime("%Y_%m_%d_%H%M%S")}'
+        if not os.path.exists(dir):
+            os.mkdir(dir)
+        data, obs = load_data[dataset]()
+        ref_param = hmcecs_model(dir, data, obs, subsample_sizes[dataset], proxy_name='variational')
+        # ref_param = hmcecs_model(dir, data, obs, subsample_sizes[dataset], proxy_name='taylor')
+        # hmc(dir, data, obs, ref_param)
+        # nuts(dir, data, obs, ref_param)
+        exit()

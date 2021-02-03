@@ -107,7 +107,7 @@ def benchmark_hmc(args, features, labels):
 
         inner_kernel = NUTS(model, init_strategy=init_to_value(values=ref_params),
                             dense_mass=args.dense_mass)
-        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=variational_proxy(guide, params, num_samples=100))
+        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=variational_proxy(guide, params, num_particles=100))
     else:
         raise ValueError("Invalid algorithm, either 'HMC', 'NUTS', or 'HMCECS'.")
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples)

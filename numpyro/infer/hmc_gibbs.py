@@ -5,6 +5,7 @@ import copy
 import warnings
 from collections import defaultdict, namedtuple
 from functools import partial
+import jax
 
 import jax.numpy as jnp
 from jax import device_put, jacfwd, jacobian, grad, hessian, lax, ops, random, value_and_grad, vmap
@@ -740,7 +741,7 @@ def _sum_all_except_at_dim(x, dim):
     return x.reshape(x.shape[:1] + (-1,)).sum(-1)
 
 
-def variational_proxy(guide, guide_params, num_samples=10):
+def variational_proxy(guide, guide_params, num_particles=10):
     def construct_proxy_fn(rng_key, model, model_args, model_kwargs, num_blocks=1):
         # TODO: assert that there is no auxiliary latent variable in the guide
         model_kwargs = model_kwargs.copy()
@@ -790,17 +791,21 @@ def variational_proxy(guide, guide_params, num_samples=10):
 
         return_sites = [k for k, site in prototype_trace.items()
                         if site["type"] == "sample" and not site["is_observed"]]
-        posterior_samples = _predictive(pos_key, guide_with_params, {}, (num_samples,), return_sites=return_sites,
+        posterior_samples = _predictive(pos_key, guide_with_params, {}, (num_particles,), return_sites=return_sites,
                                         parallel=True, model_args=model_args, model_kwargs=model_kwargs)
         log_likelihood_ref = vmap(log_likelihood)(posterior_samples)
-        log_likelihood_ref = {k: v.sum(0) for k, v in log_likelihood_ref.items()}
 
-        weights = {name: log_like / log_like.sum() for name, log_like in log_likelihood_ref.items()}
+        log_prior_prob = vmap(log_prior)(posterior_samples)
+        log_posterior_prob = vmap(log_posterior)(posterior_samples)
 
-        log_prior_prob = vmap(log_prior)(posterior_samples).sum()
-        log_posterior_prob = vmap(log_posterior)(posterior_samples).sum()
-        evidence = {name: (log_posterior_prob - log_prior_prob - log_like.sum()) / num_samples
-                    for name, log_like in log_likelihood_ref.items()}
+        # softmax(E_{z~Q}[l(x_i,z)])
+        weights = {name: jax.nn.softmax(jnp.exp(log_posterior_prob) @ log_like / num_particles) for name, log_like in
+                   log_likelihood_ref.items()}
+
+        # ELBO = exp(log(Q(z)) @ (log(L(z)) + log(pi(z)) - log(Q(z)))
+        elbo = {
+            name: jnp.exp(log_posterior_prob) @ (log_prior_prob + log_like.sum(1) - log_posterior_prob) / num_particles
+            for name, log_like in log_likelihood_ref.items()}
 
         def gibbs_init(rng_key, gibbs_sites):
             return VariationalProxyState(
@@ -829,10 +834,8 @@ def variational_proxy(guide, guide_params, num_samples=10):
             log_posterior_prob = log_posterior(params)
 
             for name in subsample_lik_sites:
-                proxy_sum[name] = log_posterior_prob - log_prior_prob - evidence[name]
-                # FIXME: what is a correct formula?
-                # proxy_subsample[name] = gibbs_state.subsample_weights[name] * (
-                #     log_posterior_prob - log_prior_prob) - evidence[name]
+                proxy_sum[name] = log_posterior_prob - log_prior_prob - elbo[name]
+                # w_i = exp(E_{z~Q}[l(w_i, z)]) / sum_j^n exp(E_{z~Q}[l(w_j, z)])
                 proxy_subsample[name] = gibbs_state.subsample_weights[name] * proxy_sum[name]
             return proxy_sum, proxy_subsample
 
