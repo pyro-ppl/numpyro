@@ -4,18 +4,16 @@
 import argparse
 import time
 
-import matplotlib.pyplot as plt
-
-from jax import random
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
+from jax import random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions import constraints
 from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, init_to_value
-from numpyro.infer.autoguide import AutoBNAFNormal, AutoNormal, AutoDiagonalNormal
-from numpyro.infer.hmc_gibbs import taylor_proxy, variational_proxy
+from numpyro.infer.autoguide import AutoBNAFNormal
+from numpyro.infer.hmc_gibbs import taylor_proxy
 from numpyro.infer.reparam import NeuTraReparam
 
 
@@ -98,17 +96,6 @@ def benchmark_hmc(args, features, labels):
         inner_kernel = NUTS(neutra_model, init_strategy=init_to_value(values=neutra_ref_params),
                             adapt_mass_matrix=False)
         kernel = HMCECS(inner_kernel, num_blocks=100, proxy=taylor_proxy(neutra_ref_params))
-    elif args.algo == "HMCVECS":
-        subsample_size = 1000
-        guide = AutoNormal(model)
-        svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-        params, losses = svi.run(random.PRNGKey(2), 2000, features, labels)
-        plt.plot(losses)
-        plt.show()
-
-        inner_kernel = NUTS(model, init_strategy=init_to_value(values=ref_params),
-                            dense_mass=args.dense_mass)
-        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=variational_proxy(guide, params, num_particles=100))
     else:
         raise ValueError("Invalid algorithm, either 'HMC', 'NUTS', or 'HMCECS'.")
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
@@ -130,7 +117,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-warmup', default=1000, type=int, help='number of warmup steps')
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--num-chains', nargs='?', default=1, type=int)
-    parser.add_argument('--algo', default='HMCVECS', type=str,
+    parser.add_argument('--algo', default='HMCECS', type=str,
                         help='whether to run "HMCECS", "NUTS", "HMCECS", or "FlowHMCECS"')
     parser.add_argument('--dense-mass', action="store_true")
     parser.add_argument('--x64', action="store_true")

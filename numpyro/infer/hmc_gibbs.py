@@ -446,10 +446,8 @@ def _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
 
 
 HMCECSState = namedtuple("HMCECSState", "z, hmc_state, rng_key, gibbs_state, accept_prob")
-# TODO: rename to shorter names?
 TaylorProxyState = namedtuple("TaylorProxyState", "ref_subsample_log_liks, "
                                                   "ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians")
-VariationalProxyState = namedtuple('VariationalProxyState', 'subsample_weights')
 BlockPoissonEstState = namedtuple("BlockPoissonEstState", "block_rng_keys, sign")
 
 
@@ -739,115 +737,6 @@ def taylor_proxy(reference_params):
 def _sum_all_except_at_dim(x, dim):
     x = x.reshape((-1,) + x.shape[dim:]).sum(0)
     return x.reshape(x.shape[:1] + (-1,)).sum(-1)
-
-
-def variational_proxy(guide, guide_params, num_particles=10):
-    def construct_proxy_fn(rng_key, model, model_args, model_kwargs, num_blocks=1):
-        # TODO: assert that there is no auxiliary latent variable in the guide
-        model_kwargs = model_kwargs.copy()
-        prototype_trace = trace(seed(model, rng_key)).get_trace(*model_args, **model_kwargs)
-        subsample_plate_sizes = {
-            name: site["args"]
-            for name, site in prototype_trace.items()
-            if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
-        }
-
-        pos_key, guide_key, rng_key = random.split(rng_key, 3)
-        guide_with_params = substitute(guide, guide_params)
-
-        # factor out?
-        def log_likelihood(params, subsample_indices=None):
-            params_flat, unravel_fn = ravel_pytree(params)
-            if subsample_indices is None:
-                subsample_indices = {k: jnp.arange(v[0]) for k, v in subsample_plate_sizes.items()}
-            params = unravel_fn(params_flat)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                with block(), trace() as tr, substitute(data=subsample_indices), \
-                        substitute(substitute_fn=partial(_unconstrain_reparam, params)):
-                    model(*model_args, **model_kwargs)
-
-            log_lik = defaultdict(float)
-            for site in tr.values():
-                if site["type"] == "sample" and site["is_observed"]:
-                    for frame in site["cond_indep_stack"]:
-                        if frame.name in subsample_plate_sizes:
-                            log_lik[frame.name] += _sum_all_except_at_dim(
-                                site["fn"].log_prob(site["value"]), frame.dim)
-            return log_lik
-
-        def log_posterior(params):
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', category=UserWarning)
-                dummy_subsample = {k: jnp.array([], dtype=jnp.int32) for k in subsample_plate_sizes}
-                with block(), substitute(data=dummy_subsample):
-                    posterior_prob, _ = log_density(guide_with_params, model_args, model_kwargs, params)
-            return posterior_prob
-
-        def log_prior(params):
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', category=UserWarning)
-                dummy_subsample = {k: jnp.array([], dtype=jnp.int32) for k in subsample_plate_sizes}
-                with block(), substitute(data=dummy_subsample):
-                    prior_prob, _ = log_density(model, model_args, model_kwargs, params)
-            return prior_prob
-
-        return_sites = [k for k, site in prototype_trace.items()
-                        if site["type"] == "sample" and not site["is_observed"]]
-        posterior_samples = _predictive(pos_key, guide_with_params, {}, (num_particles,), return_sites=return_sites,
-                                        parallel=True, model_args=model_args, model_kwargs=model_kwargs)
-        log_likelihood_ref = vmap(log_likelihood)(posterior_samples)
-
-        log_prior_prob = vmap(log_prior)(posterior_samples)
-        log_posterior_prob = vmap(log_posterior)(posterior_samples)
-
-        # softmax(E_{z~Q}[l(x_i,z)])
-        weights = {name: jax.nn.softmax(log_like.sum(0) / num_particles) for name, log_like in
-                   log_likelihood_ref.items()}
-
-        # ELBO = exp(log(Q(z)) @ (log(L(z)) + log(pi(z)) - log(Q(z)))
-        elbo = {
-            name: jnp.exp(log_posterior_prob/num_particles) @ (log_prior_prob + log_like.sum(1) - log_posterior_prob) / num_particles
-            for name, log_like in log_likelihood_ref.items()}
-
-        def gibbs_init(rng_key, gibbs_sites):
-            return VariationalProxyState(
-                {name: weights[name][subsample_idx] for name, subsample_idx in gibbs_sites.items()})
-
-        def gibbs_update(rng_key, gibbs_sites, gibbs_state):
-            u_new, pads, new_idxs, starts = _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
-
-            new_subsample_weights = {}
-            for name, subsample_weights in gibbs_state.subsample_weights.items():
-                size, subsample_size = subsample_plate_sizes[name]  # TODO: fix duplication!
-                pad, new_idx, start = pads[name], new_idxs[name], starts[name]
-                new_value = jnp.pad(subsample_weights,
-                                    [(0, pad)] + [(0, 0)] * (jnp.ndim(subsample_weights) - 1))
-                new_value = lax.dynamic_update_slice_in_dim(new_value, weights[name][new_idx], start, 0)
-                new_subsample_weights[name] = new_value[:subsample_size]
-            gibbs_state = VariationalProxyState(new_subsample_weights)
-            return u_new, gibbs_state
-
-        def proxy_fn(params, subsample_lik_sites, gibbs_state):
-
-            proxy_sum = {}
-            proxy_subsample = {}
-            # TODO: convert params to constrained space
-            log_prior_prob = log_prior(params)
-            log_posterior_prob = log_posterior(params)
-
-            for name in subsample_lik_sites:
-                # Q(z) = L(z)pi(z)/p(x) => L(z) = p(x)/Q(z)pi(z) >= exp(elbo)/Q(z)pi(z) =>
-                # log(L(z)) = elbo - Q(z) - pi(z)
-                proxy_sum[name] = elbo[name] - log_posterior_prob - log_prior_prob
-
-                # w_i = exp(E_{z~Q}[l(w_i, z)]) / sum_j^n exp(E_{z~Q}[l(w_j, z)])
-                proxy_subsample[name] = gibbs_state.subsample_weights[name] * proxy_sum[name]
-            return proxy_sum, proxy_subsample
-
-        return proxy_fn, gibbs_init, gibbs_update
-
-    return construct_proxy_fn
 
 
 class estimate_likelihood(numpyro.primitives.Messenger):

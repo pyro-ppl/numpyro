@@ -1,39 +1,24 @@
 import argparse
+import time
 from pathlib import Path
 
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from flax import nn
-from flax.nn.activation import relu, tanh
-from jax import random, vmap
+from flax.nn.activation import tanh
+from jax import random
+from jax import vmap
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro import handlers
 from numpyro.contrib.module import random_flax_module
-
-from numpyro.infer import MCMC, NUTS, init_to_sample, HMC
-import time
-
-import matplotlib.pyplot as plt
-
-from jax import random
-import jax.numpy as jnp
-
-import numpyro
-import numpyro.distributions as dist
-from numpyro.distributions import constraints
-from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, init_to_value
-from numpyro.infer.autoguide import AutoBNAFNormal, AutoNormal
-from numpyro.infer.hmc_gibbs import taylor_proxy, variational_proxy
-from numpyro.infer.reparam import NeuTraReparam
+from numpyro.infer.autoguide import AutoNormal
+from numpyro.infer.hmc_gibbs import taylor_proxy
 
 uci_base_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/'
-
-numpyro.set_platform("cpu")
 
 
 def visualize(alg, train_data, train_obs, samples, num_samples):
@@ -150,19 +135,8 @@ def benchmark_hmc(args, features, labels):
         inner_kernel = NUTS(model, init_strategy=init_to_value(values=ref_params),
                             dense_mass=args.dense_mass)
         kernel = HMCECS(inner_kernel, num_blocks=100, proxy=taylor_proxy(ref_params))
-    elif args.alg == 'HMCVECS':
-        subsample_size = 40
-        guide = AutoNormal(model)
-        svi = SVI(model, guide, numpyro.optim.Adam(0.01), Trace_ELBO())
-        params, losses = svi.run(random.PRNGKey(2), 2000, features, labels, subsample_size)
-        plt.plot(losses)
-        plt.show()
-
-        inner_kernel = NUTS(model, init_strategy=init_to_value(values=ref_params),
-                            dense_mass=args.dense_mass)
-        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=variational_proxy(guide, params, num_particles=100))
     else:
-        raise ValueError('Alg not in HMC, NUTS, HMCECS, or HMCVECS.')
+        raise ValueError('Alg not in HMC, NUTS, HMCECS.')
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
     mcmc.run(rng_key, features, labels, subsample_size, extra_fields=("accept_prob",))
     print("Mean accept prob:", jnp.mean(mcmc.get_extra_fields()["accept_prob"]))
@@ -184,7 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--num-chains', nargs='?', default=1, type=int)
     parser.add_argument('--alg', default='NUTS', type=str,
-                        help='whether to run "HMCVECS", "HMC", "NUTS", or "HMCECS"')
+                        help='whether to run "HMC", "NUTS", or "HMCECS"')
     parser.add_argument('--dense-mass', action="store_true")
     parser.add_argument('--x64', action="store_true")
     parser.add_argument('--device', default='gpu', type=str, help='use "cpu" or "gpu".')
