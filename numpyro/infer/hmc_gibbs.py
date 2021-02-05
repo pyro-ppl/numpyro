@@ -5,17 +5,16 @@ import copy
 import warnings
 from collections import defaultdict, namedtuple
 from functools import partial
-import jax
 
 import jax.numpy as jnp
-from jax import device_put, jacfwd, jacobian, grad, hessian, lax, ops, random, value_and_grad, vmap
+from jax import device_put, jacfwd, jacobian, grad, hessian, lax, ops, random, value_and_grad
 from jax.scipy.special import expit
 
 import numpyro
 from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import _unconstrain_reparam, _predictive, log_density
+from numpyro.infer.util import _unconstrain_reparam
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
