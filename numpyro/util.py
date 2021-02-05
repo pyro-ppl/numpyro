@@ -187,6 +187,57 @@ def progress_bar(arg, result):
     return result
 
 
+def progress_bar_factory(num_samples):
+    """Factory that builds a progress bar decorator along
+    with the `set_tqdm_description` and `close_tqdm` functions
+    """
+
+    tqdm_pbar = tqdm.tqdm(range(num_samples))
+
+    def set_tqdm_description(message):
+        tqdm_pbar.set_description(
+            message,
+            refresh=False,
+        )
+
+    def _close_tqdm(arg, transform):
+        tqdm_pbar.close()
+
+    def close_tqdm(x):
+        return host_callback.id_tap(_close_tqdm, x, result=x)
+
+    def _update_tqdm(arg, transform):
+        tqdm_pbar.update(arg)
+
+    @jit
+    def _update_progress_bar(iter_num, print_rate):
+        """Updates tqdm progress bar of a JAX loop only if the iteration number is a multiple of the print_rate
+        Usage: carry = progress_bar((iter_num, print_rate), carry)
+        """
+
+        _ = lax.cond(
+            iter_num % print_rate == 0,
+            lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num),
+            lambda _: iter_num,
+            operand=None,
+        )
+
+    def progress_bar_fori_loop(func):
+        """Decorator that adds a progress bar to `body_fun` used in `lax.fori_loop`.
+        Note that `body_fun` must be looping over a tuple who's first element is `np.arange(num_samples)`.
+        This means that `iter_num` is the current iteration number
+        """
+        print_rate = int(num_samples / 20)
+
+        def wrapper_progress_bar(i, vals):
+            _update_progress_bar(i, print_rate)
+            return func(i, vals)
+
+        return wrapper_progress_bar
+
+    return progress_bar_fori_loop, set_tqdm_description, close_tqdm
+
+
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
                  progbar=True, return_last_val=False, collection_size=None,
                  thinning=1, **progbar_opts):
@@ -230,14 +281,6 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
 
-    def add_progress_bar(func):
-        @functools.wraps(func)
-        def wrapper_progress_bar(i, vals):
-            print_rate = int(upper/10)
-            i = progress_bar((i, upper, print_rate), i)
-            return func(i, vals)
-        return wrapper_progress_bar
-
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
         val, collection, start_idx, thinning = vals
@@ -252,8 +295,12 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
-        _body_fn_pbar = add_progress_bar(_body_fn)
+        progress_bar_fori_loop, set_tqdm_description, close_tqdm = progress_bar_factory(upper)
+        set_tqdm_description(f"Running sampler for {upper:,} iteration")
+        _body_fn_pbar = progress_bar_fori_loop(_body_fn)
+
         last_val, collection, _, _ = fori_loop(0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning))
+        collection = close_tqdm(collection)
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
