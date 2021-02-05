@@ -18,15 +18,6 @@ _PYRO_STACK = []
 CondIndepStackFrame = namedtuple('CondIndepStackFrame', ['name', 'dim', 'size'])
 
 
-@contextmanager
-def inner_stack():
-    global _PYRO_STACK
-    current_stack = _PYRO_STACK
-    _PYRO_STACK = []
-    yield
-    _PYRO_STACK = current_stack
-
-
 def apply_stack(msg):
     pointer = 0
     for pointer, handler in enumerate(reversed(_PYRO_STACK)):
