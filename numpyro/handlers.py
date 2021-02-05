@@ -655,8 +655,8 @@ class seed(Messenger):
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg['type'] == 'sample' and not msg['is_observed'] and
-            msg['kwargs']['rng_key'] is None) or msg['type'] in ['prng_key', 'plate', 'control_flow']:
+        if (msg['type'] == 'sample' and not msg['is_observed'] and msg['kwargs']['rng_key'] is None) \
+                or msg['type'] in ['prng_key', 'plate', 'control_flow']:
             if msg['value'] is not None:
                 # no need to create a new key when value is available
                 return
@@ -796,5 +796,3 @@ class do(Messenger):
             msg['value'] = intervention
             msg['is_observed'] = True
             msg['stop'] = True
-
-
