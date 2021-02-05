@@ -28,6 +28,7 @@
 from collections import OrderedDict
 from contextlib import contextmanager
 import functools
+import inspect
 import warnings
 
 import numpy as np
@@ -35,10 +36,11 @@ import numpy as np
 from jax import lax, tree_util
 import jax.numpy as jnp
 
-from numpyro.distributions.constraints import independent, is_dependent, real
 from numpyro.distributions.transforms import ComposeTransform, Transform
 from numpyro.distributions.util import lazy_property, promote_shapes, sum_rightmost, validate_sample
 from numpyro.util import not_jax_tracer
+
+from . import constraints
 
 _VALIDATION_ENABLED = False
 
@@ -155,7 +157,7 @@ class Distribution(metaclass=DistributionMeta):
             for param, constraint in self.arg_constraints.items():
                 if param not in self.__dict__ and isinstance(getattr(type(self), param), lazy_property):
                     continue
-                if is_dependent(constraint):
+                if constraints.is_dependent(constraint):
                     continue  # skip constraints that cannot be checked
                 is_valid = constraint(getattr(self, param))
                 if not_jax_tracer(is_valid):
@@ -351,6 +353,44 @@ class Distribution(metaclass=DistributionMeta):
             return self
         return MaskedDistribution(self, mask)
 
+    @classmethod
+    def infer_shapes(cls, *args, **kwargs):
+        r"""
+        Infers ``batch_shape`` and ``event_shape`` given shapes of args to
+        :meth:`__init__`.
+
+        .. note:: This assumes distribution shape depends only on the shapes
+            of tensor inputs, not in the data contained in those inputs.
+
+        :param \*args: Positional args replacing each input arg with a
+            tuple representing the sizes of each tensor input.
+        :param \*\*kwargs: Keywords mapping name of input arg to tuple
+            representing the sizes of each tensor input.
+        :returns: A pair ``(batch_shape, event_shape)`` of the shapes of a
+            distribution that would be created with input args of the given
+            shapes.
+        :rtype: tuple
+        """
+        if cls.support.event_dim > 0:
+            raise NotImplementedError
+
+        # Convert args to kwargs.
+        try:
+            arg_names = cls._arg_names
+        except AttributeError:
+            sig = inspect.signature(cls.__init__)
+            arg_names = cls._arg_names = tuple(sig.parameters)[1:]
+        kwargs.update(zip(arg_names, args))
+
+        # Assumes distribution is univariate.
+        batch_shapes = []
+        for name, shape in kwargs.items():
+            event_dim = cls.arg_constraints.get(name, constraints.real).event_dim
+            batch_shapes.append(shape[:len(shape) - event_dim])
+        batch_shape = lax.broadcast_shapes(*batch_shapes) if batch_shapes else ()
+        event_shape = ()
+        return batch_shape, event_shape
+
 
 class ExpandedDistribution(Distribution):
     arg_constraints = {}
@@ -516,9 +556,10 @@ class ImproperUniform(Distribution):
     :param tuple event_shape: event shape of this distribution.
     """
     arg_constraints = {}
+    support = constraints.dependent
 
     def __init__(self, support, batch_shape, event_shape, validate_args=None):
-        self.support = independent(support, len(event_shape) - support.event_dim)
+        self.support = constraints.independent(support, len(event_shape) - support.event_dim)
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @validate_sample
@@ -582,7 +623,7 @@ class Independent(Distribution):
 
     @property
     def support(self):
-        return independent(self.base_dist.support, self.reinterpreted_batch_ndims)
+        return constraints.independent(self.base_dist.support, self.reinterpreted_batch_ndims)
 
     @property
     def has_enumerate_support(self):
@@ -797,7 +838,7 @@ class TransformedDistribution(Distribution):
         if self.event_dim == codomain_event_dim:
             return codomain
         else:
-            return independent(codomain, self.event_dim - codomain_event_dim)
+            return constraints.independent(codomain, self.event_dim - codomain_event_dim)
 
     def sample(self, key, sample_shape=()):
         x = self.base_dist(rng_key=key, sample_shape=sample_shape)
@@ -853,7 +894,8 @@ class TransformedDistribution(Distribution):
 
 
 class Delta(Distribution):
-    arg_constraints = {'v': real, 'log_density': real}
+    arg_constraints = {'v': constraints.dependent(is_discrete=False),
+                       'log_density': constraints.real}
     reparameterized_params = ['v', 'log_density']
     is_discrete = True
 
@@ -869,9 +911,9 @@ class Delta(Distribution):
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
         super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
 
-    @property
+    @constraints.dependent_property(is_discrete=True)
     def support(self):
-        return independent(real, self.event_dim)
+        return constraints.independent(constraints.real, self.event_dim)
 
     def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape + self.event_shape
@@ -907,8 +949,8 @@ class Unit(Distribution):
 
     This is used for :func:`numpyro.factor` statements.
     """
-    arg_constraints = {'log_factor': real}
-    support = real
+    arg_constraints = {'log_factor': constraints.real}
+    support = constraints.real
 
     def __init__(self, log_factor, validate_args=None):
         batch_shape = jnp.shape(log_factor)

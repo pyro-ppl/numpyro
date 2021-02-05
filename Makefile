@@ -6,6 +6,9 @@ lint: FORCE
 format: FORCE
 	isort -rc .
 
+install: FORCE
+	pip install -e .[dev,doc,test,examples]
+
 doctest: FORCE
 	$(MAKE) -C docs doctest
 
