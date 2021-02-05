@@ -3,18 +3,18 @@
 
 from functools import partial
 
-import numpy as np
-from numpy.testing import assert_allclose
-import pytest
-
-from jax import random
 import jax.numpy as jnp
+import numpy as np
+import pytest
+from jax import random
 from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
+from numpy.testing import assert_allclose
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.handlers import plate
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, DiscreteHMCGibbs, HMCGibbs
+from numpyro.infer.hmc_gibbs import taylor_proxy
 
 
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
@@ -240,3 +240,29 @@ def test_enum_subsample_smoke():
     kernel = HMCECS(NUTS(model), num_blocks=10)
     mcmc = MCMC(kernel, 10, 10)
     mcmc.run(random.PRNGKey(0), data)
+
+
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('num_block', [1, 2, 50])
+@pytest.mark.parametrize('subsample_size', [50, 150])
+def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
+    true_loc = 0.3
+    num_warmup, num_samples = 200, 200
+    data = true_loc + dist.Normal().sample(random.PRNGKey(1), (10000,))
+
+    def model(data, subsample_size):
+        mean = numpyro.sample('mean', dist.Normal())
+        with numpyro.plate('batch', data.shape[0], subsample_size=subsample_size):
+            sub_data = numpyro.subsample(data, 0)
+            numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
+
+    ref_params = {'mean': true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))}
+    proxy_fn = taylor_proxy(ref_params)
+
+    kernel = HMCECS(kernel_cls(model), proxy=proxy_fn)
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc.run(random.PRNGKey(0), data, subsample_size)
+
+    samples = mcmc.get_samples()
+    assert_allclose(np.mean(mcmc.get_samples()['mean']), true_loc, atol=0.1)
+    assert len(samples['mean']) == num_samples

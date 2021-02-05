@@ -77,7 +77,6 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
 
 import warnings
 from collections import OrderedDict
-from functools import partial
 
 import jax.numpy as jnp
 import numpy as np
@@ -658,8 +657,8 @@ class seed(Messenger):
     def process_message(self, msg):
         if (msg['type'] == 'sample' and not msg['is_observed'] and
             msg['kwargs']['rng_key'] is None) or msg['type'] in ['prng_key', 'plate', 'control_flow']:
-            # no need to create a new key when value is available
             if msg['value'] is not None:
+                # no need to create a new key when value is available
                 return
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg['kwargs']['rng_key'] = rng_key_sample

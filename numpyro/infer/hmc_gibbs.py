@@ -14,7 +14,7 @@ import numpyro
 from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
-from numpyro.infer.util import _unconstrain_reparam, _predictive, log_density
+from numpyro.infer.util import _unconstrain_reparam
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
@@ -445,10 +445,8 @@ def _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
 
 
 HMCECSState = namedtuple("HMCECSState", "z, hmc_state, rng_key, gibbs_state, accept_prob")
-# TODO: rename to shorter names?
 TaylorProxyState = namedtuple("TaylorProxyState", "ref_subsample_log_liks, "
                                                   "ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians")
-VariationalProxyState = namedtuple('VariationalProxyState', 'subsample_weights')
 BlockPoissonEstState = namedtuple("BlockPoissonEstState", "block_rng_keys, sign")
 
 
@@ -738,107 +736,6 @@ def taylor_proxy(reference_params):
 def _sum_all_except_at_dim(x, dim):
     x = x.reshape((-1,) + x.shape[dim:]).sum(0)
     return x.reshape(x.shape[:1] + (-1,)).sum(-1)
-
-
-def variational_proxy(guide, guide_params, num_samples=10):
-    def construct_proxy_fn(rng_key, model, model_args, model_kwargs, num_blocks=1):
-        prototype_trace = trace(seed(model, rng_key)).get_trace(*model_args, **model_kwargs)
-        subsample_plate_sizes = {
-            name: site["args"]
-            for name, site in prototype_trace.items()
-            if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
-        }
-
-        pos_key, guide_key, rng_key = random.split(rng_key, 3)
-        guide_with_params = substitute(guide, guide_params)
-
-        # factor out?
-        def log_likelihood(params, subsample_indices=None):
-            params_flat, unravel_fn = ravel_pytree(params)
-            if subsample_indices is None:
-                subsample_indices = {k: jnp.arange(v[0]) for k, v in subsample_plate_sizes.items()}
-            params = unravel_fn(params_flat)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                with block(), trace() as tr, substitute(data=subsample_indices), \
-                        substitute(substitute_fn=partial(_unconstrain_reparam, params)):
-                    model(*model_args, **model_kwargs)
-
-            log_lik = defaultdict(float)
-            for site in tr.values():
-                if site["type"] == "sample" and site["is_observed"]:
-                    for frame in site["cond_indep_stack"]:
-                        if frame.name in subsample_plate_sizes:
-                            log_lik[frame.name] += _sum_all_except_at_dim(
-                                site["fn"].log_prob(site["value"]), frame.dim)
-            return log_lik
-
-        def log_posterior(params):
-            with block():
-                guide_kwargs = {k: v for k, v in model_kwargs.items() if k != '_gibbs_state'}
-                posterior_prob, _ = log_density(guide_with_params, model_args, guide_kwargs, params)
-            return posterior_prob
-
-        def log_prior(params):
-            with block():
-                prior_prob, _ = log_density(
-                    block(model, hide_fn=lambda site: site['type'] == 'sample' and site['is_observed']), model_args,
-                    model_kwargs, params)
-            return prior_prob
-
-        posterior_samples = _predictive(pos_key, guide_with_params, {}, (num_samples,), return_sites='', parallel=True,
-                                        model_args=model_args, model_kwargs=model_kwargs)
-        log_likelihood_ref = log_likelihood(posterior_samples)
-
-        posterior_samples = {**posterior_samples, **{k: jnp.arange(v[0]) for k, v in subsample_plate_sizes.items()}}
-
-        weights = {name: log_like / log_like.sum() for name, log_like in log_likelihood_ref.items()}
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', category=UserWarning)
-            log_prior_prob = log_prior(posterior_samples)
-            log_posterior_prob = log_posterior(posterior_samples)
-
-        evidence = {name: (log_posterior_prob - log_prior_prob - log_like.sum()) / num_samples
-                    for name, log_like in log_likelihood_ref.items()}
-
-        def gibbs_init(rng_key, gibbs_sites):
-            return VariationalProxyState(
-                {name: weights[name][subsample_idx] for name, subsample_idx in gibbs_sites.items()})
-
-        def gibbs_update(rng_key, gibbs_sites, gibbs_state):
-            u_new, pads, new_idxs, starts = _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
-
-            new_subsample_weights = {}
-            for name, subsample_weights in gibbs_state.subsample_weights.items():
-                size, subsample_size = subsample_plate_sizes[name]  # TODO: fix duplication!
-                pad, new_idx, start = pads[name], new_idxs[name], starts[name]
-                new_value = jnp.pad(subsample_weights,
-                                    [(0, pad)] + [(0, 0)] * (jnp.ndim(subsample_weights) - 1))
-                new_value = lax.dynamic_update_slice_in_dim(new_value, weights[name][new_idx], start, 0)
-                new_subsample_weights[name] = new_value[:subsample_size]
-            gibbs_state = VariationalProxyState(new_subsample_weights)
-            return u_new, gibbs_state
-
-        dummy_subsample = {k: jnp.arange(v[1]) for k, v in subsample_plate_sizes.items()}
-
-        def proxy_fn(params, subsample_lik_sites, gibbs_state):
-
-            params = {**params, **dummy_subsample}
-            proxy_sum = defaultdict(float)
-            proxy_subsample = defaultdict(float)
-            log_prior_prob = log_prior(params)
-            log_posterior_prob = log_posterior(params)
-
-            for name in subsample_lik_sites:
-                proxy_sum[name] = log_posterior_prob - log_prior_prob - evidence[name]
-                proxy_subsample[name] = gibbs_state.subsample_weights[name].sum() * (
-                        log_posterior_prob - log_prior_prob) - evidence[name]
-            return proxy_sum, proxy_subsample
-
-        return proxy_fn, gibbs_init, gibbs_update
-
-    return construct_proxy_fn
 
 
 class estimate_likelihood(numpyro.primitives.Messenger):

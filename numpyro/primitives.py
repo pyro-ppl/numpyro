@@ -18,15 +18,6 @@ _PYRO_STACK = []
 CondIndepStackFrame = namedtuple('CondIndepStackFrame', ['name', 'dim', 'size'])
 
 
-@contextmanager
-def inner_stack():
-    global _PYRO_STACK
-    current_stack = _PYRO_STACK
-    _PYRO_STACK = []
-    yield
-    _PYRO_STACK = current_stack
-
-
 def apply_stack(msg):
     pointer = 0
     for pointer, handler in enumerate(reversed(_PYRO_STACK)):
@@ -252,7 +243,7 @@ def _subsample_fn(size, subsample_size, rng_key=None):
             i_p1 = size - idx
             i = i_p1 - 1
             j = random.randint(rng_keys[idx], (), 0, i_p1)
-            val = ops.index_update(val, ops.index[[i, j],], val[ops.index[[j, i],]])
+            val = ops.index_update(val, ops.index[[i, j], ], val[ops.index[[j, i], ]])
             return val, None
 
         val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))
@@ -365,7 +356,7 @@ class plate(Messenger):
             msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
-            msg['scale'] = scale * self.size / self.subsample_size
+            msg['scale'] = scale * (self.size / self.subsample_size if self.subsample_size else 1)
 
     def postprocess_message(self, msg):
         if msg["type"] in ("subsample", "param") and self.dim is not None:
@@ -382,7 +373,7 @@ class plate(Messenger):
                             statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
                         raise ValueError(
                             "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
-                                .format(self.name, self.size, self.dim, statement, shape))
+                            .format(self.name, self.size, self.dim, statement, shape))
                     elif self.subsample_size < self.size:
                         value = msg["value"]
                         new_value = jnp.take(value, self._indices, dim)
