@@ -399,48 +399,36 @@ class DiscreteHMCGibbs(HMCGibbs):
         return HMCGibbsState(z, hmc_state, rng_key)
 
 
+def _update_block(rng_key, num_blocks, subsample_idx, plate_size):
+    size, subsample_size = plate_size
+    rng_key, subkey, block_key = random.split(rng_key, 3)
+    block_size = (subsample_size - 1) // num_blocks + 1
+    pad = block_size - (subsample_size - 1) % block_size - 1
+
+    chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
+    new_idx = random.randint(subkey, minval=0, maxval=size, shape=(block_size,))
+    subsample_idx_padded = jnp.pad(subsample_idx, (0, pad))
+    start = chosen_block * block_size
+    subsample_idx_padded = lax.dynamic_update_slice_in_dim(
+        subsample_idx_padded, new_idx, start, 0)
+    return rng_key, subsample_idx_padded[:subsample_size], pad, new_idx, start
+
+
 def _block_update(plate_sizes, num_blocks, rng_key, gibbs_sites, gibbs_state):
     u_new = {}
     for name, subsample_idx in gibbs_sites.items():
-        size, subsample_size = plate_sizes[name]
-        rng_key, subkey, block_key = random.split(rng_key, 3)
-        block_size = (subsample_size - 1) // num_blocks + 1
-        pad = block_size - (subsample_size - 1) % block_size - 1
-
-        chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
-        new_idx = random.randint(subkey, minval=0, maxval=size, shape=(block_size,))
-        subsample_idx_padded = jnp.pad(subsample_idx, (0, pad))
-        start = chosen_block * block_size
-        subsample_idx_padded = lax.dynamic_update_slice_in_dim(
-            subsample_idx_padded, new_idx, start, 0)
-
-        u_new[name] = subsample_idx_padded[:subsample_size]
+        rng_key, u_new[name], *_ = _update_block(rng_key, num_blocks, subsample_idx, plate_sizes[name])
     return u_new, gibbs_state
 
 
-def _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes):
+def _block_update_proxy(num_blocks, rng_key, gibbs_sites, plate_sizes):
     u_new = {}
     pads = {}
     new_idxs = {}
     starts = {}
     for name, subsample_idx in gibbs_sites.items():
-        # TODO: merge with _block_update
-        size, subsample_size = subsample_plate_sizes[name]
-        rng_key, subkey, block_key = random.split(rng_key, 3)
-        block_size = (subsample_size - 1) // num_blocks + 1
-        pad = block_size - (subsample_size - 1) % block_size - 1
-
-        chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
-        new_idx = random.randint(subkey, minval=0, maxval=size, shape=(block_size,))
-        subsample_idx_padded = jnp.pad(subsample_idx, (0, pad))
-        start = chosen_block * block_size
-        subsample_idx_padded = lax.dynamic_update_slice_in_dim(
-            subsample_idx_padded, new_idx, start, 0)
-
-        u_new[name] = subsample_idx_padded[:subsample_size]
-        pads[name] = pad
-        new_idxs[name] = new_idx
-        starts[name] = start
+        rng_key, u_new[name], pads[name], new_idxs[name], starts[name] = _update_block(rng_key, num_blocks,
+                                                                                       subsample_idx, plate_sizes[name])
     return u_new, pads, new_idxs, starts
 
 
@@ -593,8 +581,6 @@ class HMCECS(HMCGibbs):
         hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs)
 
         z = {**z_gibbs, **hmc_state.z}
-        # TODO: post update gibbs_state to update sign in Block Poisson estimator
-        # extra_fields=('gibbs_state.sign',)
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
 
