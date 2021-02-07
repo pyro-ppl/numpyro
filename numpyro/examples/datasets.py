@@ -1,19 +1,20 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import namedtuple
 import csv
 import gzip
+import io
 import os
 import pickle
 import struct
-import warnings
-from collections import namedtuple
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
+import warnings
 import zipfile
-import io
 
 import numpy as np
+
 from jax import device_put, lax
 from jax.interpreters.xla import DeviceArray
 

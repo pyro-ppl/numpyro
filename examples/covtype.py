@@ -4,14 +4,15 @@
 import argparse
 import time
 
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
+
 from jax import random
+import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import COVTYPE, load_dataset
-from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, init_to_value, SA
+from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SA, SVI, Trace_ELBO, init_to_value
 from numpyro.infer.autoguide import AutoBNAFNormal
 from numpyro.infer.hmc_gibbs import taylor_proxy
 from numpyro.infer.reparam import NeuTraReparam

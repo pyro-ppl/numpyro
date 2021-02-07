@@ -7,6 +7,7 @@ from enum import Enum
 
 from jax import lax
 import jax.numpy as jnp
+
 import funsor
 from numpyro.handlers import infer_config
 from numpyro.handlers import trace as OrigTraceMessenger

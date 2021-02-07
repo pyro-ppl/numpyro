@@ -75,12 +75,13 @@ results for all the data points, but does so by using JAX's auto-vectorize trans
    -874.89813
 """
 
-import warnings
 from collections import OrderedDict
+import warnings
 
-import jax.numpy as jnp
 import numpy as np
+
 from jax import lax, random
+import jax.numpy as jnp
 
 import numpyro
 from numpyro.distributions.distribution import COERCIONS

@@ -1,13 +1,13 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
-import warnings
 from collections import defaultdict, namedtuple
+import copy
 from functools import partial
+import warnings
 
+from jax import device_put, grad, hessian, jacfwd, jacobian, lax, ops, random, value_and_grad
 import jax.numpy as jnp
-from jax import device_put, jacfwd, jacobian, grad, hessian, lax, ops, random, value_and_grad
 from jax.scipy.special import expit
 
 import numpyro
