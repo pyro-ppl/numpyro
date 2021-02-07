@@ -374,7 +374,7 @@ class plate(Messenger):
                         raise ValueError(
                             "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
                             .format(self.name, self.size, self.dim, statement, shape))
-                    elif self.subsample_size < self.size:
+                    if self.subsample_size < self.size:
                         value = msg["value"]
                         new_value = jnp.take(value, self._indices, dim)
                         msg["value"] = new_value

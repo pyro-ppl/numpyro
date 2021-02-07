@@ -447,7 +447,6 @@ def _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
 HMCECSState = namedtuple("HMCECSState", "z, hmc_state, rng_key, gibbs_state, accept_prob")
 TaylorProxyState = namedtuple("TaylorProxyState", "ref_subsample_log_liks, "
                                                   "ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians")
-BlockPoissonEstState = namedtuple("BlockPoissonEstState", "block_rng_keys, sign")
 
 
 def _wrap_gibbs_state(model):
@@ -513,14 +512,13 @@ class HMCECS(HMCGibbs):
 
     """
 
-    def __init__(self, inner_kernel, *, num_blocks=1, proxy=None, method='perturbed'):
+    def __init__(self, inner_kernel, *, num_blocks=1, proxy=None):
         super().__init__(inner_kernel, lambda *args: None, None)
 
-        assert method in {'perturbed'}
         self.inner_kernel._model = _wrap_gibbs_state(self.inner_kernel._model)
         self._num_blocks = num_blocks
         self._proxy = proxy
-        self._method = method
+        self._method = 'perturbed'
 
     def postprocess_fn(self, args, kwargs):
         def fn(z):

@@ -11,9 +11,9 @@ from collections import namedtuple
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
 import zipfile
+import io
 
 import numpy as np
-import pandas as pd
 from jax import device_put, lax
 from jax.interpreters.xla import DeviceArray
 
@@ -34,11 +34,9 @@ COVTYPE = dset('covtype', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip',
 ])
 
-
 DIPPER_VOLE = dset('dipper_vole', [
     'https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true',
 ])
-
 
 MNIST = dset('mnist', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz',
@@ -84,7 +82,7 @@ def _load_baseball():
     def train_test_split(file):
         train, test, player_names = [], [], []
         with open(file, 'r') as f:
-            csv_reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
+            csv_reader = csv.reader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
             for row in csv_reader:
                 player_names.append(row['FirstName'] + ' ' + row['LastName'])
                 at_bats, hits = row['At-Bats'], row['Hits']
@@ -239,12 +237,18 @@ def _load_jsb_chorales():
 
 
 def _load_higgs():
-    warnings.warn("Downloading 2.6 GB dataset")
+    warnings.warn("Higgs is a 2.6 GB dataset")
     _download(HIGGS)
+
     file_path = os.path.join(DATA_DIR, 'HIGGS.csv.gz')
-    df = pd.read_csv(file_path, header=None)
-    obs, feats = df.iloc[:, 0], df.iloc[:, 1:]
-    return obs.to_numpy().astype(int), feats.to_numpy()
+    with io.TextIOWrapper(gzip.open(file_path, 'rb')) as f:
+        csv_reader = csv.reader(f, delimiter=',', quoting=csv.QUOTE_NONE)
+        obs = []
+        data = []
+        for row in csv_reader:
+            obs.append(row[0])
+            data.append(row[1:])
+    return np.stack(obs), np.stack(data)
 
 
 def _load(dset):

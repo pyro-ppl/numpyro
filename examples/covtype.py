@@ -11,7 +11,7 @@ from jax import random
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import COVTYPE, load_dataset
-from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, init_to_value
+from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, init_to_value, SA
 from numpyro.infer.autoguide import AutoBNAFNormal
 from numpyro.infer.hmc_gibbs import taylor_proxy
 from numpyro.infer.reparam import NeuTraReparam
@@ -34,7 +34,7 @@ def _load_dataset():
     print("Data shape:", features.shape)
     print("Label distribution: {} has label 1, {} has label 0"
           .format(labels.sum(), N - labels.sum()))
-    return features[::5], labels[::5]
+    return features, labels
 
 
 def model(data, labels, subsample_size=None):
@@ -81,6 +81,11 @@ def benchmark_hmc(args, features, labels):
         # note: if num_blocks=100, we'll update 10 index at each MCMC step
         # so it took 50000 MCMC steps to iterative the whole dataset
         kernel = HMCECS(inner_kernel, num_blocks=100, proxy=taylor_proxy(ref_params))
+    elif args.algo == "SA":
+        # NB: this kernel requires large num_warmup and num_samples
+        # and running on GPU is much faster than on CPU
+        kernel = SA(model, adapt_state_size=1000, init_strategy=init_to_value(values=ref_params))
+        subsample_size = None
     elif args.algo == "FlowHMCECS":
         subsample_size = 1000
         guide = AutoBNAFNormal(model, num_flows=1, hidden_factors=[8])
@@ -118,7 +123,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--num-chains', nargs='?', default=1, type=int)
     parser.add_argument('--algo', default='HMCECS', type=str,
-                        help='whether to run "HMCECS", "NUTS", "HMCECS", or "FlowHMCECS"')
+                        help='whether to run "HMCECS", "NUTS", "HMCECS", "SA" or "FlowHMCECS"')
     parser.add_argument('--dense-mass', action="store_true")
     parser.add_argument('--x64', action="store_true")
     parser.add_argument('--device', default='gpu', type=str, help='use "cpu" or "gpu".')
