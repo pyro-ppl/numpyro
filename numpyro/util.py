@@ -6,7 +6,6 @@ from contextlib import contextmanager
 import os
 import random
 import re
-import functools
 
 import numpy as np
 import tqdm
@@ -166,48 +165,26 @@ def cached_by(outer_fn, *keys):
     return _wrapped
 
 
-def _print_consumer(arg, transrorm):
-    i, n_iter = arg
-    print(f"Iteration {i}/{n_iter}")
-
-
-@jit
-def progress_bar(arg, result):
-    """
-    Print progress of loop only if iteration number is a multiple of the print_rate
-
-    Usage: carry = progress_bar((iter_num, n_iter, print_rate), carry)
-    """
-    i, n_iter, print_rate = arg
-    result = lax.cond(
-        i % print_rate == 0,
-        lambda _: host_callback.id_tap(_print_consumer, (i, n_iter), result=result),
-        lambda _: result,
-        operand=None)
-    return result
-
-
 def progress_bar_factory(num_samples):
     """Factory that builds a progress bar decorator along
     with the `set_tqdm_description` and `close_tqdm` functions
     """
 
-    tqdm_pbar = tqdm.tqdm(range(num_samples))
+    tqdm_bars = {}
 
-    def set_tqdm_description(message):
-        tqdm_pbar.set_description(
-            message,
-            refresh=False,
-        )
+    def _define_tqdm(arg, transform, device):
+        chain = int(str(device)[4:])
+        tqdm_bars[chain] = tqdm.tqdm(range(num_samples))
+        message = f"Running chain {chain}"
+        tqdm_bars[chain].set_description(message, refresh=False,)
 
-    def _close_tqdm(arg, transform):
-        tqdm_pbar.close()
+    def _update_tqdm(arg, transform, device):
+        chain = int(str(device)[4:])
+        tqdm_bars[chain].update(arg)
 
-    def close_tqdm(x):
-        return host_callback.id_tap(_close_tqdm, x, result=x)
-
-    def _update_tqdm(arg, transform):
-        tqdm_pbar.update(arg)
+    def _close_tqdm(arg, transform, device):
+        chain = int(str(device)[4:])
+        tqdm_bars[chain].close()
 
     @jit
     def _update_progress_bar(iter_num, print_rate):
@@ -216,8 +193,22 @@ def progress_bar_factory(num_samples):
         """
 
         _ = lax.cond(
+            iter_num == 0,
+            lambda _: host_callback.id_tap(_define_tqdm, print_rate, result=iter_num, tap_with_device=True),
+            lambda _: iter_num,
+            operand=None,
+        )
+
+        _ = lax.cond(
             iter_num % print_rate == 0,
-            lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num),
+            lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num, tap_with_device=True),
+            lambda _: iter_num,
+            operand=None,
+        )
+
+        _ = lax.cond(
+            iter_num == num_samples-1,
+            lambda _: host_callback.id_tap(_close_tqdm, print_rate, result=iter_num, tap_with_device=True),
             lambda _: iter_num,
             operand=None,
         )
@@ -235,7 +226,7 @@ def progress_bar_factory(num_samples):
 
         return wrapper_progress_bar
 
-    return progress_bar_fori_loop, set_tqdm_description, close_tqdm
+    return progress_bar_fori_loop
 
 
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
@@ -295,12 +286,9 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
-        progress_bar_fori_loop, set_tqdm_description, close_tqdm = progress_bar_factory(upper)
-        set_tqdm_description(f"Running sampler for {upper:,} iteration")
+        progress_bar_fori_loop = progress_bar_factory(upper)
         _body_fn_pbar = progress_bar_fori_loop(_body_fn)
-
         last_val, collection, _, _ = fori_loop(0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning))
-        collection = close_tqdm(collection)
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
