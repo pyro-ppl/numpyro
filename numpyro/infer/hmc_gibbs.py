@@ -293,13 +293,11 @@ class DiscreteHMCGibbs(HMCGibbs):
         corresponding :func:`~numpyro.primitives.sample` statement.
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
-    :param list discrete_sites: a list of site names for the discrete latent variables
-        that are covered by the Gibbs sampler.
     :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
         conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
-        from the domain of `gibbs_site`.
+        from the domain of `gibbs_site`. Defaults to False.
     :param bool modified: whether to use a modified proposal, as suggested in reference [1], which
-        always proposes a new state for the current Gibbs site.
+        always proposes a new state for the current Gibbs site. Defaults to False.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
 
@@ -364,6 +362,7 @@ class DiscreteHMCGibbs(HMCGibbs):
                              and site["fn"].has_enumerate_support
                              and not site["is_observed"]
                              and site["infer"].get("enumerate", "") != "parallel"]
+        assert self._gibbs_sites, "Cannot detect any discrete latent variables in the model."
         return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
 
     def sample(self, state, model_args, model_kwargs):
@@ -492,6 +491,7 @@ class HMCECS(HMCGibbs):
             if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
         }
         self._gibbs_sites = list(self._plate_sizes.keys())
+        assert self._gibbs_sites, "Cannot detect any subsample statements in the model."
         return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
 
     def sample(self, state, model_args, model_kwargs):
