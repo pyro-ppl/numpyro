@@ -66,7 +66,7 @@ class MixedHMC(DiscreteHMCGibbs):
         >>> assert abs(jnp.var(samples) - 4.36) < 0.5
     """
 
-    def __init__(self, inner_kernel, *, num_discrete_updates=None, random_walk=False, modified=True):
+    def __init__(self, inner_kernel, *, num_discrete_updates=None, random_walk=False, modified=False):
         super().__init__(inner_kernel, random_walk=random_walk, modified=modified)
         if inner_kernel._algo == "NUTS":
             raise ValueError("The algorithm only works with HMC and and does not support NUTS.")
