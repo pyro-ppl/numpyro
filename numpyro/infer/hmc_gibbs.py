@@ -471,10 +471,13 @@ class HMCECS(HMCGibbs):
        Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
     3. *The Block Pseudo-Margional Sampler*,
        Tran, M.-N., Kohn, R., Quiroz, M. Villani, M. (2017)
+    4. *The Fundamental Incompatibility ofScalable Hamiltonian Monte Carlo and Naive Data Subsampling*
+       Betancourt, M. (2015)
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
     :param int num_blocks: Number of blocks to partition subsample into.
-    :param callable proxy: TODO: add description.
+    :param proxy: Either :function `~numpyro.infer.hmc_gibbs.taylor_proxy` for likelihood estimation,
+                  or, None for naive (in-between trajectory) subsampling as outlined in [4].
 
     **Example**
 
@@ -566,16 +569,19 @@ class HMCECS(HMCGibbs):
         pe = state.hmc_state.potential_energy
         pe_new = potential_fn(z_gibbs_new, gibbs_state_new, state.hmc_state.z)
         accept_prob = jnp.clip(jnp.exp(pe - pe_new), a_max=1.0)
-        z_gibbs, gibbs_state, pe = cond(random.bernoulli(rng_key, accept_prob),
+        transition = random.bernoulli(rng_key, accept_prob)
+        z_gibbs, gibbs_state, pe = cond(transition,
                                         (z_gibbs_new, gibbs_state_new, pe_new), identity,
                                         (z_gibbs, state.gibbs_state, pe), identity)
 
-        # TODO (very low priority): move this to the above cond, only compute grad when accepting
-        if self.inner_kernel._forward_mode_differentiation:
-            z_grad = jacfwd(partial(potential_fn, z_gibbs, gibbs_state))(state.hmc_state.z)
-        else:
-            z_grad = grad(partial(potential_fn, z_gibbs, gibbs_state))(state.hmc_state.z)
-        hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
+        hmc_state = cond(transition,  # only update gradient an d
+                         (potential_fn, z_gibbs, gibbs_state), lambda fn, zgibbs, gstate:
+                         state.hmc_state._replace(z_grad=self.grad_mode(partial(potential_fn,
+                                                                                zgibbs,
+                                                                                gstate))(state.hmc_state.z),
+                                                  potential_energy=pe),
+                         (potential_fn, z_gibbs, gibbs_state), lambda fn, zgibbs, gstate: state.hmc_state
+                         )
 
         model_kwargs["_gibbs_sites"] = z_gibbs
         model_kwargs["_gibbs_state"] = gibbs_state
@@ -583,6 +589,16 @@ class HMCECS(HMCGibbs):
 
         z = {**z_gibbs, **hmc_state.z}
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
+
+    @property
+    def grad_mode(self):
+        if not hasattr(self, '_grad_mode'):
+            if self.inner_kernel._forward_mode_differentiation:
+                grad_fn = jacfwd
+            else:
+                grad_fn = grad
+            self._grad_mode = grad_fn
+        return self._grad_mode
 
 
 def perturbed_method(subsample_plate_sizes, proxy_fn):
@@ -610,9 +626,12 @@ def perturbed_method(subsample_plate_sizes, proxy_fn):
 
 def taylor_proxy(reference_params):
     def construct_proxy_fn(subsample_plate_sizes, model, model_args, model_kwargs, num_blocks=1):
-        # TODO: map reference params to unconstraint_params
+        with block(), trace as tr, substitute(substitute_fn=partial(_unconstrain_reparam, reference_params)):
+            model(*model_args, **model_kwargs)
 
-        ref_params_flat, unravel_fn = ravel_pytree(reference_params)
+        # map to unconstraint_space  # TODO: check this
+        ref_params = {name: site['value'] for name, site in tr if name in reference_params}
+        ref_params_flat, unravel_fn = ravel_pytree(ref_params)
 
         def log_likelihood(params_flat, subsample_indices=None):
             if subsample_indices is None:
