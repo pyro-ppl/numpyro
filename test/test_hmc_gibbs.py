@@ -208,26 +208,23 @@ def test_discrete_gibbs_gmm_1d(modified):
 
 
 @pytest.mark.parametrize('num_blocks', [1, 2, 50, 100])
-def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
-    # TODO: fix test to new API
-    def model(obs):
-        with plate('N', obs.shape[0], subsample_size=100) as idx:
-            numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
+def test_block_update_partitioning(num_blocks):
+    plate_size = 10000, 100
 
-    obs = random.normal(random.PRNGKey(0), (10000,)) / 100
-    kernel = HMCECS(kernel_cls(model), num_blocks=num_blocks)
-    state = kernel.init(random.PRNGKey(1), 10, None, model_args=(obs,), model_kwargs=None)
-    gibbs_sites = {'N': jnp.arange(100)}
+    plate_sizes = {'N': plate_size}
+    gibbs_sites = {'N': jnp.arange(plate_size[1])}
+    gibbs_state = {}
 
-    def potential_fn(z_gibbs, z_hmc):
-        return kernel.inner_kernel._potential_fn_gen(obs, _gibbs_sites=z_gibbs)(z_hmc)
-
-    gibbs_fn = numpyro.infer.hmc_gibbs._subsample_gibbs_fn(potential_fn, kernel._plate_sizes, num_blocks)
-    new_gibbs_sites, _ = gibbs_fn(random.PRNGKey(2), gibbs_sites, state.hmc_state.z,
-                                  state.hmc_state.potential_energy)  # accept_prob > .999
+    new_gibbs_sites, new_gibbs_state = numpyro.infer.hmc_gibbs._block_update(plate_sizes,
+                                                                             num_blocks,
+                                                                             random.PRNGKey(2),
+                                                                             gibbs_sites,
+                                                                             gibbs_state)
     block_size = 100 // num_blocks
     for name in gibbs_sites:
         assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
+
+    assert gibbs_state == new_gibbs_state
 
 
 def test_enum_subsample_smoke():
