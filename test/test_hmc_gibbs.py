@@ -149,13 +149,15 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
     assert_allclose(x1_std, np.sqrt(np.diagonal(cov11)), rtol=0.1)
 
 
-def test_discrete_gibbs_multiple_sites():
+@pytest.mark.parametrize("num_chains", [1, 2])
+@pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+def test_discrete_gibbs_multiple_sites_chain(num_chains):
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7).expand([3]))
         numpyro.sample("y", dist.Binomial(10, 0.3))
 
     kernel = DiscreteHMCGibbs(NUTS(model))
-    mcmc = MCMC(kernel, 1000, 10000, progress_bar=False)
+    mcmc = MCMC(kernel, 1000, 10000, num_chains=num_chains, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["x"], 0), 0.7 * jnp.ones(3), atol=0.01)

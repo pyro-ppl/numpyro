@@ -5,6 +5,8 @@ from collections import namedtuple
 import copy
 from functools import partial
 
+import numpy as np
+
 from jax import device_put, grad, jacfwd, ops, random, value_and_grad
 import jax.numpy as jnp
 from jax.scipy.special import expit
@@ -353,7 +355,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         self._prototype_trace = trace(seed(self.model, key_u)).get_trace(*model_args, **model_kwargs)
 
         self._support_sizes = {
-            name: jnp.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
+            name: np.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
             for name, site in self._prototype_trace.items()
             if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
         }
