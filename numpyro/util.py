@@ -8,7 +8,7 @@ import random
 import re
 
 import numpy as np
-import tqdm
+from tqdm.auto import tqdm
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
@@ -172,9 +172,16 @@ def progress_bar_factory(num_samples):
 
     tqdm_bars = {}
 
+    if num_samples > 20:
+        print_rate = int(num_samples / 20)
+    else:
+        print_rate = 1
+
+    remainder = num_samples % print_rate
+
     def _define_tqdm(arg, transform, device):
         chain = int(str(device)[4:])
-        tqdm_bars[chain] = tqdm.tqdm(range(num_samples))
+        tqdm_bars[chain] = tqdm(range(num_samples))
         message = f"Running chain {chain}"
         tqdm_bars[chain].set_description(message, refresh=False,)
 
@@ -186,8 +193,7 @@ def progress_bar_factory(num_samples):
         chain = int(str(device)[4:])
         tqdm_bars[chain].close()
 
-    @jit
-    def _update_progress_bar(iter_num, print_rate):
+    def _update_progress_bar(iter_num):
         """Updates tqdm progress bar of a JAX loop only if the iteration number is a multiple of the print_rate
         Usage: carry = progress_bar((iter_num, print_rate), carry)
         """
@@ -200,15 +206,22 @@ def progress_bar_factory(num_samples):
         )
 
         _ = lax.cond(
-            iter_num % print_rate == 0,
+            (iter_num % print_rate == 0) & (iter_num != num_samples - remainder),
             lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num, tap_with_device=True),
             lambda _: iter_num,
             operand=None,
         )
 
         _ = lax.cond(
-            iter_num == num_samples-1,
-            lambda _: host_callback.id_tap(_close_tqdm, print_rate, result=iter_num, tap_with_device=True),
+            iter_num == num_samples - remainder,
+            lambda _: host_callback.id_tap(_update_tqdm, remainder, result=iter_num, tap_with_device=True),
+            lambda _: iter_num,
+            operand=None,
+        )
+
+        _ = lax.cond(
+            iter_num == num_samples - 1,
+            lambda _: host_callback.id_tap(_close_tqdm, remainder, result=iter_num, tap_with_device=True),
             lambda _: iter_num,
             operand=None,
         )
@@ -218,10 +231,8 @@ def progress_bar_factory(num_samples):
         Note that `body_fun` must be looping over a tuple who's first element is `np.arange(num_samples)`.
         This means that `iter_num` is the current iteration number
         """
-        print_rate = int(num_samples / 20)
-
         def wrapper_progress_bar(i, vals):
-            _update_progress_bar(i, print_rate)
+            _update_progress_bar(i)
             return func(i, vals)
 
         return wrapper_progress_bar
