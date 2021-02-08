@@ -203,7 +203,7 @@ def test_discrete_gibbs_gmm_1d(modified):
     mcmc.run(random.PRNGKey(0), probs, locs)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["x"]), 1.3, atol=0.1)
-    assert_allclose(jnp.var(samples["x"]), 4.36, atol=0.1)
+    assert_allclose(jnp.var(samples["x"]), 4.36, atol=0.2)
     assert_allclose(jnp.mean(samples["c"]), 1.65, atol=0.1)
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
 
