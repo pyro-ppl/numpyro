@@ -474,6 +474,7 @@ class HMCECS(HMCGibbs):
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
     :param int num_blocks: Number of blocks to partition subsample into.
+    :param callable proxy: TODO: add description.
 
     **Example**
 
@@ -531,12 +532,12 @@ class HMCECS(HMCGibbs):
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         if self._proxy is not None:
             rng_key, proxy_key, method_key = random.split(rng_key, 3)
-            proxy_fn, gibbs_init, self._gibbs_update = self._proxy(rng_key,
+            proxy_fn, gibbs_init, self._gibbs_update = self._proxy(self._subsample_plate_sizes,
                                                                    self.model,
                                                                    model_args,
-                                                                   model_kwargs,
+                                                                   model_kwargs.copy(),
                                                                    num_blocks=self._num_blocks)
-            method = perturbed_method(method_key, self.model, model_args, model_kwargs, proxy_fn)
+            method = perturbed_method(self._subsample_plate_sizes, proxy_fn)
             self.inner_kernel._model = estimate_likelihood(self.inner_kernel._model, method)
 
             z_gibbs = {name: site["value"] for name, site in self._prototype_trace.items() if name in self._gibbs_sites}
@@ -584,15 +585,7 @@ class HMCECS(HMCGibbs):
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
 
-def perturbed_method(rng_key, model, model_args, model_kwargs, proxy_fn):
-    # subsample_plate_sizes: name -> (size, subsample_size)
-    prototype_trace = trace(seed(model, rng_key)).get_trace(*model_args, **model_kwargs)
-    subsample_plate_sizes = {
-        name: site["args"]
-        for name, site in prototype_trace.items()
-        if site["type"] == "plate" and site["args"][0] > site["args"][1]
-    }
-
+def perturbed_method(subsample_plate_sizes, proxy_fn):
     def estimator(likelihoods, params, gibbs_state):
         subsample_log_liks = defaultdict(float)
         for (fn, value, name, subsample_dim) in likelihoods.values():
@@ -616,17 +609,9 @@ def perturbed_method(rng_key, model, model_args, model_kwargs, proxy_fn):
 
 
 def taylor_proxy(reference_params):
-    def construct_proxy_fn(rng_key, model, model_args, model_kwargs, num_blocks=1):
-        prototype_trace = trace(seed(model, rng_key)).get_trace(*model_args, **model_kwargs)
-        subsample_plate_sizes = {
-            name: site["args"]
-            for name, site in prototype_trace.items()
-            if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
-        }
-
+    def construct_proxy_fn(subsample_plate_sizes, model, model_args, model_kwargs, num_blocks=1):
         # TODO: map reference params to unconstraint_params
 
-        # subsample_plate_sizes: name -> (size, subsample_size)
         ref_params_flat, unravel_fn = ravel_pytree(reference_params)
 
         def log_likelihood(params_flat, subsample_indices=None):
@@ -736,8 +721,9 @@ class estimate_likelihood(numpyro.primitives.Messenger):
         self.gibbs_state = None
 
     def __enter__(self):
-        # trace(substitute(substitute(control_variate(model), unconstrained_reparam)))
         for handler in numpyro.primitives._PYRO_STACK[::-1]:
+            # the potential_fn in HMC makes the PYRO_STACK nested like trace(...); so we can extract the
+            # unconstrained_params from the _unconstrain_reparam substitute_fn
             if isinstance(handler, substitute) and isinstance(handler.substitute_fn, partial) \
                     and handler.substitute_fn.func is _unconstrain_reparam:
                 self.params = handler.substitute_fn.args[0]

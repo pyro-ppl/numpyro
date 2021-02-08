@@ -304,7 +304,7 @@ class plate(Messenger):
         }
         apply_stack(msg)
         subsample = msg['value']
-        subsample_size = msg['args'][1]  # TODO: rewrite plate
+        subsample_size = msg['args'][1]
         if subsample_size is not None and subsample_size != subsample.shape[0]:
             warnings.warn("subsample_size does not match len(subsample), {} vs {}.".format(
                 subsample_size, len(subsample)) +
