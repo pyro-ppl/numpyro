@@ -13,7 +13,6 @@ from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.handlers import plate
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, DiscreteHMCGibbs, HMCGibbs
 from numpyro.infer.hmc_gibbs import taylor_proxy
 
