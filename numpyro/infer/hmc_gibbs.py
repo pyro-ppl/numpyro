@@ -511,6 +511,7 @@ class HMCECS(HMCGibbs):
         self._num_blocks = num_blocks
         self._proxy = proxy
         self._method = 'perturbed'
+        self._grad_fn = None
 
     def postprocess_fn(self, args, kwargs):
         def fn(z):
@@ -535,7 +536,8 @@ class HMCECS(HMCGibbs):
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         if self._proxy is not None:
             rng_key, proxy_key, method_key = random.split(rng_key, 3)
-            proxy_fn, gibbs_init, self._gibbs_update = self._proxy(self._subsample_plate_sizes,
+            proxy_fn, gibbs_init, self._gibbs_update = self._proxy(self._prototype_trace,
+                                                                   self._subsample_plate_sizes,
                                                                    self.model,
                                                                    model_args,
                                                                    model_kwargs.copy(),
@@ -574,13 +576,15 @@ class HMCECS(HMCGibbs):
                                         (z_gibbs_new, gibbs_state_new, pe_new), identity,
                                         (z_gibbs, state.gibbs_state, pe), identity)
 
-        hmc_state = cond(transition,  # only update gradient an d
-                         (potential_fn, z_gibbs, gibbs_state), lambda fn, zgibbs, gstate:
-                         state.hmc_state._replace(z_grad=self.grad_mode(partial(potential_fn,
-                                                                                zgibbs,
-                                                                                gstate))(state.hmc_state.z),
-                                                  potential_energy=pe),
-                         (potential_fn, z_gibbs, gibbs_state), lambda fn, zgibbs, gstate: state.hmc_state
+        state.hmc_state._replace(z_grad=self.grad_fn(partial(potential_fn,
+                                                             z_gibbs,
+                                                             gibbs_state))(state.hmc_state.z),
+                                 potential_energy=pe),
+        hmc_state = cond(transition,  # only update gradient and potential energy when block is updated
+                         state.hmc_state._replace(
+                             z_grad=self.grad_fn(partial(potential_fn, z_gibbs, gibbs_state))(state.hmc_state.z),
+                             potential_energy=pe), identity,
+                         state.hmc_state, identity
                          )
 
         model_kwargs["_gibbs_sites"] = z_gibbs
@@ -591,14 +595,14 @@ class HMCECS(HMCGibbs):
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
     @property
-    def grad_mode(self):
+    def grad_fn(self):
         if not hasattr(self, '_grad_mode'):
             if self.inner_kernel._forward_mode_differentiation:
                 grad_fn = jacfwd
             else:
                 grad_fn = grad
-            self._grad_mode = grad_fn
-        return self._grad_mode
+            self._grad_fn = grad_fn
+        return self._grad_fn
 
 
 def perturbed_method(subsample_plate_sizes, proxy_fn):
@@ -625,12 +629,9 @@ def perturbed_method(subsample_plate_sizes, proxy_fn):
 
 
 def taylor_proxy(reference_params):
-    def construct_proxy_fn(subsample_plate_sizes, model, model_args, model_kwargs, num_blocks=1):
-        with block(), trace as tr, substitute(substitute_fn=partial(_unconstrain_reparam, reference_params)):
-            model(*model_args, **model_kwargs)
-
-        # map to unconstraint_space  # TODO: check this
-        ref_params = {name: site['value'] for name, site in tr if name in reference_params}
+    def construct_proxy_fn(prototype_trace, subsample_plate_sizes, model, model_args, model_kwargs, num_blocks=1):
+        ref_params = {name: _unconstrain_reparam(reference_params, site) for name, site in prototype_trace.items()
+                      if name in reference_params}
         ref_params_flat, unravel_fn = ravel_pytree(ref_params)
 
         def log_likelihood(params_flat, subsample_indices=None):
@@ -639,8 +640,7 @@ def taylor_proxy(reference_params):
             params = unravel_fn(params_flat)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                with block(), trace() as tr, substitute(data=subsample_indices), \
-                        substitute(substitute_fn=partial(_unconstrain_reparam, params)):
+                with block(), trace() as tr, substitute(data=subsample_indices), substitute(data=params):
                     model(*model_args, **model_kwargs)
 
             log_lik = {}

@@ -207,9 +207,9 @@ def test_discrete_gibbs_gmm_1d(modified):
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 @pytest.mark.parametrize('num_blocks', [1, 2, 50, 100])
 def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
+    # TODO: fix test to new API
     def model(obs):
         with plate('N', obs.shape[0], subsample_size=100) as idx:
             numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
