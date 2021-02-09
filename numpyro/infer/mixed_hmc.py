@@ -102,7 +102,7 @@ class MixedHMC(DiscreteHMCGibbs):
             return self.inner_kernel._potential_fn_gen(
                 *model_args, _gibbs_sites=z_gibbs, **model_kwargs)(z_hmc)
 
-        def update_discrete(idx, rng_key, hmc_state, z_discrete, ke_discrete):
+        def update_discrete(idx, rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum):
             # Algo 1, line 19: get a new discrete proposal
             rng_key, z_discrete_new, pe_new, log_accept_ratio = self._discrete_proposal_fn(
                 rng_key, z_discrete, hmc_state.potential_energy,
@@ -119,9 +119,10 @@ class MixedHMC(DiscreteHMCGibbs):
                 (z_discrete, hmc_state.potential_energy, ke_discrete[idx], hmc_state.z_grad),
                 identity)
 
+            delta_pe_sum = delta_pe_sum + pe - hmc_state.potential_energy
             ke_discrete = ops.index_update(ke_discrete, idx, ke_discrete_i)
             hmc_state = hmc_state._replace(potential_energy=pe, z_grad=z_grad)
-            return rng_key, hmc_state, z_discrete, ke_discrete
+            return rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum
 
         def update_continuous(hmc_state, z_discrete):
             model_kwargs_ = model_kwargs.copy()
@@ -137,7 +138,7 @@ class MixedHMC(DiscreteHMCGibbs):
             return hmc_state
 
         def body_fn(i, vals):
-            rng_key, hmc_state, z_discrete, ke_discrete, arrival_times = vals
+            rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum, arrival_times = vals
             idx = jnp.argmin(arrival_times)
             # NB: length of each sub-trajectory is scaled from the current min(arrival_times)
             # (see the note at total_time below)
@@ -151,9 +152,9 @@ class MixedHMC(DiscreteHMCGibbs):
             # Algo 1, line 7: perform a sub-trajectory
             hmc_state = update_continuous(hmc_state, z_discrete)
             # Algo 1, line 8: perform a discrete update
-            rng_key, hmc_state, z_discrete, ke_discrete = update_discrete(
-                idx, rng_key, hmc_state, z_discrete, ke_discrete)
-            return rng_key, hmc_state, z_discrete, ke_discrete, arrival_times
+            rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum = update_discrete(
+                idx, rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum)
+            return rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum, arrival_times
 
         z_discrete = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
         rng_key, rng_ke, rng_time, rng_r, rng_accept = random.split(state.rng_key, 5)
@@ -175,18 +176,19 @@ class MixedHMC(DiscreteHMCGibbs):
         hmc_state = state.hmc_state._replace(r=r, num_steps=0)
         hmc_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, r)
         # Algo 1, line 10: compute the initial energy
-        energy_old = ke_discrete.sum() + hmc_ke + hmc_state.potential_energy
+        energy_old = hmc_ke + hmc_state.potential_energy
 
         # Algo 1, line 3: set initial values
-        init_val = (rng_key, hmc_state, z_discrete, ke_discrete, arrival_times)
+        delta_pe_sum = 0.
+        init_val = (rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum, arrival_times)
         # Algo 1, line 6-9: perform the update loop
-        rng_key, hmc_state_new, z_discrete_new, ke_discrete, _ = fori_loop(
+        rng_key, hmc_state_new, z_discrete_new, _, delta_pe_sum, _ = fori_loop(
             0, self._num_discrete_updates, body_fn, init_val)
         # Algo 1, line 10: compute the proposal energy
         hmc_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, hmc_state_new.r)
-        energy_new = ke_discrete.sum() + hmc_ke + hmc_state_new.potential_energy
+        energy_new = hmc_ke + hmc_state_new.potential_energy
         # Algo 1, line 11: perform MH correction
-        delta_energy = energy_new - energy_old
+        delta_energy = energy_new - energy_old - delta_pe_sum
         delta_energy = jnp.where(jnp.isnan(delta_energy), jnp.inf, delta_energy)
         accept_prob = jnp.clip(jnp.exp(-delta_energy), a_max=1.0)
 

@@ -167,7 +167,7 @@ def test_discrete_gibbs_multiple_sites(kernel, inner_kernel, kwargs):
 
 
 @pytest.mark.parametrize("kernel, inner_kernel, kwargs", [
-    (MixedHMC, HMC, {"num_discrete_updates": 8}),
+    (MixedHMC, HMC, {"num_discrete_updates": 6}),
     (DiscreteHMCGibbs, NUTS, {})
 ])
 def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
@@ -185,7 +185,7 @@ def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
 
 @pytest.mark.parametrize("random_walk", [False, True])
 @pytest.mark.parametrize("kernel, inner_kernel, kwargs", [
-    (MixedHMC, HMC, {"num_discrete_updates": 20}),
+    (MixedHMC, HMC, {"num_discrete_updates": 6}),
     (DiscreteHMCGibbs, NUTS, {"modified": True}),
     (DiscreteHMCGibbs, NUTS, {"modified": False}),
 ])
