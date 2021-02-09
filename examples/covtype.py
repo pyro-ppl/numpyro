@@ -127,7 +127,7 @@ if __name__ == '__main__':
                         help='whether to run "HMCECS", "NUTS", "HMCECS", "SA" or "FlowHMCECS"')
     parser.add_argument('--dense-mass', action="store_true")
     parser.add_argument('--x64', action="store_true")
-    parser.add_argument('--device', default='gpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)
