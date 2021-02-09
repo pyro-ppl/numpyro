@@ -83,7 +83,7 @@ def _load_baseball():
     def train_test_split(file):
         train, test, player_names = [], [], []
         with open(file, 'r') as f:
-            csv_reader = csv.reader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
+            csv_reader = csv.DictReader(f, delimiter='\t', quoting=csv.QUOTE_NONE)
             for row in csv_reader:
                 player_names.append(row['FirstName'] + ' ' + row['LastName'])
                 at_bats, hits = row['At-Bats'], row['Hits']

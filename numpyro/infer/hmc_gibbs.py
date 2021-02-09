@@ -11,6 +11,7 @@ import jax.numpy as jnp
 from jax.scipy.special import expit
 
 import numpyro
+from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
@@ -510,8 +511,7 @@ class HMCECS(HMCGibbs):
         self.inner_kernel._model = _wrap_gibbs_state(self.inner_kernel._model)
         self._num_blocks = num_blocks
         self._proxy = proxy
-        self._method = 'perturbed'
-        self._grad_fn = None
+        self._grad_ = None
 
     def postprocess_fn(self, args, kwargs):
         def fn(z):
@@ -535,7 +535,6 @@ class HMCECS(HMCGibbs):
         }
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         if self._proxy is not None:
-            rng_key, proxy_key, method_key = random.split(rng_key, 3)
             proxy_fn, gibbs_init, self._gibbs_update = self._proxy(self._prototype_trace,
                                                                    self._subsample_plate_sizes,
                                                                    self.model,
@@ -572,20 +571,15 @@ class HMCECS(HMCGibbs):
         pe_new = potential_fn(z_gibbs_new, gibbs_state_new, state.hmc_state.z)
         accept_prob = jnp.clip(jnp.exp(pe - pe_new), a_max=1.0)
         transition = random.bernoulli(rng_key, accept_prob)
-        z_gibbs, gibbs_state, pe = cond(transition,
-                                        (z_gibbs_new, gibbs_state_new, pe_new), identity,
-                                        (z_gibbs, state.gibbs_state, pe), identity)
+        grad_ = jacfwd if self.inner_kernel._forward_mode_differentiation else grad
+        z_gibbs, gibbs_state, pe, z_grad = cond(transition,
+                                                (z_gibbs_new, gibbs_state_new, pe_new),
+                                                lambda vals: vals + (grad_(partial(potential_fn,
+                                                                                   vals[0],
+                                                                                   vals[1]))(state.hmc_state.z),),
+                                                (z_gibbs, state.gibbs_state, pe, state.hmc_state.z_grad), identity)
 
-        state.hmc_state._replace(z_grad=self.grad_fn(partial(potential_fn,
-                                                             z_gibbs,
-                                                             gibbs_state))(state.hmc_state.z),
-                                 potential_energy=pe),
-        hmc_state = cond(transition,  # only update gradient and potential energy when block is updated
-                         state.hmc_state._replace(
-                             z_grad=self.grad_fn(partial(potential_fn, z_gibbs, gibbs_state))(state.hmc_state.z),
-                             potential_energy=pe), identity,
-                         state.hmc_state, identity
-                         )
+        hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
 
         model_kwargs["_gibbs_sites"] = z_gibbs
         model_kwargs["_gibbs_state"] = gibbs_state
@@ -595,14 +589,14 @@ class HMCECS(HMCGibbs):
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
     @property
-    def grad_fn(self):
+    def grad_(self):
         if not hasattr(self, '_grad_mode'):
             if self.inner_kernel._forward_mode_differentiation:
-                grad_fn = jacfwd
+                grad_ = jacfwd
             else:
-                grad_fn = grad
-            self._grad_fn = grad_fn
-        return self._grad_fn
+                grad_ = grad
+            self._grad_ = grad_
+        return self._grad_
 
 
 def perturbed_method(subsample_plate_sizes, proxy_fn):
@@ -629,9 +623,21 @@ def perturbed_method(subsample_plate_sizes, proxy_fn):
 
 
 def taylor_proxy(reference_params):
+    """  Control variate for unbiased log likelihood estimation using a Taylor expansion around a reference
+    parameter. Suggest for subsampling in [1].
+
+    :param reference_params: Model parameterization at MLE or MAP-estimate.
+
+    ** References: **
+
+    [1] Towards scaling up Markov chainMonte Carlo: an adaptive subsampling approach
+        Bardenet., R., Doucet, A., Holmes, C. (2014)
+    """
+
     def construct_proxy_fn(prototype_trace, subsample_plate_sizes, model, model_args, model_kwargs, num_blocks=1):
-        ref_params = {name: _unconstrain_reparam(reference_params, site) for name, site in prototype_trace.items()
-                      if name in reference_params}
+        ref_params = {name: biject_to(prototype_trace[name]["fn"].support).inv(value)
+                      for name, value in reference_params.items()}
+
         ref_params_flat, unravel_fn = ravel_pytree(ref_params)
 
         def log_likelihood(params_flat, subsample_indices=None):
@@ -640,7 +646,9 @@ def taylor_proxy(reference_params):
             params = unravel_fn(params_flat)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                with block(), trace() as tr, substitute(data=subsample_indices), substitute(data=params):
+
+                with block(), trace() as tr, substitute(data=subsample_indices), substitute(data=params), \
+                        substitute(substitute_fn=partial(_unconstrain_reparam, params)):
                     model(*model_args, **model_kwargs)
 
             log_lik = {}

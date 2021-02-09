@@ -243,13 +243,13 @@ def test_enum_subsample_smoke():
 @pytest.mark.parametrize('num_block', [1, 2, 50])
 @pytest.mark.parametrize('subsample_size', [50, 150])
 def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
-    true_loc = 0.3
+    true_loc = jnp.array([0.3, 0.1, 0.9])
     num_warmup, num_samples = 200, 200
-    data = true_loc + dist.Normal().sample(random.PRNGKey(1), (10000,))
+    data = true_loc + dist.Normal(jnp.zeros(3,), jnp.ones(3,)).sample(random.PRNGKey(1), (10000,))
 
     def model(data, subsample_size):
-        mean = numpyro.sample('mean', dist.Normal())
-        with numpyro.plate('batch', data.shape[0], subsample_size=subsample_size):
+        mean = numpyro.sample('mean', dist.Normal().expand((3,)).to_event(1))
+        with numpyro.plate('batch', data.shape[0], dim=-2, subsample_size=subsample_size):
             sub_data = numpyro.subsample(data, 0)
             numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
 
@@ -261,5 +261,5 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
     mcmc.run(random.PRNGKey(0), data, subsample_size)
 
     samples = mcmc.get_samples()
-    assert_allclose(np.mean(mcmc.get_samples()['mean']), true_loc, atol=0.1)
+    assert_allclose(np.mean(mcmc.get_samples()['mean'], axis=0), true_loc, atol=0.1)
     assert len(samples['mean']) == num_samples
