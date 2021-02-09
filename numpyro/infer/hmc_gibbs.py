@@ -325,7 +325,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> kernel = DiscreteHMCGibbs(NUTS(model), modified=True)
         >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
-        >>> mcmc.print_summary()
+        >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
         >>> assert abs(jnp.var(samples) - 4.36) < 0.5
