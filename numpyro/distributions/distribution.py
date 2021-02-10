@@ -447,18 +447,38 @@ class ExpandedDistribution(Distribution):
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
-        samples = sample_fn(key, sample_shape=sample_shape + batch_shape)
-        return samples.reshape(sample_shape + self.batch_shape + self.event_shape)
+        samples, intermediates = sample_fn(key, sample_shape=sample_shape + batch_shape)
+
+        def reshape_sample(x):
+            """ Reshapes samples and intermediates to ensure that the output
+                shape is correct: This implicitly replaces the interstitial dims
+                of size 1 in the original batch_shape of base_dist with those
+                in the expanded dims. While it somewhat 'shuffles' over batch
+                dimensions, we don't care because they are considered independent."""
+            subshape = x.shape[len(sample_shape) + len(batch_shape):]
+            # subshape == base_dist.batch_shape + event_shape of x (latter unknown for intermediates)
+            event_shape = subshape[len(self.base_dist.batch_shape):]
+            return x.reshape(sample_shape + self.batch_shape + event_shape)
+
+        intermediates = tree_util.tree_map(reshape_sample, intermediates)
+        samples = reshape_sample(samples)
+        return samples, intermediates
 
     def rsample(self, key, sample_shape=()):
-        return self._sample(self.base_dist.rsample, key, sample_shape)
+        return self._sample(
+            lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
+            key, sample_shape
+        )
 
     @property
     def support(self):
         return self.base_dist.support
 
+    def sample_with_intermediates(self, key, sample_shape=()):
+        return self._sample(self.base_dist.sample_with_intermediates, key, sample_shape)
+
     def sample(self, key, sample_shape=()):
-        return self._sample(self.base_dist.sample, key, sample_shape)
+        return self.sample_with_intermediates(key, sample_shape)[0]
 
     def log_prob(self, value):
         shape = lax.broadcast_shapes(self.batch_shape,
