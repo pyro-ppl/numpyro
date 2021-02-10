@@ -472,7 +472,7 @@ class HMCECS(HMCGibbs):
        Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
     3. *The Block Pseudo-Margional Sampler*,
        Tran, M.-N., Kohn, R., Quiroz, M. Villani, M. (2017)
-    4. *The Fundamental Incompatibility ofScalable Hamiltonian Monte Carlo and Naive Data Subsampling*
+    4. *The Fundamental Incompatibility of Scalable Hamiltonian Monte Carlo and Naive Data Subsampling*
        Betancourt, M. (2015)
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
