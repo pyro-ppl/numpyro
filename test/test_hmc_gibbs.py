@@ -2,13 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 from functools import partial
 
-import numpy as np
-from numpy.testing import assert_allclose
-import pytest
-
-from jax import hessian, jacrev, random, vmap
 import jax.numpy as jnp
+import numpy as np
+import pytest
+from jax import hessian, jacrev, random, vmap
 from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
+from numpy.testing import assert_allclose
 
 import numpyro
 import numpyro.distributions as dist
@@ -278,10 +277,12 @@ def test_taylor_proxy_norm(subsample_size):
         with numpyro.plate('data', data.shape[0], subsample_size=subsample_size, dim=-2) as idx:
             numpyro.sample('obs', dist.Normal(mean, sigma), obs=data[idx])
 
-    log_prob_fn = lambda params: vmap(dist.Normal(params, sigma).log_prob)(data).sum(-1)
-    log_prob = log_prob_fn(ref_params)
-    log_norm_jac = jacrev(log_prob_fn)(ref_params)
-    log_norm_hessian = hessian(log_prob_fn)(ref_params)
+    def log_prob(params):
+        return vmap(dist.Normal(params, sigma).log_prob)(data).sum(-1)
+
+    log_prob = log_prob(ref_params)
+    log_norm_jac = jacrev(log_prob)(ref_params)
+    log_norm_hessian = hessian(log_prob)(ref_params)
 
     tr = numpyro.handlers.trace(numpyro.handlers.seed(model, tr_key)).get_trace(data, subsample_size)
     plate_sizes = {'data': (n, subsample_size)}
