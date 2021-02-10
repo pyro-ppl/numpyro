@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 from functools import partial
 
-import jax.numpy as jnp
 import numpy as np
-import pytest
-from jax import hessian, jacrev, random, vmap
-from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 from numpy.testing import assert_allclose
+import pytest
+
+from jax import hessian, jacrev, random, vmap
+import jax.numpy as jnp
+from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 
 import numpyro
 import numpyro.distributions as dist
