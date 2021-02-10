@@ -962,7 +962,7 @@ class Normal(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        normalize_term = jnp.log(jnp.sqrt(2 * jnp.pi) * self.scale)  # TODO:Added jnp.abs
+        normalize_term = jnp.log(jnp.sqrt(2 * jnp.pi) * self.scale)
         value_scaled = (value - self.loc) / self.scale
         return -0.5 * value_scaled ** 2 - normalize_term
 

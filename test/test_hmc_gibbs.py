@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import partial
+import math
 
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import random, vmap, jacrev, hessian
 import jax.numpy as jnp
 from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 
@@ -263,3 +264,50 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
     samples = mcmc.get_samples()
     assert_allclose(np.mean(mcmc.get_samples()['mean'], axis=0), true_loc, atol=0.1)
     assert len(samples['mean']) == num_samples
+
+
+@pytest.mark.parametrize('subsample_size', [5, 10, 15])
+def test_taylor_proxy_norm(subsample_size):
+    data_key, tr_key, rng_key = random.split(random.PRNGKey(0), 3)
+    ref_params = jnp.array([0.1, 0.5, -0.2])
+    sigma = .1
+
+    data = ref_params + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(data_key, (100,))
+    n, _ = data.shape
+
+    def model(data, subsample_size):
+        mean = numpyro.sample('mean', dist.Normal(ref_params, jnp.ones_like(ref_params)))
+        with numpyro.plate('data', data.shape[0], subsample_size=subsample_size, dim=-2) as idx:
+            numpyro.sample('obs', dist.Normal(mean, sigma), obs=data[idx])
+
+    log_prob_fn = lambda params: vmap(dist.Normal(params, sigma).log_prob)(data).sum(-1)
+    log_prob = log_prob_fn(ref_params)
+    log_norm_jac = jacrev(log_prob_fn)(ref_params)
+    log_norm_hessian = hessian(log_prob_fn)(ref_params)
+
+    tr = numpyro.handlers.trace(numpyro.handlers.seed(model, tr_key)).get_trace(data, subsample_size)
+    plate_sizes = {'data': (n, subsample_size)}
+
+    proxy_constructer = numpyro.infer.hmc_gibbs.taylor_proxy({'mean': ref_params})
+    proxy_fn, gibbs_init, gibbs_update = proxy_constructer(tr, plate_sizes, model, (data, subsample_size), {})
+
+    def taylor_expand_2nd_order(idx, pos):
+        return log_prob[idx] + (log_norm_jac[idx] @ pos) + .5 * (pos @ log_norm_hessian[idx]) @ pos
+
+    def taylor_expand_2nd_order_sum(pos):
+        return log_prob.sum() + log_norm_jac.sum(0) @ pos + .5 * pos @ log_norm_hessian.sum(0) @ pos
+
+    for _ in range(5):
+        split_key, perturbe_key, rng_key = random.split(rng_key, 3)
+        perturbe_params = ref_params + dist.Normal(.1, 0.01).sample(perturbe_key, ref_params.shape)
+        subsample_idx = random.randint(rng_key, (subsample_size,), 0, n)
+        gibbs_site = {'data': subsample_idx}
+        proxy_state = gibbs_init(None, gibbs_site)
+        actual_proxy_sum, actual_proxy_sub = proxy_fn({'data': perturbe_params}, ['data'], proxy_state)
+        assert_allclose(actual_proxy_sub['data'],
+                        taylor_expand_2nd_order(subsample_idx, perturbe_params - ref_params), rtol=1e-5)
+        assert_allclose(actual_proxy_sum['data'], taylor_expand_2nd_order_sum(perturbe_params - ref_params), rtol=1e-5)
+
+
+def test_estimate_likelihood():
+    pass

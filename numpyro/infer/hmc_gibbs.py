@@ -511,7 +511,6 @@ class HMCECS(HMCGibbs):
         self.inner_kernel._model = _wrap_gibbs_state(self.inner_kernel._model)
         self._num_blocks = num_blocks
         self._proxy = proxy
-        self._grad_ = None
 
     def postprocess_fn(self, args, kwargs):
         def fn(z):
@@ -588,16 +587,6 @@ class HMCECS(HMCGibbs):
         z = {**z_gibbs, **hmc_state.z}
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
-    @property
-    def grad_(self):
-        if not hasattr(self, '_grad_mode'):
-            if self.inner_kernel._forward_mode_differentiation:
-                grad_ = jacfwd
-            else:
-                grad_ = grad
-            self._grad_ = grad_
-        return self._grad_
-
 
 def perturbed_method(subsample_plate_sizes, proxy_fn):
     def estimator(likelihoods, params, gibbs_state):
@@ -646,9 +635,8 @@ def taylor_proxy(reference_params):
             params = unravel_fn(params_flat)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-
-                with block(), trace() as tr, substitute(data=subsample_indices), substitute(data=params), \
-                        substitute(substitute_fn=partial(_unconstrain_reparam, params)):
+                params = {name: biject_to(prototype_trace[name]["fn"].support)(value) for name, value in params.items()}
+                with block(), trace() as tr, substitute(data=subsample_indices), substitute(data=params):
                     model(*model_args, **model_kwargs)
 
             log_lik = {}
