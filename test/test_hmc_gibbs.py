@@ -1,14 +1,12 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
-
 from functools import partial
-import math
 
 import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random, vmap, jacrev, hessian
+from jax import hessian, jacrev, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 
@@ -288,8 +286,8 @@ def test_taylor_proxy_norm(subsample_size):
     tr = numpyro.handlers.trace(numpyro.handlers.seed(model, tr_key)).get_trace(data, subsample_size)
     plate_sizes = {'data': (n, subsample_size)}
 
-    proxy_constructer = numpyro.infer.hmc_gibbs.taylor_proxy({'mean': ref_params})
-    proxy_fn, gibbs_init, gibbs_update = proxy_constructer(tr, plate_sizes, model, (data, subsample_size), {})
+    proxy_constructor = taylor_proxy({'mean': ref_params})
+    proxy_fn, gibbs_init, gibbs_update = proxy_constructor(tr, plate_sizes, model, (data, subsample_size), {})
 
     def taylor_expand_2nd_order(idx, pos):
         return log_prob[idx] + (log_norm_jac[idx] @ pos) + .5 * (pos @ log_norm_hessian[idx]) @ pos
@@ -299,7 +297,7 @@ def test_taylor_proxy_norm(subsample_size):
 
     for _ in range(5):
         split_key, perturbe_key, rng_key = random.split(rng_key, 3)
-        perturbe_params = ref_params + dist.Normal(.1, 0.01).sample(perturbe_key, ref_params.shape)
+        perturbe_params = ref_params + dist.Normal(.1, 0.1).sample(perturbe_key, ref_params.shape)
         subsample_idx = random.randint(rng_key, (subsample_size,), 0, n)
         gibbs_site = {'data': subsample_idx}
         proxy_state = gibbs_init(None, gibbs_site)
@@ -309,5 +307,27 @@ def test_taylor_proxy_norm(subsample_size):
         assert_allclose(actual_proxy_sum['data'], taylor_expand_2nd_order_sum(perturbe_params - ref_params), rtol=1e-5)
 
 
-def test_estimate_likelihood():
-    pass
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+def test_estimate_likelihood(kernel_cls):
+    data_key, tr_key, sub_key, rng_key = random.split(random.PRNGKey(0), 4)
+    ref_params = jnp.array([0.1, 0.5, -0.2])
+    sigma = .1
+    data = ref_params + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(data_key, (10_000,))
+    n, _ = data.shape
+    num_warmup = 200
+    num_samples = 1000
+    num_blocks = 20
+
+    def model(data):
+        mean = numpyro.sample('mean', dist.Normal(ref_params, jnp.ones_like(ref_params)))
+        with numpyro.plate('N', data.shape[0], subsample_size=10, dim=-2) as idx:
+            numpyro.sample('obs', dist.Normal(mean, sigma), obs=data[idx])
+
+    proxy_fn = taylor_proxy({'mean': ref_params})
+    kernel = HMCECS(kernel_cls(model), proxy=proxy_fn, num_blocks=num_blocks)
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+
+    mcmc.run(random.PRNGKey(0), data, extra_fields=['hmc_state.potential_energy'])
+
+    pes = mcmc.get_extra_fields()['hmc_state.potential_energy']
+    assert jnp.var(pes) < 2.

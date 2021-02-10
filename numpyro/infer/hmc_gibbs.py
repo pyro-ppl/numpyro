@@ -615,7 +615,7 @@ def taylor_proxy(reference_params):
     """  Control variate for unbiased log likelihood estimation using a Taylor expansion around a reference
     parameter. Suggest for subsampling in [1].
 
-    :param reference_params: Model parameterization at MLE or MAP-estimate.
+    :param dict reference_params: Model parameterization at MLE or MAP-estimate.
 
     ** References: **
 
