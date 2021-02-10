@@ -13,6 +13,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, DiscreteHMCGibbs, HMCGibbs
 from numpyro.infer.hmc_gibbs import taylor_proxy
+from numpyro.infer.util import log_density
 
 
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
@@ -308,6 +309,7 @@ def test_taylor_proxy_norm(subsample_size):
         assert_allclose(actual_proxy_sum['data'], taylor_expand_2nd_order_sum(perturbe_params - ref_params), rtol=1e-5)
 
 
+@pytest.mark.filterwarnings('ignore::UserWarning')
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 def test_estimate_likelihood(kernel_cls):
     data_key, tr_key, sub_key, rng_key = random.split(random.PRNGKey(0), 4)
@@ -316,12 +318,12 @@ def test_estimate_likelihood(kernel_cls):
     data = ref_params + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(data_key, (10_000,))
     n, _ = data.shape
     num_warmup = 200
-    num_samples = 1000
+    num_samples = 200
     num_blocks = 20
 
     def model(data):
         mean = numpyro.sample('mean', dist.Normal(ref_params, jnp.ones_like(ref_params)))
-        with numpyro.plate('N', data.shape[0], subsample_size=10, dim=-2) as idx:
+        with numpyro.plate('N', data.shape[0], subsample_size=100, dim=-2) as idx:
             numpyro.sample('obs', dist.Normal(mean, sigma), obs=data[idx])
 
     proxy_fn = taylor_proxy({'mean': ref_params})
@@ -331,4 +333,7 @@ def test_estimate_likelihood(kernel_cls):
     mcmc.run(random.PRNGKey(0), data, extra_fields=['hmc_state.potential_energy'])
 
     pes = mcmc.get_extra_fields()['hmc_state.potential_energy']
-    assert jnp.var(pes) < 2.
+    samples = mcmc.get_samples()
+    pes_full = vmap(lambda sample: log_density(model, (data,), {}, {**sample, **{'N': jnp.arange(n)}})[0])(samples)
+
+    assert jnp.var(jnp.exp(-pes - pes_full)) < 1.
