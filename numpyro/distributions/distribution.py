@@ -444,17 +444,10 @@ class ExpandedDistribution(Distribution):
         return self.base_dist.has_rsample
 
     def _sample(self, sample_fn, key, sample_shape=()):
-        interstitial_dims = tuple(self._interstitial_sizes.keys())
-        event_dim = len(self.event_shape)
-        interstitial_dims = tuple(i - event_dim for i in interstitial_dims)
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
         samples = sample_fn(key, sample_shape=sample_shape + batch_shape)
-        interstitial_idx = len(sample_shape) + len(expanded_sizes)
-        interstitial_sample_dims = tuple(range(interstitial_idx, interstitial_idx + len(interstitial_sizes)))
-        for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
-            samples = jnp.swapaxes(samples, dim1, dim2)
         return samples.reshape(sample_shape + self.batch_shape + self.event_shape)
 
     def rsample(self, key, sample_shape=()):
