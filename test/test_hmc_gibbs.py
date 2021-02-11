@@ -279,12 +279,12 @@ def test_taylor_proxy_norm(subsample_size):
         with numpyro.plate('data', data.shape[0], subsample_size=subsample_size, dim=-2) as idx:
             numpyro.sample('obs', dist.Normal(mean, sigma), obs=data[idx])
 
-    def log_prob(params):
+    def log_prob_fn(params):
         return vmap(dist.Normal(params, sigma).log_prob)(data).sum(-1)
 
-    log_prob = log_prob(ref_params)
-    log_norm_jac = jacrev(log_prob)(ref_params)
-    log_norm_hessian = hessian(log_prob)(ref_params)
+    log_prob = log_prob_fn(ref_params)
+    log_norm_jac = jacrev(log_prob_fn)(ref_params)
+    log_norm_hessian = hessian(log_prob_fn)(ref_params)
 
     tr = numpyro.handlers.trace(numpyro.handlers.seed(model, tr_key)).get_trace(data, subsample_size)
     plate_sizes = {'data': (n, subsample_size)}
