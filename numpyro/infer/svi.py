@@ -176,15 +176,15 @@ class SVI(object):
         if progress_bar:
             losses = []
             with tqdm.trange(1, num_steps + 1) as t:
-                batch = num_steps // 20
+                batch = max(num_steps // 20, 1)
                 for i in t:
                     svi_state, loss = jit(body_fn)(svi_state, None)
+                    losses.append(loss)
                     if i % batch == 0:
                         avg_loss = sum(losses[i-batch:]) / batch
                         t.set_postfix_str("init loss: {:.4f}, avg. loss [{}-{}]: {:.4f}"
                                           .format(losses[0], i - batch + 1, i, avg_loss),
                                           refresh=False)
-                    losses.append(loss)
             losses = jnp.stack(losses)
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
