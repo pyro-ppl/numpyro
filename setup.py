@@ -43,7 +43,8 @@ setup(
         'test': [
             'flake8',
             'pytest>=4.1',
-            'pyro-api>=0.1.1'
+            'pyro-api>=0.1.1',
+            'scipy>=1.1',
         ],
         'dev': [
             'dm-haiku',
