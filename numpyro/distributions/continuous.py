@@ -31,7 +31,7 @@ import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import expit, gammaln, logit, log_ndtr, logsumexp, multigammaln, ndtr, ndtri
+from jax.scipy.special import betainc, expit, gammaln, logit, log_ndtr, logsumexp, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -80,6 +80,9 @@ class Beta(Distribution):
     def variance(self):
         total = self.concentration1 + self.concentration0
         return self.concentration1 * self.concentration0 / (total ** 2 * (total + 1))
+
+    def cdf(self, value):
+        return betainc(self.concentration1, self.concentration0, value)
 
 
 class Cauchy(Distribution):
@@ -1069,13 +1072,22 @@ class StudentT(Distribution):
         return jnp.broadcast_to(var, self.batch_shape)
 
     def cdf(self, value):
-        pass  # TODO
+        # Ref: https://en.wikipedia.org/wiki/Student's_t-distribution#Related_distributions
+        # X^2 ~ F(1, df) -> df / (df + X^2) ~ Beta(df/2, 0.5)
+        scaled = (value - self.loc) / self.scale
+        scaled_squared = scaled * scaled
+        beta_value = self.df / (self.df + scaled_squared)
+        # when scaled < 0, returns 0.5 * Beta(df/2, 0.5).cdf(beta_value)
+        # when scaled > 0, returns 1 - 0.5 * Beta(df/2, 0.5).cdf(beta_value)
+        return 0.5 * (1 + jnp.sign(scaled) * (1 - betainc(0.5 * self.df, 0.5, beta_value)))
 
     def icdf(self, q):
-        pass  # TODO
+        # upstream issue: https://github.com/google/jax/issues/2399
+        raise NotImplementedError("Not implemented until scipy.special.betaincinv is"
+                                  " avaiable in JAX.")
 
 
-class OneSidedTruncatedDistribution(Distribution):
+class LeftTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.real}
     reparametrized_params = ["low"]
 
@@ -1092,23 +1104,31 @@ class OneSidedTruncatedDistribution(Distribution):
     def support(self):
         return self._support
 
-    @lazy_property
-    def _ccdf_low(self):
-        return self.base_dist.cdf(-self.low)
-
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
-        # NB: we use a more numerical formula for a symmetric base distribution and non-negative low
+        # NB: we use a more numerical formula for a symmetric base distribution
+        # if low < loc
+        #   icdf(cdf(low) + (1 - cdf(low)) * u) =  icdf[(1 - u) * cdf(low) + u]
+        # if low > loc
         #   icdf(cdf(low) + (1 - cdf(low)) * u) = -icdf[(1 - u) * (1 - cdf(low))]
-        #                                       = -icdf[(1 - u) * cdf(-low)]
-        return -self.base_dist.icdf(self._ccdf_low * (1 - u))
+        #                                       = -icdf[(1 - u) * cdf(2*loc-low)]
+        diff = self.loc - self.low
+        cdf = self.base_dist.cdf(self.loc - jnp.abs(diff))
+        sign = jnp.where(diff >= 0, 1., -1.)
+        return sign * self.base_dist.icdf((1 - u) * cdf + 0.5 * (1 + sign) * u)
 
     @validate_sample
     def log_prob(self, value):
-        # NB: we use a more numerical formula for a symmetric base distribution and non-genative low
-        #   log(1 - cdf(low)) = logcdf(-low)
-        return self.base_dist.log_prob(value) - self._ccdf_low
+        # NB: we use a more numerical formula for a symmetric base distribution
+        # if low < loc
+        #   1 - cdf(low) = as-is
+        # if low > loc
+        #   1 - cdf(low) = cdf(2 * loc - low)
+        diff = self.loc - self.low
+        cdf = self.base_dist.cdf(self.loc - jnp.abs(diff))
+        sign = jnp.where(diff >= 0, 1., -1.)
+        return self.base_dist.log_prob(value) - jnp.log(0.5 + sign * (0.5 - cdf))
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
@@ -1127,6 +1147,41 @@ class OneSidedTruncatedDistribution(Distribution):
             base_cls, base_aux, low = aux_data
         base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
         return cls(base_dist, low=low)
+
+
+class RightTruncatedDistribution(TransformedDistribution):
+    arg_constraints = {"high": constraints.real}
+    reparametrized_params = ["high"]
+
+    def __init__(self, base_dist, high=0., validate_args=None):
+        assert isinstance(base_dist, (Cauchy, Laplace, Logistic, Normal, StudentT))
+        loc2 = 2 * base_dist.loc
+        low = loc2 - high
+        left_truncated_dist = LeftTruncatedDistribution(base_dist, low=low, validate_args=validate_args)
+        super().__init__(left_truncated_dist, AffineTransform(loc2, -1), validate_args=validate_args)
+        self._support = constraints.less_than(high)
+
+    @constraints.dependent_property(is_discrete=False, event_dim=0)
+    def support(self):
+        return self._support
+
+    def tree_flatten(self):
+        base_flatten, base_aux = self.base_dist.base_dist.tree_flatten()
+        if isinstance(self._support.upper_bound, (int, float)):
+            return base_flatten, (type(self.base_dist), base_aux, self._support.upper_bound)
+        else:
+            return (base_flatten, self._support.upper_bound), (type(self.base_dist), base_aux)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        if len(aux_data) == 2:
+            base_flatten, high = params
+            base_cls, base_aux = aux_data
+        else:
+            base_flatten = params
+            base_cls, base_aux, high = aux_data
+        base_dist = base_cls.tree_unflatten(base_aux, base_flatten)
+        return cls(base_dist, high=high)
 
 
 class TwoSidedTruncatedDistribution(Distribution):
@@ -1158,6 +1213,19 @@ class TwoSidedTruncatedDistribution(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
+
+        # NB: we use a more numerical formula for a symmetric base distribution
+        #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * u) =  icdf[(1 - u) * cdf(low) + u * cdf(high)]
+        # will suffer by precision issues when low is large or when high is small;
+        # so we will split the implementation into 3 cases
+        #   low > loc, high < loc, and (loc <= loc or high >= loc)
+        # If low > loc:
+        #   A = ...
+        # Elif high < loc:
+        #   A = ...
+        # Otherwise,
+        #   ...
+
         return -self.base_dist.icdf(self._ccdf_low * (1 - u) + self._ccdf_high * u)
 
     @validate_sample
@@ -1188,17 +1256,23 @@ class TwoSidedTruncatedDistribution(Distribution):
 
 def TruncatedDistribution(base_dist, low=0., high=None, validate_args=None):
     """
-    If `high` is None, this is a one-sided truncated distribution. Otherwise,
-    this is a two-sided truncated distribution.
+    A function to generate a truncated distribution.
 
-    Currently, this class only supports truncating Normal, Cauchy, or StudentT distributions.
-
-    .. note:: The implementation is customized to be more stable when `low` is non-negative.
-        For small negative parameters (says `low < -5`), this distribution might return
-        non-finite values.
+    :param base_dist: The base distribution to be truncated. This should be a univariate
+        distribution. Currently, only the following distributions are supported:
+        Cauchy, Laplace, Logistic, Normal, and StudentT.
+    :param low: the value which is used to truncate the base distribution from below.
+        Setting this parameter to None to not truncate from below.
+    :param high: the value which is used to truncate the base distribution from above.
+        Setting this parameter to None to not truncate from above.
     """
     if high is None:
-        return OneSidedTruncatedDistribution(base_dist, low=low, validate_args=validate_args)
+        if low is None:
+            return base_dist
+        else:
+            return LeftTruncatedDistribution(base_dist, low=low, validate_args=validate_args)
+    elif low is None:
+        return RightTruncatedDistribution(base_dist, high=high, validate_args=validate_args)
     else:
         return TwoSidedTruncatedDistribution(base_dist, low=low, high=high, validate_args=validate_args)
 
