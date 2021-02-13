@@ -1111,12 +1111,13 @@ class LeftTruncatedDistribution(Distribution):
         # if low < loc
         #   icdf(cdf(low) + (1 - cdf(low)) * u) =  icdf[(1 - u) * cdf(low) + u]
         # if low > loc
-        #   icdf(cdf(low) + (1 - cdf(low)) * u) = -icdf[(1 - u) * (1 - cdf(low))]
-        #                                       = -icdf[(1 - u) * cdf(2*loc-low)]
+        #   icdf(cdf(low) + (1 - cdf(low)) * u) = loc - icdf[(1 - u) * (1 - cdf(low))]
+        #                                       = loc - icdf[(1 - u) * cdf(2*loc-low)]
         diff = self.loc - self.low
-        cdf = self.base_dist.cdf(self.loc - jnp.abs(diff))
         sign = jnp.where(diff >= 0, 1., -1.)
-        return sign * self.base_dist.icdf((1 - u) * cdf + 0.5 * (1 + sign) * u)
+        low_cdf = self.base_dist.cdf(self.loc - sign * diff)
+        high_cdf = 0.5 * (1 + sign)
+        return 0.5 * (1 - sign) * self.loc + sign * self.base_dist.icdf((1 - u) * low_cdf + u * high_cdf)
 
     @validate_sample
     def log_prob(self, value):
@@ -1126,9 +1127,10 @@ class LeftTruncatedDistribution(Distribution):
         # if low > loc
         #   1 - cdf(low) = cdf(2 * loc - low)
         diff = self.loc - self.low
-        cdf = self.base_dist.cdf(self.loc - jnp.abs(diff))
         sign = jnp.where(diff >= 0, 1., -1.)
-        return self.base_dist.log_prob(value) - jnp.log(0.5 + sign * (0.5 - cdf))
+        low_cdf = self.base_dist.cdf(self.loc - sign * diff)
+        high_cdf = 0.5 * (1 + sign)
+        return self.base_dist.log_prob(value) - jnp.log(sign * (high_cdf - low_cdf))
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
@@ -1202,35 +1204,36 @@ class TwoSidedTruncatedDistribution(Distribution):
     def support(self):
         return self._support
 
-    @lazy_property
-    def _ccdf_low(self):
-        return self.base_dist.cdf(-self.low)
-
-    @lazy_property
-    def _ccdf_high(self):
-        return self.base_dist.cdf(-self.high)
-
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
 
         # NB: we use a more numerical formula for a symmetric base distribution
-        #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * u) =  icdf[(1 - u) * cdf(low) + u * cdf(high)]
-        # will suffer by precision issues when low is large or when high is small;
-        # so we will split the implementation into 3 cases
-        #   low > loc, high < loc, and (loc <= loc or high >= loc)
-        # If low > loc:
-        #   A = ...
-        # Elif high < loc:
-        #   A = ...
-        # Otherwise,
-        #   ...
-
-        return -self.base_dist.icdf(self._ccdf_low * (1 - u) + self._ccdf_high * u)
+        #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * u) = icdf[(1 - u) * cdf(low) + u * cdf(high)]
+        # will suffer by precision issues when low is large;
+        # If low < loc:
+        #   A = icdf[(1 - u) * cdf(low) + u * cdf(high)]
+        # Else
+        #   A = loc - icdf[(1 - u) * cdf(2*loc-low)) + u * cdf(2*loc - high)]
+        # TODO: cache sign, low_cdf, high_cdf
+        diff = self.loc - self.low
+        sign = jnp.where(diff >= 0, 1., -1.)
+        low_cdf = self.base_dist.cdf(self.loc - sign * diff)
+        high_cdf = self.base_dist.cdf(self.loc - sign * (self.loc - self.high))
+        return 0.5 * (1 - sign) * self.loc + sign * self.base_dist.icdf((1 - u) * low_cdf + u * high_cdf)
 
     @validate_sample
     def log_prob(self, value):
-        return self.base_dist.log_prob(value) - jnp.log(self._ccdf_low - self._ccdf_high)
+        # NB: we use a more numerical formula for a symmetric base distribution
+        # if low < loc
+        #   cdf(high) - cdf(low) = as-is
+        # if low > loc
+        #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
+        diff = self.loc - self.low
+        sign = jnp.where(diff >= 0, 1., -1.)
+        low_cdf = self.base_dist.cdf(self.loc - sign * diff)
+        high_cdf = self.base_dist.cdf(self.loc - sign * (self.loc - self.high))
+        return self.base_dist.log_prob(value) - jnp.log(sign * (high_cdf - low_cdf))
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()

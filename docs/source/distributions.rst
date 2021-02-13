@@ -245,6 +245,14 @@ TruncatedCauchy
     :show-inheritance:
     :member-order: bysource
 
+TruncatedDistribution
+---------------------
+.. autoclass:: numpyro.distributions.continuous.TruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 TruncatedNormal
 ---------------
 .. autoclass:: numpyro.distributions.continuous.TruncatedNormal

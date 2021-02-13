@@ -391,6 +391,24 @@ class Distribution(metaclass=DistributionMeta):
         event_shape = ()
         return batch_shape, event_shape
 
+    def cdf(self, value):
+        """
+        The cummulative distribution function of this distribution.
+
+        :param value: samples from this distribution.
+        :return: output of the cummulative distribution function evaluated at `value`.
+        """
+        raise NotImplementedError
+
+    def icdf(self, q):
+        """
+        The inverse cumulative distribution function of this distribution.
+
+        :param q: quantile values, should belong to [0, 1].
+        :return: the samples whose cdf values equals to `q`.
+        """
+        raise NotImplementedError
+
 
 class ExpandedDistribution(Distribution):
     arg_constraints = {}
