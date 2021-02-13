@@ -21,6 +21,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints, kl_divergence, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
+from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
 from numpyro.distributions.transforms import LowerCholeskyAffine, PermuteTransform, PowerTransform, biject_to
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
@@ -30,6 +31,8 @@ from numpyro.distributions.util import (
     vec_to_tril_matrix
 )
 from numpyro.nn import AutoregressiveNN
+
+TEST_FAILURE_RATE = 2e-5  # For all goodness-of-fit tests.
 
 
 def _identity(x): return x
@@ -516,6 +519,34 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
+def test_gof(jax_dist, sp_dist, params):
+    if "Improper" in jax_dist.__name__:
+        pytest.skip("distribution has improper .log_prob()")
+    if "LKJ" in jax_dist.__name__:
+        pytest.xfail("incorrect submanifold scaling")
+
+    num_samples = 10000
+    rng_key = random.PRNGKey(0)
+    d = jax_dist(*params)
+    samples = d.sample(key=rng_key, sample_shape=(num_samples,))
+    probs = np.exp(d.log_prob(samples))
+
+    # Test each batch independently.
+    probs = probs.reshape(num_samples, -1)
+    samples = samples.reshape(probs.shape + d.event_shape)
+    if "Dirichlet" in jax_dist.__name__:
+        # The Dirichlet density is over all but one of the probs.
+        samples = samples[..., :-1]
+    for b in range(probs.shape[-1]):
+        try:
+            gof = auto_goodness_of_fit(samples[:, b], probs[:, b])
+        except InvalidTest:
+            pytest.skip("expensive test")
+        else:
+            assert gof > TEST_FAILURE_RATE
+
+
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE)
 def test_independent_shape(jax_dist, sp_dist, params):
     d = jax_dist(*params)
@@ -953,6 +984,7 @@ def test_constraints(constraint, x, expected):
     constraints.ordered_vector,
     constraints.positive,
     constraints.positive_definite,
+    constraints.positive_ordered_vector,
     constraints.real,
     constraints.real_vector,
     constraints.simplex,
@@ -1001,7 +1033,8 @@ def test_biject_to(constraint, shape):
         if constraint is constraints.simplex:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x)[:-1, :])[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y)[:, :-1])[1]
-        elif constraint in [constraints.real_vector, constraints.ordered_vector]:
+        elif constraint in [constraints.real_vector, constraints.ordered_vector,
+                            constraints.positive_ordered_vector]:
             expected = np.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
         elif constraint in [constraints.corr_cholesky, constraints.corr_matrix]:
