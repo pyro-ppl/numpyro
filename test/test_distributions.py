@@ -60,6 +60,26 @@ def _lowrank_mvn_to_scipy(loc, cov_fac, cov_diag):
     return osp.multivariate_normal(mean=mean, cov=cov)
 
 
+def _truncnorm_to_scipy(loc, scale, low, high):
+    if low is None:
+        a = -np.inf
+    else:
+        a = (low - loc) / scale
+    if high is None:
+        b = np.inf
+    else:
+        b = (high - loc) / scale
+    return osp.truncnorm(a, b, loc=loc, scale=scale)
+
+
+def _TruncatedNormal(loc, scale, low, high):
+    return dist.TruncatedDistribution(dist.Normal(loc, scale), low, high)
+
+
+_TruncatedNormal.reparametrized_params = []
+_TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
 class _ImproperWrapper(dist.ImproperUniform):
     def sample(self, key, sample_shape=()):
         transform = biject_to(self.support)
@@ -103,7 +123,8 @@ _DIST_MAP = {
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
     dist.Logistic: lambda loc, scale: osp.logistic(loc=loc, scale=scale),
     dist.VonMises: lambda loc, conc: osp.vonmises(loc=np.array(loc, dtype=np.float64),
-                                                  kappa=np.array(conc, dtype=np.float64))
+                                                  kappa=np.array(conc, dtype=np.float64)),
+    _TruncatedNormal: _truncnorm_to_scipy,
 }
 
 CONTINUOUS = [
@@ -178,6 +199,11 @@ CONTINUOUS = [
     T(dist.TruncatedNormal, -1., 0., 1.),
     T(dist.TruncatedNormal, 1., -1., jnp.array([1., 2.])),
     T(dist.TruncatedNormal, jnp.array([-2., 2.]), jnp.array([0., 1.]), jnp.array([[1.], [2.]])),
+    T(_TruncatedNormal, -1., 2., 1., 5.),
+    T(_TruncatedNormal, jnp.array([-1., 4.]), 2., None, 5.),
+    T(_TruncatedNormal, -1., jnp.array([2., 3.]), 1., None),
+    T(_TruncatedNormal, -1., 2., jnp.array([-6., 4.]), jnp.array([-4., 6.])),
+    T(_TruncatedNormal, jnp.array([0., 1.]), jnp.array([[1.], [2.]]), None, jnp.array([-2., 2.])),
     T(dist.Uniform, 0., 2.),
     T(dist.Uniform, 1., jnp.array([2., 3.])),
     T(dist.Uniform, jnp.array([0., 0.]), jnp.array([[2.], [3.]])),
@@ -517,6 +543,28 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
         else:
             raise e
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
+def test_cdf_and_icdf(jax_dist, sp_dist, params):
+    if not sp_dist:
+        pytest.skip('no corresponding scipy distn.')
+    jax_dist = jax_dist(*params)
+    if jax_dist.event_dim > 0:
+        pytest.skip('skip testing cdf/icdf methods of multivariate distributions')
+    sp_dist = sp_dist(*params)
+    rng_key = random.PRNGKey(0)
+    samples = jax_dist.sample(key=rng_key)
+    quantiles = random.uniform(random.PRNGKey(1), jax_dist.shape())
+    try:
+        actual_cdf = jax_dist.cdf(samples)
+        expected_cdf = sp_dist.cdf(samples)
+        assert_allclose(actual_cdf, expected_cdf, rtol=1e-5)
+        actual_icdf = jax_dist.icdf(quantiles)
+        expected_icdf = sp_dist.ppf(quantiles)
+        assert_allclose(actual_icdf, expected_icdf, rtol=1e-5)
+    except NotImplementedError:
+        pass
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)

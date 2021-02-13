@@ -117,7 +117,7 @@ class Cauchy(Distribution):
         return jnp.arctan(scaled) / jnp.pi + 0.5
 
     def icdf(self, q):
-        return self.loc + self.scale * jnp.tan(jnp.pi(q - 0.5))
+        return self.loc + self.scale * jnp.tan(jnp.pi * (q - 0.5))
 
 
 class Dirichlet(Distribution):
@@ -428,7 +428,7 @@ class Laplace(Distribution):
 
     def icdf(self, q):
         a = q - 0.5
-        return self.loc - self.scale * self.sign(a) * jnp.log1p(-2 * jnp.abs(a))
+        return self.loc - self.scale * jnp.sign(a) * jnp.log1p(-2 * jnp.abs(a))
 
 
 class LKJ(TransformedDistribution):
@@ -1082,9 +1082,9 @@ class StudentT(Distribution):
         return 0.5 * (1 + jnp.sign(scaled) * (1 - betainc(0.5 * self.df, 0.5, beta_value)))
 
     def icdf(self, q):
+        # scipy.special.betaincinv is not avaiable yet in JAX
         # upstream issue: https://github.com/google/jax/issues/2399
-        raise NotImplementedError("Not implemented until scipy.special.betaincinv is"
-                                  " avaiable in JAX.")
+        raise NotImplementedError
 
 
 class LeftTruncatedDistribution(Distribution):
@@ -1096,7 +1096,8 @@ class LeftTruncatedDistribution(Distribution):
         assert base_dist.support is constraints.real, \
             "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low))
-        self.low = promote_shapes(low, batch_shape)
+        self.base_dist = base_dist
+        self.low, = promote_shapes(low, shape=batch_shape)
         self._support = constraints.greater_than(low)
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -1111,13 +1112,14 @@ class LeftTruncatedDistribution(Distribution):
         # if low < loc
         #   icdf(cdf(low) + (1 - cdf(low)) * u) =  icdf[(1 - u) * cdf(low) + u]
         # if low > loc
-        #   icdf(cdf(low) + (1 - cdf(low)) * u) = loc - icdf[(1 - u) * (1 - cdf(low))]
-        #                                       = loc - icdf[(1 - u) * cdf(2*loc-low)]
-        diff = self.loc - self.low
+        #   icdf(cdf(low) + (1 - cdf(low)) * u) = 2 * loc - icdf[(1 - u) * (1 - cdf(low))]
+        #                                       = 2 * loc - icdf[(1 - u) * cdf(2*loc-low)]
+        loc = self.base_dist.loc
+        diff = loc - self.low
         sign = jnp.where(diff >= 0, 1., -1.)
-        low_cdf = self.base_dist.cdf(self.loc - sign * diff)
+        low_cdf = self.base_dist.cdf(loc - sign * diff)
         high_cdf = 0.5 * (1 + sign)
-        return 0.5 * (1 - sign) * self.loc + sign * self.base_dist.icdf((1 - u) * low_cdf + u * high_cdf)
+        return (1 - sign) * loc + sign * self.base_dist.icdf((1 - u) * low_cdf + u * high_cdf)
 
     @validate_sample
     def log_prob(self, value):
@@ -1126,9 +1128,10 @@ class LeftTruncatedDistribution(Distribution):
         #   1 - cdf(low) = as-is
         # if low > loc
         #   1 - cdf(low) = cdf(2 * loc - low)
-        diff = self.loc - self.low
+        loc = self.base_dist.loc
+        diff = loc - self.low
         sign = jnp.where(diff >= 0, 1., -1.)
-        low_cdf = self.base_dist.cdf(self.loc - sign * diff)
+        low_cdf = self.base_dist.cdf(loc - sign * diff)
         high_cdf = 0.5 * (1 + sign)
         return self.base_dist.log_prob(value) - jnp.log(sign * (high_cdf - low_cdf))
 
@@ -1161,6 +1164,7 @@ class RightTruncatedDistribution(TransformedDistribution):
         low = loc2 - high
         left_truncated_dist = LeftTruncatedDistribution(base_dist, low=low, validate_args=validate_args)
         super().__init__(left_truncated_dist, AffineTransform(loc2, -1), validate_args=validate_args)
+        self.high, = promote_shapes(high, shape=self.batch_shape)
         self._support = constraints.less_than(high)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
@@ -1195,8 +1199,9 @@ class TwoSidedTruncatedDistribution(Distribution):
         assert base_dist.support is constraints.real, \
             "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low), jnp.shape(high))
-        self.low = promote_shapes(low, batch_shape)
-        self.high = promote_shapes(high, batch_shape)
+        self.base_dist = base_dist
+        self.low, = promote_shapes(low, shape=batch_shape)
+        self.high, = promote_shapes(high, shape=batch_shape)
         self._support = constraints.interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -1214,13 +1219,14 @@ class TwoSidedTruncatedDistribution(Distribution):
         # If low < loc:
         #   A = icdf[(1 - u) * cdf(low) + u * cdf(high)]
         # Else
-        #   A = loc - icdf[(1 - u) * cdf(2*loc-low)) + u * cdf(2*loc - high)]
+        #   A = 2 * loc - icdf[(1 - u) * cdf(2*loc-low)) + u * cdf(2*loc - high)]
         # TODO: cache sign, low_cdf, high_cdf
-        diff = self.loc - self.low
+        loc = self.base_dist.loc
+        diff = loc - self.low
         sign = jnp.where(diff >= 0, 1., -1.)
-        low_cdf = self.base_dist.cdf(self.loc - sign * diff)
-        high_cdf = self.base_dist.cdf(self.loc - sign * (self.loc - self.high))
-        return 0.5 * (1 - sign) * self.loc + sign * self.base_dist.icdf((1 - u) * low_cdf + u * high_cdf)
+        low_cdf = self.base_dist.cdf(loc - sign * diff)
+        high_cdf = self.base_dist.cdf(loc - sign * (loc - self.high))
+        return (1 - sign) * loc + sign * self.base_dist.icdf((1 - u) * low_cdf + u * high_cdf)
 
     @validate_sample
     def log_prob(self, value):
@@ -1229,10 +1235,11 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   cdf(high) - cdf(low) = as-is
         # if low > loc
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
-        diff = self.loc - self.low
+        loc = self.base_dist.loc
+        diff = loc - self.low
         sign = jnp.where(diff >= 0, 1., -1.)
-        low_cdf = self.base_dist.cdf(self.loc - sign * diff)
-        high_cdf = self.base_dist.cdf(self.loc - sign * (self.loc - self.high))
+        low_cdf = self.base_dist.cdf(loc - sign * diff)
+        high_cdf = self.base_dist.cdf(loc - sign * (loc - self.high))
         return self.base_dist.log_prob(value) - jnp.log(sign * (high_cdf - low_cdf))
 
     def tree_flatten(self):
@@ -1257,7 +1264,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         return cls(base_dist, low=low, high=high)
 
 
-def TruncatedDistribution(base_dist, low=0., high=None, validate_args=None):
+def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
     """
     A function to generate a truncated distribution.
 
