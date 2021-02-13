@@ -76,6 +76,7 @@ def _TruncatedNormal(loc, scale, low, high):
     return dist.TruncatedDistribution(dist.Normal(loc, scale), low, high)
 
 
+_TruncatedNormal.arg_constraints = {}
 _TruncatedNormal.reparametrized_params = []
 _TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
 
@@ -204,6 +205,7 @@ CONTINUOUS = [
     T(_TruncatedNormal, -1., jnp.array([2., 3.]), 1., None),
     T(_TruncatedNormal, -1., 2., jnp.array([-6., 4.]), jnp.array([-4., 6.])),
     T(_TruncatedNormal, jnp.array([0., 1.]), jnp.array([[1.], [2.]]), None, jnp.array([-2., 2.])),
+    T(dist.continuous.TwoSidedTruncatedDistribution, dist.Laplace(0., 1.), -2., 3.),
     T(dist.Uniform, 0., 2.),
     T(dist.Uniform, 1., jnp.array([2., 3.])),
     T(dist.Uniform, jnp.array([0., 0.]), jnp.array([[2.], [3.]])),
@@ -372,6 +374,7 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
     shapes = tuple(getattr(p, "shape", ()) for p in params)
+    shapes = tuple(x() if callable(x) else x for x in shapes)
     try:
         expected_batch_shape, expected_event_shape = jax_dist.infer_shapes(*shapes)
     except NotImplementedError:
@@ -761,6 +764,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
+        if isinstance(params[i], dist.Distribution):  # skip taking grad w.r.t. base_dist
+            continue
         if params[i] is None or jnp.result_type(params[i]) in (jnp.int32, jnp.int64):
             continue
         actual_grad = jax.grad(fn, i)(*params)
@@ -782,6 +787,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("Improper distribution does not has mean/var implemented")
+    if jax_dist in (_TruncatedNormal, dist.continuous.TwoSidedTruncatedDistribution):
+        pytest.skip("Truncated distributions do not has mean/var implemented")
 
     n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)
@@ -856,6 +863,8 @@ def test_mean_var(jax_dist, sp_dist, params):
     (2, 3),
 ])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
+    if jax_dist is _TruncatedNormal:
+        pytest.skip("_TruncatedNormal is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
@@ -863,6 +872,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     dependent_constraint = False
     for i in range(len(params)):
         if jax_dist in (_ImproperWrapper, dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
+            continue
+        if jax_dist is dist.continuous.TwoSidedTruncatedDistribution and dist_args[i] == "base_dist":
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
             continue

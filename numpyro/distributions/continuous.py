@@ -26,7 +26,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-from jax import lax, ops
+from jax import lax, ops, tree_map
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
@@ -1096,7 +1096,7 @@ class LeftTruncatedDistribution(Distribution):
         assert base_dist.support is constraints.real, \
             "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low))
-        self.base_dist = base_dist
+        self.base_dist = tree_map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         self.low, = promote_shapes(low, shape=batch_shape)
         self._support = constraints.greater_than(low)
         super().__init__(batch_shape, validate_args=validate_args)
@@ -1105,42 +1105,40 @@ class LeftTruncatedDistribution(Distribution):
     def support(self):
         return self._support
 
+    @lazy_property
+    def _tail_prob_at_low(self):
+        # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
+        loc = self.base_dist.loc
+        sign = jnp.where(loc >= self.low, 1., -1.)
+        return self.base_dist.cdf(loc - sign * (loc - self.low))
+
+    @lazy_property
+    def _tail_prob_at_high(self):
+        # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
+        loc = self.base_dist.loc
+        sign = jnp.where(loc >= self.low, 1., -1.)
+        return 0.5 * (1 + sign)
+
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
-        # NB: we use a more numerical formula for a symmetric base distribution
-        # if low < loc
-        #   icdf(cdf(low) + (1 - cdf(low)) * u) =  icdf[(1 - u) * cdf(low) + u]
-        # if low > loc
-        #   icdf(cdf(low) + (1 - cdf(low)) * u) = 2 * loc - icdf[(1 - u) * (1 - cdf(low))]
-        #                                       = 2 * loc - icdf[(1 - u) * cdf(2*loc-low)]
         loc = self.base_dist.loc
-        diff = loc - self.low
-        sign = jnp.where(diff >= 0, 1., -1.)
-        low_cdf = self.base_dist.cdf(loc - sign * diff)
-        high_cdf = 0.5 * (1 + sign)
-        return (1 - sign) * loc + sign * self.base_dist.icdf((1 - u) * low_cdf + u * high_cdf)
+        sign = jnp.where(loc >= self.low, 1., -1.)
+        return (1 - sign) * loc + sign * self.base_dist.icdf(
+            (1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high)
 
     @validate_sample
     def log_prob(self, value):
-        # NB: we use a more numerical formula for a symmetric base distribution
-        # if low < loc
-        #   1 - cdf(low) = as-is
-        # if low > loc
-        #   1 - cdf(low) = cdf(2 * loc - low)
-        loc = self.base_dist.loc
-        diff = loc - self.low
-        sign = jnp.where(diff >= 0, 1., -1.)
-        low_cdf = self.base_dist.cdf(loc - sign * diff)
-        high_cdf = 0.5 * (1 + sign)
-        return self.base_dist.log_prob(value) - jnp.log(sign * (high_cdf - low_cdf))
+        sign = jnp.where(self.base_dist.loc >= self.low, 1., -1.)
+        return self.base_dist.log_prob(value) - \
+            jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
         if isinstance(self._support.lower_bound, (int, float)):
             return base_flatten, (type(self.base_dist), base_aux, self._support.lower_bound)
         else:
-            return (base_flatten, self._support.lower_bound), (type(self.base_dist), base_aux)
+            return (base_flatten, self.low), (type(self.base_dist), base_aux)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
@@ -1154,29 +1152,43 @@ class LeftTruncatedDistribution(Distribution):
         return cls(base_dist, low=low)
 
 
-class RightTruncatedDistribution(TransformedDistribution):
+class RightTruncatedDistribution(Distribution):
     arg_constraints = {"high": constraints.real}
     reparametrized_params = ["high"]
 
     def __init__(self, base_dist, high=0., validate_args=None):
         assert isinstance(base_dist, (Cauchy, Laplace, Logistic, Normal, StudentT))
-        loc2 = 2 * base_dist.loc
-        low = loc2 - high
-        left_truncated_dist = LeftTruncatedDistribution(base_dist, low=low, validate_args=validate_args)
-        super().__init__(left_truncated_dist, AffineTransform(loc2, -1), validate_args=validate_args)
-        self.high, = promote_shapes(high, shape=self.batch_shape)
+        assert base_dist.support is constraints.real, \
+            "The base distribution should be univariate and have real support."
+        batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(high))
+        self.base_dist = tree_map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
+        self.high, = promote_shapes(high, shape=batch_shape)
         self._support = constraints.less_than(high)
+        super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return self._support
 
+    @lazy_property
+    def _cdf_at_high(self):
+        return self.base_dist.cdf(self.high)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(key, sample_shape + self.batch_shape)
+        return self.base_dist.icdf(u * self._cdf_at_high)
+
+    @validate_sample
+    def log_prob(self, value):
+        return self.base_dist.log_prob(value) - jnp.log(self._cdf_at_high)
+
     def tree_flatten(self):
-        base_flatten, base_aux = self.base_dist.base_dist.tree_flatten()
+        base_flatten, base_aux = self.base_dist.tree_flatten()
         if isinstance(self._support.upper_bound, (int, float)):
             return base_flatten, (type(self.base_dist), base_aux, self._support.upper_bound)
         else:
-            return (base_flatten, self._support.upper_bound), (type(self.base_dist), base_aux)
+            return (base_flatten, self.high), (type(self.base_dist), base_aux)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
@@ -1199,7 +1211,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         assert base_dist.support is constraints.real, \
             "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low), jnp.shape(high))
-        self.base_dist = base_dist
+        self.base_dist = tree_map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
         self.low, = promote_shapes(low, shape=batch_shape)
         self.high, = promote_shapes(high, shape=batch_shape)
         self._support = constraints.interval(low, high)
@@ -1208,6 +1220,20 @@ class TwoSidedTruncatedDistribution(Distribution):
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return self._support
+
+    @lazy_property
+    def _tail_prob_at_low(self):
+        # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
+        loc = self.base_dist.loc
+        sign = jnp.where(loc >= self.low, 1., -1.)
+        return self.base_dist.cdf(loc - sign * (loc - self.low))
+
+    @lazy_property
+    def _tail_prob_at_high(self):
+        # if low < loc, returns cdf(high); otherwise returns 1 - cdf(high)
+        loc = self.base_dist.loc
+        sign = jnp.where(loc >= self.low, 1., -1.)
+        return self.base_dist.cdf(loc - sign * (loc - self.high))
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -1220,13 +1246,10 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   A = icdf[(1 - u) * cdf(low) + u * cdf(high)]
         # Else
         #   A = 2 * loc - icdf[(1 - u) * cdf(2*loc-low)) + u * cdf(2*loc - high)]
-        # TODO: cache sign, low_cdf, high_cdf
         loc = self.base_dist.loc
-        diff = loc - self.low
-        sign = jnp.where(diff >= 0, 1., -1.)
-        low_cdf = self.base_dist.cdf(loc - sign * diff)
-        high_cdf = self.base_dist.cdf(loc - sign * (loc - self.high))
-        return (1 - sign) * loc + sign * self.base_dist.icdf((1 - u) * low_cdf + u * high_cdf)
+        sign = jnp.where(loc >= self.low, 1., -1.)
+        return (1 - sign) * loc + sign * self.base_dist.icdf(
+            (1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high)
 
     @validate_sample
     def log_prob(self, value):
@@ -1235,12 +1258,9 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   cdf(high) - cdf(low) = as-is
         # if low > loc
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
-        loc = self.base_dist.loc
-        diff = loc - self.low
-        sign = jnp.where(diff >= 0, 1., -1.)
-        low_cdf = self.base_dist.cdf(loc - sign * diff)
-        high_cdf = self.base_dist.cdf(loc - sign * (loc - self.high))
-        return self.base_dist.log_prob(value) - jnp.log(sign * (high_cdf - low_cdf))
+        sign = jnp.where(self.base_dist.loc >= self.low, 1., -1.)
+        return self.base_dist.log_prob(value) - \
+            jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
@@ -1249,8 +1269,7 @@ class TwoSidedTruncatedDistribution(Distribution):
             return base_flatten, (type(self.base_dist), base_aux,
                                   self._support.lower_bound, self._support.upper_bound)
         else:
-            return (base_flatten, self._support.lower_bound, self.support.upper_bound), \
-                (type(self.base_dist), base_aux)
+            return (base_flatten, self.low, self.high), (type(self.base_dist), base_aux)
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
