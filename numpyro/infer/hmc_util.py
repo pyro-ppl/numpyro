@@ -478,7 +478,7 @@ def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
         v_left = jnp.multiply(inverse_mass_matrix, r_left)
         v_right = jnp.multiply(inverse_mass_matrix, r_right)
     else:
-        raise ValueError("invese_mass_matrix should have 1 or 2 dimensions.")
+        raise ValueError("inverse_mass_matrix should have 1 or 2 dimensions.")
 
     # This implements dynamic termination criterion (ref [2], section A.4.2).
     r_sum = r_sum - (r_left + r_right) / 2
@@ -742,7 +742,7 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
     elif inverse_mass_matrix.ndim == 1:
         v = jnp.multiply(inverse_mass_matrix, r)
     else:
-        raise ValueError("invese_mass_matrix should have 1 or 2 dimensions.")
+        raise ValueError("inverse_mass_matrix should have 1 or 2 dimensions.")
 
     return 0.5 * jnp.dot(v, r)
 
@@ -755,7 +755,7 @@ def _euclidean_kinetic_energy_grad(inverse_mass_matrix, r):
     elif inverse_mass_matrix.ndim == 1:
         v = jnp.multiply(inverse_mass_matrix, r)
     else:
-        raise ValueError("invese_mass_matrix should have 1 or 2 dimensions.")
+        raise ValueError("inverse_mass_matrix should have 1 or 2 dimensions.")
 
     return unravel_fn(v)
 

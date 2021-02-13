@@ -7,14 +7,15 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import random
+from jax import hessian, jacrev, random, vmap
 import jax.numpy as jnp
 from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.handlers import plate
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, DiscreteHMCGibbs, HMCGibbs
+from numpyro.infer.hmc_gibbs import taylor_proxy
+from numpyro.infer.util import log_density
 
 
 def _linear_regression_gibbs_fn(X, XX, XY, Y, rng_key, gibbs_sites, hmc_sites):
@@ -208,27 +209,24 @@ def test_discrete_gibbs_gmm_1d(modified):
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
 @pytest.mark.parametrize('num_blocks', [1, 2, 50, 100])
-def test_subsample_gibbs_partitioning(kernel_cls, num_blocks):
-    def model(obs):
-        with plate('N', obs.shape[0], subsample_size=100) as idx:
-            numpyro.sample('x', dist.Normal(0, 1), obs=obs[idx])
+def test_block_update_partitioning(num_blocks):
+    plate_size = 10000, 100
 
-    obs = random.normal(random.PRNGKey(0), (10000,)) / 100
-    kernel = HMCECS(kernel_cls(model), num_blocks=num_blocks)
-    state = kernel.init(random.PRNGKey(1), 10, None, model_args=(obs,), model_kwargs=None)
-    gibbs_sites = {'N': jnp.arange(100)}
+    plate_sizes = {'N': plate_size}
+    gibbs_sites = {'N': jnp.arange(plate_size[1])}
+    gibbs_state = {}
 
-    def potential_fn(z_gibbs, z_hmc):
-        return kernel.inner_kernel._potential_fn_gen(obs, _gibbs_sites=z_gibbs)(z_hmc)
-
-    gibbs_fn = numpyro.infer.hmc_gibbs._subsample_gibbs_fn(potential_fn, kernel._plate_sizes, num_blocks)
-    new_gibbs_sites, _ = gibbs_fn(random.PRNGKey(2), gibbs_sites, state.hmc_state.z,
-                                  state.hmc_state.potential_energy)  # accept_prob > .999
+    new_gibbs_sites, new_gibbs_state = numpyro.infer.hmc_gibbs._block_update(plate_sizes,
+                                                                             num_blocks,
+                                                                             random.PRNGKey(2),
+                                                                             gibbs_sites,
+                                                                             gibbs_state)
     block_size = 100 // num_blocks
     for name in gibbs_sites:
         assert block_size == jnp.not_equal(gibbs_sites[name], new_gibbs_sites[name]).sum()
+
+    assert gibbs_state == new_gibbs_state
 
 
 def test_enum_subsample_smoke():
@@ -242,3 +240,104 @@ def test_enum_subsample_smoke():
     kernel = HMCECS(NUTS(model), num_blocks=10)
     mcmc = MCMC(kernel, 10, 10)
     mcmc.run(random.PRNGKey(0), data)
+
+
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('num_block', [1, 2, 50])
+@pytest.mark.parametrize('subsample_size', [50, 150])
+def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
+    true_loc = jnp.array([0.3, 0.1, 0.9])
+    num_warmup, num_samples = 200, 200
+    data = true_loc + dist.Normal(jnp.zeros(3, ), jnp.ones(3, )).sample(random.PRNGKey(1), (10000,))
+
+    def model(data, subsample_size):
+        mean = numpyro.sample('mean', dist.Normal().expand((3,)).to_event(1))
+        with numpyro.plate('batch', data.shape[0], dim=-2, subsample_size=subsample_size):
+            sub_data = numpyro.subsample(data, 0)
+            numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
+
+    ref_params = {'mean': true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))}
+    proxy_fn = taylor_proxy(ref_params)
+
+    kernel = HMCECS(kernel_cls(model), proxy=proxy_fn)
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+    mcmc.run(random.PRNGKey(0), data, subsample_size)
+
+    samples = mcmc.get_samples()
+    assert_allclose(np.mean(mcmc.get_samples()['mean'], axis=0), true_loc, atol=0.1)
+    assert len(samples['mean']) == num_samples
+
+
+@pytest.mark.parametrize('subsample_size', [5, 10, 15])
+def test_taylor_proxy_norm(subsample_size):
+    data_key, tr_key, rng_key = random.split(random.PRNGKey(0), 3)
+    ref_params = jnp.array([0.1, 0.5, -0.2])
+    sigma = .1
+
+    data = ref_params + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(data_key, (100,))
+    n, _ = data.shape
+
+    def model(data, subsample_size):
+        mean = numpyro.sample('mean', dist.Normal(ref_params, jnp.ones_like(ref_params)))
+        with numpyro.plate('data', data.shape[0], subsample_size=subsample_size, dim=-2) as idx:
+            numpyro.sample('obs', dist.Normal(mean, sigma), obs=data[idx])
+
+    def log_prob_fn(params):
+        return vmap(dist.Normal(params, sigma).log_prob)(data).sum(-1)
+
+    log_prob = log_prob_fn(ref_params)
+    log_norm_jac = jacrev(log_prob_fn)(ref_params)
+    log_norm_hessian = hessian(log_prob_fn)(ref_params)
+
+    tr = numpyro.handlers.trace(numpyro.handlers.seed(model, tr_key)).get_trace(data, subsample_size)
+    plate_sizes = {'data': (n, subsample_size)}
+
+    proxy_constructor = taylor_proxy({'mean': ref_params})
+    proxy_fn, gibbs_init, gibbs_update = proxy_constructor(tr, plate_sizes, model, (data, subsample_size), {})
+
+    def taylor_expand_2nd_order(idx, pos):
+        return log_prob[idx] + (log_norm_jac[idx] @ pos) + .5 * (pos @ log_norm_hessian[idx]) @ pos
+
+    def taylor_expand_2nd_order_sum(pos):
+        return log_prob.sum() + log_norm_jac.sum(0) @ pos + .5 * pos @ log_norm_hessian.sum(0) @ pos
+
+    for _ in range(5):
+        split_key, perturbe_key, rng_key = random.split(rng_key, 3)
+        perturbe_params = ref_params + dist.Normal(.1, 0.1).sample(perturbe_key, ref_params.shape)
+        subsample_idx = random.randint(rng_key, (subsample_size,), 0, n)
+        gibbs_site = {'data': subsample_idx}
+        proxy_state = gibbs_init(None, gibbs_site)
+        actual_proxy_sum, actual_proxy_sub = proxy_fn({'data': perturbe_params}, ['data'], proxy_state)
+        assert_allclose(actual_proxy_sub['data'],
+                        taylor_expand_2nd_order(subsample_idx, perturbe_params - ref_params), rtol=1e-5)
+        assert_allclose(actual_proxy_sum['data'], taylor_expand_2nd_order_sum(perturbe_params - ref_params), rtol=1e-5)
+
+
+@pytest.mark.filterwarnings('ignore::UserWarning')
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+def test_estimate_likelihood(kernel_cls):
+    data_key, tr_key, sub_key, rng_key = random.split(random.PRNGKey(0), 4)
+    ref_params = jnp.array([0.1, 0.5, -0.2])
+    sigma = .1
+    data = ref_params + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(data_key, (10_000,))
+    n, _ = data.shape
+    num_warmup = 200
+    num_samples = 200
+    num_blocks = 20
+
+    def model(data):
+        mean = numpyro.sample('mean', dist.Normal(ref_params, jnp.ones_like(ref_params)))
+        with numpyro.plate('N', data.shape[0], subsample_size=100, dim=-2) as idx:
+            numpyro.sample('obs', dist.Normal(mean, sigma), obs=data[idx])
+
+    proxy_fn = taylor_proxy({'mean': ref_params})
+    kernel = HMCECS(kernel_cls(model), proxy=proxy_fn, num_blocks=num_blocks)
+    mcmc = MCMC(kernel, num_warmup, num_samples)
+
+    mcmc.run(random.PRNGKey(0), data, extra_fields=['hmc_state.potential_energy'])
+
+    pes = mcmc.get_extra_fields()['hmc_state.potential_energy']
+    samples = mcmc.get_samples()
+    pes_full = vmap(lambda sample: log_density(model, (data,), {}, {**sample, **{'N': jnp.arange(n)}})[0])(samples)
+
+    assert jnp.var(jnp.exp(-pes - pes_full)) < 1.
