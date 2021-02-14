@@ -348,6 +348,42 @@ class Distribution(metaclass=DistributionMeta):
         :type mask: bool or jnp.ndarray
         :return: A masked copy of this distribution.
         :rtype: :class:`MaskedDistribution`
+
+        **Example:**
+
+        .. doctest::
+
+            >>> from jax import random
+            >>> import jax.numpy as jnp
+            >>> import numpyro
+            >>> import numpyro.distributions as dist
+            >>> from numpyro.distributions import constraints
+            >>> from numpyro.infer import SVI, Trace_ELBO
+
+            >>> def model(data, m):
+            ...     f = numpyro.sample("latent_fairness", dist.Beta(1, 1))
+            ...     with numpyro.plate("N", data.shape[0]):
+            ...         # only take into account the values selected by the mask
+            ...         masked_dist = dist.Bernoulli(f).mask(m)
+            ...         numpyro.sample("obs", masked_dist, obs=data)
+
+
+            >>> def guide(data, m):
+            ...     alpha_q = numpyro.param("alpha_q", 5., constraint=constraints.positive)
+            ...     beta_q = numpyro.param("beta_q", 5., constraint=constraints.positive)
+            ...     numpyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
+
+
+            >>> data = jnp.concatenate([jnp.ones(5), jnp.zeros(5)])
+            >>> # select values equal to one
+            >>> masked_array = jnp.where(data == 1, True, False)
+            >>> optimizer = numpyro.optim.Adam(step_size=0.05)
+            >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
+            >>> svi_result = svi.run(random.PRNGKey(0), 300, data, masked_array)
+            >>> params = svi_result.params
+            >>> # inferred_mean is closer to 1
+            >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
+
         """
         if mask is True:
             return self
