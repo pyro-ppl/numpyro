@@ -35,7 +35,7 @@ from jax.scipy.special import gammaln, log_ndtr, logsumexp, multigammaln, ndtr, 
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
-from numpyro.distributions.transforms import AffineTransform, ExpTransform, InvCholeskyTransform, PowerTransform
+from numpyro.distributions.transforms import AffineTransform, CorrMatrixCholeskyTransform, ExpTransform, PowerTransform
 from numpyro.distributions.util import (
     cholesky_of_inverse,
     is_prng_key,
@@ -446,7 +446,7 @@ class LKJ(TransformedDistribution):
         base_dist = LKJCholesky(dimension, concentration, sample_method)
         self.dimension, self.concentration = base_dist.dimension, base_dist.concentration
         self.sample_method = sample_method
-        super(LKJ, self).__init__(base_dist, InvCholeskyTransform(domain=constraints.corr_cholesky),
+        super(LKJ, self).__init__(base_dist, CorrMatrixCholeskyTransform().inv,
                                   validate_args=validate_args)
 
     @property

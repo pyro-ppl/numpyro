@@ -432,7 +432,7 @@ def initialize_model(rng_key, model,
     # substitute param sites from model_trace to model so
     # we don't need to generate again parameters of `numpyro.module`
     model = substitute(model, data={k: site["value"] for k, site in model_trace.items()
-                                    if site["type"] in ["param", "plate"]})
+                                    if site["type"] in ["param"]})
     constrained_values = {k: v['value'] for k, v in model_trace.items()
                           if v['type'] == 'sample' and not v['is_observed']
                           and not v['fn'].is_discrete}
@@ -460,7 +460,8 @@ def initialize_model(rng_key, model,
         init_strategy = _init_to_unconstrained_value(values=unconstrained_values)
     prototype_params = transform_fn(inv_transforms, constrained_values, invert=True)
     (init_params, pe, grad), is_valid = find_valid_initial_params(
-        rng_key, model,
+        rng_key, substitute(model, data={k: site["value"] for k, site in model_trace.items()
+                                         if site["type"] in ["plate"]}),
         init_strategy=init_strategy,
         enum=has_enumerate_support,
         model_args=model_args,
@@ -482,7 +483,7 @@ def initialize_model(rng_key, model,
                             for w in ws:
                                 # at site information to the warning message
                                 w.message.args = ("Site {}: {}".format(site["name"], w.message.args[0]),) \
-                                    + w.message.args[1:]
+                                                 + w.message.args[1:]
                                 warnings.showwarning(w.message, w.category, w.filename, w.lineno,
                                                      file=w.file, line=w.line)
             raise RuntimeError("Cannot find valid initial parameters. Please check your model again.")
@@ -491,7 +492,6 @@ def initialize_model(rng_key, model,
 
 def _predictive(rng_key, model, posterior_samples, batch_shape, return_sites=None,
                 parallel=True, model_args=(), model_kwargs={}):
-
     def single_prediction(val):
         rng_key, samples = val
         model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(

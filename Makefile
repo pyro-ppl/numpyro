@@ -2,8 +2,12 @@ all: test
 
 lint: FORCE
 	flake8
+	python scripts/update_headers.py --check
 
-format: FORCE
+license: FORCE
+	python scripts/update_headers.py
+
+format: license FORCE
 	isort -rc .
 
 install: FORCE

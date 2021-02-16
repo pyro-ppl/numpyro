@@ -534,6 +534,10 @@ positive_integer
 -----------------
 .. autodata:: numpyro.distributions.constraints.positive_integer
 
+positive_ordered_vector
+-----------------------
+.. autodata:: numpyro.distributions.constraints.positive_ordered_vector
+
 real
 ----
 .. autodata:: numpyro.distributions.constraints.real
@@ -586,6 +590,14 @@ AffineTransform
     :show-inheritance:
     :member-order: bysource
 
+CholeskyTransform
+-----------------
+.. autoclass:: numpyro.distributions.transforms.CholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ComposeTransform
 ----------------
 .. autoclass:: numpyro.distributions.transforms.ComposeTransform
@@ -597,6 +609,14 @@ ComposeTransform
 CorrCholeskyTransform
 ---------------------
 .. autoclass:: numpyro.distributions.transforms.CorrCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+CorrMatrixCholeskyTransform
+---------------------------
+.. autoclass:: numpyro.distributions.transforms.CorrMatrixCholeskyTransform
     :members:
     :undoc-members:
     :show-inheritance:

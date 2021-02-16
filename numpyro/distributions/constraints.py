@@ -333,6 +333,21 @@ class _PositiveDefinite(Constraint):
         return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
 
 
+class _PositiveOrderedVector(Constraint):
+    """
+    Constrains to a positive real-valued tensor where the elements are monotonically
+    increasing along the `event_shape` dimension.
+    """
+    event_dim = 1
+
+    def __call__(self, x):
+        return ordered_vector.check(x) & independent(positive, 1).check(x)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))),
+                                      prototype.shape)
+
+
 class _Real(Constraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
@@ -390,6 +405,7 @@ ordered_vector = _OrderedVector()
 positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
 positive_integer = _IntegerGreaterThan(1)
+positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
 real_vector = independent(real, 1)
 simplex = _Simplex()

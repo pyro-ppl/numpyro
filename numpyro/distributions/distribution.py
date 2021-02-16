@@ -348,6 +348,42 @@ class Distribution(metaclass=DistributionMeta):
         :type mask: bool or jnp.ndarray
         :return: A masked copy of this distribution.
         :rtype: :class:`MaskedDistribution`
+
+        **Example:**
+
+        .. doctest::
+
+            >>> from jax import random
+            >>> import jax.numpy as jnp
+            >>> import numpyro
+            >>> import numpyro.distributions as dist
+            >>> from numpyro.distributions import constraints
+            >>> from numpyro.infer import SVI, Trace_ELBO
+
+            >>> def model(data, m):
+            ...     f = numpyro.sample("latent_fairness", dist.Beta(1, 1))
+            ...     with numpyro.plate("N", data.shape[0]):
+            ...         # only take into account the values selected by the mask
+            ...         masked_dist = dist.Bernoulli(f).mask(m)
+            ...         numpyro.sample("obs", masked_dist, obs=data)
+
+
+            >>> def guide(data, m):
+            ...     alpha_q = numpyro.param("alpha_q", 5., constraint=constraints.positive)
+            ...     beta_q = numpyro.param("beta_q", 5., constraint=constraints.positive)
+            ...     numpyro.sample("latent_fairness", dist.Beta(alpha_q, beta_q))
+
+
+            >>> data = jnp.concatenate([jnp.ones(5), jnp.zeros(5)])
+            >>> # select values equal to one
+            >>> masked_array = jnp.where(data == 1, True, False)
+            >>> optimizer = numpyro.optim.Adam(step_size=0.05)
+            >>> svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
+            >>> svi_result = svi.run(random.PRNGKey(0), 300, data, masked_array)
+            >>> params = svi_result.params
+            >>> # inferred_mean is closer to 1
+            >>> inferred_mean = params["alpha_q"] / (params["alpha_q"] + params["beta_q"])
+
         """
         if mask is True:
             return self
@@ -444,28 +480,41 @@ class ExpandedDistribution(Distribution):
         return self.base_dist.has_rsample
 
     def _sample(self, sample_fn, key, sample_shape=()):
-        interstitial_dims = tuple(self._interstitial_sizes.keys())
-        event_dim = len(self.event_shape)
-        interstitial_dims = tuple(i - event_dim for i in interstitial_dims)
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
-        samples = sample_fn(key, sample_shape=sample_shape + batch_shape)
-        interstitial_idx = len(sample_shape) + len(expanded_sizes)
-        interstitial_sample_dims = tuple(range(interstitial_idx, interstitial_idx + len(interstitial_sizes)))
-        for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
-            samples = jnp.swapaxes(samples, dim1, dim2)
-        return samples.reshape(sample_shape + self.batch_shape + self.event_shape)
+        samples, intermediates = sample_fn(key, sample_shape=sample_shape + batch_shape)
+
+        def reshape_sample(x):
+            """ Reshapes samples and intermediates to ensure that the output
+                shape is correct: This implicitly replaces the interstitial dims
+                of size 1 in the original batch_shape of base_dist with those
+                in the expanded dims. While it somewhat 'shuffles' over batch
+                dimensions, we don't care because they are considered independent."""
+            subshape = x.shape[len(sample_shape) + len(batch_shape):]
+            # subshape == base_dist.batch_shape + event_shape of x (latter unknown for intermediates)
+            event_shape = subshape[len(self.base_dist.batch_shape):]
+            return x.reshape(sample_shape + self.batch_shape + event_shape)
+
+        intermediates = tree_util.tree_map(reshape_sample, intermediates)
+        samples = reshape_sample(samples)
+        return samples, intermediates
 
     def rsample(self, key, sample_shape=()):
-        return self._sample(self.base_dist.rsample, key, sample_shape)
+        return self._sample(
+            lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
+            key, sample_shape
+        )
 
     @property
     def support(self):
         return self.base_dist.support
 
+    def sample_with_intermediates(self, key, sample_shape=()):
+        return self._sample(self.base_dist.sample_with_intermediates, key, sample_shape)
+
     def sample(self, key, sample_shape=()):
-        return self._sample(self.base_dist.sample, key, sample_shape)
+        return self.sample_with_intermediates(key, sample_shape)[0]
 
     def log_prob(self, value):
         shape = lax.broadcast_shapes(self.batch_shape,

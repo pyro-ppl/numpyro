@@ -214,19 +214,14 @@ class AutoNormal(AutoGuide):
                                            event_dim=event_dim)
 
                 site_fn = dist.Normal(site_loc, site_scale).to_event(event_dim)
-                if site["fn"].support in [constraints.real, constraints.real_vector]:
+                if site["fn"].support is constraints.real \
+                        or (isinstance(site["fn"].support, constraints.independent) and
+                            site["fn"].support is constraints.real):
                     result[name] = numpyro.sample(name, site_fn)
                 else:
-                    unconstrained_value = numpyro.sample("{}_unconstrained".format(name), site_fn,
-                                                         infer={"is_auxiliary": True})
-
                     transform = biject_to(site['fn'].support)
-                    value = transform(unconstrained_value)
-                    log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-                    log_density = sum_rightmost(log_density,
-                                                jnp.ndim(log_density) - jnp.ndim(value) + site["fn"].event_dim)
-                    delta_dist = dist.Delta(value, log_density=log_density, event_dim=site["fn"].event_dim)
-                    result[name] = numpyro.sample(name, delta_dist)
+                    guide_dist = dist.TransformedDistribution(site_fn, transform)
+                    result[name] = numpyro.sample(name, guide_dist)
 
         return result
 
