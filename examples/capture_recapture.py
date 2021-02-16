@@ -54,7 +54,6 @@ from numpyro.examples.datasets import DIPPER_VOLE, load_dataset
 from numpyro.infer import HMC, MCMC, NUTS
 from numpyro.infer.reparam import LocScaleReparam
 
-
 # %%
 # Our first and simplest CJS model variant only has two continuous
 # (scalar) latent random variables: i) the survival probability phi;

@@ -7,7 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import device_get, jit, pmap, random, vmap
+from jax import device_get, jit, lax, pmap, random, vmap
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.special import logit
@@ -101,7 +101,8 @@ def test_logistic_regression_x64(kernel_cls):
         assert samples['coefs'].dtype == jnp.float64
 
 
-def test_uniform_normal():
+@pytest.mark.parametrize("forward_mode_differentiation", [True, False])
+def test_uniform_normal(forward_mode_differentiation):
     true_coef = 0.9
     num_warmup, num_samples = 1000, 1000
 
@@ -112,13 +113,20 @@ def test_uniform_normal():
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
-    kernel = NUTS(model=model)
+    kernel = NUTS(model=model, forward_mode_differentiation=forward_mode_differentiation)
     mcmc = MCMC(kernel, num_warmup=num_warmup, num_samples=num_samples)
     mcmc.warmup(random.PRNGKey(2), data, collect_warmup=True)
+    assert mcmc.post_warmup_state is not None
     warmup_samples = mcmc.get_samples()
     mcmc.run(random.PRNGKey(3), data)
     samples = mcmc.get_samples()
     assert len(warmup_samples['loc']) == num_warmup
+    assert len(samples['loc']) == num_samples
+    assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
+
+    mcmc.post_warmup_state = mcmc.last_state
+    mcmc.run(random.PRNGKey(3), data)
+    samples = mcmc.get_samples()
     assert len(samples['loc']) == num_samples
     assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
 
@@ -293,7 +301,7 @@ def test_mcmc_progbar():
     mcmc1.warmup(random.PRNGKey(2), data)
     mcmc1.run(random.PRNGKey(3), data)
     check_close(mcmc1.get_samples(), mcmc.get_samples(), atol=1e-4, rtol=1e-4)
-    check_close(mcmc1._warmup_state, mcmc._warmup_state, atol=1e-4, rtol=1e-4)
+    check_close(mcmc1.post_warmup_state, mcmc.post_warmup_state, atol=1e-4, rtol=1e-4)
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
@@ -476,7 +484,7 @@ def test_extra_fields():
 
 @pytest.mark.parametrize('algo', ['HMC', 'NUTS'])
 def test_functional_beta_bernoulli_x64(algo):
-    warmup_steps, num_samples = 500, 20000
+    warmup_steps, num_samples = 410, 100
 
     def model(data):
         alpha = jnp.array([1.1, 1.1])
@@ -603,7 +611,7 @@ def test_compile_warmup_run(num_chains, chain_method, progress_bar):
     mcmc._compile(rng_key)
     # no delay after compiling
     mcmc.warmup(rng_key)
-    mcmc.run(mcmc._warmup_state.rng_key)
+    mcmc.run(mcmc.last_state.rng_key)
     actual_samples = mcmc.get_samples()["x"]
 
     assert_allclose(actual_samples, expected_samples)
@@ -662,3 +670,25 @@ def test_trivial_dirichlet(batch_shape):
     mcmc.run(random.PRNGKey(0))
     # because event_shape of x is (1,), x should only take value 1
     assert_allclose(mcmc.get_samples()["x"], jnp.ones((num_samples,) + batch_shape + (1,)))
+
+
+def test_forward_mode_differentiation():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
+        numpyro.sample("obs", dist.Normal(y, 1), obs=1.)
+
+    # this fails in reverse mode
+    mcmc = MCMC(NUTS(model, forward_mode_differentiation=True), 10, 10)
+    mcmc.run(random.PRNGKey(0))
+
+
+def test_model_with_lift_handler():
+    def model(data):
+        c = numpyro.param("c", jnp.array(1.), constraint=dist.constraints.positive)
+        x = numpyro.sample("x", dist.LogNormal(c, 1.), obs=data)
+        return x
+
+    nuts_kernel = NUTS(numpyro.handlers.lift(model, prior={"c": dist.Gamma(0.01, 0.01)}))
+    mcmc = MCMC(nuts_kernel, num_warmup=10, num_samples=10)
+    mcmc.run(random.PRNGKey(1), jnp.exp(random.normal(random.PRNGKey(0), (1000,))))

@@ -78,6 +78,7 @@ jobs:
       run: |
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_mcmc.py -k "chain or pmap or vmap"
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/contrib/test_tfp.py -k "chain"
+        XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs test/test_hmc_gibbs.py -k "chain"
 
 
   examples:

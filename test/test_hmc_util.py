@@ -322,7 +322,7 @@ def test_warmup_adapter(jitted):
     assert window_idx == 3
     # during the last window, because target_accept_prob=0.8,
     # log_step_size will be equal to the constant prox_center=log(10*last_step_size)
-    assert_allclose(step_size, last_step_size * 10)
+    assert_allclose(step_size, last_step_size * 10, atol=1e-6)
     # Verifies that inverse_mass_matrix does not change during the last window
     # despite z_flat changes w.r.t time t,
     assert_allclose(final_inverse_mass_matrix, inverse_mass_matrix)

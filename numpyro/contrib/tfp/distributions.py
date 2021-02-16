@@ -47,6 +47,10 @@ class BijectorConstraint(constraints.Constraint):
     def __init__(self, bijector):
         self.bijector = bijector
 
+    @property
+    def event_dim(self):
+        return self.bijector.forward_min_event_ndims
+
     def __call__(self, x):
         return self.codomain(x)
 
@@ -66,10 +70,6 @@ class BijectorTransform(Transform):
         self.bijector = bijector
 
     @property
-    def event_dim(self):
-        return self.bijector.forward_min_event_ndims
-
-    @property
     def domain(self):
         return BijectorConstraint(tfb.Invert(self.bijector))
 
@@ -80,11 +80,23 @@ class BijectorTransform(Transform):
     def __call__(self, x):
         return self.bijector.forward(x)
 
-    def inv(self, y):
+    def _inverse(self, y):
         return self.bijector.inverse(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return self.bijector.forward_log_det_jacobian(x, self.event_dim)
+        return self.bijector.forward_log_det_jacobian(x, self.domain.event_dim)
+
+    def forward_shape(self, shape):
+        out_shape = self.bijector.forward_event_shape(shape)
+        in_event_shape = self.bijector.inverse_event_shape(out_shape)
+        batch_shape = shape[:len(shape) - len(in_event_shape)]
+        return batch_shape + out_shape
+
+    def inverse_shape(self, shape):
+        in_shape = self.bijector.inverse_event_shape(shape)
+        out_event_shape = self.bijector.forward_event_shape(in_shape)
+        batch_shape = shape[:len(shape) - len(out_event_shape)]
+        return batch_shape + in_shape
 
 
 @biject_to.register(BijectorConstraint)
