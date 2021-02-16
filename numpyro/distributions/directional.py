@@ -88,11 +88,11 @@ class ProjectedNormal(Distribution):
         https://projecteuclid.org/euclid.ba/1453211962
     """
     arg_constraints = {"concentration": constraints.real_vector}
+    reparametrized_params = ["concentration"]
     support = constraints.sphere
-    has_rsample = True
 
     def __init__(self, concentration, *, validate_args=None):
-        assert concentration.dim() >= 1
+        assert len(concentration.shape) >= 1
         self.concentration = concentration
         batch_shape = concentration.shape[:-1]
         event_shape = concentration.shape[-1:]

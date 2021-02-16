@@ -187,6 +187,10 @@ DIRECTIONAL = [
     T(dist.VonMises, 2., 10.),
     T(dist.VonMises, 2., jnp.array([150., 10.])),
     T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.]), jnp.array([20., 30.])),
+    T(dist.ProjectedNormal, jnp.array([0., 0.])),
+    T(dist.ProjectedNormal, jnp.array([2., 3.])),
+    T(dist.ProjectedNormal, jnp.array([0., 0., 0.])),
+    T(dist.ProjectedNormal, jnp.array([-1., 2., 3.])),
 ]
 
 DISCRETE = [
@@ -526,7 +530,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DIRECTIONAL)
 def test_gof(jax_dist, sp_dist, params):
     if "Improper" in jax_dist.__name__:
         pytest.skip("distribution has improper .log_prob()")
@@ -966,7 +970,7 @@ def test_categorical_log_prob_grad():
     (constraints.unit_interval, jnp.array([-5, 0, 0.5, 1, 7]),
      jnp.array([False, True, True, True, False])),
     (constraints.sphere, jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
-     jnp.arrray([True, False])),
+     jnp.array([True, False])),
 ])
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)

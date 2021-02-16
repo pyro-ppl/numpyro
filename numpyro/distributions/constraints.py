@@ -46,6 +46,7 @@ __all__ = [
     'real',
     'real_vector',
     'simplex',
+    'sphere',
     'unit_interval',
     'Constraint',
 ]
@@ -372,6 +373,7 @@ class _Sphere(Constraint):
     """
     Constrain to the Euclidean sphere of any dimension.
     """
+    event_dim = 1
     reltol = 10.  # Relative to finfo.eps.
 
     def __call__(self, x):
