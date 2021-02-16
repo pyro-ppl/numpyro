@@ -383,7 +383,7 @@ class condition(Messenger):
 
 class infer_config(Messenger):
     """
-    Given a callable `fn` that contains Pyro primitive calls
+    Given a callable `fn` that contains NumPyro primitive calls
     and a callable `config_fn` taking a trace site and returning a dictionary,
     updates the value of the infer kwarg at a sample site to config_fn(site).
 
