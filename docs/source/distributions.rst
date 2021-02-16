@@ -229,14 +229,6 @@ Pareto
     :show-inheritance:
     :member-order: bysource
 
-ProjectedNormal
----------------
-.. autoclass:: numpyro.distributions.continuous.ProjectedNormal
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 StudentT
 --------
 .. autoclass:: numpyro.distributions.continuous.StudentT
@@ -440,6 +432,14 @@ ZeroInflatedPoisson
 
 Directional Distributions
 =========================
+
+ProjectedNormal
+---------------
+.. autoclass:: numpyro.distributions.directional.ProjectedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 VonMises
 --------

@@ -30,7 +30,7 @@ from numpyro.distributions.continuous import (
     TruncatedPolyaGamma,
     Uniform
 )
-from numpyro.distributions.directional import VonMises
+from numpyro.distributions.directional import ProjectedNormal, VonMises
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -117,6 +117,7 @@ __all__ = [
     'OrderedLogistic',
     'Pareto',
     'Poisson',
+    'ProjectedNormal',
     'PRNGIdentity',
     'StudentT',
     'TransformedDistribution',
