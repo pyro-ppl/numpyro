@@ -321,7 +321,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return gen_values_outside_bounds(constraint.base_constraint, size, key)
     elif constraint is constraints.sphere:
         x = random.normal(key, size)
-        x = x / jnp.linalg.norm(x, axis=-1)
+        x = x / jnp.linalg.norm(x, axis=-1, keepdims=True)
         return 2 * x
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
@@ -543,6 +543,10 @@ def test_gof(jax_dist, sp_dist, params):
     samples = d.sample(key=rng_key, sample_shape=(num_samples,))
     probs = np.exp(d.log_prob(samples))
 
+    dim = None
+    if jax_dist is dist.ProjectedNormal:
+        dim = samples.shape[-1] - 1
+
     # Test each batch independently.
     probs = probs.reshape(num_samples, -1)
     samples = samples.reshape(probs.shape + d.event_shape)
@@ -551,7 +555,7 @@ def test_gof(jax_dist, sp_dist, params):
         samples = samples[..., :-1]
     for b in range(probs.shape[-1]):
         try:
-            gof = auto_goodness_of_fit(samples[:, b], probs[:, b])
+            gof = auto_goodness_of_fit(samples[:, b], probs[:, b], dim=dim)
         except InvalidTest:
             pytest.skip("expensive test")
         else:
@@ -745,6 +749,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("Improper distribution does not has mean/var implemented")
+    if jax_dist is dist.ProjectedNormal:
+        pytest.skip("Mean is defined in submanifold")
 
     n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)

@@ -6,7 +6,7 @@ import math
 from jax import lax
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import i0e, i1e
+from jax.scipy.special import erf, i0e, i1e
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -132,6 +132,12 @@ class ProjectedNormal(Distribution):
             "Consider using poutine.reparam with ProjectedNormalReparam."
         )
 
+    @staticmethod
+    def infer_shapes(concentration):
+        batch_shape = concentration[:-1]
+        event_shape = concentration[-1:]
+        return batch_shape, event_shape
+
 
 def _projected_normal_log_prob_2(concentration, value):
     def _dot(x, y):
@@ -148,8 +154,8 @@ def _projected_normal_log_prob_2(concentration, value):
     # This is the log of a definite integral, computed by mathematica:
     # Integrate[x/(E^((x-t)^2/2) Sqrt[2 Pi]), {x, 0, Infinity}]
     # = (t + Sqrt[2/Pi]/E^(t^2/2) + t Erf[t/Sqrt[2]])/2
-    para_part = (jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5)
-                 + t * (1 + jnp.erf(t * 0.5 ** 0.5))).mul(0.5).log()
+    para_part = jnp.log((jnp.exp((-0.5) * t2) * ((2 / math.pi) ** 0.5)
+                         + t * (1 + erf(t * 0.5 ** 0.5))) / 2)
 
     return para_part + perp_part
 
@@ -170,6 +176,6 @@ def _projected_normal_log_prob_3(concentration, value):
     # Integrate[x^2/(E^((x-t)^2/2) Sqrt[2 Pi]), {x, 0, Infinity}]
     # = t/(E^(t^2/2) Sqrt[2 Pi]) + ((1 + t^2) (1 + Erf[t/Sqrt[2]]))/2
     para_part = jnp.log(t * jnp.exp((-0.5) * t2) / (2 * math.pi) ** 0.5
-                        + (1 + t2) * (1 + jnp.erf(t * 0.5 ** 0.5)) / 2)
+                        + (1 + t2) * (1 + erf(t * 0.5 ** 0.5)) / 2)
 
     return para_part + perp_part
