@@ -677,6 +677,44 @@ class LogNormal(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
 
+class Logistic(Distribution):
+    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    support = constraints.real
+    reparametrized_params = ['loc', 'scale']
+
+    def __init__(self, loc=0., scale=1., validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        z = random.logistic(key, shape=sample_shape + self.batch_shape + self.event_shape)
+        return self.loc + z * self.scale
+
+    @validate_sample
+    def log_prob(self, value):
+        log_exponent = (self.loc - value) / self.scale
+        log_denominator = jnp.log(self.scale) + 2 * nn.softplus(log_exponent)
+        return log_exponent - log_denominator
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(self.loc, self.batch_shape)
+
+    @property
+    def variance(self):
+        var = (self.scale ** 2) * (jnp.pi ** 2) / 3
+        return jnp.broadcast_to(var, self.batch_shape)
+
+    def cdf(self, value):
+        scaled = (value - self.loc) / self.scale
+        return expit(scaled)
+
+    def icdf(self, q):
+        return self.loc + self.scale * logit(q)
+
+
 def _batch_mahalanobis(bL, bx):
     if bL.shape[:-1] == bx.shape:
         # no need to use the below optimization procedure
@@ -1090,9 +1128,10 @@ class StudentT(Distribution):
 class LeftTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.real}
     reparametrized_params = ["low"]
+    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
 
     def __init__(self, base_dist, low=0., validate_args=None):
-        assert isinstance(base_dist, (Cauchy, Laplace, Logistic, Normal, StudentT))
+        assert isinstance(base_dist, self.supported_types)
         assert base_dist.support is constraints.real, \
             "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low))
@@ -1115,9 +1154,7 @@ class LeftTruncatedDistribution(Distribution):
     @lazy_property
     def _tail_prob_at_high(self):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
-        loc = self.base_dist.loc
-        sign = jnp.where(loc >= self.low, 1., -1.)
-        return 0.5 * (1 + sign)
+        return jnp.where(self.low < self.base_dist.loc, 1., 0.)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -1155,9 +1192,10 @@ class LeftTruncatedDistribution(Distribution):
 class RightTruncatedDistribution(Distribution):
     arg_constraints = {"high": constraints.real}
     reparametrized_params = ["high"]
+    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
 
     def __init__(self, base_dist, high=0., validate_args=None):
-        assert isinstance(base_dist, (Cauchy, Laplace, Logistic, Normal, StudentT))
+        assert isinstance(base_dist, self.supported_types)
         assert base_dist.support is constraints.real, \
             "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(high))
@@ -1205,9 +1243,10 @@ class RightTruncatedDistribution(Distribution):
 class TwoSidedTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
     reparametrized_params = ["low", "high"]
+    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
 
     def __init__(self, base_dist, low=0., high=1., validate_args=None):
-        assert isinstance(base_dist, (Cauchy, Laplace, Logistic, Normal, StudentT))
+        assert isinstance(base_dist, self.supported_types)
         assert base_dist.support is constraints.real, \
             "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low), jnp.shape(high))
@@ -1239,7 +1278,7 @@ class TwoSidedTruncatedDistribution(Distribution):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
 
-        # NB: we use a more numerical formula for a symmetric base distribution
+        # NB: we use a more numerically stable formula for a symmetric base distribution
         #   A = icdf(cdf(low) + (cdf(high) - cdf(low)) * u) = icdf[(1 - u) * cdf(low) + u * cdf(high)]
         # will suffer by precision issues when low is large;
         # If low < loc:
@@ -1253,7 +1292,7 @@ class TwoSidedTruncatedDistribution(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        # NB: we use a more numerical formula for a symmetric base distribution
+        # NB: we use a more numerically stable formula for a symmetric base distribution
         # if low < loc
         #   cdf(high) - cdf(low) = as-is
         # if low > loc
@@ -1506,44 +1545,6 @@ class Uniform(TransformedDistribution):
         batch_shape = lax.broadcast_shapes(low, high)
         event_shape = ()
         return batch_shape, event_shape
-
-
-class Logistic(Distribution):
-    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
-    support = constraints.real
-    reparametrized_params = ['loc', 'scale']
-
-    def __init__(self, loc=0., scale=1., validate_args=None):
-        self.loc, self.scale = promote_shapes(loc, scale)
-        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
-        super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        z = random.logistic(key, shape=sample_shape + self.batch_shape + self.event_shape)
-        return self.loc + z * self.scale
-
-    @validate_sample
-    def log_prob(self, value):
-        log_exponent = (self.loc - value) / self.scale
-        log_denominator = jnp.log(self.scale) + 2 * nn.softplus(log_exponent)
-        return log_exponent - log_denominator
-
-    @property
-    def mean(self):
-        return jnp.broadcast_to(self.loc, self.batch_shape)
-
-    @property
-    def variance(self):
-        var = (self.scale ** 2) * (jnp.pi ** 2) / 3
-        return jnp.broadcast_to(var, self.batch_shape)
-
-    def cdf(self, value):
-        scaled = (value - self.loc) / self.scale
-        return expit(scaled)
-
-    def icdf(self, q):
-        return self.loc + self.scale * logit(q)
 
 
 class TruncatedPolyaGamma(Distribution):
