@@ -215,6 +215,10 @@ DIRECTIONAL = [
     T(dist.VonMises, 2., 10.),
     T(dist.VonMises, 2., jnp.array([150., 10.])),
     T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.]), jnp.array([20., 30.])),
+    T(dist.ProjectedNormal, jnp.array([0., 0.])),
+    T(dist.ProjectedNormal, jnp.array([[2., 3.]])),
+    T(dist.ProjectedNormal, jnp.array([0., 0., 0.])),
+    T(dist.ProjectedNormal, jnp.array([[-1., 2., 3.]])),
 ]
 
 DISCRETE = [
@@ -299,6 +303,9 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return x - random.normal(key, size[:-1])
     elif isinstance(constraint, constraints.independent):
         return gen_values_within_bounds(constraint.base_constraint, size, key)
+    elif constraint is constraints.sphere:
+        x = random.normal(key, size)
+        return x / jnp.linalg.norm(x, axis=-1)
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -340,6 +347,10 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return x[..., ::-1]
     elif isinstance(constraint, constraints.independent):
         return gen_values_outside_bounds(constraint.base_constraint, size, key)
+    elif constraint is constraints.sphere:
+        x = random.normal(key, size)
+        x = x / jnp.linalg.norm(x, axis=-1, keepdims=True)
+        return 2 * x
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -582,7 +593,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         pass
 
 
-@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DIRECTIONAL)
 def test_gof(jax_dist, sp_dist, params):
     if "Improper" in jax_dist.__name__:
         pytest.skip("distribution has improper .log_prob()")
@@ -595,6 +606,10 @@ def test_gof(jax_dist, sp_dist, params):
     samples = d.sample(key=rng_key, sample_shape=(num_samples,))
     probs = np.exp(d.log_prob(samples))
 
+    dim = None
+    if jax_dist is dist.ProjectedNormal:
+        dim = samples.shape[-1] - 1
+
     # Test each batch independently.
     probs = probs.reshape(num_samples, -1)
     samples = samples.reshape(probs.shape + d.event_shape)
@@ -603,7 +618,7 @@ def test_gof(jax_dist, sp_dist, params):
         samples = samples[..., :-1]
     for b in range(probs.shape[-1]):
         try:
-            gof = auto_goodness_of_fit(samples[:, b], probs[:, b])
+            gof = auto_goodness_of_fit(samples[:, b], probs[:, b], dim=dim)
         except InvalidTest:
             pytest.skip("expensive test")
         else:
@@ -801,6 +816,8 @@ def test_mean_var(jax_dist, sp_dist, params):
         pytest.skip("Improper distribution does not has mean/var implemented")
     if jax_dist in (_TruncatedNormal, dist.continuous.TwoSidedTruncatedDistribution):
         pytest.skip("Truncated distributions do not has mean/var implemented")
+    if jax_dist is dist.ProjectedNormal:
+        pytest.skip("Mean is defined in submanifold")
 
     n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)
@@ -1029,6 +1046,8 @@ def test_categorical_log_prob_grad():
     (constraints.unit_interval, 0.1, True),
     (constraints.unit_interval, jnp.array([-5, 0, 0.5, 1, 7]),
      jnp.array([False, True, True, True, False])),
+    (constraints.sphere, jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
+     jnp.array([True, False])),
 ])
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
