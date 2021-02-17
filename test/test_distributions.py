@@ -551,30 +551,33 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
     d = jax_dist(*params)
-    samples = d.sample(key=random.PRNGKey(0))
-    quantiles = random.uniform(random.PRNGKey(1), d.shape())
+    if d.event_dim > 0:
+        pytest.skip('skip testing cdf/icdf methods of multivariate distributions')
+    samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
+    quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
         if d.shape() == ():
-            assert_allclose(jax.grad(d.cdf)(samples), jnp.exp(d.log_prob(samples)), rtol=1e-5)
-            assert_allclose(jax.grad(d.icdf)(quantiles), jnp.exp(-d.log_prob(d.icdf(quantiles))), rtol=1e-5)
-        assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, rtol=1e-5)
-        assert_allclose(d.icdf(d.cdf(samples)), samples, rtol=1e-5)
+            rtol = 1e-3 if jax_dist is dist.StudentT else 1e-5
+            assert_allclose(jax.vmap(jax.grad(d.cdf))(samples),
+                            jnp.exp(d.log_prob(samples)), atol=1e-5, rtol=rtol)
+            assert_allclose(jax.vmap(jax.grad(d.icdf))(quantiles),
+                            jnp.exp(-d.log_prob(d.icdf(quantiles))), atol=1e-5, rtol=rtol)
+        assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
+        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=1e-5)
     except NotImplementedError:
         pass
 
     # test against scipy
     if not sp_dist:
         pytest.skip('no corresponding scipy distn.')
-    if d.event_dim > 0:
-        pytest.skip('skip testing cdf/icdf methods of multivariate distributions')
     sp_dist = sp_dist(*params)
     try:
         actual_cdf = d.cdf(samples)
         expected_cdf = sp_dist.cdf(samples)
-        assert_allclose(actual_cdf, expected_cdf, rtol=1e-5)
+        assert_allclose(actual_cdf, expected_cdf, atol=1e-5, rtol=1e-5)
         actual_icdf = d.icdf(quantiles)
         expected_icdf = sp_dist.ppf(quantiles)
-        assert_allclose(actual_icdf, expected_icdf, rtol=1e-5)
+        assert_allclose(actual_icdf, expected_icdf, atol=1e-5, rtol=1e-4)
     except NotImplementedError:
         pass
 
