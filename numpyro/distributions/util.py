@@ -485,10 +485,10 @@ def safe_normalize(x, *, p=2):
     singularity at zero by mapping zero to the uniform unit vector proportional
     to ``[1, 1, ..., 1]``.
 
-    :param torch.Tensor x: A vector
+    :param numpy.ndarray x: A vector
     :param float p: The norm exponent, defaults to 2 i.e. the Euclidean norm.
     :returns: A normalized version ``x / ||x||_p``.
-    :rtype: Tensor
+    :rtype: numpy.ndarray
     """
     assert isinstance(p, (float, int))
     assert p >= 0

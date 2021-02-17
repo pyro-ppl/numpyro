@@ -188,9 +188,9 @@ DIRECTIONAL = [
     T(dist.VonMises, 2., jnp.array([150., 10.])),
     T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.]), jnp.array([20., 30.])),
     T(dist.ProjectedNormal, jnp.array([0., 0.])),
-    T(dist.ProjectedNormal, jnp.array([2., 3.])),
+    T(dist.ProjectedNormal, jnp.array([[2., 3.]])),
     T(dist.ProjectedNormal, jnp.array([0., 0., 0.])),
-    T(dist.ProjectedNormal, jnp.array([-1., 2., 3.])),
+    T(dist.ProjectedNormal, jnp.array([[-1., 2., 3.]])),
 ]
 
 DISCRETE = [

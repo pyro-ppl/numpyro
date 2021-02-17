@@ -70,11 +70,11 @@ class ProjectedNormal(Distribution):
     Mises and von Mises-Fisher distributions, but permits tractable variational
     inference via reparametrized gradients.
 
-    To use this distribution with autoguides, use ``poutine.reparam`` with a
-    :class:`~numpyro.infer.reparam.ProjectedNormalReparam`
+    To use this distribution with autoguides and HMC, use ``handlers.reparam``
+    with a :class:`~numpyro.infer.reparam.ProjectedNormalReparam`
     reparametrizer in the model, e.g.::
 
-        @poutine.reparam(config={"direction": ProjectedNormalReparam()})
+        @handlers.reparam(config={"direction": ProjectedNormalReparam()})
         def model():
             direction = numpyro.sample("direction",
                                        ProjectedNormal(zeros(3)))
@@ -92,7 +92,7 @@ class ProjectedNormal(Distribution):
     support = constraints.sphere
 
     def __init__(self, concentration, *, validate_args=None):
-        assert len(concentration.shape) >= 1
+        assert jnp.ndim(concentration) >= 1
         self.concentration = concentration
         batch_shape = concentration.shape[:-1]
         event_shape = concentration.shape[-1:]
@@ -129,7 +129,7 @@ class ProjectedNormal(Distribution):
             return _projected_normal_log_prob_3(self.concentration, value)
         raise NotImplementedError(
             f"ProjectedNormal.log_prob() is not implemented for dim = {dim}. "
-            "Consider using poutine.reparam with ProjectedNormalReparam."
+            "Consider using handlers.reparam with ProjectedNormalReparam."
         )
 
     @staticmethod
