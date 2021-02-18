@@ -691,8 +691,10 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
-        posterior = self.get_posterior(params)
-        loc, scale = posterior.loc, jnp.sqrt(posterior.variance)
+        loc = params[f'{self.prefix}_loc']
+        cov_factor = params[f'{self.prefix}_cov_factor']
+        scale = params[f'{self.prefix}_scale']
+        scale = scale * jnp.sqrt(jnp.square(cov_factor).sum(-1) + 1)
         quantiles = jnp.array(quantiles)[..., None]
         latent = dist.Normal(loc, scale).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
