@@ -7,11 +7,11 @@ import jax.numpy as jnp
 from jax.scipy.special import expit
 from jax.nn import softplus
 
-import numpyro
-from numpyro.infer import init_to_uniform
 from numpyro.infer.hmc_util import warmup_adapter
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
+from numpyro.infer import init_to_uniform
+from numpyro.infer.mcmc import MCMCKernel
 
 
 BarkerMHState = namedtuple("BarkerMHState", [
@@ -39,14 +39,15 @@ A :func:`~collections.namedtuple` consisting of the following fields:
      iteration. In case of dense mass, this is the Cholesky factorization of the
      mass matrix.
 
- - **rng_key** - random number generator seed used for the iteration.
+ - **rng_key** - random number generator seed used for generating proposals, etc.
 """
 
 
-class BarkerMH(numpyro.infer.mcmc.MCMCKernel):
+class BarkerMH(MCMCKernel):
     """
-    This is a gradient-based MCMC algorithm that uses a skew-symmetric proposal distribution
-    that depends on the gradient of the potential (the Barker proposal; see reference [1]).
+    This is a gradient-based MCMC algorithm of Metropolis-Hastings type that uses
+    a skew-symmetric proposal distribution that depends on the gradient of the
+    potential (the Barker proposal; see reference [1]).
 
     We expect this algorithm to be particularly effective for low to moderate dimensional
     models, where it may be competitive with HMC and NUTS.
@@ -73,7 +74,7 @@ class BarkerMH(numpyro.infer.mcmc.MCMCKernel):
     :param bool dense_mass: Whether to use a dense (i.e. full-rank) or diagonal mass matrix.
         (defaults to ``dense_mass=False``). Currently only ``dense_mass=False`` is supported.
     :param float target_accept_prob: The target acceptance probability that is used to guide
-        step size adapation. Defaults to ``target_accept_prob=0.40``..
+        step size adapation. Defaults to ``target_accept_prob=0.4``.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
@@ -140,6 +141,11 @@ class BarkerMH(numpyro.infer.mcmc.MCMCKernel):
         wa_state = wa_init(None, rng_key_wa, self._step_size, mass_matrix_size=size)
         wa_state = wa_state._replace(rng_key=None)
         return jax.device_put(BarkerMHState(0, init_params, pe, grad, 0., 0., wa_state, rng_key))
+
+    def postprocess_fn(self, args, kwargs):
+        if self._postprocess_fn is None:
+            return identity
+        return self._postprocess_fn(*args, **kwargs)
 
     def sample(self, state, model_args, model_kwargs):
         i, x, x_pe, x_grad, _, mean_accept_prob, adapt_state, rng_key = state
