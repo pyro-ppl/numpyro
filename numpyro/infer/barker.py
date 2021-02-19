@@ -80,6 +80,25 @@ class BarkerMH(MCMCKernel):
         step size adapation. Defaults to ``target_accept_prob=0.4``.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
+
+    **Example**
+
+    .. doctest::
+
+        >>> import jax
+        >>> import jax.numpy as jnp
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.infer import MCMC, BarkerMH
+
+        >>> def model():
+        ...     numpyro.sample("x", dist.Normal().expand([10]))
+        ...     numpyro.sample("obs", dist.Normal(x, 1.0), obs=jnp.ones(10))
+        >>>
+        >>> kernel = Barker(model)
+        >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, progress_bar=True)
+        >>> mcmc.run(jax.random.PRNGKey(0))
+        >>> mcmc.print_summary()
     """
     def __init__(self, model=None, potential_fn=None, step_size=1.0,
                  adapt_step_size=True, adapt_mass_matrix=True, dense_mass=False,
