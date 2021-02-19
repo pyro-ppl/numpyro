@@ -5,6 +5,7 @@ from jax import random
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import expit
+from jax.nn import softplus
 
 import numpyro
 import numpyro.distributions as dist
@@ -13,18 +14,77 @@ from numpyro.infer.hmc_util import warmup_adapter
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
 
-BarkerState = namedtuple("BarkerState", [
+
+BarkerMHState = namedtuple("BarkerMHState", [
     "i", "z", "potential_energy", "z_grad", "accept_prob", "mean_accept_prob", "adapt_state", "rng_key"])
 
+"""
+A :func:`~collections.namedtuple` consisting of the following fields:
 
-class Barker(numpyro.infer.mcmc.MCMCKernel):
+ - **i** - iteration. This is reset to 0 after warmup.
+ - **z** - Python collection representing values (unconstrained samples from
+   the posterior) at latent sites.
+ - **potential_energy** - Potential energy computed at the given value of ``z``.
+ - **z_grad** - Gradient of potential energy w.r.t. latent sample sites.
+ - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
+   does not correspond to the proposal if it is rejected.
+ - **mean_accept_prob** - Mean acceptance probability until current iteration
+   during warmup adaptation or sampling (for diagnostics).
+ - **adapt_state** - A ``HMCAdaptState`` namedtuple which contains adaptation information
+   during warmup:
 
+   + **step_size** - Step size to be used by the integrator in the next iteration.
+   + **inverse_mass_matrix** - The inverse mass matrix to be used for the next
+     iteration.
+   + **mass_matrix_sqrt** - The square root of mass matrix to be used for the next
+     iteration. In case of dense mass, this is the Cholesky factorization of the
+     mass matrix.
+
+ - **rng_key** - random number generator seed used for the iteration.
+"""
+
+
+class BarkerMH(numpyro.infer.mcmc.MCMCKernel):
+    """
+    This is a gradient-based MCMC algorithm that uses a skew-symmetric proposal distribution
+    that depends on the gradient of the potential (the Barker proposal; see reference [1]).
+
+    We expect this algorithm to be particularly effective for low to moderate dimensional
+    models, where it may be competitive with HMC and NUTS.
+
+    .. note:: We recommend to use this kernel with `progress_bar=False` in :class:`MCMC`
+        to reduce JAX's dispatch overhead.
+
+    **References:**
+
+    1. The Barker proposal: combining robustness and efficiency in gradient-based MCMC.
+       Samuel Livingstone, Giacomo Zanella.
+
+    :param model: Python callable containing Pyro :mod:`~numpyro.primitives`.
+        If model is provided, `potential_fn` will be inferred using the model.
+    :param potential_fn: Python callable that computes the potential energy
+        given input parameters. The input parameters to `potential_fn` can be
+        any python collection type, provided that `init_params` argument to
+        :meth:`init` has the same type.
+    :param float step_size: (Initial) step size to use in the Barker proposal.
+    :param bool adapt_step_size: Whether to adapt the step size during warm-up.
+        Defaults to ``adapt_step_size==True``.
+    :param bool adapt_mass_matrix: Whether to adapt the mass matrix during warm-up.
+        Defaults to ``adapt_mass_matrix==True``.
+    :param bool dense_mass: Whether to use a dense (i.e. full-rank) or diagonal mass matrix.
+        (defaults to ``dense_mass=False``). Currently only ``dense_mass=False`` is supported.
+    :param float target_accept_prob: The target acceptance probability that is used to guide
+        step size adapation. Defaults to ``target_accept_prob=0.40``..
+    :param callable init_strategy: a per-site initialization function.
+        See :ref:`init_strategy` section for available functions.
+    """
     def __init__(self, model=None, potential_fn=None, step_size=1.0,
                  adapt_step_size=True, adapt_mass_matrix=True, dense_mass=False,
-                 target_accept_prob=0.8, init_strategy=init_to_uniform):
-        # TODO: probably the default target accept prob is not high like HMC
+                 target_accept_prob=0.4, init_strategy=init_to_uniform):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
+        if dense_mass:
+            raise ValueError('Only dense_mass=False is currently supported')
         self._model = model
         self._potential_fn = potential_fn
         self._step_size = step_size
@@ -80,7 +140,7 @@ class Barker(numpyro.infer.mcmc.MCMCKernel):
         size = len(ravel_pytree(init_params)[0])
         wa_state = wa_init(None, rng_key_wa, self._step_size, mass_matrix_size=size)
         wa_state = wa_state._replace(rng_key=None)
-        return jax.device_put(BarkerState(0, init_params, pe, grad, 0., 0., wa_state, rng_key))
+        return jax.device_put(BarkerMHState(0, init_params, pe, grad, 0., 0., wa_state, rng_key))
 
     def sample(self, state, model_args, model_kwargs):
         i, x, x_pe, x_grad, _, mean_accept_prob, adapt_state, rng_key = state
@@ -89,9 +149,8 @@ class Barker(numpyro.infer.mcmc.MCMCKernel):
         shape = jnp.shape(x_flat)
         rng_key, key_normal, key_bernoulli, key_accept = random.split(rng_key, 4)
 
-        # get proposal y
-        # TODO: if we use dense mass, then we need to resort this *
-        # TODO: double check if using step_size and mass_matrix is consistent with the paper
+        # Generate proposal y.
+        # TODO: Support dense_mass=True
         z_proposal = adapt_state.step_size * random.normal(key_normal, shape) * adapt_state.mass_matrix_sqrt
         p = expit(-z_proposal * x_grad_flat)
         b = jnp.where(random.uniform(key_bernoulli, shape) < p, 1., -1.)
@@ -101,15 +160,14 @@ class Barker(numpyro.infer.mcmc.MCMCKernel):
         y = unravel_fn(y_flat)
         y_pe, y_grad = jax.value_and_grad(self._potential_fn)(y)
         y_grad_flat, _ = ravel_pytree(y_grad)
-        log_accept_ratio = x_pe - y_pe + jnp.sum(
-            jax.nn.softplus(bz * x_grad_flat) - jax.nn.softplus(-bz * y_grad_flat))
+        log_accept_ratio = x_pe - y_pe + jnp.sum(softplus(bz * x_grad_flat) - softplus(-bz * y_grad_flat))
         accept_prob = jnp.clip(jnp.exp(log_accept_ratio), a_max=1.)
 
         x, x_flat, pe, x_grad = jax.lax.cond(random.bernoulli(key_accept, accept_prob),
                                              (y, y_flat, y_pe, y_grad), identity,
                                              (x, x_flat, x_pe, x_grad), identity)
 
-        # not update adapt_state after warmup phase
+        # do not update adapt_state after warmup phase
         adapt_state = jax.lax.cond(i < self._num_warmup,
                                    (i, accept_prob, (x,), adapt_state),
                                    lambda args: self._wa_update(*args),
@@ -120,14 +178,14 @@ class Barker(numpyro.infer.mcmc.MCMCKernel):
         n = jnp.where(i < self._num_warmup, itr, itr - self._num_warmup)
         mean_accept_prob = mean_accept_prob + (accept_prob - mean_accept_prob) / n
 
-        return BarkerState(itr, x, pe, x_grad, accept_prob, mean_accept_prob, adapt_state, rng_key)
+        return BarkerMHState(itr, x, pe, x_grad, accept_prob, mean_accept_prob, adapt_state, rng_key)
 
 
 def model():
-    numpyro.sample("x", dist.Normal().expand([100]))
+    numpyro.sample("x", dist.Normal().expand([20]))
 
 
-kernel = Barker(model)
+kernel = BarkerMH(model)
 mcmc = MCMC(kernel, num_warmup=1000, num_samples=10000, progress_bar=True)
 mcmc.run(random.PRNGKey(0))
 samples = mcmc.get_samples()
