@@ -8,8 +8,7 @@ from jax.scipy.special import expit
 from jax.nn import softplus
 
 import numpyro
-import numpyro.distributions as dist
-from numpyro.infer import MCMC, init_to_uniform
+from numpyro.infer import init_to_uniform
 from numpyro.infer.hmc_util import warmup_adapter
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
@@ -179,15 +178,3 @@ class BarkerMH(numpyro.infer.mcmc.MCMCKernel):
         mean_accept_prob = mean_accept_prob + (accept_prob - mean_accept_prob) / n
 
         return BarkerMHState(itr, x, pe, x_grad, accept_prob, mean_accept_prob, adapt_state, rng_key)
-
-
-def model():
-    numpyro.sample("x", dist.Normal().expand([20]))
-
-
-kernel = BarkerMH(model)
-mcmc = MCMC(kernel, num_warmup=1000, num_samples=10000, progress_bar=True)
-mcmc.run(random.PRNGKey(0))
-samples = mcmc.get_samples()
-mcmc.print_summary()
-print(mcmc.last_state.adapt_state.mass_matrix_sqrt)
