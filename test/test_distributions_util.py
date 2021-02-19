@@ -18,6 +18,7 @@ from numpyro.distributions.util import (
     categorical,
     cholesky_update,
     multinomial,
+    safe_normalize,
     vec_to_tril_matrix,
     von_mises_centered
 )
@@ -156,3 +157,15 @@ def test_von_mises_centered(concentration):
     samples = von_mises_centered(random.PRNGKey(0), concentration, shape=(10000,))
     cdf = scipy.stats.vonmises(kappa=concentration).cdf
     assert scipy.stats.kstest(samples, cdf).pvalue > 0.01
+
+
+@pytest.mark.parametrize("dim", [2, 3, 4, 5])
+def test_safe_normalize(dim):
+    data = random.normal(random.PRNGKey(0), (100, dim))
+    x = safe_normalize(data)
+    assert_allclose((x * x).sum(-1), jnp.ones(x.shape[:-1]), rtol=1e-6)
+    assert_allclose((x * data).sum(-1) ** 2, (data * data).sum(-1), rtol=1e-6)
+
+    data = jnp.zeros((10, dim))
+    x = safe_normalize(data)
+    assert_allclose((x * x).sum(-1), jnp.ones(x.shape[:-1]), rtol=1e-6)

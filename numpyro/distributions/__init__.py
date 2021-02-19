@@ -26,11 +26,12 @@ from numpyro.distributions.continuous import (
     Pareto,
     StudentT,
     TruncatedCauchy,
+    TruncatedDistribution,
     TruncatedNormal,
     TruncatedPolyaGamma,
     Uniform
 )
-from numpyro.distributions.directional import VonMises
+from numpyro.distributions.directional import ProjectedNormal, VonMises
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -117,10 +118,12 @@ __all__ = [
     'OrderedLogistic',
     'Pareto',
     'Poisson',
+    'ProjectedNormal',
     'PRNGIdentity',
     'StudentT',
     'TransformedDistribution',
     'TruncatedCauchy',
+    'TruncatedDistribution',
     'TruncatedNormal',
     'TruncatedPolyaGamma',
     'Uniform',

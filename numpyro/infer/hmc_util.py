@@ -415,7 +415,9 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
-            ss_state = ss_init(jnp.log(10 * step_size))
+            # NB: when step_size is large, say 1e38, jnp.log(10 * step_size) will be inf
+            # and jnp.log(10) + jnp.log(step_size) will be finite
+            ss_state = ss_init(jnp.log(10) + jnp.log(step_size))
 
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
                              ss_state, mm_state, window_idx, rng_key)
@@ -475,6 +477,8 @@ def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
     elif inverse_mass_matrix.ndim == 1:
         v_left = jnp.multiply(inverse_mass_matrix, r_left)
         v_right = jnp.multiply(inverse_mass_matrix, r_right)
+    else:
+        raise ValueError("inverse_mass_matrix should have 1 or 2 dimensions.")
 
     # This implements dynamic termination criterion (ref [2], section A.4.2).
     r_sum = r_sum - (r_left + r_right) / 2
@@ -737,6 +741,8 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
         v = jnp.matmul(inverse_mass_matrix, r)
     elif inverse_mass_matrix.ndim == 1:
         v = jnp.multiply(inverse_mass_matrix, r)
+    else:
+        raise ValueError("inverse_mass_matrix should have 1 or 2 dimensions.")
 
     return 0.5 * jnp.dot(v, r)
 
@@ -748,6 +754,8 @@ def _euclidean_kinetic_energy_grad(inverse_mass_matrix, r):
         v = jnp.matmul(inverse_mass_matrix, r)
     elif inverse_mass_matrix.ndim == 1:
         v = jnp.multiply(inverse_mass_matrix, r)
+    else:
+        raise ValueError("inverse_mass_matrix should have 1 or 2 dimensions.")
 
     return unravel_fn(v)
 

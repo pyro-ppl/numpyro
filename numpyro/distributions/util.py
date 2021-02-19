@@ -479,6 +479,27 @@ def periodic_repeat(x, size, dim):
     return result
 
 
+def safe_normalize(x, *, p=2):
+    """
+    Safely project a vector onto the sphere wrt the ``p``-norm. This avoids the
+    singularity at zero by mapping zero to the uniform unit vector proportional
+    to ``[1, 1, ..., 1]``.
+
+    :param numpy.ndarray x: A vector
+    :param float p: The norm exponent, defaults to 2 i.e. the Euclidean norm.
+    :returns: A normalized version ``x / ||x||_p``.
+    :rtype: numpy.ndarray
+    """
+    assert isinstance(p, (float, int))
+    assert p >= 0
+    norm = jnp.linalg.norm(x, p, axis=-1, keepdims=True)
+    x = x / jnp.clip(norm, a_min=jnp.finfo(x).tiny)
+    # Avoid the singularity.
+    mask = jnp.all(x == 0, axis=-1, keepdims=True)
+    x = jnp.where(mask, x.shape[-1] ** (-1/p), x)
+    return x
+
+
 # src: https://github.com/google/jax/blob/5a41779fbe12ba7213cd3aa1169d3b0ffb02a094/jax/_src/random.py#L95
 def is_prng_key(key):
     try:

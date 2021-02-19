@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to, constraints
-from numpyro.distributions.util import is_identically_one, sum_rightmost
+from numpyro.distributions.util import is_identically_one, safe_normalize, sum_rightmost
 from numpyro.infer.autoguide import AutoContinuous
 
 
@@ -143,6 +143,30 @@ class TransformReparam(Reparam):
 
         # Simulate a pyro.deterministic() site.
         return None, x
+
+
+class ProjectedNormalReparam(Reparam):
+    """
+    Reparametrizer for :class:`~numpyro.distributions.ProjectedNormal` latent
+    variables.
+
+    This reparameterization works only for latent variables, not likelihoods.
+    """
+    def __call__(self, name, fn, obs):
+        assert obs is None, "ProjectedNormalReparam does not support observe statements"
+        fn, batch_shape, event_dim = self._unwrap(fn)
+        assert isinstance(fn, dist.ProjectedNormal)
+
+        # Draw parameter-free noise.
+        new_fn = dist.Normal(jnp.zeros(fn.concentration.shape), 1)
+        x = numpyro.sample("{}_normal".format(name),
+                           self._wrap(new_fn, batch_shape, event_dim))
+
+        # Differentiably transform.
+        value = safe_normalize(x + fn.concentration)
+
+        # Simulate a pyro.deterministic() site.
+        return None, value
 
 
 class NeuTraReparam(Reparam):
