@@ -101,7 +101,9 @@ def test_logistic_regression_x64(kernel_cls):
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert samples['logits'].shape == (num_samples, N)
-    assert_allclose(jnp.mean(samples['coefs'], 0), true_coefs, atol=0.22)
+    # those coefficients are found by doing MAP inference using AutoDelta
+    expected_coefs = jnp.array([0.97, 2.05, 3.18])
+    assert_allclose(jnp.mean(samples['coefs'], 0), expected_coefs, atol=0.1)
 
     if 'JAX_ENABLE_X64' in os.environ:
         assert samples['coefs'].dtype == jnp.float64
