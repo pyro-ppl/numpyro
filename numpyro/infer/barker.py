@@ -146,8 +146,8 @@ class BarkerMH(MCMCKernel):
         self._num_warmup = num_warmup
         # TODO (low-priority): support chain_method="vectorized", i.e. rng_key is a batch of keys
         assert rng_key.shape == (2,), ("BarkerMH only supports chain_method='parallel' or chain_method='sequential'."
-            " Please put in a feature request if you think it would be useful to be able to use BarkerMH "
-            "in vectorized mode.")
+                                       " Please put in a feature request if you think it would be useful to be able "
+                                       "to use BarkerMH in vectorized mode.")
         rng_key, rng_key_init_model, rng_key_wa = random.split(rng_key, 3)
         init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
         if self._potential_fn and init_params is None:
