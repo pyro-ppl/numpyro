@@ -88,7 +88,8 @@ def test_logistic_regression():
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert samples['logits'].shape == (num_samples, N)
-    assert_allclose(jnp.mean(samples['coefs'], 0), true_coefs, atol=0.22)
+    expected_coefs = jnp.array([0.97, 2.05, 3.18])
+    assert_allclose(jnp.mean(samples['coefs'], 0), expected_coefs, atol=0.22)
 
 
 @pytest.mark.filterwarnings("ignore:can't resolve package")

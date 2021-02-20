@@ -124,7 +124,8 @@ def test_logistic_regression(auto_class, Elbo):
             assert_allclose(median['coefs'][1], true_coefs, rtol=0.1)
     # test .sample_posterior method
     posterior_samples = guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(1000,))
-    assert_allclose(jnp.mean(posterior_samples['coefs'], 0), true_coefs, rtol=0.1)
+    expected_coefs = jnp.array([0.97, 2.05, 3.18])
+    assert_allclose(jnp.mean(posterior_samples['coefs'], 0), expected_coefs, rtol=0.1)
 
 
 def test_iaf():
