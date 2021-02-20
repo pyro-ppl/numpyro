@@ -70,7 +70,7 @@ jobs:
         pip freeze
     - name: Test with pytest
       run: |
-        pytest -vs -k "not test_example" --durations=100 --ignore=infer
+        pytest -vs -k "not test_example" --durations=100 --ignore=test/infer/
 
 
   test-inference:
