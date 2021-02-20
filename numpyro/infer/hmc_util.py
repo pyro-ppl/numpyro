@@ -15,6 +15,7 @@ from numpyro.distributions.util import cholesky_of_inverse, get_dtype
 from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
+# XXX: we need to store rng_key here in case we use find_reasonable_step_size functionality
 HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
                                              'ss_state', 'mm_state', 'window_idx', 'rng_key'])
 IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
@@ -431,7 +432,10 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         :return: new state of the adapt scheme.
         """
         step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
-        rng_key, rng_key_ss = random.split(rng_key)
+        if rng_key is not None:
+            rng_key, rng_key_ss = random.split(rng_key)
+        else:
+            rng_key_ss = None
 
         # update step size state
         if adapt_step_size:
