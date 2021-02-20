@@ -19,7 +19,6 @@ from numpyro.infer.mcmc import MCMCKernel
 
 BarkerMHState = namedtuple("BarkerMHState", [
     "i", "z", "potential_energy", "z_grad", "accept_prob", "mean_accept_prob", "adapt_state", "rng_key"])
-
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
 
@@ -99,7 +98,7 @@ class BarkerMH(MCMCKernel):
         >>> kernel = Barker(model)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, progress_bar=True)
         >>> mcmc.run(jax.random.PRNGKey(0))
-        >>> mcmc.print_summary()
+        >>> mcmc.print_summary()  # doctest: +SKIP
     """
     def __init__(self, model=None, potential_fn=None, step_size=1.0,
                  adapt_step_size=True, adapt_mass_matrix=True, dense_mass=False,
@@ -146,7 +145,9 @@ class BarkerMH(MCMCKernel):
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         self._num_warmup = num_warmup
         # TODO (low-priority): support chain_method="vectorized", i.e. rng_key is a batch of keys
-        assert rng_key.shape == (2,), "BarkerMH only supports chain_method='parallel' or chain_method='sequential'"
+        assert rng_key.shape == (2,), ("BarkerMH only supports chain_method='parallel' or chain_method='sequential'."
+            " Please put in a feature request if you think it would be useful to be able to use BarkerMH "
+            "in vectorized mode.")
         rng_key, rng_key_init_model, rng_key_wa = random.split(rng_key, 3)
         init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
         if self._potential_fn and init_params is None:
