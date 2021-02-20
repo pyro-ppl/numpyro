@@ -78,7 +78,12 @@ def test_correlated_mvn():
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA, BarkerMH])
 def test_logistic_regression_x64(kernel_cls):
     N, dim = 3000, 3
-    warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
+    if kernel_cls is SA:
+        warmup_steps, num_samples = (100000, 100000)
+    elif kernel_cls is BarkerMH:
+        warmup_steps, num_samples = (2000, 12000)
+    else:
+        warmup_steps, num_samples = (1000, 8000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1., dim + 1.)
     logits = jnp.sum(true_coefs * data, axis=-1)
