@@ -75,7 +75,7 @@ class BarkerMH(MCMCKernel):
     :param bool adapt_mass_matrix: Whether to adapt the mass matrix during warm-up.
         Defaults to ``adapt_mass_matrix==True``.
     :param bool dense_mass: Whether to use a dense (i.e. full-rank) or diagonal mass matrix.
-        (defaults to ``dense_mass=False``). Currently only ``dense_mass=False`` is supported.
+        (defaults to ``dense_mass=False``).
     :param float target_accept_prob: The target acceptance probability that is used to guide
         step size adapation. Defaults to ``target_accept_prob=0.4``.
     :param callable init_strategy: a per-site initialization function.
