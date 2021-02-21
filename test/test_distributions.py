@@ -1171,7 +1171,7 @@ def test_biject_to(constraint, shape):
 @pytest.mark.parametrize('transform, event_shape', [
     (PermuteTransform(jnp.array([3, 0, 4, 1, 2])), (5,)),
     (PowerTransform(2.), ()),
-    (SoftplusTransform(jnp.array([-3, 0, 1, 4, 30])), (5,)),
+    (SoftplusTransform, (5,)),
     (LowerCholeskyAffine(jnp.array([1., 2.]), jnp.array([[0.6, 0.], [1.5, 0.4]])), (2,))
 ])
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
