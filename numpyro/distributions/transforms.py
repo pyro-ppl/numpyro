@@ -458,7 +458,6 @@ class SoftplusTransform(Transform):
     The inverse is computed as :math:`y = \log(\exp(x) - 1)`.
     """
     def __init__(self):
-        
         self.domain = constraints.real
 
     @property
