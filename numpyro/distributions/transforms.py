@@ -450,7 +450,7 @@ class ExpTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return x
 
-    
+
 class SoftplusTransform(Transform):
     r"""
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
@@ -480,7 +480,7 @@ class SoftplusTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return -softplus(-x)
 
-    
+
 class IdentityTransform(Transform):
 
     def __call__(self, x):
