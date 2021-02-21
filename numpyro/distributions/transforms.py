@@ -457,20 +457,8 @@ class SoftplusTransform(Transform):
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
     The inverse is computed as :math:`y = \log(\exp(x) - 1)`.
     """
-    def __init__(self):
-        self.domain = constraints.real
-
-    @property
-    def codomain(self):
-        if self.domain is constraints.real:
-            return constraints.positive
-        elif isinstance(self.domain, constraints.greater_than):
-            return constraints.greater_than(self.__call__(self.domain.lower_bound))
-        elif isinstance(self.domain, constraints.interval):
-            return constraints.interval(self.__call__(self.domain.lower_bound),
-                                        self.__call__(self.domain.upper_bound))
-        else:
-            raise NotImplementedError
+    domain = constraints.real
+    codomain = constraints.positive
 
     def __call__(self, x):
         return softplus(x)
