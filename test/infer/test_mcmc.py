@@ -219,7 +219,7 @@ def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS, BarkerMH])
 @pytest.mark.parametrize('rho', [-0.7, 0.8])
 def test_dense_mass(kernel_cls, rho):
-    warmup_steps, num_samples = 50000, 10000
+    warmup_steps, num_samples = 20000, 10000
 
     true_cov = jnp.array([[10.0, rho], [rho, 0.1]])
 
@@ -237,11 +237,12 @@ def test_dense_mass(kernel_cls, rho):
     mass_matrix_sqrt = mcmc.last_state.adapt_state.mass_matrix_sqrt
     mass_matrix = jnp.matmul(mass_matrix_sqrt, jnp.transpose(mass_matrix_sqrt))
     estimated_cov = jnp.linalg.inv(mass_matrix)
-    assert_allclose(estimated_cov, true_cov, atol=0.15)
+    assert_allclose(estimated_cov, true_cov, rtol=0.10)
 
     samples = mcmc.get_samples()['x']
-    assert_allclose(jnp.mean(samples, axis=0), jnp.zeros(2), atol=0.15)
-    assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.15)
+    assert_allclose(jnp.mean(samples[:, 0]), jnp.array(0.0), atol=0.50)
+    assert_allclose(jnp.mean(samples[:, 1]), jnp.array(0.0), atol=0.05)
+    assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.20)
     assert_allclose(jnp.var(samples, axis=0), jnp.array([10.0, 0.1]), rtol=0.20)
 
 
