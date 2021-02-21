@@ -240,7 +240,6 @@ def test_dense_mass(kernel_cls, rho):
     mass_matrix_sqrt = mcmc.last_state.adapt_state.mass_matrix_sqrt
     mass_matrix = jnp.matmul(mass_matrix_sqrt, jnp.transpose(mass_matrix_sqrt))
     estimated_cov = jnp.linalg.inv(mass_matrix)
-    estimated_cov *= (10.0 / estimated_cov[0, 0])
     assert_allclose(estimated_cov, true_cov, atol=0.15)
 
     samples = mcmc.get_samples()['x']
