@@ -37,8 +37,7 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     if kernel_cls is SA:
         kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
     elif kernel_cls is BarkerMH:
-        # TODO: fix dense_mass once BarkerMH supports it
-        kernel = SA(potential_fn=potential_fn, dense_mass=False)
+        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
     else:
         kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
@@ -97,8 +96,7 @@ def test_logistic_regression_x64(kernel_cls):
     if kernel_cls is SA:
         kernel = SA(model=model, adapt_state_size=9)
     elif kernel_cls is BarkerMH:
-        # TODO: fix dense_mass once BarkerMH supports it
-        kernel = BarkerMH(model=model, dense_mass=False)
+        kernel = BarkerMH(model=model)
     else:
         kernel = kernel_cls(model=model, trajectory_length=8, find_heuristic_step_size=True)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
@@ -206,8 +204,7 @@ def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
     true_probs = jnp.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
     if kernel_cls is BarkerMH:
-        # TODO: fix dense_mass once BarkerMH supports it
-        kernel = BarkerMH(model=model, dense_mass=False)
+        kernel = BarkerMH(model=model, dense_mass=dense_mass)
     else:
         kernel = kernel_cls(model, trajectory_length=1., dense_mass=dense_mass)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
