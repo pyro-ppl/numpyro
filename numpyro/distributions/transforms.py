@@ -34,6 +34,7 @@ __all__ = [
     'CorrCholeskyTransform',
     'CorrMatrixCholeskyTransform',
     'ExpTransform',
+    'SoftplusTransform',
     'IdentityTransform',
     'InvCholeskyTransform',
     'LowerCholeskyTransform',
@@ -456,8 +457,9 @@ class SoftplusTransform(Transform):
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
     The inverse is computed as :math:`y = \log(\exp(x) - 1)`.
     """
-    def __init__(self, domain=constraints.real):
-        self.domain = domain
+    def __init__(self):
+        
+        self.domain = constraints.real
 
     @property
     def codomain(self):
