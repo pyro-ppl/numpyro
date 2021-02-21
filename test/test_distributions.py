@@ -22,7 +22,13 @@ from numpyro.distributions import constraints, kl_divergence, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
-from numpyro.distributions.transforms import LowerCholeskyAffine, PermuteTransform, SoftplusTransform, PowerTransform, biject_to
+from numpyro.distributions.transforms import (
+    LowerCholeskyAffine, 
+    PermuteTransform, 
+    SoftplusTransform, 
+    PowerTransform, 
+    biject_to
+)
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
