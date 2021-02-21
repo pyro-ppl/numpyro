@@ -236,8 +236,6 @@ def test_dense_mass(kernel_cls, rho):
 
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
-    samples = mcmc.get_samples()
-    mcmc.print_summary()
 
     mass_matrix_sqrt = mcmc.last_state.adapt_state.mass_matrix_sqrt
     mass_matrix = jnp.matmul(mass_matrix_sqrt, jnp.transpose(mass_matrix_sqrt))
