@@ -7,16 +7,18 @@ from jax import grad, jacfwd, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.ops import index_update
+from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
-from numpyro.distributions.util import cholesky_of_inverse, get_dtype
+from numpyro.distributions.util import get_dtype
 from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
 # XXX: we need to store rng_key here in case we use find_reasonable_step_size functionality
 HMCAdaptState = namedtuple('HMCAdaptState', ['step_size', 'inverse_mass_matrix', 'mass_matrix_sqrt',
+                                             'mass_matrix_sqrt_inv',
                                              'ss_state', 'mm_state', 'window_idx', 'rng_key'])
 IntegratorState = namedtuple('IntegratorState', ['z', 'r', 'potential_energy', 'z_grad'])
 IntegratorState.__new__.__defaults__ = (None,) * len(IntegratorState._fields)
@@ -149,7 +151,8 @@ def welford_covariance(diagonal=True):
         """
         :param state: Current state of the scheme.
         :param bool regularize: Whether to adjust diagonal for numerical stability.
-        :return: a pair of estimated covariance and the square root of precision.
+        :return: a triple of estimated covariance, the square root of precision, and
+            the inverse of that square root.
         """
         mean, m2, n = state
         # XXX it is not necessary to check for the case n=1
@@ -163,10 +166,14 @@ def welford_covariance(diagonal=True):
             else:
                 cov = scaled_cov + shrinkage * jnp.identity(mean.shape[0])
         if jnp.ndim(cov) == 2:
-            cov_inv_sqrt = cholesky_of_inverse(cov)
+            # copy the implementation of distributions.util.cholesky_of_inverse here
+            tril_inv = jnp.swapaxes(jnp.linalg.cholesky(cov[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
+            identity = jnp.identity(cov.shape[-1])
+            cov_inv_sqrt = solve_triangular(tril_inv, identity, lower=True)
         else:
-            cov_inv_sqrt = jnp.sqrt(jnp.reciprocal(cov))
-        return cov, cov_inv_sqrt
+            tril_inv = jnp.sqrt(cov)
+            cov_inv_sqrt = jnp.reciprocal(tril_inv)
+        return cov, cov_inv_sqrt, tril_inv
 
     return init_fn, update_fn, final_fn
 
@@ -390,12 +397,16 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                 inverse_mass_matrix = jnp.identity(mass_matrix_size)
             else:
                 inverse_mass_matrix = jnp.ones(mass_matrix_size)
-            mass_matrix_sqrt = inverse_mass_matrix
+            mass_matrix_sqrt = mass_matrix_sqrt_inv = inverse_mass_matrix
         else:
             if dense_mass:
-                mass_matrix_sqrt = cholesky_of_inverse(inverse_mass_matrix)
+                mass_matrix_sqrt_inv = jnp.swapaxes(jnp.linalg.cholesky(
+                    inverse_mass_matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
+                identity = jnp.identity(inverse_mass_matrix.shape[-1])
+                mass_matrix_sqrt = solve_triangular(mass_matrix_sqrt_inv, identity, lower=True)
             else:
-                mass_matrix_sqrt = jnp.sqrt(jnp.reciprocal(inverse_mass_matrix))
+                mass_matrix_sqrt_inv = jnp.sqrt(inverse_mass_matrix)
+                mass_matrix_sqrt = jnp.reciprocal(mass_matrix_sqrt_inv)
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
@@ -404,14 +415,15 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         window_idx = 0
-        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv,
                              ss_state, mm_state, window_idx, rng_key)
 
     def _update_at_window_end(z_info, rng_key_ss, state):
-        step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
+        step_size, inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv, \
+            ss_state, mm_state, window_idx, rng_key = state
 
         if adapt_mass_matrix:
-            inverse_mass_matrix, mass_matrix_sqrt = mm_final(mm_state, regularize=True)
+            inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = mm_final(mm_state, regularize=True)
             mm_state = mm_init(inverse_mass_matrix.shape[-1])
 
         if adapt_step_size:
@@ -420,7 +432,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             # and jnp.log(10) + jnp.log(step_size) will be finite
             ss_state = ss_init(jnp.log(10) + jnp.log(step_size))
 
-        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+        return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv,
                              ss_state, mm_state, window_idx, rng_key)
 
     def update_fn(t, accept_prob, z_info, state):
@@ -431,7 +443,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         :param state: Current state of the adapt scheme.
         :return: new state of the adapt scheme.
         """
-        step_size, inverse_mass_matrix, mass_matrix_sqrt, ss_state, mm_state, window_idx, rng_key = state
+        step_size, inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv, \
+            ss_state, mm_state, window_idx, rng_key = state
         if rng_key is not None:
             rng_key, rng_key_ss = random.split(rng_key)
         else:
@@ -460,7 +473,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
         window_idx = jnp.where(t_at_window_end, window_idx + 1, window_idx)
-        state = HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt,
+        state = HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv,
                               ss_state, mm_state, window_idx, rng_key)
         state = cond(t_at_window_end & is_middle_window,
                      (z_info, rng_key_ss, state), lambda args: _update_at_window_end(*args),
