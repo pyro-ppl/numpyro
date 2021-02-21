@@ -219,6 +219,31 @@ def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
         assert samples['p_latent'].dtype == jnp.float64
 
 
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('rho', [0.9])
+def test_dense_mass(kernel_cls, rho):
+    warmup_steps, num_samples = 30000, 5000
+
+    def model():
+        cov = jnp.array([[1.0, rho], [rho, 1.0]])
+        numpyro.sample("x", dist.MultivariateNormal(jnp.zeros(2), covariance_matrix=cov))
+
+    if kernel_cls is HMC or kernel_cls is NUTS:
+        kernel = kernel_cls(model, trajectory_length=1., dense_mass=True)
+
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc.run(random.PRNGKey(0))
+    samples = mcmc.get_samples()
+    mcmc.print_summary()
+
+    mass_matrix_sqrt = mcmc.last_state.adapt_state.mass_matrix_sqrt
+    mass_matrix = jnp.matmul(mass_matrix_sqrt, jnp.transpose(mass_matrix_sqrt))
+
+    print("mass_matrix\n", mass_matrix)
+    print("step size: ", mcmc.last_state.adapt_state.step_size)
+
+
+
 def test_change_point_x64():
     # Ref: https://forum.pyro.ai/t/i-dont-understand-why-nuts-code-is-not-working-bayesian-hackers-mail/696
     warmup_steps, num_samples = 500, 3000

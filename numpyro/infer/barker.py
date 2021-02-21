@@ -105,8 +105,6 @@ class BarkerMH(MCMCKernel):
                  target_accept_prob=0.4, init_strategy=init_to_uniform):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
-        if dense_mass:
-            raise ValueError('Only dense_mass=False is currently supported')
         self._model = model
         self._potential_fn = potential_fn
         self._step_size = step_size
@@ -179,18 +177,31 @@ class BarkerMH(MCMCKernel):
         shape = jnp.shape(x_flat)
         rng_key, key_normal, key_bernoulli, key_accept = random.split(rng_key, 4)
 
+        step_size = adapt_state.step_size
+        mass_sqrt = step_size * adapt_state.mass_matrix_sqrt
+
         # Generate proposal y.
-        # TODO: Support dense_mass=True
-        z_proposal = adapt_state.step_size * random.normal(key_normal, shape) * adapt_state.mass_matrix_sqrt
+        z = random.normal(key_normal, shape)
+        if self._dense_mass:
+            z_proposal = jnp.matmul(mass_sqrt, z)
+        else:
+            z_proposal = mass_sqrt * z
+
         p = expit(-z_proposal * x_grad_flat)
         b = jnp.where(random.uniform(key_bernoulli, shape) < p, 1., -1.)
-        bz = b * z_proposal
-        y_flat = x_flat + bz
+
+        if self._dense_mass:
+            dx_flat = jnp.matmul(mass_sqrt, b * z)
+        else:
+            dx_flat = mass_sqrt * b * z
+
+        y_flat = x_flat + dx_flat
 
         y = unravel_fn(y_flat)
         y_pe, y_grad = jax.value_and_grad(self._potential_fn)(y)
         y_grad_flat, _ = ravel_pytree(y_grad)
-        log_accept_ratio = x_pe - y_pe + jnp.sum(softplus(bz * x_grad_flat) - softplus(-bz * y_grad_flat))
+
+        log_accept_ratio = x_pe - y_pe + jnp.sum(softplus(dx_flat * x_grad_flat) - softplus(-dx_flat * y_grad_flat))
         accept_prob = jnp.clip(jnp.exp(log_accept_ratio), a_max=1.)
 
         x, x_flat, pe, x_grad = jax.lax.cond(random.bernoulli(key_accept, accept_prob),
