@@ -177,14 +177,13 @@ class BarkerMH(MCMCKernel):
         shape = jnp.shape(x_flat)
         rng_key, key_normal, key_bernoulli, key_accept = random.split(rng_key, 4)
 
-        step_size = adapt_state.step_size
         if self._dense_mass:
-            mass_sqrt = step_size * jnp.transpose(jnp.linalg.inv(adapt_state.mass_matrix_sqrt))
+            mass_sqrt = jnp.transpose(jnp.linalg.inv(adapt_state.mass_matrix_sqrt))
         else:
-            mass_sqrt = step_size / adapt_state.mass_matrix_sqrt
+            mass_sqrt = 1.0 / adapt_state.mass_matrix_sqrt
 
         # Generate proposal y.
-        z = random.normal(key_normal, shape)
+        z = adapt_state.step_size * random.normal(key_normal, shape)
         if self._dense_mass:
             z_proposal = jnp.matmul(mass_sqrt, z)
         else:
