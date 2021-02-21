@@ -193,11 +193,7 @@ class BarkerMH(MCMCKernel):
         p = expit(-z_proposal * x_grad_flat)
         b = jnp.where(random.uniform(key_bernoulli, shape) < p, 1., -1.)
 
-        if self._dense_mass:
-            dx_flat = jnp.matmul(mass_sqrt, b * z)
-        else:
-            dx_flat = mass_sqrt * b * z
-
+        dx_flat = b * z_proposal
         y_flat = x_flat + dx_flat
 
         y = unravel_fn(y_flat)
