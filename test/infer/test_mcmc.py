@@ -240,8 +240,8 @@ def test_dense_mass(kernel_cls, rho):
     assert_allclose(estimated_cov, true_cov, atol=0.15)
 
     samples = mcmc.get_samples()['x']
-    assert_allclose(jnp.mean(samples, axis=0), jnp.zeros(2), atol=0.1)
-    assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.1)
+    assert_allclose(jnp.mean(samples, axis=0), jnp.zeros(2), atol=0.15)
+    assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.15)
     assert_allclose(jnp.var(samples, axis=0), jnp.array([10.0, 0.1]), rtol=0.20)
 
 
