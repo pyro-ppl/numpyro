@@ -69,7 +69,7 @@ def test_welford_covariance(jitted, diagonal, regularize):
             wc_init, wc_update, wc_final = welford_covariance(diagonal=diagonal)
             wc_state = wc_init(3)
             wc_state = fori_loop(0, 2000, lambda i, val: wc_update(x[i], val), wc_state)
-            cov, cov_inv_sqrt = wc_final(wc_state, regularize=regularize)
+            cov, cov_inv_sqrt, _ = wc_final(wc_state, regularize=regularize)
             return cov, cov_inv_sqrt
 
         cov, cov_inv_sqrt = get_cov(x)
@@ -279,7 +279,7 @@ def test_warmup_adapter(jitted):
     rng_key = random.PRNGKey(0)
     z = jnp.ones(3)
     wa_state = wa_init((z, None, None, None), rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
-    step_size, inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
+    step_size, inverse_mass_matrix, _, _, _, _, window_idx, _ = wa_state
     assert step_size == find_reasonable_step_size(init_step_size, inverse_mass_matrix, z, rng_key)
     assert_allclose(inverse_mass_matrix, jnp.ones(mass_matrix_size))
     assert window_idx == 0
@@ -288,7 +288,7 @@ def test_warmup_adapter(jitted):
     for t in range(window.start, window.end + 1):
         wa_state = wa_update(t, 0.7 + 0.1 * t / (window.end - window.start), z, wa_state)
     last_step_size = step_size
-    step_size, inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
+    step_size, inverse_mass_matrix, _, _, _, _, window_idx, _ = wa_state
     assert window_idx == 1
     # step_size is decreased because accept_prob < target_accept_prob
     assert step_size < last_step_size
@@ -300,7 +300,7 @@ def test_warmup_adapter(jitted):
     for t in range(window.start, window.end + 1):
         wa_state = wa_update(t, 0.8 + 0.1 * (t - window.start) / window_len, 2 * z, wa_state)
     last_step_size = step_size
-    step_size, inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
+    step_size, inverse_mass_matrix, _, _, _, _, window_idx, _ = wa_state
     assert window_idx == 2
     # step_size is increased because accept_prob > target_accept_prob
     assert step_size > last_step_size
@@ -318,7 +318,7 @@ def test_warmup_adapter(jitted):
     for t in range(window.start, window.end + 1):
         wa_state = wa_update(t, 0.8, t * z, wa_state)
     last_step_size = step_size
-    step_size, final_inverse_mass_matrix, _, _, _, window_idx, _ = wa_state
+    step_size, final_inverse_mass_matrix, _, _, _, _, window_idx, _ = wa_state
     assert window_idx == 3
     # during the last window, because target_accept_prob=0.8,
     # log_step_size will be equal to the constant prox_center=log(10*last_step_size)

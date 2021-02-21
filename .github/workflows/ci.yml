@@ -134,7 +134,4 @@ jobs:
         pip freeze
     - name: Test with pytest
       run: |
-        pytest -vs -k test_example
-    - name: Test chains
-      run: |
         XLA_FLAGS="--xla_force_host_platform_device_count=2" pytest -vs -k test_example

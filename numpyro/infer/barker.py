@@ -179,9 +179,7 @@ class BarkerMH(MCMCKernel):
         shape = jnp.shape(x_flat)
         rng_key, key_normal, key_bernoulli, key_accept = random.split(rng_key, 4)
 
-        mass_sqrt = adapt_state.mass_matrix_sqrt
-        inverse_mass = adapt_state.inverse_mass_matrix
-        mass_sqrt_inv = mass_sqrt.T @ inverse_mass if self._dense_mass else 1.0 / mass_sqrt
+        mass_sqrt_inv = adapt_state.mass_matrix_sqrt_inv
 
         x_grad_flat_scaled = mass_sqrt_inv @ x_grad_flat if self._dense_mass else mass_sqrt_inv * x_grad_flat
 
