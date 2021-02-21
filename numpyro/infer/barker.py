@@ -177,29 +177,30 @@ class BarkerMH(MCMCKernel):
         shape = jnp.shape(x_flat)
         rng_key, key_normal, key_bernoulli, key_accept = random.split(rng_key, 4)
 
-        if self._dense_mass:
-            mass_sqrt = jnp.transpose(jnp.linalg.inv(adapt_state.mass_matrix_sqrt))
-        else:
-            mass_sqrt = 1.0 / adapt_state.mass_matrix_sqrt
+        mass_sqrt = adapt_state.mass_matrix_sqrt
+        inverse_mass = adapt_state.inverse_mass_matrix
+        mass_sqrt_inv = mass_sqrt.T @ inverse_mass if self._dense_mass else 1.0 / mass_sqrt
+
+        x_grad_flat_scaled = mass_sqrt_inv @ x_grad_flat if self._dense_mass else mass_sqrt_inv * x_grad_flat
 
         # Generate proposal y.
         z = adapt_state.step_size * random.normal(key_normal, shape)
-        if self._dense_mass:
-            z_proposal = jnp.matmul(mass_sqrt, z)
-        else:
-            z_proposal = mass_sqrt * z
 
-        p = expit(-z_proposal * x_grad_flat)
+        p = expit(-z * x_grad_flat_scaled)
         b = jnp.where(random.uniform(key_bernoulli, shape) < p, 1., -1.)
 
-        dx_flat = b * z_proposal
-        y_flat = x_flat + dx_flat
+        dx_flat = b * z
+        dx_flat_scaled = mass_sqrt_inv.T @ dx_flat if self._dense_mass else mass_sqrt_inv * dx_flat
+
+        y_flat = x_flat + dx_flat_scaled
 
         y = unravel_fn(y_flat)
         y_pe, y_grad = jax.value_and_grad(self._potential_fn)(y)
         y_grad_flat, _ = ravel_pytree(y_grad)
+        y_grad_flat_scaled = mass_sqrt_inv @ y_grad_flat if self._dense_mass else mass_sqrt_inv * y_grad_flat
 
-        log_accept_ratio = x_pe - y_pe + jnp.sum(softplus(dx_flat * x_grad_flat) - softplus(-dx_flat * y_grad_flat))
+        log_accept_ratio = x_pe - y_pe + jnp.sum(softplus(dx_flat * x_grad_flat_scaled) -
+                                                 softplus(-dx_flat * y_grad_flat_scaled))
         accept_prob = jnp.clip(jnp.exp(log_accept_ratio), a_max=1.)
 
         x, x_flat, pe, x_grad = jax.lax.cond(random.bernoulli(key_accept, accept_prob),
