@@ -245,6 +245,14 @@ TruncatedCauchy
     :show-inheritance:
     :member-order: bysource
 
+TruncatedDistribution
+---------------------
+.. autoclass:: numpyro.distributions.continuous.TruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 TruncatedNormal
 ---------------
 .. autoclass:: numpyro.distributions.continuous.TruncatedNormal
@@ -433,6 +441,14 @@ ZeroInflatedPoisson
 Directional Distributions
 =========================
 
+ProjectedNormal
+---------------
+.. autoclass:: numpyro.distributions.directional.ProjectedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 VonMises
 --------
 .. autoclass:: numpyro.distributions.directional.VonMises
@@ -541,6 +557,10 @@ real_vector
 simplex
 -------
 .. autodata:: numpyro.distributions.constraints.simplex
+
+sphere
+------
+.. autodata:: numpyro.distributions.constraints.sphere
 
 unit_interval
 -------------

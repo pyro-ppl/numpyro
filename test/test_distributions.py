@@ -66,6 +66,27 @@ def _lowrank_mvn_to_scipy(loc, cov_fac, cov_diag):
     return osp.multivariate_normal(mean=mean, cov=cov)
 
 
+def _truncnorm_to_scipy(loc, scale, low, high):
+    if low is None:
+        a = -np.inf
+    else:
+        a = (low - loc) / scale
+    if high is None:
+        b = np.inf
+    else:
+        b = (high - loc) / scale
+    return osp.truncnorm(a, b, loc=loc, scale=scale)
+
+
+def _TruncatedNormal(loc, scale, low, high):
+    return dist.TruncatedDistribution(dist.Normal(loc, scale), low, high)
+
+
+_TruncatedNormal.arg_constraints = {}
+_TruncatedNormal.reparametrized_params = []
+_TruncatedNormal.infer_shapes = lambda *args: (lax.broadcast_shapes(*args), ())
+
+
 class _ImproperWrapper(dist.ImproperUniform):
     def sample(self, key, sample_shape=()):
         transform = biject_to(self.support)
@@ -109,7 +130,8 @@ _DIST_MAP = {
     dist.Uniform: lambda a, b: osp.uniform(a, b - a),
     dist.Logistic: lambda loc, scale: osp.logistic(loc=loc, scale=scale),
     dist.VonMises: lambda loc, conc: osp.vonmises(loc=np.array(loc, dtype=np.float64),
-                                                  kappa=np.array(conc, dtype=np.float64))
+                                                  kappa=np.array(conc, dtype=np.float64)),
+    _TruncatedNormal: _truncnorm_to_scipy,
 }
 
 CONTINUOUS = [
@@ -184,6 +206,12 @@ CONTINUOUS = [
     T(dist.TruncatedNormal, -1., 0., 1.),
     T(dist.TruncatedNormal, 1., -1., jnp.array([1., 2.])),
     T(dist.TruncatedNormal, jnp.array([-2., 2.]), jnp.array([0., 1.]), jnp.array([[1.], [2.]])),
+    T(_TruncatedNormal, -1., 2., 1., 5.),
+    T(_TruncatedNormal, jnp.array([-1., 4.]), 2., None, 5.),
+    T(_TruncatedNormal, -1., jnp.array([2., 3.]), 1., None),
+    T(_TruncatedNormal, -1., 2., jnp.array([-6., 4.]), jnp.array([-4., 6.])),
+    T(_TruncatedNormal, jnp.array([0., 1.]), jnp.array([[1.], [2.]]), None, jnp.array([-2., 2.])),
+    T(dist.continuous.TwoSidedTruncatedDistribution, dist.Laplace(0., 1.), -2., 3.),
     T(dist.Uniform, 0., 2.),
     T(dist.Uniform, 1., jnp.array([2., 3.])),
     T(dist.Uniform, jnp.array([0., 0.]), jnp.array([[2.], [3.]])),
@@ -193,6 +221,10 @@ DIRECTIONAL = [
     T(dist.VonMises, 2., 10.),
     T(dist.VonMises, 2., jnp.array([150., 10.])),
     T(dist.VonMises, jnp.array([1 / 3 * jnp.pi, -1.]), jnp.array([20., 30.])),
+    T(dist.ProjectedNormal, jnp.array([0., 0.])),
+    T(dist.ProjectedNormal, jnp.array([[2., 3.]])),
+    T(dist.ProjectedNormal, jnp.array([0., 0., 0.])),
+    T(dist.ProjectedNormal, jnp.array([[-1., 2., 3.]])),
 ]
 
 DISCRETE = [
@@ -277,6 +309,9 @@ def gen_values_within_bounds(constraint, size, key=random.PRNGKey(11)):
         return x - random.normal(key, size[:-1])
     elif isinstance(constraint, constraints.independent):
         return gen_values_within_bounds(constraint.base_constraint, size, key)
+    elif constraint is constraints.sphere:
+        x = random.normal(key, size)
+        return x / jnp.linalg.norm(x, axis=-1)
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -318,6 +353,10 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
         return x[..., ::-1]
     elif isinstance(constraint, constraints.independent):
         return gen_values_outside_bounds(constraint.base_constraint, size, key)
+    elif constraint is constraints.sphere:
+        x = random.normal(key, size)
+        x = x / jnp.linalg.norm(x, axis=-1, keepdims=True)
+        return 2 * x
     else:
         raise NotImplementedError('{} not implemented.'.format(constraint))
 
@@ -352,6 +391,7 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DISCRETE + DIRECTIONAL)
 def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
     shapes = tuple(getattr(p, "shape", ()) for p in params)
+    shapes = tuple(x() if callable(x) else x for x in shapes)
     try:
         expected_batch_shape, expected_event_shape = jax_dist.infer_shapes(*shapes)
     except NotImplementedError:
@@ -526,6 +566,40 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
 
 
 @pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS)
+def test_cdf_and_icdf(jax_dist, sp_dist, params):
+    d = jax_dist(*params)
+    if d.event_dim > 0:
+        pytest.skip('skip testing cdf/icdf methods of multivariate distributions')
+    samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
+    quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
+    try:
+        if d.shape() == ():
+            rtol = 1e-3 if jax_dist is dist.StudentT else 1e-5
+            assert_allclose(jax.vmap(jax.grad(d.cdf))(samples),
+                            jnp.exp(d.log_prob(samples)), atol=1e-5, rtol=rtol)
+            assert_allclose(jax.vmap(jax.grad(d.icdf))(quantiles),
+                            jnp.exp(-d.log_prob(d.icdf(quantiles))), atol=1e-5, rtol=rtol)
+        assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
+        assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=1e-5)
+    except NotImplementedError:
+        pass
+
+    # test against scipy
+    if not sp_dist:
+        pytest.skip('no corresponding scipy distn.')
+    sp_dist = sp_dist(*params)
+    try:
+        actual_cdf = d.cdf(samples)
+        expected_cdf = sp_dist.cdf(samples)
+        assert_allclose(actual_cdf, expected_cdf, atol=1e-5, rtol=1e-5)
+        actual_icdf = d.icdf(quantiles)
+        expected_icdf = sp_dist.ppf(quantiles)
+        assert_allclose(actual_icdf, expected_icdf, atol=1e-5, rtol=1e-4)
+    except NotImplementedError:
+        pass
+
+
+@pytest.mark.parametrize('jax_dist, sp_dist, params', CONTINUOUS + DIRECTIONAL)
 def test_gof(jax_dist, sp_dist, params):
     if "Improper" in jax_dist.__name__:
         pytest.skip("distribution has improper .log_prob()")
@@ -538,6 +612,10 @@ def test_gof(jax_dist, sp_dist, params):
     samples = d.sample(key=rng_key, sample_shape=(num_samples,))
     probs = np.exp(d.log_prob(samples))
 
+    dim = None
+    if jax_dist is dist.ProjectedNormal:
+        dim = samples.shape[-1] - 1
+
     # Test each batch independently.
     probs = probs.reshape(num_samples, -1)
     samples = samples.reshape(probs.shape + d.event_shape)
@@ -546,7 +624,7 @@ def test_gof(jax_dist, sp_dist, params):
         samples = samples[..., :-1]
     for b in range(probs.shape[-1]):
         try:
-            gof = auto_goodness_of_fit(samples[:, b], probs[:, b])
+            gof = auto_goodness_of_fit(samples[:, b], probs[:, b], dim=dim)
         except InvalidTest:
             pytest.skip("expensive test")
         else:
@@ -719,6 +797,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 
     eps = 1e-3
     for i in range(len(params)):
+        if isinstance(params[i], dist.Distribution):  # skip taking grad w.r.t. base_dist
+            continue
         if params[i] is None or jnp.result_type(params[i]) in (jnp.int32, jnp.int64):
             continue
         actual_grad = jax.grad(fn, i)(*params)
@@ -740,6 +820,10 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("Improper distribution does not has mean/var implemented")
+    if jax_dist in (_TruncatedNormal, dist.continuous.TwoSidedTruncatedDistribution):
+        pytest.skip("Truncated distributions do not has mean/var implemented")
+    if jax_dist is dist.ProjectedNormal:
+        pytest.skip("Mean is defined in submanifold")
 
     n = 20000 if jax_dist in [dist.LKJ, dist.LKJCholesky] else 200000
     d_jax = jax_dist(*params)
@@ -814,6 +898,8 @@ def test_mean_var(jax_dist, sp_dist, params):
     (2, 3),
 ])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
+    if jax_dist is _TruncatedNormal:
+        pytest.skip("_TruncatedNormal is a function, not a class")
     dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
 
     valid_params, oob_params = list(params), list(params)
@@ -821,6 +907,8 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     dependent_constraint = False
     for i in range(len(params)):
         if jax_dist in (_ImproperWrapper, dist.LKJ, dist.LKJCholesky) and dist_args[i] != "concentration":
+            continue
+        if jax_dist is dist.continuous.TwoSidedTruncatedDistribution and dist_args[i] == "base_dist":
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":
             continue
@@ -964,6 +1052,8 @@ def test_categorical_log_prob_grad():
     (constraints.unit_interval, 0.1, True),
     (constraints.unit_interval, jnp.array([-5, 0, 0.5, 1, 7]),
      jnp.array([False, True, True, True, False])),
+    (constraints.sphere, jnp.array([[1, 0, 0], [0.5, 0.5, 0]]),
+     jnp.array([True, False])),
 ])
 def test_constraints(constraint, x, expected):
     assert_array_equal(constraint(x), expected)
