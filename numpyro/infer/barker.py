@@ -92,10 +92,10 @@ class BarkerMH(MCMCKernel):
         >>> from numpyro.infer import MCMC, BarkerMH
 
         >>> def model():
-        ...     numpyro.sample("x", dist.Normal().expand([10]))
+        ...     x = numpyro.sample("x", dist.Normal().expand([10]))
         ...     numpyro.sample("obs", dist.Normal(x, 1.0), obs=jnp.ones(10))
         >>>
-        >>> kernel = Barker(model)
+        >>> kernel = BarkerMH(model)
         >>> mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000, progress_bar=True)
         >>> mcmc.run(jax.random.PRNGKey(0))
         >>> mcmc.print_summary()  # doctest: +SKIP
