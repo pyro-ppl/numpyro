@@ -473,8 +473,8 @@ class SoftplusTransform(Transform):
     def __call__(self, x):
         return softplus(x)
 
-    def inv(self, x):
-        return jnp.log(jnp.expm1(x))
+    def _inverse(self, x):
+        return jnp.log(-jnp.expm1(-y)) + y
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return -softplus(-x)
