@@ -639,7 +639,7 @@ ExpTransform
     :member-order: bysource
     
 SoftplusTransform
-------------
+-----------------
 .. autoclass:: numpyro.distributions.transforms.SoftplusTransform
     :members:
     :undoc-members:
