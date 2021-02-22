@@ -34,6 +34,7 @@ __all__ = [
     'CorrCholeskyTransform',
     'CorrMatrixCholeskyTransform',
     'ExpTransform',
+    'SoftplusTransform',
     'IdentityTransform',
     'InvCholeskyTransform',
     'LowerCholeskyTransform',
@@ -449,6 +450,24 @@ class ExpTransform(Transform):
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         return x
+
+
+class SoftplusTransform(Transform):
+    r"""
+    Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
+    The inverse is computed as :math:`y = \log(\exp(x) - 1)`.
+    """
+    domain = constraints.real
+    codomain = constraints.positive
+
+    def __call__(self, x):
+        return softplus(x)
+
+    def _inverse(self, x):
+        return jnp.log(-jnp.expm1(-x)) + x
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return -softplus(-x)
 
 
 class IdentityTransform(Transform):
