@@ -94,6 +94,28 @@ def country_EcasesByAge(
     return E_casesByAge
 
 
+# evaluate the line 232
+# return C where C[t] = b[-t-1]...b[-1] * A[:t+1]
+def circular_vecmat(b, A):
+    # To construct the matrix
+    #   b2  0  0
+    #   b1 b2  0
+    #   b0 b1 b2
+    # first, we will flip + broadcasting + padding,
+    #   b2 b1 b0  0  0
+    #   b2 b1 b0  0  0
+    #   b2 b1 b0  0  0
+    # reshape(-1) + truncate + reshape,
+    #   b2 b1 b0  |  0
+    #    0 b2 b1  | b0
+    #    0  0 b2  | b1
+    # then we truncate and transpose the result.
+    n = b.shape[0]
+    B = jnp.pad(jnp.broadcast_to(b, (n, n)), (0, n - 1))
+    B = B.reshape(-1)[:n * (2 * n - 2)].reshape((n, -1))[:, :n].T
+    return B @ A
+
+
 def country_EdeathsByAge(
     # parameters
     E_casesByAge_local: jnp.float,  # N2 x A
@@ -107,11 +129,17 @@ def country_EdeathsByAge(
     log_ifr_age_rnde_old_local: float,
 ) -> jnp.float:  # N2 x A
 
-    E_deathsByAge = jnp.zeros((N2, A))
-
     # calculate expected deaths by age and country
-    # NB: seems like we can mask tril and using matmul
+    E_deathsByAge = circular_vecmat(rev_ifr_daysSinceInfection[1:], E_casesByAge_local[:-1])
+    E_deathsByAge = jnp.concatenate([1e-15 * E_casesByAge_local[:1], E_deathsByAge])
+
     # Based on the code, A = 18: 4 for children, 6 for middle age 1, 4 for middle 2, 4 for old?
+    assert A == 18
+    E_deathsByAge *= jnp.exp(log_ifr_age_base + jnp.concatenate([
+        jnp.zeros(4),
+        jnp.full((6,), log_ifr_age_rnde_mid1_local),
+        jnp.full((4,), log_ifr_age_rnde_mid2_local),
+        jnp.full((4,), log_ifr_age_rnde_old_local)]))
 
     E_deathsByAge += 1e-15
     return E_deathsByAge
