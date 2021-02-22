@@ -13,7 +13,7 @@ def r_in(pos: int, pos_var: list(int)) -> bool:
 def country_impact(
     beta: jnp.float,  # 2
     dip_rdeff_local: float,
-    upswing_timeeff_reduced_local: jnp.float,  # None
+    upswing_timeeff_reduced_local: jnp.float,  # 1D
     N2: int,  # num of days
     A: int,  # num of ages
     A_CHILD: int,  # num of children ages
@@ -62,7 +62,7 @@ def country_EcasesByAge(
     SI_CUT: int,
     # TODO: convert this to a boolean vector of length N2 - N0:
     #   [t in wken_idx_local for t in [N0, N2)]
-    wkend_idx_local: jnp.int,  # None
+    wkend_idx_local: jnp.int,  # 1D
     avg_cntct_local: float,
     cntct_weekends_mean_local: jnp.float,  # A x A
     cntct_weekdays_mean_local: jnp.float,  # A x A
