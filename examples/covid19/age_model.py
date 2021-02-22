@@ -1,3 +1,5 @@
+# Ported from https://github.com/ImperialCollegeLondon/covid19model/blob/master/covid19AgeModel/inst/stan-models/covid19AgeModel_v120_cmdstanv.stan
+
 import jax.numpy as jnp
 import jax.ops as ops
 
