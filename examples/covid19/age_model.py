@@ -1,7 +1,12 @@
-# Ported from https://github.com/ImperialCollegeLondon/covid19model/blob/master/covid19AgeModel/inst/stan-models/covid19AgeModel_v120_cmdstanv.stan
+# Ported from https://github.com/ImperialCollegeLondon/covid19model/blob/master/
+# covid19AgeModel/inst/stan-models/covid19AgeModel_v120_cmdstanv.stan
 
 import jax.numpy as jnp
 import jax.ops as ops
+
+import numpyro
+import numpyro.distributions as dist
+from numpyro.distributions.transforms import AffineTransform
 
 
 # checks if pos is in pos_var
@@ -208,7 +213,8 @@ def countries_log_dens(
     lpmf = 0.
     M_slice = end - start + 1
 
-    for m_slice in range(M_slice):  # vmap
+    # TODO: finish the implementation and vmap
+    for m_slice in range(M_slice):
         m = m_slice + start
         impact_intv = country_impact(
             beta,
@@ -268,6 +274,7 @@ def countries_log_dens(
         E_deaths = E_deathsByAge * ones_vector_A
 
         # likelihood death data this location
+        # NB: NegBinomial2(mu, phi) <-> GammaPoisson(phi, phi / mu)
         lpmf += 0.
 
         # likelihood case data this location
@@ -279,12 +286,205 @@ def countries_log_dens(
     return lpmf
 
 
+data_def = {
+    "M": int,  # number of countries
+    "N0": int,  # number of initial days for which to estimate infections
+    "N": jnp.int,  # M - days of observed data for country m. each entry must be <= N2
+    "N2": int,  # days of observed data + # of days to forecast
+    "A": int,  # number of age bands
+    "SI_CUT": int,  # number of days in serial interval to consider
+    "COVARIATES_N": int,  # number of days in serial interval to consider
+    "N_init_A": int,  # number of age bands with initial cases
+    "WKEND_IDX_N": jnp.int,  # M - number of weekend indices in each location
+    "N_IMP": int,  # number of impact invervention time effects. <= M
+    # data
+    "pop": jnp.float,  # M
+    "popByAge": jnp.float,  # A x M - proportion of age bracket in population in location
+    "epidemicStart": jnp.int,  # M
+    "deaths": jnp.int,  # N2 x M - reported deaths -- the rows with i >= N contain -1 and should be ignored
+    # time index after which schools reopen for country m IF school status is set to 0. each entry must be <= N2
+    "elementary_school_reopening_idx": jnp.int,  # M
+    "wkend_idx": jnp.int,  # N2 x M - indices of 0:N2 that correspond to weekends in location m
+    "upswing_timeeff_map": jnp.int,  # N2 x M - map of impact intv time effects to time units in model for each state
+    # mobility trends
+    "covariates": jnp.float,  # M x COVARIATES_N x N2 x A - predictors for fsq contacts by age
+    # death data by age
+    "M_AD": int,  # number of countries with deaths by age data
+    "dataByAgestart": jnp.int,  # M_AD - start of death by age data
+    # the rows with i < dataByAgestart[M_AD] contain -1 and should be ignored
+    # + the column with j > A2[M_AD] contain -1 and should be ignored
+    "deathsByAge": jnp.int,  # N2 x A x M_AD - reported deaths by age
+    "A_AD": jnp.int,  # M_AD - number of age groups reported >= 1
+    # the column with j > A2[M_AD] contain -1 and should be ignored
+    "map_age": jnp.float,  # M_AD x A x A - map the age groups reported with 5 y age group
+    # first column indicates if country has death by age date (1 if yes), 2 column map the country to M_AD
+    "map_country":  jnp.float,  # M x 2
+    # case data by age
+    "smoothed_logcases_weeks_n_max": int,
+    "smoothed_logcases_weeks_n": jnp.int,  # M - number of week indices per location
+    # map of week indices to time indices
+    "smoothed_logcases_week_map": jnp.int,  # M x smoothed_logcases_weeks_n_max x 7
+    # likelihood parameters for observed cases
+    "smoothed_logcases_week_pars": jnp.float,  # M x smoothed_logcases_weeks_n_max x 3
+    # school case data
+    "school_case_time_idx": jnp.int,  # M x 2
+    "school_case_data": jnp.float,  # M x 4
+    # school closure status
+    "SCHOOL_STATUS": jnp.float,  # N2 x M - school status, 1 if close, 0 if open
+    # contact matrices
+    "A_CHILD": int,  # number of age band for child
+    "AGE_CHILD": int,  # A_CHILD - age bands with child
+    # min cntct_weekdays_mean and contact intensities during outbreak estimated in Zhang et al
+    "cntct_school_closure_weekdays": jnp.float,  # M x A x A
+    # min cntct_weekends_mean and contact intensities during outbreak estimated in Zhang et al
+    "cntct_school_closure_weekends": jnp.float,  # M x A x A
+    "cntct_elementary_school_reopening_weekdays": jnp.float,  # M x A x A - contact matrix for school reopening
+    "cntct_elementary_school_reopening_weekends": jnp.float,  # M x A x A - contact matrix for school reopening
+    # priors
+    "cntct_weekdays_mean": jnp.float,  # M x A x A - mean of prior contact rates between age groups on weekdays
+    "cntct_weekends_mean": jnp.float,  # M x A x A - mean of prior contact rates between age groups on weekends
+    "hyperpara_ifr_age_lnmu": jnp.float,  # A - hyper-parameters for probability of death in age band a log normal mean
+    "hyperpara_ifr_age_lnsd": jnp.float,  # A - hyper-parameters for probability of death in age band a log normal sd
+    "rev_ifr_daysSinceInfection": jnp.float,  # N2 - probability of death s days after infection in reverse order
+    # fixed pre-calculated serial interval using empirical data from Neil in reverse order
+    "rev_serial_interval": jnp.float,  # SI_CUT
+    "init_A": jnp.int,  # N_init_A - age band in which initial cases occur in the first N0 days
+}
+
+
 # transform data before feeding into the model/mcmc
-def transformed_data(data):  # lines 438 -> 503
+def transform_data(data):  # lines 438 -> 503
     # given a dictionary of data, return a dictionary of data + transformed data
-    pass
+    # TODO: shift index arrays by 1
+    cntct_weekdays_mean = data["cntct_weekdays_mean"].sum(-1)
+    cntct_weekends_mean = data["cntct_weekends_mean"].sum(-1)
+    popByAge_trans = data["popByAge"].T
+    avg_cntct = (popByAge_trans * cntct_weekdays_mean).sum(-1) * (5. / 7.)  # M
+    data["avg_cntct"] = avg_cntct + (popByAge_trans * cntct_weekends_mean).sum(-1) * (2. / 7.)
+    # reported deaths -- the rows with i > N contain -1 and should be ignored
+    data["trans_deaths"] = data["deaths"].T  # M x N2
+    data["popByAge_abs"] = data["popByAge"].T * data["pop"][:, None]  # M x A
 
 
 def model(data):  # lines 523 -> end
-    # TODO: add a bunch of priors
-    pass
+    # priors
+    sd_dip_rnde = numpyro.sample("sd_dip_rnde", dist.Exponential(1.5))
+    phi = numpyro.sample("phi", dist.Normal(0, 5))  # overdispersion parameter for likelihood model
+    hyper_log_ifr_age_rnde_mid1 = numpyro.sample("hyper_log_ifr_age_rnde_mid1", dist.Exponential(.1))
+    hyper_log_ifr_age_rnde_mid2 = numpyro.sample("hyper_log_ifr_age_rnde_mid2", dist.Exponential(.1))
+    hyper_log_ifr_age_rnde_old = numpyro.sample("hyper_log_ifr_age_rnde_old", dist.Exponential(.1))
+    log_relsusceptibility_age_reduced = numpyro.sample(
+        "log_relsusceptibility_age_reduced",
+        dist.Normal(jnp.array([-1.0702331, 0.3828269]), jnp.array([0.2169696, 0.1638433])))
+    sd_upswing_timeeff_reduced = numpyro.sample("sd_upswing_timeeff_reduced", dist.LogNormal(-1.2, 0.2))
+    hyper_timeeff_shift_mid1 = numpyro.sample("hyper_timeeff_shift_mid1", dist.Exponential(.1))
+    impact_intv_children_effect = numpyro.sample("impact_intv_children_effect", dist.Uniform(0.1, 1.0))
+    impact_intv_onlychildren_effect = numpyro.sample(
+        "impact_intv_onlychildren_effect", dist.LogNormal(0, 0.35))
+
+    with numpyro.plate("M", data["M"]):
+        R0 = numpyro.sample("R0", dist.LogNormal(0.98, 0.2))
+        # expected number of cases per day in the first N0 days, for each country
+        e_cases_N0 = numpyro.sample("e_cases_N0", dist.LogNormal(4.85, 0.4))
+        with numpyro.handlers.reparam(config=numpyro.infer.reparam.TransformReparam()):
+            dip_rnde = numpyro.sample("dip_rnde", dist.TransformedDistribution(
+                dist.Normal(0., 1.), AffineTransform(0., sd_dip_rnde)))
+            log_ifr_age_rnde_mid1 = numpyro.sample(
+                "log_ifr_age_rnde_mid1", dist.TransformedDistribution(
+                    dist.Exponential(1.), AffineTransform(0., 1 / hyper_log_ifr_age_rnde_mid1)))
+            log_ifr_age_rnde_mid2 = numpyro.sample(
+                "log_ifr_age_rnde_mid2", dist.TransformedDistribution(
+                    dist.Exponential(1.), AffineTransform(0., 1 / hyper_log_ifr_age_rnde_mid2)))
+            log_ifr_age_rnde_old = numpyro.sample(
+                "log_ifr_age_rnde_old", dist.TransformedDistribution(
+                    dist.Exponential(1.), AffineTransform(0., 1 / hyper_log_ifr_age_rnde_old)))
+            sd_upswing_timeeff_reduced = jnp.concatenate(
+                [jnp.array([0.025]), jnp.repeat(sd_upswing_timeeff_reduced, data["N_IMP"] - 1)])
+            upswing_timeeff_reduced = numpyro.sample(
+                "upswing_timeeff_reduced_base", dist.TransformedDistribution(
+                    dist.GaussianRandomWalk(1., data["N_IMP"]),
+                    AffineTransform(0., sd_upswing_timeeff_reduced)))
+            upswing_timeeff_reduced = upswing_timeeff_reduced.T  # M x N_IMP
+            timeeff_shift_mid1 = numpyro.sample(
+                "timeeff_shift_mid1", dist.TransformedDistribution(
+                    dist.Exponential(1.), AffineTransform(0., hyper_timeeff_shift_mid1)))
+
+    with numpyro.plate("COVARIATES_Nm1", data["COVARIATES_N"] - 1):
+        # regression coefficients for time varying multipliers on contacts
+        beta = numpyro.sample("beta", dist.Normal(0., 1.))
+
+    with numpyro.plate("A", data["A"]):
+        # probability of death for age band a
+        log_ifr_age_base = numpyro.sample(
+            "log_ifr_age_base", dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"]))
+
+    # transformed parameters
+    log_relsusceptibility_age = jnp.concatenate(
+        [
+            jnp.repeat(log_relsusceptibility_age_reduced[0], 3),
+            jnp.zeros(10),
+            jnp.repeat(log_relsusceptibility_age_reduced[1], 5)
+        ],
+        axis=-1)  # A
+
+    timeeff_shift_age = jnp.concatenate(
+        [jnp.zeros(4), jnp.broadcast_to(timeeff_shift_mid1[:, None], (data["M"], 6)), jnp.zeros(8)],
+        axis=-1)  # M x A
+
+    countries_log_factor = countries_log_dens(
+        data["trans_deaths"],
+        0,
+        R0,
+        e_cases_N0,
+        beta,
+        dip_rnde,
+        upswing_timeeff_reduced,
+        timeeff_shift_age,
+        log_relsusceptibility_age,
+        phi,
+        impact_intv_children_effect,
+        impact_intv_onlychildren_effect,
+        data["N0"],
+        data["elementary_school_reopening_idx"],
+        data["N2"],
+        data["SCHOOL_STATUS"],
+        data["A"],
+        data["A_CHILD"],
+        data["AGE_CHILD"],
+        data["COVARIATES_N"],
+        data["SI_CUT"],
+        data["WKEND_IDX_N"],
+        data["wkend_idx"],
+        data["upswing_timeeff_map"],
+        data["avg_cntct"],
+        data["covariates"],
+        data["cntct_weekends_mean"],
+        data["cntct_weekdays_mean"],
+        data["cntct_school_closure_weekends"],
+        data["cntct_school_closure_weekdays"],
+        data["cntct_elementary_school_reopening_weekends"],
+        data["cntct_elementary_school_reopening_weekdays"],
+        data["rev_ifr_daysSinceInfection"],
+        log_ifr_age_base,
+        log_ifr_age_rnde_mid1,
+        log_ifr_age_rnde_mid2,
+        log_ifr_age_rnde_old,
+        data["rev_serial_interval"],
+        data["epidemicStart"],
+        data["N"],
+        data["N_init_A"],
+        data["init_A"],
+        data["A_AD"],
+        data["dataByAgestart"],
+        data["map_age"],
+        data["deathsByAge"],
+        data["map_country"],
+        data["popByAge_abs"],
+        data["ones_vector_A"],
+        data["smoothed_logcases_weeks_n"],
+        data["smoothed_logcases_week_map"],
+        data["smoothed_logcases_week_pars"],
+        data["school_case_time_idx"],
+        data["school_case_data"],
+    )
+    numpyro.factor("contries_log_factor", countries_log_factor)
