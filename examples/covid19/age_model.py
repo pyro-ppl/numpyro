@@ -6,7 +6,7 @@ import jax.ops as ops
 
 # checks if pos is in pos_var
 def r_in(pos: int, pos_var: list(int)) -> bool:
-    return pos in pos_var  # using scan?
+    return pos in pos_var  # using scan?  it seems that this function is not necessary
 
 
 # returns multiplier on the rows of the contact matrix over time for one country
