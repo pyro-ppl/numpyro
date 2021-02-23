@@ -11,7 +11,7 @@ from numpyro.distributions.transforms import AffineTransform
 
 # checks if pos is in pos_var
 def r_in(pos: int, pos_var: list(int)) -> bool:
-    return pos in pos_var  # using scan?  it seems that this function is not necessary
+    return pos in pos_var  # it seems that this function is not necessary
 
 
 # returns multiplier on the rows of the contact matrix over time for one country
@@ -67,14 +67,17 @@ def country_EcasesByAge(
     SI_CUT: int,
     # TODO: convert this to a boolean vector of length N2 - N0:
     #   [t in wken_idx_local for t in [N0, N2)]
-    wkend_idx_local: jnp.int,  # 1D
+    # wkend_idx_local: jnp.int,  # 1D
     avg_cntct_local: float,
-    cntct_weekends_mean_local: jnp.float,  # A x A
-    cntct_weekdays_mean_local: jnp.float,  # A x A
-    cntct_school_closure_weekends_local: jnp.float,  # A x A
-    cntct_school_closure_weekdays_local: jnp.float,  # A x A
-    cntct_elementary_school_reopening_weekends_local: jnp.float,  # A x A
-    cntct_elementary_school_reopening_weekdays_local: jnp.float,  # A x A
+    # cntct_weekends_mean_local: jnp.float,  # A x A
+    # cntct_weekdays_mean_local: jnp.float,  # A x A
+    cntct_mean_local: jnp.float,  # A x A
+    # cntct_school_closure_weekends_local: jnp.float,  # A x A
+    # cntct_school_closure_weekdays_local: jnp.float,  # A x A
+    cntct_school_closure_local: jnp.float,  # A x A
+    # cntct_elementary_school_reopening_weekends_local: jnp.float,  # A x A
+    # cntct_elementary_school_reopening_weekdays_local: jnp.float,  # A x A
+    cntct_elementary_school_reopening_local: jnp.float,  # A x A
     rev_serial_interval: jnp.float,  # SI_CUT
     popByAge_abs_local: jnp.float,  # A
     N_init_A: int,
@@ -94,8 +97,13 @@ def country_EcasesByAge(
 
     # calculate expected cases by age and country under self-renewal model after first N0 days
     # and adjusted for saturation
-    # TODO: vectorize the loop over N0 -> N2 days (seems possible by masking the convolution)
-
+    t = jnp.arange(N0, N2)
+    start_idx_rev_serial = jnp.clip(SI_CUT - t, a_min=0)
+    start_idx_E_casesByAge = jnp.clip(t - SI_CUT, a_min=0)
+    # TODO: compute the remaining E_casesByAge, then using stick breaking transform
+    prop_susceptibleByAge = jnp.zeros(1.0, A)
+    prop_susceptibleByAge = jnp.clip(prop_susceptibleByAge, a_min=0.)
+    #
     return E_casesByAge
 
 
@@ -148,6 +156,11 @@ def country_EdeathsByAge(
 
     E_deathsByAge += 1e-15
     return E_deathsByAge
+
+
+class NegBinomial2(dist.GammaPoisson):
+    def __init__(self, mu, phi):
+        super().__init__(phi, phi / mu)
 
 
 def countries_log_dens(
@@ -274,7 +287,6 @@ def countries_log_dens(
         E_deaths = E_deathsByAge * ones_vector_A
 
         # likelihood death data this location
-        # NB: NegBinomial2(mu, phi) <-> GammaPoisson(phi, phi / mu)
         lpmf += 0.
 
         # likelihood case data this location
