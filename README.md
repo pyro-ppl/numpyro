@@ -215,13 +215,15 @@ pip install -e .[dev]  # contains additional dependencies for NumPyro developmen
    - Call the distribution directly and provide a `PRNGKey`, e.g. `dist.Normal(0, 1).sample(PRNGKey(0))`
    - Provide the `rng_key` argument to `numpyro.sample`. e.g. `numpyro.sample('x', dist.Normal(0, 1), rng_key=PRNGKey(0))`. 
    - Wrap the code in a `seed` handler, used either as a context manager or as a function that wraps over the original callable. e.g. 
+    
      ```python
-     with handlers.seed(rng_seed=0):
-         x = numpyro.sample('x', dist.Beta(1, 1))  # random.PRNGKey(0) is used
+     with handlers.seed(rng_seed=0):  # random.PRNGKey(0) is used
+         x = numpyro.sample('x', dist.Beta(1, 1))    # uses a PRNGKey split from random.PRNGKey(0)
          y = numpyro.sample('y', dist.Bernoulli(x))  # uses different PRNGKey split from the last one
      ```
+     
      , or as a higher order function:
-    
+       
      ```python
      def fn():
          x = numpyro.sample('x', dist.Beta(1, 1))
