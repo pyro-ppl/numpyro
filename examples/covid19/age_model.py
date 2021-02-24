@@ -3,6 +3,7 @@
 
 import numpy as np
 
+import jax
 import jax.numpy as jnp
 import jax.ops as ops
 
@@ -71,15 +72,15 @@ def country_EcasesByAge(
     #   [t in wken_idx_local for t in [N0, N2)]
     # wkend_idx_local: jnp.int32,  # 1D
     avg_cntct_local: float,
+    cntct_mean_local: jnp.float32,  # A x A
+    cntct_school_closure_local: jnp.float32,  # A x A
+    cntct_elementary_school_reopening_local: jnp.float32,  # A x A
     # cntct_weekends_mean_local: jnp.float32,  # A x A
     # cntct_weekdays_mean_local: jnp.float32,  # A x A
-    cntct_mean_local: jnp.float32,  # A x A
     # cntct_school_closure_weekends_local: jnp.float32,  # A x A
     # cntct_school_closure_weekdays_local: jnp.float32,  # A x A
-    cntct_school_closure_local: jnp.float32,  # A x A
     # cntct_elementary_school_reopening_weekends_local: jnp.float32,  # A x A
     # cntct_elementary_school_reopening_weekdays_local: jnp.float32,  # A x A
-    cntct_elementary_school_reopening_local: jnp.float32,  # A x A
     rev_serial_interval: jnp.float32,  # SI_CUT
     popByAge_abs_local: jnp.float32,  # A
     N_init_A: int,
@@ -193,17 +194,20 @@ def countries_log_dens(
     AGE_CHILD: jnp.int32,  # 1D
     COVARIATES_N: int,
     SI_CUT: int,
-    num_wkend_idx: jnp.int32,  # 1D
-    wkend_idx: jnp.int32,  # 2D
+    # num_wkend_idx: jnp.int32,  # 1D
+    # wkend_idx: jnp.int32,  # 2D
     upswing_timeeff_map: jnp.int32,  # 2D
     avg_cntct: jnp.float32,  # 1D
     covariates: jnp.float32,  # 2D
-    cntct_weekends_mean: jnp.float32,  # 2D
-    cntct_weekdays_mean: jnp.float32,  # 2D
-    cntct_school_closure_weekends: jnp.float32,  # 2D
-    cntct_school_closure_weekdays: jnp.float32,  # 2D
-    cntct_elementary_school_reopening_weekends: jnp.float32,  # 2D
-    cntct_elementary_school_reopening_weekdays: jnp.float32,  # 2D
+    cntct_mean: jnp.float32,  # 2D
+    cntct_school_closure: jnp.float32,  # 2D
+    cntct_elementary_school_reopening: jnp.float32,  # 2D
+    # cntct_weekends_mean: jnp.float32,  # 2D
+    # cntct_weekdays_mean: jnp.float32,  # 2D
+    # cntct_school_closure_weekends: jnp.float32,  # 2D
+    # cntct_school_closure_weekdays: jnp.float32,  # 2D
+    # cntct_elementary_school_reopening_weekends: jnp.float32,  # 2D
+    # cntct_elementary_school_reopening_weekdays: jnp.float32,  # 2D
     rev_ifr_daysSinceInfection: jnp.float32,  # 1D
     log_ifr_age_base: jnp.float32,  # 1D
     log_ifr_age_rnde_mid1: jnp.float32,  # 1D
@@ -227,77 +231,77 @@ def countries_log_dens(
     school_case_time_idx: jnp.int32,  # 2D
     school_case_data: jnp.float32,  # 2D
 ) -> float:
-    lpmf = 0.
-    M_slice = end - start + 1
+    assert start == 0
+    assert end == deaths_slice.shape[0]
 
-    # TODO: finish the implementation and vmap
-    for m_slice in range(M_slice):
-        m = m_slice + start
-        impact_intv = country_impact(
-            beta,
-            dip_rdeff[m],
-            upswing_timeeff_reduced[:, m],
-            N2,
-            A,
-            A_CHILD,
-            AGE_CHILD,
-            COVARIATES_N,
-            covariates[m],
-            timeeff_shift_age[m],
-            upswing_timeeff_map[:, m],
-        )
+    impact_intv = jax.vmap(country_impact, in_axes=(1, 2, 8, 9, 10))(
+        beta,
+        dip_rdeff,
+        upswing_timeeff_reduced.T,
+        N2,
+        A,
+        A_CHILD,
+        AGE_CHILD,
+        COVARIATES_N,
+        covariates,
+        timeeff_shift_age,
+        upswing_timeeff_map.T,
+    )
 
-        E_casesByAge = country_EcasesByAge(
-            R0[m],
-            e_cases_N0[m],
-            log_relsusceptibility_age,
-            impact_intv_children_effect,
-            impact_intv_onlychildren_effect,
-            impact_intv,
-            N0,
-            elementary_school_reopening_idx[m],
-            N2,
-            SCHOOL_STATUS[:, m],
-            A,
-            A_CHILD,
-            SI_CUT,
-            wkend_idx[:num_wkend_idx[m], m],
-            avg_cntct[m],
-            cntct_weekends_mean[m],
-            cntct_weekdays_mean[m],
-            cntct_school_closure_weekends[m],
-            cntct_school_closure_weekdays[m],
-            cntct_elementary_school_reopening_weekends[m],
-            cntct_elementary_school_reopening_weekdays[m],
-            rev_serial_interval,
-            popByAge_abs[m],
-            N_init_A,
-            init_A,
-        )
+    E_casesByAge = jax.vmap(country_EcasesByAge, in_axes=(0, 1, 7, 9, 13, 14, 15, 16, 18))(
+        R0,
+        e_cases_N0,
+        log_relsusceptibility_age,
+        impact_intv_children_effect,
+        impact_intv_onlychildren_effect,
+        impact_intv,
+        N0,
+        elementary_school_reopening_idx,
+        N2,
+        SCHOOL_STATUS.T,
+        A,
+        A_CHILD,
+        SI_CUT,
+        # wkend_idx[:num_wkend_idx[m], m],
+        avg_cntct,
+        cntct_mean,
+        cntct_school_closure,
+        cntct_elementary_school_reopening,
+        # cntct_weekends_mean[m],
+        # cntct_weekdays_mean[m],
+        # cntct_school_closure_weekends[m],
+        # cntct_school_closure_weekdays[m],
+        # cntct_elementary_school_reopening_weekends[m],
+        # cntct_elementary_school_reopening_weekdays[m],
+        rev_serial_interval,
+        popByAge_abs,
+        N_init_A,
+        init_A,
+    )
 
-        E_deathsByAge = country_EdeathsByAge(
-            E_casesByAge,
-            N2,
-            A,
-            rev_ifr_daysSinceInfection,
-            log_ifr_age_base,
-            log_ifr_age_rnde_mid1[m],
-            log_ifr_age_rnde_mid2[m],
-            log_ifr_age_rnde_old[m],
-        )
+    E_deathsByAge = jax.vmap(country_EdeathsByAge, (0, 5, 6, 7))(
+        E_casesByAge,
+        N2,
+        A,
+        rev_ifr_daysSinceInfection,
+        log_ifr_age_base,
+        log_ifr_age_rnde_mid1,
+        log_ifr_age_rnde_mid2,
+        log_ifr_age_rnde_old,
+    )
 
-        E_cases = E_casesByAge * ones_vector_A
+    E_cases = E_casesByAge.sum(-1)
 
-        E_deaths = E_deathsByAge * ones_vector_A
+    E_deaths = E_deathsByAge.sum(-1)
 
-        # likelihood death data this location
-        lpmf += 0.
+    # likelihood death data this location
+    lpmf += 0.
 
-        # likelihood case data this location
-        lpmf += 0.
+    # likelihood case data this location
+    lpmf += 0.
 
-        # likelihood school case data this location
-        lpmf += 0.
+    # likelihood school case data this location
+    lpmf += 0.
 
     return lpmf
 
@@ -380,6 +384,15 @@ def transform_data(data):  # lines 438 -> 503
     # reported deaths -- the rows with i > N contain -1 and should be ignored
     data["trans_deaths"] = data["deaths"].T  # M x N2
     data["popByAge_abs"] = data["popByAge"].T * data["pop"][:, None]  # M x A
+
+    # TODO: shift index arrays by 1?
+
+    # TODO: preprocess those fields based on data["WKEND_IDX_N"] and data["wkend_idx"]
+    # The logic is at localtion m, time t, it is weekend if t in wkend_idx[:WKEND_IDX_N[m], m]
+    data["cntct_mean"] = data["cntct_weekends_mean"]  # data["cntct_weekdays_mean"]
+    data["cntct_school_closure"] = data["cntct_school_closure_weekends"]  # data["cntct_school_closure_weekdays"]
+    data["cntct_elementary_school_reopening"] = data["cntct_elementary_school_reopening_weekends"]
+    # data["cntct_elementary_school_reopening_weekdays"]
 
 
 def model(data):  # lines 523 -> end
@@ -469,17 +482,21 @@ def model(data):  # lines 523 -> end
         data["AGE_CHILD"],
         data["COVARIATES_N"],
         data["SI_CUT"],
-        data["WKEND_IDX_N"],
-        data["wkend_idx"],
+        # data["WKEND_IDX_N"],
+        # data["wkend_idx"],
         data["upswing_timeeff_map"],
         data["avg_cntct"],
         data["covariates"],
-        data["cntct_weekends_mean"],
-        data["cntct_weekdays_mean"],
-        data["cntct_school_closure_weekends"],
-        data["cntct_school_closure_weekdays"],
-        data["cntct_elementary_school_reopening_weekends"],
-        data["cntct_elementary_school_reopening_weekdays"],
+        # NB: those fields are computed from below fields and wken_idx
+        data["cntct_mean"],
+        data["cntct_school_closure"],
+        data["cntct_elementary_school_reopening"],
+        # data["cntct_weekends_mean"],
+        # data["cntct_weekdays_mean"],
+        # data["cntct_school_closure_weekends"],
+        # data["cntct_school_closure_weekdays"],
+        # data["cntct_elementary_school_reopening_weekends"],
+        # data["cntct_elementary_school_reopening_weekdays"],
         data["rev_ifr_daysSinceInfection"],
         log_ifr_age_base,
         log_ifr_age_rnde_mid1,
