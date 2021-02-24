@@ -233,6 +233,7 @@ def countries_log_dens(
 ) -> float:
     assert start == 0
     assert end == deaths_slice.shape[0]
+    lpmf = 0.
 
     impact_intv = jax.vmap(country_impact, in_axes=(1, 2, 8, 9, 10))(
         beta,
@@ -290,18 +291,39 @@ def countries_log_dens(
         log_ifr_age_rnde_old,
     )
 
-    E_cases = E_casesByAge.sum(-1)
+    E_cases = E_casesByAge.sum(-1)  # M x N2
 
-    E_deaths = E_deathsByAge.sum(-1)
+    E_deaths = E_deathsByAge.sum(-1)  # M x N2
 
     # likelihood death data this location
-    lpmf += 0.
+    # TODO: compute those masks, and fix the math
+    deaths_mask = True  # M x N2 x A
+    lpmf += NegBinomial2(E_deaths, phi).mask(deaths_mask).log_prob(deaths_slice).sum()
+    deathsByAgefirstday_mask = 1.
+    lpmf += NegBinomial2(deathsByAgefirstday_mask @ E_deathsByAge @ map_age[map_country[:, 1]], phi)
+    # TODO: move map_age[map_country[:, 1]] to transform_data
+    deathsByAge_mask = True  # M x N2 x A
+    lpmf += NegBinomial2(E_deathsByAge @ map_age[map_country[:, 1]], phi).mask(
+        deathsByAge_mask).log_prob(deathsByAge).sum()
 
     # likelihood case data this location
-    lpmf += 0.
+    # TODO: add mask
+    E_log_week_avg_cases = E_cases[smoothed_logcases_week_map].log().mean(-1)
+    lpmf += dist.StudentT(
+        smoothed_logcases_week_pars[2],
+        smoothed_logcases_week_pars[0],
+        smoothed_logcases_week_pars[1]).cdf(E_log_week_avg_cases).log()
 
     # likelihood school case data this location
-    lpmf += 0.
+    weights = jnp.array([1., 1., 0.8])
+    # TODO: compose mask in transform_data
+    school_attack_mask = 1.  # mask over school_case_time_idx[m, 1] : school_case_time_idx[m, 2]
+    school_attack_rate = school_attack_mask @ E_casesByAge[:, 1:] @ weights
+    school_attack_rate /= popByAge_abs[:, 1:] @ weights
+    # prevent over/underflow
+    school_attack_rate = jnp.minimum(school_attack_rate, school_case_data[:, 2] * 4)
+    lpmf += dist.Normal(school_case_data[:, [0, 2]], school_case_data[:, [1, 3]]).cdf(
+        school_attack_rate[:, None]).log().sum() * (school_case_time_idx[:, 0] > 0)
 
     return lpmf
 
