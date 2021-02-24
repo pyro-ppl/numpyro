@@ -4,8 +4,6 @@ import jax.numpy as jnp
 import jax.ops as ops
 
 import numpyro
-import numpyro.distributions as dist
-from numpyro.distributions.transforms import AffineTransform
 
 
 def country_EcasesByAge_direct(
@@ -48,31 +46,44 @@ def country_EcasesByAge_direct(
 
     # expected new cases by calendar day, age, and location under self-renewal model
     # and a container to store the precomputed cases by age
-    E_casesByAge = jnp.zeros((N2, A))
+    E_casesByAge = np.zeros((N2, A))
 
     # init expected cases by age and location in first N0 days
-    E_casesByAge = ops.index_update(E_casesByAge, ops.index[:N0, init_A], e_cases_N0_local / N_init_A,
-                                    indices_are_sorted=True, unique_indices=True)
+    E_casesByAge[:N0, init_A] = e_cases_N0_local / N_init_A
 
-    # calculate expected cases by age and country under self-renewal model after first N0 days
-    # and adjusted for saturation
-    t = jnp.arange(N0, N2)
-    start_idx_rev_serial = jnp.clip(SI_CUT - t, a_min=0)
-    start_idx_E_casesByAge = jnp.clip(t - SI_CUT, a_min=0)
+    for t in range(N0, N2):
+        start_idx_rev_serial = SI_CUT - t + 1;
+        start_idx_E_casesByAge = t - SI_CUT - 1;
 
-    tmp_row_vector_A = jnp.where(start_idx_rev_serial <= t & t < SI_CUT )
+        prop_susceptibleByAge = 1.0 - E_casesByAge[:t-1].sum(0) / popByAge_abs_local
 
-    # TODO: compute the remaining E_casesByAge, then using stick breaking transform
-    prop_susceptibleByAge = jnp.zeros(1.0, A)
-    prop_susceptibleByAge = jnp.clip(prop_susceptibleByAge, a_min=0.)
+        start_idx_rev_serial = max(0, start_idx_rev_serial)
+        start_idx_E_casesByAge = max(0, start_idx_E_casesByAge)
+
+        prop_susceptibleByAge = np.maximum(0.0, prop_susceptibleByAge)
+
+        tmp_row_vector_A = (rev_serial_interval[start_idx_rev_serial:SI_CUT][:, None] *
+                            E_casesByAge[start_idx_E_casesByAge:t-1]).sum(0)
+        tmp_row_vector_A *= rho0
+        tmp_row_vector_A_no_impact_intv = tmp_row_vector_A.copy()
+        tmp_row_vector_A *= impact_intv[t]
+
+        col1 = (tmp_row_vector_A_no_impact_intv[:, None] * cntct_mean_local[:, :A_CHILD]).sum(0)
+        col2 = (tmp_row_vector_A_no_impact_intv[:A_CHILD, None] * cntct_mean_local[:A_CHILD, A_CHILD:]).sum(0) +\
+                (tmp_row_vector_A[A_CHILD:, None] * cntct_mean_local[A_CHILD:, A_CHILD:]).sum(0) * impact_intv[t, A_CHILD:]
+
+        E_casesByAge[t] = np.concatenate([col1, col2])
+        E_casesByAge[t] *= prop_susceptibleByAge
+        E_casesByAge[t] *= np.exp(log_relsusceptibility_age)
+
     return E_casesByAge
 
 
 N0 = 3
-N2 = 6
-A = 5
+N2 = 9
+A = 6
 A_CHILD = 2
-SI_CUT = 3
+SI_CUT = 5
 N_init_A = 2
 init_A = [2, 4]
 
@@ -115,4 +126,4 @@ value = country_EcasesByAge_direct(
     N_init_A,
     init_A)
 
-print("value", value)
+print("country_EcasesByAge_direct() =", value.shape)
