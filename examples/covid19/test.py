@@ -24,17 +24,14 @@ def country_EcasesByAge_direct(
     SI_CUT: int,
     # TODO: convert this to a boolean vector of length N2 - N0:
     #   [t in wken_idx_local for t in [N0, N2)]
-    # wkend_idx_local: jnp.int32,  # 1D
+    wkend_idx_local: jnp.int32,  # 1D
     avg_cntct_local: float,
-    # cntct_weekends_mean_local: jnp.float32,  # A x A
-    # cntct_weekdays_mean_local: jnp.float32,  # A x A
-    cntct_mean_local: jnp.float32,  # A x A
-    # cntct_school_closure_weekends_local: jnp.float32,  # A x A
-    # cntct_school_closure_weekdays_local: jnp.float32,  # A x A
-    cntct_school_closure_local: jnp.float32,  # A x A
-    # cntct_elementary_school_reopening_weekends_local: jnp.float32,  # A x A
-    # cntct_elementary_school_reopening_weekdays_local: jnp.float32,  # A x A
-    cntct_elementary_school_reopening_local: jnp.float32,  # A x A
+    cntct_weekends_mean_local: jnp.float32,  # A x A
+    cntct_weekdays_mean_local: jnp.float32,  # A x A
+    cntct_school_closure_weekends_local: jnp.float32,  # A x A
+    cntct_school_closure_weekdays_local: jnp.float32,  # A x A
+    cntct_elementary_school_reopening_weekends_local: jnp.float32,  # A x A
+    cntct_elementary_school_reopening_weekdays_local: jnp.float32,  # A x A
     rev_serial_interval: jnp.float32,  # SI_CUT
     popByAge_abs_local: jnp.float32,  # A
     N_init_A: int,
@@ -59,28 +56,54 @@ def country_EcasesByAge_direct(
 
         start_idx_rev_serial = max(0, start_idx_rev_serial)
         start_idx_E_casesByAge = max(0, start_idx_E_casesByAge)
-
         prop_susceptibleByAge = np.maximum(0.0, prop_susceptibleByAge)
 
         tmp_row_vector_A = (rev_serial_interval[start_idx_rev_serial:SI_CUT][:, None] *
                             E_casesByAge[start_idx_E_casesByAge:t-1]).sum(0)
         tmp_row_vector_A *= rho0
         tmp_row_vector_A_no_impact_intv = tmp_row_vector_A.copy()
-        tmp_row_vector_A *= impact_intv[t]
 
-        col1 = (tmp_row_vector_A_no_impact_intv[:, None] * cntct_mean_local[:, :A_CHILD]).sum(0)
-        col2 = (tmp_row_vector_A_no_impact_intv[:A_CHILD, None] * cntct_mean_local[:A_CHILD, A_CHILD:]).sum(0) +\
-                (tmp_row_vector_A[A_CHILD:, None] * cntct_mean_local[A_CHILD:, A_CHILD:]).sum(0) * impact_intv[t, A_CHILD:]
+        weekend = wkend_idx_local[t - N0]
+        cntct_mean_local = cntct_weekends_mean_local if weekend else cntct_weekdays_mean_local
+        cntct_elementary_school_reopening_local = cntct_elementary_school_reopening_weekends_local if weekend \
+                                             else cntct_elementary_school_reopening_weekdays_local
+        cntct_school_closure_local = cntct_school_closure_weekends_local if weekend \
+                                else cntct_school_closure_weekdays_local
 
-        E_casesByAge[t] = np.concatenate([col1, col2])
+        if SCHOOL_STATUS_local[t] == 0 and t < elementary_school_reopening_idx_local:  # school open
+            col1 = (tmp_row_vector_A_no_impact_intv[:, None] * cntct_mean_local[:, :A_CHILD]).sum(0)
+            col2 = (tmp_row_vector_A_no_impact_intv[:A_CHILD, None] * cntct_mean_local[:A_CHILD, A_CHILD:]).sum(0) +\
+                    (tmp_row_vector_A[A_CHILD:, None] * cntct_mean_local[A_CHILD:, A_CHILD:]).sum(0) * impact_intv[t, A_CHILD:]
+            E_casesByAge[t] = np.concatenate([col1, col2])
+        elif SCHOOL_STATUS_local[t] == 0 and t >= elementary_school_reopening_idx_local:  # school reopen
+            tmp_row_vector_A_with_children_impact_intv = tmp_row_vector_A.copy()
+            tmp_row_vector_A_with_children_impact_intv[:A_CHILD] *= impact_intv_children_effect
+            tmp_row_vector_A_with_children_and_childrenchildren_impact_intv = tmp_row_vector_A_with_children_impact_intv.copy()
+            tmp_row_vector_A_with_children_and_childrenchildren_impact_intv[:A_CHILD] *= impact_intv_onlychildren_effect
+
+            col1 = (tmp_row_vector_A_with_children_and_childrenchildren_impact_intv[:, None] * \
+                    cntct_elementary_school_reopening_local[:, :A_CHILD]).sum(0)
+            col2 = (tmp_row_vector_A_with_children_impact_intv[:, None] * \
+                    cntct_elementary_school_reopening_local[:, A_CHILD:]).sum(0)
+            E_casesByAge[t] = np.concatenate([col1, col2])
+
+            E_casesByAge[t, :A_CHILD] *= impact_intv_children_effect
+            E_casesByAge[t, A_CHILD:] *= impact_intv[t, A_CHILD:]
+        else:  #school closed
+            col1 = (tmp_row_vector_A_no_impact_intv[:, None] * cntct_school_closure_weekends_local[:, :A_CHILD]).sum(0)
+            col2 = (tmp_row_vector_A_no_impact_intv[:A_CHILD, None] * cntct_school_closure_weekends_local[:A_CHILD, A_CHILD:]).sum(0) +\
+                    (tmp_row_vector_A[A_CHILD:, None] * cntct_school_closure_weekends_local[A_CHILD:, A_CHILD:]).sum(0) * \
+                     impact_intv[t, A_CHILD:]
+            E_casesByAge[t] = np.concatenate([col1, col2])
+
         E_casesByAge[t] *= prop_susceptibleByAge
         E_casesByAge[t] *= np.exp(log_relsusceptibility_age)
 
     return E_casesByAge
 
 
-N0 = 3
-N2 = 9
+N0 = 4
+N2 = 10
 A = 6
 A_CHILD = 2
 SI_CUT = 5
@@ -96,9 +119,13 @@ impact_intv = np.random.rand(N2, A)
 elementary_school_reopening_idx_local = 2
 SCHOOL_STATUS_local = np.array([0, 1] * (N2 // 2))
 avg_cntct_local = 1.42
-cntct_mean_local = np.random.rand(A, A)
-cntct_school_closure_local = np.random.rand(A, A)
-cntct_elementary_school_reopening_local = np.random.rand(A, A)
+wkend_idx_local = [True, False] * ((N2 - N0) // 2)
+cntct_weekends_mean_local = np.random.rand(A, A)
+cntct_weekdays_mean_local = np.random.rand(A, A)
+cntct_school_closure_weekends_local = np.random.rand(A, A)
+cntct_school_closure_weekdays_local = np.random.rand(A, A)
+cntct_elementary_school_reopening_weekends_local = np.random.rand(A, A)
+cntct_elementary_school_reopening_weekdays_local = np.random.rand(A, A)
 rev_serial_interval = np.random.rand(SI_CUT)
 popByAge_abs_local = 1234.5 * np.random.rand(A)
 
@@ -117,13 +144,18 @@ value = country_EcasesByAge_direct(
     A,
     A_CHILD,
     SI_CUT,
+    wkend_idx_local,
     avg_cntct_local,
-    cntct_mean_local,
-    cntct_school_closure_local,
-    cntct_elementary_school_reopening_local,
+    cntct_weekends_mean_local,
+    cntct_weekdays_mean_local,
+    cntct_school_closure_weekends_local,
+    cntct_school_closure_weekdays_local,
+    cntct_elementary_school_reopening_weekends_local,
+    cntct_elementary_school_reopening_weekdays_local,
     rev_serial_interval,
     popByAge_abs_local,
     N_init_A,
     init_A)
 
 print("country_EcasesByAge_direct() =", value.shape)
+assert value.shape == (N2, A)
