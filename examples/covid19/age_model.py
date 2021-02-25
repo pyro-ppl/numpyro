@@ -19,18 +19,18 @@ def r_in(pos: int, pos_var: list) -> bool:
 
 # returns multiplier on the rows of the contact matrix over time for one country
 def country_impact(
-    beta: jnp.float32,  # 2
+    beta: np.float64,  # 2
     dip_rdeff_local: float,
-    upswing_timeeff_reduced_local: jnp.float32,  # 1D
+    upswing_timeeff_reduced_local: np.float64,  # 1D
     N2: int,  # num of days
     A: int,  # num of ages
     A_CHILD: int,  # num of children ages
-    AGE_CHILD: jnp.int32,  # A_CHILD
+    AGE_CHILD: np.int64,  # A_CHILD
     COVARIATES_N: int,
-    covariates_local: jnp.float32,  # 3 x N2 x A
-    upswing_age_rdeff_local: jnp.float32,  # A
-    upswing_timeeff_map_local: jnp.int32,  # N2
-) -> jnp.float32:  # N2 x A
+    covariates_local: np.float64,  # 3 x N2 x A
+    upswing_age_rdeff_local: np.float64,  # A
+    upswing_timeeff_map_local: np.int64,  # N2
+) -> np.float64:  # N2 x A
     # scaling of contacts after intervention effect on day t in location m
 
     # define multipliers for contacts in each location
@@ -56,36 +56,32 @@ def country_EcasesByAge(
     # parameters
     R0_local: float,
     e_cases_N0_local: float,
-    log_relsusceptibility_age: jnp.float32,  # A
+    log_relsusceptibility_age: np.float64,  # A
     impact_intv_children_effect: float,
     impact_intv_onlychildren_effect: float,
-    impact_intv: jnp.float32,  # N2 x A
+    impact_intv: np.float64,  # N2 x A
     # data
     N0: int,
     elementary_school_reopening_idx_local: int,
     N2: int,
-    SCHOOL_STATUS_local: jnp.float32,  # N2
+    SCHOOL_STATUS_local: np.float64,  # N2
     A: int,
     A_CHILD: int,
     SI_CUT: int,
-    # TODO: convert this to a boolean vector of length N2 - N0:
-    #   [t in wken_idx_local for t in [N0, N2)]
-    # wkend_idx_local: jnp.int32,  # 1D
+    # wkend_idx_local: np.int64,  # 1D
+    wkend_mask_local: np.bool,  # 1D
     avg_cntct_local: float,
-    cntct_mean_local: jnp.float32,  # A x A
-    cntct_school_closure_local: jnp.float32,  # A x A
-    cntct_elementary_school_reopening_local: jnp.float32,  # A x A
-    # cntct_weekends_mean_local: jnp.float32,  # A x A
-    # cntct_weekdays_mean_local: jnp.float32,  # A x A
-    # cntct_school_closure_weekends_local: jnp.float32,  # A x A
-    # cntct_school_closure_weekdays_local: jnp.float32,  # A x A
-    # cntct_elementary_school_reopening_weekends_local: jnp.float32,  # A x A
-    # cntct_elementary_school_reopening_weekdays_local: jnp.float32,  # A x A
-    rev_serial_interval: jnp.float32,  # SI_CUT
-    popByAge_abs_local: jnp.float32,  # A
+    cntct_weekends_mean_local: np.float64,  # A x A
+    cntct_weekdays_mean_local: np.float64,  # A x A
+    cntct_school_closure_weekends_local: np.float64,  # A x A
+    cntct_school_closure_weekdays_local: np.float64,  # A x A
+    cntct_elementary_school_reopening_weekends_local: np.float64,  # A x A
+    cntct_elementary_school_reopening_weekdays_local: np.float64,  # A x A
+    rev_serial_interval: np.float64,  # SI_CUT
+    popByAge_abs_local: np.float64,  # A
     N_init_A: int,
-    init_A: jnp.int32,  # N_init_A
-) -> jnp.float32:  # N2 x A
+    init_A: np.int64,  # N_init_A
+) -> np.float64:  # N2 x A
 
     # probability of infection given contact in location m
     rho0 = R0_local / avg_cntct_local
@@ -100,15 +96,8 @@ def country_EcasesByAge(
 
     # calculate expected cases by age and country under self-renewal model after first N0 days
     # and adjusted for saturation
-    t = jnp.arange(N0, N2)
-    start_idx_rev_serial = jnp.clip(SI_CUT - t, a_min=0)
-    start_idx_E_casesByAge = jnp.clip(t - SI_CUT, a_min=0)
+    # TODO: implement using scan
 
-    tmp_row_vector_A = jnp.where(start_idx_rev_serial <= t & t < SI_CUT )
-
-    # TODO: compute the remaining E_casesByAge, then using stick breaking transform
-    prop_susceptibleByAge = jnp.zeros(1.0, A)
-    prop_susceptibleByAge = jnp.clip(prop_susceptibleByAge, a_min=0.)
     return E_casesByAge
 
 
@@ -136,16 +125,16 @@ def circular_vecmat(b, A):
 
 def country_EdeathsByAge(
     # parameters
-    E_casesByAge_local: jnp.float32,  # N2 x A
+    E_casesByAge_local: np.float64,  # N2 x A
     # data
     N2: int,
     A: int,
-    rev_ifr_daysSinceInfection: jnp.float32,  # N2
-    log_ifr_age_base: jnp.float32,  # A
+    rev_ifr_daysSinceInfection: np.float64,  # N2
+    log_ifr_age_base: np.float64,  # A
     log_ifr_age_rnde_mid1_local: float,
     log_ifr_age_rnde_mid2_local: float,
     log_ifr_age_rnde_old_local: float,
-) -> jnp.float32:  # N2 x A
+) -> np.float64:  # N2 x A
 
     # calculate expected deaths by age and country
     E_deathsByAge = circular_vecmat(rev_ifr_daysSinceInfection[1:], E_casesByAge_local[:-1])
@@ -169,67 +158,66 @@ class NegBinomial2(dist.GammaPoisson):
 
 
 def countries_log_dens(
-    deaths_slice: jnp.int32,  # 2D
+    deaths_slice: np.int64,  # 2D
     # NB: start and end are not required, it is useful for Stan map-reduce but we don't use it
     start: int,
     end: int,
     # parameters
-    R0: jnp.float32,  # 1D
-    e_cases_N0: jnp.float32,  # 1D
-    beta: jnp.float32,  # 1D
-    dip_rdeff: jnp.float32,  # 1D
-    upswing_timeeff_reduced: jnp.float32,  # 2D
-    timeeff_shift_age: jnp.float32,  # 2D
-    log_relsusceptibility_age: jnp.float32,  # 1D
+    R0: np.float64,  # 1D
+    e_cases_N0: np.float64,  # 1D
+    beta: np.float64,  # 1D
+    dip_rdeff: np.float64,  # 1D
+    upswing_timeeff_reduced: np.float64,  # 2D
+    timeeff_shift_age: np.float64,  # 2D
+    log_relsusceptibility_age: np.float64,  # 1D
     phi: float,
     impact_intv_children_effect: float,
     impact_intv_onlychildren_effect: float,
     # data
     N0: int,
-    elementary_school_reopening_idx: jnp.int32,  # 1D
+    elementary_school_reopening_idx: np.int64,  # 1D
     N2: int,
-    SCHOOL_STATUS: jnp.float32,  # 2D
+    SCHOOL_STATUS: np.float64,  # 2D
     A: int,
     A_CHILD: int,
-    AGE_CHILD: jnp.int32,  # 1D
+    AGE_CHILD: np.int64,  # 1D
     COVARIATES_N: int,
     SI_CUT: int,
-    # num_wkend_idx: jnp.int32,  # 1D
-    # wkend_idx: jnp.int32,  # 2D
-    upswing_timeeff_map: jnp.int32,  # 2D
-    avg_cntct: jnp.float32,  # 1D
-    covariates: jnp.float32,  # 2D
-    cntct_mean: jnp.float32,  # 2D
-    cntct_school_closure: jnp.float32,  # 2D
-    cntct_elementary_school_reopening: jnp.float32,  # 2D
-    # cntct_weekends_mean: jnp.float32,  # 2D
-    # cntct_weekdays_mean: jnp.float32,  # 2D
-    # cntct_school_closure_weekends: jnp.float32,  # 2D
-    # cntct_school_closure_weekdays: jnp.float32,  # 2D
-    # cntct_elementary_school_reopening_weekends: jnp.float32,  # 2D
-    # cntct_elementary_school_reopening_weekdays: jnp.float32,  # 2D
-    rev_ifr_daysSinceInfection: jnp.float32,  # 1D
-    log_ifr_age_base: jnp.float32,  # 1D
-    log_ifr_age_rnde_mid1: jnp.float32,  # 1D
-    log_ifr_age_rnde_mid2: jnp.float32,  # 1D
-    log_ifr_age_rnde_old: jnp.float32,  # 1D
-    rev_serial_interval: jnp.float32,  # 1D
-    epidemicStart: jnp.int32,  # 1D
-    N: jnp.int32,  # 1D
+    # num_wkend_idx: np.int64,  # 1D
+    # wkend_idx: np.int64,  # 2D
+    wkend_mask: jnp.mask,  # 2D
+    upswing_timeeff_map: np.int64,  # 2D
+    avg_cntct: np.float64,  # 1D
+    covariates: np.float64,  # 2D
+    cntct_weekends_mean: np.float64,  # 2D
+    cntct_weekdays_mean: np.float64,  # 2D
+    cntct_school_closure_weekends: np.float64,  # 2D
+    cntct_school_closure_weekdays: np.float64,  # 2D
+    cntct_elementary_school_reopening_weekends: np.float64,  # 2D
+    cntct_elementary_school_reopening_weekdays: np.float64,  # 2D
+    rev_ifr_daysSinceInfection: np.float64,  # 1D
+    log_ifr_age_base: np.float64,  # 1D
+    log_ifr_age_rnde_mid1: np.float64,  # 1D
+    log_ifr_age_rnde_mid2: np.float64,  # 1D
+    log_ifr_age_rnde_old: np.float64,  # 1D
+    rev_serial_interval: np.float64,  # 1D
+    epidemicStart: np.int64,  # 1D
+    N: np.int64,  # 1D
     N_init_A: int,
-    init_A: jnp.int32,  # 1D
-    A_AD: jnp.int32,  # 1D
-    dataByAgestart: jnp.int32,  # 1D
-    map_age: jnp.float32,  # 2D
-    deathsByAge: jnp.float32,  # 3D
-    map_country: jnp.int32,  # 2D
-    popByAge_abs: jnp.float32,  # 2D
-    ones_vector_A: jnp.float32,  # 1D
-    smoothed_logcases_weeks_n: jnp.int32,  # 1D
-    smoothed_logcases_week_map: jnp.int32,  # 3D
-    smoothed_logcases_week_pars: jnp.float32,  # 3D
-    school_case_time_idx: jnp.int32,  # 2D
-    school_case_data: jnp.float32,  # 2D
+    init_A: np.int64,  # 1D
+    A_AD: np.int64,  # 1D
+    dataByAgestart: np.int64,  # 1D
+    map_age: np.float64,  # 2D
+    deathsByAge: np.float64,  # 3D
+    map_country: np.int64,  # 2D
+    popByAge_abs: np.float64,  # 2D
+    ones_vector_A: np.float64,  # 1D
+    smoothed_logcases_weeks_n: np.int64,  # 1D
+    smoothed_logcases_week_map: np.int64,  # 3D
+    smoothed_logcases_week_pars: np.float64,  # 3D
+    # school_case_time_idx: np.int64,  # 2D
+    school_case_time_mask: np.bool,  # M x N2
+    school_case_data: np.float64,  # M x 4
 ) -> float:
     assert start == 0
     assert end == deaths_slice.shape[0]
@@ -249,7 +237,7 @@ def countries_log_dens(
         upswing_timeeff_map.T,
     )
 
-    E_casesByAge = jax.vmap(country_EcasesByAge, in_axes=(0, 1, 7, 9, 13, 14, 15, 16, 18))(
+    E_casesByAge = jax.vmap(country_EcasesByAge, in_axes=(0, 1, 7, 9, 13, 14, 15, 16, 17, 18, 19, 20, 22))(
         R0,
         e_cases_N0,
         log_relsusceptibility_age,
@@ -264,16 +252,14 @@ def countries_log_dens(
         A_CHILD,
         SI_CUT,
         # wkend_idx[:num_wkend_idx[m], m],
+        wkend_mask,
         avg_cntct,
-        cntct_mean,
-        cntct_school_closure,
-        cntct_elementary_school_reopening,
-        # cntct_weekends_mean[m],
-        # cntct_weekdays_mean[m],
-        # cntct_school_closure_weekends[m],
-        # cntct_school_closure_weekdays[m],
-        # cntct_elementary_school_reopening_weekends[m],
-        # cntct_elementary_school_reopening_weekdays[m],
+        cntct_weekends_mean,
+        cntct_weekdays_mean,
+        cntct_school_closure_weekends,
+        cntct_school_closure_weekdays,
+        cntct_elementary_school_reopening_weekends,
+        cntct_elementary_school_reopening_weekdays,
         rev_serial_interval,
         popByAge_abs,
         N_init_A,
@@ -307,23 +293,26 @@ def countries_log_dens(
         deathsByAge_mask).log_prob(deathsByAge).sum()
 
     # likelihood case data this location
-    # TODO: add mask
-    E_log_week_avg_cases = E_cases[smoothed_logcases_week_map].log().mean(-1)
-    lpmf += dist.StudentT(
-        smoothed_logcases_week_pars[2],
-        smoothed_logcases_week_pars[0],
-        smoothed_logcases_week_pars[1]).cdf(E_log_week_avg_cases).log()
+    E_casesByWeek = jnp.take_along_axis(
+        E_cases, smoothed_logcases_week_map.reshape((data["M"], -1)), -1).reshape((data["M"], -1, 7))
+    E_log_week_avg_cases = E_casesByWeek.log().mean(-1)
+    lpmf += jnp.where(jnp.arange(E_log_week_avg_cases.shape[1]) < smoothed_logcases_weeks_n[:, None],
+                      dist.StudentT(smoothed_logcases_week_pars[2],
+                                    smoothed_logcases_week_pars[0],
+                                    smoothed_logcases_week_pars[1])
+                          .cdf(E_log_week_avg_cases).log(),
+                      0.).sum()
 
     # likelihood school case data this location
-    weights = jnp.array([1., 1., 0.8])
-    # TODO: compose mask in transform_data
-    school_attack_mask = 1.  # mask over school_case_time_idx[m, 1] : school_case_time_idx[m, 2]
-    school_attack_rate = school_attack_mask @ E_casesByAge[:, 1:] @ weights
-    school_attack_rate /= popByAge_abs[:, 1:] @ weights
+    school_case_weights = jnp.array([1., 1., 0.8])
+    school_attack_rate = (school_case_time_mask * (E_casesByAge[:, :, 1:4] @ school_case_weights)).sum(-1)
+    school_attack_rate /= popByAge_abs[:, 1:4] @ school_case_weights
     # prevent over/underflow
     school_attack_rate = jnp.minimum(school_attack_rate, school_case_data[:, 2] * 4)
-    lpmf += dist.Normal(school_case_data[:, [0, 2]], school_case_data[:, [1, 3]]).cdf(
-        school_attack_rate[:, None]).log().sum() * (school_case_time_idx[:, 0] > 0)
+    lpmf += jnp.where(school_case_time_mask.all(-1),
+                      dist.Normal(school_case_data[:, [0, 2]], school_case_data[:, [1, 3]])
+                          .cdf(school_attack_rate[:, None]).log().sum(-1),
+                      0.).sum()
 
     return lpmf
 
@@ -331,66 +320,66 @@ def countries_log_dens(
 data_def = {
     "M": int,  # number of countries
     "N0": int,  # number of initial days for which to estimate infections
-    "N": jnp.int32,  # M - days of observed data for country m. each entry must be <= N2
+    "N": np.int64,  # M - days of observed data for country m. each entry must be <= N2
     "N2": int,  # days of observed data + # of days to forecast
     "A": int,  # number of age bands
     "SI_CUT": int,  # number of days in serial interval to consider
     "COVARIATES_N": int,  # number of days in serial interval to consider
     "N_init_A": int,  # number of age bands with initial cases
-    "WKEND_IDX_N": jnp.int32,  # M - number of weekend indices in each location
+    "WKEND_IDX_N": np.int64,  # M - number of weekend indices in each location
     "N_IMP": int,  # number of impact invervention time effects. <= M
     # data
-    "pop": jnp.float32,  # M
-    "popByAge": jnp.float32,  # A x M - proportion of age bracket in population in location
-    "epidemicStart": jnp.int32,  # M
-    "deaths": jnp.int32,  # N2 x M - reported deaths -- the rows with i >= N contain -1 and should be ignored
+    "pop": np.float64,  # M
+    "popByAge": np.float64,  # A x M - proportion of age bracket in population in location
+    "epidemicStart": np.int64,  # M
+    "deaths": np.int64,  # N2 x M - reported deaths -- the rows with i >= N contain -1 and should be ignored
     # time index after which schools reopen for country m IF school status is set to 0. each entry must be <= N2
-    "elementary_school_reopening_idx": jnp.int32,  # M
-    "wkend_idx": jnp.int32,  # N2 x M - indices of 0:N2 that correspond to weekends in location m
-    "upswing_timeeff_map": jnp.int32,  # N2 x M - map of impact intv time effects to time units in model for each state
+    "elementary_school_reopening_idx": np.int64,  # M
+    "wkend_idx": np.int64,  # N2 x M - indices of 0:N2 that correspond to weekends in location m
+    "upswing_timeeff_map": np.int64,  # N2 x M - map of impact intv time effects to time units in model for each state
     # mobility trends
-    "covariates": jnp.float32,  # M x COVARIATES_N x N2 x A - predictors for fsq contacts by age
+    "covariates": np.float64,  # M x COVARIATES_N x N2 x A - predictors for fsq contacts by age
     # death data by age
     "M_AD": int,  # number of countries with deaths by age data
-    "dataByAgestart": jnp.int32,  # M_AD - start of death by age data
+    "dataByAgestart": np.int64,  # M_AD - start of death by age data
     # the rows with i < dataByAgestart[M_AD] contain -1 and should be ignored
     # + the column with j > A2[M_AD] contain -1 and should be ignored
-    "deathsByAge": jnp.int32,  # N2 x A x M_AD - reported deaths by age
-    "A_AD": jnp.int32,  # M_AD - number of age groups reported >= 1
+    "deathsByAge": np.int64,  # N2 x A x M_AD - reported deaths by age
+    "A_AD": np.int64,  # M_AD - number of age groups reported >= 1
     # the column with j > A2[M_AD] contain -1 and should be ignored
-    "map_age": jnp.float32,  # M_AD x A x A - map the age groups reported with 5 y age group
+    "map_age": np.float64,  # M_AD x A x A - map the age groups reported with 5 y age group
     # first column indicates if country has death by age date (1 if yes), 2 column map the country to M_AD
-    "map_country":  jnp.float32,  # M x 2
+    "map_country":  np.float64,  # M x 2
     # case data by age
     "smoothed_logcases_weeks_n_max": int,
-    "smoothed_logcases_weeks_n": jnp.int32,  # M - number of week indices per location
+    "smoothed_logcases_weeks_n": np.int64,  # M - number of week indices per location
     # map of week indices to time indices
-    "smoothed_logcases_week_map": jnp.int32,  # M x smoothed_logcases_weeks_n_max x 7
+    "smoothed_logcases_week_map": np.int64,  # M x smoothed_logcases_weeks_n_max x 7
     # likelihood parameters for observed cases
-    "smoothed_logcases_week_pars": jnp.float32,  # M x smoothed_logcases_weeks_n_max x 3
+    "smoothed_logcases_week_pars": np.float64,  # M x smoothed_logcases_weeks_n_max x 3
     # school case data
-    "school_case_time_idx": jnp.int32,  # M x 2
-    "school_case_data": jnp.float32,  # M x 4
+    "school_case_time_idx": np.int64,  # M x 2
+    "school_case_data": np.float64,  # M x 4
     # school closure status
-    "SCHOOL_STATUS": jnp.float32,  # N2 x M - school status, 1 if close, 0 if open
+    "SCHOOL_STATUS": np.float64,  # N2 x M - school status, 1 if close, 0 if open
     # contact matrices
     "A_CHILD": int,  # number of age band for child
     "AGE_CHILD": int,  # A_CHILD - age bands with child
     # min cntct_weekdays_mean and contact intensities during outbreak estimated in Zhang et al
-    "cntct_school_closure_weekdays": jnp.float32,  # M x A x A
+    "cntct_school_closure_weekdays": np.float64,  # M x A x A
     # min cntct_weekends_mean and contact intensities during outbreak estimated in Zhang et al
-    "cntct_school_closure_weekends": jnp.float32,  # M x A x A
-    "cntct_elementary_school_reopening_weekdays": jnp.float32,  # M x A x A - contact matrix for school reopening
-    "cntct_elementary_school_reopening_weekends": jnp.float32,  # M x A x A - contact matrix for school reopening
+    "cntct_school_closure_weekends": np.float64,  # M x A x A
+    "cntct_elementary_school_reopening_weekdays": np.float64,  # M x A x A - contact matrix for school reopening
+    "cntct_elementary_school_reopening_weekends": np.float64,  # M x A x A - contact matrix for school reopening
     # priors
-    "cntct_weekdays_mean": jnp.float32,  # M x A x A - mean of prior contact rates between age groups on weekdays
-    "cntct_weekends_mean": jnp.float32,  # M x A x A - mean of prior contact rates between age groups on weekends
-    "hyperpara_ifr_age_lnmu": jnp.float32,  # A - hyper-parameters for probability of death in age band a log normal mean
-    "hyperpara_ifr_age_lnsd": jnp.float32,  # A - hyper-parameters for probability of death in age band a log normal sd
-    "rev_ifr_daysSinceInfection": jnp.float32,  # N2 - probability of death s days after infection in reverse order
+    "cntct_weekdays_mean": np.float64,  # M x A x A - mean of prior contact rates between age groups on weekdays
+    "cntct_weekends_mean": np.float64,  # M x A x A - mean of prior contact rates between age groups on weekends
+    "hyperpara_ifr_age_lnmu": np.float64,  # A - hyper-parameters for probability of death in age band a log normal mean
+    "hyperpara_ifr_age_lnsd": np.float64,  # A - hyper-parameters for probability of death in age band a log normal sd
+    "rev_ifr_daysSinceInfection": np.float64,  # N2 - probability of death s days after infection in reverse order
     # fixed pre-calculated serial interval using empirical data from Neil in reverse order
-    "rev_serial_interval": jnp.float32,  # SI_CUT
-    "init_A": jnp.int32,  # N_init_A - age band in which initial cases occur in the first N0 days
+    "rev_serial_interval": np.float64,  # SI_CUT
+    "init_A": np.int64,  # N_init_A - age band in which initial cases occur in the first N0 days
 }
 
 
@@ -407,14 +396,29 @@ def transform_data(data):  # lines 438 -> 503
     data["trans_deaths"] = data["deaths"].T  # M x N2
     data["popByAge_abs"] = data["popByAge"].T * data["pop"][:, None]  # M x A
 
-    # TODO: shift index arrays by 1?
+    time_slice = np.arange(data["N2"])
 
-    # TODO: preprocess those fields based on data["WKEND_IDX_N"] and data["wkend_idx"]
-    # The logic is at localtion m, time t, it is weekend if t in wkend_idx[:WKEND_IDX_N[m], m]
-    data["cntct_mean"] = data["cntct_weekends_mean"]  # data["cntct_weekdays_mean"]
-    data["cntct_school_closure"] = data["cntct_school_closure_weekends"]  # data["cntct_school_closure_weekdays"]
-    data["cntct_elementary_school_reopening"] = data["cntct_elementary_school_reopening_weekends"]
-    # data["cntct_elementary_school_reopening_weekdays"]
+    # convert wkend_idx (N2 x M) to wkend_mask (M x N2)
+    wkend_mask = np.full((data["M"], data["N2"]), False)
+    for m, num_wkend_idx in enumerate(data["WKEND_IDX_N"]):
+        wkend_mask[m, data["wkend_idx"][:num_wkend_idx, m] - 1] = True
+    data["wkend_mask"] = wkend_mask
+
+    # replace -1. values by 1. to avoid NaN in StudentT.cdf
+    data["smoothed_logcases_week_pars"] = np.where(
+        (data["smoothed_logcases_week_map"] > 0).all(-1, keepdims=True),
+        data["smoothed_logcases_week_pars"],
+        1.
+    )
+
+    # convert school_case_time_idx (M x 2) to school_case_time_mask (M x N2)
+    start = data["school_case_time_idx"][:, None, 0] - 1
+    end = data["school_case_time_idx"][:, None, 1]
+    school_case_time_mask = start <= time_slice & time_slice < end
+    data["school_case_time_mask"] = school_case_time_mask
+    # replace -1. values by 1. to avoid NaN in Normal.cdf
+    data["school_case_data"] = np.where(
+        data["school_case_time_mask"].all(-1), data["school_case_data"], 1.)
 
 
 def model(data):  # lines 523 -> end
@@ -506,19 +510,16 @@ def model(data):  # lines 523 -> end
         data["SI_CUT"],
         # data["WKEND_IDX_N"],
         # data["wkend_idx"],
+        data["wkend_mask"],
         data["upswing_timeeff_map"],
         data["avg_cntct"],
         data["covariates"],
-        # NB: those fields are computed from below fields and wken_idx
-        data["cntct_mean"],
-        data["cntct_school_closure"],
-        data["cntct_elementary_school_reopening"],
-        # data["cntct_weekends_mean"],
-        # data["cntct_weekdays_mean"],
-        # data["cntct_school_closure_weekends"],
-        # data["cntct_school_closure_weekdays"],
-        # data["cntct_elementary_school_reopening_weekends"],
-        # data["cntct_elementary_school_reopening_weekdays"],
+        data["cntct_weekends_mean"],
+        data["cntct_weekdays_mean"],
+        data["cntct_school_closure_weekends"],
+        data["cntct_school_closure_weekdays"],
+        data["cntct_elementary_school_reopening_weekends"],
+        data["cntct_elementary_school_reopening_weekdays"],
         data["rev_ifr_daysSinceInfection"],
         log_ifr_age_base,
         log_ifr_age_rnde_mid1,
@@ -539,7 +540,8 @@ def model(data):  # lines 523 -> end
         data["smoothed_logcases_weeks_n"],
         data["smoothed_logcases_week_map"],
         data["smoothed_logcases_week_pars"],
-        data["school_case_time_idx"],
+        # data["school_case_time_idx"],
+        data["school_case_time_mask"],
         data["school_case_data"],
     )
     numpyro.factor("contries_log_factor", countries_log_factor)
