@@ -222,7 +222,7 @@ def country_EcasesByAge_scan(
 if __name__ == '__main__':
     numpyro.enable_x64()
 
-    NUM_TESTS = 3
+    NUM_TESTS = 6
 
     A = 6
     A_CHILD = 2
@@ -230,8 +230,8 @@ if __name__ == '__main__':
     init_A = [2, 4]
 
     for test in range(NUM_TESTS):
-        N0 = 4 + 4 * test
-        N2 = 12 + 2 * test
+        N0 = 4 + 4 * test // 2
+        N2 = 12 + 2 * test // 2
         SI_CUT = 9 + test
 
         R0_local = np.random.rand(1).item()
@@ -240,10 +240,10 @@ if __name__ == '__main__':
         impact_intv_children_effect = np.random.rand(1).item()
         impact_intv_onlychildren_effect = np.random.rand(1).item()
         impact_intv = np.random.rand(N2, A)
-        elementary_school_reopening_idx_local = 2
+        elementary_school_reopening_idx_local = np.random.randint(N0 + 2, N0 + 6)
         SCHOOL_STATUS_local = np.random.randint(0, 2, N2)
         avg_cntct_local = np.random.rand(1).item()
-        wkend_idx_local = [True, False] * ((N2 - N0) // 2)
+        wkend_idx_local = np.array(np.random.randint(0, 2, N2 - N0), dtype=np.bool)
         cntct_weekends_mean_local = np.random.rand(A, A)
         cntct_weekdays_mean_local = np.random.rand(A, A)
         cntct_school_closure_weekends_local = np.random.rand(A, A)
@@ -251,7 +251,7 @@ if __name__ == '__main__':
         cntct_elementary_school_reopening_weekends_local = np.random.rand(A, A)
         cntct_elementary_school_reopening_weekdays_local = np.random.rand(A, A)
         rev_serial_interval = np.random.rand(SI_CUT)
-        popByAge_abs_local = 123.4 * np.random.rand(A)
+        popByAge_abs_local = 12.3 * np.random.rand(A)
 
         value_direct = country_EcasesByAge_direct(
             R0_local,
