@@ -1,6 +1,6 @@
 import numpy as np
 
-from jax.lax import scan, dynamic_slice_in_dim, cond, switch
+from jax.lax import scan, cond, switch
 import jax.numpy as jnp
 import jax.ops as ops
 
@@ -52,13 +52,10 @@ def country_EcasesByAge_direct(
     E_casesByAge[:N0, init_A] = e_cases_N0_local / N_init_A
 
     for t in range(N0, N2):
-        start_idx_rev_serial = SI_CUT - t + 1;
-        start_idx_E_casesByAge = t - SI_CUT - 1;
+        start_idx_rev_serial = max(0, SI_CUT - t + 1)
+        start_idx_E_casesByAge = max(0, t - SI_CUT - 1)
 
-        prop_susceptibleByAge = 1.0 - E_casesByAge[:t-1].sum(0) / popByAge_abs_local
-
-        start_idx_rev_serial = max(0, start_idx_rev_serial)
-        start_idx_E_casesByAge = max(0, start_idx_E_casesByAge)
+        prop_susceptibleByAge = 1.0 - E_casesByAge[:t].sum(0) / popByAge_abs_local
         prop_susceptibleByAge = np.maximum(0.0, prop_susceptibleByAge)
 
         tmp_row_vector_A = (rev_serial_interval[start_idx_rev_serial:SI_CUT][:, None] *
@@ -83,9 +80,9 @@ def country_EcasesByAge_direct(
             tmp_row_vector_A_with_children_and_childrenchildren_impact_intv = tmp_row_vector_A_with_children_impact_intv.copy()
             tmp_row_vector_A_with_children_and_childrenchildren_impact_intv[:A_CHILD] *= impact_intv_onlychildren_effect
 
-            col1 = (tmp_row_vector_A_with_children_and_childrenchildren_impact_intv[:, None] * \
+            col1 = (tmp_row_vector_A_with_children_and_childrenchildren_impact_intv[:, None] *
                     cntct_elementary_school_reopening_local[:, :A_CHILD]).sum(0)
-            col2 = (tmp_row_vector_A_with_children_impact_intv[:, None] * \
+            col2 = (tmp_row_vector_A_with_children_impact_intv[:, None] *
                     cntct_elementary_school_reopening_local[:, A_CHILD:]).sum(0)
             E_casesByAge[t] = np.concatenate([col1, col2])
 
@@ -145,6 +142,10 @@ def country_EcasesByAge_scan(
         weekend_t, SCHOOL_STATUS_t = x
         E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT, t = carry
 
+        E_casesByAge_sum = E_casesByAge_sum + E_casesByAge[t-1]
+        # basically "roll left and append second newest slice at right"
+        E_casesByAge_SI_CUT = jnp.concatenate([E_casesByAge_SI_CUT[1:], E_casesByAge[None, t-2]])
+
         prop_susceptibleByAge = 1.0 - E_casesByAge_sum / popByAge_abs_local
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
 
@@ -154,13 +155,13 @@ def country_EcasesByAge_scan(
             (cntct_weekends_mean_local, cntct_elementary_school_reopening_weekends_local, cntct_school_closure_weekends_local), identity,
             (cntct_weekdays_mean_local, cntct_elementary_school_reopening_weekdays_local, cntct_school_closure_weekdays_local), identity)
 
-        def school_open_branch(dummy):
+        def school_open(dummy):
             return tmp_row_vector_A[:, None], cntct_mean_local[:, :A_CHILD],\
                    tmp_row_vector_A[:A_CHILD, None], cntct_mean_local[:A_CHILD, A_CHILD:],\
                    tmp_row_vector_A[A_CHILD:, None], cntct_mean_local[A_CHILD:, A_CHILD:],\
                    impact_intv[t, A_CHILD:]
 
-        def school_reopen_branch(dummy):
+        def school_reopen(dummy):
             impact_intv_children_effect_padded = jnp.concatenate([impact_intv_children_effect * jnp.ones(A_CHILD),
                                                                   jnp.ones(A - A_CHILD)])
             impact_intv_onlychildren_effect_padded = jnp.concatenate([impact_intv_onlychildren_effect * jnp.ones(A_CHILD),
@@ -181,7 +182,7 @@ def country_EcasesByAge_scan(
                    impact_intv[t, A_CHILD:]
 
         branch_idx = 2 * SCHOOL_STATUS_t + (t >= elementary_school_reopening_idx_local).astype(jnp.int32)
-        contact_inputs = switch(branch_idx, [school_open_branch, school_reopen_branch, school_closed], None)
+        contact_inputs = switch(branch_idx, [school_open, school_reopen, school_closed], None)
         col1_left, col1_right, col2_topleft, col2_topright, col2_bottomleft, col2_bottomright, impact_intv_adult = contact_inputs
 
         col1 = (col1_left * col1_right).sum(0)
@@ -193,11 +194,6 @@ def country_EcasesByAge_scan(
 
         # update current time slice of E_casesByAge
         E_casesByAge = ops.index_update(E_casesByAge, t, E_casesByAge_t, indices_are_sorted=True, unique_indices=True)
-
-        # update carry variables
-        E_casesByAge_sum = E_casesByAge_sum + E_casesByAge[t].sum(0)
-        # basically "roll left and append newest slice at right"
-        E_casesByAge_SI_CUT = jnp.concatenate([E_casesByAge_SI_CUT[1:], E_casesByAge[t][None, :]])
 
         return (E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT, t + 1), None
 
@@ -212,7 +208,7 @@ def country_EcasesByAge_scan(
     # initialize carry variables
     E_casesByAge_sum = E_casesByAge[:N0-1].sum(0)
     # pad with zeros on left
-    E_casesByAge_SI_CUT = jnp.concatenate([jnp.zeros((SI_CUT - N0 + 1, A)), E_casesByAge[:N0 - 1]])
+    E_casesByAge_SI_CUT = jnp.concatenate([jnp.zeros((SI_CUT - N0 + 2, A)), E_casesByAge[:N0 - 2]])
 
     init = (E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT, N0)
     xs = (wkend_idx_local, SCHOOL_STATUS_local[N0:])
@@ -223,93 +219,98 @@ def country_EcasesByAge_scan(
     return E_casesByAge
 
 
-numpyro.enable_x64()
+if __name__ == '__main__':
+    numpyro.enable_x64()
 
+    NUM_TESTS = 6
 
-N0 = 4
-N2 = 10
-A = 6
-A_CHILD = 2
-SI_CUT = 5
-N_init_A = 2
-init_A = [2, 4]
+    A = 6
+    A_CHILD = 2
+    N_init_A = 2
+    init_A = [2, 4]
 
-R0_local = np.random.rand(1).item()
-e_cases_N0_local = np.random.rand(1).item()
-log_relsusceptibility_age = np.random.randn(A)
-impact_intv_children_effect = np.random.rand(1).item()
-impact_intv_onlychildren_effect = np.random.rand(1).item()
-impact_intv = np.random.rand(N2, A)
-elementary_school_reopening_idx_local = 2
-SCHOOL_STATUS_local = [0, 1] * (N2 // 2)
-avg_cntct_local = np.random.rand(1).item()
-wkend_idx_local = [True, False] * ((N2 - N0) // 2)
-cntct_weekends_mean_local = np.random.rand(A, A)
-cntct_weekdays_mean_local = np.random.rand(A, A)
-cntct_school_closure_weekends_local = np.random.rand(A, A)
-cntct_school_closure_weekdays_local = np.random.rand(A, A)
-cntct_elementary_school_reopening_weekends_local = np.random.rand(A, A)
-cntct_elementary_school_reopening_weekdays_local = np.random.rand(A, A)
-rev_serial_interval = np.random.rand(SI_CUT)
-popByAge_abs_local = 1234.5 * np.random.rand(A)
+    for test in range(NUM_TESTS):
+        N0 = 4 + 4 * test // 2
+        N2 = 12 + 2 * test // 2
+        SI_CUT = 9 + test
 
+        R0_local = np.random.rand(1).item()
+        e_cases_N0_local = np.random.rand(1).item()
+        log_relsusceptibility_age = np.random.randn(A)
+        impact_intv_children_effect = np.random.rand(1).item()
+        impact_intv_onlychildren_effect = np.random.rand(1).item()
+        impact_intv = np.random.rand(N2, A)
+        elementary_school_reopening_idx_local = np.random.randint(N0 + 2, N0 + 6)
+        SCHOOL_STATUS_local = np.random.randint(0, 2, N2)
+        avg_cntct_local = np.random.rand(1).item()
+        wkend_idx_local = np.array(np.random.randint(0, 2, N2 - N0), dtype=np.bool)
+        cntct_weekends_mean_local = np.random.rand(A, A)
+        cntct_weekdays_mean_local = np.random.rand(A, A)
+        cntct_school_closure_weekends_local = np.random.rand(A, A)
+        cntct_school_closure_weekdays_local = np.random.rand(A, A)
+        cntct_elementary_school_reopening_weekends_local = np.random.rand(A, A)
+        cntct_elementary_school_reopening_weekdays_local = np.random.rand(A, A)
+        rev_serial_interval = np.random.rand(SI_CUT)
+        popByAge_abs_local = 12.3 * np.random.rand(A)
 
-value_direct = country_EcasesByAge_direct(
-    R0_local,
-    e_cases_N0_local,
-    log_relsusceptibility_age,
-    impact_intv_children_effect,
-    impact_intv_onlychildren_effect,
-    impact_intv,
-    N0,
-    elementary_school_reopening_idx_local,
-    N2,
-    SCHOOL_STATUS_local,
-    A,
-    A_CHILD,
-    SI_CUT,
-    wkend_idx_local,
-    avg_cntct_local,
-    cntct_weekends_mean_local,
-    cntct_weekdays_mean_local,
-    cntct_school_closure_weekends_local,
-    cntct_school_closure_weekdays_local,
-    cntct_elementary_school_reopening_weekends_local,
-    cntct_elementary_school_reopening_weekdays_local,
-    rev_serial_interval,
-    popByAge_abs_local,
-    N_init_A,
-    init_A)
+        value_direct = country_EcasesByAge_direct(
+            R0_local,
+            e_cases_N0_local,
+            log_relsusceptibility_age,
+            impact_intv_children_effect,
+            impact_intv_onlychildren_effect,
+            impact_intv,
+            N0,
+            elementary_school_reopening_idx_local,
+            N2,
+            SCHOOL_STATUS_local,
+            A,
+            A_CHILD,
+            SI_CUT,
+            wkend_idx_local,
+            avg_cntct_local,
+            cntct_weekends_mean_local,
+            cntct_weekdays_mean_local,
+            cntct_school_closure_weekends_local,
+            cntct_school_closure_weekdays_local,
+            cntct_elementary_school_reopening_weekends_local,
+            cntct_elementary_school_reopening_weekdays_local,
+            rev_serial_interval,
+            popByAge_abs_local,
+            N_init_A,
+            init_A)
 
-print("country_EcasesByAge_direct() =", value_direct.shape)
-assert value_direct.shape == (N2, A)
+        value_scan = country_EcasesByAge_scan(
+            R0_local,
+            e_cases_N0_local,
+            log_relsusceptibility_age,
+            impact_intv_children_effect,
+            impact_intv_onlychildren_effect,
+            jnp.array(impact_intv),
+            N0,
+            elementary_school_reopening_idx_local,
+            N2,
+            jnp.array(SCHOOL_STATUS_local),
+            A,
+            A_CHILD,
+            SI_CUT,
+            jnp.array(wkend_idx_local),
+            avg_cntct_local,
+            cntct_weekends_mean_local,
+            cntct_weekdays_mean_local,
+            cntct_school_closure_weekends_local,
+            cntct_school_closure_weekdays_local,
+            cntct_elementary_school_reopening_weekends_local,
+            cntct_elementary_school_reopening_weekdays_local,
+            rev_serial_interval,
+            popByAge_abs_local,
+            N_init_A,
+            init_A)
 
-value_scan = country_EcasesByAge_scan(
-    R0_local,
-    e_cases_N0_local,
-    log_relsusceptibility_age,
-    impact_intv_children_effect,
-    impact_intv_onlychildren_effect,
-    jnp.array(impact_intv),
-    N0,
-    elementary_school_reopening_idx_local,
-    N2,
-    jnp.array(SCHOOL_STATUS_local),
-    A,
-    A_CHILD,
-    SI_CUT,
-    jnp.array(wkend_idx_local),
-    avg_cntct_local,
-    cntct_weekends_mean_local,
-    cntct_weekdays_mean_local,
-    cntct_school_closure_weekends_local,
-    cntct_school_closure_weekdays_local,
-    cntct_elementary_school_reopening_weekends_local,
-    cntct_elementary_school_reopening_weekdays_local,
-    rev_serial_interval,
-    popByAge_abs_local,
-    N_init_A,
-    init_A)
+        delta = value_direct - value_scan
+        max_delta = np.max(np.fabs(delta))
 
-delta = value_direct - value_scan
-print("delta\n", delta)
+        print("[Test {}] Max delta: {:.2e}".format(test, max_delta))
+        assert value_direct.shape == (N2, A)
+        assert value_scan.shape == (N2, A)
+        assert max_delta < 1.0e-13
