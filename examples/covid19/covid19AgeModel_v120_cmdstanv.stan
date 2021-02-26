@@ -571,6 +571,7 @@ transformed parameters {
 model {
   // priors
   target += lognormal_lpdf( e_cases_N0 | 4.85, 0.4); // qlnorm(c(0.01,0.5,0.99), 4.85, 0.4) = 50.37328 127.74039 323.93379
+  /*
   target += normal_lpdf( phi | 0, 5);
   target += normal_lpdf( beta | 0, 1);
   target += lognormal_lpdf(R0 | 0.98, 0.2); // qlnorm(c(0.025,0.5,0.975), .98, 0.2) = 1.800397 2.664456 3.943201
@@ -591,7 +592,7 @@ model {
   target += exponential_lpdf( hyper_timeeff_shift_mid1 | .1);
   target += exponential_lpdf( timeeff_shift_mid1 | hyper_timeeff_shift_mid1);
   target += lognormal_lpdf( impact_intv_onlychildren_effect | 0, 0.35); // exp(-0.35*2) = 0.496
-  
+  */
   // rstan version
   // target += countries_log_dens(trans_deaths, 1, M,
   // cmdstan version

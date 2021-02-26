@@ -13,11 +13,6 @@ from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer.reparam import TransformReparam
 
 
-# checks if pos is in pos_var
-def r_in(pos: int, pos_var: list) -> bool:
-    return pos in pos_var  # it seems that this function is not necessary
-
-
 # returns multiplier on the rows of the contact matrix over time for one country
 def country_impact(
     beta: np.float64,  # 2
@@ -98,7 +93,6 @@ def country_EcasesByAge(
     # calculate expected cases by age and country under self-renewal model after first N0 days
     # and adjusted for saturation
     # TODO: implement using scan
-    E_casesByAge += 1000.
 
     return E_casesByAge
 
@@ -293,7 +287,7 @@ def countries_log_dens(
     E_deaths = E_deathsByAge.sum(-1)  # M x N2
 
     # likelihood death data this location
-    # lpmf += NegBinomial2(E_deaths, phi).mask(epidemic_mask).log_prob(deaths_slice).sum()
+    lpmf += NegBinomial2(E_deaths, phi).mask(epidemic_mask).log_prob(deaths_slice).sum()
 
     # filter out countries with deaths by age data
     E_deathsByAge = E_deathsByAge[map_country[:, 0] == 1]  # M_AD x N2 x A
@@ -303,18 +297,18 @@ def countries_log_dens(
         E_deathsByAge, dataByAgestart, E_deathsByAge_firstday)
     # after daily death
     # TODO: debug
-    # lpmf += NegBinomial2(E_deathsByAge @ map_age, phi).mask(dataByAge_mask).log_prob(deathsByAge).sum()
+    lpmf += NegBinomial2(E_deathsByAge @ map_age, phi).mask(dataByAge_mask).log_prob(deathsByAge).sum()
 
     # likelihood case data this location
     E_casesByWeek = jnp.take_along_axis(
         E_cases, smoothed_logcases_week_map.reshape((data["M"], -1)), -1).reshape((data["M"], -1, 7))
     E_log_week_avg_cases = jnp.log(E_casesByWeek).mean(-1)
-    # lpmf += jnp.where(np.arange(E_log_week_avg_cases.shape[1]) < smoothed_logcases_weeks_n[:, None],
-    #                   jnp.log(dist.StudentT(smoothed_logcases_week_pars[..., 2],
-    #                                         smoothed_logcases_week_pars[..., 0],
-    #                                           smoothed_logcases_week_pars[..., 1])
-    #                             .cdf(E_log_week_avg_cases)),
-    #                     0.).sum()
+    lpmf += jnp.where(np.arange(E_log_week_avg_cases.shape[1]) < smoothed_logcases_weeks_n[:, None],
+                      jnp.log(dist.StudentT(smoothed_logcases_week_pars[..., 2],
+                                            smoothed_logcases_week_pars[..., 0],
+                                            smoothed_logcases_week_pars[..., 1])
+                                  .cdf(E_log_week_avg_cases)),
+                      0.).sum()
 
     # likelihood school case data this location
     school_case_weights = np.array([1., 1., 0.8])
@@ -323,10 +317,10 @@ def countries_log_dens(
 
     # prevent over/underflow
     school_attack_rate = jnp.minimum(school_attack_rate, school_case_data[:, 2] * 4)
-    # lpmf += jnp.where(school_case_time_mask.all(-1),
-    #                   jnp.log(dist.Normal(school_case_data[:, [0, 2]], school_case_data[:, [1, 3]])
-    #                               .cdf(school_attack_rate[:, None])).sum(-1),
-    #                   0.).sum()
+    lpmf += jnp.where(school_case_time_mask.all(-1),
+                      jnp.log(dist.Normal(school_case_data[:, [0, 2]], school_case_data[:, [1, 3]])
+                                  .cdf(school_attack_rate[:, None])).sum(-1),
+                      0.).sum()
 
     return lpmf
 
@@ -418,6 +412,7 @@ def transform_data(data):  # lines 438 -> 503
     data["dataByAgestart"] = data["dataByAgestart"] - 1
     data["wkend_idx"] = data["wkend_idx"] - 1
     data["school_case_time_idx"] = data["school_case_time_idx"] - 1
+    data["AGE_CHILD"] = data["AGE_CHILD"] - 1
 
     # create epidemic_mask for indices from epidemicStart to dataByAgeStart or N
     epidemic_mask = np.full((data["M"], data["N2"]), False)
@@ -488,24 +483,27 @@ def transform_parameters(M, log_relsusceptibility_age_reduced, timeeff_shift_mid
 
 def model(data):  # lines 523 -> end
     # priors
-    sd_dip_rnde = numpyro.sample("sd_dip_rnde", dist.Exponential(1.5))
-    phi = numpyro.sample("phi", dist.HalfNormal(5))  # overdispersion parameter for likelihood model
-    hyper_log_ifr_age_rnde_mid1 = numpyro.sample("hyper_log_ifr_age_rnde_mid1", dist.Exponential(.1))
-    hyper_log_ifr_age_rnde_mid2 = numpyro.sample("hyper_log_ifr_age_rnde_mid2", dist.Exponential(.1))
-    hyper_log_ifr_age_rnde_old = numpyro.sample("hyper_log_ifr_age_rnde_old", dist.Exponential(.1))
+    sd_dip_rnde = numpyro.sample("sd_dip_rnde", dist.Exponential(1.5).mask(True))
+    phi = numpyro.sample("phi", dist.HalfNormal(5).mask(True))  # overdispersion parameter for likelihood model
+    hyper_log_ifr_age_rnde_mid1 = numpyro.sample("hyper_log_ifr_age_rnde_mid1", dist.Exponential(.1).mask(True))
+    hyper_log_ifr_age_rnde_mid2 = numpyro.sample("hyper_log_ifr_age_rnde_mid2", dist.Exponential(.1).mask(True))
+    hyper_log_ifr_age_rnde_old = numpyro.sample("hyper_log_ifr_age_rnde_old", dist.Exponential(.1).mask(True))
     log_relsusceptibility_age_reduced = numpyro.sample(
         "log_relsusceptibility_age_reduced",
-        dist.Normal(jnp.array([-1.0702331, 0.3828269]), jnp.array([0.2169696, 0.1638433])))
-    sd_upswing_timeeff_reduced = numpyro.sample("sd_upswing_timeeff_reduced", dist.LogNormal(-1.2, 0.2))
-    hyper_timeeff_shift_mid1 = numpyro.sample("hyper_timeeff_shift_mid1", dist.Exponential(.1))
-    impact_intv_children_effect = numpyro.sample("impact_intv_children_effect", dist.Uniform(0.1, 1.0))
+        dist.Normal(jnp.array([-1.0702331, 0.3828269]), jnp.array([0.2169696, 0.1638433])).mask(True))
+    sd_upswing_timeeff_reduced = numpyro.sample("sd_upswing_timeeff_reduced", dist.LogNormal(-1.2, 0.2).mask(True))
+    hyper_timeeff_shift_mid1 = numpyro.sample("hyper_timeeff_shift_mid1", dist.Exponential(.1).mask(True))
+    impact_intv_children_effect = numpyro.sample("impact_intv_children_effect", dist.Uniform(0.1, 1.0).mask(True))
     impact_intv_onlychildren_effect = numpyro.sample(
-        "impact_intv_onlychildren_effect", dist.LogNormal(0, 0.35))
+        "impact_intv_onlychildren_effect", dist.LogNormal(0, 0.35).mask(True))
 
     with numpyro.plate("M", data["M"]):
-        R0 = numpyro.sample("R0", dist.LogNormal(0.98, 0.2))
+        R0 = numpyro.sample("R0", dist.LogNormal(0.98, 0.2).mask(True))
         # expected number of cases per day in the first N0 days, for each country
-        e_cases_N0 = numpyro.sample("e_cases_N0", dist.LogNormal(4.85, 0.4))
+        e_cases_N0 = numpyro.sample("e_cases_N0", dist.LogNormal(4.85, 0.4).mask(True))
+        upswing_timeeff_reduced = numpyro.sample(
+            "upswing_timeeff_reduced",
+            dist.ImproperUniform(dist.constraints.positive, (), (data["N_IMP"],)))
         reparam_config = {k: TransformReparam() for k in [
             "dip_rnde", "log_ifr_age_rnde_mid1", "log_ifr_age_rnde_mid2", "log_ifr_age_rnde_old",
             "upswing_timeeff_reduced_base", "timeeff_shift_mid1"
@@ -513,30 +511,42 @@ def model(data):  # lines 523 -> end
         reparam_config = {}
         with numpyro.handlers.reparam(config=reparam_config):
             dip_rnde = numpyro.sample("dip_rnde", dist.TransformedDistribution(
-                dist.Normal(0., 1.), AffineTransform(0., sd_dip_rnde)))
+                dist.Normal(0., 1.), AffineTransform(0., sd_dip_rnde)).mask(True))
             log_ifr_age_rnde_mid1 = numpyro.sample(
                 "log_ifr_age_rnde_mid1", dist.TransformedDistribution(
-                    dist.Exponential(1.), AffineTransform(0., 1 / hyper_log_ifr_age_rnde_mid1)))
+                    dist.Exponential(1.),
+                    AffineTransform(0., 1 / hyper_log_ifr_age_rnde_mid1, domain=dist.constraints.positive)
+                ).mask(True))
             log_ifr_age_rnde_mid2 = numpyro.sample(
-                "log_ifr_age_rnde_mid2", dist.TransformedDistribution(
-                    dist.Exponential(1.), AffineTransform(0., 1 / hyper_log_ifr_age_rnde_mid2)))
+                "log_ifr_age_rnde_mid2",
+                dist.TransformedDistribution(
+                    dist.Exponential(1.),
+                    AffineTransform(0., 1 / hyper_log_ifr_age_rnde_mid2, domain=dist.constraints.positive)
+                ).mask(True))
             log_ifr_age_rnde_old = numpyro.sample(
-                "log_ifr_age_rnde_old", dist.TransformedDistribution(
-                    dist.Exponential(1.), AffineTransform(0., 1 / hyper_log_ifr_age_rnde_old)))
-            sd_upswing_timeeff_reduced = jnp.concatenate(
-                [jnp.array([0.025]), jnp.repeat(sd_upswing_timeeff_reduced, data["N_IMP"] - 1)])
-            upswing_timeeff_reduced = numpyro.sample(
-                "upswing_timeeff_reduced", dist.TransformedDistribution(
-                    dist.GaussianRandomWalk(1., data["N_IMP"]),
-                    AffineTransform(0., sd_upswing_timeeff_reduced)))
-            upswing_timeeff_reduced = upswing_timeeff_reduced.T  # M x N_IMP
+                "log_ifr_age_rnde_old",
+                dist.TransformedDistribution(
+                    dist.Exponential(1.),
+                    AffineTransform(0., 1 / hyper_log_ifr_age_rnde_old, domain=dist.constraints.positive)
+                ).mask(True))
             timeeff_shift_mid1 = numpyro.sample(
-                "timeeff_shift_mid1", dist.TransformedDistribution(
-                    dist.Exponential(1.), AffineTransform(0., hyper_timeeff_shift_mid1)))
+                "timeeff_shift_mid1",
+                dist.TransformedDistribution(
+                    dist.Exponential(1.),
+                    AffineTransform(0., hyper_timeeff_shift_mid1, domain=dist.constraints.positive)
+                ).mask(True))
+
+    numpyro.factor("upswing_timeeff_reduced_init_log_factor",
+                   dist.TruncatedDistribution(dist.Normal(0., 0.025), low=0.)
+                       .log_prob(upswing_timeeff_reduced[0]))
+    numpyro.factor("upswing_timeeff_reduced_log_factor",
+                   dist.TruncatedNormal(dist.Normal(
+                       upswing_timeeff_reduced[:-1], sd_upswing_timeeff_reduced), low=0.)
+                   .log_prob(upswing_timeeff_reduced[1:]))
 
     with numpyro.plate("COVARIATES_Nm1", data["COVARIATES_N"] - 1):
         # regression coefficients for time varying multipliers on contacts
-        beta = numpyro.sample("beta", dist.Normal(0., 1.))
+        beta = numpyro.sample("beta", dist.Normal(0., 1.).mask(True))
 
     with numpyro.plate("A", data["A"]):
         # probability of death for age band a
@@ -544,7 +554,7 @@ def model(data):  # lines 523 -> end
             "log_ifr_age_base",
             dist.TruncatedDistribution(
                 dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"]),
-                high=0.))
+                high=0.).mask(True))
 
     log_relsusceptibility_age, timeeff_shift_age = transform_parameters(
         data["M"], log_relsusceptibility_age_reduced, timeeff_shift_mid1)
