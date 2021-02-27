@@ -25,9 +25,7 @@ def country_EcasesByAge_direct(
     A: int,
     A_CHILD: int,
     SI_CUT: int,
-    # TODO: convert this to a boolean vector of length N2 - N0:
-    #   [t in wken_idx_local for t in [N0, N2)]
-    wkend_idx_local: jnp.int32,  # 1D
+    wkend_idx_local, # boolean array
     avg_cntct_local: float,
     cntct_weekends_mean_local: jnp.float32,  # A x A
     cntct_weekdays_mean_local: jnp.float32,  # A x A
@@ -52,17 +50,17 @@ def country_EcasesByAge_direct(
     E_casesByAge[:N0, init_A] = e_cases_N0_local / N_init_A
 
     for t in range(N0, N2):
-        start_idx_rev_serial = max(0, SI_CUT - t + 1)
-        start_idx_E_casesByAge = max(0, t - SI_CUT - 1)
+        start_idx_rev_serial = max(0, SI_CUT - t)
+        start_idx_E_casesByAge = max(0, t - SI_CUT)
 
         prop_susceptibleByAge = 1.0 - E_casesByAge[:t].sum(0) / popByAge_abs_local
         prop_susceptibleByAge = np.maximum(0.0, prop_susceptibleByAge)
 
-        tmp_row_vector_A = (rev_serial_interval[start_idx_rev_serial:SI_CUT][:, None] *
-                            E_casesByAge[start_idx_E_casesByAge:t-1]).sum(0)
+        tmp_row_vector_A = (rev_serial_interval[start_idx_rev_serial:SI_CUT][:, None] * E_casesByAge[start_idx_E_casesByAge:t]).sum(0)
         tmp_row_vector_A *= rho0
         tmp_row_vector_A_no_impact_intv = tmp_row_vector_A.copy()
 
+        # choose weekend/weekday contact matrices
         weekend = wkend_idx_local[t - N0]  # this is a boolean
         cntct_mean_local = cntct_weekends_mean_local if weekend else cntct_weekdays_mean_local
         cntct_elementary_school_reopening_local = cntct_elementary_school_reopening_weekends_local if weekend \
@@ -118,9 +116,7 @@ def country_EcasesByAge_scan(
     A: int,
     A_CHILD: int,
     SI_CUT: int,
-    # TODO: convert this to a boolean vector of length N2 - N0:
-    #   [t in wken_idx_local for t in [N0, N2)]
-    wkend_idx_local: jnp.int32,  # 1D
+    wkend_idx_local, # boolean array
     avg_cntct_local: float,
     cntct_weekends_mean_local: jnp.float32,  # A x A
     cntct_weekdays_mean_local: jnp.float32,  # A x A
@@ -142,15 +138,18 @@ def country_EcasesByAge_scan(
         weekend_t, SCHOOL_STATUS_t = x
         E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT, t = carry
 
+        # add term to cumulative sum
         E_casesByAge_sum = E_casesByAge_sum + E_casesByAge[t-1]
-        # basically "roll left and append second newest slice at right"
-        E_casesByAge_SI_CUT = jnp.concatenate([E_casesByAge_SI_CUT[1:], E_casesByAge[None, t-2]])
+        # basically "roll left and append most recent time slice at right"
+        E_casesByAge_SI_CUT = jnp.concatenate([E_casesByAge_SI_CUT[1:], E_casesByAge[None, t-1]])
 
         prop_susceptibleByAge = 1.0 - E_casesByAge_sum / popByAge_abs_local
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
 
+        # this convolution is effectively zero padded on the left
         tmp_row_vector_A = rho0 * rev_serial_interval @ E_casesByAge_SI_CUT
 
+        # choose weekend/weekday contact matrices
         cntct_mean_local, cntct_elementary_school_reopening_local, cntct_school_closure_local = cond(weekend_t,
             (cntct_weekends_mean_local, cntct_elementary_school_reopening_weekends_local, cntct_school_closure_weekends_local), identity,
             (cntct_weekdays_mean_local, cntct_elementary_school_reopening_weekdays_local, cntct_school_closure_weekdays_local), identity)
@@ -181,6 +180,8 @@ def country_EcasesByAge_scan(
                    tmp_row_vector_A[A_CHILD:, None], cntct_school_closure_local[A_CHILD:, A_CHILD:],\
                    impact_intv[t, A_CHILD:]
 
+        # branch_idx controls which of the three school branches we should follow in this iteration
+        # 0 => school_open     1 => school_reopen     2 => school_closed
         branch_idx = 2 * SCHOOL_STATUS_t + (t >= elementary_school_reopening_idx_local).astype(jnp.int32)
         contact_inputs = switch(branch_idx, [school_open, school_reopen, school_closed], None)
         col1_left, col1_right, col2_topleft, col2_topright, col2_bottomleft, col2_bottomright, impact_intv_adult = contact_inputs
@@ -208,7 +209,7 @@ def country_EcasesByAge_scan(
     # initialize carry variables
     E_casesByAge_sum = E_casesByAge[:N0-1].sum(0)
     # pad with zeros on left
-    E_casesByAge_SI_CUT = jnp.concatenate([jnp.zeros((SI_CUT - N0 + 2, A)), E_casesByAge[:N0 - 2]])
+    E_casesByAge_SI_CUT = jnp.concatenate([jnp.zeros((SI_CUT - N0 + 1, A)), E_casesByAge[:N0 - 1]])
 
     init = (E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT, N0)
     xs = (wkend_idx_local, SCHOOL_STATUS_local[N0:])
