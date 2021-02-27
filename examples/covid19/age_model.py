@@ -93,6 +93,7 @@ def country_EcasesByAge(
     # calculate expected cases by age and country under self-renewal model after first N0 days
     # and adjusted for saturation
     # TODO: implement using scan
+    E_casesByAge += 1000.  # NB: added this for temporary testing
 
     return E_casesByAge
 
@@ -115,7 +116,7 @@ def circular_vecmat(b, A):
     # then we truncate and transpose the result.
     assert isinstance(b, np.ndarray)
     n = b.shape[0]
-    B = np.pad(np.broadcast_to(b, (n, n)), (0, n - 1))
+    B = np.pad(np.broadcast_to(b[::-1], (n, n)), ((0, 0), (0, n - 1)))
     B = B.reshape(-1)[:n * (2 * n - 2)].reshape((n, -1))[:, :n].T
     return B @ A
 
@@ -141,9 +142,9 @@ def country_EdeathsByAge(
     assert A == 18
     E_deathsByAge *= jnp.exp(log_ifr_age_base + jnp.concatenate([
         jnp.zeros(4),
-        jnp.full((6,), log_ifr_age_rnde_mid1_local),
-        jnp.full((4,), log_ifr_age_rnde_mid2_local),
-        jnp.full((4,), log_ifr_age_rnde_old_local)]))
+        jnp.repeat(log_ifr_age_rnde_mid1_local, 6),
+        jnp.repeat(log_ifr_age_rnde_mid2_local, 4),
+        jnp.repeat(log_ifr_age_rnde_old_local, 4)]))
 
     E_deathsByAge += 1e-15
     return E_deathsByAge
@@ -157,8 +158,8 @@ class NegBinomial2(dist.GammaPoisson):
 def countries_log_dens(
     deaths_slice: np.int64,  # 2D
     # NB: start and end are not required, it is useful for Stan map-reduce but we don't use it
-    start: int,
-    end: int,
+    # start: int,
+    # end: int,
     # parameters
     R0: np.float64,  # 1D
     e_cases_N0: np.float64,  # 1D
@@ -204,8 +205,9 @@ def countries_log_dens(
     N_init_A: int,
     init_A: np.int64,  # 1D
     # A_AD: np.int64,  # 1D
-    dataByAge_mask: np.bool,  # 3D: M_AD x N2 x A
     dataByAgestart: np.int64,  # 1D
+    dataByAge_mask: np.bool,  # 2D: M_AD x N2
+    dataByAge_AD_mask: np.bool,  # 3D: M_AD x N2 x A
     map_age: np.float64,  # 2D
     deathsByAge: np.float64,  # 3D
     map_country: np.int64,  # 2D
@@ -218,8 +220,6 @@ def countries_log_dens(
     school_case_time_mask: np.bool,  # M x N2
     school_case_data: np.float64,  # M x 4
 ) -> float:
-    assert start == 0
-    assert end == deaths_slice.shape[0]
     lpmf = 0.
 
     impact_intv = jax.vmap(jax.partial(
@@ -232,7 +232,7 @@ def countries_log_dens(
         COVARIATES_N,
     ))(
         dip_rdeff,
-        upswing_timeeff_reduced,
+        upswing_timeeff_reduced.T,
         covariates,
         timeeff_shift_age,
         upswing_timeeff_map.T,
@@ -292,18 +292,19 @@ def countries_log_dens(
     # filter out countries with deaths by age data
     E_deathsByAge = E_deathsByAge[map_country[:, 0] == 1]  # M_AD x N2 x A
     # first day of data is sumulated death
-    E_deathsByAge_firstday = (dataByAge_mask * E_deathsByAge).sum(-2)  # M_AD x A
+    E_deathsByAge_firstday = (dataByAge_mask[..., None] * E_deathsByAge).sum(-2)  # M_AD x A
     E_deathsByAge = jax.vmap(lambda x, i, v: ops.index_update(x, i, v))(
         E_deathsByAge, dataByAgestart, E_deathsByAge_firstday)
     # after daily death
-    # TODO: debug
-    lpmf += NegBinomial2(E_deathsByAge @ map_age, phi).mask(dataByAge_mask).log_prob(deathsByAge).sum()
+    # NB: we mask to get valid mu
+    masked_mu = jnp.where(dataByAge_AD_mask, E_deathsByAge @ map_age, 1.)
+    lpmf += NegBinomial2(masked_mu, phi).mask(dataByAge_AD_mask).log_prob(jnp.moveaxis(deathsByAge, -1, 0)).sum()
 
     # likelihood case data this location
     E_casesByWeek = jnp.take_along_axis(
         E_cases, smoothed_logcases_week_map.reshape((data["M"], -1)), -1).reshape((data["M"], -1, 7))
     E_log_week_avg_cases = jnp.log(E_casesByWeek).mean(-1)
-    lpmf += jnp.where(np.arange(E_log_week_avg_cases.shape[1]) < smoothed_logcases_weeks_n[:, None],
+    lpmf += jnp.where(jnp.arange(E_log_week_avg_cases.shape[1]) < smoothed_logcases_weeks_n[:, None],
                       jnp.log(dist.StudentT(smoothed_logcases_week_pars[..., 2],
                                             smoothed_logcases_week_pars[..., 0],
                                             smoothed_logcases_week_pars[..., 1])
@@ -311,7 +312,7 @@ def countries_log_dens(
                       0.).sum()
 
     # likelihood school case data this location
-    school_case_weights = np.array([1., 1., 0.8])
+    school_case_weights = jnp.array([1., 1., 0.8])
     school_attack_rate = (school_case_time_mask * (E_casesByAge[:, :, 1:4] @ school_case_weights)).sum(-1)
     school_attack_rate /= popByAge_abs[:, 1:4] @ school_case_weights
 
@@ -321,7 +322,6 @@ def countries_log_dens(
                       jnp.log(dist.Normal(school_case_data[:, [0, 2]], school_case_data[:, [1, 3]])
                                   .cdf(school_attack_rate[:, None])).sum(-1),
                       0.).sum()
-
     return lpmf
 
 
@@ -413,6 +413,7 @@ def transform_data(data):  # lines 438 -> 503
     data["wkend_idx"] = data["wkend_idx"] - 1
     data["school_case_time_idx"] = data["school_case_time_idx"] - 1
     data["AGE_CHILD"] = data["AGE_CHILD"] - 1
+    data["upswing_timeeff_map"] = data["upswing_timeeff_map"] - 1
 
     # create epidemic_mask for indices from epidemicStart to dataByAgeStart or N
     epidemic_mask = np.full((data["M"], data["N2"]), False)
@@ -424,21 +425,24 @@ def transform_data(data):  # lines 438 -> 503
             epidemic_mask[m, start:end] = True
     data["epidemic_mask"] = epidemic_mask
 
-    # correct index_country_slice and move country dimension to front
+    # correct index_country_slice
     country_idx = data["map_country"][:, 1][data["map_country"][:, 0] == 1] - 1
     data["dataByAgestart"] = data["dataByAgestart"][country_idx]
-    data["deathsByAge"] = np.moveaxis(data["deathsByAge"], -1, 0)[country_idx]
+    data["deathsByAge"] = data["deathsByAge"][:, :, country_idx]
     data["map_age"] = data["map_age"][country_idx]
     data["A_AD"] = data["A_AD"][country_idx]
 
     # create dataByAge_mask
     assert data["M_AD"] == sum(data["map_country"][:, 0])
     assert (data["map_country"][:, 1][data["map_country"][:, 0] == 1] - 1 == np.arange(data["M_AD"])).all()
-    dataByAge_mask = np.full((data["M_AD"], data["N2"], data["A"]), False)
+    dataByAge_mask = np.full((data["M_AD"], data["N2"]), False)
+    dataByAge_AD_mask = np.full((data["M_AD"], data["N2"], data["A"]), False)
     for m, (byAge_start, end, A_AD_local) in enumerate(zip(
             data["dataByAgestart"], data["N"][data["map_country"][:, 0] == 1], data["A_AD"])):
-        dataByAge_mask[m, byAge_start:end, :A_AD_local] = True
+        dataByAge_mask[m, byAge_start:end] = True
+        dataByAge_AD_mask[m, byAge_start:end, :A_AD_local] = True
     data["dataByAge_mask"] = dataByAge_mask
+    data["dataByAge_AD_mask"] = dataByAge_AD_mask
 
     # convert wkend_idx (N2 x M) to wkend_mask (M x N2)
     wkend_mask = np.full((data["M"], data["N2"]), False)
@@ -454,7 +458,6 @@ def transform_data(data):  # lines 438 -> 503
     data["school_case_time_mask"] = school_case_time_mask
 
     # replace -1. values by 1. to avoid NaN in cdf
-    data["map_age"] = np.where(data["map_age"] >= 0, data["map_age"], 1.)
     data["smoothed_logcases_week_pars"] = np.where(
         (data["smoothed_logcases_week_map"] > 0).all(-1, keepdims=True),
         data["smoothed_logcases_week_pars"],
@@ -483,27 +486,28 @@ def transform_parameters(M, log_relsusceptibility_age_reduced, timeeff_shift_mid
 
 def model(data):  # lines 523 -> end
     # priors
-    sd_dip_rnde = numpyro.sample("sd_dip_rnde", dist.Exponential(1.5).mask(True))
-    phi = numpyro.sample("phi", dist.HalfNormal(5).mask(True))  # overdispersion parameter for likelihood model
-    hyper_log_ifr_age_rnde_mid1 = numpyro.sample("hyper_log_ifr_age_rnde_mid1", dist.Exponential(.1).mask(True))
-    hyper_log_ifr_age_rnde_mid2 = numpyro.sample("hyper_log_ifr_age_rnde_mid2", dist.Exponential(.1).mask(True))
-    hyper_log_ifr_age_rnde_old = numpyro.sample("hyper_log_ifr_age_rnde_old", dist.Exponential(.1).mask(True))
+    sd_dip_rnde = numpyro.sample("sd_dip_rnde", dist.Exponential(1.5))
+    phi = numpyro.sample("phi", dist.HalfNormal(5))  # overdispersion parameter for likelihood model
+    hyper_log_ifr_age_rnde_mid1 = numpyro.sample("hyper_log_ifr_age_rnde_mid1", dist.Exponential(.1))
+    hyper_log_ifr_age_rnde_mid2 = numpyro.sample("hyper_log_ifr_age_rnde_mid2", dist.Exponential(.1))
+    hyper_log_ifr_age_rnde_old = numpyro.sample("hyper_log_ifr_age_rnde_old", dist.Exponential(.1))
     log_relsusceptibility_age_reduced = numpyro.sample(
         "log_relsusceptibility_age_reduced",
-        dist.Normal(jnp.array([-1.0702331, 0.3828269]), jnp.array([0.2169696, 0.1638433])).mask(True))
-    sd_upswing_timeeff_reduced = numpyro.sample("sd_upswing_timeeff_reduced", dist.LogNormal(-1.2, 0.2).mask(True))
-    hyper_timeeff_shift_mid1 = numpyro.sample("hyper_timeeff_shift_mid1", dist.Exponential(.1).mask(True))
-    impact_intv_children_effect = numpyro.sample("impact_intv_children_effect", dist.Uniform(0.1, 1.0).mask(True))
+        dist.Normal(jnp.array([-1.0702331, 0.3828269]), jnp.array([0.2169696, 0.1638433])))
+    sd_upswing_timeeff_reduced = numpyro.sample("sd_upswing_timeeff_reduced", dist.LogNormal(-1.2, 0.2))
+    hyper_timeeff_shift_mid1 = numpyro.sample("hyper_timeeff_shift_mid1", dist.Exponential(.1))
+    impact_intv_children_effect = numpyro.sample("impact_intv_children_effect", dist.Uniform(0.1, 1.0))
     impact_intv_onlychildren_effect = numpyro.sample(
-        "impact_intv_onlychildren_effect", dist.LogNormal(0, 0.35).mask(True))
+        "impact_intv_onlychildren_effect", dist.LogNormal(0, 0.35))
 
     with numpyro.plate("M", data["M"]):
-        R0 = numpyro.sample("R0", dist.LogNormal(0.98, 0.2).mask(True))
+        R0 = numpyro.sample("R0", dist.LogNormal(0.98, 0.2))
         # expected number of cases per day in the first N0 days, for each country
-        e_cases_N0 = numpyro.sample("e_cases_N0", dist.LogNormal(4.85, 0.4).mask(True))
-        upswing_timeeff_reduced = numpyro.sample(
-            "upswing_timeeff_reduced",
-            dist.ImproperUniform(dist.constraints.positive, (), (data["N_IMP"],)))
+        e_cases_N0 = numpyro.sample("e_cases_N0", dist.LogNormal(4.85, 0.4))
+        with numpyro.plate("N_IMP", data["N_IMP"]):
+            upswing_timeeff_reduced = numpyro.sample(
+                "upswing_timeeff_reduced",
+                dist.ImproperUniform(dist.constraints.positive, (), ()))
         reparam_config = {k: TransformReparam() for k in [
             "dip_rnde", "log_ifr_age_rnde_mid1", "log_ifr_age_rnde_mid2", "log_ifr_age_rnde_old",
             "upswing_timeeff_reduced_base", "timeeff_shift_mid1"
@@ -511,42 +515,41 @@ def model(data):  # lines 523 -> end
         reparam_config = {}
         with numpyro.handlers.reparam(config=reparam_config):
             dip_rnde = numpyro.sample("dip_rnde", dist.TransformedDistribution(
-                dist.Normal(0., 1.), AffineTransform(0., sd_dip_rnde)).mask(True))
+                dist.Normal(0., 1.), AffineTransform(0., sd_dip_rnde)))
             log_ifr_age_rnde_mid1 = numpyro.sample(
                 "log_ifr_age_rnde_mid1", dist.TransformedDistribution(
                     dist.Exponential(1.),
                     AffineTransform(0., 1 / hyper_log_ifr_age_rnde_mid1, domain=dist.constraints.positive)
-                ).mask(True))
+                ))
             log_ifr_age_rnde_mid2 = numpyro.sample(
                 "log_ifr_age_rnde_mid2",
                 dist.TransformedDistribution(
                     dist.Exponential(1.),
                     AffineTransform(0., 1 / hyper_log_ifr_age_rnde_mid2, domain=dist.constraints.positive)
-                ).mask(True))
+                ))
             log_ifr_age_rnde_old = numpyro.sample(
                 "log_ifr_age_rnde_old",
                 dist.TransformedDistribution(
                     dist.Exponential(1.),
                     AffineTransform(0., 1 / hyper_log_ifr_age_rnde_old, domain=dist.constraints.positive)
-                ).mask(True))
+                ))
             timeeff_shift_mid1 = numpyro.sample(
                 "timeeff_shift_mid1",
                 dist.TransformedDistribution(
                     dist.Exponential(1.),
-                    AffineTransform(0., hyper_timeeff_shift_mid1, domain=dist.constraints.positive)
-                ).mask(True))
+                    AffineTransform(0., 1 / hyper_timeeff_shift_mid1, domain=dist.constraints.positive)
+                ))
 
     numpyro.factor("upswing_timeeff_reduced_init_log_factor",
-                   dist.TruncatedDistribution(dist.Normal(0., 0.025), low=0.)
-                       .log_prob(upswing_timeeff_reduced[0]))
+                   dist.HalfNormal(0.025).log_prob(upswing_timeeff_reduced[0]))
     numpyro.factor("upswing_timeeff_reduced_log_factor",
-                   dist.TruncatedNormal(dist.Normal(
+                   dist.TruncatedDistribution(dist.Normal(
                        upswing_timeeff_reduced[:-1], sd_upswing_timeeff_reduced), low=0.)
                    .log_prob(upswing_timeeff_reduced[1:]))
 
     with numpyro.plate("COVARIATES_Nm1", data["COVARIATES_N"] - 1):
         # regression coefficients for time varying multipliers on contacts
-        beta = numpyro.sample("beta", dist.Normal(0., 1.).mask(True))
+        beta = numpyro.sample("beta", dist.Normal(0., 1.))
 
     with numpyro.plate("A", data["A"]):
         # probability of death for age band a
@@ -554,15 +557,17 @@ def model(data):  # lines 523 -> end
             "log_ifr_age_base",
             dist.TruncatedDistribution(
                 dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"]),
-                high=0.).mask(True))
+                high=0.))
 
     log_relsusceptibility_age, timeeff_shift_age = transform_parameters(
         data["M"], log_relsusceptibility_age_reduced, timeeff_shift_mid1)
+    numpyro.deterministic("log_relsusceptibility_age", log_relsusceptibility_age)
+    numpyro.deterministic("timeeff_shift_age", timeeff_shift_age)
 
     countries_log_factor = countries_log_dens(
         data["trans_deaths"],
-        0,
-        data["M"],
+        # 0,
+        # data["M"],
         R0,
         e_cases_N0,
         beta,
@@ -606,8 +611,9 @@ def model(data):  # lines 523 -> end
         data["N_init_A"],
         data["init_A"],
         # data["A_AD"],
-        data["dataByAge_mask"],
         data["dataByAgestart"],
+        data["dataByAge_mask"],
+        data["dataByAge_AD_mask"],
         data["map_age"],
         data["deathsByAge"],
         data["map_country"],

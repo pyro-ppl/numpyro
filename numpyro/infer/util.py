@@ -127,7 +127,6 @@ def _unconstrain_reparam(params, site):
             # check if p has additional time dimension
             if jnp.ndim(p) > expected_unconstrained_dim:
                 p = p[i]
-        print(name, support, p.shape)
 
         if support in [constraints.real, constraints.real_vector]:
             return p

@@ -1154,7 +1154,7 @@ class LeftTruncatedDistribution(Distribution):
     @lazy_property
     def _tail_prob_at_high(self):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
-        return jnp.where(self.low < self.base_dist.loc, 1., 0.)
+        return jnp.where(self.low <= self.base_dist.loc, 1., 0.)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
