@@ -95,9 +95,7 @@ functions {
           
         // init expected cases by age and location in first N0 days
         E_casesByAge[1:N0, init_A] = rep_matrix( e_cases_N0_local/N_init_A_real, N0, N_init_A);
-        E_casesByAge += 1000.;
         
-        /*
         // calculate expected cases by age and country under self-renewal model after first N0 days
         // and adjusted for saturation
         for (t in (N0+1):N2)
@@ -208,7 +206,6 @@ functions {
             E_casesByAge[t] .*= exp(log_relsusceptibility_age);
 
         }
-        */
         return(E_casesByAge);
     }
   
@@ -389,7 +386,7 @@ functions {
       if(map_country[m,1] == 1){
         index_country_slice = map_country[m,2];
         lpmf += neg_binomial_2_lpmf(deaths_slice[m_slice, epidemicStart[m]:(dataByAgestart[index_country_slice]-1)] | E_deaths[epidemicStart[m]:(dataByAgestart[index_country_slice]-1)], phi );
-
+        
         for(a in 1:A_AD[index_country_slice]){
           // first day of data is sumulated death
           lpmf += neg_binomial_2_lpmf(deathsByAge[dataByAgestart[index_country_slice], a, index_country_slice] | 
@@ -593,8 +590,7 @@ model {
   // rstan version
   // target += countries_log_dens(trans_deaths, 1, M,
   // cmdstan version
-  // target += reduce_sum(countries_log_dens, trans_deaths, 1,
-  target += countries_log_dens(trans_deaths, 1, M,
+  target += reduce_sum(countries_log_dens, trans_deaths, 1,
       R0,
       e_cases_N0,
       beta,
@@ -649,10 +645,3 @@ model {
       school_case_data
       );
 }
-
-
-
-
-
-
-
