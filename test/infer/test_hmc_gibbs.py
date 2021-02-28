@@ -209,6 +209,24 @@ def test_discrete_gibbs_gmm_1d(modified):
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
 
 
+def test_discrete_gibbs_gmm_with_mask():
+    N = 3
+
+    def model(probs, locs):
+        with numpyro.plate("N", N):
+            c = numpyro.sample("c", dist.Categorical(probs).mask(False))
+            numpyro.sample("x", dist.Normal(locs[c], 0.5), obs=0.)
+
+    probs = jnp.array([0.15, 0.3, 0.3, 0.25])
+    locs = jnp.array([-2, 0, 2, 4])
+    kernel = DiscreteHMCGibbs(NUTS(model))
+    num_samples = 200000
+    mcmc = MCMC(kernel, 1000, num_samples, progress_bar=False)
+    mcmc.run(random.PRNGKey(0), probs, locs)
+    samples = mcmc.get_samples()
+    assert samples["c"].shape == (num_samples, N)
+
+
 @pytest.mark.parametrize('num_blocks', [1, 2, 50, 100])
 def test_block_update_partitioning(num_blocks):
     plate_size = 10000, 100
