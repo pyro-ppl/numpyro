@@ -367,9 +367,11 @@ def countries_log_dens(
     E_cases = E_casesByAge.sum(-1)  # M x N2
 
     E_deaths = E_deathsByAge.sum(-1)  # M x N2
+    lpmf += (E_cases / 1000).sum()
 
     # likelihood death data this location
-    lpmf += NegBinomial2(E_deaths, phi).mask(epidemic_mask).log_prob(deaths_slice).sum()
+    # lpmf += NegBinomial2(E_deaths, phi).mask(epidemic_mask).log_prob(deaths_slice).sum()
+    print(lpmf)
 
     # filter out countries with deaths by age data
     E_deathsByAge = E_deathsByAge[map_country[:, 0] == 1]  # M_AD x N2 x A
@@ -387,12 +389,16 @@ def countries_log_dens(
     E_casesByWeek = jnp.take_along_axis(
         E_cases, smoothed_logcases_week_map.reshape((M, -1)), -1).reshape((M, -1, 7))
     E_log_week_avg_cases = jnp.log(E_casesByWeek).mean(-1)
+    """
     lpmf += jnp.where(jnp.arange(E_log_week_avg_cases.shape[1]) < smoothed_logcases_weeks_n[:, None],
                       jnp.log(dist.StudentT(smoothed_logcases_week_pars[..., 2],
                                             smoothed_logcases_week_pars[..., 0],
                                             smoothed_logcases_week_pars[..., 1])
                                   .cdf(E_log_week_avg_cases)),
                       0.).sum()
+    """
+    # print("student t", lpmf)
+    # import pdb; pdb.set_trace()
 
     # likelihood school case data this location
     school_case_weights = jnp.array([1., 1., 0.8])
@@ -401,8 +407,11 @@ def countries_log_dens(
 
     # prevent over/underflow
     school_attack_rate = jnp.minimum(school_attack_rate, school_case_data[:, 2] * 4)
+    """
     lpmf += jnp.where(school_case_time_mask.all(-1),
                       jnp.log(dist.Normal(school_case_data[:, [0, 2]], school_case_data[:, [1, 3]])
                                   .cdf(school_attack_rate[:, None])).sum(-1),
                       0.).sum()
+    """
+    print("normal", lpmf)
     return lpmf

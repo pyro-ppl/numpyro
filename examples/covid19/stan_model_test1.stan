@@ -377,6 +377,7 @@ functions {
             );
             
       E_cases = E_casesByAge * ones_vector_A;
+      lpmf += sum( E_cases / 1000. );
       
       E_deaths = E_deathsByAge * ones_vector_A;
       
@@ -385,7 +386,7 @@ functions {
       //
       if(map_country[m,1] == 1){
         index_country_slice = map_country[m,2];
-        lpmf += neg_binomial_2_lpmf(deaths_slice[m_slice, epidemicStart[m]:(dataByAgestart[index_country_slice]-1)] | E_deaths[epidemicStart[m]:(dataByAgestart[index_country_slice]-1)], phi );
+        // lpmf += neg_binomial_2_lpmf(deaths_slice[m_slice, epidemicStart[m]:(dataByAgestart[index_country_slice]-1)] | E_deaths[epidemicStart[m]:(dataByAgestart[index_country_slice]-1)], phi );
 
         /* 
         for(a in 1:A_AD[index_country_slice]){
@@ -398,13 +399,16 @@ functions {
           }
         */
       }
+      /*
       if(map_country[m,1] == 0){
         lpmf += neg_binomial_2_lpmf(deaths_slice[m_slice, epidemicStart[m]:N[m]]| E_deaths[epidemicStart[m]:N[m]], phi );
       }
+      */
       
       //
       // likelihood case data this location
       //
+      /*
       for( w in 1:smoothed_logcases_weeks_n[m])
       {
         E_log_week_avg_cases[w] = mean( log( E_cases[ smoothed_logcases_week_map[m, w, :] ] ) );
@@ -414,10 +418,12 @@ functions {
         smoothed_logcases_week_pars[m, 1:smoothed_logcases_weeks_n[m], 1],
         smoothed_logcases_week_pars[m, 1:smoothed_logcases_weeks_n[m], 2]
         );
+      */
       
       //
       // likelihood school case data this location
       //
+      /*
       if( school_case_time_idx[m,1]>0 )
       {
         school_attack_rate = sum(append_col(
@@ -432,6 +438,7 @@ functions {
         lpmf += normal_lcdf( school_attack_rate | school_case_data[m,1], school_case_data[m,2]);
         lpmf += normal_lcdf( -school_attack_rate | -school_case_data[m,3], school_case_data[m,4]);
       }
+      */
     }
     return(lpmf);
   }
