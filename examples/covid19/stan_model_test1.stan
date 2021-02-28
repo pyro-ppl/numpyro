@@ -389,7 +389,8 @@ functions {
       if(map_country[m,1] == 1){
         index_country_slice = map_country[m,2];
         lpmf += neg_binomial_2_lpmf(deaths_slice[m_slice, epidemicStart[m]:(dataByAgestart[index_country_slice]-1)] | E_deaths[epidemicStart[m]:(dataByAgestart[index_country_slice]-1)], phi );
-        
+
+        /* 
         for(a in 1:A_AD[index_country_slice]){
           // first day of data is sumulated death
           lpmf += neg_binomial_2_lpmf(deathsByAge[dataByAgestart[index_country_slice], a, index_country_slice] | 
@@ -398,6 +399,7 @@ functions {
           lpmf += neg_binomial_2_lpmf(deathsByAge[(dataByAgestart[index_country_slice]+1):N[m], a, index_country_slice] | 
                                           E_deathsByAge[(dataByAgestart[index_country_slice]+1):N[m], :] * map_age[index_country_slice][:, a], phi );
           }
+        */
       }
       if(map_country[m,1] == 0){
         lpmf += neg_binomial_2_lpmf(deaths_slice[m_slice, epidemicStart[m]:N[m]]| E_deaths[epidemicStart[m]:N[m]], phi );
