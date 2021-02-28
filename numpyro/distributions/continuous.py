@@ -1117,7 +1117,8 @@ class StudentT(Distribution):
         beta_value = self.df / (self.df + scaled_squared)
         # when scaled < 0, returns 0.5 * Beta(df/2, 0.5).cdf(beta_value)
         # when scaled > 0, returns 1 - 0.5 * Beta(df/2, 0.5).cdf(beta_value)
-        return 0.5 * (1 + jnp.sign(scaled) * (1 - betainc(0.5 * self.df, 0.5, beta_value)))
+        scaled_sign_half = 0.5 * jnp.sign(scaled)
+        return 0.5 + scaled_sign_half - 0.5 * jnp.sign(scaled) * betainc(0.5 * self.df, 0.5, beta_value)
 
     def icdf(self, q):
         # scipy.special.betaincinv is not avaiable yet in JAX
@@ -1154,7 +1155,7 @@ class LeftTruncatedDistribution(Distribution):
     @lazy_property
     def _tail_prob_at_high(self):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
-        return jnp.where(self.low < self.base_dist.loc, 1., 0.)
+        return jnp.where(self.low <= self.base_dist.loc, 1., 0.)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
