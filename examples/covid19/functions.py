@@ -100,7 +100,8 @@ def country_EcasesByAge(
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
 
         # this convolution is effectively zero padded on the left
-        tmp_row_vector_A = rev_serial_interval @ E_casesByAge_SI_CUT
+        tmp_row_vector_A_no_impact_intv = rev_serial_interval @ E_casesByAge_SI_CUT
+        tmp_row_vector_A = impact_intv[t] * tmp_row_vector_A_no_impact_intv
 
         # choose weekend/weekday contact matrices
         cntct_mean_local, cntct_elementary_school_reopening_local, cntct_school_closure_local = cond(weekend_t,
@@ -108,8 +109,8 @@ def country_EcasesByAge(
             (cntct_weekdays_mean_local, cntct_elementary_school_reopening_weekdays_local, cntct_school_closure_weekdays_local), identity)
 
         def school_open(dummy):
-            return tmp_row_vector_A[:, None], cntct_mean_local[:, :A_CHILD],\
-                   tmp_row_vector_A[:A_CHILD, None], cntct_mean_local[:A_CHILD, A_CHILD:],\
+            return tmp_row_vector_A_no_impact_intv[:, None], cntct_mean_local[:, :A_CHILD],\
+                   tmp_row_vector_A_no_impact_intv[:A_CHILD, None], cntct_mean_local[:A_CHILD, A_CHILD:],\
                    tmp_row_vector_A[A_CHILD:, None], cntct_mean_local[A_CHILD:, A_CHILD:],\
                    impact_intv[t, A_CHILD:]
 
@@ -123,8 +124,8 @@ def country_EcasesByAge(
                    jnp.ones(A - A_CHILD)
 
         def school_closed(dummy):
-            return tmp_row_vector_A[:, None], cntct_school_closure_local[:, :A_CHILD],\
-                   tmp_row_vector_A[:A_CHILD, None], cntct_school_closure_local[:A_CHILD, A_CHILD:],\
+            return tmp_row_vector_A_no_impact_intv[:, None], cntct_school_closure_local[:, :A_CHILD],\
+                   tmp_row_vector_A_no_impact_intv[:A_CHILD, None], cntct_school_closure_local[:A_CHILD, A_CHILD:],\
                    tmp_row_vector_A[A_CHILD:, None], cntct_school_closure_local[A_CHILD:, A_CHILD:],\
                    impact_intv[t, A_CHILD:]
 
