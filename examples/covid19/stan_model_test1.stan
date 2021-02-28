@@ -98,8 +98,6 @@ functions {
         
         // calculate expected cases by age and country under self-renewal model after first N0 days
         // and adjusted for saturation
-        E_casesByAge += 1000;
-        /*
         for (t in (N0+1):N2)
         {
             int start_idx_rev_serial = SI_CUT-t+2;
@@ -208,7 +206,6 @@ functions {
             E_casesByAge[t] .*= exp(log_relsusceptibility_age);
 
         }
-        */
         return(E_casesByAge);
     }
   

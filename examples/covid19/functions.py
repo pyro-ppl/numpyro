@@ -61,7 +61,7 @@ def country_EcasesByAge(
     A: int,
     A_CHILD: int,
     SI_CUT: int,
-    wkend_mask_local: np.bool,  # 1D
+    wkend_mask_local: np.bool,  # N2 - N0
     avg_cntct_local: float,
     cntct_weekends_mean_local: np.float64,  # A x A
     cntct_weekdays_mean_local: np.float64,  # A x A
@@ -95,9 +95,16 @@ def country_EcasesByAge(
         tmp_row_vector_A = rho0 * rev_serial_interval @ E_casesByAge_SI_CUT
 
         # choose weekend/weekday contact matrices
-        cntct_mean_local, cntct_elementary_school_reopening_local, cntct_school_closure_local = cond(weekend_t,
-            (cntct_weekends_mean_local, cntct_elementary_school_reopening_weekends_local, cntct_school_closure_weekends_local), identity,
-            (cntct_weekdays_mean_local, cntct_elementary_school_reopening_weekdays_local, cntct_school_closure_weekdays_local), identity)
+        cntct_mean_local, cntct_elementary_school_reopening_local, cntct_school_closure_local = cond(
+            weekend_t,
+            (cntct_weekends_mean_local,
+             cntct_elementary_school_reopening_weekends_local,
+             cntct_school_closure_weekends_local),
+            identity,
+            (cntct_weekdays_mean_local,
+             cntct_elementary_school_reopening_weekdays_local,
+             cntct_school_closure_weekdays_local),
+            identity)
 
         def school_open(dummy):
             return tmp_row_vector_A[:, None], cntct_mean_local[:, :A_CHILD],\
@@ -106,18 +113,19 @@ def country_EcasesByAge(
                    impact_intv[t, A_CHILD:]
 
         def school_reopen(dummy):
-            impact_intv_children_effect_padded = jnp.concatenate([impact_intv_children_effect * jnp.ones(A_CHILD),
-                                                                  jnp.ones(A - A_CHILD)])
-            impact_intv_onlychildren_effect_padded = jnp.concatenate([impact_intv_onlychildren_effect * jnp.ones(A_CHILD),
-                                                                      jnp.ones(A - A_CHILD)])
+            impact_intv_children_effect_padded = jnp.concatenate(
+                [impact_intv_children_effect * jnp.ones(A_CHILD), jnp.ones(A - A_CHILD)])
+            impact_intv_onlychildren_effect_padded = jnp.concatenate(
+                [impact_intv_onlychildren_effect * jnp.ones(A_CHILD), jnp.ones(A - A_CHILD)])
 
-            return (tmp_row_vector_A * impact_intv_children_effect_padded * impact_intv_onlychildren_effect_padded)[:, None],\
-                   cntct_elementary_school_reopening_local[:, :A_CHILD] * impact_intv_children_effect,\
-                   tmp_row_vector_A[:A_CHILD, None] * impact_intv_children_effect,\
-                   cntct_elementary_school_reopening_local[:A_CHILD, A_CHILD:] * impact_intv[t, A_CHILD:],\
-                   tmp_row_vector_A[A_CHILD:, None],\
-                   cntct_elementary_school_reopening_local[A_CHILD:, A_CHILD:] * impact_intv[t, A_CHILD:],\
-                   jnp.ones(A - A_CHILD)
+            return ((tmp_row_vector_A * impact_intv_children_effect_padded
+                    * impact_intv_onlychildren_effect_padded)[:, None],
+                    cntct_elementary_school_reopening_local[:, :A_CHILD] * impact_intv_children_effect,
+                    tmp_row_vector_A[:A_CHILD, None] * impact_intv_children_effect,
+                    cntct_elementary_school_reopening_local[:A_CHILD, A_CHILD:] * impact_intv[t, A_CHILD:],
+                    tmp_row_vector_A[A_CHILD:, None],
+                    cntct_elementary_school_reopening_local[A_CHILD:, A_CHILD:] * impact_intv[t, A_CHILD:],
+                    jnp.ones(A - A_CHILD))
 
         def school_closed(dummy):
             return tmp_row_vector_A[:, None], cntct_school_closure_local[:, :A_CHILD],\
@@ -127,9 +135,11 @@ def country_EcasesByAge(
 
         # branch_idx controls which of the three school branches we should follow in this iteration
         # 0 => school_open     1 => school_reopen     2 => school_closed
-        branch_idx = 2 * (SCHOOL_STATUS_t).astype(jnp.int32) + (t >= elementary_school_reopening_idx_local).astype(jnp.int32)
+        branch_idx = 2 * (SCHOOL_STATUS_t).astype(jnp.int32) \
+            + (t >= elementary_school_reopening_idx_local).astype(jnp.int32)
         contact_inputs = switch(branch_idx, [school_open, school_reopen, school_closed], None)
-        col1_left, col1_right, col2_topleft, col2_topright, col2_bottomleft, col2_bottomright, impact_intv_adult = contact_inputs
+        col1_left, col1_right, col2_topleft, col2_topright, col2_bottomleft, \
+            col2_bottomright, impact_intv_adult = contact_inputs
 
         col1 = (col1_left * col1_right).sum(0)
         col2 = (col2_topleft * col2_topright).sum(0) + (col2_bottomleft * col2_bottomright).sum(0) * impact_intv_adult
@@ -163,7 +173,6 @@ def country_EcasesByAge(
     E_casesByAge = scan(scan_body, init, xs, length=N2 - N0)[0][0]
 
     return E_casesByAge
-
 
 
 # evaluate the line 232
