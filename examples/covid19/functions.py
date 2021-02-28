@@ -77,6 +77,14 @@ def country_EcasesByAge(
 
     # probability of infection given contact in location m
     rho0 = R0_local / avg_cntct_local
+    rev_serial_interval *= rho0
+
+    relsusceptibility_age = jnp.exp(log_relsusceptibility_age)
+
+    impact_intv_children_effect_padded = jnp.concatenate([impact_intv_children_effect * jnp.ones(A_CHILD),
+                                                          jnp.ones(A - A_CHILD)])
+    impact_intv_onlychildren_effect_padded = jnp.concatenate([impact_intv_onlychildren_effect * jnp.ones(A_CHILD),
+                                                              jnp.ones(A - A_CHILD)])
 
     # define body of main for loop
     def scan_body(carry, x):
@@ -92,7 +100,7 @@ def country_EcasesByAge(
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
 
         # this convolution is effectively zero padded on the left
-        tmp_row_vector_A = rho0 * rev_serial_interval @ E_casesByAge_SI_CUT
+        tmp_row_vector_A = rev_serial_interval @ E_casesByAge_SI_CUT
 
         # choose weekend/weekday contact matrices
         cntct_mean_local, cntct_elementary_school_reopening_local, cntct_school_closure_local = cond(weekend_t,
@@ -106,11 +114,6 @@ def country_EcasesByAge(
                    impact_intv[t, A_CHILD:]
 
         def school_reopen(dummy):
-            impact_intv_children_effect_padded = jnp.concatenate([impact_intv_children_effect * jnp.ones(A_CHILD),
-                                                                  jnp.ones(A - A_CHILD)])
-            impact_intv_onlychildren_effect_padded = jnp.concatenate([impact_intv_onlychildren_effect * jnp.ones(A_CHILD),
-                                                                      jnp.ones(A - A_CHILD)])
-
             return (tmp_row_vector_A * impact_intv_children_effect_padded * impact_intv_onlychildren_effect_padded)[:, None],\
                    cntct_elementary_school_reopening_local[:, :A_CHILD] * impact_intv_children_effect,\
                    tmp_row_vector_A[:A_CHILD, None] * impact_intv_children_effect,\
@@ -131,12 +134,11 @@ def country_EcasesByAge(
         contact_inputs = switch(branch_idx, [school_open, school_reopen, school_closed], None)
         col1_left, col1_right, col2_topleft, col2_topright, col2_bottomleft, col2_bottomright, impact_intv_adult = contact_inputs
 
-        col1 = (col1_left * col1_right).sum(0)
-        col2 = (col2_topleft * col2_topright).sum(0) + (col2_bottomleft * col2_bottomright).sum(0) * impact_intv_adult
+        col1 = (col1_left.T @ col1_right)[0]
+        col2 = (col2_topleft.T @ col2_topright)[0] + (col2_bottomleft.T @ col2_bottomright)[0] * impact_intv_adult
         E_casesByAge_t = jnp.concatenate([col1, col2])
 
-        E_casesByAge_t *= prop_susceptibleByAge
-        E_casesByAge_t *= jnp.exp(log_relsusceptibility_age)
+        E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
 
         # update current time slice of E_casesByAge
         E_casesByAge = ops.index_update(E_casesByAge, t, E_casesByAge_t, indices_are_sorted=True, unique_indices=True)
