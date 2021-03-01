@@ -18,7 +18,10 @@ class UnnormalizedPositiveGRW(dist.GaussianRandomWalk):
 def model(data):
     # priors
     sd_dip_rnde = numpyro.sample("sd_dip_rnde", dist.Exponential(1.5))
-    phi = numpyro.sample("phi", dist.HalfNormal(5))  # overdispersion parameter for likelihood model
+    # alternatively, we can use HalfNormal for phi
+    # but doing like this to get the same normalization constant as Stan
+    phi = numpyro.sample("phi", dist.ImproperUniform(dist.constraints.positive, (), ()))
+    numpyro.factor("phi_log_factor", dist.Normal(0., 5.).log_prob(phi))
     hyper_log_ifr_age_rnde_mid1 = numpyro.sample("hyper_log_ifr_age_rnde_mid1", dist.Exponential(.1))
     hyper_log_ifr_age_rnde_mid2 = numpyro.sample("hyper_log_ifr_age_rnde_mid2", dist.Exponential(.1))
     hyper_log_ifr_age_rnde_old = numpyro.sample("hyper_log_ifr_age_rnde_old", dist.Exponential(.1))
@@ -27,7 +30,7 @@ def model(data):
         dist.Normal(jnp.array([-1.0702331, 0.3828269]), jnp.array([0.2169696, 0.1638433])))
     sd_upswing_timeeff_reduced = numpyro.sample("sd_upswing_timeeff_reduced", dist.LogNormal(-1.2, 0.2))
     hyper_timeeff_shift_mid1 = numpyro.sample("hyper_timeeff_shift_mid1", dist.Exponential(.1))
-    impact_intv_children_effect = numpyro.sample("impact_intv_children_effect", dist.Uniform(0.1, 1.0))
+    impact_intv_children_effect = numpyro.sample("impact_intv_children_effect", dist.Uniform(0.1, 1.0).mask(False))
     impact_intv_onlychildren_effect = numpyro.sample(
         "impact_intv_onlychildren_effect", dist.LogNormal(0, 0.35))
 
@@ -80,18 +83,21 @@ def model(data):
 
     with numpyro.plate("A", data["A"]):
         # probability of death for age band a
+        # alternatively, we can use dist.TruncatedDistribution(dist.Normal(loc, scale), high=0.)
         log_ifr_age_base = numpyro.sample(
             "log_ifr_age_base",
-            dist.TruncatedDistribution(
-                dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"]),
-                high=0.))
+            dist.ImproperUniform(dist.constraints.less_than(0), (), ()))
 
+    numpyro.factor("log_ifr_age_base_log_factor",
+                   dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"])
+                       .log_prob(log_ifr_age_base).sum())
     numpyro.factor("upswing_timeeff_reduced_init_log_factor",
-                   dist.HalfNormal(0.025).log_prob(upswing_timeeff_reduced[0]))
+                   # alternatively, we can use dist.HalfNormal(0.025)
+                   dist.Normal(0., 0.025).log_prob(upswing_timeeff_reduced[0]))
     # FIXME: can we reparam upswing_timeeff_reduced?
     numpyro.factor("upswing_timeeff_reduced_log_factor",
                    dist.Normal(upswing_timeeff_reduced[:-1], sd_upswing_timeeff_reduced)
-                   .log_prob(upswing_timeeff_reduced[1:]))
+                       .log_prob(upswing_timeeff_reduced[1:]).sum())
 
     # transformed parameters
     log_relsusceptibility_age = numpyro.deterministic(
@@ -165,8 +171,7 @@ def model(data):
         data["smoothed_logcases_weeks_n"],
         data["smoothed_logcases_week_map"],
         data["smoothed_logcases_week_pars"],
-        # data["school_case_time_idx"],
-        data["school_case_time_mask"],
+        data["school_case_time_idx"],
         data["school_case_data"],
     )
     numpyro.factor("countries_log_factor", countries_log_factor)

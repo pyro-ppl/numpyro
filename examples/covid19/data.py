@@ -92,6 +92,8 @@ def transform_data(data):  # lines 438 -> 503
     data["school_case_time_idx"] = data["school_case_time_idx"] - 1
     data["AGE_CHILD"] = data["AGE_CHILD"] - 1
     data["upswing_timeeff_map"] = data["upswing_timeeff_map"] - 1
+    data["elementary_school_reopening_idx"] = data["elementary_school_reopening_idx"] - 1
+    data["smoothed_logcases_week_map"] = data["smoothed_logcases_week_map"] - 1
 
     # create epidemic_mask for indices from epidemicStart to dataByAgeStart or N
     epidemic_mask = np.full((data["M"], data["N2"]), False)
@@ -128,21 +130,12 @@ def transform_data(data):  # lines 438 -> 503
         wkend_mask[m, data["wkend_idx"][:num_wkend_idx, m]] = True
     data["wkend_mask"] = wkend_mask
 
-    # convert school_case_time_idx (M x 2) to school_case_time_mask (M x N2)
-    start = data["school_case_time_idx"][:, None, 0]
-    end = data["school_case_time_idx"][:, None, 1]
-    time_slice = np.arange(data["N2"])
-    school_case_time_mask = np.logical_and(start <= time_slice, time_slice <= end)
-    data["school_case_time_mask"] = school_case_time_mask
-
     # replace -1. values by 1. to avoid NaN in cdf
     data["smoothed_logcases_week_pars"] = np.where(
-        (data["smoothed_logcases_week_map"] > 0).all(-1, keepdims=True),
+        data["smoothed_logcases_week_pars"] > 0,
         data["smoothed_logcases_week_pars"],
         1.
     )
-    data["school_case_data"] = np.where(
-        data["school_case_time_mask"].all(-1), data["school_case_data"], 1.)
     return data
 
 
