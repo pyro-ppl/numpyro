@@ -106,7 +106,8 @@ def transform_data(data):  # lines 438 -> 503
     data["epidemic_mask"] = epidemic_mask
 
     # correct index_country_slice
-    country_idx = data["map_country"][:, 1][data["map_country"][:, 0] == 1] - 1
+    country_mask = data["map_country"][:, 0] == 1
+    country_idx = data["map_country"][:, 1][country_mask] - 1
     data["dataByAgestart"] = data["dataByAgestart"][country_idx]
     data["deathsByAge"] = data["deathsByAge"][:, :, country_idx]
     data["map_age"] = data["map_age"][country_idx]
@@ -114,12 +115,12 @@ def transform_data(data):  # lines 438 -> 503
 
     # create dataByAge_mask
     assert data["M_AD"] == sum(data["map_country"][:, 0])
-    assert (data["map_country"][:, 1][data["map_country"][:, 0] == 1] - 1 == np.arange(data["M_AD"])).all()
     dataByAge_mask = np.full((data["M_AD"], data["N2"]), False)
     dataByAge_AD_mask = np.full((data["M_AD"], data["N2"], data["A"]), False)
-    for m, (byAge_start, end, A_AD_local) in enumerate(zip(
-            data["dataByAgestart"], data["N"][data["map_country"][:, 0] == 1], data["A_AD"])):
-        dataByAge_mask[m, byAge_start:end] = True
+    for m, (start, byAge_start, end, A_AD_local) in enumerate(zip(
+            data["epidemicStart"][country_mask], data["dataByAgestart"],
+            data["N"][country_mask], data["A_AD"])):
+        dataByAge_mask[m, start:byAge_start + 1] = True
         dataByAge_AD_mask[m, byAge_start:end, :A_AD_local] = True
     data["dataByAge_mask"] = dataByAge_mask
     data["dataByAge_AD_mask"] = dataByAge_AD_mask

@@ -382,8 +382,7 @@ def countries_log_dens(
     # after daily death
     # NB: we mask to get valid mu
     masked_mu = jnp.where(dataByAge_AD_mask, E_deathsByAge @ map_age, 1.)
-    # lpmf += NegBinomial2(masked_mu, phi).mask(dataByAge_AD_mask).log_prob(jnp.moveaxis(deathsByAge, -1, 0)).sum()
-
+    lpmf += NegBinomial2(masked_mu, phi).mask(dataByAge_AD_mask).log_prob(jnp.moveaxis(deathsByAge, -1, 0)).sum()
     # likelihood case data this location
     M = E_cases.shape[0]
     E_casesByWeek = jnp.take_along_axis(
