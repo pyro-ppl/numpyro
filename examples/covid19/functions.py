@@ -61,7 +61,7 @@ def country_EcasesByAge(
     A: int,
     A_CHILD: int,
     SI_CUT: int,
-    wkend_mask_local: np.bool,  # N2 - N0
+    wkend_mask_local: np.bool,  # 1D
     avg_cntct_local: float,
     cntct_weekends_mean_local: np.float64,  # A x A
     cntct_weekdays_mean_local: np.float64,  # A x A
@@ -77,6 +77,14 @@ def country_EcasesByAge(
 
     # probability of infection given contact in location m
     rho0 = R0_local / avg_cntct_local
+    rev_serial_interval *= rho0
+
+    relsusceptibility_age = jnp.exp(log_relsusceptibility_age)
+
+    impact_intv_children_effect_padded = jnp.concatenate([impact_intv_children_effect * jnp.ones(A_CHILD),
+                                                          jnp.ones(A - A_CHILD)])
+    impact_intv_onlychildren_effect_padded = jnp.concatenate([impact_intv_onlychildren_effect * jnp.ones(A_CHILD),
+                                                              jnp.ones(A - A_CHILD)])
 
     # define body of main for loop
     def scan_body(carry, x):
@@ -92,61 +100,46 @@ def country_EcasesByAge(
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
 
         # this convolution is effectively zero padded on the left
-        tmp_row_vector_A = rho0 * rev_serial_interval @ E_casesByAge_SI_CUT
+        tmp_row_vector_A_no_impact_intv = rev_serial_interval @ E_casesByAge_SI_CUT
+        tmp_row_vector_A = impact_intv[t] * tmp_row_vector_A_no_impact_intv
 
         # choose weekend/weekday contact matrices
-        cntct_mean_local, cntct_elementary_school_reopening_local, cntct_school_closure_local = cond(
-            weekend_t,
-            (cntct_weekends_mean_local,
-             cntct_elementary_school_reopening_weekends_local,
-             cntct_school_closure_weekends_local),
-            identity,
-            (cntct_weekdays_mean_local,
-             cntct_elementary_school_reopening_weekdays_local,
-             cntct_school_closure_weekdays_local),
-            identity)
+        cntct_mean_local, cntct_elementary_school_reopening_local, cntct_school_closure_local = cond(weekend_t,
+            (cntct_weekends_mean_local, cntct_elementary_school_reopening_weekends_local, cntct_school_closure_weekends_local), identity,
+            (cntct_weekdays_mean_local, cntct_elementary_school_reopening_weekdays_local, cntct_school_closure_weekdays_local), identity)
 
         def school_open(dummy):
-            return tmp_row_vector_A[:, None], cntct_mean_local[:, :A_CHILD],\
-                   tmp_row_vector_A[:A_CHILD, None], cntct_mean_local[:A_CHILD, A_CHILD:],\
+            return tmp_row_vector_A_no_impact_intv[:, None], cntct_mean_local[:, :A_CHILD],\
+                   tmp_row_vector_A_no_impact_intv[:A_CHILD, None], cntct_mean_local[:A_CHILD, A_CHILD:],\
                    tmp_row_vector_A[A_CHILD:, None], cntct_mean_local[A_CHILD:, A_CHILD:],\
                    impact_intv[t, A_CHILD:]
 
         def school_reopen(dummy):
-            impact_intv_children_effect_padded = jnp.concatenate(
-                [impact_intv_children_effect * jnp.ones(A_CHILD), jnp.ones(A - A_CHILD)])
-            impact_intv_onlychildren_effect_padded = jnp.concatenate(
-                [impact_intv_onlychildren_effect * jnp.ones(A_CHILD), jnp.ones(A - A_CHILD)])
-
-            return ((tmp_row_vector_A * impact_intv_children_effect_padded
-                    * impact_intv_onlychildren_effect_padded)[:, None],
-                    cntct_elementary_school_reopening_local[:, :A_CHILD] * impact_intv_children_effect,
-                    tmp_row_vector_A[:A_CHILD, None] * impact_intv_children_effect,
-                    cntct_elementary_school_reopening_local[:A_CHILD, A_CHILD:] * impact_intv[t, A_CHILD:],
-                    tmp_row_vector_A[A_CHILD:, None],
-                    cntct_elementary_school_reopening_local[A_CHILD:, A_CHILD:] * impact_intv[t, A_CHILD:],
-                    jnp.ones(A - A_CHILD))
+            return (tmp_row_vector_A * impact_intv_children_effect_padded * impact_intv_onlychildren_effect_padded)[:, None],\
+                   cntct_elementary_school_reopening_local[:, :A_CHILD] * impact_intv_children_effect,\
+                   tmp_row_vector_A[:A_CHILD, None] * impact_intv_children_effect,\
+                   cntct_elementary_school_reopening_local[:A_CHILD, A_CHILD:] * impact_intv[t, A_CHILD:],\
+                   tmp_row_vector_A[A_CHILD:, None],\
+                   cntct_elementary_school_reopening_local[A_CHILD:, A_CHILD:] * impact_intv[t, A_CHILD:],\
+                   jnp.ones(A - A_CHILD)
 
         def school_closed(dummy):
-            return tmp_row_vector_A[:, None], cntct_school_closure_local[:, :A_CHILD],\
-                   tmp_row_vector_A[:A_CHILD, None], cntct_school_closure_local[:A_CHILD, A_CHILD:],\
+            return tmp_row_vector_A_no_impact_intv[:, None], cntct_school_closure_local[:, :A_CHILD],\
+                   tmp_row_vector_A_no_impact_intv[:A_CHILD, None], cntct_school_closure_local[:A_CHILD, A_CHILD:],\
                    tmp_row_vector_A[A_CHILD:, None], cntct_school_closure_local[A_CHILD:, A_CHILD:],\
                    impact_intv[t, A_CHILD:]
 
         # branch_idx controls which of the three school branches we should follow in this iteration
         # 0 => school_open     1 => school_reopen     2 => school_closed
-        branch_idx = 2 * (SCHOOL_STATUS_t).astype(jnp.int32) \
-            + (t >= elementary_school_reopening_idx_local).astype(jnp.int32)
+        branch_idx = 2 * (SCHOOL_STATUS_t).astype(jnp.int32) + (t >= elementary_school_reopening_idx_local).astype(jnp.int32)
         contact_inputs = switch(branch_idx, [school_open, school_reopen, school_closed], None)
-        col1_left, col1_right, col2_topleft, col2_topright, col2_bottomleft, \
-            col2_bottomright, impact_intv_adult = contact_inputs
+        col1_left, col1_right, col2_topleft, col2_topright, col2_bottomleft, col2_bottomright, impact_intv_adult = contact_inputs
 
-        col1 = (col1_left * col1_right).sum(0)
-        col2 = (col2_topleft * col2_topright).sum(0) + (col2_bottomleft * col2_bottomright).sum(0) * impact_intv_adult
+        col1 = (col1_left.T @ col1_right)[0]
+        col2 = (col2_topleft.T @ col2_topright)[0] + (col2_bottomleft.T @ col2_bottomright)[0] * impact_intv_adult
         E_casesByAge_t = jnp.concatenate([col1, col2])
 
-        E_casesByAge_t *= prop_susceptibleByAge
-        E_casesByAge_t *= jnp.exp(log_relsusceptibility_age)
+        E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
 
         # update current time slice of E_casesByAge
         E_casesByAge = ops.index_update(E_casesByAge, t, E_casesByAge_t, indices_are_sorted=True, unique_indices=True)
@@ -173,6 +166,7 @@ def country_EcasesByAge(
     E_casesByAge = scan(scan_body, init, xs, length=N2 - N0)[0][0]
 
     return E_casesByAge
+
 
 
 # evaluate the line 232
@@ -367,11 +361,9 @@ def countries_log_dens(
     E_cases = E_casesByAge.sum(-1)  # M x N2
 
     E_deaths = E_deathsByAge.sum(-1)  # M x N2
-    lpmf += (E_cases / 1000).sum()
 
     # likelihood death data this location
-    # lpmf += NegBinomial2(E_deaths, phi).mask(epidemic_mask).log_prob(deaths_slice).sum()
-    print(lpmf)
+    lpmf += NegBinomial2(E_deaths, phi).mask(epidemic_mask).log_prob(deaths_slice).sum()
 
     # filter out countries with deaths by age data
     E_deathsByAge = E_deathsByAge[map_country[:, 0] == 1]  # M_AD x N2 x A
@@ -389,16 +381,12 @@ def countries_log_dens(
     E_casesByWeek = jnp.take_along_axis(
         E_cases, smoothed_logcases_week_map.reshape((M, -1)), -1).reshape((M, -1, 7))
     E_log_week_avg_cases = jnp.log(E_casesByWeek).mean(-1)
-    """
     lpmf += jnp.where(jnp.arange(E_log_week_avg_cases.shape[1]) < smoothed_logcases_weeks_n[:, None],
                       jnp.log(dist.StudentT(smoothed_logcases_week_pars[..., 2],
                                             smoothed_logcases_week_pars[..., 0],
                                             smoothed_logcases_week_pars[..., 1])
                                   .cdf(E_log_week_avg_cases)),
                       0.).sum()
-    """
-    # print("student t", lpmf)
-    # import pdb; pdb.set_trace()
 
     # likelihood school case data this location
     school_case_weights = jnp.array([1., 1., 0.8])
@@ -407,11 +395,8 @@ def countries_log_dens(
 
     # prevent over/underflow
     school_attack_rate = jnp.minimum(school_attack_rate, school_case_data[:, 2] * 4)
-    """
     lpmf += jnp.where(school_case_time_mask.all(-1),
                       jnp.log(dist.Normal(school_case_data[:, [0, 2]], school_case_data[:, [1, 3]])
                                   .cdf(school_attack_rate[:, None])).sum(-1),
                       0.).sum()
-    """
-    print("normal", lpmf)
     return lpmf

@@ -61,6 +61,7 @@ def country_EcasesByAge_direct(
         tmp_row_vector_A = (rev_serial_interval[start_idx_rev_serial:SI_CUT][:, None] * E_casesByAge[start_idx_E_casesByAge:t]).sum(0)
         tmp_row_vector_A *= rho0
         tmp_row_vector_A_no_impact_intv = tmp_row_vector_A.copy()
+        tmp_row_vector_A *= impact_intv[t]
 
         # choose weekend/weekday contact matrices
         weekend = wkend_idx_local[t - N0]  # this is a boolean
