@@ -173,5 +173,6 @@ def model(data):
         data["smoothed_logcases_week_pars"],
         data["school_case_time_idx"],
         data["school_case_data"],
+        data["school_switch"]
     )
     numpyro.factor("countries_log_factor", countries_log_factor)

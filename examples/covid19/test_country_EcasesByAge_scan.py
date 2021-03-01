@@ -136,6 +136,9 @@ if __name__ == '__main__':
         rev_serial_interval = np.random.rand(SI_CUT)
         popByAge_abs_local = 12.3 * np.random.rand(A)
 
+        school_switch = 2 * SCHOOL_STATUS_local[N0:].astype(np.int32) + \
+            (np.arange(N0, N2) >= elementary_school_reopening_idx_local).astype(np.int32)
+
         value_direct = country_EcasesByAge_direct(
             R0_local,
             e_cases_N0_local,
@@ -188,7 +191,8 @@ if __name__ == '__main__':
             rev_serial_interval,
             popByAge_abs_local,
             N_init_A,
-            init_A)
+            init_A,
+            school_switch)
 
         delta = value_direct - value_scan
         max_delta = np.max(np.fabs(delta))

@@ -137,6 +137,12 @@ def transform_data(data):  # lines 438 -> 503
         data["smoothed_logcases_week_pars"],
         1.
     )
+
+    # combine school status and and elementary_school_reopening_idx into a single {0,1,2}-valued switch
+    school_switch = 2 * (data["SCHOOL_STATUS"][data["N0"]:, :]).astype(np.int32).T + \
+        (np.arange(data["N0"], data["N2"]) >= data["elementary_school_reopening_idx"][:, None]).astype(np.int32)
+    data["school_switch"] = school_switch
+
     return data
 
 

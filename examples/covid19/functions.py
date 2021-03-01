@@ -73,6 +73,7 @@ def country_EcasesByAge(
     popByAge_abs_local: np.float64,  # A
     N_init_A: int,
     init_A: np.int64,  # N_init_A
+    school_switch: np.int64,  # N2 - N0
 ) -> np.float64:  # N2 x A
 
     # probability of infection given contact in location m
@@ -159,9 +160,6 @@ def country_EcasesByAge(
     E_casesByAge_sum = E_casesByAge_init.sum(0)
     # pad with zeros on left
     E_casesByAge_SI_CUT = jnp.concatenate([jnp.zeros((SI_CUT - N0, A)), E_casesByAge_init])
-
-    school_switch = 2 * (SCHOOL_STATUS_local[N0:]).astype(jnp.int32) \
-        + (jnp.arange(N0, N2) >= elementary_school_reopening_idx_local).astype(jnp.int32)
 
     init = (E_casesByAge_sum, E_casesByAge_SI_CUT)
     xs = (impact_intv[N0:], wkend_mask_local, school_switch)
@@ -292,6 +290,7 @@ def countries_log_dens(
     smoothed_logcases_week_pars: np.float64,  # M x smoothed_logcases_weeks_n_max x 3
     school_case_time_idx: np.int64,  # M x 2
     school_case_data: np.float64,  # M x 4
+    school_switch: np.int64, # M x N2-N0
 ) -> float:
     lpmf = 0.
 
@@ -315,7 +314,7 @@ def countries_log_dens(
         lambda R0, e_cases_N0, impact_intv, elementary_school_reopening_idx, SCHOOL_STATUS, wkend_mask,
         avg_cntct, cntct_weekends_mean, cntct_weekdays_mean, cntct_school_closure_weekends,
         cntct_school_closure_weekdays, cntct_elementary_school_reopening_weekends,
-        cntct_elementary_school_reopening_weekdays, popByAge_abs:
+        cntct_elementary_school_reopening_weekdays, popByAge_abs, school_switch:
         country_EcasesByAge(
                 R0,
                 e_cases_N0,
@@ -341,12 +340,13 @@ def countries_log_dens(
                 rev_serial_interval,
                 popByAge_abs,
                 N_init_A,
-                init_A)
+                init_A,
+                school_switch)
     )(
         R0, e_cases_N0, impact_intv, elementary_school_reopening_idx, SCHOOL_STATUS.T, wkend_mask[:, N0:],
         avg_cntct, cntct_weekends_mean, cntct_weekdays_mean, cntct_school_closure_weekends,
         cntct_school_closure_weekdays, cntct_elementary_school_reopening_weekends,
-        cntct_elementary_school_reopening_weekdays, popByAge_abs
+        cntct_elementary_school_reopening_weekdays, popByAge_abs, school_switch
     )
 
     E_deathsByAge = jax.vmap(
