@@ -1,11 +1,11 @@
-import nest_asyncio; nest_asyncio.apply()
+import nest_asyncio
 import stan
+
+from jax.random import PRNGKey
 
 import numpy as np
 
-import jax
-
-import numpyro; numpyro.enable_x64()
+import numpyro
 from numpyro.distributions import constraints, biject_to
 from numpyro.infer import MCMC, NUTS
 
@@ -13,11 +13,18 @@ from age_model import model
 from data import get_data, transform_data
 
 
+nest_asyncio.apply()
+
+numpyro.enable_x64()
+
+
 data = get_data()
 transformed_data = transform_data(data)
 kernel = NUTS(model, step_size=0.02, max_tree_depth=15, target_accept_prob=0.95)
+
 mcmc = MCMC(kernel, num_warmup=0, num_samples=1)
-mcmc.run(np.zeros(2, dtype=np.uint32), transformed_data)
+rng_key = PRNGKey(1)
+mcmc.run(rng_key, transformed_data)
 z = {k: v[0] for k, v in mcmc.get_samples().items()}
 
 
@@ -83,7 +90,7 @@ print("delta(pe0): %.3e" % (pe0_numpyro - pe0_stan))
 print("delta(pe1): %.3e" % (pe1_numpyro - pe1_stan))
 
 
-#pe_and_grad = jax.jit(jax.value_and_grad(potential_fn))
-#print(pe_and_grad(z1)[0])
-#a, b = pe_and_grad(z0)
-#print(a)
+# pe_and_grad = jax.jit(jax.value_and_grad(potential_fn))
+# print(pe_and_grad(z1)[0])
+# a, b = pe_and_grad(z0)
+# print(a)
