@@ -637,6 +637,14 @@ ExpTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+    
+SoftplusTransform
+-----------------
+.. autoclass:: numpyro.distributions.transforms.SoftplusTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
 
 IdentityTransform
 -----------------
