@@ -88,13 +88,8 @@ def country_EcasesByAge(
 
     # define body of main for loop
     def scan_body(carry, x):
-        impact_intv_t, weekend_t, SCHOOL_STATUS_t = x
-        E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT, t = carry
-
-        # add term to cumulative sum
-        E_casesByAge_sum = E_casesByAge_sum + E_casesByAge[t-1]
-        # basically "roll left and append most recent time slice at right"
-        E_casesByAge_SI_CUT = jnp.concatenate([E_casesByAge_SI_CUT[1:], E_casesByAge[None, t-1]])
+        impact_intv_t, weekend_t, school_switch_t = x
+        E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT = carry
 
         prop_susceptibleByAge = 1.0 - E_casesByAge_sum / popByAge_abs_local
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
@@ -137,11 +132,9 @@ def country_EcasesByAge(
                    tmp_row_vector_A[A_CHILD:, None], cntct_school_closure_local[A_CHILD:, A_CHILD:],\
                    impact_intv_t[A_CHILD:]
 
-        # branch_idx controls which of the three school branches we should follow in this iteration
+        # school_switch_t controls which of the three school branches we should follow in this iteration
         # 0 => school_open     1 => school_reopen     2 => school_closed
-        branch_idx = 2 * (SCHOOL_STATUS_t).astype(jnp.int32) \
-            + (t >= elementary_school_reopening_idx_local).astype(jnp.int32)
-        contact_inputs = switch(branch_idx, [school_open, school_reopen, school_closed], None)
+        contact_inputs = switch(school_switch_t, [school_open, school_reopen, school_closed], None)
         (col1_left, col1_right, col2_topleft, col2_topright,
          col2_bottomleft, col2_bottomright, impact_intv_adult) = contact_inputs
 
@@ -151,29 +144,32 @@ def country_EcasesByAge(
 
         E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
 
-        # update current time slice of E_casesByAge
-        E_casesByAge = ops.index_update(E_casesByAge, t, E_casesByAge_t, indices_are_sorted=True, unique_indices=True)
+        # add term to cumulative sum
+        E_casesByAge_sum = E_casesByAge_sum + E_casesByAge_t
+        # basically "roll left and append most recent time slice at right"
+        E_casesByAge_SI_CUT = jnp.concatenate([E_casesByAge_SI_CUT[1:], E_casesByAge_t[None, :]])
 
-        return (E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT, t + 1), None
-
-    # expected new cases by calendar day, age, and location under self-renewal model
-    # and a container to store the precomputed cases by age
-    E_casesByAge = jnp.zeros((N2, A))
+        return (E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT), E_casesByAge_t
 
     # init expected cases by age and location in first N0 days
-    E_casesByAge = ops.index_update(E_casesByAge, ops.index[:N0, init_A], e_cases_N0_local / N_init_A,
-                                    indices_are_sorted=True, unique_indices=True)
+    E_casesByAge_init = ops.index_update(jnp.zeros((N0, A)), ops.index[:N0, init_A], e_cases_N0_local / N_init_A,
+                                         indices_are_sorted=True, unique_indices=True)
 
     # initialize carry variables
-    E_casesByAge_sum = E_casesByAge[:N0-1].sum(0)
+    E_casesByAge_sum = E_casesByAge_init.sum(0)
     # pad with zeros on left
-    E_casesByAge_SI_CUT = jnp.concatenate([jnp.zeros((SI_CUT - N0 + 1, A)), E_casesByAge[:N0 - 1]])
+    E_casesByAge_SI_CUT = jnp.concatenate([jnp.zeros((SI_CUT - N0, A)), E_casesByAge_init])
 
-    init = (E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT, N0)
-    xs = (impact_intv[N0:], wkend_mask_local, SCHOOL_STATUS_local[N0:])
+    school_switch = 2 * (SCHOOL_STATUS_local[N0:]).astype(jnp.int32) \
+        + (jnp.arange(N0, N2) >= elementary_school_reopening_idx_local).astype(jnp.int32)
+
+    init = (E_casesByAge_init, E_casesByAge_sum, E_casesByAge_SI_CUT)
+    xs = (impact_intv[N0:], wkend_mask_local, school_switch)
 
     # execute for loop using JAX primitive scan
-    E_casesByAge = scan(scan_body, init, xs, length=N2 - N0)[0][0]
+    E_casesByAge_N0_N2 = scan(scan_body, init, xs, length=N2 - N0)[1]
+
+    E_casesByAge = jnp.concatenate([E_casesByAge_init, E_casesByAge_N0_N2])
 
     return E_casesByAge
 
