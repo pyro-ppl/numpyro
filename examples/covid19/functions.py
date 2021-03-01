@@ -290,7 +290,7 @@ def countries_log_dens(
     smoothed_logcases_week_pars: np.float64,  # M x smoothed_logcases_weeks_n_max x 3
     school_case_time_idx: np.int64,  # M x 2
     school_case_data: np.float64,  # M x 4
-    school_switch: np.int64, # M x N2-N0
+    school_switch: np.int64,  # M x N2-N0
 ) -> float:
     lpmf = 0.
 

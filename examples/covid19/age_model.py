@@ -11,10 +11,6 @@ from numpyro.infer.reparam import TransformReparam  # noqa: F401
 from functions import countries_log_dens
 
 
-class UnnormalizedPositiveGRW(dist.GaussianRandomWalk):
-    support = dist.constraints.independent(dist.constraints.positive, 1)
-
-
 def model(data):
     # priors
     sd_dip_rnde = numpyro.sample("sd_dip_rnde", dist.Exponential(1.5))
