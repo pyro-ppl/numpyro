@@ -89,7 +89,7 @@ def country_EcasesByAge(
     # define body of main for loop
     def scan_body(carry, x):
         impact_intv_t, weekend_t, school_switch_t = x
-        E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT = carry
+        E_casesByAge_sum, E_casesByAge_SI_CUT = carry
 
         prop_susceptibleByAge = 1.0 - E_casesByAge_sum / popByAge_abs_local
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
@@ -149,7 +149,7 @@ def country_EcasesByAge(
         # basically "roll left and append most recent time slice at right"
         E_casesByAge_SI_CUT = jnp.concatenate([E_casesByAge_SI_CUT[1:], E_casesByAge_t[None, :]])
 
-        return (E_casesByAge, E_casesByAge_sum, E_casesByAge_SI_CUT), E_casesByAge_t
+        return (E_casesByAge_sum, E_casesByAge_SI_CUT), E_casesByAge_t
 
     # init expected cases by age and location in first N0 days
     E_casesByAge_init = ops.index_update(jnp.zeros((N0, A)), ops.index[:N0, init_A], e_cases_N0_local / N_init_A,
@@ -163,7 +163,7 @@ def country_EcasesByAge(
     school_switch = 2 * (SCHOOL_STATUS_local[N0:]).astype(jnp.int32) \
         + (jnp.arange(N0, N2) >= elementary_school_reopening_idx_local).astype(jnp.int32)
 
-    init = (E_casesByAge_init, E_casesByAge_sum, E_casesByAge_SI_CUT)
+    init = (E_casesByAge_sum, E_casesByAge_SI_CUT)
     xs = (impact_intv[N0:], wkend_mask_local, school_switch)
 
     # execute for loop using JAX primitive scan

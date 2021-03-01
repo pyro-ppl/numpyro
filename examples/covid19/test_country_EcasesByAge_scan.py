@@ -196,4 +196,4 @@ if __name__ == '__main__':
         print("[Test {}] Max delta: {:.2e}".format(test, max_delta))
         assert value_direct.shape == (N2, A)
         assert value_scan.shape == (N2, A)
-        assert max_delta < 1.0e-13
+        assert max_delta < 1.0e-12
