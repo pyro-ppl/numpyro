@@ -86,6 +86,7 @@ def country_EcasesByAge(
                                                           jnp.ones(A - A_CHILD)])
     impact_intv_onlychildren_effect_padded = jnp.concatenate([impact_intv_onlychildren_effect * jnp.ones(A_CHILD),
                                                               jnp.ones(A - A_CHILD)])
+    impact_intv_children_onlychildren_padded = impact_intv_children_effect_padded * impact_intv_onlychildren_effect_padded
 
     # define body of main for loop
     def scan_body(carry, x):
@@ -118,8 +119,7 @@ def country_EcasesByAge(
                    impact_intv_t[A_CHILD:]
 
         def school_reopen(dummy):
-            return ((tmp_row_vector_A * impact_intv_children_effect_padded
-                     * impact_intv_onlychildren_effect_padded)[:, None],
+            return ((tmp_row_vector_A * impact_intv_children_onlychildren_padded)[:, None],
                     cntct_elementary_school_reopening_local[:, :A_CHILD] * impact_intv_children_effect,
                     tmp_row_vector_A[:A_CHILD, None] * impact_intv_children_effect,
                     cntct_elementary_school_reopening_local[:A_CHILD, A_CHILD:] * impact_intv_t[A_CHILD:],
