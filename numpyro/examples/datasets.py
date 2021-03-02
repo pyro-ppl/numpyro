@@ -1,20 +1,19 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
 import csv
 import gzip
 import io
 import os
 import pickle
 import struct
-from urllib.parse import urlparse
-from urllib.request import urlretrieve
 import warnings
 import zipfile
+from collections import namedtuple
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
 
 import numpy as np
-
 from jax import device_put, lax
 from jax.interpreters.xla import DeviceArray
 
@@ -247,9 +246,12 @@ def _load_higgs():
         obs = []
         data = []
         for row in csv_reader:
-            obs.append(row[0])
-            data.append(row[1:])
-    return np.stack(obs), np.stack(data)
+            obs.append(int(float(row[0])))
+            data.append([float(v) for v in row[1:]])
+    obs = np.stack(obs)
+    data = np.stack(data)
+    return {'train': (data[:-int(5e5)], obs[:-int(5e5)]),
+            'test': (data[-int(5e5):], obs[-int(5e5):])}
 
 
 def _load(dset):

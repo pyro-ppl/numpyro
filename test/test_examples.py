@@ -2,14 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-from subprocess import check_call
 import sys
+from subprocess import check_call
 
 import pytest
 
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 EXAMPLES_DIR = os.path.join(os.path.dirname(TESTS_DIR), 'examples')
-
 
 EXAMPLES = [
     'annotation.py --model mn',
@@ -24,6 +23,7 @@ EXAMPLES = [
     'capture_recapture.py --num-samples 4 --num-warmup 1 -m 5',
     'covtype.py --algo HMC --num-samples 10 --num-warmup 10',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
+    'hmc_ecs.py --subsample_size 100 --num_blocks 1 --num_warmup 100 --num_samples 100 --inner_kernel nuts',
     'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'hmm_enum.py -m 1 -t 3 -d 4 --num-warmup 1 -n 4',
     'hmm_enum.py -m 2 -t 3 -d 4 --num-warmup 1 -n 4',
