@@ -169,6 +169,20 @@ def get_data():
     return data
 
 
+def generate_init_values(data, seed=0):
+    np.random.seed(seed)
+    values = {}
+    values["R0"] = np.exp(2.66 + np.random.randn(data["M"]) * 0.2)
+    values["log_ifr_age_rnde_mid1"] = np.exp(np.random.randn(data["M"]) * 0.005)
+    values["log_ifr_age_rnde_mid2"] = np.exp(np.random.randn(data["M"]) * 0.005)
+    values["log_ifr_age_rnde_old"] = np.exp(np.random.randn(data["M"]) * 0.005)
+    values["dip_rnde"] = np.random.randn(data["M"]) * 0.005
+    values["timeeff_shift_mid1"] = np.exp(np.random.randn(data["M"]) * 0.005)
+    values["hyper_timeeff_shift_mid1"] = np.exp(100.)
+    values["upswing_timeeff_reduced"] = np.exp(np.full((data["N_IMP"], data["M"]), 0.01))
+    return values
+
+
 def test_get_data():
     data = get_data()
     for k, v in data.items():

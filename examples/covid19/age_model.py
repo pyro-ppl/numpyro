@@ -34,16 +34,13 @@ def model(data, reparam=False):
         R0 = numpyro.sample("R0", dist.LogNormal(0.98, 0.2))
         # expected number of cases per day in the first N0 days, for each country
         e_cases_N0 = numpyro.sample("e_cases_N0", dist.LogNormal(4.85, 0.4))
-        if reparam:
-            reparam_config = {k: TransformReparam() for k in [
-                "dip_rnde",
-                "log_ifr_age_rnde_mid1",
-                "log_ifr_age_rnde_mid2",
-                "log_ifr_age_rnde_old",
-                "timeeff_shift_mid1",
-            ]}
-        else:
-            reparam_config = {}
+        reparam_config = {k: TransformReparam() for k in [
+            "dip_rnde",
+            "log_ifr_age_rnde_mid1",
+            "log_ifr_age_rnde_mid2",
+            "log_ifr_age_rnde_old",
+            "timeeff_shift_mid1",
+        ]} if reparam else {}
         with numpyro.handlers.reparam(config=reparam_config):
             dip_rnde = numpyro.sample("dip_rnde", dist.TransformedDistribution(
                 dist.Normal(0., 1.), AffineTransform(0., sd_dip_rnde)))
