@@ -34,13 +34,16 @@ def model(data, reparam=False):
         R0 = numpyro.sample("R0", dist.LogNormal(0.98, 0.2))
         # expected number of cases per day in the first N0 days, for each country
         e_cases_N0 = numpyro.sample("e_cases_N0", dist.LogNormal(4.85, 0.4))
-        reparam_config = {k: TransformReparam() for k in [
-            "dip_rnde",
-            "log_ifr_age_rnde_mid1",
-            "log_ifr_age_rnde_mid2",
-            "log_ifr_age_rnde_old",
-            "timeeff_shift_mid1",
-        ]} if reparam else {}
+        if reparam:
+            reparam_config = {k: TransformReparam() for k in [
+                "dip_rnde",
+                "log_ifr_age_rnde_mid1",
+                "log_ifr_age_rnde_mid2",
+                "log_ifr_age_rnde_old",
+                "timeeff_shift_mid1",
+            ]}
+        else:
+            reparam_config = {}
         with numpyro.handlers.reparam(config=reparam_config):
             dip_rnde = numpyro.sample("dip_rnde", dist.TransformedDistribution(
                 dist.Normal(0., 1.), AffineTransform(0., sd_dip_rnde)))
@@ -83,11 +86,19 @@ def model(data, reparam=False):
                        .log_prob(log_ifr_age_base).sum())
 
     if reparam:
-        ...
+        upswing_timeeff_reduced_init = numpyro.sample(
+            "upswing_timeeff_reduced_init", dist.HalfNormal(0.025).expand([data["M"]]))
+        # NB: we will use Normal instead of TruncatedNormal at later steps
+        upswing_timeeff_reduced_base = numpyro.sample(
+            "upswing_timeeff_reduced_base", dist.Normal(0, 1).expand([data["N_IMP"] - 1, data["M"]]))
+        upswing_timeeff_reduced_base = jnp.concatenate([
+            upswing_timeeff_reduced_init[None], upswing_timeeff_reduced_base])
+        scale = jnp.concatenate([jnp.ones((1,)), jnp.repeat(sd_upswing_timeeff_reduced, data["N_IMP"] - 1)])
+        upswing_timeeff_reduced = jnp.cumsum(upswing_timeeff_reduced_base * scale[:, None], axis=0)
     else:
         upswing_timeeff_reduced = numpyro.sample(
             "upswing_timeeff_reduced",
-            dist.ImproperUniform(dist.constraints.positive, (data["IMP"], data["N"]), ()))
+            dist.ImproperUniform(dist.constraints.positive, (data["N_IMP"], data["M"]), ()))
         numpyro.factor("upswing_timeeff_reduced_init_log_factor",
                        # alternatively, we can use dist.HalfNormal(0.025)
                        dist.Normal(0., 0.025).log_prob(upswing_timeeff_reduced[0]))
