@@ -11,7 +11,7 @@ from numpyro.infer.reparam import TransformReparam  # noqa: F401
 from functions import countries_log_dens
 
 
-def model(data):
+def model(data, reparam=False):
     # priors
     sd_dip_rnde = numpyro.sample("sd_dip_rnde", dist.Exponential(1.5))
     # alternatively, we can use HalfNormal for phi
@@ -34,18 +34,13 @@ def model(data):
         R0 = numpyro.sample("R0", dist.LogNormal(0.98, 0.2))
         # expected number of cases per day in the first N0 days, for each country
         e_cases_N0 = numpyro.sample("e_cases_N0", dist.LogNormal(4.85, 0.4))
-        with numpyro.plate("N_IMP", data["N_IMP"]):
-            upswing_timeeff_reduced = numpyro.sample(
-                "upswing_timeeff_reduced",
-                dist.ImproperUniform(dist.constraints.positive, (), ()))
         reparam_config = {k: TransformReparam() for k in [
-            # "dip_rnde",
-            # "log_ifr_age_rnde_mid1",
-            # "log_ifr_age_rnde_mid2",
-            # "log_ifr_age_rnde_old",
-            # "upswing_timeeff_reduced",
-            # "timeeff_shift_mid1",
-        ]}
+            "dip_rnde",
+            "log_ifr_age_rnde_mid1",
+            "log_ifr_age_rnde_mid2",
+            "log_ifr_age_rnde_old",
+            "timeeff_shift_mid1",
+        ]} if reparam else {}
         with numpyro.handlers.reparam(config=reparam_config):
             dip_rnde = numpyro.sample("dip_rnde", dist.TransformedDistribution(
                 dist.Normal(0., 1.), AffineTransform(0., sd_dip_rnde)))
@@ -83,17 +78,22 @@ def model(data):
         log_ifr_age_base = numpyro.sample(
             "log_ifr_age_base",
             dist.ImproperUniform(dist.constraints.less_than(0), (), ()))
-
     numpyro.factor("log_ifr_age_base_log_factor",
                    dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"])
                        .log_prob(log_ifr_age_base).sum())
-    numpyro.factor("upswing_timeeff_reduced_init_log_factor",
-                   # alternatively, we can use dist.HalfNormal(0.025)
-                   dist.Normal(0., 0.025).log_prob(upswing_timeeff_reduced[0]))
-    # FIXME: can we reparam upswing_timeeff_reduced?
-    numpyro.factor("upswing_timeeff_reduced_log_factor",
-                   dist.Normal(upswing_timeeff_reduced[:-1], sd_upswing_timeeff_reduced)
-                       .log_prob(upswing_timeeff_reduced[1:]).sum())
+
+    if reparam:
+        ...
+    else:
+        upswing_timeeff_reduced = numpyro.sample(
+            "upswing_timeeff_reduced",
+            dist.ImproperUniform(dist.constraints.positive, (data["IMP"], data["N"]), ()))
+        numpyro.factor("upswing_timeeff_reduced_init_log_factor",
+                       # alternatively, we can use dist.HalfNormal(0.025)
+                       dist.Normal(0., 0.025).log_prob(upswing_timeeff_reduced[0]))
+        numpyro.factor("upswing_timeeff_reduced_log_factor",
+                       dist.Normal(upswing_timeeff_reduced[:-1], sd_upswing_timeeff_reduced)
+                           .log_prob(upswing_timeeff_reduced[1:]).sum())
 
     # transformed parameters
     log_relsusceptibility_age = numpyro.deterministic(
