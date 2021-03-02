@@ -147,7 +147,8 @@ def transform_data(data):  # lines 438 -> 503
 
 
 def get_data():
-    file = "covid19AgeModel_v120_cmdstanv-40states_Oct29-140172_stanin.RData"
+    # file = "covid19AgeModel_v120_cmdstanv-40states_Oct29-140172_stanin.RData"
+    file = "covid19AgeModel_v120_cmdstanv-40states_tau10_schoolbound6_v120-31875[1]_stanin.RData"
     ro.r['load'](file)
     r_df = ro.r['stan_data']
     r_df = dict(zip(r_df.names, list(r_df)))

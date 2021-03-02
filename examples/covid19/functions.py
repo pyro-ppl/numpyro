@@ -384,11 +384,12 @@ def countries_log_dens(
     E_casesByWeek = jnp.take_along_axis(
         E_cases, smoothed_logcases_week_map.reshape((M, -1)), -1).reshape((M, -1, 7))
     E_log_week_avg_cases = jnp.log(E_casesByWeek).mean(-1)
+    studentt_cdf = dist.StudentT(
+        smoothed_logcases_week_pars[..., 2],
+        smoothed_logcases_week_pars[..., 0],
+        smoothed_logcases_week_pars[..., 1]).cdf(E_log_week_avg_cases)
     lpmf += jnp.where(jnp.arange(E_log_week_avg_cases.shape[1]) < smoothed_logcases_weeks_n[:, None],
-                      jnp.log(dist.StudentT(smoothed_logcases_week_pars[..., 2],
-                                            smoothed_logcases_week_pars[..., 0],
-                                            smoothed_logcases_week_pars[..., 1])
-                                  .cdf(E_log_week_avg_cases)),
+                      jnp.log(jnp.clip(studentt_cdf, a_min=jnp.finfo(studentt_cdf).tiny)),
                       0.).sum()
 
     # likelihood school case data this location
