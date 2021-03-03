@@ -21,11 +21,11 @@ import argparse
 import time
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from jax import random
 import jax.numpy as jnp
 
-import numpy as np
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import HIGGS, load_dataset

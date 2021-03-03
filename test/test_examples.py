@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import sys
 from subprocess import check_call
+import sys
 
 import pytest
 
