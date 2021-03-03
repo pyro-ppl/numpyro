@@ -137,10 +137,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_datapoints', type=int, default=1_500_000)
     parser.add_argument('--inner_kernel', type=str, default='nuts')
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
-    parser.add_argument('--rng_seed', default=21, type=int, help='random number generator seed')
+    parser.add_argument('--rng_seed', default=37, type=int, help='random number generator seed')
 
     args = parser.parse_args()
 
-    numpyro.set_platform('gpu')
+    numpyro.set_platform(args.device)
 
     main(args)
