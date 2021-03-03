@@ -18,14 +18,15 @@ additive.
 import argparse
 import time
 
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
+
 from jax import random
+import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import HIGGS, load_dataset
-from numpyro.infer import autoguide, SVI, Trace_ELBO, HMC, NUTS, HMCECS, MCMC
+from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, autoguide
 from numpyro.infer.hmc_gibbs import taylor_proxy
 
 
