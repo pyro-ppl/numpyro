@@ -3,16 +3,17 @@
 
 """
 Example: Hamiltonian Monte Carlo with Energy Conserving Subsampling
-=========================
+===================================================================
 
-This example illustrates the use of subsampling of HMC using Energy Conserving Subsampling when the likelihood is
-additive.
+This example illustrates the use of data subsampling in HMC using Energy Conserving Subsampling. Data subsampling
+is applicable when the likelihood factorizes as a product of N terms.
 
 **References:**
 
     1. *Hamiltonian Monte Carlo with energy conserving subsampling*,
        Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
 
+.. image:: ../_static/img/examples/hmcecs.png
     :align: center
 """
 
@@ -24,6 +25,7 @@ import matplotlib.pyplot as plt
 from jax import random
 import jax.numpy as jnp
 
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import HIGGS, load_dataset
@@ -33,7 +35,7 @@ from numpyro.infer.hmc_gibbs import taylor_proxy
 
 def model(data, obs, subsample_size):
     n, m = data.shape
-    theta = numpyro.sample('theta', dist.continuous.Normal(jnp.zeros(m), .5 * jnp.ones(m)))
+    theta = numpyro.sample('theta', dist.Normal(jnp.zeros(m), .5 * jnp.ones(m)))
     with numpyro.plate('N', n, subsample_size=subsample_size):
         batch_feats = numpyro.subsample(data, event_dim=1)
         batch_obs = numpyro.subsample(obs, event_dim=0)
@@ -43,14 +45,16 @@ def model(data, obs, subsample_size):
 def run_hmcecs(hmcecs_key, args, data, obs, inner_kernel):
     svi_key, mcmc_key = random.split(hmcecs_key)
 
-    # find reference parameterization
+    # find reference parameters for second order taylor expansion to estimate likelihood (taylor_proxy)
     optimizer = numpyro.optim.Adam(step_size=1e-3)
     guide = autoguide.AutoDelta(model)
     svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
     params, losses = svi.run(svi_key, args.num_svi_steps, data, obs, args.subsample_size)
     ref_params = {'theta': params['theta_auto_loc']}
 
-    # setup proxy
+    # taylor proxy estimates log likelihood (ll) by
+    # taylor_expansion(ll, theta_curr) +
+    #     sum_{i in subsample} ll_i(theta_curr) - taylor_expansion(ll_i, theta_curr) around ref_params
     proxy = taylor_proxy(ref_params)
 
     kernel = HMCECS(inner_kernel, num_blocks=args.num_blocks, proxy=proxy)
@@ -71,17 +75,20 @@ def run_hmc(mcmc_key, args, data, obs, kernel):
 def main(args):
     assert 11_000_000 >= args.num_datapoints, "11,000,000 data points in the Higgs dataset"
     # full dataset takes hours for plain hmc!
-    _, fetch = load_dataset(HIGGS, shuffle=False, num_datapoints=args.num_datapoints)
-    data, obs = fetch()
+    if args.dataset == 'higgs':
+        _, fetch = load_dataset(HIGGS, shuffle=False, num_datapoints=args.num_datapoints)
+        data, obs = fetch()
+    else:
+        data, obs = (np.random.normal(size=(10, 28)), np.ones(10))
 
     hmcecs_key, hmc_key = random.split(random.PRNGKey(args.rng_seed))
 
     # choose inner_kernel
-    if args.inner_kernel.lower() == 'hmc':
+    if args.inner_kernel == 'hmc':
         inner_kernel = HMC(model)
-    elif args.inner_kernel.lower() == 'nuts':
+    elif args.inner_kernel == 'nuts':
         inner_kernel = NUTS(model)
-    else:
+    else:  # naive data subsampling
         inner_kernel = None
 
     start = time.time()
@@ -125,7 +132,7 @@ def summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtim
         a.set_xticks([])
 
     fig.tight_layout()
-    fig.savefig('hmcecs_plot.pdf', bbox_inches='tight', transparent=True)
+    fig.savefig('hmcecs_plot.pdf', bbox_inches='tight')
 
 
 if __name__ == '__main__':
@@ -136,8 +143,9 @@ if __name__ == '__main__':
     parser.add_argument('--num_warmup', type=int, default=500)
     parser.add_argument('--num_samples', type=int, default=500)
     parser.add_argument('--num_datapoints', type=int, default=1_500_000)
-    parser.add_argument('--inner_kernel', type=str, default='nuts')
-    parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument('--dataset', type=str, choices=['higgs', 'mock'], default='higgs')
+    parser.add_argument('--inner_kernel', type=str, choices=['nuts', 'hmc', 'naive'], default='nuts')
+    parser.add_argument('--device', default='cpu', type=str, choices=['cpu', 'gpu'])
     parser.add_argument('--rng_seed', default=37, type=int, help='random number generator seed')
 
     args = parser.parse_args()
