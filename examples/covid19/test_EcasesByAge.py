@@ -115,6 +115,8 @@ def EcasesByAge(
     init_A: jnp.int32,  # N_init_A
     school_switch):
 
+    M = popByAge_abs.shape[0]
+
     wkend_mask = wkend_mask.astype(jnp.int32)
 
     cntct_mean = jnp.stack([cntct_weekdays_mean, cntct_weekends_mean])
