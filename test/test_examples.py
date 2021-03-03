@@ -44,6 +44,7 @@ EXAMPLES = [
 
 @pytest.mark.parametrize('example', EXAMPLES)
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+@pytest.mark.filterwarnings("ignore:Higgs is a 2.6 GB dataset:UserWarning")
 def test_cpu(example):
     print('Running:\npython examples/{}'.format(example))
     example = example.split()
