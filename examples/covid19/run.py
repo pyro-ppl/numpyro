@@ -15,6 +15,12 @@ def main(args):
 
     print("M = {}  N0 = {}  N2 = {}  A = {}  SI_CUT = {}".format(data['M'], data['N0'], data['N2'], data['A'], data['SI_CUT']))
 
+    wkend_idx = data['wkend_idx']
+    print("wkend_idx",wkend_idx.shape)
+    print("wkend_idx\n",wkend_idx)
+
+    import sys; sys.exit()
+
     kernel = NUTS(model, step_size=1.0e-5, max_tree_depth=10, target_accept_prob=0.8)
     mcmc = MCMC(kernel, num_warmup=args.num_warmup, num_samples=args.num_samples, num_chains=args.num_chains, progress_bar=True)
 
