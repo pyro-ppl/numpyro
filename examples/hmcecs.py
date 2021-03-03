@@ -52,7 +52,7 @@ def run_hmcecs(hmcecs_key, args, data, obs, inner_kernel):
     # setup proxy
     proxy = taylor_proxy(ref_params)
 
-    kernel = HMCECS(inner_kernel(model), num_blocks=args.num_blocks, proxy=proxy)
+    kernel = HMCECS(inner_kernel, num_blocks=args.num_blocks, proxy=proxy)
     mcmc = MCMC(kernel, num_warmup=args.num_warmup, num_samples=args.num_samples)
 
     mcmc.run(mcmc_key, data, obs, args.subsample_size)
@@ -61,14 +61,14 @@ def run_hmcecs(hmcecs_key, args, data, obs, inner_kernel):
 
 
 def run_hmc(mcmc_key, args, data, obs, kernel):
-    mcmc = MCMC(kernel(model), num_warmup=args.num_warmup, num_samples=args.num_samples)
+    mcmc = MCMC(kernel, num_warmup=args.num_warmup, num_samples=args.num_samples)
     mcmc.run(mcmc_key, data, obs, None)
     mcmc.print_summary()
     return mcmc.get_samples()
 
 
 def main(args):
-    assert 11_000_000 >= args.num_datapoints, f"11,000,000 data points in the Higgs dataset"
+    assert 11_000_000 >= args.num_datapoints, "11,000,000 data points in the Higgs dataset"
     # full dataset takes hours for plain hmc!
     _, fetch = load_dataset(HIGGS, shuffle=False, num_datapoints=args.num_datapoints)
     data, obs = fetch()
@@ -77,11 +77,11 @@ def main(args):
 
     # choose inner_kernel
     if args.inner_kernel.lower() == 'hmc':
-        inner_kernel = HMC
+        inner_kernel = HMC(model)
     elif args.inner_kernel.lower() == 'nuts':
-        inner_kernel = NUTS
+        inner_kernel = NUTS(model)
     else:
-        inner_kernel = lambda _: None
+        inner_kernel = None
 
     start = time.time()
     losses, hmcecs_samples = run_hmcecs(hmcecs_key, args, data, obs, inner_kernel)
