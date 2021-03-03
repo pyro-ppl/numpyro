@@ -115,11 +115,12 @@ def EcasesByAge(
     init_A: jnp.int32,  # N_init_A
     school_switch):
 
-    cntct_mean = jnp.stack([cntct_weekends_mean, cntct_weekdays_mean])
-    cntct_school_closure = jnp.stack([cntct_school_closure_weekends, cntct_school_closure_weekdays])
-    cntct_elementary_school_reopening = jnp.stack([cntct_elementary_school_reopening_weekends,
-                                                   cntct_elementary_school_reopening_weekdays])
-    print("cntct_elementary_school_reopening",cntct_elementary_school_reopening.shape)
+    wkend_mask = wkend_mask.astype(jnp.int32)
+
+    cntct_mean = jnp.stack([cntct_weekdays_mean, cntct_weekends_mean])
+    cntct_school_closure = jnp.stack([cntct_school_closure_weekdays, cntct_school_closure_weekends])
+    cntct_elementary_school_reopening = jnp.stack([cntct_elementary_school_reopening_weekdays,
+                                                   cntct_elementary_school_reopening_weekends])
 
     # probability of infection given contact in location m
     rho0 = R0 / avg_cntct
@@ -136,24 +137,20 @@ def EcasesByAge(
     # define body of main for loop
     def scan_body(carry, x):
         impact_intv_t, weekend_t, school_switch_t = x
-        E_casesByAge_sum, E_casesByAge_SI_CUT = carry
+
+        E_casesByAge_sum, E_casesByAge_SI_CUT = carry  # (M, A)   (M, SI_CUT, A)
 
         prop_susceptibleByAge = 1.0 - E_casesByAge_sum / popByAge_abs  # M A
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
 
         # this convolution is effectively zero padded on the left
         tmp_row_vector_A_no_impact_intv = (rev_serial_interval[:, None] @ E_casesByAge_SI_CUT)[:, 0]  # M S @ M S A => M A
-        assert tmp_row_vector_A_no_impact_intv.shape == (M, A)
         tmp_row_vector_A = impact_intv_t * tmp_row_vector_A_no_impact_intv  # M A
-        assert tmp_row_vector_A.shape == (M, A)
 
         # choose weekend/weekday contact matrices
         cntct_mean_t = jnp.take_along_axis(cntct_mean, weekend_t[None, :, None, None], 0)[0]  # M A A
         cntct_school_closure_t = jnp.take_along_axis(cntct_school_closure, weekend_t[None, :, None, None], 0)[0]
         cntct_elementary_school_reopening_t = jnp.take_along_axis(cntct_elementary_school_reopening, weekend_t[None, :, None, None], 0)[0]
-        assert cntct_mean_t.shape == (M, A, A)
-        assert cntct_school_closure_t.shape == (M, A, A)
-        assert cntct_elementary_school_reopening_t.shape == (M, A, A)
 
         # school open
         col1_left_so = tmp_row_vector_A_no_impact_intv[:, :, None]
@@ -200,20 +197,17 @@ def EcasesByAge(
         col2_bottomright = jnp.take_along_axis(col2_bottomright, school_switch_t[None, :, None, None], 0)[0]  # M A-AC A-AC
         impact_intv_adult = jnp.take_along_axis(impact_intv_adult, school_switch_t[None, :, None], 0)[0]  # M A-AC
 
-        assert col1_left.shape == (M, A, 1)
-        assert col1_right.shape == (M, A, A_CHILD)
-        assert col2_topleft.shape == (M, A_CHILD, 1)
-        assert col2_topright.shape == (M, A_CHILD, A - A_CHILD)
-        assert col2_bottomleft.shape == (M, A - A_CHILD, 1)
-        assert col2_bottomright.shape == (M, A - A_CHILD, A - A_CHILD)
-        assert impact_intv_adult.shape == (M, A - A_CHILD)
+        #assert col1_left.shape == (M, A, 1)
+        #assert col1_right.shape == (M, A, A_CHILD)
+        #assert col2_topleft.shape == (M, A_CHILD, 1)
+        #assert col2_topright.shape == (M, A_CHILD, A - A_CHILD)
+        #assert col2_bottomleft.shape == (M, A - A_CHILD, 1)
+        #assert col2_bottomright.shape == (M, A - A_CHILD, A - A_CHILD)
+        #assert impact_intv_adult.shape == (M, A - A_CHILD)
 
         col1 = (jnp.moveaxis(col1_left, -1, -2) @ col1_right)[:, 0]  # M AC
         col2 = (jnp.moveaxis(col2_topleft, -1, -2) @ col2_topright)[:, 0] +\
             (jnp.moveaxis(col2_bottomleft, -1, -2) @ col2_bottomright)[:, 0] * impact_intv_adult  # M A-AC
-
-        assert col1.shape == (M, A_CHILD)
-        assert col2.shape == (M, A - A_CHILD)
 
         E_casesByAge_t = jnp.concatenate([col1, col2], axis=-1)
         E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
@@ -248,7 +242,7 @@ def EcasesByAge(
 if __name__ == '__main__':
     numpyro.enable_x64()
 
-    NUM_TESTS = 1
+    NUM_TESTS = 6
 
     M = 3
     A = 6
@@ -260,8 +254,6 @@ if __name__ == '__main__':
         N0 = 4 + 4 * test // 2
         N2 = 12 + 2 * test // 2
         SI_CUT = 9 + test
-
-        print("N0 N2 M", N0, N2, M)
 
         R0 = np.random.rand(M)
         e_cases_N0 = np.random.rand(M)
@@ -313,7 +305,6 @@ if __name__ == '__main__':
             init_A,
             school_switch)
 
-        print("value_vmap",value_vmap.shape)
         assert value_vmap.shape == (M, N2, A)
 
         value_custom = EcasesByAge(
@@ -344,7 +335,6 @@ if __name__ == '__main__':
             init_A,
             school_switch)
 
-        print("value_custom",value_vmap.shape)
         assert value_custom.shape == (M, N2, A)
 
         delta = value_custom - value_vmap
