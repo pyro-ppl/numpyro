@@ -23,8 +23,7 @@ EXAMPLES = [
     'capture_recapture.py --num-samples 4 --num-warmup 1 -m 5',
     'covtype.py --algo HMC --num-samples 10 --num-warmup 10',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
-    'hmcecs.py --subsample_size 2 --num_svi_steps 1 --num_blocks 1 '
-    '--num_warmup 1 --num_samples 1 --inner_kernel nuts --num_datapoints 10',
+    'hmcecs.py --subsample_size 5 --num_svi_steps 1 --num_blocks 1 --num_warmup 1 --num_samples 5 --num_datapoints 100',
     'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'hmm_enum.py -m 1 -t 3 -d 4 --num-warmup 1 -n 4',
     'hmm_enum.py -m 2 -t 3 -d 4 --num-warmup 1 -n 4',
