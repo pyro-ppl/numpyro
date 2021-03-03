@@ -16,14 +16,15 @@ additive.
 """
 
 import argparse
+import time
 
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from jax import random
-from sklearn.datasets import load_breast_cancer
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.examples.datasets import HIGGS, load_dataset
 from numpyro.infer import autoguide, SVI, Trace_ELBO, HMC, NUTS, HMCECS, MCMC
 from numpyro.infer.hmc_gibbs import taylor_proxy
 
@@ -37,27 +38,25 @@ def model(data, obs, subsample_size):
         numpyro.sample('obs', dist.Bernoulli(logits=theta @ batch_feats.T), obs=batch_obs)
 
 
-def breast_cancer_data():
-    dataset = load_breast_cancer()
-    feats = dataset.data
-    feats = (feats - feats.mean(0)) / feats.std(0)
-    feats = jnp.hstack((feats, jnp.ones((feats.shape[0], 1))))
-    return feats, dataset.target
-
-
 def run_hmcecs(hmcecs_key, args, data, obs, inner_kernel):
     svi_key, mcmc_key = random.split(hmcecs_key)
 
+    # find reference parameterization
     optimizer = numpyro.optim.Adam(step_size=1e-3)
     guide = autoguide.AutoDelta(model)
     svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-    params, losses = svi.run(svi_key, 5000, data, obs, args.subsample_size)
-    kernel = HMCECS(inner_kernel(model), num_blocks=args.num_blocks,
-                    proxy=taylor_proxy({'theta': params['theta_auto_loc']}))
+    params, losses = svi.run(svi_key, args.num_svi_steps, data, obs, args.subsample_size)
+    ref_params = {'theta': params['theta_auto_loc']}
+
+    # setup proxy
+    proxy = taylor_proxy(ref_params)
+
+    kernel = HMCECS(inner_kernel(model), num_blocks=args.num_blocks, proxy=proxy)
     mcmc = MCMC(kernel, num_warmup=args.num_warmup, num_samples=args.num_samples)
+
     mcmc.run(mcmc_key, data, obs, args.subsample_size)
     mcmc.print_summary()
-    return mcmc.get_samples()
+    return losses, mcmc.get_samples()
 
 
 def run_hmc(mcmc_key, args, data, obs, kernel):
@@ -68,9 +67,14 @@ def run_hmc(mcmc_key, args, data, obs, kernel):
 
 
 def main(args):
-    # _, fetch = load_dataset(HIGGS, shuffle=False)
-    data, obs = breast_cancer_data()
+    assert 11_000_000 >= args.num_datapoints, f"11,000,000 data points in the Higgs dataset"
+    # full dataset takes hours for plain hmc!
+    _, fetch = load_dataset(HIGGS, shuffle=False, num_datapoints=args.num_datapoints)
+    data, obs = fetch()
+
     hmcecs_key, hmc_key = random.split(random.PRNGKey(args.rng_seed))
+
+    # choose inner_kernel
     if args.inner_kernel.lower() == 'hmc':
         inner_kernel = HMC
     elif args.inner_kernel.lower() == 'nuts':
@@ -78,37 +82,58 @@ def main(args):
     else:
         inner_kernel = lambda _: None
 
-    hmcecs_samples = run_hmcecs(hmcecs_key, args, data, obs, inner_kernel)
+    start = time.time()
+    losses, hmcecs_samples = run_hmcecs(hmcecs_key, args, data, obs, inner_kernel)
+    hmcecs_runtime = time.time() - start
+
     if inner_kernel:
+        start = time.time()
         hmc_samples = run_hmc(hmc_key, args, data, obs, inner_kernel)
+        hmc_runtime = time.time() - start
 
-    plot_mean_variance(hmc_samples, hmcecs_samples)
+        summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtime)
 
 
-def plot_mean_variance(hmc_samples, hmcecs_samples):
-    fig, ax = plt.subplots(1, 2)
-    ax[0].plot(jnp.sort(hmc_samples['theta'].mean(0)), 'or')
-    ax[0].plot(jnp.sort(hmcecs_samples['theta'].mean(0)), 'b')
-    ax[0].set_title(r'$\mathrm{\mathbb{E}}[\theta]$')
+def summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtime):
+    fig, ax = plt.subplots(2, 2)
+    ax[0, 0].plot(losses, 'r')
+    ax[0, 0].set_title('SVI losses')
+    ax[0, 0].set_ylabel('ELBO')
 
-    ax[1].plot(jnp.sort(hmc_samples['theta'].var(0)), 'or')
-    ax[1].plot(jnp.sort(hmcecs_samples['theta'].var(0)), 'b')
-    ax[1].set_title(r'Var$[\theta]$')
+    if hmc_runtime > hmcecs_runtime:
+        ax[0, 1].bar([0], hmc_runtime, label='hmc', color='b')
+        ax[0, 1].bar([0], hmcecs_runtime, label='hmcecs', color='r')
+    else:
+        ax[0, 1].bar([0], hmcecs_runtime, label='hmcecs', color='r')
+        ax[0, 1].bar([0], hmc_runtime, label='hmc', color='b')
+    ax[0, 1].set_title('Runtime')
+    ax[0, 1].set_ylabel('Seconds')
+    ax[0, 1].legend()
+    ax[0, 1].set_xticks([])
 
-    for a in ax:
+    ax[1, 0].plot(jnp.sort(hmc_samples['theta'].mean(0)), 'or')
+    ax[1, 0].plot(jnp.sort(hmcecs_samples['theta'].mean(0)), 'b')
+    ax[1, 0].set_title(r'$\mathrm{\mathbb{E}}[\theta]$')
+
+    ax[1, 1].plot(jnp.sort(hmc_samples['theta'].var(0)), 'or')
+    ax[1, 1].plot(jnp.sort(hmcecs_samples['theta'].var(0)), 'b')
+    ax[1, 1].set_title(r'Var$[\theta]$')
+
+    for a in ax[1, :]:
         a.set_xticks([])
 
     fig.tight_layout()
-    fig.savefig('expected_variance.pdf', bbox_inches='tight', transparent=True)
-
+    fig.savefig('hmcecs_plot.pdf', bbox_inches='tight', transparent=True)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser("Hamiltonian Monte Carlo with Energy Conserving Subsampling")
-    parser.add_argument('--subsample_size', type=int, default=75)
-    parser.add_argument('--num_blocks', type=int, default=25)
-    parser.add_argument('--num_warmup', type=int, default=1000)
-    parser.add_argument('--num_samples', type=int, default=1000)
+    parser.add_argument('--subsample_size', type=int, default=1300)
+    parser.add_argument('--num_svi_steps', type=int, default=5000)
+    parser.add_argument('--num_blocks', type=int, default=100)
+    parser.add_argument('--num_warmup', type=int, default=500)
+    parser.add_argument('--num_samples', type=int, default=500)
+    parser.add_argument('--num_datapoints', type=int, default=1_500_000)
     parser.add_argument('--inner_kernel', type=str, default='nuts')
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
     parser.add_argument('--rng_seed', default=21, type=int, help='random number generator seed')
