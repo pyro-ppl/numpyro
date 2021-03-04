@@ -31,7 +31,7 @@ import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import betainc, expit, gammaln, logit, log_ndtr, logsumexp, multigammaln, ndtr, ndtri
+from jax.scipy.special import betainc, expit, gammaln, logit, logsumexp, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
@@ -1346,177 +1346,36 @@ def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
         return TwoSidedTruncatedDistribution(base_dist, low=low, high=high, validate_args=validate_args)
 
 
-class _BaseTruncatedCauchy(Distribution):
-    # NB: this is a truncated cauchy with low=0, scale=1
-    arg_constraints = {"base_loc": constraints.real}
-    reparametrized_params = ["base_loc"]
-    support = constraints.positive
-
-    def __init__(self, base_loc):
-        self.base_loc = base_loc
-        super(_BaseTruncatedCauchy, self).__init__(batch_shape=jnp.shape(base_loc))
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        # We use inverse transform method:
-        # z ~ inv_cdf(U), where U ~ Uniform(cdf(low), cdf(high)).
-        #                         ~ Uniform(arctan(low), arctan(high)) / pi + 1/2
-        size = sample_shape + self.batch_shape
-        minval = -jnp.arctan(self.base_loc)
-        maxval = jnp.pi / 2
-        u = minval + random.uniform(key, shape=size) * (maxval - minval)
-        return self.base_loc + jnp.tan(u)
-
-    @validate_sample
-    def log_prob(self, value):
-        # pi / 2 is arctan of self.high when that arg is supported
-        normalize_term = jnp.log(jnp.pi / 2 + jnp.arctan(self.base_loc))
-        return - jnp.log1p((value - self.base_loc) ** 2) - normalize_term
+def TruncatedCauchy(low=0., loc=0., scale=1., validate_args=None):
+    return TruncatedDistribution(Cauchy(loc, scale), low=low, validate_args=validate_args)
 
 
-class TruncatedCauchy(TransformedDistribution):
-    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
-                       'scale': constraints.positive}
-    reparametrized_params = ["low", "loc", "scale"]
-
-    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
-        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
-        base_loc = (loc - low) / scale
-        base_dist = _BaseTruncatedCauchy(base_loc)
-        self._support = constraints.greater_than(low)
-        super(TruncatedCauchy, self).__init__(base_dist, AffineTransform(low, scale),
-                                              validate_args=validate_args)
-
-    @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self):
-        return self._support
-
-    # NB: these stats do not apply when arg `high` is supported
-    @property
-    def mean(self):
-        return jnp.full(self.batch_shape, jnp.nan)
-
-    @property
-    def variance(self):
-        return jnp.full(self.batch_shape, jnp.nan)
-
-    def tree_flatten(self):
-        if isinstance(self._support.lower_bound, (int, float)):
-            aux_data = self._support.lower_bound
-        else:
-            aux_data = None
-        return (self.low, self.loc, self.scale), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = cls(*params)
-        if aux_data is not None:
-            d._support = constraints.greater_than(aux_data)
-        return d
+def TruncatedNormal(low=0., loc=0., scale=1., validate_args=None):
+    return TruncatedDistribution(Normal(loc, scale), low=low, validate_args=validate_args)
 
 
-class _BaseTruncatedNormal(Distribution):
-    # NB: this is a truncated normal with low=0, scale=1
-    arg_constraints = {"base_loc": constraints.real}
-    reparametrized_params = ["base_loc"]
-    support = constraints.positive
-
-    def __init__(self, base_loc):
-        self.base_loc = base_loc
-        self._normal = Normal(base_loc, 1.)
-        super(_BaseTruncatedNormal, self).__init__(batch_shape=jnp.shape(base_loc))
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        size = sample_shape + self.batch_shape
-        # We use inverse transform method:
-        # z ~ icdf(U), where U ~ Uniform(0, 1).
-        u = random.uniform(key, shape=size)
-        # Ref: https://en.wikipedia.org/wiki/Truncated_normal_distribution#Simulating
-        # icdf[cdf_a + u * (1 - cdf_a)] = icdf[1 - (1 - cdf_a)(1 - u)]
-        #                                 = - icdf[(1 - cdf_a)(1 - u)]
-        return self.base_loc - ndtri(ndtr(self.base_loc) * (1 - u))
-
-    @validate_sample
-    def log_prob(self, value):
-        # log(cdf(high) - cdf(low)) = log(1 - cdf(low)) = log(cdf(-low))
-        return self._normal.log_prob(value) - log_ndtr(self.base_loc)
-
-
-class TruncatedNormal(TransformedDistribution):
-    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
-                       'scale': constraints.positive}
-    reparametrized_params = ["low", "loc", "scale"]
-
-    # TODO: support `high` arg
-    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
-        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
-        base_loc = (loc - low) / scale
-        base_dist = _BaseTruncatedNormal(base_loc)
-        self._support = constraints.greater_than(low)
-        super(TruncatedNormal, self).__init__(base_dist, AffineTransform(low, scale),
-                                              validate_args=validate_args)
-
-    @constraints.dependent_property(is_discrete=False, event_dim=0)
-    def support(self):
-        return self._support
-
-    @property
-    def mean(self):
-        low_prob_scaled = jnp.exp(self.base_dist.log_prob(0.))
-        return self.loc + low_prob_scaled * self.scale
-
-    @property
-    def variance(self):
-        low_prob_scaled = jnp.exp(self.base_dist.log_prob(0.))
-        return (self.scale ** 2) * (1 - self.base_dist.base_loc * low_prob_scaled - low_prob_scaled ** 2)
-
-    def tree_flatten(self):
-        if isinstance(self._support.lower_bound, (int, float)):
-            aux_data = self._support.lower_bound
-        else:
-            aux_data = None
-        return (self.low, self.loc, self.scale), aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, params):
-        d = cls(*params)
-        if aux_data is not None:
-            d._support = constraints.greater_than(aux_data)
-        return d
-
-
-class _BaseUniform(Distribution):
-    support = constraints.unit_interval
-
-    def __init__(self, batch_shape=()):
-        super(_BaseUniform, self).__init__(batch_shape=batch_shape)
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        size = sample_shape + self.batch_shape
-        return random.uniform(key, shape=size)
-
-    @validate_sample
-    def log_prob(self, value):
-        batch_shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
-        return - jnp.zeros(batch_shape)
-
-
-class Uniform(TransformedDistribution):
+class Uniform(Distribution):
     arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
     reparametrized_params = ['low', 'high']
 
     def __init__(self, low=0., high=1., validate_args=None):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
-        base_dist = _BaseUniform(batch_shape)
         self._support = constraints.interval(low, high)
-        super(Uniform, self).__init__(base_dist, AffineTransform(low, high - low), validate_args=validate_args)
+        super().__init__(batch_shape, validate_args=validate_args)
 
     @constraints.dependent_property(is_discrete=False, event_dim=0)
     def support(self):
         return self._support
+
+    def sample(self, key, sample_shape):
+        shape = sample_shape + self.batch_shape
+        return random.uniforml(key, shape=shape, minval=self.low, maxval=self.high)
+
+    @validate_sample
+    def log_prob(self, value):
+        shape = lax.broadcast_shape(jnp.shape(value), self.batch_shape)
+        return - jnp.broadcast_to(jnp.log(self.high - self.low), shape)
 
     @property
     def mean(self):
