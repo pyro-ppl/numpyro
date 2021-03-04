@@ -9,8 +9,6 @@ from numpyro.util import identity
 
 import numpyro.distributions as dist
 
-from test_EcasesByAge import EcasesByAge
-
 
 # returns multiplier on the rows of the contact matrix over time for one country
 def country_impact(
