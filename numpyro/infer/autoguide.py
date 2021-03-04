@@ -160,7 +160,9 @@ class AutoNormal(AutoGuide):
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
     """
-    scale_constraint = constraints.softplus_positive
+    # TODO consider switching to constraints.softplus_positive
+    # See https://github.com/pyro-ppl/numpyro/issues/855
+    scale_constraint = constraints.positive
 
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  create_plates=None):
@@ -537,7 +539,9 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    scale_constraint = constraints.softplus_positive
+    # TODO consider switching to constraints.softplus_positive
+    # See https://github.com/pyro-ppl/numpyro/issues/855
+    scale_constraint = constraints.positive
 
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  init_strategy=None):
@@ -593,7 +597,9 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
-    scale_tril_constraint = constraints.softplus_lower_cholesky
+    # TODO consider switching to constraints.softplus_lower_cholesky
+    # See https://github.com/pyro-ppl/numpyro/issues/855
+    scale_tril_constraint = constraints.lower_cholesky
 
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  init_strategy=None):
@@ -650,7 +656,9 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
-    scale_constraint = constraints.softplus_positive
+    # TODO consider switching to constraints.softplus_positive
+    # See https://github.com/pyro-ppl/numpyro/issues/855
+    scale_constraint = constraints.positive
 
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  rank=None, init_strategy=None):
