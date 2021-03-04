@@ -4,7 +4,6 @@
 # Adapted from pyro.infer.autoguide
 from abc import ABC, abstractmethod
 from contextlib import ExitStack
-from numpyro.infer.initialization import init_to_median
 import warnings
 
 import numpy as np
@@ -22,6 +21,7 @@ from numpyro.distributions.flows import BlockNeuralAutoregressiveTransform, Inve
 from numpyro.distributions.transforms import (
     AffineTransform,
     ComposeTransform,
+    IndependentTransform,
     LowerCholeskyAffine,
     PermuteTransform,
     UnpackTransform,
@@ -29,6 +29,7 @@ from numpyro.distributions.transforms import (
 )
 from numpyro.distributions.util import cholesky_of_inverse, periodic_repeat, sum_rightmost
 from numpyro.infer.elbo import Trace_ELBO
+from numpyro.infer.initialization import init_to_median
 from numpyro.infer.util import init_to_uniform, initialize_model
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
@@ -213,19 +214,14 @@ class AutoNormal(AutoGuide):
                                            event_dim=event_dim)
 
                 site_fn = dist.Normal(site_loc, site_scale).to_event(event_dim)
-                if site["fn"].support in [constraints.real, constraints.real_vector]:
+                if site["fn"].support is constraints.real \
+                        or (isinstance(site["fn"].support, constraints.independent) and
+                            site["fn"].support is constraints.real):
                     result[name] = numpyro.sample(name, site_fn)
                 else:
-                    unconstrained_value = numpyro.sample("{}_unconstrained".format(name), site_fn,
-                                                         infer={"is_auxiliary": True})
-
                     transform = biject_to(site['fn'].support)
-                    value = transform(unconstrained_value)
-                    log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-                    log_density = sum_rightmost(log_density,
-                                                jnp.ndim(log_density) - jnp.ndim(value) + site["fn"].event_dim)
-                    delta_dist = dist.Delta(value, log_density=log_density, event_dim=site["fn"].event_dim)
-                    result[name] = numpyro.sample(name, delta_dist)
+                    guide_dist = dist.TransformedDistribution(site_fn, transform)
+                    result[name] = numpyro.sample(name, guide_dist)
 
         return result
 
@@ -563,13 +559,13 @@ class AutoDiagonalNormal(AutoContinuous):
     def get_transform(self, params):
         loc = params['{}_loc'.format(self.prefix)]
         scale = params['{}_scale'.format(self.prefix)]
-        return AffineTransform(loc, scale, domain=constraints.real_vector)
+        return IndependentTransform(AffineTransform(loc, scale), 1)
 
     def get_posterior(self, params):
         """
         Returns a diagonal Normal posterior distribution.
         """
-        transform = self.get_transform(params)
+        transform = self.get_transform(params).base_transform
         return dist.Normal(transform.loc, transform.scale)
 
     def median(self, params):
@@ -695,9 +691,12 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
-        transform = self.get_transform(params)
+        loc = params[f'{self.prefix}_loc']
+        cov_factor = params[f'{self.prefix}_cov_factor']
+        scale = params[f'{self.prefix}_scale']
+        scale = scale * jnp.sqrt(jnp.square(cov_factor).sum(-1) + 1)
         quantiles = jnp.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(quantiles)
+        latent = dist.Normal(loc, scale).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 

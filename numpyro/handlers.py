@@ -136,6 +136,7 @@ class trace(Messenger):
                       'type': 'sample',
                       'value': DeviceArray(-0.20584235, dtype=float32)})])
     """
+
     def __enter__(self):
         super(trace, self).__enter__()
         self.trace = OrderedDict()
@@ -146,7 +147,7 @@ class trace(Messenger):
             # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
             # which has no name
             return
-        assert not(msg['type'] == 'sample' and msg['name'] in self.trace), \
+        assert not (msg['type'] == 'sample' and msg['name'] in self.trace), \
             'all sites must have unique names but got `{}` duplicated'.format(msg['name'])
         self.trace[msg['name']] = msg.copy()
 
@@ -191,6 +192,7 @@ class replay(Messenger):
        -0.20584235
        >>> assert replayed_trace['a']['value'] == exec_trace['a']['value']
     """
+
     def __init__(self, fn=None, guide_trace=None):
         assert guide_trace is not None
         self.guide_trace = guide_trace
@@ -234,6 +236,7 @@ class block(Messenger):
        >>> assert 'a' not in trace_block_a
        >>> assert 'b' in trace_block_a
     """
+
     def __init__(self, fn=None, hide_fn=None, hide=None):
         if hide_fn is not None:
             self.hide_fn = hide_fn
@@ -350,6 +353,7 @@ class condition(Messenger):
        >>> assert exec_trace['a']['value'] == -1
        >>> assert exec_trace['a']['is_observed']
     """
+
     def __init__(self, fn=None, data=None, condition_fn=None):
         self.condition_fn = condition_fn
         self.data = data
@@ -379,13 +383,14 @@ class condition(Messenger):
 
 class infer_config(Messenger):
     """
-    Given a callable `fn` that contains Pyro primitive calls
+    Given a callable `fn` that contains NumPyro primitive calls
     and a callable `config_fn` taking a trace site and returning a dictionary,
     updates the value of the infer kwarg at a sample site to config_fn(site).
 
     :param fn: a stochastic function (callable containing NumPyro primitive calls)
     :param config_fn: a callable taking a site and returning an infer dict
     """
+
     def __init__(self, fn=None, config_fn=None):
         super().__init__(fn)
         self.config_fn = config_fn
@@ -447,6 +452,7 @@ class lift(Messenger):
             msg["kwargs"] = {"rng_key": msg["kwargs"].get("rng_key", None),
                              "sample_shape": msg["kwargs"].get("sample_shape", ())}
             msg["intermediates"] = []
+            msg["infer"] = msg.get("infer", {})
         else:
             # otherwise leave as is
             return
@@ -469,6 +475,7 @@ class mask(Messenger):
     :param mask: a boolean or a boolean-valued array for masking elementwise log
         probability of sample sites (`True` includes a site, `False` excludes a site).
     """
+
     def __init__(self, fn=None, mask=True):
         if lax.dtype(mask) != 'bool':
             raise ValueError("`mask` should be a bool array.")
@@ -505,6 +512,7 @@ class reparam(Messenger):
         :class:`~numpyro.infer.reparam.Reparam` or None.
     :type config: dict or callable
     """
+
     def __init__(self, fn=None, config=None):
         assert isinstance(config, dict) or callable(config)
         self.config = config
@@ -549,6 +557,7 @@ class scale(Messenger):
         of log probability.
     :type scale: float or numpy.ndarray
     """
+
     def __init__(self, fn=None, scale=1.):
         if not_jax_tracer(scale):
             if np.any(np.less_equal(scale, 0)):
@@ -586,6 +595,7 @@ class scope(Messenger):
     :param str prefix: a string to prepend to sample names
     :param str divider: a string to join the prefix and sample name; default to `'/'`
     """
+
     def __init__(self, fn=None, prefix='', divider='/'):
         self.prefix = prefix
         self.divider = divider
@@ -637,6 +647,7 @@ class seed(Messenger):
        >>> y = handlers.seed(model, rng_seed=1)()
        >>> assert x == y
     """
+
     def __init__(self, fn=None, rng_seed=None):
         if isinstance(rng_seed, int) or (isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)):
             rng_seed = random.PRNGKey(rng_seed)
@@ -646,10 +657,10 @@ class seed(Messenger):
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg['type'] == 'sample' and not msg['is_observed'] and
-                msg['kwargs']['rng_key'] is None) or msg['type'] in ['prng_key', 'plate', 'control_flow']:
-            # no need to create a new key when value is available
+        if (msg['type'] == 'sample' and not msg['is_observed'] and msg['kwargs']['rng_key'] is None) \
+                or msg['type'] in ['prng_key', 'plate', 'control_flow']:
             if msg['value'] is not None:
+                # no need to create a new key when value is available
                 return
             self.rng_key, rng_key_sample = random.split(self.rng_key)
             msg['kwargs']['rng_key'] = rng_key_sample
@@ -690,6 +701,7 @@ class substitute(Messenger):
        >>> exec_trace = trace(substitute(model, {'a': -1})).get_trace()
        >>> assert exec_trace['a']['value'] == -1
     """
+
     def __init__(self, fn=None, data=None, substitute_fn=None):
         self.substitute_fn = substitute_fn
         self.data = data
@@ -759,6 +771,7 @@ class do(Messenger):
       >>> assert not exec_trace['z'].get('stop', None)
       >>> assert z_square == 1
     """
+
     def __init__(self, fn=None, data=None):
         self.data = data
         self._intervener_id = str(id(self))

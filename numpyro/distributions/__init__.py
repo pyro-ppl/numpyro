@@ -3,7 +3,6 @@
 
 from numpyro.distributions.conjugate import BetaBinomial, DirichletMultinomial, GammaPoisson
 import numpyro.distributions.constraints  # noqa: F401
-from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -27,11 +26,12 @@ from numpyro.distributions.continuous import (
     Pareto,
     StudentT,
     TruncatedCauchy,
+    TruncatedDistribution,
     TruncatedNormal,
     TruncatedPolyaGamma,
     Uniform
 )
-from numpyro.distributions.directional import VonMises
+from numpyro.distributions.directional import ProjectedNormal, VonMises
 from numpyro.distributions.discrete import (
     Bernoulli,
     BernoulliLogits,
@@ -63,6 +63,7 @@ from numpyro.distributions.distribution import (
     TransformedDistribution,
     Unit
 )
+from numpyro.distributions.kl import kl_divergence
 import numpyro.distributions.transforms  # noqa: F401
 from numpyro.distributions.transforms import biject_to
 
@@ -117,10 +118,12 @@ __all__ = [
     'OrderedLogistic',
     'Pareto',
     'Poisson',
+    'ProjectedNormal',
     'PRNGIdentity',
     'StudentT',
     'TransformedDistribution',
     'TruncatedCauchy',
+    'TruncatedDistribution',
     'TruncatedNormal',
     'TruncatedPolyaGamma',
     'Uniform',

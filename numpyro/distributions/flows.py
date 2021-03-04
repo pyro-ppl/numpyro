@@ -30,7 +30,6 @@ class InverseAutoregressiveTransform(Transform):
     """
     domain = real_vector
     codomain = real_vector
-    event_dim = 1
 
     def __init__(self, autoregressive_nn, log_scale_min_clip=-5., log_scale_max_clip=3.):
         """
@@ -53,7 +52,7 @@ class InverseAutoregressiveTransform(Transform):
         scale = jnp.exp(log_scale)
         return scale * x + mean, log_scale
 
-    def inv(self, y):
+    def _inverse(self, y):
         """
         :param numpy.ndarray y: the output of the transform to be inverted
         """
@@ -93,7 +92,8 @@ class BlockNeuralAutoregressiveTransform(Transform):
     1. *Block Neural Autoregressive Flow*,
        Nicola De Cao, Ivan Titov, Wilker Aziz
     """
-    event_dim = 1
+    domain = real_vector
+    codomain = real_vector
 
     def __init__(self, bn_arn):
         self.bn_arn = bn_arn
@@ -108,7 +108,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
         y, logdet = self.bn_arn(x)
         return y, logdet
 
-    def inv(self, y):
+    def _inverse(self, y):
         raise NotImplementedError("Block neural autoregressive transform does not have an analytic"
                                   " inverse implemented.")
 

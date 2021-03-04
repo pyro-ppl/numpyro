@@ -7,10 +7,9 @@ from operator import attrgetter
 import os
 import warnings
 
-from jax import device_put, jit, lax, pmap, random, vmap
+from jax import jit, lax, local_device_count, pmap, random, vmap
 from jax.core import Tracer
 from jax.interpreters.xla import DeviceArray
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
@@ -26,7 +25,7 @@ __all__ = [
 class MCMCKernel(ABC):
     """
     Defines the interface for the Markov transition kernel that is
-    used for :class:`~numpyro.infer.MCMC` inference.
+    used for :class:`~numpyro.infer.mcmc.MCMC` inference.
 
     **Example:**
 
@@ -201,19 +200,20 @@ class MCMC(object):
 
     .. note:: `chain_method` is an experimental arg, which might be removed in a future version.
 
-    .. note:: Setting `progress_bar=False` will improve the speed for many cases.
+    .. note:: Setting `progress_bar=False` will improve the speed for many cases. But it might
+        require more memory than the other option.
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
-        determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.mcmc.HMC`
-        and :class:`~numpyro.infer.mcmc.NUTS` are available.
+        determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`
+        and :class:`~numpyro.infer.hmc.NUTS` are available.
     :param int num_warmup: Number of warmup steps.
     :param int num_samples: Number of samples to generate from the Markov chain.
     :param int thinning: Positive integer that controls the fraction of post-warmup samples that are
         retained. For example if thinning is 2 then every other sample is retained.
         Defaults to 1, i.e. no thinning.
-    :param int num_chains: Number of Number of MCMC chains to run. By default,
-        chains will be run in parallel using :func:`jax.pmap`, failing which,
-        chains will be run in sequence.
+    :param int num_chains: Number of MCMC chains to run. By default, chains will be
+        run in parallel using :func:`jax.pmap`. If there are not enough devices
+        available, chains will be run in sequence.
     :param postprocess_fn: Post-processing callable - used to convert a collection of unconstrained
         sample values returned from the sampler to constrained values that lie within the support
         of the sample sites. Additionally, this is used to return values at deterministic sites in
@@ -252,6 +252,14 @@ class MCMC(object):
         if chain_method not in ['parallel', 'vectorized', 'sequential']:
             raise ValueError('Only supporting the following methods to draw chains:'
                              ' "sequential", "parallel", or "vectorized"')
+        if chain_method == 'parallel' and local_device_count() < self.num_chains:
+            chain_method = 'sequential'
+            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
+                          ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
+                          ' consider using `numpyro.set_host_device_count({})` at the beginning'
+                          ' of your program. You can double-check how many devices are available in'
+                          ' your system using `jax.local_device_count()`.'
+                          .format(self.num_chains, local_device_count(), self.num_chains))
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
@@ -382,17 +390,48 @@ class MCMC(object):
         except TypeError:
             pass
 
+    @property
+    def post_warmup_state(self):
+        """
+        The state before the sampling phase. If this attribute is not None,
+        :meth:`run` will skip the warmup phase and start with the state
+        specified in this attribute.
+
+        .. note:: This attribute can be used to sequentially draw MCMC samples. For example,
+
+            .. code-block:: python
+
+                mcmc = MCMC(NUTS(model), 100, 100)
+                mcmc.run(random.PRNGKey(0))
+                first_100_samples = mcmc.get_samples()
+                mcmc.post_warmup_state = mcmc.last_state
+                mcmc.run(mcmc.post_warmup_state.rng_key)  # or mcmc.run(random.PRNGKey(1))
+                second_100_samples = mcmc.get_samples()
+        """
+        return self._warmup_state
+
+    @post_warmup_state.setter
+    def post_warmup_state(self, state):
+        self._warmup_state = state
+
+    @property
+    def last_state(self):
+        """
+        The final MCMC state at the end of the sampling phase.
+        """
+        return self._last_state
+
     def warmup(self, rng_key, *args, extra_fields=(), collect_warmup=False, init_params=None, **kwargs):
         """
-        Run the MCMC warmup adaptation phase. After this call, the :meth:`run` method
-        will skip the warmup adaptation phase. To run `warmup` again for the new data,
-        it is required to run :meth:`warmup` again.
+        Run the MCMC warmup adaptation phase. After this call, `self.warmup_state` will be set
+        and the :meth:`run` method will skip the warmup adaptation phase. To run `warmup` again
+        for the new data, it is required to run :meth:`warmup` again.
 
         :param random.PRNGKey rng_key: Random number generator key to be used for the sampling.
         :param args: Arguments to be provided to the :meth:`numpyro.infer.mcmc.MCMCKernel.init` method.
             These are typically the arguments needed by the `model`.
-        :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.MCMCKernel.default_fields`)
-            from the state object (e.g. :data:`numpyro.infer.mcmc.HMCState` for HMC) to collect during
+        :param extra_fields: Extra fields (aside from :meth:`~numpyro.infer.mcmc.MCMCKernel.default_fields`)
+            from the state object (e.g. :data:`numpyro.infer.hmc.HMCState` for HMC) to collect during
             the MCMC run.
         :type extra_fields: tuple or list
         :param bool collect_warmup: Whether to collect samples from the warmup phase. Defaults
@@ -442,15 +481,6 @@ class MCMC(object):
             self._set_collection_params(0, self.num_samples, self.num_samples, "sample")
             init_state = self._warmup_state._replace(rng_key=rng_key)
 
-        chain_method = self.chain_method
-        if chain_method == 'parallel' and xla_bridge.device_count() < self.num_chains:
-            chain_method = 'sequential'
-            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
-                          ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
-                          ' consider to use `numpyro.set_host_device_count({})` at the beginning'
-                          ' of your program.'
-                          .format(self.num_chains, xla_bridge.device_count(), self.num_chains))
-
         if init_params is not None and self.num_chains > 1:
             prototype_init_val = tree_flatten(init_params)[0][0]
             if jnp.shape(prototype_init_val)[0] != self.num_chains:
@@ -468,17 +498,12 @@ class MCMC(object):
             states_flat, last_state = partial_map_fn(map_args)
             states = tree_map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
-            if chain_method == 'sequential':
-                if self.progress_bar:
-                    states, last_state = _laxmap(partial_map_fn, map_args)
-                else:
-                    states, last_state = lax.map(partial_map_fn, map_args)
-            elif chain_method == 'parallel':
+            if self.chain_method == 'sequential':
+                states, last_state = _laxmap(partial_map_fn, map_args)
+            elif self.chain_method == 'parallel':
                 states, last_state = pmap(partial_map_fn)(map_args)
-                # TODO: remove when https://github.com/google/jax/issues/3597 is resolved
-                states = device_put(states)
             else:
-                assert chain_method == 'vectorized'
+                assert self.chain_method == 'vectorized'
                 states, last_state = partial_map_fn(map_args)
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)

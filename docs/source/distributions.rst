@@ -245,6 +245,14 @@ TruncatedCauchy
     :show-inheritance:
     :member-order: bysource
 
+TruncatedDistribution
+---------------------
+.. autoclass:: numpyro.distributions.continuous.TruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 TruncatedNormal
 ---------------
 .. autoclass:: numpyro.distributions.continuous.TruncatedNormal
@@ -433,6 +441,14 @@ ZeroInflatedPoisson
 Directional Distributions
 =========================
 
+ProjectedNormal
+---------------
+.. autoclass:: numpyro.distributions.directional.ProjectedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 VonMises
 --------
 .. autoclass:: numpyro.distributions.directional.VonMises
@@ -526,6 +542,10 @@ positive_integer
 -----------------
 .. autodata:: numpyro.distributions.constraints.positive_integer
 
+positive_ordered_vector
+-----------------------
+.. autodata:: numpyro.distributions.constraints.positive_ordered_vector
+
 real
 ----
 .. autodata:: numpyro.distributions.constraints.real
@@ -537,6 +557,10 @@ real_vector
 simplex
 -------
 .. autodata:: numpyro.distributions.constraints.simplex
+
+sphere
+------
+.. autodata:: numpyro.distributions.constraints.sphere
 
 unit_interval
 -------------
@@ -574,6 +598,14 @@ AffineTransform
     :show-inheritance:
     :member-order: bysource
 
+CholeskyTransform
+-----------------
+.. autoclass:: numpyro.distributions.transforms.CholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ComposeTransform
 ----------------
 .. autoclass:: numpyro.distributions.transforms.ComposeTransform
@@ -590,9 +622,25 @@ CorrCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+CorrMatrixCholeskyTransform
+---------------------------
+.. autoclass:: numpyro.distributions.transforms.CorrMatrixCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ExpTransform
 ------------
 .. autoclass:: numpyro.distributions.transforms.ExpTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    
+SoftplusTransform
+-----------------
+.. autoclass:: numpyro.distributions.transforms.SoftplusTransform
     :members:
     :undoc-members:
     :show-inheritance:

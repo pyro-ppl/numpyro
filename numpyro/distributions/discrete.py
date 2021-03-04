@@ -53,7 +53,7 @@ from numpyro.util import not_jax_tracer
 
 
 def _to_probs_bernoulli(logits):
-    return 1 / (1 + jnp.exp(-logits))
+    return expit(logits)
 
 
 def _to_logits_bernoulli(probs):
@@ -190,7 +190,7 @@ class BinomialProbs(Distribution):
     def variance(self):
         return jnp.broadcast_to(self.total_count * self.probs * (1 - self.probs), self.batch_shape)
 
-    @property
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
@@ -247,7 +247,7 @@ class BinomialLogits(Distribution):
     def variance(self):
         return jnp.broadcast_to(self.total_count * self.probs * (1 - self.probs), self.batch_shape)
 
-    @property
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, self.total_count)
 
@@ -298,7 +298,7 @@ class CategoricalProbs(Distribution):
     def variance(self):
         return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.probs))
 
-    @property
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, jnp.shape(self.probs)[-1] - 1)
 
@@ -346,7 +346,7 @@ class CategoricalLogits(Distribution):
     def variance(self):
         return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.logits))
 
-    @property
+    @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
         return constraints.integer_interval(0, jnp.shape(self.logits)[-1] - 1)
 
@@ -396,6 +396,12 @@ class OrderedLogistic(CategoricalProbs):
         probs = cumulative_probs[..., 1:] - cumulative_probs[..., :-1]
         super(OrderedLogistic, self).__init__(probs, validate_args=validate_args)
 
+    @staticmethod
+    def infer_shapes(predictor, cutpoints):
+        batch_shape = lax.broadcast_shapes(predictor, cutpoints[:-1])
+        event_shape = ()
+        return batch_shape, event_shape
+
 
 class PRNGIdentity(Distribution):
     """
@@ -424,11 +430,11 @@ class MultinomialProbs(Distribution):
     def __init__(self, probs, total_count=1, validate_args=None):
         if jnp.ndim(probs) < 1:
             raise ValueError("`probs` parameter must be at least one-dimensional.")
-        batch_shape = lax.broadcast_shapes(jnp.shape(probs)[:-1], jnp.shape(total_count))
+        batch_shape, event_shape = self.infer_shapes(jnp.shape(probs), jnp.shape(total_count))
         self.probs = promote_shapes(probs, shape=batch_shape + jnp.shape(probs)[-1:])[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
         super(MultinomialProbs, self).__init__(batch_shape=batch_shape,
-                                               event_shape=jnp.shape(self.probs)[-1:],
+                                               event_shape=event_shape,
                                                validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -454,9 +460,15 @@ class MultinomialProbs(Distribution):
     def variance(self):
         return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
-    @property
+    @constraints.dependent_property(is_discrete=True, event_dim=1)
     def support(self):
         return constraints.multinomial(self.total_count)
+
+    @staticmethod
+    def infer_shapes(probs, total_count):
+        batch_shape = lax.broadcast_shapes(probs[:-1], total_count)
+        event_shape = probs[-1:]
+        return batch_shape, event_shape
 
 
 class MultinomialLogits(Distribution):
@@ -467,11 +479,11 @@ class MultinomialLogits(Distribution):
     def __init__(self, logits, total_count=1, validate_args=None):
         if jnp.ndim(logits) < 1:
             raise ValueError("`logits` parameter must be at least one-dimensional.")
-        batch_shape = lax.broadcast_shapes(jnp.shape(logits)[:-1], jnp.shape(total_count))
+        batch_shape, event_shape = self.infer_shapes(jnp.shape(logits), jnp.shape(total_count))
         self.logits = promote_shapes(logits, shape=batch_shape + jnp.shape(logits)[-1:])[0]
         self.total_count = promote_shapes(total_count, shape=batch_shape)[0]
         super(MultinomialLogits, self).__init__(batch_shape=batch_shape,
-                                                event_shape=jnp.shape(self.logits)[-1:],
+                                                event_shape=event_shape,
                                                 validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -498,9 +510,15 @@ class MultinomialLogits(Distribution):
     def variance(self):
         return jnp.expand_dims(self.total_count, -1) * self.probs * (1 - self.probs)
 
-    @property
+    @constraints.dependent_property(is_discrete=True, event_dim=1)
     def support(self):
         return constraints.multinomial(self.total_count)
+
+    @staticmethod
+    def infer_shapes(logits, total_count):
+        batch_shape = lax.broadcast_shapes(logits[:-1], total_count)
+        event_shape = logits[-1:]
+        return batch_shape, event_shape
 
 
 def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):

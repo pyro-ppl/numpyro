@@ -4,15 +4,16 @@
 from collections import namedtuple
 from contextlib import ExitStack, contextmanager
 import functools
+import warnings
 
-from jax import lax, random
+from jax import lax, ops, random
+from jax.lib import xla_bridge
 import jax.numpy as jnp
 
 import numpyro
 from numpyro.util import identity
 
 _PYRO_STACK = []
-
 
 CondIndepStackFrame = namedtuple('CondIndepStackFrame', ['name', 'dim', 'size'])
 
@@ -36,7 +37,7 @@ def apply_stack(msg):
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
     # via the pointer variable from the process_message loop
-    for handler in _PYRO_STACK[-pointer-1:]:
+    for handler in _PYRO_STACK[-pointer - 1:]:
         handler.postprocess_message(msg)
     return msg
 
@@ -234,7 +235,21 @@ def module(name, nn, input_shape=None):
 
 def _subsample_fn(size, subsample_size, rng_key=None):
     assert rng_key is not None, "Missing random key to generate subsample indices."
-    return random.permutation(rng_key, size)[:subsample_size]
+    if xla_bridge.get_backend().platform == 'cpu':
+        # ref: https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle#The_modern_algorithm
+        rng_keys = random.split(rng_key, subsample_size)
+
+        def body_fn(val, idx):
+            i_p1 = size - idx
+            i = i_p1 - 1
+            j = random.randint(rng_keys[idx], (), 0, i_p1)
+            val = ops.index_update(val, ops.index[[i, j], ], val[ops.index[[j, i], ]])
+            return val, None
+
+        val, _ = lax.scan(body_fn, jnp.arange(size), jnp.arange(subsample_size))
+        return val[-subsample_size:]
+    else:
+        return random.choice(rng_key, size, (subsample_size,), replace=False)
 
 
 class plate(Messenger):
@@ -261,6 +276,7 @@ class plate(Messenger):
         is used as the plate dim. If `None` (default), the leftmost available dim
         is allocated.
     """
+
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         self.size = size
@@ -288,10 +304,11 @@ class plate(Messenger):
         }
         apply_stack(msg)
         subsample = msg['value']
+        subsample_size = msg['args'][1]
         if subsample_size is not None and subsample_size != subsample.shape[0]:
-            raise ValueError("subsample_size does not match len(subsample), {} vs {}.".format(
+            warnings.warn("subsample_size does not match len(subsample), {} vs {}.".format(
                 subsample_size, len(subsample)) +
-                " Did you accidentally use different subsample_size in the model and guide?")
+                          " Did you accidentally use different subsample_size in the model and guide?")
         cond_indep_stack = msg['cond_indep_stack']
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
@@ -339,7 +356,7 @@ class plate(Messenger):
             msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
-            msg['scale'] = scale * self.size / self.subsample_size
+            msg['scale'] = scale * (self.size / self.subsample_size if self.subsample_size else 1)
 
     def postprocess_message(self, msg):
         if msg["type"] in ("subsample", "param") and self.dim is not None:

@@ -9,7 +9,6 @@ import sys
 import nbsphinx
 import sphinx_rtd_theme
 
-
 # import pkg_resources
 
 # -*- coding: utf-8 -*-
@@ -33,6 +32,7 @@ os.environ['SPHINX_BUILD'] = '1'
 
 # HACK: This is to ensure that local functions are documented by sphinx.
 from numpyro.infer.hmc import hmc  # noqa: E402
+
 hmc(None, None)
 
 # -- Project information -----------------------------------------------------

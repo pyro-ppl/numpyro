@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 
 from jax import device_put, lax, random, vmap
@@ -132,7 +135,8 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         k = random.categorical(rng_key_z, jnp.zeros(zs.shape[0]))
         z = unravel_fn(zs[k])
         pe = pes[k]
-        sa_state = SAState(0, z, pe, 0., 0., False, adapt_state, rng_key_sa)
+        sa_state = SAState(jnp.array(0), z, pe, jnp.array(0.), jnp.array(0.), jnp.array(False),
+                           adapt_state, rng_key_sa)
         return device_put(sa_state)
 
     def sample_kernel(sa_state, model_args=(), model_kwargs=None):

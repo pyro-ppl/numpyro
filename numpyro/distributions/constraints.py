@@ -46,6 +46,7 @@ __all__ = [
     'real',
     'real_vector',
     'simplex',
+    'sphere',
     'unit_interval',
     'Constraint',
 ]
@@ -62,6 +63,7 @@ class Constraint(object):
     A constraint object represents a region over which a variable is valid,
     e.g. within which a variable can be optimized.
     """
+    event_dim = 0
 
     def __call__(self, x):
         raise NotImplementedError
@@ -73,13 +75,24 @@ class Constraint(object):
         """
         return self(value)
 
+    def feasible_like(self, prototype):
+        """
+        Get a feasible value which has the same shape as dtype as `prototype`.
+        """
+        raise NotImplementedError
+
 
 class _Boolean(Constraint):
     def __call__(self, x):
         return (x == 0) | (x == 1)
 
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
+
 
 class _CorrCholesky(Constraint):
+    event_dim = 2
+
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
@@ -89,8 +102,13 @@ class _CorrCholesky(Constraint):
         unit_norm_row = jnp.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+
 
 class _CorrMatrix(Constraint):
+    event_dim = 2
+
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
@@ -101,10 +119,67 @@ class _CorrMatrix(Constraint):
         unit_variance = jnp.all(jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
         return symmetric & positive & unit_variance
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+
 
 class _Dependent(Constraint):
+    """
+    Placeholder for variables whose support depends on other variables.
+    These variables obey no simple coordinate-wise constraints.
+
+    :param bool is_discrete: Optional value of ``.is_discrete`` in case this
+        can be computed statically. If not provided, access to the
+        ``.is_discrete`` attribute will raise a NotImplementedError.
+    :param int event_dim: Optional value of ``.event_dim`` in case this can be
+        computed statically. If not provided, access to the ``.event_dim``
+        attribute will raise a NotImplementedError.
+    """
+    def __init__(self, *, is_discrete=NotImplemented, event_dim=NotImplemented):
+        self._is_discrete = is_discrete
+        self._event_dim = event_dim
+        super().__init__()
+
+    @property
+    def is_discrete(self):
+        if self._is_discrete is NotImplemented:
+            raise NotImplementedError(".is_discrete cannot be determined statically")
+        return self._is_discrete
+
+    @property
+    def event_dim(self):
+        if self._event_dim is NotImplemented:
+            raise NotImplementedError(".event_dim cannot be determined statically")
+        return self._event_dim
+
+    def __call__(self, x=None, *, is_discrete=NotImplemented, event_dim=NotImplemented):
+        if x is not None:
+            raise ValueError('Cannot determine validity of dependent constraint')
+
+        # Support for syntax to customize static attributes::
+        #     constraints.dependent(is_discrete=True, event_dim=1)
+        if is_discrete is NotImplemented:
+            is_discrete = self._is_discrete
+        if event_dim is NotImplemented:
+            event_dim = self._event_dim
+        return _Dependent(is_discrete=is_discrete, event_dim=event_dim)
+
+
+class dependent_property(property, _Dependent):
+    def __init__(self, fn=None, *, is_discrete=NotImplemented, event_dim=NotImplemented):
+        super().__init__(fn)
+        self._is_discrete = is_discrete
+        self._event_dim = event_dim
+
     def __call__(self, x):
-        raise ValueError('Cannot determine validity of dependent constraint')
+        if not callable(x):
+            return super().__call__(x)
+
+        # Support for syntax to customize static attributes::
+        #     @constraints.dependent_property(is_discrete=True, event_dim=1)
+        #     def support(self):
+        #         ...
+        return dependent_property(x, is_discrete=self._is_discrete, event_dim=self._event_dim)
 
 
 def is_dependent(constraint):
@@ -118,6 +193,46 @@ class _GreaterThan(Constraint):
     def __call__(self, x):
         return x > self.lower_bound
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound + 1, jax.numpy.shape(prototype))
+
+
+class _IndependentConstraint(Constraint):
+    """
+    Wraps a constraint by aggregating over ``reinterpreted_batch_ndims``-many
+    dims in :meth:`check`, so that an event is valid only if all its
+    independent entries are valid.
+    """
+    def __init__(self, base_constraint, reinterpreted_batch_ndims):
+        assert isinstance(base_constraint, Constraint)
+        assert isinstance(reinterpreted_batch_ndims, int)
+        assert reinterpreted_batch_ndims >= 0
+        if isinstance(base_constraint, _IndependentConstraint):
+            reinterpreted_batch_ndims = reinterpreted_batch_ndims + base_constraint.reinterpreted_batch_ndims
+            base_constraint = base_constraint.base_constraint
+        self.base_constraint = base_constraint
+        self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
+        super().__init__()
+
+    @property
+    def event_dim(self):
+        return self.base_constraint.event_dim + self.reinterpreted_batch_ndims
+
+    def __call__(self, value):
+        result = self.base_constraint(value)
+        if self.reinterpreted_batch_ndims == 0:
+            return result
+        elif jax.numpy.ndim(result) < self.reinterpreted_batch_ndims:
+            expected = self.event_dim
+            raise ValueError(f"Expected value.dim() >= {expected} but got {jax.numpy.ndim(value)}")
+        result = result.reshape(
+            jax.numpy.shape(result)[:jax.numpy.ndim(result) - self.reinterpreted_batch_ndims] + (-1,))
+        result = result.all(-1)
+        return result
+
+    def feasible_like(self, prototype):
+        return self.base_constraint.feasible_like(prototype)
+
 
 class _LessThan(Constraint):
     def __init__(self, upper_bound):
@@ -125,6 +240,9 @@ class _LessThan(Constraint):
 
     def __call__(self, x):
         return x < self.upper_bound
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(self.upper_bound - 1, jax.numpy.shape(prototype))
 
 
 class _IntegerInterval(Constraint):
@@ -135,6 +253,9 @@ class _IntegerInterval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound) & (x % 1 == 0)
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
+
 
 class _IntegerGreaterThan(Constraint):
     def __init__(self, lower_bound):
@@ -142,6 +263,9 @@ class _IntegerGreaterThan(Constraint):
 
     def __call__(self, x):
         return (x % 1 == 0) & (x >= self.lower_bound)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(self.lower_bound, jax.numpy.shape(prototype))
 
 
 class _Interval(Constraint):
@@ -152,8 +276,13 @@ class _Interval(Constraint):
     def __call__(self, x):
         return (x >= self.lower_bound) & (x <= self.upper_bound)
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to((self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype))
+
 
 class _LowerCholesky(Constraint):
+    event_dim = 2
+
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
@@ -161,21 +290,38 @@ class _LowerCholesky(Constraint):
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         return lower_triangular & positive_diagonal
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+
 
 class _Multinomial(Constraint):
+    event_dim = 1
+
     def __init__(self, upper_bound):
         self.upper_bound = upper_bound
 
     def __call__(self, x):
         return (x >= 0).all(axis=-1) & (x.sum(axis=-1) == self.upper_bound)
 
+    def feasible_like(self, prototype):
+        pad_width = ((0, 0),) * jax.numpy.ndim(self.upper_bound) + ((0, prototype.shape[-1] - 1),)
+        value = jax.numpy.pad(jax.numpy.expand_dims(self.upper_bound, -1), pad_width)
+        return jax.numpy.broadcast_to(value, prototype.shape)
+
 
 class _OrderedVector(Constraint):
+    event_dim = 1
+
     def __call__(self, x):
         return (x[..., 1:] > x[..., :-1]).all(axis=-1)
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.arange(float(prototype.shape[-1])), prototype.shape)
+
 
 class _PositiveDefinite(Constraint):
+    event_dim = 2
+
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         # check for symmetric
@@ -184,25 +330,65 @@ class _PositiveDefinite(Constraint):
         positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         return symmetric & positive
 
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+
+
+class _PositiveOrderedVector(Constraint):
+    """
+    Constrains to a positive real-valued tensor where the elements are monotonically
+    increasing along the `event_shape` dimension.
+    """
+    event_dim = 1
+
+    def __call__(self, x):
+        return ordered_vector.check(x) & independent(positive, 1).check(x)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))),
+                                      prototype.shape)
+
 
 class _Real(Constraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
         return (x == x) & (x != float('inf')) & (x != float('-inf'))
 
-
-class _RealVector(Constraint):
-    def __call__(self, x):
-        return ((x == x) & (x != float('inf')) & (x != float('-inf'))).all(axis=-1)
+    def feasible_like(self, prototype):
+        return jax.numpy.zeros_like(prototype)
 
 
 class _Simplex(Constraint):
+    event_dim = 1
+
     def __call__(self, x):
         x_sum = x.sum(axis=-1)
         return (x >= 0).all(axis=-1) & (x_sum < 1 + 1e-6) & (x_sum > 1 - 1e-6)
 
+    def feasible_like(self, prototype):
+        return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
+
+
+class _Sphere(Constraint):
+    """
+    Constrain to the Euclidean sphere of any dimension.
+    """
+    event_dim = 1
+    reltol = 10.  # Relative to finfo.eps.
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        eps = jnp.finfo(x.dtype).eps
+        norm = jnp.linalg.norm(x, axis=-1)
+        error = jnp.abs(norm - 1)
+        return error < self.reltol * eps * x.shape[-1] ** 0.5
+
+    def feasible_like(self, prototype):
+        return jax.numpy.full_like(prototype, prototype.shape[-1] ** (-0.5))
+
 
 # TODO: Make types consistent
+# See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
 corr_cholesky = _CorrCholesky()
@@ -210,6 +396,7 @@ corr_matrix = _CorrMatrix()
 dependent = _Dependent()
 greater_than = _GreaterThan
 less_than = _LessThan
+independent = _IndependentConstraint
 integer_interval = _IntegerInterval
 integer_greater_than = _IntegerGreaterThan
 interval = _Interval
@@ -220,7 +407,9 @@ ordered_vector = _OrderedVector()
 positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
 positive_integer = _IntegerGreaterThan(1)
+positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
-real_vector = _RealVector()
+real_vector = independent(real, 1)
 simplex = _Simplex()
+sphere = _Sphere()
 unit_interval = _Interval(0., 1.)

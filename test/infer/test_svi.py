@@ -14,7 +14,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import RenyiELBO, SVI, Trace_ELBO
+from numpyro.infer import SVI, RenyiELBO, Trace_ELBO
 from numpyro.util import fori_loop
 
 
@@ -174,3 +174,15 @@ def test_elbo_dynamic_support():
     assert jnp.isfinite(actual_loss)
     expected_loss = x_guide.log_prob(x) - x_prior.log_prob(x)
     assert_allclose(actual_loss, expected_loss)
+
+
+@pytest.mark.parametrize("num_steps", [10, 30, 50])
+def test_run_with_small_num_steps(num_steps):
+    def model():
+        pass
+
+    def guide():
+        pass
+
+    svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
+    svi.run(random.PRNGKey(0), num_steps)

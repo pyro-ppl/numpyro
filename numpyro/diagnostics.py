@@ -161,6 +161,7 @@ def effective_sample_size(x):
     :return: effective sample size of ``x``.
     :rtype: numpy.ndarray
     """
+
     assert x.ndim >= 2
     assert x.shape[1] >= 2
 

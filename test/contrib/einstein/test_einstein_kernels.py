@@ -1,18 +1,22 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 
-import jax.numpy as jnp
-import pytest
 from numpy.testing import assert_allclose
+import pytest
 
-from numpyro.infer.einstein.kernels import (
-    RBFKernel,
-    RandomFeatureKernel,
+import jax.numpy as jnp
+
+from numpyro.contrib.einstein.kernels import (
     GraphicalKernel,
+    HessianPrecondMatrix,
     IMQKernel,
     LinearKernel,
     MixtureKernel,
-    HessianPrecondMatrix,
-    PrecondMatrixKernel
+    PrecondMatrixKernel,
+    RandomFeatureKernel,
+    RBFKernel
 )
 
 jnp.set_printoptions(precision=100)

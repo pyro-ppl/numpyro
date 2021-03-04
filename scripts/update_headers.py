@@ -1,8 +1,10 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+import argparse
 import glob
 import os
+import sys
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 blacklist = ["/build/", "/dist/", "/pyro_api.egg"]
@@ -10,6 +12,11 @@ file_types = [
     ("*.py", "# {}"),
     ("*.cpp", "// {}"),
 ]
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--check", action="store_true")
+args = parser.parse_args()
+dirty = []
 
 for basename, comment in file_types:
     copyright_line = comment.format("Copyright Contributors to the Pyro project.\n")
@@ -32,11 +39,11 @@ for basename, comment in file_types:
             continue
 
         # Ensure first few line are copyright notices.
+        changed = False
         lineno = 0
         if not lines[lineno].startswith(comment.format("Copyright")):
             lines.insert(lineno, copyright_line)
-        else:
-            lines[lineno] = copyright_line
+            changed = True
         lineno += 1
         while lines[lineno].startswith(comment.format("Copyright")):
             lineno += 1
@@ -44,15 +51,27 @@ for basename, comment in file_types:
         # Ensure next line is an SPDX short identifier.
         if not lines[lineno].startswith(comment.format("SPDX-License-Identifier")):
             lines.insert(lineno, spdx_line)
-        else:
-            lines[lineno] = spdx_line
+            changed = True
         lineno += 1
 
         # Ensure next line is blank.
-        if not lines[lineno].isspace():
+        if lineno < len(lines) and not lines[lineno].isspace():
             lines.insert(lineno, "\n")
+            changed = True
+
+        if not changed:
+            continue
+
+        if args.check:
+            dirty.append(filename)
+            continue
 
         with open(filename, "w") as f:
             f.write("".join(lines))
 
         print("updated {}".format(filename[len(root) + 1:]))
+
+if dirty:
+    print("The following files need license headers:\n{}".format("\n".join(dirty)))
+    print("Please run 'make license'")
+    sys.exit(1)

@@ -1,3 +1,6 @@
+# Copyright Contributors to the Pyro project.
+# SPDX-License-Identifier: Apache-2.0
+
 from collections import namedtuple
 import math
 import os
@@ -31,6 +34,8 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **potential_energy** - Potential energy computed at the given value of ``z``.
  - **energy** - Sum of potential energy and kinetic energy of the current state.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
+   In NUTS sampler, the tree depth of a trajectory can be computed from this field
+   with `tree_depth = np.log2(num_steps).astype(int) + 1`.
  - **accept_prob** - Acceptance probability of the proposal. Note that ``z``
    does not correspond to the proposal if it is rejected.
  - **mean_accept_prob** - Mean acceptance probability until current iteration
@@ -121,12 +126,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
         >>> true_coefs = jnp.array([1., 2., 3.])
         >>> data = random.normal(random.PRNGKey(2), (2000, 3))
-        >>> dim = 3
         >>> labels = dist.Bernoulli(logits=(true_coefs * data).sum(-1)).sample(random.PRNGKey(3))
         >>>
         >>> def model(data, labels):
-        ...     coefs_mean = jnp.zeros(dim)
-        ...     coefs = numpyro.sample('beta', dist.Normal(coefs_mean, jnp.ones(3)))
+        ...     coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(3), jnp.ones(3)))
         ...     intercept = numpyro.sample('intercept', dist.Normal(0., 10.))
         ...     return numpyro.sample('y', dist.Bernoulli(logits=(coefs * data + intercept).sum(-1)), obs=labels)
         >>>
@@ -137,7 +140,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         ...                         num_warmup=300)
         >>> samples = fori_collect(0, 500, sample_kernel, hmc_state,
         ...                        transform=lambda state: model_info.postprocess_fn(state.z))
-        >>> print(jnp.mean(samples['beta'], axis=0))  # doctest: +SKIP
+        >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
         [0.9153987 2.0754058 2.9621222]
     """
     if kinetic_fn is None:
@@ -147,6 +150,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
     max_treedepth = None
     wa_update = None
     wa_steps = None
+    forward_mode_ad = False
     max_delta_energy = 1000.
     if algo not in {'HMC', 'NUTS'}:
         raise ValueError('`algo` must be one of `HMC` or `NUTS`.')
@@ -162,6 +166,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                     trajectory_length=2*math.pi,
                     max_tree_depth=10,
                     find_heuristic_step_size=False,
+                    forward_mode_differentiation=False,
                     model_args=(),
                     model_kwargs=None,
                     rng_key=random.PRNGKey(0)):
@@ -200,7 +205,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
         """
         step_size = lax.convert_element_type(step_size, canonicalize_dtype(jnp.float64))
-        nonlocal wa_update, trajectory_len, max_treedepth, vv_update, wa_steps
+        nonlocal wa_update, trajectory_len, max_treedepth, vv_update, wa_steps, forward_mode_ad
+        forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
         trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
@@ -236,19 +242,19 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
                            inverse_mass_matrix=inverse_mass_matrix,
                            mass_matrix_size=jnp.size(ravel_pytree(z)[0]))
         r = momentum_generator(z, wa_state.mass_matrix_sqrt, rng_key_momentum)
-        vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+        vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
-        hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
-                             0, 0., 0., False, wa_state, rng_key_hmc)
+        hmc_state = HMCState(jnp.array(0), vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
+                             jnp.array(0), jnp.array(0.), jnp.array(0.), jnp.array(False), wa_state, rng_key_hmc)
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
                   model_args, model_kwargs, rng_key):
         if potential_fn_gen:
-            nonlocal vv_update
+            nonlocal vv_update, forward_mode_ad
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+            _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
 
         num_steps = _get_num_steps(step_size, trajectory_len)
         vv_state_new = fori_loop(0, num_steps,
@@ -269,9 +275,9 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
     def _nuts_next(step_size, inverse_mass_matrix, vv_state,
                    model_args, model_kwargs, rng_key):
         if potential_fn_gen:
-            nonlocal vv_update
+            nonlocal vv_update, forward_mode_ad
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
-            _, vv_update = velocity_verlet(pe_fn, kinetic_fn)
+            _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
 
         binary_tree = build_tree(vv_update, kinetic_fn, vv_state,
                                  inverse_mass_matrix, step_size, rng_key,
@@ -369,6 +375,13 @@ class HMC(MCMCKernel):
         See :ref:`init_strategy` section for available functions.
     :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
         step size at the beginning of each adaptation window. Defaults to False.
+    :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+        or reverse-mode differentiation. By default, we use reverse mode but the forward
+        mode can be useful in some cases to improve the performance. In addition, some
+        control flow utility on JAX such as `jax.lax.while_loop` or `jax.lax.fori_loop`
+        only supports forward-mode differentiation. See
+        `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
+        for more information.
     """
     def __init__(self,
                  model=None,
@@ -381,7 +394,8 @@ class HMC(MCMCKernel):
                  target_accept_prob=0.8,
                  trajectory_length=2 * math.pi,
                  init_strategy=init_to_uniform,
-                 find_heuristic_step_size=False):
+                 find_heuristic_step_size=False,
+                 forward_mode_differentiation=False):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError('Only one of `model` or `potential_fn` must be specified.')
         self._model = model
@@ -397,6 +411,7 @@ class HMC(MCMCKernel):
         self._max_tree_depth = 10
         self._init_strategy = init_strategy
         self._find_heuristic_step_size = find_heuristic_step_size
+        self._forward_mode_differentiation = forward_mode_differentiation
         # Set on first call to init
         self._init_fn = None
         self._potential_fn_gen = None
@@ -411,7 +426,8 @@ class HMC(MCMCKernel):
                 dynamic_args=True,
                 init_strategy=self._init_strategy,
                 model_args=model_args,
-                model_kwargs=model_kwargs)
+                model_kwargs=model_kwargs,
+                forward_mode_differentiation=self._forward_mode_differentiation)
             if self._init_fn is None:
                 self._init_fn, self._sample_fn = hmc(potential_fn_gen=potential_fn,
                                                      kinetic_fn=self._kinetic_fn,
@@ -465,6 +481,7 @@ class HMC(MCMCKernel):
             trajectory_length=self._trajectory_length,
             max_tree_depth=self._max_tree_depth,
             find_heuristic_step_size=self._find_heuristic_step_size,
+            forward_mode_differentiation=self._forward_mode_differentiation,
             model_args=model_args,
             model_kwargs=model_kwargs,
             rng_key=rng_key,
@@ -541,6 +558,13 @@ class NUTS(HMC):
         See :ref:`init_strategy` section for available functions.
     :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
         step size at the beginning of each adaptation window. Defaults to False.
+    :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+        or reverse-mode differentiation. By default, we use reverse mode but the forward
+        mode can be useful in some cases to improve the performance. In addition, some
+        control flow utility on JAX such as `jax.lax.while_loop` or `jax.lax.fori_loop`
+        only supports forward-mode differentiation. See
+        `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
+        for more information.
     """
     def __init__(self,
                  model=None,
@@ -554,13 +578,15 @@ class NUTS(HMC):
                  trajectory_length=None,
                  max_tree_depth=10,
                  init_strategy=init_to_uniform,
-                 find_heuristic_step_size=False):
+                 find_heuristic_step_size=False,
+                 forward_mode_differentiation=False):
         super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
                                    step_size=step_size, adapt_step_size=adapt_step_size,
                                    adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
                                    target_accept_prob=target_accept_prob,
                                    trajectory_length=trajectory_length,
                                    init_strategy=init_strategy,
-                                   find_heuristic_step_size=find_heuristic_step_size)
+                                   find_heuristic_step_size=find_heuristic_step_size,
+                                   forward_mode_differentiation=forward_mode_differentiation)
         self._max_tree_depth = max_tree_depth
         self._algo = 'NUTS'
