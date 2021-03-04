@@ -1374,7 +1374,7 @@ class Uniform(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        shape = lax.broadcast_shape(jnp.shape(value), self.batch_shape)
+        shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return - jnp.broadcast_to(jnp.log(self.high - self.low), shape)
 
     @property
