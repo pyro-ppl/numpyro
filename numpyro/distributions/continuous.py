@@ -1368,9 +1368,9 @@ class Uniform(Distribution):
     def support(self):
         return self._support
 
-    def sample(self, key, sample_shape):
+    def sample(self, key, sample_shape=()):
         shape = sample_shape + self.batch_shape
-        return random.uniforml(key, shape=shape, minval=self.low, maxval=self.high)
+        return random.uniform(key, shape=shape, minval=self.low, maxval=self.high)
 
     @validate_sample
     def log_prob(self, value):
