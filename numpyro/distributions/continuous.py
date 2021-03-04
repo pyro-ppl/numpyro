@@ -1346,12 +1346,42 @@ def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
         return TwoSidedTruncatedDistribution(base_dist, low=low, high=high, validate_args=validate_args)
 
 
-def TruncatedCauchy(low=0., loc=0., scale=1., validate_args=None):
-    return TruncatedDistribution(Cauchy(loc, scale), low=low, validate_args=validate_args)
+class TruncatedCauchy(LeftTruncatedDistribution):
+    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
+                       'scale': constraints.positive}
+    reparametrized_params = ["low", "loc", "scale"]
+
+    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
+        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
+        super().__init__(Cauchy(self.loc, self.scale), low=self.low, validate_args=validate_args)
+
+    @property
+    def mean(self):
+        return jnp.full(self.batch_shape, jnp.nan)
+
+    @property
+    def variance(self):
+        return jnp.full(self.batch_shape, jnp.nan)
 
 
-def TruncatedNormal(low=0., loc=0., scale=1., validate_args=None):
-    return TruncatedDistribution(Normal(loc, scale), low=low, validate_args=validate_args)
+class TruncatedNormal(LeftTruncatedDistribution):
+    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
+                       'scale': constraints.positive}
+    reparametrized_params = ["low", "loc", "scale"]
+
+    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
+        self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
+        super().__init__(Normal(self.loc, self.scale), low=self.low, validate_args=validate_args)
+
+    @property
+    def mean(self):
+        low_prob = jnp.exp(self.log_prob(self.low))
+        return self.loc + low_prob * self.scale ** 2
+
+    @property
+    def variance(self):
+        low_prob = jnp.exp(self.log_prob(self.low))
+        return (self.scale ** 2) * (1 + (self.low - self.loc) * low_prob - (low_prob * self.scale) ** 2)
 
 
 class Uniform(Distribution):
