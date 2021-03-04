@@ -42,6 +42,8 @@ __all__ = [
     'PermuteTransform',
     'PowerTransform',
     'SigmoidTransform',
+    'SoftplusTransform',
+    'SoftplusLowerCholeskyTransform',
     'StickBreakingTransform',
     'Transform',
     'UnpackTransform',
@@ -452,24 +454,6 @@ class ExpTransform(Transform):
         return x
 
 
-class SoftplusTransform(Transform):
-    r"""
-    Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
-    The inverse is computed as :math:`y = \log(\exp(x) - 1)`.
-    """
-    domain = constraints.real
-    codomain = constraints.positive
-
-    def __call__(self, x):
-        return softplus(x)
-
-    def _inverse(self, x):
-        return jnp.log(-jnp.expm1(-x)) + x
-
-    def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return -softplus(-x)
-
-
 class IdentityTransform(Transform):
 
     def __call__(self, x):
@@ -716,6 +700,60 @@ class SigmoidTransform(Transform):
         return -x_abs - 2 * jnp.log1p(jnp.exp(-x_abs))
 
 
+def _softplus_inv(y):
+    return jnp.log(-jnp.expm1(-y)) + y
+
+
+class SoftplusTransform(Transform):
+    r"""
+    Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
+    The inverse is computed as :math:`y = \log(\exp(x) - 1)`.
+    """
+    domain = constraints.real
+    codomain = constraints.positive
+
+    def __call__(self, x):
+        return softplus(x)
+
+    def _inverse(self, y):
+        return _softplus_inv(y)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return -softplus(-x)
+
+
+class SoftplusLowerCholeskyTransform(Transform):
+    """
+    Transform from unconstrained vector to lower-triangular matrices with
+    nonnegative diagonal entries. This is useful for parameterizing positive
+    definite matrices in terms of their Cholesky factorization.
+    """
+    domain = constraints.real_vector
+    codomain = constraints.lower_cholesky
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = softplus(x[..., -n:])
+        return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
+
+    def _inverse(self, y):
+        z = matrix_to_tril_vec(y, diagonal=-1)
+        diag = _softplus_inv(jnp.diagonal(y, axis1=-2, axis2=-1))
+        return jnp.concatenate([z, diag], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        return -softplus(-x[..., -n:]).sum(-1)
+
+    def forward_shape(self, shape):
+        return _matrix_forward_shape(shape)
+
+    def inverse_shape(self, shape):
+        return _matrix_inverse_shape(shape)
+
+
 class StickBreakingTransform(Transform):
     domain = constraints.real_vector
     codomain = constraints.simplex
@@ -896,6 +934,16 @@ def _transform_to_positive_ordered_vector(constraint):
 @biject_to.register(constraints.real)
 def _transform_to_real(constraint):
     return IdentityTransform()
+
+
+@biject_to.register(constraints.softplus_positive)
+def _transform_to_softplus_positive(constraint):
+    return SoftplusTransform()
+
+
+@biject_to.register(constraints.softplus_lower_cholesky)
+def _transform_to_softplus_lower_cholesky(constraint):
+    return SoftplusLowerCholeskyTransform()
 
 
 @biject_to.register(constraints.simplex)
