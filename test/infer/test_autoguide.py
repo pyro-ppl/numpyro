@@ -252,7 +252,8 @@ def test_dynamic_supports():
     def actual_model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
         with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
-            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+            loc = numpyro.sample('loc', dist.TransformedDistribution(
+                dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     def expected_model(data):

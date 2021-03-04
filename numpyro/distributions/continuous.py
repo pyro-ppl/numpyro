@@ -1363,6 +1363,20 @@ class TruncatedCauchy(LeftTruncatedDistribution):
     def variance(self):
         return jnp.full(self.batch_shape, jnp.nan)
 
+    def tree_flatten(self):
+        if isinstance(self._support.lower_bound, (int, float)):
+            aux_data = self._support.lower_bound
+        else:
+            aux_data = None
+        return (self.low, self.loc, self.scale), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = cls(*params)
+        if aux_data is not None:
+            d._support = constraints.greater_than(aux_data)
+        return d
+
 
 class TruncatedNormal(LeftTruncatedDistribution):
     arg_constraints = {'low': constraints.real, 'loc': constraints.real,
@@ -1382,6 +1396,20 @@ class TruncatedNormal(LeftTruncatedDistribution):
     def variance(self):
         low_prob = jnp.exp(self.log_prob(self.low))
         return (self.scale ** 2) * (1 + (self.low - self.loc) * low_prob - (low_prob * self.scale) ** 2)
+
+    def tree_flatten(self):
+        if isinstance(self._support.lower_bound, (int, float)):
+            aux_data = self._support.lower_bound
+        else:
+            aux_data = None
+        return (self.low, self.loc, self.scale), aux_data
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        d = cls(*params)
+        if aux_data is not None:
+            d._support = constraints.greater_than(aux_data)
+        return d
 
 
 class Uniform(Distribution):
