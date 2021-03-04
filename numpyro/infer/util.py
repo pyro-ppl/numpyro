@@ -143,10 +143,8 @@ def _unconstrain_reparam(params, site):
 def potential_energy(model, model_args, model_kwargs, params, enum=False):
     """
     (EXPERIMENTAL INTERFACE) Computes potential energy of a model given unconstrained params.
-    The `inv_transforms` is used to transform these unconstrained parameters to base values
-    of the corresponding priors in `model`. If a prior is a transformed distribution,
-    the corresponding base value lies in the support of base distribution. Otherwise,
-    the base value lies in the support of the distribution.
+    Under the hood, we will transform these unconstrained parameters to the values
+    belong to the supports of the corresponding priors in `model`.
 
     :param model: a callable containing NumPyro primitives.
     :param tuple model_args: args provided to the model.
