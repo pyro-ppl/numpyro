@@ -707,10 +707,10 @@ def _softplus_inv(y):
 class SoftplusTransform(Transform):
     r"""
     Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
-    The inverse is computed as :math:`y = \log(\exp(x) - 1)`.
+    The inverse is computed as :math:`x = \log(\exp(y) - 1)`.
     """
     domain = constraints.real
-    codomain = constraints.positive
+    codomain = constraints.softplus_positive
 
     def __call__(self, x):
         return softplus(x)
@@ -729,7 +729,7 @@ class SoftplusLowerCholeskyTransform(Transform):
     definite matrices in terms of their Cholesky factorization.
     """
     domain = constraints.real_vector
-    codomain = constraints.lower_cholesky
+    codomain = constraints.softplus_lower_cholesky
 
     def __call__(self, x):
         n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)

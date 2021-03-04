@@ -375,9 +375,13 @@ class _SoftplusPositive(_GreaterThan):
     def __init__(self):
         super().__init__(lower_bound=0.0)
 
+    def feasible_like(self, prototype):
+        return jax.numpy.full(jax.numpy.shape(prototype), np.log(2))
+
 
 class _SoftplusLowerCholesky(_LowerCholesky):
-    pass
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]) * np.log(2), prototype.shape)
 
 
 class _Sphere(Constraint):
