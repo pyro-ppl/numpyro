@@ -1,12 +1,10 @@
 from functools import singledispatch
 
-import numpy as np
-
 from jax import device_get, nn, random, tree_multimap
 import jax.numpy as jnp
 from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
 from jaxns.plotting import plot_cornerplot, plot_diagnostics
-from jaxns.prior_transforms import PriorChain, PriorTransform
+from jaxns.prior_transforms.prior_chain import Prior, PriorBase, PriorChain
 
 import numpyro
 import numpyro.distributions as dist
@@ -18,19 +16,14 @@ from numpyro.infer import Predictive, log_likelihood
 __all__ = ["NestedSampler"]
 
 
-class ShapeTransform(PriorTransform):
+class ShapeTransform(Prior):
     """
     Reshape a uniform vector to a target shape.
     """
-    def __init__(self, name, to_shape):
-        self._to_shape = to_shape
-        super().__init__(name, np.prod(to_shape) if to_shape else 1, [], tracked=True)
+    def __init__(self, name, shape, dtype):
+        super().__init__(name, shape, [], tracked=True, prior_base=PriorBase((), dtype))
 
-    @property
-    def to_shape(self):
-        return self._to_shape
-
-    def forward(self, U, **kwargs):
+    def transform_U(self, U, **kwargs):
         return jnp.reshape(U, self.to_shape)
 
 
@@ -135,6 +128,7 @@ class NestedSampler:
     :param int num_live_points: the number of live points. As a rule-of-thumb, we should
         allocate around 50 live points per possible mode.
     :param int max_samples: the maximum number of iterations and samples
+    :param str sampler_name: either "slice" (default value) or "multi_ellipsoid"
     :param int depth: an integer which determines the maximum number of ellipsoids to
         construct via hierarchical splitting (typical range: 3 - 9)
     :param int num_slices: the number of slice sampling proposals at each sampling step
@@ -169,11 +163,12 @@ class NestedSampler:
         [0.91239292 1.91636061 2.81830897]
     """
     def __init__(self, model, *, num_live_points=1000, max_samples=100000,
-                 depth=3, num_slices=5, termination_frac=0.001):
+                 sampler_name="slice", depth=3, num_slices=5, termination_frac=0.01):
         self.model = model
         self.num_live_points = num_live_points
         self.max_samples = max_samples
         self.termination_frac = termination_frac
+        self.sampler_name = sampler_name
         self.depth = depth
         self.num_slices = num_slices
         self._samples = None
@@ -205,12 +200,16 @@ class NestedSampler:
         # use NestedSampler with identity prior chain
         prior_chain = PriorChain()
         for name in param_names:
-            shape_transform = ShapeTransform(name + "_base", prototype_trace[name]["fn"].shape())
+            shape_transform = ShapeTransform(name + "_base",
+                                             prototype_trace[name]["fn"].shape(),
+                                             prototype_trace[name]["value"].dtype)
             prior_chain.push(shape_transform)
-        ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name='slice')
-        results = ns(rng_sampling, self.num_live_points, collect_samples=True,
-                     max_samples=self.max_samples, termination_frac=self.termination_frac,
-                     sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices})
+        ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name,
+                               sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
+                               max_samples=self.max_samples,
+                               num_live_points=self.num_live_points,
+                               collect_samples=True)
+        results = ns(rng_sampling, termination_frac=self.termination_frac)
         num_samples = int(device_get(results.num_samples))
 
         # transform base samples back to original domains
