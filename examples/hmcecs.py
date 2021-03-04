@@ -86,21 +86,18 @@ def main(args):
     # choose inner_kernel
     if args.inner_kernel == 'hmc':
         inner_kernel = HMC(model)
-    elif args.inner_kernel == 'nuts':
+    else:
         inner_kernel = NUTS(model)
-    else:  # naive data subsampling
-        inner_kernel = None
 
     start = time.time()
     losses, hmcecs_samples = run_hmcecs(hmcecs_key, args, data, obs, inner_kernel)
     hmcecs_runtime = time.time() - start
 
-    if inner_kernel:
-        start = time.time()
-        hmc_samples = run_hmc(hmc_key, args, data, obs, inner_kernel)
-        hmc_runtime = time.time() - start
+    start = time.time()
+    hmc_samples = run_hmc(hmc_key, args, data, obs, inner_kernel)
+    hmc_runtime = time.time() - start
 
-        summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtime)
+    summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtime)
 
 
 def summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtime):
@@ -144,7 +141,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_samples', type=int, default=500)
     parser.add_argument('--num_datapoints', type=int, default=1_500_000)
     parser.add_argument('--dataset', type=str, choices=['higgs', 'mock'], default='higgs')
-    parser.add_argument('--inner_kernel', type=str, choices=['nuts', 'hmc', 'naive'], default='nuts')
+    parser.add_argument('--inner_kernel', type=str, choices=['nuts', 'hmc'], default='nuts')
     parser.add_argument('--device', default='cpu', type=str, choices=['cpu', 'gpu'])
     parser.add_argument('--rng_seed', default=37, type=int, help='random number generator seed')
 
