@@ -311,48 +311,13 @@ def countries_log_dens(
                 timeeff_shift_age,
                 upswing_timeeff_map)
     )(dip_rdeff, upswing_timeeff_reduced.T, covariates, timeeff_shift_age, upswing_timeeff_map.T)
-    vmap = True
-    if vmap:
-        E_casesByAge = jax.vmap(
-            lambda R0, e_cases_N0, impact_intv, elementary_school_reopening_idx, SCHOOL_STATUS, wkend_mask,
-            avg_cntct, cntct_weekends_mean, cntct_weekdays_mean, cntct_school_closure_weekends,
-            cntct_school_closure_weekdays, cntct_elementary_school_reopening_weekends,
-            cntct_elementary_school_reopening_weekdays, popByAge_abs, school_switch:
-            country_EcasesByAge(
-                    R0,
-                    e_cases_N0,
-                    log_relsusceptibility_age,
-                    impact_intv_children_effect,
-                    impact_intv_onlychildren_effect,
-                    impact_intv,
-                    N0,
-                    elementary_school_reopening_idx,
-                    N2,
-                    SCHOOL_STATUS,
-                    A,
-                    A_CHILD,
-                    SI_CUT,
-                    wkend_mask,
-                    avg_cntct,
-                    cntct_weekends_mean,
-                    cntct_weekdays_mean,
-                    cntct_school_closure_weekends,
-                    cntct_school_closure_weekdays,
-                    cntct_elementary_school_reopening_weekends,
-                    cntct_elementary_school_reopening_weekdays,
-                    rev_serial_interval,
-                    popByAge_abs,
-                    N_init_A,
-                    init_A,
-                    school_switch)
-        )(
-            R0, e_cases_N0, impact_intv, elementary_school_reopening_idx, SCHOOL_STATUS.T, wkend_mask[:, N0:],
-            avg_cntct, cntct_weekends_mean, cntct_weekdays_mean, cntct_school_closure_weekends,
-            cntct_school_closure_weekdays, cntct_elementary_school_reopening_weekends,
-            cntct_elementary_school_reopening_weekdays, popByAge_abs, school_switch
-        )
-    else: # no vmap version
-        E_casesByAge = EcasesByAge(
+
+    E_casesByAge = jax.vmap(
+        lambda R0, e_cases_N0, impact_intv, elementary_school_reopening_idx, SCHOOL_STATUS, wkend_mask,
+        avg_cntct, cntct_weekends_mean, cntct_weekdays_mean, cntct_school_closure_weekends,
+        cntct_school_closure_weekdays, cntct_elementary_school_reopening_weekends,
+        cntct_elementary_school_reopening_weekdays, popByAge_abs, school_switch:
+        country_EcasesByAge(
                 R0,
                 e_cases_N0,
                 log_relsusceptibility_age,
@@ -366,7 +331,7 @@ def countries_log_dens(
                 A,
                 A_CHILD,
                 SI_CUT,
-                wkend_mask[:, N0:],
+                wkend_mask,
                 avg_cntct,
                 cntct_weekends_mean,
                 cntct_weekdays_mean,
@@ -379,6 +344,12 @@ def countries_log_dens(
                 N_init_A,
                 init_A,
                 school_switch)
+    )(
+        R0, e_cases_N0, impact_intv, elementary_school_reopening_idx, SCHOOL_STATUS.T, wkend_mask[:, N0:],
+        avg_cntct, cntct_weekends_mean, cntct_weekdays_mean, cntct_school_closure_weekends,
+        cntct_school_closure_weekdays, cntct_elementary_school_reopening_weekends,
+        cntct_elementary_school_reopening_weekdays, popByAge_abs, school_switch
+    )
 
     E_deathsByAge = jax.vmap(
         lambda E_casesByAge, log_ifr_age_rnde_mid1, log_ifr_age_rnde_mid2, log_ifr_age_rnde_old:
