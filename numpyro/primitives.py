@@ -90,17 +90,7 @@ def _masked_observe(name, fn, obs, obs_mask, **kwargs):
     # Interleave observed and unobserved events.
     shape = jnp.shape(obs_mask) + (1,) * fn.event_dim
     batch_mask = jnp.reshape(obs_mask, shape)
-    try:
-        value = jnp.where(batch_mask, observed, unobserved)
-    except RuntimeError as e:
-        if "must match the size of tensor" in str(e):
-            shape = lax.broadcast_shape(jnp.shape(observed), jnp.shape(unobserved))
-            batch_shape = shape[:len(shape) - fn.event_dim]
-            raise ValueError(
-                f"Invalid obs_mask shape {tuple(obs_mask.shape)}; should be "
-                f"broadcastable to batch_shape = {tuple(batch_shape)}"
-            ) from e
-        raise
+    value = jnp.where(batch_mask, observed, unobserved)
     return deterministic(name, value)
 
 
