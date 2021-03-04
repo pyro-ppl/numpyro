@@ -22,7 +22,13 @@ from numpyro.distributions import constraints, kl_divergence, transforms
 from numpyro.distributions.discrete import _to_probs_bernoulli, _to_probs_multinom
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
-from numpyro.distributions.transforms import LowerCholeskyAffine, PermuteTransform, PowerTransform, biject_to
+from numpyro.distributions.transforms import (
+    LowerCholeskyAffine,
+    PermuteTransform,
+    SoftplusTransform,
+    PowerTransform,
+    biject_to
+)
 from numpyro.distributions.util import (
     matrix_to_tril_vec,
     multinomial,
@@ -1165,6 +1171,7 @@ def test_biject_to(constraint, shape):
 @pytest.mark.parametrize('transform, event_shape', [
     (PermuteTransform(jnp.array([3, 0, 4, 1, 2])), (5,)),
     (PowerTransform(2.), ()),
+    (SoftplusTransform(), ()),
     (LowerCholeskyAffine(jnp.array([1., 2.]), jnp.array([[0.6, 0.], [1.5, 0.4]])), (2,))
 ])
 @pytest.mark.parametrize('batch_shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])

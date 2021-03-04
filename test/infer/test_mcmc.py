@@ -16,7 +16,7 @@ from jax.test_util import check_close
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import AffineTransform
-from numpyro.infer import HMC, MCMC, NUTS, SA
+from numpyro.infer import HMC, MCMC, NUTS, SA, BarkerMH
 from numpyro.infer.hmc import hmc
 from numpyro.infer.reparam import TransformReparam
 from numpyro.infer.sa import _get_proposal_loc_and_scale, _numpy_delete
@@ -24,7 +24,7 @@ from numpyro.infer.util import initialize_model
 from numpyro.util import fori_collect
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA, BarkerMH])
 @pytest.mark.parametrize('dense_mass', [False, True])
 def test_unnormalized_normal_x64(kernel_cls, dense_mass):
     true_mean, true_std = 1., 0.5
@@ -35,6 +35,8 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
 
     init_params = jnp.array(0.)
     if kernel_cls is SA:
+        kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
+    elif kernel_cls is BarkerMH:
         kernel = SA(potential_fn=potential_fn, dense_mass=dense_mass)
     else:
         kernel = kernel_cls(potential_fn=potential_fn, trajectory_length=8, dense_mass=dense_mass)
@@ -72,10 +74,15 @@ def test_correlated_mvn():
     assert np.sum(np.abs(np.cov(samples.T) - true_cov)) / D**2 < 0.02
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA, BarkerMH])
 def test_logistic_regression_x64(kernel_cls):
     N, dim = 3000, 3
-    warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (1000, 8000)
+    if kernel_cls is SA:
+        warmup_steps, num_samples = (100000, 100000)
+    elif kernel_cls is BarkerMH:
+        warmup_steps, num_samples = (2000, 12000)
+    else:
+        warmup_steps, num_samples = (1000, 8000)
     data = random.normal(random.PRNGKey(0), (N, dim))
     true_coefs = jnp.arange(1., dim + 1.)
     logits = jnp.sum(true_coefs * data, axis=-1)
@@ -88,6 +95,8 @@ def test_logistic_regression_x64(kernel_cls):
 
     if kernel_cls is SA:
         kernel = SA(model=model, adapt_state_size=9)
+    elif kernel_cls is BarkerMH:
+        kernel = BarkerMH(model=model)
     else:
         kernel = kernel_cls(model=model, trajectory_length=8, find_heuristic_step_size=True)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
@@ -95,7 +104,9 @@ def test_logistic_regression_x64(kernel_cls):
     mcmc.print_summary()
     samples = mcmc.get_samples()
     assert samples['logits'].shape == (num_samples, N)
-    assert_allclose(jnp.mean(samples['coefs'], 0), true_coefs, atol=0.22)
+    # those coefficients are found by doing MAP inference using AutoDelta
+    expected_coefs = jnp.array([0.97, 2.05, 3.18])
+    assert_allclose(jnp.mean(samples['coefs'], 0), expected_coefs, atol=0.1)
 
     if 'JAX_ENABLE_X64' in os.environ:
         assert samples['coefs'].dtype == jnp.float64
@@ -150,7 +161,7 @@ def test_improper_normal():
     assert_allclose(jnp.mean(samples['loc'], 0), true_coef, atol=0.05)
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, SA, BarkerMH])
 def test_beta_bernoulli_x64(kernel_cls):
     warmup_steps, num_samples = (100000, 100000) if kernel_cls is SA else (500, 20000)
 
@@ -162,9 +173,11 @@ def test_beta_bernoulli_x64(kernel_cls):
         return p_latent
 
     true_probs = jnp.array([0.9, 0.1])
-    data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000, 2))
+    data = dist.Bernoulli(true_probs).sample(random.PRNGKey(1), (1000,))
     if kernel_cls is SA:
         kernel = SA(model=model)
+    elif kernel_cls is BarkerMH:
+        kernel = BarkerMH(model=model)
     else:
         kernel = kernel_cls(model=model, trajectory_length=0.1)
     mcmc = MCMC(kernel, num_warmup=warmup_steps, num_samples=num_samples, progress_bar=False)
@@ -177,7 +190,7 @@ def test_beta_bernoulli_x64(kernel_cls):
         assert samples['p_latent'].dtype == jnp.float64
 
 
-@pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, BarkerMH])
 @pytest.mark.parametrize('dense_mass', [False, True])
 def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
     warmup_steps, num_samples = 100, 20000
@@ -190,7 +203,10 @@ def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
 
     true_probs = jnp.array([0.1, 0.6, 0.3])
     data = dist.Categorical(true_probs).sample(random.PRNGKey(1), (2000,))
-    kernel = kernel_cls(model, trajectory_length=1., dense_mass=dense_mass)
+    if kernel_cls is BarkerMH:
+        kernel = BarkerMH(model=model, dense_mass=dense_mass)
+    else:
+        kernel = kernel_cls(model, trajectory_length=1., dense_mass=dense_mass)
     mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
     mcmc.run(random.PRNGKey(2), data)
     samples = mcmc.get_samples()
@@ -198,6 +214,36 @@ def test_dirichlet_categorical_x64(kernel_cls, dense_mass):
 
     if 'JAX_ENABLE_X64' in os.environ:
         assert samples['p_latent'].dtype == jnp.float64
+
+
+@pytest.mark.parametrize('kernel_cls', [HMC, NUTS, BarkerMH])
+@pytest.mark.parametrize('rho', [-0.7, 0.8])
+def test_dense_mass(kernel_cls, rho):
+    warmup_steps, num_samples = 20000, 10000
+
+    true_cov = jnp.array([[10.0, rho], [rho, 0.1]])
+
+    def model():
+        numpyro.sample("x", dist.MultivariateNormal(jnp.zeros(2), covariance_matrix=true_cov))
+
+    if kernel_cls is HMC or kernel_cls is NUTS:
+        kernel = kernel_cls(model, trajectory_length=1., dense_mass=True)
+    elif kernel_cls is BarkerMH:
+        kernel = BarkerMH(model, dense_mass=True)
+
+    mcmc = MCMC(kernel, warmup_steps, num_samples, progress_bar=False)
+    mcmc.run(random.PRNGKey(0))
+
+    mass_matrix_sqrt = mcmc.last_state.adapt_state.mass_matrix_sqrt
+    mass_matrix = jnp.matmul(mass_matrix_sqrt, jnp.transpose(mass_matrix_sqrt))
+    estimated_cov = jnp.linalg.inv(mass_matrix)
+    assert_allclose(estimated_cov, true_cov, rtol=0.10)
+
+    samples = mcmc.get_samples()['x']
+    assert_allclose(jnp.mean(samples[:, 0]), jnp.array(0.0), atol=0.50)
+    assert_allclose(jnp.mean(samples[:, 1]), jnp.array(0.0), atol=0.05)
+    assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.20)
+    assert_allclose(jnp.var(samples, axis=0), jnp.array([10.0, 0.1]), rtol=0.20)
 
 
 def test_change_point_x64():

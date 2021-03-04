@@ -11,6 +11,7 @@ from numpyro.infer.initialization import (
     init_to_uniform,
     init_to_value
 )
+from numpyro.infer.barker import BarkerMH
 from numpyro.infer.mcmc import MCMC
 from numpyro.infer.mixed_hmc import MixedHMC
 from numpyro.infer.sa import SA
@@ -24,6 +25,7 @@ __all__ = [
     'init_to_uniform',
     'init_to_value',
     'log_likelihood',
+    'BarkerMH',
     'DiscreteHMCGibbs',
     'ELBO',
     'HMC',
