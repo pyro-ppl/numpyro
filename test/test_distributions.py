@@ -4,8 +4,6 @@
 from collections import namedtuple
 from functools import partial
 import inspect
-from numpyro.distributions.continuous import LeftTruncatedDistribution, RightTruncatedDistribution
-from numpyro.distributions.distribution import Distribution
 import os
 
 import numpy as np
