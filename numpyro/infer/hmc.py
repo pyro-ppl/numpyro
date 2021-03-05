@@ -401,12 +401,13 @@ class HMC(MCMCKernel):
         self._model = model
         self._potential_fn = potential_fn
         self._kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
-        self._step_size = step_size
+        self._step_size = float(step_size) if isinstance(step_size, int) else step_size
         self._adapt_step_size = adapt_step_size
         self._adapt_mass_matrix = adapt_mass_matrix
         self._dense_mass = dense_mass
         self._target_accept_prob = target_accept_prob
-        self._trajectory_length = trajectory_length
+        self._trajectory_length = float(trajectory_length) \
+            if isinstance(trajectory_length, int) else trajectory_length
         self._algo = 'HMC'
         self._max_tree_depth = 10
         self._init_strategy = init_strategy

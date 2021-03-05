@@ -710,6 +710,22 @@ SigmoidTransform
     :show-inheritance:
     :member-order: bysource
 
+SoftplusLowerCholeskyTransform
+------------------------------
+.. autoclass:: numpyro.distributions.transforms.SoftplusLowerCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SoftplusTransform
+-----------------
+.. autoclass:: numpyro.distributions.transforms.SoftplusTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 StickBreakingTransform
 ----------------------
 .. autoclass:: numpyro.distributions.transforms.StickBreakingTransform

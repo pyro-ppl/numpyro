@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro.distributions.conjugate import BetaBinomial, DirichletMultinomial, GammaPoisson
-import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -64,8 +63,9 @@ from numpyro.distributions.distribution import (
     Unit
 )
 from numpyro.distributions.kl import kl_divergence
-import numpyro.distributions.transforms  # noqa: F401
 from numpyro.distributions.transforms import biject_to
+
+from . import constraints, transforms
 
 __all__ = [
     'biject_to',
