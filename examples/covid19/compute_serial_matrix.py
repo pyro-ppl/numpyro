@@ -1,28 +1,46 @@
+from functools import partial
+
 import numpyro
 
 import numpy as np
 import jax
 from jax import ops
 import jax.numpy as jnp
+from jax.lax import scan
 
 
 
+def convolve(history, serial):
+
+    def scan_body(carry, x):
+        output, h, t = carry
+        output_t = (serial * h).sum()
+        output = ops.index_update(output, t, output_t)
+        h = jnp.concatenate([h[1:], output_t[None]])
+        return (output, h, t + 1), None
+
+    output = scan(scan_body, (jnp.zeros(tau), history, 0), None, length=tau)[0][0]
+
+    return output
+
+    #def convolve(history):
+    #    output = jnp.zeros(tau)
+    #    for t in range(tau):
+    #        output_t = (serial * history).sum()
+    #        output = ops.index_update(output, t, output_t)
+    #        history = jnp.concatenate([history[1:], output[t:t+1]])
+    #    return output
+
+
+@partial(jax.jit, static_argnums=(1,))
 def compute_serial_matrix(serial, tau):
     SI_CUT = serial.shape[0]
     serial_matrix = jnp.zeros((tau, SI_CUT))
 
-    def convolve(history):
-        output = jnp.zeros(tau)
-        for t in range(tau):
-            output_t = (serial * history).sum()
-            output = ops.index_update(output, t, output_t)
-            history = jnp.concatenate([history[1:], output[t:t+1]])
-        return output
-
     for t in range(SI_CUT):
         history = jnp.zeros(SI_CUT)
         history = ops.index_update(history, t, 1.0)
-        serial_matrix = ops.index_update(serial_matrix, ops.index[:, t], convolve(history))
+        serial_matrix = ops.index_update(serial_matrix, ops.index[:, t], convolve(history, serial))
 
     return serial_matrix
 
@@ -50,17 +68,14 @@ def compute_serial_matrix_rho(serial, tau):
 if __name__ == "__main__":
     numpyro.enable_x64()
 
-    #for tau in [2, 3, 4]:
-    #    for SI_CUT in [3, 6, 7, 12]:
-    for tau in [5]:
-        for SI_CUT in [10]:
-            serial = jnp.array(np.random.rand(SI_CUT))
+    for tau in [2, 3, 4]:
+        for SI_CUT in [5, 6]:
+            serial = jnp.array(np.random.RandomState(tau + 10 * SI_CUT).rand(SI_CUT))
 
             m = compute_serial_matrix(serial, tau)
             m_rho = compute_serial_matrix_rho(serial, tau).sum(0)
 
             delta = np.max(np.fabs(m - m_rho))
-            print(delta, tau, SI_CUT)
             assert delta < 1.0e-13
 
             if tau == 3:
