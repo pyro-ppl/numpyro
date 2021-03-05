@@ -10,8 +10,7 @@ from jax.lax import scan
 
 
 
-def convolve(history, serial):
-
+def convolve(history, serial, tau):
     def scan_body(carry, x):
         output, h, t = carry
         output_t = (serial * h).sum()
@@ -23,13 +22,13 @@ def convolve(history, serial):
 
     return output
 
-    #def convolve(history):
-    #    output = jnp.zeros(tau)
-    #    for t in range(tau):
-    #        output_t = (serial * history).sum()
-    #        output = ops.index_update(output, t, output_t)
-    #        history = jnp.concatenate([history[1:], output[t:t+1]])
-    #    return output
+def _convolve(history, serial, tau):
+    output = jnp.zeros(tau)
+    for t in range(tau):
+        output_t = (serial * history).sum()
+        output = ops.index_update(output, t, output_t)
+        history = jnp.concatenate([history[1:], output[t:t+1]])
+    return output
 
 
 @partial(jax.jit, static_argnums=(1,))
@@ -40,7 +39,7 @@ def compute_serial_matrix(serial, tau):
     for t in range(SI_CUT):
         history = jnp.zeros(SI_CUT)
         history = ops.index_update(history, t, 1.0)
-        serial_matrix = ops.index_update(serial_matrix, ops.index[:, t], convolve(history, serial))
+        serial_matrix = ops.index_update(serial_matrix, ops.index[:, t], convolve(history, serial, tau))
 
     return serial_matrix
 
@@ -68,17 +67,24 @@ def compute_serial_matrix_rho(serial, tau):
 if __name__ == "__main__":
     numpyro.enable_x64()
 
-    for tau in [2, 3, 4]:
-        for SI_CUT in [5, 6]:
-            serial = jnp.array(np.random.RandomState(tau + 10 * SI_CUT).rand(SI_CUT))
+    for tau in [2, 3]:
+        for SI_CUT in [4, 5]:
+            rho = np.random.rand(1).item()
+            serial = np.random.RandomState(tau + 10 * SI_CUT).rand(SI_CUT)
+            serial /= serial.sum()
 
-            m = compute_serial_matrix(serial, tau)
-            m_rho = compute_serial_matrix_rho(serial, tau).sum(0)
+            m = compute_serial_matrix(rho * serial, tau)
+            m_rho = np.array(compute_serial_matrix_rho(serial, tau))
+            rho_powers = np.power(rho, np.arange(tau) + 1)
+            m_rho = rho_powers[:, None, None] * m_rho
+            m_rho = m_rho.sum(0)
 
             delta = np.max(np.fabs(m - m_rho))
+            print("tau", tau, "SI_CUT", SI_CUT, "delta", delta)
             assert delta < 1.0e-13
 
             if tau == 3:
+                serial *= rho
                 expected = np.zeros((tau, SI_CUT))
                 expected[0] = serial
                 expected[1, 1:] = serial[:-1]
@@ -88,4 +94,4 @@ if __name__ == "__main__":
                 expected[2, :] += expected[1, :] * serial[-1]
 
                 delta = np.max(np.fabs(expected - m))
-                assert delta < 1.0e-6
+                assert delta < 1.0e-13
