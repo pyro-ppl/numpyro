@@ -4,7 +4,7 @@ from jax import device_get, nn, random, tree_multimap
 import jax.numpy as jnp
 from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
 from jaxns.plotting import plot_cornerplot, plot_diagnostics
-from jaxns.prior_transforms.prior_chain import Prior, PriorBase, PriorChain
+from jaxns.prior_transforms import ContinuousPrior, PriorChain
 
 import numpyro
 import numpyro.distributions as dist
@@ -16,15 +16,12 @@ from numpyro.infer import Predictive, log_likelihood
 __all__ = ["NestedSampler"]
 
 
-class ShapeTransform(Prior):
-    """
-    Reshape a uniform vector to a target shape.
-    """
-    def __init__(self, name, shape, dtype):
-        super().__init__(name, shape, [], tracked=True, prior_base=PriorBase((), dtype))
+class UniformPrior(ContinuousPrior):
+    def __init__(self, name, shape):
+        super().__init__(name, shape, parents=[], tracked=True)
 
     def transform_U(self, U, **kwargs):
-        return jnp.reshape(U, self.to_shape)
+        return U
 
 
 @singledispatch
@@ -100,13 +97,11 @@ class UniformReparam(Reparam):
     """
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
-        shape = fn.shape()
-        fn, event_dim = self._unwrap(fn)
-        fn, _ = self._unexpand(fn)
+        fn, batch_shape, event_dim = self._unwrap(fn)
         transform = uniform_reparam_transform(fn)
 
         x = numpyro.sample("{}_base".format(name),
-                           dist.Uniform(0, 1).expand(shape).to_event(event_dim))
+                           dist.Uniform(0, 1).expand(batch_shape).to_event(event_dim))
         # Simulate a numpyro.deterministic() site.
         return None, transform(x)
 
@@ -200,9 +195,7 @@ class NestedSampler:
         # use NestedSampler with identity prior chain
         prior_chain = PriorChain()
         for name in param_names:
-            shape_transform = ShapeTransform(name + "_base",
-                                             prototype_trace[name]["fn"].shape(),
-                                             prototype_trace[name]["value"].dtype)
+            shape_transform = UniformPrior(name + "_base", prototype_trace[name]["fn"].shape())
             prior_chain.push(shape_transform)
         ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name,
                                sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
