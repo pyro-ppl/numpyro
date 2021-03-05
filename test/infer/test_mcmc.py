@@ -227,7 +227,7 @@ def test_dense_mass(kernel_cls, rho):
         numpyro.sample("x", dist.MultivariateNormal(jnp.zeros(2), covariance_matrix=true_cov))
 
     if kernel_cls is HMC or kernel_cls is NUTS:
-        kernel = kernel_cls(model, trajectory_length=1., dense_mass=True)
+        kernel = kernel_cls(model, trajectory_length=2., dense_mass=True)
     elif kernel_cls is BarkerMH:
         kernel = BarkerMH(model, dense_mass=True)
 
