@@ -30,7 +30,6 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.examples.datasets import HIGGS, load_dataset
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SVI, Trace_ELBO, autoguide
-from numpyro.infer.hmc_gibbs import taylor_proxy
 
 
 def model(data, obs, subsample_size):
@@ -55,7 +54,7 @@ def run_hmcecs(hmcecs_key, args, data, obs, inner_kernel):
     # taylor proxy estimates log likelihood (ll) by
     # taylor_expansion(ll, theta_curr) +
     #     sum_{i in subsample} ll_i(theta_curr) - taylor_expansion(ll_i, theta_curr) around ref_params
-    proxy = taylor_proxy(ref_params)
+    proxy = HMCECS.taylor_proxy(ref_params)
 
     kernel = HMCECS(inner_kernel, num_blocks=args.num_blocks, proxy=proxy)
     mcmc = MCMC(kernel, num_warmup=args.num_warmup, num_samples=args.num_samples)

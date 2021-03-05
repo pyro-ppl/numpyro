@@ -14,7 +14,6 @@ import numpyro.distributions as dist
 from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SA, SVI, Trace_ELBO, init_to_value
 from numpyro.infer.autoguide import AutoBNAFNormal
-from numpyro.infer.hmc_gibbs import taylor_proxy
 from numpyro.infer.reparam import NeuTraReparam
 
 
@@ -81,7 +80,7 @@ def benchmark_hmc(args, features, labels):
                             dense_mass=args.dense_mass)
         # note: if num_blocks=100, we'll update 10 index at each MCMC step
         # so it took 50000 MCMC steps to iterative the whole dataset
-        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=taylor_proxy(ref_params))
+        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=HMCECS.taylor_proxy(ref_params))
     elif args.algo == "SA":
         # NB: this kernel requires large num_warmup and num_samples
         # and running on GPU is much faster than on CPU
@@ -101,7 +100,7 @@ def benchmark_hmc(args, features, labels):
         # no need to adapt mass matrix if the flow does a good job
         inner_kernel = NUTS(neutra_model, init_strategy=init_to_value(values=neutra_ref_params),
                             adapt_mass_matrix=False)
-        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=taylor_proxy(neutra_ref_params))
+        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=HMCECS.taylor_proxy(neutra_ref_params))
     else:
         raise ValueError("Invalid algorithm, either 'HMC', 'NUTS', or 'HMCECS'.")
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples)

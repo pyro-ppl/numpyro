@@ -589,6 +589,10 @@ class HMCECS(HMCGibbs):
         z = {**z_gibbs, **hmc_state.z}
         return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
+    @staticmethod
+    def taylor_proxy(reference_params):
+        return taylor_proxy(reference_params)
+
 
 def perturbed_method(subsample_plate_sizes, proxy_fn):
     def estimator(likelihoods, params, gibbs_state):
