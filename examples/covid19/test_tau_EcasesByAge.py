@@ -61,19 +61,22 @@ def country_EcasesByAge_direct(
         start_idx_rev_serial = max(0, SI_CUT - t)
         start_idx_E_casesByAge = max(0, t - SI_CUT)
 
-        t_round = t - (t - N0) % tau
+        #t_round = t - (t - N0) % tau
         #print("t, t_round, tau", t, t_round, tau)
-        prop_susceptibleByAge = 1.0 - E_casesByAge[:t_round].sum(0) / popByAge_abs_local
-        prop_susceptibleByAge = np.maximum(0.0, prop_susceptibleByAge)
+        #prop_susceptibleByAge = 1.0 - E_casesByAge[:t_round].sum(0) / popByAge_abs_local
+        prop_susceptibleByAge = 1.0
+        #prop_susceptibleByAge = np.maximum(0.0, prop_susceptibleByAge)
         #print(t, prop_susceptibleByAge)
-        print("E_casesByAge[:{}].sum(0)".format(t_round),E_casesByAge[:t_round].sum(0))
+        #print("E_casesByAge[:{}].sum(0)".format(t_round),E_casesByAge[:t_round].sum(0))
 
         tmp_row_vector_A = (rev_serial_interval[start_idx_rev_serial:SI_CUT][:, None]
                             * E_casesByAge[start_idx_E_casesByAge:t]).sum(0)
-        tmp_row_vector_A *= rho0
-        tmp_row_vector_A_no_impact_intv = tmp_row_vector_A.copy()
-        tmp_row_vector_A *= impact_intv[t - N0]
+        #print("start_idx_rev_serial:SI_CUT", start_idx_rev_serial,SI_CUT, "start_idx_E_casesByAge:t", start_idx_E_casesByAge,t)
+        #tmp_row_vector_A *= rho0
+        #tmp_row_vector_A_no_impact_intv = tmp_row_vector_A.copy()
+        #tmp_row_vector_A *= impact_intv[t - N0]
 
+        """
         # choose weekend/weekday contact matrices
         weekend = wkend_idx_local[t - N0]  # this is a boolean
         cntct_mean_local = cntct_weekends_mean_local if weekend else cntct_weekdays_mean_local
@@ -111,9 +114,10 @@ def country_EcasesByAge_direct(
                 impact_intv[t - N0, A_CHILD:]
             E_casesByAge[t] = np.concatenate([col1, col2])
 
-        E_casesByAge[t] = tmp_row_vector_A_no_impact_intv
-        E_casesByAge[t] *= prop_susceptibleByAge
-        E_casesByAge[t] *= np.exp(log_relsusceptibility_age)
+        """
+        E_casesByAge[t] = tmp_row_vector_A
+        #E_casesByAge[t] *= prop_susceptibleByAge
+        #E_casesByAge[t] *= np.exp(log_relsusceptibility_age)
 
     return E_casesByAge
 
@@ -150,7 +154,7 @@ def country_EcasesByAge(
 
     # probability of infection given contact in location m
     rho0 = R0_local / avg_cntct_local
-    rev_serial_interval_matrix *= rho0
+    #rev_serial_interval_matrix *= rho0
 
     relsusceptibility_age = jnp.exp(log_relsusceptibility_age)
 
@@ -175,8 +179,9 @@ def country_EcasesByAge(
         assert E_casesByAge_sum.shape == (A,)
         assert E_casesByAge_SI_CUT.shape == (SI_CUT, A)
 
-        prop_susceptibleByAge = 1.0 - E_casesByAge_sum / popByAge_abs_local
-        prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
+        #prop_susceptibleByAge = 1.0 - E_casesByAge_sum / popByAge_abs_local
+        #prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
+        prop_susceptibleByAge = jnp.ones(A)
         assert prop_susceptibleByAge.shape == (A,)
 
         # this convolution is effectively zero padded on the left
@@ -229,7 +234,7 @@ def country_EcasesByAge(
         E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
         """
         E_casesByAge_t = tmp_row_vector_A_no_impact_intv
-        E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
+        #E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
 
         # add term to cumulative sum
         E_casesByAge_sum = E_casesByAge_sum + E_casesByAge_t.sum(0)
@@ -317,7 +322,7 @@ if __name__ == '__main__':
         school_switch = 2 * SCHOOL_STATUS_local.astype(np.int32) + \
             (np.arange(N0, N2) >= elementary_school_reopening_idx_local).astype(np.int32)
         print("school_switch",school_switch.shape)
-        tau = 2
+        tau = 3
         rev_serial_interval_matrix = jnp.array(compute_serial_matrix(rev_serial_interval, tau))
 
         def reshape_and_pad(x, reshape=False):
