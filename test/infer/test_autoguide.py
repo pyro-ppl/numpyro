@@ -232,10 +232,10 @@ def test_param():
     svi_state = svi.init(rng_key_init)
 
     params = svi.get_params(svi_state)
-    assert_allclose(params['a'], a_init)
-    assert_allclose(params['b'], b_init)
-    assert_allclose(params['auto_loc'], guide._init_latent)
-    assert_allclose(params['auto_scale'], jnp.ones(1) * guide._init_scale)
+    assert_allclose(params['a'], a_init, rtol=1e-6)
+    assert_allclose(params['b'], b_init, rtol=1e-6)
+    assert_allclose(params['auto_loc'], guide._init_latent, rtol=1e-6)
+    assert_allclose(params['auto_scale'], jnp.ones(1) * guide._init_scale, rtol=1e-6)
 
     actual_loss = svi.evaluate(svi_state)
     assert jnp.isfinite(actual_loss)

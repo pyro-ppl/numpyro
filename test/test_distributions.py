@@ -25,8 +25,8 @@ from numpyro.distributions.gof import InvalidTest, auto_goodness_of_fit
 from numpyro.distributions.transforms import (
     LowerCholeskyAffine,
     PermuteTransform,
-    SoftplusTransform,
     PowerTransform,
+    SoftplusTransform,
     biject_to
 )
 from numpyro.distributions.util import (
@@ -1049,6 +1049,11 @@ def test_categorical_log_prob_grad():
     (constraints.simplex, jnp.array([0.1, 0.3, 0.6]), True),
     (constraints.simplex, jnp.array([[0.1, 0.3, 0.6], [-0.1, 0.6, 0.5], [0.1, 0.6, 0.5]]),
      jnp.array([True, False, False])),
+    (constraints.softplus_positive, 3, True),
+    (constraints.softplus_positive, jnp.array([-1, 0, 5]), jnp.array([False, False, True])),
+    (constraints.softplus_lower_cholesky, jnp.array([[1., 0.], [-2., 0.1]]), True),
+    (constraints.softplus_lower_cholesky, jnp.array([[[1., 0.], [-2., -0.1]], [[1., 0.1], [2., 0.2]]]),
+     jnp.array([False, False])),
     (constraints.unit_interval, 0.1, True),
     (constraints.unit_interval, jnp.array([-5, 0, 0.5, 1, 7]),
      jnp.array([False, True, True, True, False])),
@@ -1084,6 +1089,8 @@ def test_constraints(constraint, x, expected):
     constraints.real,
     constraints.real_vector,
     constraints.simplex,
+    constraints.softplus_positive,
+    constraints.softplus_lower_cholesky,
     constraints.unit_interval,
 ], ids=lambda x: x.__class__)
 @pytest.mark.parametrize('shape', [(), (1,), (3,), (6,), (3, 1), (1, 3), (5, 3)])
@@ -1146,7 +1153,8 @@ def test_biject_to(constraint, shape):
 
             expected = np.linalg.slogdet(jax.jacobian(vec_transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(inv_vec_transform)(y_tril))[1]
-        elif constraint in [constraints.lower_cholesky, constraints.positive_definite]:
+        elif constraint in [constraints.lower_cholesky, constraints.positive_definite,
+                            constraints.softplus_lower_cholesky]:
             vec_transform = lambda x: matrix_to_tril_vec(transform(x))  # noqa: E731
             y_tril = matrix_to_tril_vec(y)
 

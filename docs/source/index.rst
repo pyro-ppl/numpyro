@@ -54,6 +54,7 @@ NumPyro documentation
    examples/hmm
    examples/ode
    examples/neutra
+   examples/covtype
 
 
 Indices and tables

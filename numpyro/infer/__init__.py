@@ -18,13 +18,17 @@ from numpyro.infer.sa import SA
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import Predictive, log_likelihood
 
+from . import autoguide, reparam
+
 __all__ = [
+    'autoguide',
     'init_to_feasible',
     'init_to_median',
     'init_to_sample',
     'init_to_uniform',
     'init_to_value',
     'log_likelihood',
+    'reparam',
     'BarkerMH',
     'DiscreteHMCGibbs',
     'ELBO',
