@@ -179,7 +179,7 @@ def country_EcasesByAge(
         rev_serial_interval_matrix_prop_susc = (rev_serial_interval_matrix * prop_power).sum(1)  # A tau SI_CUT
 
         tmp_row_vector_A_no_impact_intv = (rev_serial_interval_matrix_prop_susc @
-                                           E_casesByAge_SI_CUT.T[:, :,  None])[:, :,  0].T  # tau A
+                                           E_casesByAge_SI_CUT.T[:, :,  None])[:, :, 0].T  # tau A
         tmp_row_vector_A = impact_intv_t * tmp_row_vector_A_no_impact_intv
 
         # choose weekend/weekday contact matrices
@@ -245,16 +245,10 @@ def country_EcasesByAge(
     E_casesByAge_SI_CUT = jnp.concatenate([jnp.zeros((SI_CUT - N0, A)), E_casesByAge_init])
 
     init = (E_casesByAge_sum, E_casesByAge_SI_CUT)
-    #print("init E_casesByAge_sum",E_casesByAge_sum.shape, "E_casesByAge_SI_CUT",E_casesByAge_SI_CUT.shape)
     xs = (impact_intv, wkend_mask_local, school_switch)
-    #for k, x in enumerate(xs):
-    #    print("k", k, "x.shape", x.shape)
 
     # execute for loop using JAX primitive scan
     E_casesByAge_N0_N2 = scan(scan_body, init, xs, length=xs[0].shape[0])[1]
-    #print("E_sum\n",E_sum)
-    #print("E_t\n",E_t)
-    #import sys; sys.exit()
     E_casesByAge_N0_N2 = E_casesByAge_N0_N2.reshape((xs[0].shape[0] * tau, A))
 
     E_casesByAge = jnp.concatenate([E_casesByAge_init, E_casesByAge_N0_N2])

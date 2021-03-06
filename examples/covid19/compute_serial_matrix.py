@@ -22,13 +22,13 @@ def convolve(history, serial, tau):
 
     return output
 
-def _convolve(history, serial, tau):
-    output = jnp.zeros(tau)
-    for t in range(tau):
-        output_t = (serial * history).sum()
-        output = ops.index_update(output, t, output_t)
-        history = jnp.concatenate([history[1:], output[t:t+1]])
-    return output
+#def _convolve(history, serial, tau):
+#    output = jnp.zeros(tau)
+#    for t in range(tau):
+#        output_t = (serial * history).sum()
+#        output = ops.index_update(output, t, output_t)
+#        history = jnp.concatenate([history[1:], output[t:t+1]])
+#    return output
 
 
 @partial(jax.jit, static_argnums=(1,))
