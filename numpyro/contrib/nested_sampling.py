@@ -11,6 +11,7 @@ import numpyro.distributions as dist
 from numpyro.handlers import reparam, seed, trace
 from numpyro.infer.reparam import Reparam
 from numpyro.infer import Predictive, log_likelihood
+from numpyro.infer.util import _guess_max_plate_nesting, _validate_model, log_density
 
 
 __all__ = ["NestedSampler"]
@@ -30,12 +31,6 @@ def uniform_reparam_transform(d):
     A helper for :class:`UniformReparam` to get the transform that transforms
     a uniform distribution over a unit hypercube to the target distribution `d`.
     """
-    # use either `icdf` or `quantile` method if available
-    if hasattr(d, "icdf") and callable(d.icdf):
-        return d.icdf
-    elif hasattr(d, "quantile") and callable(d.quantile):
-        return d.quantile
-
     if isinstance(d, dist.TransformedDistribution):
         outer_transform = dist.transforms.ComposeTransform(d.transforms)
         return lambda q: outer_transform(uniform_reparam_transform(d.base_dist)(q))
@@ -43,18 +38,7 @@ def uniform_reparam_transform(d):
     if isinstance(d, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)):
         return lambda q: uniform_reparam_transform(d.base_dist)(q)
 
-    try:  # defer to TFP implementation
-        import numpyro.contrib.tfp.distributions as tfd
-
-        tfd_name = getattr(tfd, type(d).__name__)
-        tfd_dist = tfd_name(**{k: getattr(d, k) for k in d.arg_constraints})
-        return tfd_dist.quantile
-    except ImportError:
-        raise ImportError("Many NumPyro distributions do not have `.icdf(...)` method"
-                          " to derive this uniform reparam transform. You might need to"
-                          " install tensorflow_probability with: `pip install tfp-nightly`")
-    except AttributeError:
-        raise NotImplementedError
+    return d.icdf
 
 
 @uniform_reparam_transform.register(dist.MultivariateNormal)
@@ -66,7 +50,11 @@ def _(d):
 @uniform_reparam_transform.register(dist.BernoulliLogits)
 @uniform_reparam_transform.register(dist.BernoulliProbs)
 def _(d):
-    return lambda q: q < d.probs
+    def transform(q):
+        x = q < d.probs
+        return x.astype(jnp.result_type(x, int))
+
+    return transform
 
 
 @uniform_reparam_transform.register(dist.CategoricalLogits)
@@ -97,11 +85,12 @@ class UniformReparam(Reparam):
     """
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
+        event_shape = fn.event_shape
         fn, batch_shape, event_dim = self._unwrap(fn)
         transform = uniform_reparam_transform(fn)
 
         x = numpyro.sample("{}_base".format(name),
-                           dist.Uniform(0, 1).expand(batch_shape).to_event(event_dim))
+                           dist.Uniform(0, 1).expand(batch_shape + event_shape).to_event(event_dim).mask(False))
         # Simulate a numpyro.deterministic() site.
         return None, transform(x)
 
@@ -187,34 +176,51 @@ class NestedSampler:
                           if site["type"] == "deterministic"]
         reparam_model = reparam(self.model, config={k: UniformReparam() for k in param_names})
 
-        # define the likelihood of the model
-        def loglik_fn(**params):
-            loglik_dict = log_likelihood(reparam_model, params, *args, batch_ndims=0, **kwargs)
-            return sum(x.sum() for x in loglik_dict.values())
+        # enable enumerate if needed
+        has_enum = any(site["type"] == "sample" and site["infer"].get("enumerate", "") == "parallel"
+                       for site in prototype_trace.values())
+        if has_enum:
+            from numpyro.contrib.funsor import enum, log_density as log_density_
+
+            max_plate_nesting = _guess_max_plate_nesting(prototype_trace)
+            _validate_model(prototype_trace)
+            reparam_model = enum(reparam_model, -max_plate_nesting - 1)
+        else:
+            log_density_ = log_density
 
         # use NestedSampler with identity prior chain
         prior_chain = PriorChain()
         for name in param_names:
             shape_transform = UniformPrior(name + "_base", prototype_trace[name]["fn"].shape())
             prior_chain.push(shape_transform)
+        loglik_fn = lambda **params: log_density_(reparam_model, args, kwargs, params)[0]
         ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name,
                                sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
                                max_samples=self.max_samples,
                                num_live_points=self.num_live_points,
                                collect_samples=True)
         results = ns(rng_sampling, termination_frac=self.termination_frac)
-        num_samples = int(device_get(results.num_samples))
 
-        # transform base samples back to original domains
+        num_samples = int(device_get(results.num_samples))
+        log_weights = results.log_p[:num_samples]
         base_samples = {k: v[:num_samples] for k, v in results.samples.items()}
+        # filter out samples with -inf weights and invalid values
+        valid_masks = [jnp.isfinite(log_weights)] + \
+            [((v > 0) & (v < 1)).reshape((num_samples, -1)).all(-1)
+             for v in base_samples.values()]
+        mask = jnp.stack(valid_masks, -1).all(-1)
+        self._log_weights = log_weights[mask]
+
+        # transform base samples back to original domains        
         predictive = Predictive(reparam_model, base_samples,
                                 return_sites=param_names + deterministics)
-        self._samples = predictive(rng_predictive, *args, **kwargs)
-        self._log_weights = results.log_p[:num_samples]
-        self._results = results._replace(samples={k: v for k, v in self._samples.items()
-                                                  if k in param_names})
+        samples = predictive(rng_predictive, *args, **kwargs)
+        self._samples = {k: v[mask] for k, v in samples.items()}
 
-        print("Number of weighted samples:", num_samples)
+        # replace base samples in jaxns results by transformed samples
+        self._results = results._replace(samples=samples)
+
+        print("Number of weighted samples:", mask.sum())
         print("Effective sample size:", round(float(device_get(results.ESS)), 1))
 
     def get_samples(self, rng_key, num_samples):
@@ -229,12 +235,9 @@ class NestedSampler:
         idx = random.choice(rng_key, self._log_weights.shape[0], (num_samples,), p=p)
         return tree_multimap(lambda x: x[idx], self._samples)
 
-    def diagnostics(self, cornerplot=True):
+    def diagnostics(self):
         """
         Plot diagnostics of the run.
-
-        :param bool concerplot: whether to plot a cornerplot of the posterior samples
         """
         plot_diagnostics(self._results)
-        if cornerplot:
-            plot_cornerplot(self._results)
+        plot_cornerplot(self._results)

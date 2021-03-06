@@ -149,6 +149,12 @@ class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
         # XXX: this should cover most cases
         return self.support is None
 
+    def sample_with_intermediates(self, key, sample_shape=()):
+        return self.sample(seed=key, sample_shape=sample_shape), []
+
+    def icdf(self, q):
+        return self.quantile(q)
+
 
 class InverseGamma(tfd.InverseGamma, TFPDistributionMixin):
     arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
