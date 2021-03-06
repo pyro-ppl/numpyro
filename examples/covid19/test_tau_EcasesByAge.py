@@ -49,7 +49,6 @@ def country_EcasesByAge_direct(
 
     # probability of infection given contact in location m
     rho0 = R0_local / avg_cntct_local
-    rho0 = 1.0
 
     # expected new cases by calendar day, age, and location under self-renewal model
     # and a container to store the precomputed cases by age
@@ -63,12 +62,8 @@ def country_EcasesByAge_direct(
         start_idx_E_casesByAge = max(0, t - SI_CUT)
 
         t_round = t - (t - N0) % tau
-        #print("t, t_round, tau", t, t_round, tau)
         prop_susceptibleByAge = 1.0 - E_casesByAge[:t_round].sum(0) / popByAge_abs_local
         prop_susceptibleByAge = np.maximum(0.0, prop_susceptibleByAge)
-        prop_susceptibleByAge = np.ones(A)
-        #print(t, prop_susceptibleByAge)
-        #print("E_casesByAge[:{}].sum(0)".format(t_round),E_casesByAge[:t_round].sum(0))
 
         tmp_row_vector_A = rho0 * (rev_serial_interval[start_idx_rev_serial:SI_CUT][:, None]
                                    * E_casesByAge[start_idx_E_casesByAge:t]).sum(0)
@@ -143,7 +138,7 @@ def country_EcasesByAge(
     cntct_school_closure_weekdays_local: np.float64,  # A x A
     cntct_elementary_school_reopening_weekends_local: np.float64,  # A x A
     cntct_elementary_school_reopening_weekdays_local: np.float64,  # A x A
-    rev_serial_interval_matrix_rho: np.float64,  # tau tau SI_CUT
+    rev_serial_interval_matrix_powers: np.float64,  # tau tau SI_CUT
     popByAge_abs_local: np.float64,  # A
     N_init_A: int,
     init_A: np.int64,  # N_init_A
@@ -152,12 +147,11 @@ def country_EcasesByAge(
 
     # probability of infection given contact in location m
     rho0 = R0_local / avg_cntct_local
-    rho0 = 1.0
-    rho0_powers = jnp.power(rho0, 1 + jnp.arange(tau))
-    rev_serial_interval_matrix = (rho0_powers[:, None, None] * rev_serial_interval_matrix_rho).sum(0)  # tau SI_CUT
-    assert rev_serial_interval_matrix.shape == (tau, SI_CUT)
-
-    relsusceptibility_age = jnp.exp(log_relsusceptibility_age)
+    relsusceptibility_age = jnp.exp(log_relsusceptibility_age)[:, None]
+    rho0_relsusceptibility_powers = jnp.power(rho0 * relsusceptibility_age, 1 + jnp.arange(tau))  # A tau
+    rev_serial_interval_matrix = rho0_relsusceptibility_powers[:, :, None, None] * \
+                                  rev_serial_interval_matrix_powers  # A tau tau SI_CUT
+    assert rev_serial_interval_matrix.shape == (A, tau, tau, SI_CUT)
 
     """
     impact_intv_children_effect_padded = jnp.concatenate([impact_intv_children_effect * jnp.ones(A_CHILD),
@@ -176,22 +170,20 @@ def country_EcasesByAge(
     def scan_body(carry, x):
         impact_intv_t, weekend_t, school_switch_t = x
         E_casesByAge_sum, E_casesByAge_SI_CUT = carry
-
-        assert E_casesByAge_sum.shape == (A,)
         assert E_casesByAge_SI_CUT.shape == (SI_CUT, A)
 
         prop_susceptibleByAge = 1.0 - E_casesByAge_sum / popByAge_abs_local
         prop_susceptibleByAge = jnp.maximum(0.0, prop_susceptibleByAge)
-        assert prop_susceptibleByAge.shape == (A,)
 
-        # this convolution is effectively zero padded on the left
-        tmp_row_vector_A_no_impact_intv = rev_serial_interval_matrix @ E_casesByAge_SI_CUT  # tau A
-        assert tmp_row_vector_A_no_impact_intv.shape == (tau, A)
+        prop_power = jnp.power(prop_susceptibleByAge[:, None], 1 + jnp.arange(tau))[:, :, None, None]
+        rev_serial_interval_matrix_prop_susc = (rev_serial_interval_matrix * prop_power).sum(1)  # A tau SI_CUT
+
+        tmp_row_vector_A_no_impact_intv = (rev_serial_interval_matrix_prop_susc @
+                                           E_casesByAge_SI_CUT.T[:, :,  None])[:, :,  0].T  # tau A
         tmp_row_vector_A = impact_intv_t * tmp_row_vector_A_no_impact_intv
 
         # choose weekend/weekday contact matrices
         assert weekend_t.shape == (tau,)
-
         cntct_mean_t = jnp.take_along_axis(cntct_mean, weekend_t[:, None, None], 0)  # tau A A
         cntct_school_closure_t = jnp.take_along_axis(cntct_school_closure, weekend_t[:, None, None], 0)
         cntct_elementary_school_reopening_t = jnp.take_along_axis(cntct_elementary_school_reopening,
@@ -233,9 +225,7 @@ def country_EcasesByAge(
 
         E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
         """
-        prop_susceptibleByAge = jnp.ones(A)
         E_casesByAge_t = tmp_row_vector_A_no_impact_intv
-        E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
 
         # add term to cumulative sum
         E_casesByAge_sum = E_casesByAge_sum + E_casesByAge_t.sum(0)
@@ -285,9 +275,9 @@ if __name__ == '__main__':
     init_A = [1, 2]
 
     for test in range(NUM_TESTS):
-        N0 = 4 + 3 * test
-        N2 = 20 + test
-        SI_CUT = 30 #9 + test
+        N0 = 2
+        N2 = 8 + test
+        SI_CUT = 4 + test
 
         R0_local = np.random.rand(1).item()
         e_cases_N0_local = np.random.rand(1).item()
@@ -306,7 +296,6 @@ if __name__ == '__main__':
         cntct_elementary_school_reopening_weekends_local = np.random.rand(A, A)
         cntct_elementary_school_reopening_weekdays_local = np.random.rand(A, A)
         rev_serial_interval = np.random.rand(SI_CUT)
-        rev_serial_interval /= rev_serial_interval.sum()
         popByAge_abs_local = 123.4 * np.random.rand(A)
 
         # which = 1
@@ -322,7 +311,7 @@ if __name__ == '__main__':
         school_switch = 2 * SCHOOL_STATUS_local.astype(np.int32) + \
             (np.arange(N0, N2) >= elementary_school_reopening_idx_local).astype(np.int32)
         print("school_switch",school_switch.shape)
-        tau = 2
+        tau = 3
         rev_serial_interval_matrix_rho = jnp.array(compute_serial_matrix_rho(rev_serial_interval, tau))
 
         def reshape_and_pad(x, reshape=False):
