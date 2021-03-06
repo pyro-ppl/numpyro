@@ -138,11 +138,13 @@ class Dirichlet(Distribution):
         assert is_prng_key(key)
         shape = sample_shape + self.batch_shape + self.event_shape
         key_gamma, key_expon = random.split(key)
-        # for alpha < 1, we boost alpha to alpha + 1 and get a sample according to
-        #   Gamma(alpha) ~ Gamma(alpha+1) * Uniform()^(1 / alpha)
-        # when alpha << 1, u^(1 / alpha) is very near 0 and lost precision, so
+        # To improve precision for the cases concentration << 1,
+        # we boost concentration to concentration + 1 and get gamma samples according to
+        #   Gamma(concentration) ~ Gamma(concentration+1) * Uniform()^(1 / concentration)
+        # When concentration << 1, u^(1 / concentration) is very near 0 and lost precision, so
         # we will convert the samples to log space
-        #   log(Gamma(alpha)) ~ log(Gamma(alpha + 1)) - Expon() / alpha
+        #   log(Gamma(concentration)) ~ log(Gamma(concentration + 1)) - Expon() / concentration
+        # and apply softmax to get a dirichlet sample
         gamma_samples = random.gamma(key_gamma, self.concentration + 1, shape=shape)
         expon_samples = random.exponential(key_expon, shape=shape)
         samples = nn.softmax(jnp.log(gamma_samples) - expon_samples / self.concentration, -1)
