@@ -450,6 +450,7 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         "Gamma": ["concentration"],
         "Beta": ["concentration1", "concentration0"],
         "Chi2": ["df"],
+        "Dirichlet": ["concentration"],
         "InverseGamma": ["concentration"],
         "LKJ": ["concentration"],
         "LKJCholesky": ["concentration"],
