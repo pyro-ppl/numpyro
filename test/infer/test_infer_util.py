@@ -7,7 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import lax, random
+from jax import random
 import jax.numpy as jnp
 
 import numpyro
