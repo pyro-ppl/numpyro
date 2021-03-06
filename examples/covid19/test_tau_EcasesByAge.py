@@ -107,7 +107,6 @@ def country_EcasesByAge_direct(
                 impact_intv[t - N0, A_CHILD:]
             E_casesByAge[t] = np.concatenate([col1, col2])
 
-        E_casesByAge[t] = tmp_row_vector_A_no_impact_intv
         E_casesByAge[t] *= prop_susceptibleByAge
         E_casesByAge[t] *= np.exp(log_relsusceptibility_age)
 
@@ -153,13 +152,11 @@ def country_EcasesByAge(
                                   rev_serial_interval_matrix_powers  # A tau tau SI_CUT
     assert rev_serial_interval_matrix.shape == (A, tau, tau, SI_CUT)
 
-    """
     impact_intv_children_effect_padded = jnp.concatenate([impact_intv_children_effect * jnp.ones(A_CHILD),
                                                           jnp.ones(A - A_CHILD)])
     impact_intv_onlychildren_effect_padded = jnp.concatenate([impact_intv_onlychildren_effect * jnp.ones(A_CHILD),
                                                               jnp.ones(A - A_CHILD)])
     impact_intv_children_onlychildren_padded = impact_intv_children_effect_padded * impact_intv_onlychildren_effect_padded
-    """
 
     cntct_mean = jnp.stack([cntct_weekdays_mean_local, cntct_weekends_mean_local])
     cntct_school_closure = jnp.stack([cntct_school_closure_weekdays_local, cntct_school_closure_weekends_local])
@@ -189,43 +186,55 @@ def country_EcasesByAge(
         cntct_elementary_school_reopening_t = jnp.take_along_axis(cntct_elementary_school_reopening,
                                                                   weekend_t[:, None, None], 0)
 
-        """
-        def school_open(dummy):
-            return tmp_row_vector_A_no_impact_intv[:, None], cntct_mean_local[:, :A_CHILD],\
-                   tmp_row_vector_A_no_impact_intv[:A_CHILD, None], cntct_mean_local[:A_CHILD, A_CHILD:],\
-                   tmp_row_vector_A[A_CHILD:, None], cntct_mean_local[A_CHILD:, A_CHILD:],\
-                   impact_intv_t[A_CHILD:]
+        # school open
+        col1_left_so = tmp_row_vector_A_no_impact_intv[:, :, None]
+        col1_right_so = cntct_mean_t[:, :, :A_CHILD]
+        col2_topleft_so = tmp_row_vector_A_no_impact_intv[:, :A_CHILD, None]
+        col2_topright_so = cntct_mean_t[:, :A_CHILD, A_CHILD:]
+        col2_bottomleft_so = tmp_row_vector_A[:, A_CHILD:, None]
+        col2_bottomright_so = cntct_mean_t[:, A_CHILD:, A_CHILD:]
+        impact_intv_adult_so = impact_intv_t[:, A_CHILD:]
 
-        def school_reopen(dummy):
-            return ((tmp_row_vector_A * impact_intv_children_onlychildren_padded)[:, None],
-                    cntct_elementary_school_reopening_local[:, :A_CHILD] * impact_intv_children_effect,
-                    tmp_row_vector_A[:A_CHILD, None] * impact_intv_children_effect,
-                    cntct_elementary_school_reopening_local[:A_CHILD, A_CHILD:] * impact_intv_t[A_CHILD:],
-                    tmp_row_vector_A[A_CHILD:, None],
-                    cntct_elementary_school_reopening_local[A_CHILD:, A_CHILD:] * impact_intv_t[A_CHILD:],
-                    jnp.ones(A - A_CHILD))
+        # school reopen
+        col1_left_sr = (tmp_row_vector_A * impact_intv_children_onlychildren_padded)[:, :, None]
+        col1_right_sr = cntct_elementary_school_reopening_t[:, :, :A_CHILD] * impact_intv_children_effect
+        col2_topleft_sr = tmp_row_vector_A[:, :A_CHILD, None] * impact_intv_children_effect
+        col2_topright_sr = cntct_elementary_school_reopening_t[:, :A_CHILD, A_CHILD:] * impact_intv_t[:, None, A_CHILD:]
+        col2_bottomleft_sr = tmp_row_vector_A[:, A_CHILD:, None]
+        col2_bottomright_sr = cntct_elementary_school_reopening_t[:, A_CHILD:, A_CHILD:] * impact_intv_t[:, None, A_CHILD:]
+        impact_intv_adult_sr = jnp.ones((tau, A - A_CHILD))
 
-        def school_closed(dummy):
-            return tmp_row_vector_A_no_impact_intv[:, None], cntct_school_closure_local[:, :A_CHILD],\
-                   tmp_row_vector_A_no_impact_intv[:A_CHILD, None], cntct_school_closure_local[:A_CHILD, A_CHILD:],\
-                   tmp_row_vector_A[A_CHILD:, None], cntct_school_closure_local[A_CHILD:, A_CHILD:],\
-                   impact_intv_t[A_CHILD:]
-        """
+        # school closed
+        col1_left_sc = tmp_row_vector_A_no_impact_intv[:, :, None]
+        col1_right_sc = cntct_school_closure_t[:, :, :A_CHILD]
+        col2_topleft_sc = tmp_row_vector_A_no_impact_intv[:, :A_CHILD, None]
+        col2_topright_sc = cntct_school_closure_t[:, :A_CHILD, A_CHILD:]
+        col2_bottomleft_sc = tmp_row_vector_A[:, A_CHILD:, None]
+        col2_bottomright_sc = cntct_school_closure_t[:, A_CHILD:, A_CHILD:]
+        impact_intv_adult_sc = impact_intv_t[:, A_CHILD:]
 
-        # school_switch_t controls which of the three school branches we should follow in this iteration
-        # 0 => school_open     1 => school_reopen     2 => school_closed
-        """
-        contact_inputs = switch(school_switch_t, [school_open, school_reopen, school_closed], None)
-        (col1_left, col1_right, col2_topleft, col2_topright,
-         col2_bottomleft, col2_bottomright, impact_intv_adult) = contact_inputs
+        # combine ingredients in preparation for selecting on school_switch_t
+        col1_left = jnp.stack([col1_left_so, col1_left_sr, col1_left_sc])
+        col1_right = jnp.stack([col1_right_so, col1_right_sr, col1_right_sc])
+        col2_topleft = jnp.stack([col2_topleft_so, col2_topleft_sr, col2_topleft_sc])
+        col2_topright = jnp.stack([col2_topright_so, col2_topright_sr, col2_topright_sc])
+        col2_bottomleft = jnp.stack([col2_bottomleft_so, col2_bottomleft_sr, col2_bottomleft_sc])
+        col2_bottomright = jnp.stack([col2_bottomright_so, col2_bottomright_sr, col2_bottomright_sc])
+        impact_intv_adult = jnp.stack([impact_intv_adult_so, impact_intv_adult_sr, impact_intv_adult_sc])
 
-        col1 = (col1_left.T @ col1_right)[0]
-        col2 = (col2_topleft.T @ col2_topright)[0] + (col2_bottomleft.T @ col2_bottomright)[0] * impact_intv_adult
-        E_casesByAge_t = jnp.concatenate([col1, col2])
+        col1_left = jnp.take_along_axis(col1_left, school_switch_t[None, :, None, None], 0)[0]  # tau A 1
+        col1_right = jnp.take_along_axis(col1_right, school_switch_t[None, :, None, None], 0)[0]  # tau A AC
+        col2_topleft = jnp.take_along_axis(col2_topleft, school_switch_t[None, :, None, None], 0)[0]  # tau AC 1
+        col2_topright = jnp.take_along_axis(col2_topright, school_switch_t[None, :, None, None], 0)[0]  # tau AC A-AC
+        col2_bottomleft = jnp.take_along_axis(col2_bottomleft, school_switch_t[None, :, None, None], 0)[0]  # tau A-AC 1
+        col2_bottomright = jnp.take_along_axis(col2_bottomright, school_switch_t[None, :, None, None], 0)[0]  # tau A-AC A-AC
+        impact_intv_adult = jnp.take_along_axis(impact_intv_adult, school_switch_t[None, :, None], 0)[0]  # tau A-AC
 
-        E_casesByAge_t *= prop_susceptibleByAge * relsusceptibility_age
-        """
-        E_casesByAge_t = tmp_row_vector_A_no_impact_intv
+        col1 = (jnp.moveaxis(col1_left, -1, -2) @ col1_right)[:, 0]  # tau AC
+        col2 = (jnp.moveaxis(col2_topleft, -1, -2) @ col2_topright)[:, 0] +\
+            (jnp.moveaxis(col2_bottomleft, -1, -2) @ col2_bottomright)[:, 0] * impact_intv_adult  # tau A-AC
+
+        E_casesByAge_t = jnp.concatenate([col1, col2], axis=-1)
 
         # add term to cumulative sum
         E_casesByAge_sum = E_casesByAge_sum + E_casesByAge_t.sum(0)
