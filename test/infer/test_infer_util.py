@@ -88,14 +88,8 @@ def test_predictive_with_guide():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(1), data)
-
-    def body_fn(i, val):
-        svi_state, _ = svi.update(val, data)
-        return svi_state
-
-    svi_state = lax.fori_loop(0, 1000, body_fn, svi_state)
-    params = svi.get_params(svi_state)
+    svi_result = svi.run(random.PRNGKey(1), 3000, data)
+    params = svi_result.params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(random.PRNGKey(2), data=None)
     assert predictive["beta_sq"].shape == (1000,)
     obs_pred = predictive["obs"].astype(np.float32)
