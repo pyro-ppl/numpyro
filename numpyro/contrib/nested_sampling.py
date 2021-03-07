@@ -3,11 +3,16 @@
 
 from functools import singledispatch
 
+try:
+    from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
+    from jaxns.plotting import plot_cornerplot, plot_diagnostics
+    from jaxns.prior_transforms import ContinuousPrior, PriorChain
+except ImportError as e:
+    raise ImportError("To use this module, please install `jaxns` package. It can be"
+                      " installed with `pip install jaxns`") from e
+
 from jax import device_get, nn, random, tree_multimap
 import jax.numpy as jnp
-from jaxns.nested_sampling import NestedSampler as OrigNestedSampler
-from jaxns.plotting import plot_cornerplot, plot_diagnostics
-from jaxns.prior_transforms import ContinuousPrior, PriorChain
 
 import numpyro
 import numpyro.distributions as dist
@@ -101,8 +106,7 @@ class UniformReparam(Reparam):
 
 class NestedSampler:
     """
-    A wrapper for :class:`jaxns.nested_sampling.NestedSampler`, a nested sampling
-    package based on JAX.
+    (EXPERIMENTAL) A wrapper for `jaxns`, a nested sampling package based on JAX.
 
     See reference [1] for details on the meaning of each parameter.
     Please consider citing this reference if you use the nested sampler in your research.
@@ -148,7 +152,7 @@ class NestedSampler:
         >>> samples = ns.get_samples(random.PRNGKey(3), num_samples=1000)
         >>> assert jnp.mean(jnp.abs(samples['intercept'])) < 0.05
         >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
-        [0.91239292 1.91636061 2.81830897]
+        [0.94097772, 1.93709811, 2.85200139]
     """
     def __init__(self, model, *, num_live_points=1000, max_samples=100000,
                  sampler_name="slice", depth=3, num_slices=5, termination_frac=0.01):
