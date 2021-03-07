@@ -760,10 +760,9 @@ class estimate_likelihood(numpyro.primitives.Messenger):
         if self.params is None:
             return
 
-        # add numpyro.factor; ideally, we will want to skip this computation when making prediction
-        # see: https://github.com/pyro-ppl/pyro/issues/2744
-        numpyro.factor("_biased_corrected_log_likelihood",
-                       self.method(self.likelihoods, self.params, self.gibbs_state))
+        if numpyro.get_mask() is not False:
+            numpyro.factor("_biased_corrected_log_likelihood",
+                           self.method(self.likelihoods, self.params, self.gibbs_state))
 
         # clean up
         self.params = None
