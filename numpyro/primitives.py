@@ -84,7 +84,7 @@ def _masked_observe(name, fn, obs, obs_mask, **kwargs):
     # Split into two auxiliary sample sites.
     with numpyro.handlers.mask(mask=obs_mask):
         observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
-    with numpyro.handlers.mask(mask=(not obs_mask if isinstance(obs_mask, bool) else ~obs_mask)):
+    with numpyro.handlers.mask(mask=(obs_mask ^ True)):
         unobserved = sample(f"{name}_unobserved", fn, **kwargs)
 
     # Interleave observed and unobserved events.
@@ -127,7 +127,7 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None, obs_ma
         return fn(rng_key=rng_key, sample_shape=sample_shape)
 
     if obs_mask is not None:
-        return _masked_observe(name, fn, obs, obs_mask, rng_key=None, sample_shape=(), infer=None)
+        return _masked_observe(name, fn, obs, obs_mask, rng_key=rng_key, sample_shape=(), infer=infer)
 
     # Otherwise, we initialize a message...
     initial_msg = {
