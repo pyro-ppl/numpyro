@@ -3,7 +3,6 @@
 
 from abc import ABC, abstractmethod
 
-from jax import lax
 import jax.numpy as jnp
 
 import numpyro
@@ -163,7 +162,7 @@ class ProjectedNormalReparam(Reparam):
         assert isinstance(fn, dist.ProjectedNormal)
 
         # Draw parameter-free noise.
-        new_fn = dist.Normal(jnp.zeros(fn.concentration.shape), 1)
+        new_fn = dist.Normal(jnp.zeros(fn.concentration.shape), 1).to_event(1)
         x = numpyro.sample("{}_normal".format(name),
                            self._wrap(new_fn, expand_shape, event_dim))
 
