@@ -205,6 +205,14 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
+LeftTruncatedDistribution
+-------------------------
+.. autoclass:: numpyro.distributions.continuous.LeftTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowRankMultivariateNormal
 -------------------------
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
@@ -229,6 +237,14 @@ Pareto
     :show-inheritance:
     :member-order: bysource
 
+RightTruncatedDistribution
+--------------------------
+.. autoclass:: numpyro.distributions.continuous.RightTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 StudentT
 --------
 .. autoclass:: numpyro.distributions.continuous.StudentT
@@ -247,11 +263,7 @@ TruncatedCauchy
 
 TruncatedDistribution
 ---------------------
-.. autoclass:: numpyro.distributions.continuous.TruncatedDistribution
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
+.. autofunction:: numpyro.distributions.continuous.TruncatedDistribution
 
 TruncatedNormal
 ---------------
@@ -264,6 +276,14 @@ TruncatedNormal
 TruncatedPolyaGamma
 -------------------
 .. autoclass:: numpyro.distributions.continuous.TruncatedPolyaGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TwoSidedTruncatedDistribution
+-----------------------------
+.. autoclass:: numpyro.distributions.continuous.TwoSidedTruncatedDistribution
     :members:
     :undoc-members:
     :show-inheritance:

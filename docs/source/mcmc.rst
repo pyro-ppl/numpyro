@@ -16,7 +16,7 @@ MCMC Kernels
     :show-inheritance:
     :member-order: bysource
 
- .. autoclass:: numpyro.infer.barker.BarkerMH
+.. autoclass:: numpyro.infer.barker.BarkerMH
     :members:
     :undoc-members:
     :show-inheritance:

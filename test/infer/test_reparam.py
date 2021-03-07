@@ -32,17 +32,23 @@ def get_moments(x):
     return jnp.stack([m1, m2, m3, m4])
 
 
-@pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
+@pytest.mark.parametrize("batch_shape,base_batch_shape", [
+    ((), ()),
+    ((4,), (4,)),
+    ((2, 3), (2, 3)),
+    ((2, 3), ()),
+], ids=str)
 @pytest.mark.parametrize("event_shape", [(), (5,)], ids=str)
-def test_log_normal(batch_shape, event_shape):
+def test_log_normal(batch_shape, base_batch_shape, event_shape):
     shape = batch_shape + event_shape
-    loc = np.random.rand(*shape) * 2 - 1
-    scale = np.random.rand(*shape) + 0.5
+    base_shape = base_batch_shape + event_shape
+    loc = np.random.rand(*base_shape) * 2 - 1
+    scale = np.random.rand(*base_shape) + 0.5
 
     def model():
         fn = dist.TransformedDistribution(
             dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)),
-            [AffineTransform(loc, scale), ExpTransform()])
+            [AffineTransform(loc, scale), ExpTransform()]).expand(shape)
         if event_shape:
             fn = fn.to_event(len(event_shape)).expand_by([100000])
         with numpyro.plate_stack("plates", batch_shape):
