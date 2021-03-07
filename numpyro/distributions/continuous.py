@@ -35,7 +35,13 @@ from jax.scipy.special import betainc, expit, gammaln, logit, logsumexp, multiga
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
-from numpyro.distributions.transforms import AffineTransform, CorrMatrixCholeskyTransform, ExpTransform, PowerTransform
+from numpyro.distributions.transforms import (
+    AbsTransform,
+    AffineTransform,
+    CorrMatrixCholeskyTransform,
+    ExpTransform,
+    PowerTransform,
+)
 from numpyro.distributions.util import (
     cholesky_of_inverse,
     is_prng_key,
@@ -188,6 +194,12 @@ class Exponential(Distribution):
     def variance(self):
         return jnp.reciprocal(self.rate ** 2)
 
+    def cdf(self, value):
+        return -jnp.expm1(-self.rate * value)
+
+    def icdf(self, q):
+        return -jnp.log1p(-q) / self.rate
+
 
 class Gamma(Distribution):
     arg_constraints = {'concentration': constraints.positive,
@@ -273,23 +285,19 @@ class GaussianRandomWalk(Distribution):
         return cls(*params, num_steps=aux_data)
 
 
-class HalfCauchy(Distribution):
+class HalfCauchy(TransformedDistribution):
     reparametrized_params = ['scale']
     support = constraints.positive
     arg_constraints = {'scale': constraints.positive}
 
     def __init__(self, scale=1., validate_args=None):
-        self._cauchy = Cauchy(0., scale)
+        base_dist = Cauchy(0., scale)
         self.scale = scale
-        super(HalfCauchy, self).__init__(batch_shape=jnp.shape(scale), validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        return jnp.abs(self._cauchy.sample(key, sample_shape))
+        super(HalfCauchy, self).__init__(base_dist, AbsTransform(), validate_args=validate_args)
 
     @validate_sample
     def log_prob(self, value):
-        return self._cauchy.log_prob(value) + jnp.log(2)
+        return self.base_dist.log_prob(value) + jnp.log(2)
 
     @property
     def mean(self):
@@ -299,24 +307,23 @@ class HalfCauchy(Distribution):
     def variance(self):
         return jnp.full(self.batch_shape, jnp.inf)
 
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
 
-class HalfNormal(Distribution):
+
+class HalfNormal(TransformedDistribution):
     reparametrized_params = ['scale']
     support = constraints.positive
     arg_constraints = {'scale': constraints.positive}
 
     def __init__(self, scale=1., validate_args=None):
-        self._normal = Normal(0., scale)
+        base_dist = Normal(0., scale)
         self.scale = scale
-        super(HalfNormal, self).__init__(batch_shape=jnp.shape(scale), validate_args=validate_args)
-
-    def sample(self, key, sample_shape=()):
-        assert is_prng_key(key)
-        return jnp.abs(self._normal.sample(key, sample_shape))
+        super(HalfNormal, self).__init__(base_dist, AbsTransform(), validate_args=validate_args)
 
     @validate_sample
     def log_prob(self, value):
-        return self._normal.log_prob(value) + jnp.log(2)
+        return self.base_dist.log_prob(value) + jnp.log(2)
 
     @property
     def mean(self):
@@ -325,6 +332,9 @@ class HalfNormal(Distribution):
     @property
     def variance(self):
         return (1 - 2 / jnp.pi) * self.scale ** 2
+
+    def tree_flatten(self):
+        return super(TransformedDistribution, self).tree_flatten()
 
 
 class InverseGamma(TransformedDistribution):
@@ -391,6 +401,12 @@ class Gumbel(Distribution):
     def variance(self):
         return jnp.broadcast_to(jnp.pi**2 / 6. * self.scale**2,
                                 self.batch_shape)
+
+    def cdf(self, value):
+        return jnp.exp(-jnp.exp((self.loc - value) / self.scale))
+
+    def icdf(self, q):
+        return self.loc - self.scale * jnp.log(-jnp.log(q))
 
 
 class Laplace(Distribution):
@@ -1067,6 +1083,12 @@ class Pareto(TransformedDistribution):
     def support(self):
         return constraints.greater_than(self.scale)
 
+    def cdf(self, value):
+        return 1 - jnp.power(self.scale / value, self.alpha)
+
+    def icdf(self, q):
+        return self.scale / jnp.power(1 - q, 1 / self.alpha)
+
     def tree_flatten(self):
         return super(TransformedDistribution, self).tree_flatten()
 
@@ -1434,6 +1456,13 @@ class Uniform(Distribution):
     def log_prob(self, value):
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
         return - jnp.broadcast_to(jnp.log(self.high - self.low), shape)
+
+    def cdf(self, value):
+        cdf = (value - self.low) / (self.high - self.low)
+        return jnp.clip(cdf, a_min=0., a_max=1.)
+
+    def icdf(self, value):
+        return self.low + value * (self.high - self.low)
 
     @property
     def mean(self):

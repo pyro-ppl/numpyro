@@ -71,6 +71,7 @@ def _(d):
         # NB: quantile is not implemented in tfd.Gamma
         # so this will raise an NotImplementedError for now.
         # We will need scipy.special.gammaincinv, which is not available yet in JAX
+        # see issue: https://github.com/google/jax/issues/5350
         gammas = uniform_reparam_transform(gamma_dist)(q)
         return gammas / gammas.sum(-1, keepdims=True)
 
@@ -86,11 +87,11 @@ class UniformReparam(Reparam):
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
         event_shape = fn.event_shape
-        fn, batch_shape, event_dim = self._unwrap(fn)
+        fn, expand_shape, event_dim = self._unwrap(fn)
         transform = uniform_reparam_transform(fn)
 
         x = numpyro.sample("{}_base".format(name),
-                           dist.Uniform(0, 1).expand(batch_shape + event_shape).to_event(event_dim).mask(False))
+                           dist.Uniform(0, 1).expand(expand_shape + event_shape).to_event(event_dim).mask(False))
         # Simulate a numpyro.deterministic() site.
         return None, transform(x)
 
@@ -191,8 +192,8 @@ class NestedSampler:
         # use NestedSampler with identity prior chain
         prior_chain = PriorChain()
         for name in param_names:
-            shape_transform = UniformPrior(name + "_base", prototype_trace[name]["fn"].shape())
-            prior_chain.push(shape_transform)
+            prior = UniformPrior(name + "_base", prototype_trace[name]["fn"].shape())
+            prior_chain.push(prior)
         loglik_fn = lambda **params: log_density_(reparam_model, args, kwargs, params)[0]
         ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name,
                                sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
