@@ -23,6 +23,8 @@ EXAMPLES = [
     'capture_recapture.py --num-samples 4 --num-warmup 1 -m 3',
     'capture_recapture.py --num-samples 4 --num-warmup 1 -m 5',
     'covtype.py --algo HMC --num-samples 10 --num-warmup 10',
+    'gaussian_shells.py --num-samples 100',
+    'gaussian_shells.py --num-samples 100 --enum',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
     'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'hmm_enum.py -m 1 -t 3 -d 4 --num-warmup 1 -n 4',

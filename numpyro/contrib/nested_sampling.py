@@ -10,7 +10,7 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.handlers import reparam, seed, trace
 from numpyro.infer.reparam import Reparam
-from numpyro.infer import Predictive, log_likelihood
+from numpyro.infer import Predictive
 from numpyro.infer.util import _guess_max_plate_nesting, _validate_model, log_density
 
 
@@ -190,12 +190,14 @@ class NestedSampler:
         else:
             log_density_ = log_density
 
+        def loglik_fn(**params):
+            return log_density_(reparam_model, args, kwargs, params)[0]
+
         # use NestedSampler with identity prior chain
         prior_chain = PriorChain()
         for name in param_names:
             prior = UniformPrior(name + "_base", prototype_trace[name]["fn"].shape())
             prior_chain.push(prior)
-        loglik_fn = lambda **params: log_density_(reparam_model, args, kwargs, params)[0]
         ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name,
                                sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
                                max_samples=self.max_samples,
@@ -213,7 +215,7 @@ class NestedSampler:
         mask = jnp.stack(valid_masks, -1).all(-1)
         self._log_weights = log_weights[mask]
 
-        # transform base samples back to original domains        
+        # transform base samples back to original domains
         predictive = Predictive(reparam_model, base_samples,
                                 return_sites=param_names + deterministics)
         samples = predictive(rng_predictive, *args, **kwargs)

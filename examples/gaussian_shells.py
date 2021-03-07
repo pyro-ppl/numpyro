@@ -14,7 +14,8 @@ NUTS sampler.
 **References:**
 
     1. jaxns library: https://github.com/Joshuaalbert/jaxns
-    2. dynesty's Gaussian Shells demo: https://github.com/joshspeagle/dynesty/blob/master/demos/Examples%20--%20Gaussian%20Shells.ipynb
+    2. dynesty's Gaussian Shells demo:
+       https://github.com/joshspeagle/dynesty/blob/master/demos/Examples%20--%20Gaussian%20Shells.ipynb
 """
 
 import argparse
