@@ -116,28 +116,28 @@ def main(args):
     ax1.set_title('Autoguide training loss\n(after 1000 steps)')
 
     ax2.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(guide_samples[:, 0], guide_samples[:, 1], n_levels=30, ax=ax2)
+    sns.kdeplot(x=guide_samples[:, 0], y=guide_samples[:, 1], n_levels=30, ax=ax2)
     ax2.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using\nAutoBNAFNormal guide')
 
-    sns.scatterplot(guide_base_samples[:, 0], guide_base_samples[:, 1], ax=ax3,
+    sns.scatterplot(x=guide_base_samples[:, 0], y=guide_base_samples[:, 1], ax=ax3,
                     hue=guide_trans_samples[:, 0] < 0.)
     ax3.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='AutoBNAFNormal base samples\n(True=left moon; False=right moon)')
 
     ax4.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(vanilla_samples[:, 0], vanilla_samples[:, 1], n_levels=30, ax=ax4)
+    sns.kdeplot(x=vanilla_samples[:, 0], y=vanilla_samples[:, 1], n_levels=30, ax=ax4)
     ax4.plot(vanilla_samples[-50:, 0], vanilla_samples[-50:, 1], 'bo-', alpha=0.5)
     ax4.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using\nvanilla HMC sampler')
 
-    sns.scatterplot(zs[:, 0], zs[:, 1], ax=ax5, hue=samples[:, 0] < 0.,
+    sns.scatterplot(x=zs[:, 0], y=zs[:, 1], ax=ax5, hue=samples[:, 0] < 0.,
                     s=30, alpha=0.5, edgecolor="none")
     ax5.set(xlim=[-5, 5], ylim=[-5, 5],
             xlabel='x0', ylabel='x1', title='Samples from the\nwarped posterior - p(z)')
 
     ax6.contourf(X1, X2, P, cmap='OrRd')
-    sns.kdeplot(samples[:, 0], samples[:, 1], n_levels=30, ax=ax6)
+    sns.kdeplot(x=samples[:, 0], y=samples[:, 1], n_levels=30, ax=ax6)
     ax6.plot(samples[-50:, 0], samples[-50:, 1], 'bo-', alpha=0.2)
     ax6.set(xlim=[-3, 3], ylim=[-3, 3],
             xlabel='x0', ylabel='x1', title='Posterior using\nNeuTra HMC sampler')
