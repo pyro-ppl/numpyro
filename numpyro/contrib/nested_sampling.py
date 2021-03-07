@@ -172,7 +172,8 @@ class NestedSampler:
         # reparam the model so that latent sites have Uniform(0, 1) priors
         prototype_trace = trace(seed(self.model, rng_key)).get_trace(*args, **kwargs)
         param_names = [site["name"] for site in prototype_trace.values()
-                       if site["type"] == "sample" and not site["is_observed"]]
+                       if site["type"] == "sample" and not site["is_observed"]
+                       and site["infer"].get("enumerate", "") != "parallel"]
         deterministics = [site["name"] for site in prototype_trace.values()
                           if site["type"] == "deterministic"]
         reparam_model = reparam(self.model, config={k: UniformReparam() for k in param_names})
