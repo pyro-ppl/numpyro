@@ -287,15 +287,15 @@ class AutoDelta(AutoGuide):
     """
     def __init__(self, model, *, prefix='auto', init_loc_fn=init_to_median,
                  create_plates=None):
-        self.init_loc_fn = init_loc_fn
         self._event_dims = {}
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates)
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        self._init_locs = {
-            k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs
-        }
+        with numpyro.handlers.block():
+            self._init_locs = {
+                k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs
+            }
         for name, site in self.prototype_trace.items():
             if site["type"] != "sample" or site["is_observed"]:
                 continue

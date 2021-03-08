@@ -92,7 +92,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     def model(data, labels):
         coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
-        logits = jnp.sum(coefs * data, axis=-1)
+        logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
