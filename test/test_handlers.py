@@ -15,7 +15,7 @@ from numpyro.distributions import constraints
 from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.util import log_density
 import numpyro.optim as optim
-from numpyro.util import optional
+from numpyro.util import not_jax_tracer, optional
 
 
 @pytest.mark.parametrize('mask_last', [1, 5, 10])
@@ -45,6 +45,80 @@ def test_mask(mask_last, use_jit):
     log_prob_z = dist.Normal(x, 1).log_prob(data)
     expected = (log_prob_x + jnp.where(mask,  log_prob_y + 2 * log_prob_z, 0.)).sum()
     assert_allclose(log_joint, expected, atol=1e-4)
+
+
+@pytest.mark.parametrize("num_particles", [1, 2])
+@pytest.mark.parametrize("mask", [
+    True,
+    False,
+    np.array([True]),
+    np.array([False]),
+    np.array([False, True, False]),
+])
+@pytest.mark.parametrize("Elbo", [
+    Trace_ELBO,
+])
+def test_obs_mask_ok(Elbo, mask, num_particles):
+    data = np.array([7., 7., 7.])
+
+    def model():
+        x = numpyro.sample("x", dist.Normal(0., 1.))
+        with numpyro.plate("plate", len(data)):
+            y = numpyro.sample("y", dist.Normal(x, 1.),
+                               obs=data, obs_mask=mask)
+            if not_jax_tracer(y):
+                assert ((y == data) == mask).all()
+
+    def guide():
+        loc = numpyro.param("loc", np.zeros(()))
+        scale = numpyro.param("scale", np.ones(()),
+                              constraint=constraints.positive)
+        x = numpyro.sample("x", dist.Normal(loc, scale))
+        with numpyro.plate("plate", len(data)):
+            with handlers.mask(mask=np.invert(mask)):
+                numpyro.sample("y_unobserved", dist.Normal(x, 1.))
+
+    elbo = Elbo(num_particles=num_particles)
+    svi = SVI(model, guide, numpyro.optim.Adam(1), elbo)
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)
+
+
+@pytest.mark.parametrize("num_particles", [1, 2])
+@pytest.mark.parametrize("mask", [
+    True,
+    False,
+    np.array([True]),
+    np.array([False]),
+    np.array([False, True, True, False]),
+])
+@pytest.mark.parametrize("Elbo", [
+    Trace_ELBO,
+])
+def test_obs_mask_multivariate_ok(Elbo, mask, num_particles):
+    data = np.full((4, 3), 7.0)
+
+    def model():
+        x = numpyro.sample("x", dist.MultivariateNormal(np.zeros(3), np.eye(3)))
+        with numpyro.plate("plate", len(data)):
+            y = numpyro.sample("y", dist.MultivariateNormal(x, np.eye(3)),
+                               obs=data, obs_mask=mask)
+            if not_jax_tracer(y):
+                assert ((y == data).all(-1) == mask).all()
+
+    def guide():
+        loc = numpyro.param("loc", np.zeros(3))
+        cov = numpyro.param("cov", np.eye(3),
+                            constraint=constraints.positive_definite)
+        x = numpyro.sample("x", dist.MultivariateNormal(loc, cov))
+        with numpyro.plate("plate", len(data)):
+            with handlers.mask(mask=np.invert(mask)):
+                numpyro.sample("y_unobserved", dist.MultivariateNormal(x, np.eye(3)))
+
+    elbo = Elbo(num_particles=num_particles)
+    svi = SVI(model, guide, numpyro.optim.Adam(1), elbo)
+    svi_state = svi.init(random.PRNGKey(0))
+    svi.update(svi_state)
 
 
 def test_mask_inf():
