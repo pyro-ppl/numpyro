@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import inspect
+from numpyro.distributions.transforms import AffineTransform
 import os
 
 from numpy.testing import assert_allclose
@@ -146,7 +147,8 @@ def test_mcmc_kernels(kernel, kwargs):
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
         with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
-            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+            loc = numpyro.sample(
+                'loc', dist.TransformedDistribution(dist.Uniform(0, 1), AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
