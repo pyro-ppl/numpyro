@@ -65,7 +65,7 @@ def test_beta_bernoulli(elbo):
         svi_state, _ = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 1000, body_fn, svi_state)
+    svi_state = fori_loop(0, 2000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
