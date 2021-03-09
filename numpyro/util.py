@@ -8,7 +8,7 @@ import random
 import re
 
 import numpy as np
-from tqdm.auto import tqdm
+import tqdm
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
@@ -181,7 +181,7 @@ def progress_bar_factory(num_samples):
 
     def _define_tqdm(arg, transform, device):
         chain = int(str(device)[4:])
-        tqdm_bars[chain] = tqdm(range(num_samples))
+        tqdm_bars[chain] = tqdm.tqdm(range(num_samples))
         message = f"Running chain {chain}"
         tqdm_bars[chain].set_description(message, refresh=False,)
 
@@ -282,6 +282,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     assert collection_size >= (upper - lower) // thinning
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
+    num_chains = progbar_opts.pop('num_chains', 1)
 
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
@@ -297,6 +298,8 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
+        last_val, collection, _, _ = fori_loop(0, upper, _body_fn, (init_val, collection, start_idx, thinning))
+    elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper)
         _body_fn_pbar = progress_bar_fori_loop(_body_fn)
         last_val, collection, _, _ = fori_loop(0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning))
