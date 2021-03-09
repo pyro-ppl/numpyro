@@ -9,6 +9,7 @@ import re
 
 import numpy as np
 import tqdm
+from tqdm.auto import tqdm as tqdm_auto
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
@@ -181,7 +182,7 @@ def progress_bar_factory(num_samples):
 
     def _define_tqdm(arg, transform, device):
         chain = int(str(device)[4:])
-        tqdm_bars[chain] = tqdm.tqdm(range(num_samples))
+        tqdm_bars[chain] = tqdm_auto(range(num_samples))
         message = f"Running chain {chain}"
         tqdm_bars[chain].set_description(message, refresh=False,)
 
