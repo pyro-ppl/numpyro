@@ -76,7 +76,7 @@ def _(d):
     gamma_dist = dist.Gamma(d.concentration)
 
     def transform_fn(q):
-        # NB: quantile is not implemented in tfd.Gamma
+        # NB: icdf is not available yet for Gamma distribution
         # so this will raise an NotImplementedError for now.
         # We will need scipy.special.gammaincinv, which is not available yet in JAX
         # see issue: https://github.com/google/jax/issues/5350
@@ -94,12 +94,12 @@ class UniformReparam(Reparam):
     """
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
-        event_shape = fn.event_shape
+        shape = fn.shape()
         fn, expand_shape, event_dim = self._unwrap(fn)
         transform = uniform_reparam_transform(fn)
 
         x = numpyro.sample("{}_base".format(name),
-                           dist.Uniform(0, 1).expand(expand_shape + event_shape).to_event(event_dim).mask(False))
+                           dist.Uniform(0, 1).expand(shape).to_event(event_dim).mask(False))
         # Simulate a numpyro.deterministic() site.
         return None, transform(x)
 
@@ -110,6 +110,9 @@ class NestedSampler:
 
     See reference [1] for details on the meaning of each parameter.
     Please consider citing this reference if you use the nested sampler in your research.
+
+    .. note:: To enumerate over a discrete latent variable, you can add the keyword
+        `infer={"enumerate": "parallel"}` to the corresponding `sample` statement.
 
     **References**
 
@@ -152,7 +155,7 @@ class NestedSampler:
         >>> samples = ns.get_samples(random.PRNGKey(3), num_samples=1000)
         >>> assert jnp.mean(jnp.abs(samples['intercept'])) < 0.05
         >>> print(jnp.mean(samples['coefs'], axis=0))  # doctest: +SKIP
-        [0.94097772, 1.93709811, 2.85200139]
+        [0.93661342 1.95034876 2.86123884]
     """
     def __init__(self, model, *, num_live_points=1000, max_samples=100000,
                  sampler_name="slice", depth=3, num_slices=5, termination_frac=0.01):
@@ -205,34 +208,20 @@ class NestedSampler:
         for name in param_names:
             prior = UniformPrior(name + "_base", prototype_trace[name]["fn"].shape())
             prior_chain.push(prior)
+        # XXX: the `marginalised` keyword in jaxns can be used to get expectation of some
+        # quantity over posterior samples; it can be helpful to expose it in this wrapper
         ns = OrigNestedSampler(loglik_fn, prior_chain, sampler_name=self.sampler_name,
                                sampler_kwargs={"depth": self.depth, "num_slices": self.num_slices},
                                max_samples=self.max_samples,
                                num_live_points=self.num_live_points,
                                collect_samples=True)
         results = ns(rng_sampling, termination_frac=self.termination_frac)
-
-        num_samples = int(device_get(results.num_samples))
-        log_weights = results.log_p[:num_samples]
-        base_samples = {k: v[:num_samples] for k, v in results.samples.items()}
-        # filter out samples with -inf weights and invalid values
-        valid_masks = [jnp.isfinite(log_weights)] + \
-            [((v > 0) & (v < 1)).reshape((num_samples, -1)).all(-1)
-             for v in base_samples.values()]
-        mask = jnp.stack(valid_masks, -1).all(-1)
-        self._log_weights = log_weights[mask]
-
         # transform base samples back to original domains
-        predictive = Predictive(reparam_model, base_samples,
-                                return_sites=param_names + deterministics)
+        # TODO: optimize this logic to only transform the first num_samples samples
+        predictive = Predictive(reparam_model, results.samples, return_sites=param_names + deterministics)
         samples = predictive(rng_predictive, *args, **kwargs)
-        self._samples = {k: v[mask] for k, v in samples.items()}
-
         # replace base samples in jaxns results by transformed samples
         self._results = results._replace(samples=samples)
-
-        print("Number of weighted samples:", mask.sum())
-        print("Effective sample size:", round(float(device_get(results.ESS)), 1))
 
     def get_samples(self, rng_key, num_samples):
         """
@@ -242,13 +231,32 @@ class NestedSampler:
         :param int num_samples: The number of samples.
         :return: a dict of posterior samples
         """
-        p = nn.softmax(self._log_weights)
-        idx = random.choice(rng_key, self._log_weights.shape[0], (num_samples,), p=p)
-        return tree_multimap(lambda x: x[idx], self._samples)
+        if self._results is None:
+            raise RuntimeError("NestedSampler.run(...) method should be called first to obtain results.")
+
+        samples, log_weights = self.get_weighted_samples()
+        p = nn.softmax(log_weights)
+        idx = random.choice(rng_key, log_weights.shape[0], (num_samples,), p=p)
+        return {k: v[idx] for k, v in samples.items()}
+
+    def get_weighted_samples(self):
+        """
+        Gets weighted samples and their corresponding log weights.
+        """
+        if self._results is None:
+            raise RuntimeError("NestedSampler.run(...) method should be called first to obtain results.")
+
+        num_samples = self._results.num_samples
+        return {k: v[:num_samples] for k, v in self._results.samples.items()}, self._results.log_p[:num_samples]
 
     def diagnostics(self):
         """
         Plot diagnostics of the run.
         """
+        if self._results is None:
+            raise RuntimeError("NestedSampler.run(...) method should be called first to obtain results.")
+
+        print("Number of weighted samples:", self._results.num_samples)
+        print("Effective sample size:", round(self._results.ESS, 1))
         plot_diagnostics(self._results)
         plot_cornerplot(self._results)

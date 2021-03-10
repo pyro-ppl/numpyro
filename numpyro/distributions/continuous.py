@@ -294,19 +294,29 @@ class GaussianRandomWalk(Distribution):
         return cls(*params, num_steps=aux_data)
 
 
-class HalfCauchy(TransformedDistribution):
+class HalfCauchy(Distribution):
     reparametrized_params = ['scale']
     support = constraints.positive
     arg_constraints = {'scale': constraints.positive}
 
     def __init__(self, scale=1., validate_args=None):
-        base_dist = Cauchy(0., scale)
+        self._cauchy = Cauchy(0., scale)
         self.scale = scale
-        super(HalfCauchy, self).__init__(base_dist, AbsTransform(), validate_args=validate_args)
+        super(HalfCauchy, self).__init__(batch_shape=jnp.shape(scale), validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        return jnp.abs(self._cauchy.sample(key, sample_shape))
 
     @validate_sample
     def log_prob(self, value):
-        return self.base_dist.log_prob(value) + jnp.log(2)
+        return self._cauchy.log_prob(value) + jnp.log(2)
+
+    def cdf(self, value):
+        return self._cauchy.cdf(value) * 2 - 1
+
+    def icdf(self, q):
+        return self._cauchy.icdf((q + 1) / 2)
 
     @property
     def mean(self):
@@ -316,23 +326,30 @@ class HalfCauchy(TransformedDistribution):
     def variance(self):
         return jnp.full(self.batch_shape, jnp.inf)
 
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
 
-
-class HalfNormal(TransformedDistribution):
+class HalfNormal(Distribution):
     reparametrized_params = ['scale']
     support = constraints.positive
     arg_constraints = {'scale': constraints.positive}
 
     def __init__(self, scale=1., validate_args=None):
-        base_dist = Normal(0., scale)
+        self._normal = Normal(0., scale)
         self.scale = scale
-        super(HalfNormal, self).__init__(base_dist, AbsTransform(), validate_args=validate_args)
+        super(HalfNormal, self).__init__(batch_shape=jnp.shape(scale), validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        return jnp.abs(self._normal.sample(key, sample_shape))
 
     @validate_sample
     def log_prob(self, value):
-        return self.base_dist.log_prob(value) + jnp.log(2)
+        return self._normal.log_prob(value) + jnp.log(2)
+
+    def cdf(self, value):
+        return self._normal.cdf(value) * 2 - 1
+
+    def icdf(self, q):
+        return self._normal.icdf((q + 1) / 2)
 
     @property
     def mean(self):
@@ -341,9 +358,6 @@ class HalfNormal(TransformedDistribution):
     @property
     def variance(self):
         return (1 - 2 / jnp.pi) * self.scale ** 2
-
-    def tree_flatten(self):
-        return super(TransformedDistribution, self).tree_flatten()
 
 
 class InverseGamma(TransformedDistribution):

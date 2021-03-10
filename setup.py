@@ -52,7 +52,7 @@ setup(
             'funsor',
             'ipython',
             'isort',
-            'jaxns',
+            'jaxns==0.0.5',
             'tensorflow_probability',
         ],
         'examples': ['matplotlib', 'seaborn', 'graphviz', 'arviz'],
