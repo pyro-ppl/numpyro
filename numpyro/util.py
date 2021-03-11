@@ -314,60 +314,61 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
 
 
-def get_model_relations(model, *args, **kwargs):
+def get_model_relations(model, *args, num_tries=10, **kwargs):
     """
     Infer relations of RVs and plates from given model and optionally data.
     See issue #949 on pyro-ppl/numpyro for more details.
+
+    :param int num_tries: times to trace model to detect discrete -> continuous dependency.
     """
     # TODO: put import in more sensible location
     from numpyro import handlers
 
     trace = handlers.trace(handlers.seed(model, 0)).get_trace(*args, **kwargs)
-    obs_sites = [
-        name
-        for name, site in trace.items()
-        if site['type'] == 'sample' and site['is_observed']
-    ]
+    obs_sites = [name for name, site in trace.items()
+                 if site['type'] == 'sample' and site['is_observed']]
     plate_deps = {}
     for name, site in trace.items():
         if site['type'] == 'sample':
-            plate_deps[name] = [
-                (frame.name, frame.dim) for frame in site['cond_indep_stack']
-            ]
+            plate_deps[name] = [(frame.name, frame.dim) for frame in site['cond_indep_stack']]
     plate_sites = [name for name, site in trace.items() if site['type'] == 'plate']
-    plate_samples = {
-        k: [name for name in plate_deps if k in [p[0] for p in plate_deps[name]]]
-        for k in plate_sites
-    }
+    plate_samples = {k: [name for name in plate_deps
+                     if k in [p[0] for p in plate_deps[name]]] for k in plate_sites}
 
-    def log_probs(sample):
-        with handlers.trace() as tr, handlers.seed(model, 0), handlers.substitute(
-            data=sample
-        ):
+    def get_log_probs(sample, seed=0):
+        with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(data=sample):
             model(*args, **kwargs)
-        return {
-            name: site['fn'].log_prob(site['value'])
-            for name, site in tr.items()
-            if site['type'] == 'sample'
-        }
+        return {name: site['fn'].log_prob(site['value'])
+                for name, site in tr.items() if site['type'] == 'sample'}
 
-    samples = {
-        name: site['value']
-        for name, site in trace.items()
-        if site['type'] == 'sample'
-        and not site['is_observed']
-        and not site['fn'].is_discrete
-    }
-    log_prob_grads = jax.jacobian(log_probs, allow_int=True)(samples)
+    samples = {name: site['value'] for name, site in trace.items()
+               if site['type'] == 'sample' and not site['is_observed']
+               and not site['fn'].is_discrete}
+    log_prob_grads = jax.jacobian(get_log_probs)(samples)
     sample_deps = {}
     for name, grads in log_prob_grads.items():
-        sample_deps[name] = [n for n in grads if n != name and (grads[n] != 0).any()]
-    return {
-        'sample_sample': sample_deps,
-        'sample_plate': plate_deps,
-        'plate_sample': plate_samples,
-        'observed': obs_sites,
-    }
+        sample_deps[name] = {n for n in grads if n != name and (grads[n] != 0).any()}
+
+    # find discrete -> continuous dependency
+    samples = {name: site['value'] for name, site in trace.items() if site['type'] == 'sample'}
+    discrete_sites = [name for name, site in trace.items() if site['type'] == 'sample'
+                      and not site['is_observed'] and site['fn'].is_discrete]
+    log_probs_prototype = get_log_probs(samples)
+    for name in discrete_sites:
+        samples_ = samples.copy()
+        samples_.pop(name)
+        for i in range(num_tries):
+            log_probs = get_log_probs(samples_, seed=i + 1)
+            for var in samples:
+                if var == name:
+                    continue
+                if (log_probs[var] != log_probs_prototype[var]).any():
+                    sample_deps[var] |= {name}
+    sample_sample = {}
+    for name in samples:
+        sample_sample[name] = [var for var in samples if var in sample_deps[name]]
+    return {'sample_sample': sample_sample, 'sample_plate': plate_deps,
+            'plate_sample': plate_samples, 'observed': obs_sites}
 
 
 def generate_graph_specification(model_relations):
@@ -471,6 +472,9 @@ def render_graph(graph_specification):
 def render_model(model, *args, filename=None, **kwargs):
     """
     Wrap all functions needed to automatically render a model.
+
+    :param model: Model to render.
+    :param str filename: File to save rendered model in.
     """
     relations = get_model_relations(model, *args, **kwargs)
     graph_spec = generate_graph_specification(relations)
