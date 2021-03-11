@@ -72,9 +72,7 @@ def test_dense_mass(rho):
     ns = NestedSampler(model, num_live_points=10, max_samples=1000)
     ns.run(random.PRNGKey(0))
 
-    print("abc")
     samples = ns.get_samples(random.PRNGKey(1), 1000)['x']
-    print("cde")
     assert_allclose(jnp.mean(samples[:, 0]), jnp.array(0.0), atol=0.50)
     assert_allclose(jnp.mean(samples[:, 1]), jnp.array(0.0), atol=0.05)
     assert_allclose(jnp.mean(samples[:, 0] * samples[:, 1]), jnp.array(rho), atol=0.20)
