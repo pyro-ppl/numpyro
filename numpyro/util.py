@@ -3,12 +3,14 @@
 
 from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
+import itertools
 import os
 import random
 import re
 
 import numpy as np
 import tqdm
+import graphviz
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
@@ -309,3 +311,152 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
     ys = tree_map(lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys)
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+
+
+def get_model_relations(model, *args, **kwargs):
+    # TODO: put import in more sensible location
+    from numpyro import handlers
+
+    trace = handlers.trace(handlers.seed(model, 0)).get_trace(*args, **kwargs)
+    obs_sites = [
+        name
+        for name, site in trace.items()
+        if site['type'] == 'sample' and site['is_observed']
+    ]
+    plate_deps = {}
+    for name, site in trace.items():
+        if site['type'] == 'sample':
+            plate_deps[name] = [
+                (frame.name, frame.dim) for frame in site['cond_indep_stack']
+            ]
+    plate_sites = [name for name, site in trace.items() if site['type'] == 'plate']
+    plate_samples = {
+        k: [name for name in plate_deps if k in [p[0] for p in plate_deps[name]]]
+        for k in plate_sites
+    }
+
+    def log_probs(sample):
+        with handlers.trace() as tr, handlers.seed(model, 0), handlers.substitute(
+            data=sample
+        ):
+            model(*args, **kwargs)
+        return {
+            name: site['fn'].log_prob(site['value'])
+            for name, site in tr.items()
+            if site['type'] == 'sample'
+        }
+
+    samples = {
+        name: site['value']
+        for name, site in trace.items()
+        if site['type'] == 'sample'
+        and not site['is_observed']
+        and not site['fn'].is_discrete
+    }
+    log_prob_grads = jax.jacobian(log_probs, allow_int=True)(samples)
+    sample_deps = {}
+    for name, grads in log_prob_grads.items():
+        sample_deps[name] = [n for n in grads if n != name and (grads[n] != 0).any()]
+    return {
+        'sample_sample': sample_deps,
+        'sample_plate': plate_deps,
+        'plate_sample': plate_samples,
+        'observed': obs_sites,
+    }
+
+
+def generate_graph_specification(model_relations):
+    # group nodes by plate
+    plate_groups = dict(model_relations['plate_sample'])
+    plate_rvs = {rv for rvs in plate_groups.values() for rv in rvs}
+    plate_groups[None] = [
+        rv for rv in model_relations['sample_sample'] if rv not in plate_rvs
+    ]  # RVs which are in no plate
+
+    # retain node metadata
+    node_data = {}
+    for rv in model_relations['sample_sample']:
+        node_data[rv] = {
+            'is_observed': rv in model_relations['observed'],
+        }
+
+    # infer plate structure
+    # TODO: subset relation might not always hold, raise exception if not
+    plate_data = {}
+    for plate1, plate2 in list(itertools.permutations(plate_groups, 2)):
+        if plate1 is None or plate2 is None:
+            continue
+
+        if set(plate_groups[plate1]) < set(plate_groups[plate2]):
+            plate_data[plate1] = {'parent': plate2}
+
+    for plate in plate_groups:
+        if plate is None:
+            continue
+
+        if plate not in plate_data:
+            plate_data[plate] = {'parent': None}
+
+    # infer RV edges
+    edge_list = []
+    for target, source_list in model_relations['sample_sample'].items():
+        edge_list.extend([(source, target) for source in source_list])
+
+    return {
+        'plate_groups': plate_groups,
+        'plate_data': plate_data,
+        'node_data': node_data,
+        'edge_list': edge_list,
+    }
+
+
+def render_graph(graph_specification):
+    # TODO: plate_graph_dict and plate_data assume that "deepest" plates come first. This will break!
+
+    plate_groups = graph_specification['plate_groups']
+    plate_data = graph_specification['plate_data']
+    node_data = graph_specification['node_data']
+    edge_list = graph_specification['edge_list']
+
+    graph = graphviz.Digraph()
+
+    # add plates
+    # TODO: order may not always be as expected (parents before children)
+    plate_graph_dict = {
+        plate: graphviz.Digraph(name=f'cluster_{plate}')
+        for plate in plate_groups
+        if plate is not None
+    }
+    for plate, plate_graph in plate_graph_dict.items():
+        plate_graph.attr(label=plate, labeljust='r', labelloc='b')
+
+    # add nodes
+    for plate, rv_list in plate_groups.items():
+        cur_graph = graph if plate is None else plate_graph_dict[plate]
+
+        for rv in rv_list:
+            color = 'grey' if node_data[rv]['is_observed'] else 'white'
+            cur_graph.node(
+                rv, label=rv, shape='circle', style='filled', fillcolor=color
+            )
+
+    for plate, data in plate_data.items():
+        parent_plate = data['parent']
+
+        if parent_plate is None:
+            graph.subgraph(plate_graph_dict[plate])
+        else:
+            plate_graph_dict[parent_plate].subgraph(plate_graph_dict[plate])
+
+    # add edges
+    for source, target in edge_list:
+        graph.edge(source, target)
+
+    # return whole graph
+    return graph
+
+
+def render_model(model, *args, **kwargs):
+    relations = get_model_relations(model, *args, **kwargs)
+    graph_spec = generate_graph_specification(relations)
+    return render_graph(graph_spec)
