@@ -11,7 +11,7 @@ except ImportError as e:
     raise ImportError("To use this module, please install `jaxns` package. It can be"
                       " installed with `pip install jaxns`") from e
 
-from jax import device_get, nn, random, tree_multimap
+from jax import nn, random
 import jax.numpy as jnp
 
 import numpyro

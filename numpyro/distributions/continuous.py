@@ -36,7 +36,6 @@ from jax.scipy.special import betainc, expit, gammaln, logit, logsumexp, multiga
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import (
-    AbsTransform,
     AffineTransform,
     CorrMatrixCholeskyTransform,
     ExpTransform,
