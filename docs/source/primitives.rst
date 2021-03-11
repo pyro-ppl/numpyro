@@ -35,6 +35,10 @@ factor
 ------
 .. autofunction:: numpyro.primitives.factor
 
+get_mask
+--------
+.. autofunction:: numpyro.primitives.get_mask
+
 module
 ------
 .. autofunction:: numpyro.primitives.module

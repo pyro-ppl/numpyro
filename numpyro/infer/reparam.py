@@ -230,6 +230,7 @@ class NeuTraReparam(Reparam):
         assert obs is None, "NeuTraReparam does not support observe statements"
 
         log_density = 0.
+        compute_density = (numpyro.get_mask() is not False)
         if not self._x_unconstrained:  # On first sample site.
             # Sample a shared latent.
             z_unconstrained = numpyro.sample("{}_shared_latent".format(self.guide.prefix),
@@ -237,17 +238,18 @@ class NeuTraReparam(Reparam):
 
             # Differentiably transform.
             x_unconstrained = self.transform(z_unconstrained)
-            # TODO: find a way to only compute those log_prob terms when needed
-            log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
+            if compute_density:
+                log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
             self._x_unconstrained = self.guide._unpack_latent(x_unconstrained)
 
         # Extract a single site's value from the shared latent.
         unconstrained_value = self._x_unconstrained.pop(name)
         transform = biject_to(fn.support)
         value = transform(unconstrained_value)
-        logdet = transform.log_abs_det_jacobian(unconstrained_value, value)
-        logdet = sum_rightmost(logdet, jnp.ndim(logdet) - jnp.ndim(value) + len(fn.event_shape))
-        log_density = log_density + fn.log_prob(value) + logdet
+        if compute_density:
+            logdet = transform.log_abs_det_jacobian(unconstrained_value, value)
+            logdet = sum_rightmost(logdet, jnp.ndim(logdet) - jnp.ndim(value) + len(fn.event_shape))
+            log_density = log_density + fn.log_prob(value) + logdet
         numpyro.factor("_{}_log_prob".format(name), log_density)
         return None, value
 

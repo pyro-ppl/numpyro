@@ -416,10 +416,13 @@ class AutoContinuous(AutoGuide):
             site = self.prototype_trace[name]
             transform = biject_to(site['fn'].support)
             value = transform(unconstrained_value)
-            log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-            event_ndim = site['fn'].event_dim
-            log_density = sum_rightmost(log_density,
-                                        jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
+            if numpyro.get_mask() is False:
+                log_density = 0.
+            else:
+                log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
+                event_ndim = site['fn'].event_dim
+                log_density = sum_rightmost(log_density,
+                                            jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
