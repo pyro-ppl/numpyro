@@ -314,6 +314,10 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
 
 
 def get_model_relations(model, *args, **kwargs):
+    """
+    Infer relations of RVs and plates from given model and optionally data.
+    See issue #949 on pyro-ppl/numpyro for more details.
+    """
     # TODO: put import in more sensible location
     from numpyro import handlers
 
@@ -366,6 +370,10 @@ def get_model_relations(model, *args, **kwargs):
 
 
 def generate_graph_specification(model_relations):
+    """
+    Convert model relations into data structure which can be readily
+    converted into a network.
+    """
     # group nodes by plate
     plate_groups = dict(model_relations['plate_sample'])
     plate_rvs = {rv for rvs in plate_groups.values() for rv in rvs}
@@ -411,6 +419,9 @@ def generate_graph_specification(model_relations):
 
 
 def render_graph(graph_specification):
+    """
+    Create a graphviz object given a graph specification.
+    """
     # TODO: plate_graph_dict and plate_data assume that "deepest" plates come first. This will break!
 
     plate_groups = graph_specification['plate_groups']
@@ -457,6 +468,9 @@ def render_graph(graph_specification):
 
 
 def render_model(model, *args, **kwargs):
+    """
+    Wrap all functions needed to automatically render a model.
+    """
     relations = get_model_relations(model, *args, **kwargs)
     graph_spec = generate_graph_specification(relations)
     return render_graph(graph_spec)
