@@ -5,6 +5,7 @@ from collections import OrderedDict, namedtuple
 from contextlib import contextmanager
 import itertools
 import os
+from pathlib import Path
 import random
 import re
 
@@ -467,10 +468,21 @@ def render_graph(graph_specification):
     return graph
 
 
-def render_model(model, *args, **kwargs):
+def render_model(model, *args, filename=None, **kwargs):
     """
     Wrap all functions needed to automatically render a model.
     """
     relations = get_model_relations(model, *args, **kwargs)
     graph_spec = generate_graph_specification(relations)
-    return render_graph(graph_spec)
+    graph = render_graph(graph_spec)
+
+    if filename is not None:
+        filename = Path(filename)
+        graph.render(
+            filename.stem,
+            view=False,
+            cleanup=True,
+            format=filename.suffix[1:],  # remove leading period from suffix
+        )
+
+    return graph
