@@ -11,7 +11,6 @@ import re
 
 import numpy as np
 import tqdm
-import graphviz
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
@@ -425,6 +424,15 @@ def render_graph(graph_specification):
     Create a graphviz object given a graph specification.
     """
     # TODO: plate_graph_dict and plate_data assume that "deepest" plates come first. This will break!
+
+    try:
+        import graphviz  # noqa: F401
+    except ImportError as e:
+        raise ImportError(
+            'Looks like you want to use graphviz to render your model. '
+            'You need to install `graphviz` to be able to use this feature. '
+            'It can be installed with `pip install graphviz`.'
+        ) from e
 
     plate_groups = graph_specification['plate_groups']
     plate_data = graph_specification['plate_data']
