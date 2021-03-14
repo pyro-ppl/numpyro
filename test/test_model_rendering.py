@@ -70,7 +70,7 @@ def discrete_to_continuous(probs, locs):
     ),
 ])
 def test_model_transformation(test_model, model_kwargs, expected_graph_spec):
-    relations = get_model_relations(test_model, **model_kwargs)
+    relations = get_model_relations(test_model, model_kwargs=model_kwargs)
     graph_spec = generate_graph_specification(relations)
 
     assert graph_spec == expected_graph_spec

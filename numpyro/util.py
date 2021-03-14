@@ -313,7 +313,7 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
 
 
-def get_model_relations(model, *args, num_tries=10, **kwargs):
+def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10):
     """
     Infer relations of RVs and plates from given model and optionally data.
     See issue #949 on pyro-ppl/numpyro for more details.
@@ -323,7 +323,10 @@ def get_model_relations(model, *args, num_tries=10, **kwargs):
     # TODO: put import in more sensible location
     from numpyro import handlers
 
-    trace = handlers.trace(handlers.seed(model, 0)).get_trace(*args, **kwargs)
+    model_args = model_args or ()
+    model_kwargs = model_kwargs or {}
+
+    trace = handlers.trace(handlers.seed(model, 0)).get_trace(*model_args, **model_kwargs)
     obs_sites = [name for name, site in trace.items()
                  if site['type'] == 'sample' and site['is_observed']]
 
@@ -349,7 +352,7 @@ def get_model_relations(model, *args, num_tries=10, **kwargs):
 
     def get_log_probs(sample, seed=0):
         with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(data=sample):
-            model(*args, **kwargs)
+            model(*model_args, **model_kwargs)
         return {name: site['fn'].log_prob(site['value'])
                 for name, site in tr.items() if site['type'] == 'sample'}
 
@@ -493,14 +496,25 @@ def render_graph(graph_specification):
     return graph
 
 
-def render_model(model, *args, filename=None, **kwargs):
+def render_model(
+    model,
+    model_args=None,
+    model_kwargs=None,
+    filename=None,
+    num_tries=10,
+):
     """
     Wrap all functions needed to automatically render a model.
 
     :param model: Model to render.
     :param str filename: File to save rendered model in.
     """
-    relations = get_model_relations(model, *args, **kwargs)
+    relations = get_model_relations(
+        model,
+        model_args=model_args,
+        model_kwargs=model_kwargs,
+        num_tries=num_tries,
+    )
     graph_spec = generate_graph_specification(relations)
     graph = render_graph(graph_spec)
 
