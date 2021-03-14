@@ -118,7 +118,7 @@ def test_reparam_log_joint(model, kwargs):
     latent_y = neutra.transform(latent_x)
     log_det_jacobian = neutra.transform.log_abs_det_jacobian(latent_x, latent_y)
     pe = pe_fn(guide._unpack_latent(latent_y))
-    assert_allclose(pe_transformed, pe - log_det_jacobian)
+    assert_allclose(pe_transformed, pe - log_det_jacobian, rtol=2e-7)
 
 
 @pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)

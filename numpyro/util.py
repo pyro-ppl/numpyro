@@ -182,8 +182,8 @@ def progress_bar_factory(num_samples, num_chains):
     finished_chains = []
     for chain in range(num_chains):
         tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
-        message = f"Running chain {chain}"
-        tqdm_bars[chain].set_description(message, refresh=False,)
+        tqdm_bars[chain].set_description("Compiling.. ", refresh=True,)
+        tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False,)
 
     def _update_tqdm(arg, transform, device):
         chain = int(str(device)[4:])
