@@ -350,7 +350,7 @@ class MCMC(object):
                                     collection_size=collection_size,
                                     progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
                                     diagnostics_fn=diagnostics,
-                                    num_chains=self.num_chains)
+                                    num_chains=self.num_chains if self.chain_method == 'parallel' else 1)
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
         last_state = last_val[0]
