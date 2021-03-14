@@ -326,13 +326,26 @@ def get_model_relations(model, *args, num_tries=10, **kwargs):
     trace = handlers.trace(handlers.seed(model, 0)).get_trace(*args, **kwargs)
     obs_sites = [name for name, site in trace.items()
                  if site['type'] == 'sample' and site['is_observed']]
-    plate_deps = {}
-    for name, site in trace.items():
-        if site['type'] == 'sample':
-            plate_deps[name] = [(frame.name, frame.dim) for frame in site['cond_indep_stack']]
-    plate_sites = [name for name, site in trace.items() if site['type'] == 'plate']
-    plate_samples = {k: [name for name in plate_deps
-                     if k in [p[0] for p in plate_deps[name]]] for k in plate_sites}
+
+    sample_plates = {name: [frame.name for frame in site['cond_indep_stack']]
+                     for name, site in trace.items() if site['type'] == 'sample'}
+    plate_samples = {k: {name for name, plates in sample_plates.items() if k in plates}
+                     for k in trace if trace[k]['type'] == 'plate'}
+
+    def _resolve_plate_samples(plate_samples):
+        for p, pv in plate_samples.items():
+            for q, qv in plate_samples.items():
+                if len(pv & qv) > 0 and len(pv - qv) > 0 and len(qv - pv) > 0:
+                    plate_samples_ = plate_samples.copy()
+                    plate_samples_[q] = pv & qv
+                    plate_samples_[q + '__CLONE'] = qv - pv
+                    return _resolve_plate_samples(plate_samples_)
+        return plate_samples
+
+    plate_samples = _resolve_plate_samples(plate_samples)
+    # convert set to list to keep order of variables
+    plate_samples = {k: [name for name in trace if name in v]
+                     for k, v in plate_samples.items()}
 
     def get_log_probs(sample, seed=0):
         with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(data=sample):
@@ -366,8 +379,11 @@ def get_model_relations(model, *args, num_tries=10, **kwargs):
     sample_sample = {}
     for name in samples:
         sample_sample[name] = [var for var in samples if var in sample_deps[name]]
-    return {'sample_sample': sample_sample, 'sample_plate': plate_deps,
-            'plate_sample': plate_samples, 'observed': obs_sites}
+    return {
+        'sample_sample': sample_sample,
+        'plate_sample': plate_samples,
+        'observed': obs_sites
+    }
 
 
 def generate_graph_specification(model_relations):
@@ -449,7 +465,7 @@ def render_graph(graph_specification):
         if plate is not None
     }
     for plate, plate_graph in plate_graph_dict.items():
-        plate_graph.attr(label=plate, labeljust='r', labelloc='b')
+        plate_graph.attr(label=plate.split('__CLONE')[0], labeljust='r', labelloc='b')
 
     # add nodes
     for plate, rv_list in plate_groups.items():

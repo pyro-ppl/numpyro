@@ -17,12 +17,11 @@ def simple(data):
 def nested_plates():
     N_plate = numpyro.plate('N', 10, dim=-2)
     M_plate = numpyro.plate('M', 5, dim=-1)
-    M_plate2 = numpyro.plate('M2', 5, dim=-1)
     with N_plate:
         x = numpyro.sample('x', dist.Normal(0, 1))
         with M_plate:
             y = numpyro.sample('y', dist.Normal(0, 1))
-    with M_plate2:
+    with M_plate:
         z = numpyro.sample('z', dist.Normal(0, 1))
 
 
@@ -43,11 +42,11 @@ def discrete_to_continuous(probs, locs):
         'edge_list': [('x', 'sd'), ('x', 'obs'), ('sd', 'obs')],
     }),
     (nested_plates, dict(), {
-        'plate_groups': {'N': ['x', 'y'], 'M': ['y'], 'M2': ['z'], None: []},
+        'plate_groups': {'N': ['x', 'y'], 'M': ['y'], 'M__CLONE': ['z'], None: []},
         'plate_data': {
             'N': {'parent': None},
             'M': {'parent': 'N'},
-            'M2': {'parent': None},
+            'M__CLONE': {'parent': None},
         },
         'node_data': {
             'x': {'is_observed': False},
