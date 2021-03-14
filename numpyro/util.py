@@ -470,9 +470,11 @@ def render_graph(graph_specification):
     for plate, plate_graph in plate_graph_dict.items():
         plate_graph.attr(label=plate.split('__CLONE')[0], labeljust='r', labelloc='b')
 
+    plate_graph_dict[None] = graph
+
     # add nodes
     for plate, rv_list in plate_groups.items():
-        cur_graph = graph if plate is None else plate_graph_dict[plate]
+        cur_graph = plate_graph_dict[plate]
 
         for rv in rv_list:
             color = 'grey' if node_data[rv]['is_observed'] else 'white'
@@ -482,11 +484,7 @@ def render_graph(graph_specification):
 
     for plate, data in plate_data.items():
         parent_plate = data['parent']
-
-        if parent_plate is None:
-            graph.subgraph(plate_graph_dict[plate])
-        else:
-            plate_graph_dict[parent_plate].subgraph(plate_graph_dict[plate])
+        plate_graph_dict[parent_plate].subgraph(plate_graph_dict[plate])
 
     # add edges
     for source, target in edge_list:
