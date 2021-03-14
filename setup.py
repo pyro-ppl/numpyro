@@ -37,6 +37,7 @@ setup(
         # check min version here: https://github.com/google/jax/blob/master/jax/lib/__init__.py#L26
         'jaxlib>=0.1.59',
         'tqdm',
+        'graphviz',
     ],
     extras_require={
         'doc': ['nbsphinx', 'sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
@@ -54,7 +55,7 @@ setup(
             'isort',
             'tensorflow_probability',
         ],
-        'examples': ['matplotlib', 'seaborn', 'graphviz', 'arviz'],
+        'examples': ['matplotlib', 'seaborn', 'arviz'],
     },
     long_description=long_description,
     long_description_content_type='text/markdown',
