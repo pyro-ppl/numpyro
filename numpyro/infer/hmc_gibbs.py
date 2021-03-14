@@ -1,17 +1,23 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
+from collections import defaultdict, namedtuple
 import copy
 from functools import partial
+import warnings
 
-from jax import device_put, grad, jacfwd, ops, random, value_and_grad
+import numpy as np
+
+from jax import device_put, grad, hessian, jacfwd, jacobian, lax, ops, random, value_and_grad
 import jax.numpy as jnp
 from jax.scipy.special import expit
 
-from numpyro.handlers import condition, seed, substitute, trace
+import numpyro
+from numpyro.distributions.transforms import biject_to
+from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
+from numpyro.infer.util import _unconstrain_reparam
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
@@ -247,7 +253,6 @@ def _discrete_modified_rw_proposal(rng_key, z_discrete, pe, potential_fn, idx, s
 
 
 def _discrete_gibbs_fn(potential_fn, support_sizes, proposal_fn):
-
     def gibbs_fn(rng_key, gibbs_sites, hmc_sites, pe):
         # get support_sizes of gibbs_sites
         support_sizes_flat, _ = ravel_pytree({k: support_sizes[k] for k in gibbs_sites})
@@ -291,13 +296,11 @@ class DiscreteHMCGibbs(HMCGibbs):
         corresponding :func:`~numpyro.primitives.sample` statement.
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
-    :param list discrete_sites: a list of site names for the discrete latent variables
-        that are covered by the Gibbs sampler.
     :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
         conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
-        from the domain of `gibbs_site`.
+        from the domain of `gibbs_site`. Defaults to False.
     :param bool modified: whether to use a modified proposal, as suggested in reference [1], which
-        always proposes a new state for the current Gibbs site.
+        always proposes a new state for the current Gibbs site. Defaults to False.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
 
@@ -325,7 +328,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         >>> kernel = DiscreteHMCGibbs(NUTS(model), modified=True)
         >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
-        >>> mcmc.print_summary()
+        >>> mcmc.print_summary()  # doctest: +SKIP
         >>> samples = mcmc.get_samples()["x"]
         >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
         >>> assert abs(jnp.var(samples) - 4.36) < 0.5
@@ -353,7 +356,7 @@ class DiscreteHMCGibbs(HMCGibbs):
         self._prototype_trace = trace(seed(self.model, key_u)).get_trace(*model_args, **model_kwargs)
 
         self._support_sizes = {
-            name: jnp.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
+            name: np.broadcast_to(site["fn"].enumerate_support(False).shape[0], jnp.shape(site["value"]))
             for name, site in self._prototype_trace.items()
             if site["type"] == "sample" and site["fn"].has_enumerate_support and not site["is_observed"]
         }
@@ -362,6 +365,7 @@ class DiscreteHMCGibbs(HMCGibbs):
                              and site["fn"].has_enumerate_support
                              and not site["is_observed"]
                              and site["infer"].get("enumerate", "") != "parallel"]
+        assert self._gibbs_sites, "Cannot detect any discrete latent variables in the model."
         return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
 
     def sample(self, state, model_args, model_kwargs):
@@ -397,31 +401,52 @@ class DiscreteHMCGibbs(HMCGibbs):
         return HMCGibbsState(z, hmc_state, rng_key)
 
 
-def _subsample_gibbs_fn(potential_fn, plate_sizes, num_blocks=1):
+def _update_block(rng_key, num_blocks, subsample_idx, plate_size):
+    size, subsample_size = plate_size
+    rng_key, subkey, block_key = random.split(rng_key, 3)
+    block_size = (subsample_size - 1) // num_blocks + 1
+    pad = block_size - (subsample_size - 1) % block_size - 1
 
-    def gibbs_fn(rng_key, gibbs_sites, hmc_sites, pe):
-        assert set(gibbs_sites) == set(plate_sizes)
-        u_new = {}
-        for name in gibbs_sites:
-            size, subsample_size = plate_sizes[name]
-            rng_key, subkey, block_key = random.split(rng_key, 3)
-            block_size = subsample_size // num_blocks
+    chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
+    new_idx = random.randint(subkey, minval=0, maxval=size, shape=(block_size,))
+    subsample_idx_padded = jnp.pad(subsample_idx, (0, pad))
+    start = chosen_block * block_size
+    subsample_idx_padded = lax.dynamic_update_slice_in_dim(
+        subsample_idx_padded, new_idx, start, 0)
+    return rng_key, subsample_idx_padded[:subsample_size], pad, new_idx, start
 
-            chosen_block = random.randint(block_key, shape=(), minval=0, maxval=num_blocks)
-            new_idx = random.randint(subkey, minval=0, maxval=size, shape=(subsample_size,))
-            block_mask = jnp.arange(subsample_size) // block_size == chosen_block
 
-            u_new[name] = jnp.where(block_mask, new_idx, gibbs_sites[name])
+def _block_update(plate_sizes, num_blocks, rng_key, gibbs_sites, gibbs_state):
+    u_new = {}
+    for name, subsample_idx in gibbs_sites.items():
+        rng_key, u_new[name], *_ = _update_block(rng_key, num_blocks, subsample_idx, plate_sizes[name])
+    return u_new, gibbs_state
 
-        # given a fixed hmc_sites, pe_new - pe_curr = loglik_new - loglik_curr
-        pe_new = potential_fn(u_new, hmc_sites)
-        accept_prob = jnp.clip(jnp.exp(pe - pe_new), a_max=1.0)
-        gibbs_sites, pe = cond(random.bernoulli(rng_key, accept_prob),
-                               (u_new, pe_new), identity,
-                               (gibbs_sites, pe), identity)
-        return gibbs_sites, pe
 
-    return gibbs_fn
+def _block_update_proxy(num_blocks, rng_key, gibbs_sites, plate_sizes):
+    u_new = {}
+    pads = {}
+    new_idxs = {}
+    starts = {}
+    for name, subsample_idx in gibbs_sites.items():
+        rng_key, u_new[name], pads[name], new_idxs[name], starts[name] = _update_block(rng_key, num_blocks,
+                                                                                       subsample_idx, plate_sizes[name])
+    return u_new, pads, new_idxs, starts
+
+
+HMCECSState = namedtuple("HMCECSState", "z, hmc_state, rng_key, gibbs_state, accept_prob")
+TaylorProxyState = namedtuple("TaylorProxyState", "ref_subsample_log_liks, "
+                                                  "ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians")
+
+
+def _wrap_gibbs_state(model):
+    def wrapped_fn(*args, **kwargs):
+        # this is to let estimate_likelihood handler knows what is the current gibbs_state
+        msg = {"type": "_gibbs_state", "value": kwargs.pop("_gibbs_state", ())}
+        numpyro.primitives.apply_stack(msg)
+        return model(*args, **kwargs)
+
+    return wrapped_fn
 
 
 class HMCECS(HMCGibbs):
@@ -448,9 +473,13 @@ class HMCECS(HMCGibbs):
        Quiroz, M., Kohn, R., Villani, M., & Tran, M. N. (2018)
     3. *The Block Pseudo-Margional Sampler*,
        Tran, M.-N., Kohn, R., Quiroz, M. Villani, M. (2017)
+    4. *The Fundamental Incompatibility of Scalable Hamiltonian Monte Carlo and Naive Data Subsampling*
+       Betancourt, M. (2015)
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
     :param int num_blocks: Number of blocks to partition subsample into.
+    :param proxy: Either :function `~numpyro.infer.hmc_gibbs.taylor_proxy` for likelihood estimation,
+                  or, None for naive (in-between trajectory) subsampling as outlined in [4].
 
     **Example**
 
@@ -476,48 +505,289 @@ class HMCECS(HMCGibbs):
         >>> assert abs(jnp.mean(samples) - 1.) < 0.1
 
     """
-    def __init__(self, inner_kernel, *, num_blocks=1):
+
+    def __init__(self, inner_kernel, *, num_blocks=1, proxy=None):
         super().__init__(inner_kernel, lambda *args: None, None)
+
+        self.inner_kernel._model = _wrap_gibbs_state(self.inner_kernel._model)
         self._num_blocks = num_blocks
+        self._proxy = proxy
+
+    def postprocess_fn(self, args, kwargs):
+        def fn(z):
+            model_kwargs = {} if kwargs is None else kwargs.copy()
+            hmc_sites = {k: v for k, v in z.items() if k not in self._gibbs_sites}
+            gibbs_sites = {k: v for k, v in z.items() if k in self._gibbs_sites}
+            model_kwargs["_gibbs_sites"] = gibbs_sites
+            hmc_sites = self.inner_kernel.postprocess_fn(args, model_kwargs)(hmc_sites)
+            return hmc_sites
+
+        return fn
 
     def init(self, rng_key, num_warmup, init_params, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, key_u = random.split(rng_key)
         self._prototype_trace = trace(seed(self.model, key_u)).get_trace(*model_args, **model_kwargs)
-        self._plate_sizes = {
+        self._subsample_plate_sizes = {
             name: site["args"]
             for name, site in self._prototype_trace.items()
             if site["type"] == "plate" and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
         }
-        self._gibbs_sites = list(self._plate_sizes.keys())
-        return super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
+        self._gibbs_sites = list(self._subsample_plate_sizes.keys())
+        assert self._gibbs_sites, "Cannot detect any subsample statements in the model."
+        if self._proxy is not None:
+            proxy_fn, gibbs_init, self._gibbs_update = self._proxy(self._prototype_trace,
+                                                                   self._subsample_plate_sizes,
+                                                                   self.model,
+                                                                   model_args,
+                                                                   model_kwargs.copy(),
+                                                                   num_blocks=self._num_blocks)
+            method = perturbed_method(self._subsample_plate_sizes, proxy_fn)
+            self.inner_kernel._model = estimate_likelihood(self.inner_kernel._model, method)
+
+            z_gibbs = {name: site["value"] for name, site in self._prototype_trace.items() if name in self._gibbs_sites}
+            rng_key, rng_state = random.split(rng_key)
+            gibbs_state = gibbs_init(rng_state, z_gibbs)
+        else:
+            self._gibbs_update = partial(_block_update, self._subsample_plate_sizes, self._num_blocks)
+            gibbs_state = ()
+
+        model_kwargs["_gibbs_state"] = gibbs_state
+        state = super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
+        return HMCECSState(state.z, state.hmc_state, state.rng_key, gibbs_state, jnp.array(0.))
 
     def sample(self, state, model_args, model_kwargs):
-        model_kwargs = {} if model_kwargs is None else model_kwargs
+        model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
         rng_key, rng_gibbs = random.split(state.rng_key)
 
-        def potential_fn(z_gibbs, z_hmc):
+        def potential_fn(z_gibbs, gibbs_state, z_hmc):
             return self.inner_kernel._potential_fn_gen(
-                *model_args, _gibbs_sites=z_gibbs, **model_kwargs)(z_hmc)
+                *model_args, _gibbs_sites=z_gibbs, _gibbs_state=gibbs_state, **model_kwargs)(z_hmc)
 
         z_gibbs = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
-        z_hmc = {k: v for k, v in state.z.items() if k in state.hmc_state.z}
-        model_kwargs_ = model_kwargs.copy()
-        model_kwargs_["_gibbs_sites"] = z_gibbs
+        z_gibbs_new, gibbs_state_new = self._gibbs_update(rng_key, z_gibbs, state.gibbs_state)
 
-        gibbs_fn = _subsample_gibbs_fn(potential_fn, self._plate_sizes, self._num_blocks)
-        z_gibbs, pe = gibbs_fn(rng_key=rng_gibbs, gibbs_sites=z_gibbs, hmc_sites=z_hmc,
-                               pe=state.hmc_state.potential_energy)
+        # given a fixed hmc_sites, pe_new - pe_curr = loglik_new - loglik_curr
+        pe = state.hmc_state.potential_energy
+        pe_new = potential_fn(z_gibbs_new, gibbs_state_new, state.hmc_state.z)
+        accept_prob = jnp.clip(jnp.exp(pe - pe_new), a_max=1.0)
+        transition = random.bernoulli(rng_key, accept_prob)
+        grad_ = jacfwd if self.inner_kernel._forward_mode_differentiation else grad
+        z_gibbs, gibbs_state, pe, z_grad = cond(transition,
+                                                (z_gibbs_new, gibbs_state_new, pe_new),
+                                                lambda vals: vals + (grad_(partial(potential_fn,
+                                                                                   vals[0],
+                                                                                   vals[1]))(state.hmc_state.z),),
+                                                (z_gibbs, state.gibbs_state, pe, state.hmc_state.z_grad), identity)
 
-        if self.inner_kernel._forward_mode_differentiation:
-            z_grad = jacfwd(partial(potential_fn, z_gibbs))(state.hmc_state.z)
-        else:
-            z_grad = grad(partial(potential_fn, z_gibbs))(state.hmc_state.z)
         hmc_state = state.hmc_state._replace(z_grad=z_grad, potential_energy=pe)
 
-        model_kwargs_["_gibbs_sites"] = z_gibbs
-        hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs_)
+        model_kwargs["_gibbs_sites"] = z_gibbs
+        model_kwargs["_gibbs_state"] = gibbs_state
+        hmc_state = self.inner_kernel.sample(hmc_state, model_args, model_kwargs)
 
         z = {**z_gibbs, **hmc_state.z}
+        return HMCECSState(z, hmc_state, rng_key, gibbs_state, accept_prob)
 
-        return HMCGibbsState(z, hmc_state, rng_key)
+    @staticmethod
+    def taylor_proxy(reference_params):
+        return taylor_proxy(reference_params)
+
+
+def perturbed_method(subsample_plate_sizes, proxy_fn):
+    def estimator(likelihoods, params, gibbs_state):
+        subsample_log_liks = defaultdict(float)
+        for (fn, value, name, subsample_dim) in likelihoods.values():
+            subsample_log_liks[name] += _sum_all_except_at_dim(fn.log_prob(value), subsample_dim)
+
+        log_lik_sum = 0.
+
+        proxy_value_all, proxy_value_subsample = proxy_fn(params, subsample_log_liks.keys(), gibbs_state)
+
+        for name, subsample_log_lik in subsample_log_liks.items():  # loop over all subsample sites
+            n, m = subsample_plate_sizes[name]
+
+            diff = subsample_log_lik - proxy_value_subsample[name]
+
+            unbiased_log_lik = proxy_value_all[name] + n * jnp.mean(diff)
+            variance = n ** 2 / m * jnp.var(diff)
+            log_lik_sum += unbiased_log_lik - 0.5 * variance
+        return log_lik_sum
+
+    return estimator
+
+
+def taylor_proxy(reference_params):
+    """  Control variate for unbiased log likelihood estimation using a Taylor expansion around a reference
+    parameter. Suggest for subsampling in [1].
+
+    :param dict reference_params: Model parameterization at MLE or MAP-estimate.
+
+    ** References: **
+
+    [1] Towards scaling up Markov chainMonte Carlo: an adaptive subsampling approach
+        Bardenet., R., Doucet, A., Holmes, C. (2014)
+    """
+
+    def construct_proxy_fn(prototype_trace, subsample_plate_sizes, model, model_args, model_kwargs, num_blocks=1):
+        ref_params = {name: biject_to(prototype_trace[name]["fn"].support).inv(value)
+                      for name, value in reference_params.items()}
+
+        ref_params_flat, unravel_fn = ravel_pytree(ref_params)
+
+        def log_likelihood(params_flat, subsample_indices=None):
+            if subsample_indices is None:
+                subsample_indices = {k: jnp.arange(v[0]) for k, v in subsample_plate_sizes.items()}
+            params = unravel_fn(params_flat)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                params = {name: biject_to(prototype_trace[name]["fn"].support)(value) for name, value in params.items()}
+                with block(), trace() as tr, substitute(data=subsample_indices), substitute(data=params):
+                    model(*model_args, **model_kwargs)
+
+            log_lik = {}
+            for site in tr.values():
+                if site["type"] == "sample" and site["is_observed"]:
+                    for frame in site["cond_indep_stack"]:
+                        if frame.name in log_lik:
+                            log_lik[frame.name] += _sum_all_except_at_dim(
+                                site["fn"].log_prob(site["value"]), frame.dim)
+                        else:
+                            log_lik[frame.name] = _sum_all_except_at_dim(
+                                site["fn"].log_prob(site["value"]), frame.dim)
+            return log_lik
+
+        def log_likelihood_sum(params_flat, subsample_indices=None):
+            return {k: v.sum() for k, v in log_likelihood(params_flat, subsample_indices).items()}
+
+        # those stats are dict keyed by subsample names
+        ref_log_likelihoods_sum = log_likelihood_sum(ref_params_flat)
+        ref_log_likelihood_grads_sum = jacobian(log_likelihood_sum)(ref_params_flat)
+        ref_log_likelihood_hessians_sum = hessian(log_likelihood_sum)(ref_params_flat)
+
+        def gibbs_init(rng_key, gibbs_sites):
+            ref_subsample_log_liks = log_likelihood(ref_params_flat, gibbs_sites)
+            ref_subsample_log_lik_grads = jacfwd(log_likelihood)(ref_params_flat, gibbs_sites)
+            ref_subsample_log_lik_hessians = jacfwd(jacfwd(log_likelihood))(ref_params_flat, gibbs_sites)
+            return TaylorProxyState(ref_subsample_log_liks, ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians)
+
+        def gibbs_update(rng_key, gibbs_sites, gibbs_state):
+            u_new, pads, new_idxs, starts = _block_update_proxy(num_blocks, rng_key, gibbs_sites, subsample_plate_sizes)
+
+            new_states = defaultdict(dict)
+            ref_subsample_log_liks = log_likelihood(ref_params_flat, new_idxs)
+            ref_subsample_log_lik_grads = jacfwd(log_likelihood)(ref_params_flat, new_idxs)
+            ref_subsample_log_lik_hessians = jacfwd(jacfwd(log_likelihood))(ref_params_flat, new_idxs)
+            for stat, new_block_values, last_values in zip(
+                    ["log_liks", "grads", "hessians"],
+                    [ref_subsample_log_liks,
+                     ref_subsample_log_lik_grads,
+                     ref_subsample_log_lik_hessians],
+                    [gibbs_state.ref_subsample_log_liks,
+                     gibbs_state.ref_subsample_log_lik_grads,
+                     gibbs_state.ref_subsample_log_lik_hessians]):
+                for name, subsample_idx in gibbs_sites.items():
+                    size, subsample_size = subsample_plate_sizes[name]
+                    pad, start = pads[name], starts[name]
+                    new_value = jnp.pad(last_values[name], [(0, pad)] + [(0, 0)] * (jnp.ndim(last_values[name]) - 1))
+                    new_value = lax.dynamic_update_slice_in_dim(
+                        new_value, new_block_values[name], start, 0)
+                    new_states[stat][name] = new_value[:subsample_size]
+            gibbs_state = TaylorProxyState(new_states["log_liks"], new_states["grads"], new_states["hessians"])
+            return u_new, gibbs_state
+
+        def proxy_fn(params, subsample_lik_sites, gibbs_state):
+            params_flat, _ = ravel_pytree(params)
+            params_diff = params_flat - ref_params_flat
+
+            ref_subsample_log_liks = gibbs_state.ref_subsample_log_liks
+            ref_subsample_log_lik_grads = gibbs_state.ref_subsample_log_lik_grads
+            ref_subsample_log_lik_hessians = gibbs_state.ref_subsample_log_lik_hessians
+
+            proxy_sum = defaultdict(float)
+            proxy_subsample = defaultdict(float)
+            for name in subsample_lik_sites:
+                proxy_subsample[name] = (ref_subsample_log_liks[name] +
+                                         jnp.dot(ref_subsample_log_lik_grads[name], params_diff) +
+                                         0.5 * jnp.dot(jnp.dot(ref_subsample_log_lik_hessians[name], params_diff),
+                                                       params_diff))
+
+                proxy_sum[name] = (ref_log_likelihoods_sum[name] +
+                                   jnp.dot(ref_log_likelihood_grads_sum[name], params_diff) +
+                                   0.5 * jnp.dot(jnp.dot(ref_log_likelihood_hessians_sum[name], params_diff),
+                                                 params_diff))
+            return proxy_sum, proxy_subsample
+
+        return proxy_fn, gibbs_init, gibbs_update
+
+    return construct_proxy_fn
+
+
+def _sum_all_except_at_dim(x, dim):
+    x = x.reshape((-1,) + x.shape[dim:]).sum(0)
+    return x.reshape(x.shape[:1] + (-1,)).sum(-1)
+
+
+class estimate_likelihood(numpyro.primitives.Messenger):
+    def __init__(self, fn=None, method=None):
+        # estimate_likelihood: accept likelihood tuple (fn, value, subsample_name, subsample_dim)
+        # and current unconstrained params
+        # and returns log of the bias-corrected likelihood
+        assert method is not None
+        super().__init__(fn)
+        self.method = method
+        self.params = None
+        self.likelihoods = {}
+        self.subsample_plates = {}
+        self.gibbs_state = None
+
+    def __enter__(self):
+        for handler in numpyro.primitives._PYRO_STACK[::-1]:
+            # the potential_fn in HMC makes the PYRO_STACK nested like trace(...); so we can extract the
+            # unconstrained_params from the _unconstrain_reparam substitute_fn
+            if isinstance(handler, substitute) and isinstance(handler.substitute_fn, partial) \
+                    and handler.substitute_fn.func is _unconstrain_reparam:
+                self.params = handler.substitute_fn.args[0]
+                break
+        return super().__enter__()
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # make sure exit trackback is nice if an error happens
+        super().__exit__(exc_type, exc_value, traceback)
+        if exc_type is not None:
+            return
+
+        if self.params is None:
+            return
+
+        if numpyro.get_mask() is not False:
+            numpyro.factor("_biased_corrected_log_likelihood",
+                           self.method(self.likelihoods, self.params, self.gibbs_state))
+
+        # clean up
+        self.params = None
+        self.likelihoods = {}
+        self.subsample_plates = {}
+        self.gibbs_state = None
+
+    def process_message(self, msg):
+        if self.params is None:
+            return
+
+        if msg["type"] == "_gibbs_state":
+            self.gibbs_state = msg["value"]
+            return
+
+        if msg["type"] == "sample" and msg["is_observed"]:
+            assert msg["name"] not in self.params
+            # store the likelihood for the estimator
+            for frame in msg["cond_indep_stack"]:
+                if frame.name in self.subsample_plates:
+                    if msg["name"] in self.likelihoods:
+                        raise RuntimeError(f"Multiple subsample plates at site {msg['name']} "
+                                           "are not allowed. Please reshape your data.")
+                    self.likelihoods[msg["name"]] = (msg["fn"], msg["value"], frame.name, frame.dim)
+                    # mask the current likelihood
+                    msg["fn"] = msg["fn"].mask(False)
+        elif msg["type"] == "plate" and msg["args"][0] > msg["args"][1]:
+            self.subsample_plates[msg["name"]] = msg["value"]

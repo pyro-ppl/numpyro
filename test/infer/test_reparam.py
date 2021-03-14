@@ -14,7 +14,7 @@ from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoIAFNormal
-from numpyro.infer.reparam import LocScaleReparam, NeuTraReparam, TransformReparam
+from numpyro.infer.reparam import LocScaleReparam, NeuTraReparam, ProjectedNormalReparam, TransformReparam
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
 
@@ -32,17 +32,23 @@ def get_moments(x):
     return jnp.stack([m1, m2, m3, m4])
 
 
-@pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)], ids=str)
+@pytest.mark.parametrize("batch_shape,base_batch_shape", [
+    ((), ()),
+    ((4,), (4,)),
+    ((2, 3), (2, 3)),
+    ((2, 3), ()),
+], ids=str)
 @pytest.mark.parametrize("event_shape", [(), (5,)], ids=str)
-def test_log_normal(batch_shape, event_shape):
+def test_log_normal(batch_shape, base_batch_shape, event_shape):
     shape = batch_shape + event_shape
-    loc = np.random.rand(*shape) * 2 - 1
-    scale = np.random.rand(*shape) + 0.5
+    base_shape = base_batch_shape + event_shape
+    loc = np.random.rand(*base_shape) * 2 - 1
+    scale = np.random.rand(*base_shape) + 0.5
 
     def model():
         fn = dist.TransformedDistribution(
             dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)),
-            [AffineTransform(loc, scale), ExpTransform()])
+            [AffineTransform(loc, scale), ExpTransform()]).expand(shape)
         if event_shape:
             fn = fn.to_event(len(event_shape)).expand_by([100000])
         with numpyro.plate_stack("plates", batch_shape):
@@ -164,3 +170,36 @@ def test_loc_scale(dist_type, centered, shape, event_dim):
     actual_grad = jacobian(get_actual_probe, argnums=(0, 1))(loc, scale)
     assert_allclose(actual_grad[0], expected_grad[0], atol=0.05)  # loc grad
     assert_allclose(actual_grad[1], expected_grad[1], atol=0.05)  # scale grad
+
+
+@pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
+@pytest.mark.parametrize("dim", [2, 3, 4])
+def test_projected_normal(shape, dim):
+
+    def model(concentration):
+        with numpyro.plate_stack("plates", shape):
+            with numpyro.plate("particles", 10000):
+                numpyro.sample("x", dist.ProjectedNormal(concentration))
+
+    def get_expected_probe(concentration):
+        with numpyro.handlers.trace() as trace:
+            with numpyro.handlers.seed(rng_seed=0):
+                model(concentration)
+        return get_moments(trace["x"]["value"])
+
+    def get_actual_probe(concentration):
+        with numpyro.handlers.trace() as trace:
+            with numpyro.handlers.seed(rng_seed=0):
+                reparam = ProjectedNormalReparam()
+                with numpyro.handlers.reparam(config={"x": reparam}):
+                    model(concentration)
+        return get_moments(trace["x"]["value"])
+
+    concentration = np.random.normal(shape + (dim,))
+    expected_probe = get_expected_probe(concentration)
+    actual_probe = get_actual_probe(concentration)
+    assert_allclose(actual_probe, expected_probe, atol=0.1)
+
+    expected_grad = jacobian(get_expected_probe)(concentration)
+    actual_grad = jacobian(get_actual_probe)(concentration)
+    assert_allclose(actual_grad, expected_grad, atol=0.05)

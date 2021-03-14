@@ -46,6 +46,9 @@ __all__ = [
     'real',
     'real_vector',
     'simplex',
+    'sphere',
+    'softplus_lower_cholesky',
+    'softplus_positive',
     'unit_interval',
     'Constraint',
 ]
@@ -123,8 +126,62 @@ class _CorrMatrix(Constraint):
 
 
 class _Dependent(Constraint):
+    """
+    Placeholder for variables whose support depends on other variables.
+    These variables obey no simple coordinate-wise constraints.
+
+    :param bool is_discrete: Optional value of ``.is_discrete`` in case this
+        can be computed statically. If not provided, access to the
+        ``.is_discrete`` attribute will raise a NotImplementedError.
+    :param int event_dim: Optional value of ``.event_dim`` in case this can be
+        computed statically. If not provided, access to the ``.event_dim``
+        attribute will raise a NotImplementedError.
+    """
+    def __init__(self, *, is_discrete=NotImplemented, event_dim=NotImplemented):
+        self._is_discrete = is_discrete
+        self._event_dim = event_dim
+        super().__init__()
+
+    @property
+    def is_discrete(self):
+        if self._is_discrete is NotImplemented:
+            raise NotImplementedError(".is_discrete cannot be determined statically")
+        return self._is_discrete
+
+    @property
+    def event_dim(self):
+        if self._event_dim is NotImplemented:
+            raise NotImplementedError(".event_dim cannot be determined statically")
+        return self._event_dim
+
+    def __call__(self, x=None, *, is_discrete=NotImplemented, event_dim=NotImplemented):
+        if x is not None:
+            raise ValueError('Cannot determine validity of dependent constraint')
+
+        # Support for syntax to customize static attributes::
+        #     constraints.dependent(is_discrete=True, event_dim=1)
+        if is_discrete is NotImplemented:
+            is_discrete = self._is_discrete
+        if event_dim is NotImplemented:
+            event_dim = self._event_dim
+        return _Dependent(is_discrete=is_discrete, event_dim=event_dim)
+
+
+class dependent_property(property, _Dependent):
+    def __init__(self, fn=None, *, is_discrete=NotImplemented, event_dim=NotImplemented):
+        super().__init__(fn)
+        self._is_discrete = is_discrete
+        self._event_dim = event_dim
+
     def __call__(self, x):
-        raise ValueError('Cannot determine validity of dependent constraint')
+        if not callable(x):
+            return super().__call__(x)
+
+        # Support for syntax to customize static attributes::
+        #     @constraints.dependent_property(is_discrete=True, event_dim=1)
+        #     def support(self):
+        #         ...
+        return dependent_property(x, is_discrete=self._is_discrete, event_dim=self._event_dim)
 
 
 def is_dependent(constraint):
@@ -279,6 +336,21 @@ class _PositiveDefinite(Constraint):
         return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
 
 
+class _PositiveOrderedVector(Constraint):
+    """
+    Constrains to a positive real-valued tensor where the elements are monotonically
+    increasing along the `event_shape` dimension.
+    """
+    event_dim = 1
+
+    def __call__(self, x):
+        return ordered_vector.check(x) & independent(positive, 1).check(x)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))),
+                                      prototype.shape)
+
+
 class _Real(Constraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
@@ -299,7 +371,39 @@ class _Simplex(Constraint):
         return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
+class _SoftplusPositive(_GreaterThan):
+    def __init__(self):
+        super().__init__(lower_bound=0.0)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.full(jax.numpy.shape(prototype), np.log(2))
+
+
+class _SoftplusLowerCholesky(_LowerCholesky):
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]) * np.log(2), prototype.shape)
+
+
+class _Sphere(Constraint):
+    """
+    Constrain to the Euclidean sphere of any dimension.
+    """
+    event_dim = 1
+    reltol = 10.  # Relative to finfo.eps.
+
+    def __call__(self, x):
+        jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
+        eps = jnp.finfo(x.dtype).eps
+        norm = jnp.linalg.norm(x, axis=-1)
+        error = jnp.abs(norm - 1)
+        return error < self.reltol * eps * x.shape[-1] ** 0.5
+
+    def feasible_like(self, prototype):
+        return jax.numpy.full_like(prototype, prototype.shape[-1] ** (-0.5))
+
+
 # TODO: Make types consistent
+# See https://github.com/pytorch/pytorch/issues/50616
 
 boolean = _Boolean()
 corr_cholesky = _CorrCholesky()
@@ -318,7 +422,11 @@ ordered_vector = _OrderedVector()
 positive = _GreaterThan(0.)
 positive_definite = _PositiveDefinite()
 positive_integer = _IntegerGreaterThan(1)
+positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
 real_vector = independent(real, 1)
 simplex = _Simplex()
+softplus_lower_cholesky = _SoftplusLowerCholesky()
+softplus_positive = _SoftplusPositive()
+sphere = _Sphere()
 unit_interval = _Interval(0., 1.)

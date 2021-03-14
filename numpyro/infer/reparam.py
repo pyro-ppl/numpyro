@@ -3,13 +3,12 @@
 
 from abc import ABC, abstractmethod
 
-from jax import lax
 import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import biject_to, constraints
-from numpyro.distributions.util import is_identically_one, sum_rightmost
+from numpyro.distributions.util import is_identically_one, safe_normalize, sum_rightmost
 from numpyro.infer.autoguide import AutoContinuous
 
 
@@ -30,23 +29,23 @@ class Reparam(ABC):
     def _unwrap(self, fn):
         """
         Unwrap Independent(...) and ExpandedDistribution(...) distributions.
+        We can recover the input `fn` from the result triple `(fn, expand_shape, event_dim)`
+        with `fn.expand(expand_shape).to_event(event_dim - fn.event_dim)`.
         """
-        batch_shape = fn.batch_shape
+        shape = fn.shape()
         event_dim = fn.event_dim
         while isinstance(fn, (dist.Independent, dist.ExpandedDistribution)):
             fn = fn.base_dist
-        return fn, batch_shape, event_dim
+        expand_shape = shape[:len(shape) - fn.event_dim]
+        return fn, expand_shape, event_dim
 
-    def _wrap(self, fn, batch_shape, event_dim):
+    def _wrap(self, fn, expand_shape, event_dim):
         """
         Wrap in Independent and ExpandedDistribution distributions.
         """
         # Match batch_shape.
         assert fn.event_dim <= event_dim
-        fn_batch_shape = batch_shape + (1,) * (event_dim - fn.event_dim)
-        fn_batch_shape = lax.broadcast_shapes(fn_batch_shape, fn.batch_shape)
-        if fn.batch_shape != fn_batch_shape:
-            fn = fn.expand(fn_batch_shape)
+        fn = fn.expand(expand_shape)  # no-op if expand_shape == fn.batch_shape
 
         # Match event_dim.
         if fn.event_dim < event_dim:
@@ -90,7 +89,7 @@ class LocScaleReparam(Reparam):
         if is_identically_one(centered):
             return name, fn, obs
         event_shape = fn.event_shape
-        fn, batch_shape, event_dim = self._unwrap(fn)
+        fn, expand_shape, event_dim = self._unwrap(fn)
 
         # Apply a partial decentering transform.
         params = {key: getattr(fn, key) for key in self.shape_params}
@@ -100,7 +99,7 @@ class LocScaleReparam(Reparam):
                                      constraint=constraints.unit_interval)
         params["loc"] = fn.loc * centered
         params["scale"] = fn.scale ** centered
-        decentered_fn = self._wrap(type(fn)(**params), batch_shape, event_dim)
+        decentered_fn = self._wrap(type(fn)(**params), expand_shape, event_dim)
 
         # Draw decentered noise.
         decentered_value = numpyro.sample("{}_decentered".format(name),
@@ -127,7 +126,12 @@ class TransformReparam(Reparam):
     """
     def __call__(self, name, fn, obs):
         assert obs is None, "TransformReparam does not support observe statements"
-        fn, batch_shape, event_dim = self._unwrap(fn)
+        fn, expand_shape, event_dim = self._unwrap(fn)
+        if isinstance(fn, (dist.Uniform, dist.TruncatedCauchy, dist.TruncatedNormal)):
+            raise ValueError("TransformReparam does not automatically work with {}"
+                             " distribution anymore. Please explicitly using"
+                             " TransformedDistribution(base_dist, AffineTransform(...)) pattern"
+                             " with TransformReparam.".format(type(fn).__name__))
         assert isinstance(fn, dist.TransformedDistribution)
 
         # Draw noise from the base distribution.
@@ -135,7 +139,7 @@ class TransformReparam(Reparam):
         for t in reversed(fn.transforms):
             base_event_dim += t.domain.event_dim - t.codomain.event_dim
         x = numpyro.sample("{}_base".format(name),
-                           self._wrap(fn.base_dist, batch_shape, base_event_dim))
+                           self._wrap(fn.base_dist, expand_shape, base_event_dim))
 
         # Differentiably transform.
         for t in fn.transforms:
@@ -143,6 +147,30 @@ class TransformReparam(Reparam):
 
         # Simulate a pyro.deterministic() site.
         return None, x
+
+
+class ProjectedNormalReparam(Reparam):
+    """
+    Reparametrizer for :class:`~numpyro.distributions.ProjectedNormal` latent
+    variables.
+
+    This reparameterization works only for latent variables, not likelihoods.
+    """
+    def __call__(self, name, fn, obs):
+        assert obs is None, "ProjectedNormalReparam does not support observe statements"
+        fn, expand_shape, event_dim = self._unwrap(fn)
+        assert isinstance(fn, dist.ProjectedNormal)
+
+        # Draw parameter-free noise.
+        new_fn = dist.Normal(jnp.zeros(fn.concentration.shape), 1).to_event(1)
+        x = numpyro.sample("{}_normal".format(name),
+                           self._wrap(new_fn, expand_shape, event_dim))
+
+        # Differentiably transform.
+        value = safe_normalize(x + fn.concentration)
+
+        # Simulate a pyro.deterministic() site.
+        return None, value
 
 
 class NeuTraReparam(Reparam):
@@ -202,6 +230,7 @@ class NeuTraReparam(Reparam):
         assert obs is None, "NeuTraReparam does not support observe statements"
 
         log_density = 0.
+        compute_density = (numpyro.get_mask() is not False)
         if not self._x_unconstrained:  # On first sample site.
             # Sample a shared latent.
             z_unconstrained = numpyro.sample("{}_shared_latent".format(self.guide.prefix),
@@ -209,17 +238,18 @@ class NeuTraReparam(Reparam):
 
             # Differentiably transform.
             x_unconstrained = self.transform(z_unconstrained)
-            # TODO: find a way to only compute those log_prob terms when needed
-            log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
+            if compute_density:
+                log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
             self._x_unconstrained = self.guide._unpack_latent(x_unconstrained)
 
         # Extract a single site's value from the shared latent.
         unconstrained_value = self._x_unconstrained.pop(name)
         transform = biject_to(fn.support)
         value = transform(unconstrained_value)
-        logdet = transform.log_abs_det_jacobian(unconstrained_value, value)
-        logdet = sum_rightmost(logdet, jnp.ndim(logdet) - jnp.ndim(value) + len(fn.event_shape))
-        log_density = log_density + fn.log_prob(value) + logdet
+        if compute_density:
+            logdet = transform.log_abs_det_jacobian(unconstrained_value, value)
+            logdet = sum_rightmost(logdet, jnp.ndim(logdet) - jnp.ndim(value) + len(fn.event_shape))
+            log_density = log_density + fn.log_prob(value) + logdet
         numpyro.factor("_{}_log_prob".format(name), log_density)
         return None, value
 

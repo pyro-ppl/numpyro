@@ -160,6 +160,10 @@ class AutoNormal(AutoGuide):
         or iterable of plates. Plates not returned will be created
         automatically as usual. This is useful for data subsampling.
     """
+    # TODO consider switching to constraints.softplus_positive
+    # See https://github.com/pyro-ppl/numpyro/issues/855
+    scale_constraint = constraints.positive
+
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  create_plates=None):
         self._init_scale = init_scale
@@ -210,23 +214,18 @@ class AutoNormal(AutoGuide):
                                          event_dim=event_dim)
                 site_scale = numpyro.param("{}_{}_scale".format(name, self.prefix),
                                            jnp.full(jnp.shape(init_loc), self._init_scale),
-                                           constraint=constraints.positive,
+                                           constraint=self.scale_constraint,
                                            event_dim=event_dim)
 
                 site_fn = dist.Normal(site_loc, site_scale).to_event(event_dim)
-                if site["fn"].support in [constraints.real, constraints.real_vector]:
+                if site["fn"].support is constraints.real \
+                        or (isinstance(site["fn"].support, constraints.independent) and
+                            site["fn"].support is constraints.real):
                     result[name] = numpyro.sample(name, site_fn)
                 else:
-                    unconstrained_value = numpyro.sample("{}_unconstrained".format(name), site_fn,
-                                                         infer={"is_auxiliary": True})
-
                     transform = biject_to(site['fn'].support)
-                    value = transform(unconstrained_value)
-                    log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-                    log_density = sum_rightmost(log_density,
-                                                jnp.ndim(log_density) - jnp.ndim(value) + site["fn"].event_dim)
-                    delta_dist = dist.Delta(value, log_density=log_density, event_dim=site["fn"].event_dim)
-                    result[name] = numpyro.sample(name, delta_dist)
+                    guide_dist = dist.TransformedDistribution(site_fn, transform)
+                    result[name] = numpyro.sample(name, guide_dist)
 
         return result
 
@@ -288,15 +287,15 @@ class AutoDelta(AutoGuide):
     """
     def __init__(self, model, *, prefix='auto', init_loc_fn=init_to_median,
                  create_plates=None):
-        self.init_loc_fn = init_loc_fn
         self._event_dims = {}
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates)
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        self._init_locs = {
-            k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs
-        }
+        with numpyro.handlers.block():
+            self._init_locs = {
+                k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs
+            }
         for name, site in self.prototype_trace.items():
             if site["type"] != "sample" or site["is_observed"]:
                 continue
@@ -417,10 +416,13 @@ class AutoContinuous(AutoGuide):
             site = self.prototype_trace[name]
             transform = biject_to(site['fn'].support)
             value = transform(unconstrained_value)
-            log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-            event_ndim = site['fn'].event_dim
-            log_density = sum_rightmost(log_density,
-                                        jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
+            if numpyro.get_mask() is False:
+                log_density = 0.
+            else:
+                log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
+                event_ndim = site['fn'].event_dim
+                log_density = sum_rightmost(log_density,
+                                            jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 
@@ -540,6 +542,10 @@ class AutoDiagonalNormal(AutoContinuous):
         guide = AutoDiagonalNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
+    # TODO consider switching to constraints.softplus_positive
+    # See https://github.com/pyro-ppl/numpyro/issues/855
+    scale_constraint = constraints.positive
+
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  init_strategy=None):
         if init_strategy is not None:
@@ -555,7 +561,7 @@ class AutoDiagonalNormal(AutoContinuous):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
         scale = numpyro.param('{}_scale'.format(self.prefix),
                               jnp.full(self.latent_dim, self._init_scale),
-                              constraint=constraints.positive)
+                              constraint=self.scale_constraint)
         return dist.Normal(loc, scale)
 
     def get_base_dist(self):
@@ -594,6 +600,10 @@ class AutoMultivariateNormal(AutoContinuous):
         guide = AutoMultivariateNormal(model, ...)
         svi = SVI(model, guide, ...)
     """
+    # TODO consider switching to constraints.softplus_lower_cholesky
+    # See https://github.com/pyro-ppl/numpyro/issues/855
+    scale_tril_constraint = constraints.lower_cholesky
+
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  init_strategy=None):
         if init_strategy is not None:
@@ -609,7 +619,7 @@ class AutoMultivariateNormal(AutoContinuous):
         loc = numpyro.param('{}_loc'.format(self.prefix), self._init_latent)
         scale_tril = numpyro.param('{}_scale_tril'.format(self.prefix),
                                    jnp.identity(self.latent_dim) * self._init_scale,
-                                   constraint=constraints.lower_cholesky)
+                                   constraint=self.scale_tril_constraint)
         return dist.MultivariateNormal(loc, scale_tril=scale_tril)
 
     def get_base_dist(self):
@@ -649,6 +659,10 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         guide = AutoLowRankMultivariateNormal(model, rank=2, ...)
         svi = SVI(model, guide, ...)
     """
+    # TODO consider switching to constraints.softplus_positive
+    # See https://github.com/pyro-ppl/numpyro/issues/855
+    scale_constraint = constraints.positive
+
     def __init__(self, model, *, prefix="auto", init_loc_fn=init_to_uniform, init_scale=0.1,
                  rank=None, init_strategy=None):
         if init_strategy is not None:
@@ -668,7 +682,7 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         cov_factor = numpyro.param('{}_cov_factor'.format(self.prefix), jnp.zeros((self.latent_dim, rank)))
         scale = numpyro.param('{}_scale'.format(self.prefix),
                               jnp.full(self.latent_dim, self._init_scale),
-                              constraint=constraints.positive)
+                              constraint=self.scale_constraint)
         cov_diag = scale * scale
         cov_factor = cov_factor * scale[..., None]
         return dist.LowRankMultivariateNormal(loc, cov_factor, cov_diag)
@@ -696,9 +710,12 @@ class AutoLowRankMultivariateNormal(AutoContinuous):
         return self._unpack_and_constrain(loc, params)
 
     def quantiles(self, params, quantiles):
-        transform = self.get_transform(params)
+        loc = params[f'{self.prefix}_loc']
+        cov_factor = params[f'{self.prefix}_cov_factor']
+        scale = params[f'{self.prefix}_scale']
+        scale = scale * jnp.sqrt(jnp.square(cov_factor).sum(-1) + 1)
         quantiles = jnp.array(quantiles)[..., None]
-        latent = dist.Normal(transform.loc, jnp.diagonal(transform.scale_tril)).icdf(quantiles)
+        latent = dist.Normal(loc, scale).icdf(quantiles)
         return self._unpack_and_constrain(latent, params)
 
 

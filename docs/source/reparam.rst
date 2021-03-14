@@ -42,3 +42,12 @@ Transformed Distributions
     :show-inheritance:
     :member-order: bysource
     :special-members: __call__
+
+Projected Normal Distributions
+------------------------------
+.. autoclass:: numpyro.infer.reparam.ProjectedNormalReparam
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+    :special-members: __call__

@@ -205,6 +205,14 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
+LeftTruncatedDistribution
+-------------------------
+.. autoclass:: numpyro.distributions.continuous.LeftTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 LowRankMultivariateNormal
 -------------------------
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
@@ -229,6 +237,14 @@ Pareto
     :show-inheritance:
     :member-order: bysource
 
+RightTruncatedDistribution
+--------------------------
+.. autoclass:: numpyro.distributions.continuous.RightTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 StudentT
 --------
 .. autoclass:: numpyro.distributions.continuous.StudentT
@@ -245,6 +261,10 @@ TruncatedCauchy
     :show-inheritance:
     :member-order: bysource
 
+TruncatedDistribution
+---------------------
+.. autofunction:: numpyro.distributions.continuous.TruncatedDistribution
+
 TruncatedNormal
 ---------------
 .. autoclass:: numpyro.distributions.continuous.TruncatedNormal
@@ -256,6 +276,14 @@ TruncatedNormal
 TruncatedPolyaGamma
 -------------------
 .. autoclass:: numpyro.distributions.continuous.TruncatedPolyaGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TwoSidedTruncatedDistribution
+-----------------------------
+.. autoclass:: numpyro.distributions.continuous.TwoSidedTruncatedDistribution
     :members:
     :undoc-members:
     :show-inheritance:
@@ -433,6 +461,14 @@ ZeroInflatedPoisson
 Directional Distributions
 =========================
 
+ProjectedNormal
+---------------
+.. autoclass:: numpyro.distributions.directional.ProjectedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 VonMises
 --------
 .. autoclass:: numpyro.distributions.directional.VonMises
@@ -526,6 +562,10 @@ positive_integer
 -----------------
 .. autodata:: numpyro.distributions.constraints.positive_integer
 
+positive_ordered_vector
+-----------------------
+.. autodata:: numpyro.distributions.constraints.positive_ordered_vector
+
 real
 ----
 .. autodata:: numpyro.distributions.constraints.real
@@ -537,6 +577,10 @@ real_vector
 simplex
 -------
 .. autodata:: numpyro.distributions.constraints.simplex
+
+sphere
+------
+.. autodata:: numpyro.distributions.constraints.sphere
 
 unit_interval
 -------------
@@ -574,6 +618,14 @@ AffineTransform
     :show-inheritance:
     :member-order: bysource
 
+CholeskyTransform
+-----------------
+.. autoclass:: numpyro.distributions.transforms.CholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ComposeTransform
 ----------------
 .. autoclass:: numpyro.distributions.transforms.ComposeTransform
@@ -590,6 +642,14 @@ CorrCholeskyTransform
     :show-inheritance:
     :member-order: bysource
 
+CorrMatrixCholeskyTransform
+---------------------------
+.. autoclass:: numpyro.distributions.transforms.CorrMatrixCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 ExpTransform
 ------------
 .. autoclass:: numpyro.distributions.transforms.ExpTransform
@@ -597,7 +657,7 @@ ExpTransform
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
-
+    
 IdentityTransform
 -----------------
 .. autoclass:: numpyro.distributions.transforms.IdentityTransform
@@ -657,6 +717,22 @@ PowerTransform
 SigmoidTransform
 ----------------
 .. autoclass:: numpyro.distributions.transforms.SigmoidTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SoftplusLowerCholeskyTransform
+------------------------------
+.. autoclass:: numpyro.distributions.transforms.SoftplusLowerCholeskyTransform
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+SoftplusTransform
+-----------------
+.. autoclass:: numpyro.distributions.transforms.SoftplusTransform
     :members:
     :undoc-members:
     :show-inheritance:

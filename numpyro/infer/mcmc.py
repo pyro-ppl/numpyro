@@ -200,7 +200,8 @@ class MCMC(object):
 
     .. note:: `chain_method` is an experimental arg, which might be removed in a future version.
 
-    .. note:: Setting `progress_bar=False` will improve the speed for many cases.
+    .. note:: Setting `progress_bar=False` will improve the speed for many cases. But it might
+        require more memory than the other option.
 
     :param MCMCKernel sampler: an instance of :class:`~numpyro.infer.mcmc.MCMCKernel` that
         determines the sampler for running MCMC. Currently, only :class:`~numpyro.infer.hmc.HMC`

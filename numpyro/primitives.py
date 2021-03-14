@@ -15,7 +15,6 @@ from numpyro.util import identity
 
 _PYRO_STACK = []
 
-
 CondIndepStackFrame = namedtuple('CondIndepStackFrame', ['name', 'dim', 'size'])
 
 
@@ -38,7 +37,7 @@ def apply_stack(msg):
     # A Messenger that sets msg["stop"] == True also prevents application
     # of postprocess_message by Messengers above it on the stack
     # via the pointer variable from the process_message loop
-    for handler in _PYRO_STACK[-pointer-1:]:
+    for handler in _PYRO_STACK[-pointer - 1:]:
         handler.postprocess_message(msg)
     return msg
 
@@ -81,7 +80,21 @@ class Messenger(object):
             return self.fn(*args, **kwargs)
 
 
-def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None):
+def _masked_observe(name, fn, obs, obs_mask, **kwargs):
+    # Split into two auxiliary sample sites.
+    with numpyro.handlers.mask(mask=obs_mask):
+        observed = sample(f"{name}_observed", fn, **kwargs, obs=obs)
+    with numpyro.handlers.mask(mask=(obs_mask ^ True)):
+        unobserved = sample(f"{name}_unobserved", fn, **kwargs)
+
+    # Interleave observed and unobserved events.
+    shape = jnp.shape(obs_mask) + (1,) * fn.event_dim
+    batch_mask = jnp.reshape(obs_mask, shape)
+    value = jnp.where(batch_mask, observed, unobserved)
+    return deterministic(name, value)
+
+
+def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None, obs_mask=None):
     """
     Returns a random sample from the stochastic function `fn`. This can have
     additional side effects when wrapped inside effect handlers like
@@ -102,11 +115,19 @@ def sample(name, fn, obs=None, rng_key=None, sample_shape=(), infer=None):
         for inference algorithms. For example, if `fn` is a discrete distribution,
         setting `infer={'enumerate': 'parallel'}` to tell MCMC marginalize
         this discrete latent site.
+    :param numpy.ndarray obs_mask: Optional boolean array mask of shape
+        broadcastable with ``fn.batch_shape``. If provided, events with
+        mask=True will be conditioned on ``obs`` and remaining events will be
+        imputed by sampling. This introduces a latent sample site named ``name
+        + "_unobserved"`` which should be used by guides.
     :return: sample from the stochastic `fn`.
     """
     # if there are no active Messengers, we just draw a sample and return it as expected:
     if not _PYRO_STACK:
         return fn(rng_key=rng_key, sample_shape=sample_shape)
+
+    if obs_mask is not None:
+        return _masked_observe(name, fn, obs, obs_mask, rng_key=rng_key, sample_shape=(), infer=infer)
 
     # Otherwise, we initialize a message...
     initial_msg = {
@@ -207,6 +228,49 @@ def deterministic(name, value):
     return msg['value']
 
 
+def _inspect():
+    """
+    EXPERIMENTAL Inspect the Pyro stack.
+
+    .. warning:: The format of the returned message may change at any time and
+        does not guarantee backwards compatibility.
+
+    :returns: A message with mask effects applied.
+    :rtype: dict
+    """
+    # NB: this is different from Pyro that in Pyro, all effects applied.
+    # Here, we only apply mask effect handler.
+    msg = {
+        "type": "inspect",
+        "fn": lambda: True,
+        "args": (),
+        "kwargs": {},
+        "value": None,
+        "mask": None,
+    }
+    apply_stack(msg)
+    return msg
+
+
+def get_mask():
+    """
+    Records the effects of enclosing ``handlers.mask`` handlers.
+    This is useful for avoiding expensive ``numpyro.factor()`` computations during
+    prediction, when the log density need not be computed, e.g.::
+
+        def model():
+            # ...
+            if numpyro.get_mask() is not False:
+                log_density = my_expensive_computation()
+                numpyro.factor("foo", log_density)
+            # ...
+
+    :returns: The mask.
+    :rtype: None, bool, or numpy.ndarray
+    """
+    return _inspect()["mask"]
+
+
 def module(name, nn, input_shape=None):
     """
     Declare a :mod:`~jax.experimental.stax` style neural network inside a
@@ -277,6 +341,7 @@ class plate(Messenger):
         is used as the plate dim. If `None` (default), the leftmost available dim
         is allocated.
     """
+
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         self.size = size
@@ -304,10 +369,11 @@ class plate(Messenger):
         }
         apply_stack(msg)
         subsample = msg['value']
+        subsample_size = msg['args'][1]
         if subsample_size is not None and subsample_size != subsample.shape[0]:
             warnings.warn("subsample_size does not match len(subsample), {} vs {}.".format(
                 subsample_size, len(subsample)) +
-                " Did you accidentally use different subsample_size in the model and guide?")
+                          " Did you accidentally use different subsample_size in the model and guide?")
         cond_indep_stack = msg['cond_indep_stack']
         occupied_dims = {f.dim for f in cond_indep_stack}
         if dim is None:
@@ -355,7 +421,7 @@ class plate(Messenger):
             msg['fn'] = msg['fn'].expand(batch_shape)
         if self.size != self.subsample_size:
             scale = 1. if msg['scale'] is None else msg['scale']
-            msg['scale'] = scale * self.size / self.subsample_size
+            msg['scale'] = scale * (self.size / self.subsample_size if self.subsample_size else 1)
 
     def postprocess_message(self, msg):
         if msg["type"] in ("subsample", "param") and self.dim is not None:

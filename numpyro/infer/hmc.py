@@ -245,8 +245,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
-        hmc_state = HMCState(0, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
-                             0, 0., 0., False, wa_state, rng_key_hmc)
+        hmc_state = HMCState(jnp.array(0), vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
+                             jnp.array(0), jnp.array(0.), jnp.array(0.), jnp.array(False), wa_state, rng_key_hmc)
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
@@ -401,12 +401,13 @@ class HMC(MCMCKernel):
         self._model = model
         self._potential_fn = potential_fn
         self._kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
-        self._step_size = step_size
+        self._step_size = float(step_size) if isinstance(step_size, int) else step_size
         self._adapt_step_size = adapt_step_size
         self._adapt_mass_matrix = adapt_mass_matrix
         self._dense_mass = dense_mass
         self._target_accept_prob = target_accept_prob
-        self._trajectory_length = trajectory_length
+        self._trajectory_length = float(trajectory_length) \
+            if isinstance(trajectory_length, int) else trajectory_length
         self._algo = 'HMC'
         self._max_tree_depth = 10
         self._init_strategy = init_strategy

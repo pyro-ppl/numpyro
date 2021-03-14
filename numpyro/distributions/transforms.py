@@ -29,9 +29,12 @@ __all__ = [
     'biject_to',
     'AbsTransform',
     'AffineTransform',
+    'CholeskyTransform',
     'ComposeTransform',
     'CorrCholeskyTransform',
+    'CorrMatrixCholeskyTransform',
     'ExpTransform',
+    'SoftplusTransform',
     'IdentityTransform',
     'InvCholeskyTransform',
     'LowerCholeskyTransform',
@@ -39,6 +42,8 @@ __all__ = [
     'PermuteTransform',
     'PowerTransform',
     'SigmoidTransform',
+    'SoftplusTransform',
+    'SoftplusLowerCholeskyTransform',
     'StickBreakingTransform',
     'Transform',
     'UnpackTransform',
@@ -315,6 +320,27 @@ def _matrix_inverse_shape(shape, offset=0):
     return shape[:-2] + (N,)
 
 
+class CholeskyTransform(Transform):
+    r"""
+    Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
+    positive definite matrix.
+    """
+    domain = constraints.positive_definite
+    codomain = constraints.lower_cholesky
+
+    def __call__(self, x):
+        return jnp.linalg.cholesky(x)
+
+    def _inverse(self, y):
+        return jnp.matmul(y, jnp.swapaxes(y, -2, -1))
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
+        n = jnp.shape(x)[-1]
+        order = -jnp.arange(n, 0, -1)
+        return -n * jnp.log(2) + jnp.sum(order * jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1)), axis=-1)
+
+
 class CorrCholeskyTransform(Transform):
     r"""
     Transforms a uncontrained real vector :math:`x` with length :math:`D*(D-1)/2` into the
@@ -382,6 +408,21 @@ class CorrCholeskyTransform(Transform):
 
     def inverse_shape(self, shape):
         return _matrix_inverse_shape(shape, offset=-1)
+
+
+class CorrMatrixCholeskyTransform(CholeskyTransform):
+    r"""
+    Transform via the mapping :math:`y = cholesky(x)`, where `x` is a
+    correlation matrix.
+    """
+    domain = constraints.corr_matrix
+    codomain = constraints.corr_cholesky
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # NB: see derivation in LKJCholesky implementation
+        n = jnp.shape(x)[-1]
+        order = -jnp.arange(n - 1, -1, -1)
+        return jnp.sum(order * jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1)), axis=-1)
 
 
 class ExpTransform(Transform):
@@ -477,6 +518,8 @@ class InvCholeskyTransform(Transform):
     """
 
     def __init__(self, domain=constraints.lower_cholesky):
+        warnings.warn("InvCholeskyTransform is deprecated. Please use CholeskyTransform"
+                      " or CorrMatrixCholeskyTransform instead.", FutureWarning)
         assert domain in [constraints.lower_cholesky, constraints.corr_cholesky]
         self.domain = domain
 
@@ -657,6 +700,60 @@ class SigmoidTransform(Transform):
         return -x_abs - 2 * jnp.log1p(jnp.exp(-x_abs))
 
 
+def _softplus_inv(y):
+    return jnp.log(-jnp.expm1(-y)) + y
+
+
+class SoftplusTransform(Transform):
+    r"""
+    Transform from unconstrained space to positive domain via softplus :math:`y = \log(1 + \exp(x))`.
+    The inverse is computed as :math:`x = \log(\exp(y) - 1)`.
+    """
+    domain = constraints.real
+    codomain = constraints.softplus_positive
+
+    def __call__(self, x):
+        return softplus(x)
+
+    def _inverse(self, y):
+        return _softplus_inv(y)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        return -softplus(-x)
+
+
+class SoftplusLowerCholeskyTransform(Transform):
+    """
+    Transform from unconstrained vector to lower-triangular matrices with
+    nonnegative diagonal entries. This is useful for parameterizing positive
+    definite matrices in terms of their Cholesky factorization.
+    """
+    domain = constraints.real_vector
+    codomain = constraints.softplus_lower_cholesky
+
+    def __call__(self, x):
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        z = vec_to_tril_matrix(x[..., :-n], diagonal=-1)
+        diag = softplus(x[..., -n:])
+        return z + jnp.expand_dims(diag, axis=-1) * jnp.identity(n)
+
+    def _inverse(self, y):
+        z = matrix_to_tril_vec(y, diagonal=-1)
+        diag = _softplus_inv(jnp.diagonal(y, axis1=-2, axis2=-1))
+        return jnp.concatenate([z, diag], axis=-1)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
+        n = round((math.sqrt(1 + 8 * x.shape[-1]) - 1) / 2)
+        return -softplus(-x[..., -n:]).sum(-1)
+
+    def forward_shape(self, shape):
+        return _matrix_forward_shape(shape)
+
+    def inverse_shape(self, shape):
+        return _matrix_inverse_shape(shape)
+
+
 class StickBreakingTransform(Transform):
     domain = constraints.real_vector
     codomain = constraints.simplex
@@ -779,7 +876,7 @@ def _transform_to_corr_cholesky(constraint):
 @biject_to.register(constraints.corr_matrix)
 def _transform_to_corr_matrix(constraint):
     return ComposeTransform([CorrCholeskyTransform(),
-                             InvCholeskyTransform(domain=constraints.corr_cholesky)])
+                             CorrMatrixCholeskyTransform().inv])
 
 
 @biject_to.register(constraints.greater_than)
@@ -826,12 +923,27 @@ def _transform_to_ordered_vector(constraint):
 
 @biject_to.register(constraints.positive_definite)
 def _transform_to_positive_definite(constraint):
-    return ComposeTransform([LowerCholeskyTransform(), InvCholeskyTransform()])
+    return ComposeTransform([LowerCholeskyTransform(), CholeskyTransform().inv])
+
+
+@biject_to.register(constraints.positive_ordered_vector)
+def _transform_to_positive_ordered_vector(constraint):
+    return ComposeTransform([OrderedTransform(), ExpTransform()])
 
 
 @biject_to.register(constraints.real)
 def _transform_to_real(constraint):
     return IdentityTransform()
+
+
+@biject_to.register(constraints.softplus_positive)
+def _transform_to_softplus_positive(constraint):
+    return SoftplusTransform()
+
+
+@biject_to.register(constraints.softplus_lower_cholesky)
+def _transform_to_softplus_lower_cholesky(constraint):
+    return SoftplusLowerCholeskyTransform()
 
 
 @biject_to.register(constraints.simplex)

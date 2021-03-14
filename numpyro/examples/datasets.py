@@ -4,11 +4,13 @@
 from collections import namedtuple
 import csv
 import gzip
+import io
 import os
 import pickle
 import struct
 from urllib.parse import urlparse
 from urllib.request import urlretrieve
+import warnings
 import zipfile
 
 import numpy as np
@@ -23,24 +25,19 @@ else:
                                             '.data'))
 os.makedirs(DATA_DIR, exist_ok=True)
 
-
 dset = namedtuple('dset', ['name', 'urls'])
-
 
 BASEBALL = dset('baseball', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt',
 ])
 
-
 COVTYPE = dset('covtype', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip',
 ])
 
-
 DIPPER_VOLE = dset('dipper_vole', [
     'https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true',
 ])
-
 
 MNIST = dset('mnist', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz',
@@ -49,24 +46,24 @@ MNIST = dset('mnist', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz',
 ])
 
-
 SP500 = dset('SP500', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/SP500.csv',
 ])
-
 
 UCBADMIT = dset('ucbadmit', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv',
 ])
 
-
 LYNXHARE = dset('lynxhare', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt',
 ])
 
-
 JSB_CHORALES = dset('jsb_chorales', [
     'https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle',
+])
+
+HIGGS = dset("higgs", [
+    "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz",
 ])
 
 
@@ -240,7 +237,29 @@ def _load_jsb_chorales():
     return processed_dataset
 
 
-def _load(dset):
+def _load_higgs(num_datapoints):
+    warnings.warn("Higgs is a 2.6 GB dataset")
+    _download(HIGGS)
+
+    file_path = os.path.join(DATA_DIR, 'HIGGS.csv.gz')
+    with io.TextIOWrapper(gzip.open(file_path, 'rb')) as f:
+        csv_reader = csv.reader(f, delimiter=',', quoting=csv.QUOTE_NONE)
+        obs = []
+        data = []
+        for i, row in enumerate(csv_reader):
+            obs.append(int(float(row[0])))
+            data.append([float(v) for v in row[1:]])
+            if num_datapoints and i > num_datapoints:
+                break
+    obs = np.stack(obs)
+    data = np.stack(data)
+    n, = obs.shape
+
+    return {'train': (data[:-(n//20)], obs[:-(n//20)]),
+            'test': (data[-(n//20):], obs[-(n//20):])}  # standard split -500_000: as test
+
+
+def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
     elif dset == COVTYPE:
@@ -257,6 +276,8 @@ def _load(dset):
         return _load_lynxhare()
     elif dset == JSB_CHORALES:
         return _load_jsb_chorales()
+    elif dset == HIGGS:
+        return _load_higgs(num_datapoints)
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
@@ -274,8 +295,8 @@ def iter_dataset(dset, batch_size=None, split='train', shuffle=True):
         yield tuple(a[idxs[start_idx:end_idx]] for a in arrays)
 
 
-def load_dataset(dset, batch_size=None, split='train', shuffle=True):
-    arrays = _load(dset)[split]
+def load_dataset(dset, batch_size=None, split='train', shuffle=True, num_datapoints=None):
+    arrays = _load(dset, num_datapoints)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
     if not batch_size:
