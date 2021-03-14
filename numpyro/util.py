@@ -442,8 +442,6 @@ def render_graph(graph_specification):
     """
     Create a graphviz object given a graph specification.
     """
-    # TODO: plate_graph_dict and plate_data assume that "deepest" plates come first. This will break!
-
     try:
         import graphviz  # noqa: F401
     except ImportError as e:
@@ -461,7 +459,6 @@ def render_graph(graph_specification):
     graph = graphviz.Digraph()
 
     # add plates
-    # TODO: order may not always be as expected (parents before children)
     plate_graph_dict = {
         plate: graphviz.Digraph(name=f'cluster_{plate}')
         for plate in plate_groups
@@ -482,9 +479,21 @@ def render_graph(graph_specification):
                 rv, label=rv, shape='circle', style='filled', fillcolor=color
             )
 
-    for plate, data in plate_data.items():
-        parent_plate = data['parent']
-        plate_graph_dict[parent_plate].subgraph(plate_graph_dict[plate])
+    # add leaf nodes first
+    while len(plate_data) >= 1:
+        for plate, data in plate_data.items():
+            parent_plate = data['parent']
+            is_leaf = True
+
+            for plate2, data2 in plate_data.items():
+                if plate == data2['parent']:
+                    is_leaf = False
+                    break
+
+            if is_leaf:
+                plate_graph_dict[parent_plate].subgraph(plate_graph_dict[plate])
+                plate_data.pop(plate)
+                break
 
     # add edges
     for source, target in edge_list:
