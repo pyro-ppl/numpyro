@@ -179,7 +179,6 @@ class SVI(object):
                 batch = max(num_steps // 20, 1)
                 for i in t:
                     svi_state, loss = jit(body_fn)(svi_state, None)
-                    losses.append(loss)
                     if i % batch == 0:
                         avg_loss = sum(losses[i-batch:]) / batch
                         t.set_postfix_str("init loss: {:.4f}, avg. loss [{}-{}]: {:.4f}"
