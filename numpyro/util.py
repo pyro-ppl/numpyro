@@ -183,10 +183,10 @@ def progress_bar_factory(num_samples, num_chains):
     for chain in range(num_chains):
         tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
         tqdm_bars[chain].set_description("Compiling.. ", refresh=True,)
-        tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False,)
 
     def _update_tqdm(arg, transform, device):
         chain = int(str(device)[4:])
+        tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False,)
         tqdm_bars[chain].update(arg)
 
     def _close_tqdm(arg, transform, device):
@@ -202,6 +202,12 @@ def progress_bar_factory(num_samples, num_chains):
         Usage: carry = progress_bar((iter_num, print_rate), carry)
         """
 
+        _ = lax.cond(
+            iter_num == 1,
+            lambda _: host_callback.id_tap(_update_tqdm, 0, result=iter_num, tap_with_device=True),
+            lambda _: iter_num,
+            operand=None,
+        )
         _ = lax.cond(
             iter_num % print_rate == 0,
             lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num, tap_with_device=True),
