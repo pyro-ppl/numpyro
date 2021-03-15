@@ -322,6 +322,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
     """
     # TODO: put import in more sensible location
     from numpyro import handlers
+    import numpyro.distributions as dist
 
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
@@ -329,6 +330,13 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
     trace = handlers.trace(handlers.seed(model, 0)).get_trace(*model_args, **model_kwargs)
     obs_sites = [name for name, site in trace.items()
                  if site['type'] == 'sample' and site['is_observed']]
+
+    def _get_dist_name(fn):
+        if isinstance(fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)):
+            return _get_dist_name(fn.base_dist)
+        return type(fn).__name__
+
+    sample_dist = {name: _get_dist_name(site['fn']) for name, site in trace.items() if site['type'] == 'sample'}
 
     sample_plates = {name: [frame.name for frame in site['cond_indep_stack']]
                      for name, site in trace.items() if site['type'] == 'sample'}
@@ -384,6 +392,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
         sample_sample[name] = [var for var in samples if var in sample_deps[name]]
     return {
         'sample_sample': sample_sample,
+        'sample_dist': sample_dist,
         'plate_sample': plate_samples,
         'observed': obs_sites
     }
@@ -406,6 +415,7 @@ def generate_graph_specification(model_relations):
     for rv in model_relations['sample_sample']:
         node_data[rv] = {
             'is_observed': rv in model_relations['observed'],
+            'distribution': model_relations['sample_dist'][rv],
         }
 
     # infer plate structure
@@ -441,9 +451,11 @@ def generate_graph_specification(model_relations):
     }
 
 
-def render_graph(graph_specification):
+def render_graph(graph_specification, render_distributions=False):
     """
     Create a graphviz object given a graph specification.
+
+    :param bool render_distributions: Show distribution of each RV in plot.
     """
     try:
         import graphviz  # noqa: F401
@@ -502,6 +514,17 @@ def render_graph(graph_specification):
     for source, target in edge_list:
         graph.edge(source, target)
 
+    # render distributions if requested
+    if render_distributions:
+        dist_label = ''
+        for rv, data in node_data.items():
+            rv_dist = data['distribution']
+            dist_label += f'{rv} ~ {rv_dist}\l'
+
+        graph.node(
+            'distribution_description_node', label=dist_label, shape='plaintext'
+        )
+
     # return whole graph
     return graph
 
@@ -511,6 +534,7 @@ def render_model(
     model_args=None,
     model_kwargs=None,
     filename=None,
+    render_distributions=False,
     num_tries=10,
 ):
     """
@@ -526,7 +550,7 @@ def render_model(
         num_tries=num_tries,
     )
     graph_spec = generate_graph_specification(relations)
-    graph = render_graph(graph_spec)
+    graph = render_graph(graph_spec, render_distributions=render_distributions)
 
     if filename is not None:
         filename = Path(filename)

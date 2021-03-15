@@ -41,16 +41,16 @@ def discrete_to_continuous(probs, locs):
         'plate_groups': {'N': ['obs'], None: ['x', 'sd']},
         'plate_data': {'N': {'parent': None}},
         'node_data': {
-            'x': {'is_observed': False},
-            'sd': {'is_observed': False},
-            'obs': {'is_observed': True},
+            'x': {'is_observed': False, 'distribution': 'Normal'},
+            'sd': {'is_observed': False, 'distribution': 'LogNormal'},
+            'obs': {'is_observed': True, 'distribution': 'Normal'},
         },
         'edge_list': [('x', 'sd'), ('x', 'obs'), ('sd', 'obs')],
     }),
     (plate_improper_subsets, dict(), {
         'plate_groups': {'N': ['x'], 'M': ['x'], None: []},
         'plate_data': {'N': {'parent': None}, 'M': {'parent': 'N'}},
-        'node_data': {'x': {'is_observed': False}},
+        'node_data': {'x': {'is_observed': False, 'distribution': 'Normal'}},
         'edge_list': [],
     }),
     (nested_plates, dict(), {
@@ -61,9 +61,9 @@ def discrete_to_continuous(probs, locs):
             'M__CLONE': {'parent': None},
         },
         'node_data': {
-            'x': {'is_observed': False},
-            'y': {'is_observed': False},
-            'z': {'is_observed': False},
+            'x': {'is_observed': False, 'distribution': 'Normal'},
+            'y': {'is_observed': False, 'distribution': 'Normal'},
+            'z': {'is_observed': False, 'distribution': 'Normal'},
         },
         'edge_list': [],
     }),
@@ -74,8 +74,8 @@ def discrete_to_continuous(probs, locs):
             'plate_groups': {None: ['c', 'x']},
             'plate_data': {},
             'node_data': {
-                'c': {'is_observed': False},
-                'x': {'is_observed': False},
+                'c': {'is_observed': False, 'distribution': 'CategoricalProbs'},
+                'x': {'is_observed': False, 'distribution': 'Normal'},
             },
             'edge_list': [('c', 'x')],
         }
