@@ -479,7 +479,7 @@ def render_graph(graph_specification):
         for rv in rv_list:
             color = 'grey' if node_data[rv]['is_observed'] else 'white'
             cur_graph.node(
-                rv, label=rv, shape='circle', style='filled', fillcolor=color
+                rv, label=rv, shape='ellipse', style='filled', fillcolor=color
             )
 
     # add leaf nodes first
