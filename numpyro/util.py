@@ -15,9 +15,9 @@ import jax
 from jax import device_put, jit, lax, ops, vmap
 from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
+from jax.experimental import host_callback
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
-from jax.experimental import host_callback
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 

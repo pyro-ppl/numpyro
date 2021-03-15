@@ -6,16 +6,15 @@ from collections import namedtuple
 import jax
 from jax import random
 from jax.flatten_util import ravel_pytree
+from jax.nn import softplus
 import jax.numpy as jnp
 from jax.scipy.special import expit
-from jax.nn import softplus
 
+from numpyro.infer import init_to_uniform
 from numpyro.infer.hmc_util import warmup_adapter
+from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
-from numpyro.infer import init_to_uniform
-from numpyro.infer.mcmc import MCMCKernel
-
 
 BarkerMHState = namedtuple("BarkerMHState", [
     "i", "z", "potential_energy", "z_grad", "accept_prob", "mean_accept_prob", "adapt_state", "rng_key"])
