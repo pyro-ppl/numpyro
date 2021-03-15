@@ -148,7 +148,7 @@ class SVI(object):
 
     def stable_update(self, svi_state, *args, **kwargs):
         """
-        Similar to :meth:`update` but returning the current state if the
+        Similar to :meth:`update` but returns the current state if the
         the loss or the new state contains invalid values.
 
         :param svi_state: current state of SVI.
