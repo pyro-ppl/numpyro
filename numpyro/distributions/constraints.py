@@ -47,6 +47,8 @@ __all__ = [
     'real_vector',
     'simplex',
     'sphere',
+    'softplus_lower_cholesky',
+    'softplus_positive',
     'unit_interval',
     'Constraint',
 ]
@@ -369,6 +371,19 @@ class _Simplex(Constraint):
         return jax.numpy.full_like(prototype, 1 / prototype.shape[-1])
 
 
+class _SoftplusPositive(_GreaterThan):
+    def __init__(self):
+        super().__init__(lower_bound=0.0)
+
+    def feasible_like(self, prototype):
+        return jax.numpy.full(jax.numpy.shape(prototype), np.log(2))
+
+
+class _SoftplusLowerCholesky(_LowerCholesky):
+    def feasible_like(self, prototype):
+        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]) * np.log(2), prototype.shape)
+
+
 class _Sphere(Constraint):
     """
     Constrain to the Euclidean sphere of any dimension.
@@ -411,5 +426,7 @@ positive_ordered_vector = _PositiveOrderedVector()
 real = _Real()
 real_vector = independent(real, 1)
 simplex = _Simplex()
+softplus_lower_cholesky = _SoftplusLowerCholesky()
+softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
 unit_interval = _Interval(0., 1.)

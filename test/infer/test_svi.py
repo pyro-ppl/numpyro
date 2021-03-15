@@ -65,7 +65,7 @@ def test_beta_bernoulli(elbo):
         svi_state, _ = svi.update(val, data)
         return svi_state
 
-    svi_state = fori_loop(0, 1000, body_fn, svi_state)
+    svi_state = fori_loop(0, 2000, body_fn, svi_state)
     params = svi.get_params(svi_state)
     assert_allclose(params['alpha_q'] / (params['alpha_q'] + params['beta_q']), 0.8, atol=0.05, rtol=0.05)
 
@@ -186,3 +186,19 @@ def test_run_with_small_num_steps(num_steps):
 
     svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
     svi.run(random.PRNGKey(0), num_steps)
+
+
+@pytest.mark.parametrize("stable_run", [True, False])
+def test_stable_run(stable_run):
+
+    def model():
+        var = numpyro.sample("var", dist.Exponential(1))
+        numpyro.sample("obs", dist.Normal(0, jnp.sqrt(var)), obs=0.)
+
+    def guide():
+        loc = numpyro.param("loc", 0.)
+        numpyro.sample("var", dist.Normal(loc, 10))
+
+    svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_run)
+    assert jnp.isfinite(svi_result.params["loc"]) == stable_run

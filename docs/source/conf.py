@@ -188,7 +188,7 @@ sphinx_gallery_conf = {
     'gallery_dirs': ['examples'],
     # only execute files beginning with plot_
     'filename_pattern': '/plot_',
-    'ignore_pattern': '(minipyro|covtype|__init__)',
+    'ignore_pattern': '(minipyro|__init__)',
     # not display Total running time of the script because we do not execute it
     'min_reported_time': 1
 }

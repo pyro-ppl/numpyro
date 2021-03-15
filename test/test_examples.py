@@ -10,7 +10,6 @@ import pytest
 TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
 EXAMPLES_DIR = os.path.join(os.path.dirname(TESTS_DIR), 'examples')
 
-
 EXAMPLES = [
     'annotation.py --model mn',
     'annotation.py --model ds',
@@ -24,6 +23,8 @@ EXAMPLES = [
     'capture_recapture.py --num-samples 4 --num-warmup 1 -m 5',
     'covtype.py --algo HMC --num-samples 10 --num-warmup 10',
     'gp.py --num-samples 10 --num-warmup 10 --num-chains 2',
+    'hmcecs.py --subsample_size 5 --num_svi_steps 1 --num_blocks 1 '
+    '--dataset mock --num_warmup 1 --num_samples 5 --num_datapoints 100',
     'hmm.py --num-samples 100 --num-warmup 100 --num-chains 2',
     'hmm_enum.py -m 1 -t 3 -d 4 --num-warmup 1 -n 4',
     'hmm_enum.py -m 2 -t 3 -d 4 --num-warmup 1 -n 4',
@@ -43,6 +44,7 @@ EXAMPLES = [
 
 @pytest.mark.parametrize('example', EXAMPLES)
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
+@pytest.mark.filterwarnings("ignore:Higgs is a 2.6 GB dataset:UserWarning")
 def test_cpu(example):
     print('Running:\npython examples/{}'.format(example))
     example = example.split()

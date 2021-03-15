@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro.distributions.conjugate import BetaBinomial, DirichletMultinomial, GammaPoisson
-import numpyro.distributions.constraints  # noqa: F401
 from numpyro.distributions.continuous import (
     LKJ,
     Beta,
@@ -17,6 +16,7 @@ from numpyro.distributions.continuous import (
     HalfNormal,
     InverseGamma,
     Laplace,
+    LeftTruncatedDistribution,
     LKJCholesky,
     Logistic,
     LogNormal,
@@ -24,11 +24,13 @@ from numpyro.distributions.continuous import (
     MultivariateNormal,
     Normal,
     Pareto,
+    RightTruncatedDistribution,
     StudentT,
     TruncatedCauchy,
     TruncatedDistribution,
     TruncatedNormal,
     TruncatedPolyaGamma,
+    TwoSidedTruncatedDistribution,
     Uniform
 )
 from numpyro.distributions.directional import ProjectedNormal, VonMises
@@ -64,8 +66,9 @@ from numpyro.distributions.distribution import (
     Unit
 )
 from numpyro.distributions.kl import kl_divergence
-import numpyro.distributions.transforms  # noqa: F401
 from numpyro.distributions.transforms import biject_to
+
+from . import constraints, transforms
 
 __all__ = [
     'biject_to',
@@ -103,9 +106,10 @@ __all__ = [
     'ImproperUniform',
     'Independent',
     'InverseGamma',
-    'Laplace',
     'LKJ',
     'LKJCholesky',
+    'Laplace',
+    'LeftTruncatedDistribution',
     'Logistic',
     'LogNormal',
     'MaskedDistribution',
@@ -120,12 +124,14 @@ __all__ = [
     'Poisson',
     'ProjectedNormal',
     'PRNGIdentity',
+    'RightTruncatedDistribution',
     'StudentT',
     'TransformedDistribution',
     'TruncatedCauchy',
     'TruncatedDistribution',
     'TruncatedNormal',
     'TruncatedPolyaGamma',
+    'TwoSidedTruncatedDistribution',
     'Uniform',
     'Unit',
     'VonMises',

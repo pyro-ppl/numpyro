@@ -92,7 +92,7 @@ def test_logistic_regression(auto_class, Elbo):
 
     def model(data, labels):
         coefs = numpyro.sample('coefs', dist.Normal(jnp.zeros(dim), jnp.ones(dim)))
-        logits = jnp.sum(coefs * data, axis=-1)
+        logits = numpyro.deterministic("logits", jnp.sum(coefs * data, axis=-1))
         return numpyro.sample('obs', dist.Bernoulli(logits=logits), obs=labels)
 
     adam = optim.Adam(0.01)
@@ -183,7 +183,8 @@ def test_uniform_normal():
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
         with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
-            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+            loc = numpyro.sample('loc', dist.TransformedDistribution(
+                dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
@@ -232,10 +233,10 @@ def test_param():
     svi_state = svi.init(rng_key_init)
 
     params = svi.get_params(svi_state)
-    assert_allclose(params['a'], a_init)
-    assert_allclose(params['b'], b_init)
-    assert_allclose(params['auto_loc'], guide._init_latent)
-    assert_allclose(params['auto_scale'], jnp.ones(1) * guide._init_scale)
+    assert_allclose(params['a'], a_init, rtol=1e-6)
+    assert_allclose(params['b'], b_init, rtol=1e-6)
+    assert_allclose(params['auto_loc'], guide._init_latent, rtol=1e-6)
+    assert_allclose(params['auto_scale'], jnp.ones(1) * guide._init_scale, rtol=1e-6)
 
     actual_loss = svi.evaluate(svi_state)
     assert jnp.isfinite(actual_loss)
@@ -251,7 +252,8 @@ def test_dynamic_supports():
     def actual_model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
         with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
-            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+            loc = numpyro.sample('loc', dist.TransformedDistribution(
+                dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     def expected_model(data):

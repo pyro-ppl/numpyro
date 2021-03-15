@@ -1,6 +1,29 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Example: MCMC Methods for Tall Data
+===================================
+
+This example illustrates the usages of various MCMC methods which are suitable for tall data:
+
+    - `algo="SA"` uses the sample adaptive MCMC method in [1]
+    - `algo="HMCECS"` uses the energy conserving subsampling method in [2]
+    - `algo="FlowHMCECS"` utilizes a normalizing flow to neutralize the posterior
+      geometry into a Gaussian-like one. Then HMCECS is used to draw the posterior
+      samples. Currently, this method gives the best mixing rate among those methods.
+
+**References:**
+
+    1. *Sample Adaptive MCMC*,
+       Michael Zhu (2019)
+    2. *Hamiltonian Monte Carlo with energy conserving subsampling*,
+       Dang, K. D., Quiroz, M., Kohn, R., Minh-Ngoc, T., & Villani, M. (2019)
+    3. *NeuTra-lizing Bad Geometry in Hamiltonian Monte Carlo Using Neural Transport*,
+       Hoffman, M. et al. (2019)
+
+"""
+
 import argparse
 import time
 
@@ -14,7 +37,6 @@ import numpyro.distributions as dist
 from numpyro.examples.datasets import COVTYPE, load_dataset
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SA, SVI, Trace_ELBO, init_to_value
 from numpyro.infer.autoguide import AutoBNAFNormal
-from numpyro.infer.hmc_gibbs import taylor_proxy
 from numpyro.infer.reparam import NeuTraReparam
 
 
@@ -81,7 +103,7 @@ def benchmark_hmc(args, features, labels):
                             dense_mass=args.dense_mass)
         # note: if num_blocks=100, we'll update 10 index at each MCMC step
         # so it took 50000 MCMC steps to iterative the whole dataset
-        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=taylor_proxy(ref_params))
+        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=HMCECS.taylor_proxy(ref_params))
     elif args.algo == "SA":
         # NB: this kernel requires large num_warmup and num_samples
         # and running on GPU is much faster than on CPU
@@ -101,7 +123,7 @@ def benchmark_hmc(args, features, labels):
         # no need to adapt mass matrix if the flow does a good job
         inner_kernel = NUTS(neutra_model, init_strategy=init_to_value(values=neutra_ref_params),
                             adapt_mass_matrix=False)
-        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=taylor_proxy(neutra_ref_params))
+        kernel = HMCECS(inner_kernel, num_blocks=100, proxy=HMCECS.taylor_proxy(neutra_ref_params))
     else:
         raise ValueError("Invalid algorithm, either 'HMC', 'NUTS', or 'HMCECS'.")
     mcmc = MCMC(kernel, args.num_warmup, args.num_samples)
@@ -124,7 +146,7 @@ if __name__ == '__main__':
     parser.add_argument('--num-steps', default=10, type=int, help='number of steps (for "HMC")')
     parser.add_argument('--num-chains', nargs='?', default=1, type=int)
     parser.add_argument('--algo', default='HMCECS', type=str,
-                        help='whether to run "HMCECS", "NUTS", "HMCECS", "SA" or "FlowHMCECS"')
+                        help='whether to run "HMC", "NUTS", "HMCECS", "SA" or "FlowHMCECS"')
     parser.add_argument('--dense-mass', action="store_true")
     parser.add_argument('--x64', action="store_true")
     parser.add_argument('--device', default='cpu', type=str, help='use "cpu" or "gpu".')
