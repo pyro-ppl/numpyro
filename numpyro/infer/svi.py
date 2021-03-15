@@ -146,7 +146,25 @@ class SVI(object):
         loss_val, optim_state = self.optim.eval_and_update(loss_fn, svi_state.optim_state)
         return SVIState(optim_state, rng_key), loss_val
 
-    def run(self, rng_key, num_steps, *args, progress_bar=True, **kwargs):
+    def stable_update(self, svi_state, *args, **kwargs):
+        """
+        Similar to :meth:`update` but returning the current state if the
+        the loss or the new state contains invalid values.
+
+        :param svi_state: current state of SVI.
+        :param args: arguments to the model / guide (these can possibly vary during
+            the course of fitting).
+        :param kwargs: keyword arguments to the model / guide (these can possibly vary
+            during the course of fitting).
+        :return: tuple of `(svi_state, loss)`.
+        """
+        rng_key, rng_key_step = random.split(svi_state.rng_key)
+        loss_fn = partial(_apply_loss_fn, self.loss.loss, rng_key_step, self.constrain_fn, self.model,
+                          self.guide, args, kwargs, self.static_kwargs)
+        loss_val, optim_state = self.optim.eval_and_stable_update(loss_fn, svi_state.optim_state)
+        return SVIState(optim_state, rng_key), loss_val
+
+    def run(self, rng_key, num_steps, *args, progress_bar=True, stable_update=False, **kwargs):
         """
         (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return
         the optimized parameters and the stacked losses at every step. If `num_steps`
@@ -162,6 +180,8 @@ class SVI(object):
         :param args: arguments to the model / guide
         :param bool progress_bar: Whether to enable progress bar updates. Defaults to
             ``True``.
+        :param bool stable_update: whether to use :meth:`stable_update` to update
+            the state. Defaults to False.
         :param kwargs: keyword arguments to the model / guide
         :return: a namedtuple with fields `params` and `losses` where `params`
             holds the optimized values at :class:`numpyro.param` sites,
@@ -169,7 +189,10 @@ class SVI(object):
         :rtype: SVIRunResult
         """
         def body_fn(svi_state, carry):
-            svi_state, loss = self.update(svi_state, *args, **kwargs)
+            if stable_update:
+                svi_state, loss = self.stable_update(svi_state, *args, **kwargs)
+            else:
+                svi_state, loss = self.update(svi_state, *args, **kwargs)
             return svi_state, loss
 
         svi_state = self.init(rng_key, *args, **kwargs)
@@ -179,8 +202,17 @@ class SVI(object):
                 batch = max(num_steps // 20, 1)
                 for i in t:
                     svi_state, loss = jit(body_fn)(svi_state, None)
+                    losses.append(loss)
                     if i % batch == 0:
-                        avg_loss = sum(losses[i-batch:]) / batch
+                        if stable_update:
+                            valid_losses = [l for l in losses[i - batch:] if l == l]
+                            num_valid = len(valid_losses)
+                            if num_valid == 0:
+                                avg_loss = float('nan')
+                            else:
+                                avg_loss = sum(valid_losses) / num_valid
+                        else:
+                            avg_loss = sum(losses[i-batch:]) / batch
                         t.set_postfix_str("init loss: {:.4f}, avg. loss [{}-{}]: {:.4f}"
                                           .format(losses[0], i - batch + 1, i, avg_loss),
                                           refresh=False)

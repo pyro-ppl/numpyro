@@ -69,8 +69,19 @@ class _NumPyroOptim(object):
         by reevaluating the function multiple times to get optimal
         parameters.
 
-        .. note:: When the value of objective function or the gradients are not finite,
-            the current state will be kept as-is.
+        :param fn: objective function.
+        :param state: current optimizer state.
+        :return: a pair of the output of objective function and the new optimizer state.
+        """
+        params = self.get_params(state)
+        out, grads = value_and_grad(fn)(params)
+        return out, self.update(grads, state)
+
+    def eval_and_stable_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+        """
+        Likes :meth:`eval_and_update` but when the value of objective function
+        or the gradients are not finite, we will not update the input `state`
+        and will set the objective output to `nan`.
 
         :param fn: objective function.
         :param state: current optimizer state.
@@ -78,10 +89,10 @@ class _NumPyroOptim(object):
         """
         params = self.get_params(state)
         out, grads = value_and_grad(fn)(params)
-        state = lax.cond(jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
-                         lambda _: self.update(grads, state),
-                         lambda _: state,
-                         None)
+        out, state = lax.cond(jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
+                              lambda _: (out, self.update(grads, state)),
+                              lambda _: (jnp.nan, state),
+                              None)
         return out, state
 
     def get_params(self, state: _IterOptState) -> _Params:
