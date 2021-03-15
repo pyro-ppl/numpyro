@@ -344,6 +344,7 @@ class plate(Messenger):
 
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
+        assert size > 0, "size of plate should be positive"
         self.size = size
         if dim is not None and dim >= 0:
             raise ValueError('dim arg must be negative.')
