@@ -9,6 +9,7 @@ import re
 
 import numpy as np
 import tqdm
+from tqdm.auto import tqdm as tqdm_auto
 
 import jax
 from jax import device_put, jit, lax, ops, vmap
@@ -16,6 +17,7 @@ from jax.core import Tracer
 from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
+from jax.experimental import host_callback
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 
@@ -164,6 +166,75 @@ def cached_by(outer_fn, *keys):
     return _wrapped
 
 
+def progress_bar_factory(num_samples, num_chains):
+    """Factory that builds a progress bar decorator along
+    with the `set_tqdm_description` and `close_tqdm` functions
+    """
+
+    if num_samples > 20:
+        print_rate = int(num_samples / 20)
+    else:
+        print_rate = 1
+
+    remainder = num_samples % print_rate
+
+    tqdm_bars = {}
+    finished_chains = []
+    for chain in range(num_chains):
+        tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
+        tqdm_bars[chain].set_description("Compiling.. ", refresh=True,)
+
+    def _update_tqdm(arg, transform, device):
+        chain = int(str(device)[4:])
+        tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False,)
+        tqdm_bars[chain].update(arg)
+
+    def _close_tqdm(arg, transform, device):
+        chain = int(str(device)[4:])
+        tqdm_bars[chain].update(arg)
+        finished_chains.append(chain)
+        if len(finished_chains) == num_chains:
+            for chain in range(num_chains):
+                tqdm_bars[chain].close()
+
+    def _update_progress_bar(iter_num):
+        """Updates tqdm progress bar of a JAX loop only if the iteration number is a multiple of the print_rate
+        Usage: carry = progress_bar((iter_num, print_rate), carry)
+        """
+
+        _ = lax.cond(
+            iter_num == 1,
+            lambda _: host_callback.id_tap(_update_tqdm, 0, result=iter_num, tap_with_device=True),
+            lambda _: iter_num,
+            operand=None,
+        )
+        _ = lax.cond(
+            iter_num % print_rate == 0,
+            lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num, tap_with_device=True),
+            lambda _: iter_num,
+            operand=None,
+        )
+        _ = lax.cond(
+            iter_num == num_samples,
+            lambda _: host_callback.id_tap(_close_tqdm, remainder, result=iter_num, tap_with_device=True),
+            lambda _: iter_num,
+            operand=None,
+        )
+
+    def progress_bar_fori_loop(func):
+        """Decorator that adds a progress bar to `body_fun` used in `lax.fori_loop`.
+        Note that `body_fun` must be looping over a tuple who's first element is `np.arange(num_samples)`.
+        This means that `iter_num` is the current iteration number
+        """
+        def wrapper_progress_bar(i, vals):
+            result = func(i, vals)
+            _update_progress_bar(i + 1)
+            return result
+        return wrapper_progress_bar
+
+    return progress_bar_fori_loop
+
+
 def fori_collect(lower, upper, body_fun, init_val, transform=identity,
                  progbar=True, return_last_val=False, collection_size=None,
                  thinning=1, **progbar_opts):
@@ -206,6 +277,7 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     assert collection_size >= (upper - lower) // thinning
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
+    num_chains = progbar_opts.pop('num_chains', 1)
 
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
@@ -222,6 +294,10 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
         last_val, collection, _, _ = fori_loop(0, upper, _body_fn, (init_val, collection, start_idx, thinning))
+    elif num_chains > 1:
+        progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
+        _body_fn_pbar = progress_bar_fori_loop(_body_fn)
+        last_val, collection, _, _ = fori_loop(0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning))
     else:
         diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
         progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
