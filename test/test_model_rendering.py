@@ -14,6 +14,12 @@ def simple(data):
         numpyro.sample('obs', dist.Normal(x, sd), obs=data)
 
 
+def plate_improper_subsets():
+    with numpyro.plate('N', 10):
+        with numpyro.plate('M', 10):
+            numpyro.sample('x', dist.Normal(0, 1))
+
+
 def nested_plates():
     N_plate = numpyro.plate('N', 10, dim=-2)
     M_plate = numpyro.plate('M', 5, dim=-1)
@@ -40,6 +46,12 @@ def discrete_to_continuous(probs, locs):
             'obs': {'is_observed': True},
         },
         'edge_list': [('x', 'sd'), ('x', 'obs'), ('sd', 'obs')],
+    }),
+    (plate_improper_subsets, dict(), {
+        'plate_groups': {'N': ['x'], 'M': ['x'], None: []},
+        'plate_data': {'N': {'parent': None}, 'M': {'parent': 'N'}},
+        'node_data': {'x': {'is_observed': False}},
+        'edge_list': [],
     }),
     (nested_plates, dict(), {
         'plate_groups': {'N': ['x', 'y'], 'M': ['y'], 'M__CLONE': ['z'], None: []},
