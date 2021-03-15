@@ -205,7 +205,7 @@ class SVI(object):
                     losses.append(loss)
                     if i % batch == 0:
                         if stable_update:
-                            valid_losses = [l for l in losses[i - batch:] if l == l]
+                            valid_losses = [x for x in losses[i - batch:] if x == x]
                             num_valid = len(valid_losses)
                             if num_valid == 0:
                                 avg_loss = float('nan')
