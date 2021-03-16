@@ -15,12 +15,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions import constraints
-from numpyro.distributions.util import (
-    matrix_to_tril_vec,
-    signed_stick_breaking_tril,
-    sum_rightmost,
-    vec_to_tril_matrix
-)
+from numpyro.distributions.util import matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost, vec_to_tril_matrix
 from numpyro.util import not_jax_tracer
 
 __all__ = [

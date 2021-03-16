@@ -4,14 +4,13 @@
 from collections import namedtuple
 from functools import partial
 
-from jax import jacfwd, grad, lax, ops, random
+from jax import grad, jacfwd, lax, ops, random
 import jax.numpy as jnp
 
 from numpyro.infer.hmc import momentum_generator
 from numpyro.infer.hmc_gibbs import DiscreteHMCGibbs
 from numpyro.infer.hmc_util import euclidean_kinetic_energy, warmup_adapter
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
-
 
 MixedHMCState = namedtuple("MixedHMCState", "z, hmc_state, rng_key, accept_prob")
 
