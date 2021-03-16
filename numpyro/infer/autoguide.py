@@ -287,15 +287,15 @@ class AutoDelta(AutoGuide):
     """
     def __init__(self, model, *, prefix='auto', init_loc_fn=init_to_median,
                  create_plates=None):
-        self.init_loc_fn = init_loc_fn
         self._event_dims = {}
         super().__init__(model, prefix=prefix, init_loc_fn=init_loc_fn, create_plates=create_plates)
 
     def _setup_prototype(self, *args, **kwargs):
         super()._setup_prototype(*args, **kwargs)
-        self._init_locs = {
-            k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs
-        }
+        with numpyro.handlers.block():
+            self._init_locs = {
+                k: v for k, v in self._postprocess_fn(self._init_locs).items() if k in self._init_locs
+            }
         for name, site in self.prototype_trace.items():
             if site["type"] != "sample" or site["is_observed"]:
                 continue
@@ -416,10 +416,13 @@ class AutoContinuous(AutoGuide):
             site = self.prototype_trace[name]
             transform = biject_to(site['fn'].support)
             value = transform(unconstrained_value)
-            log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
-            event_ndim = site['fn'].event_dim
-            log_density = sum_rightmost(log_density,
-                                        jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
+            if numpyro.get_mask() is False:
+                log_density = 0.
+            else:
+                log_density = - transform.log_abs_det_jacobian(unconstrained_value, value)
+                event_ndim = site['fn'].event_dim
+                log_density = sum_rightmost(log_density,
+                                            jnp.ndim(log_density) - jnp.ndim(value) + event_ndim)
             delta_dist = dist.Delta(value, log_density=log_density, event_dim=event_ndim)
             result[name] = numpyro.sample(name, delta_dist)
 

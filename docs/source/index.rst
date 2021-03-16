@@ -51,6 +51,7 @@ NumPyro documentation
    examples/sparse_regression
    examples/proportion_test
    examples/ucbadmit
+   examples/hmcecs
    examples/hmm
    examples/ode
    examples/neutra

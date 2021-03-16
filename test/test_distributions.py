@@ -392,11 +392,11 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
 def test_infer_shapes(jax_dist, sp_dist, params, prepend_shape):
     shapes = tuple(getattr(p, "shape", ()) for p in params)
     shapes = tuple(x() if callable(x) else x for x in shapes)
-    try:
-        expected_batch_shape, expected_event_shape = jax_dist.infer_shapes(*shapes)
-    except NotImplementedError:
-        pytest.skip(f'{jax_dist.__name__}.infer_shapes() is not implemented')
     jax_dist = jax_dist(*params)
+    try:
+        expected_batch_shape, expected_event_shape = type(jax_dist).infer_shapes(*shapes)
+    except NotImplementedError:
+        pytest.skip(f'{type(jax_dist).__name__}.infer_shapes() is not implemented')
     assert jax_dist.batch_shape == expected_batch_shape
     assert jax_dist.event_shape == expected_event_shape
 
@@ -450,18 +450,25 @@ def test_sample_gradient(jax_dist, sp_dist, params):
         "Gamma": ["concentration"],
         "Beta": ["concentration1", "concentration0"],
         "Chi2": ["df"],
+        "Dirichlet": ["concentration"],
         "InverseGamma": ["concentration"],
         "LKJ": ["concentration"],
         "LKJCholesky": ["concentration"],
         "StudentT": ["df"]
     }.get(jax_dist.__name__, [])
-    reparameterized_params = [p for p in jax_dist.reparametrized_params
+
+    dist_args = [p for p in (
+        inspect.getfullargspec(jax_dist.__init__)[0][1:] if inspect.isclass(jax_dist)
+        # account the the case jax_dist is a function
+        else inspect.getfullargspec(jax_dist)[0])]
+    params_dict = dict(zip(dist_args[:len(params)], params))
+
+    jax_class = type(jax_dist(**params_dict))
+    reparameterized_params = [p for p in jax_class.reparametrized_params
                               if p not in gamma_derived_params]
     if not reparameterized_params:
-        pytest.skip('{} not reparametrized.'.format(jax_dist.__name__))
+        pytest.skip('{} not reparametrized.'.format(jax_class.__name__))
 
-    dist_args = [p for p in inspect.getfullargspec(jax_dist.__init__)[0][1:]]
-    params_dict = dict(zip(dist_args[:len(params)], params))
     nonrepara_params_dict = {k: v for k, v in params_dict.items()
                              if k not in reparameterized_params}
     repara_params = tuple(v for k, v in params_dict.items()
@@ -531,12 +538,21 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     rng_key = random.PRNGKey(0)
     samples = jax_dist.sample(key=rng_key, sample_shape=prepend_shape)
     assert jax_dist.log_prob(samples).shape == prepend_shape + jax_dist.batch_shape
-    if not sp_dist:
-        if isinstance(jax_dist, dist.TruncatedCauchy) or isinstance(jax_dist, dist.TruncatedNormal):
-            low, loc, scale = params
-            high = jnp.inf
-            sp_dist = osp.cauchy if isinstance(jax_dist, dist.TruncatedCauchy) else osp.norm
-            sp_dist = sp_dist(loc, scale)
+    if sp_dist is None:
+        if isinstance(jax_dist, (dist.LeftTruncatedDistribution, dist.RightTruncatedDistribution,
+                                 dist.TwoSidedTruncatedDistribution)):
+            if isinstance(params[0], dist.Distribution):
+                # new api
+                loc, scale, low, high = params[0].loc, params[0].scale, params[1], params[2]
+                if low is None:
+                    low = -np.inf
+                if high is None:
+                    high = np.inf
+            else:
+                # old api
+                low, loc, scale = params
+                high = jnp.inf
+            sp_dist = _DIST_MAP[type(jax_dist.base_dist)](loc, scale)
             expected = sp_dist.logpdf(samples) - jnp.log(sp_dist.cdf(high) - sp_dist.cdf(low))
             assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
             return
@@ -820,7 +836,8 @@ def test_log_prob_gradient(jax_dist, sp_dist, params):
 def test_mean_var(jax_dist, sp_dist, params):
     if jax_dist is _ImproperWrapper:
         pytest.skip("Improper distribution does not has mean/var implemented")
-    if jax_dist in (_TruncatedNormal, dist.continuous.TwoSidedTruncatedDistribution):
+    if jax_dist in (_TruncatedNormal, dist.LeftTruncatedDistribution, dist.RightTruncatedDistribution,
+                    dist.TwoSidedTruncatedDistribution):
         pytest.skip("Truncated distributions do not has mean/var implemented")
     if jax_dist is dist.ProjectedNormal:
         pytest.skip("Mean is defined in submanifold")

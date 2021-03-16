@@ -237,7 +237,7 @@ def _load_jsb_chorales():
     return processed_dataset
 
 
-def _load_higgs():
+def _load_higgs(num_datapoints):
     warnings.warn("Higgs is a 2.6 GB dataset")
     _download(HIGGS)
 
@@ -246,13 +246,20 @@ def _load_higgs():
         csv_reader = csv.reader(f, delimiter=',', quoting=csv.QUOTE_NONE)
         obs = []
         data = []
-        for row in csv_reader:
-            obs.append(row[0])
-            data.append(row[1:])
-    return np.stack(obs), np.stack(data)
+        for i, row in enumerate(csv_reader):
+            obs.append(int(float(row[0])))
+            data.append([float(v) for v in row[1:]])
+            if num_datapoints and i > num_datapoints:
+                break
+    obs = np.stack(obs)
+    data = np.stack(data)
+    n, = obs.shape
+
+    return {'train': (data[:-(n//20)], obs[:-(n//20)]),
+            'test': (data[-(n//20):], obs[-(n//20):])}  # standard split -500_000: as test
 
 
-def _load(dset):
+def _load(dset, num_datapoints=-1):
     if dset == BASEBALL:
         return _load_baseball()
     elif dset == COVTYPE:
@@ -270,7 +277,7 @@ def _load(dset):
     elif dset == JSB_CHORALES:
         return _load_jsb_chorales()
     elif dset == HIGGS:
-        return _load_higgs()
+        return _load_higgs(num_datapoints)
     raise ValueError('Dataset - {} not found.'.format(dset.name))
 
 
@@ -288,8 +295,8 @@ def iter_dataset(dset, batch_size=None, split='train', shuffle=True):
         yield tuple(a[idxs[start_idx:end_idx]] for a in arrays)
 
 
-def load_dataset(dset, batch_size=None, split='train', shuffle=True):
-    arrays = _load(dset)[split]
+def load_dataset(dset, batch_size=None, split='train', shuffle=True, num_datapoints=None):
+    arrays = _load(dset, num_datapoints)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
     if not batch_size:

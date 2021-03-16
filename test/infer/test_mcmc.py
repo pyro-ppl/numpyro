@@ -120,7 +120,8 @@ def test_uniform_normal(forward_mode_differentiation):
     def model(data):
         alpha = numpyro.sample('alpha', dist.Uniform(0, 1))
         with numpyro.handlers.reparam(config={'loc': TransformReparam()}):
-            loc = numpyro.sample('loc', dist.Uniform(0, alpha))
+            loc = numpyro.sample('loc', dist.TransformedDistribution(
+                dist.Uniform(0, 1), AffineTransform(0, alpha)))
         numpyro.sample('obs', dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))

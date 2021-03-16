@@ -14,7 +14,6 @@ from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import HMC, HMCECS, MCMC, NUTS, DiscreteHMCGibbs, HMCGibbs, MixedHMC
-from numpyro.infer.hmc_gibbs import taylor_proxy
 from numpyro.infer.util import log_density
 
 
@@ -274,7 +273,7 @@ def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
             numpyro.sample("obs", dist.Normal(mean, 1), obs=sub_data)
 
     ref_params = {'mean': true_loc + dist.Normal(true_loc, 5e-2).sample(random.PRNGKey(0))}
-    proxy_fn = taylor_proxy(ref_params)
+    proxy_fn = HMCECS.taylor_proxy(ref_params)
 
     kernel = HMCECS(kernel_cls(model), proxy=proxy_fn)
     mcmc = MCMC(kernel, num_warmup, num_samples)
@@ -309,7 +308,7 @@ def test_taylor_proxy_norm(subsample_size):
     tr = numpyro.handlers.trace(numpyro.handlers.seed(model, tr_key)).get_trace(data, subsample_size)
     plate_sizes = {'data': (n, subsample_size)}
 
-    proxy_constructor = taylor_proxy({'mean': ref_params})
+    proxy_constructor = HMCECS.taylor_proxy({'mean': ref_params})
     proxy_fn, gibbs_init, gibbs_update = proxy_constructor(tr, plate_sizes, model, (data, subsample_size), {})
 
     def taylor_expand_2nd_order(idx, pos):
@@ -347,7 +346,7 @@ def test_estimate_likelihood(kernel_cls):
         with numpyro.plate('N', data.shape[0], subsample_size=100, dim=-2) as idx:
             numpyro.sample('obs', dist.Normal(mean, sigma), obs=data[idx])
 
-    proxy_fn = taylor_proxy({'mean': ref_params})
+    proxy_fn = HMCECS.taylor_proxy({'mean': ref_params})
     kernel = HMCECS(kernel_cls(model), proxy=proxy_fn, num_blocks=num_blocks)
     mcmc = MCMC(kernel, num_warmup, num_samples)
 

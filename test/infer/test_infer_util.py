@@ -7,7 +7,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import lax, random
+from jax import random
 import jax.numpy as jnp
 
 import numpyro
@@ -88,14 +88,8 @@ def test_predictive_with_guide():
         numpyro.sample("beta", dist.Beta(alpha_q, beta_q))
 
     svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(1), data)
-
-    def body_fn(i, val):
-        svi_state, _ = svi.update(val, data)
-        return svi_state
-
-    svi_state = lax.fori_loop(0, 1000, body_fn, svi_state)
-    params = svi.get_params(svi_state)
+    svi_result = svi.run(random.PRNGKey(1), 3000, data)
+    params = svi_result.params
     predictive = Predictive(model, guide=guide, params=params, num_samples=1000)(random.PRNGKey(2), data=None)
     assert predictive["beta_sq"].shape == (1000,)
     obs_pred = predictive["obs"].astype(np.float32)
@@ -284,3 +278,47 @@ def test_improper_expand(event_shape):
 
     model_info = initialize_model(random.PRNGKey(0), model)
     assert model_info.param_info.z['incidence'].shape == (3,) + event_shape
+
+
+def test_get_mask_optimization():
+
+    def model():
+        with numpyro.handlers.seed(rng_seed=0):
+            x = numpyro.sample("x", dist.Normal(0, 1))
+            numpyro.sample("y", dist.Normal(x, 1), obs=0.)
+            called.add("model-always")
+            if numpyro.get_mask() is not False:
+                called.add("model-sometimes")
+                numpyro.factor("f", x + 1)
+
+    def guide():
+        with numpyro.handlers.seed(rng_seed=1):
+            x = numpyro.sample("x", dist.Normal(0, 1))
+            called.add("guide-always")
+            if numpyro.get_mask() is not False:
+                called.add("guide-sometimes")
+                numpyro.factor("g", 2 - x)
+
+    called = set()
+    trace = handlers.trace(guide).get_trace()
+    handlers.replay(model, trace)()
+    assert "model-always" in called
+    assert "guide-always" in called
+    assert "model-sometimes" in called
+    assert "guide-sometimes" in called
+
+    called = set()
+    with handlers.mask(mask=False):
+        trace = handlers.trace(guide).get_trace()
+        handlers.replay(model, trace)()
+    assert "model-always" in called
+    assert "guide-always" in called
+    assert "model-sometimes" not in called
+    assert "guide-sometimes" not in called
+
+    called = set()
+    Predictive(model, guide=guide, num_samples=2, parallel=True)(random.PRNGKey(2))
+    assert "model-always" in called
+    assert "guide-always" in called
+    assert "model-sometimes" not in called
+    assert "guide-sometimes" not in called

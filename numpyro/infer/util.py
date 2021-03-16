@@ -490,6 +490,8 @@ def initialize_model(rng_key, model,
 
 def _predictive(rng_key, model, posterior_samples, batch_shape, return_sites=None,
                 parallel=True, model_args=(), model_kwargs={}):
+    model = numpyro.handlers.mask(model, mask=False)
+
     def single_prediction(val):
         rng_key, samples = val
         model_trace = trace(seed(substitute(model, samples), rng_key)).get_trace(

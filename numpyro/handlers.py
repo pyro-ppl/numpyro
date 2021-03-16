@@ -484,6 +484,8 @@ class mask(Messenger):
 
     def process_message(self, msg):
         if msg['type'] != 'sample':
+            if msg["type"] == "inspect":
+                msg["mask"] = self.mask if msg["mask"] is None else (self.mask & msg["mask"])
             return
 
         msg['fn'] = msg['fn'].mask(self.mask)

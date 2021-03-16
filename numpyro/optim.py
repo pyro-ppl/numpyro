@@ -10,7 +10,7 @@ suited for working with NumPyro inference algorithms.
 from collections import namedtuple
 from typing import Callable, Tuple, TypeVar
 
-from jax import value_and_grad
+from jax import lax, value_and_grad
 from jax.experimental import optimizers
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
@@ -76,6 +76,24 @@ class _NumPyroOptim(object):
         params = self.get_params(state)
         out, grads = value_and_grad(fn)(params)
         return out, self.update(grads, state)
+
+    def eval_and_stable_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+        """
+        Like :meth:`eval_and_update` but when the value of the objective function
+        or the gradients are not finite, we will not update the input `state`
+        and will set the objective output to `nan`.
+
+        :param fn: objective function.
+        :param state: current optimizer state.
+        :return: a pair of the output of objective function and the new optimizer state.
+        """
+        params = self.get_params(state)
+        out, grads = value_and_grad(fn)(params)
+        out, state = lax.cond(jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
+                              lambda _: (out, self.update(grads, state)),
+                              lambda _: (jnp.nan, state),
+                              None)
+        return out, state
 
     def get_params(self, state: _IterOptState) -> _Params:
         """
