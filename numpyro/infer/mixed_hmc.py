@@ -34,10 +34,11 @@ class MixedHMC(DiscreteHMCGibbs):
     :param int num_discrete_updates: Number of times to update discrete variables.
         Defaults to the number of discrete latent variables.
     :param bool random_walk: If False, Gibbs sampling will be used to draw a sample from the
-        conditional `p(gibbs_site | remaining sites)`. Otherwise, a sample will be drawn uniformly
+        conditional `p(gibbs_site | remaining sites)`, where `gibbs_site` is one of the
+        discrete sample sites in the model. Otherwise, a sample will be drawn uniformly
         from the domain of `gibbs_site`. Defaults to False.
     :param bool modified: whether to use a modified proposal, as suggested in reference [2], which
-        always proposes a new state for the current Gibbs site. Defaults to True.
+        always proposes a new state for the current Gibbs site (i.e. discrete site). Defaults to True.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
 
@@ -61,9 +62,10 @@ class MixedHMC(DiscreteHMCGibbs):
         >>> mcmc = MCMC(kernel, 1000, 100000, progress_bar=False)
         >>> mcmc.run(random.PRNGKey(0), probs, locs)
         >>> mcmc.print_summary()  # doctest: +SKIP
-        >>> samples = mcmc.get_samples()["x"]
-        >>> assert abs(jnp.mean(samples) - 1.3) < 0.1
-        >>> assert abs(jnp.var(samples) - 4.36) < 0.5
+        >>> samples = mcmc.get_samples()
+        >>> assert "x" in samples and "c" in samples
+        >>> assert abs(jnp.mean(samples["x"]) - 1.3) < 0.1
+        >>> assert abs(jnp.var(samples["x"]) - 4.36) < 0.5
     """
 
     def __init__(self, inner_kernel, *, num_discrete_updates=None, random_walk=False, modified=False):
@@ -147,7 +149,7 @@ class MixedHMC(DiscreteHMCGibbs):
             arrival_times = ops.index_update(arrival_times, idx, 1.)
 
             # this is a trick, so that in a sub-trajectory of HMC, we always accept the new proposal
-            pe = jnp.inf if self.inner_kernel._algo == "HMC" else hmc_state.potential_energy
+            pe = jnp.inf
             hmc_state = hmc_state._replace(trajectory_length=trajectory_length, potential_energy=pe)
             # Algo 1, line 7: perform a sub-trajectory
             hmc_state = update_continuous(hmc_state, z_discrete)
