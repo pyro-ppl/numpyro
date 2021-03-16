@@ -6,8 +6,9 @@ from functools import namedtuple, partial
 import tqdm
 
 import jax
-from jax import jit, lax, random, grad, vmap
+from jax import jit, lax, random, grad, vmap, tree_map
 import jax.numpy as jnp
+from jax.flatten_util import ravel_pytree
 
 import numpyro
 import numpyro.distributions as dist
@@ -43,21 +44,21 @@ class PF(object):
 
         :return: the initial :data:`PFState`
         """
-        rng_key, rng_key_init_model = random.split(rng_key)
+        rng_key = random.split(rng_key, self.num_particles)
         with block():
-            init_params, potential_fn, self._postprocess_fn, self.prototype_trace = initialize_model(
-                rng_key_init_model, self.model,
+            batch_init_params, potential_fn, self._postprocess_fn, self.prototype_trace = initialize_model(
+                rng_key, self.model,
                 init_strategy=self.init_loc_fn,
                 dynamic_args=False,
                 model_args=args,
                 model_kwargs=kwargs)
 
-        init_params, self._unravel_fn = jax.flatten_util.ravel_pytree(init_params[0])
+        _, self._unravel_fn = jax.flatten_util.ravel_pytree(tree_map(lambda x: x[0], batch_init_params.z))
+        batch_init_params = vmap(lambda x: ravel_pytree(x)[0])(batch_init_params.z)
         self._potential_fn = lambda x: potential_fn(self._unravel_fn(x))
-        self.latent_dim = init_params.shape[0]
-        particles = random.normal(rng_key, shape=(self.num_particles, self.latent_dim))
+        self.latent_dim = batch_init_params.shape[1]
 
-        return PFState(particles, self.lr)
+        return PFState(batch_init_params, self.lr)
 
     def get_params(self, pf_state):
         """
