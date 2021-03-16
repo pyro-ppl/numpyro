@@ -541,6 +541,10 @@ def render_model(
     """
     Wrap all functions needed to automatically render a model.
 
+    .. warning:: This utility does not support the :func:~numpyro.contrib.control_flow.scan primitive yet.
+
+    .. warning:: Currently, this utility uses a heuristic approach, which will work for most cases, to detect dependencies in a NumPyro model.
+
     :param model: Model to render.
     :param model_args: Positional arguments to pass to the model.
     :param model_kwargs: Keyword arguments to pass to the model.
