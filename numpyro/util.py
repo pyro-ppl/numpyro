@@ -541,7 +541,11 @@ def render_model(
     Wrap all functions needed to automatically render a model.
 
     :param model: Model to render.
+    :param model_args: Positional arguments to pass to the model.
+    :param model_kwargs: Keyword arguments to pass to the model.
     :param str filename: File to save rendered model in.
+    :param bool render_distributions: Whether to include RV distribution annotations in the plot.
+    :param int num_tries: Times to trace model to detect discrete -> continuous dependency.
     """
     relations = get_model_relations(
         model,
