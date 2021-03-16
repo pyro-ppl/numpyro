@@ -203,7 +203,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             randomness.
 
         """
-        init_params = tree_map(lambda x: lax.convert_element_type(x, jnp.result_type(x)), init_params)
         step_size = lax.convert_element_type(step_size, jnp.result_type(float))
         nonlocal wa_update, trajectory_len, max_treedepth, vv_update, wa_steps, forward_mode_ad
         forward_mode_ad = forward_mode_differentiation

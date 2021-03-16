@@ -470,6 +470,7 @@ class MCMC(object):
             See https://jax.readthedocs.io/en/latest/async_dispatch.html and
             https://jax.readthedocs.io/en/latest/profiling.html for pointers on profiling jax programs.
         """
+        init_params = tree_map(lambda x: lax.convert_element_type(x, jnp.result_type(x)), init_params)
         self._args = args
         self._kwargs = kwargs
         init_state = self._get_cached_init_state(rng_key, args, kwargs)
