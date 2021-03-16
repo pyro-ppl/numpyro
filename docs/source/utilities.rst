@@ -93,3 +93,10 @@ Tensor Indexing
     :undoc-members:
     :show-inheritance:
     :member-order: bysource
+
+Visualization Utilities
+=======================
+
+render_model
+------------
+.. autofunction:: numpyro.util.render_model
