@@ -5,7 +5,7 @@ from collections import namedtuple
 import math
 import os
 
-from jax import device_put, lax, partial, random, tree_map, vmap
+from jax import device_put, lax, partial, random, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -21,7 +21,8 @@ from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
 from numpyro.util import cond, fori_loop, identity
 
-HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
+HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy',
+                                   'r', 'trajectory_length', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
@@ -32,6 +33,10 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **z_grad** - Gradient of potential energy w.r.t. latent sample sites.
  - **potential_energy** - Potential energy computed at the given value of ``z``.
  - **energy** - Sum of potential energy and kinetic energy of the current state.
+ - **r** - The current momentum variable. If this is None, a new momentum variable
+   will be drawn at the beginning of each sampling step.
+ - **trajectory_length** - The amount of time to run HMC dynamics in each sampling step.
+   This field is not used in NUTS.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
    In NUTS sampler, the tree depth of a trajectory can be computed from this field
    with `tree_depth = np.log2(num_steps).astype(int) + 1`.
@@ -55,7 +60,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
 
 def _get_num_steps(step_size, trajectory_length):
-    num_steps = jnp.clip(trajectory_length / step_size, a_min=1)
+    num_steps = jnp.ceil(trajectory_length / step_size)
     # NB: casting to jnp.int64 does not take effect (returns jnp.int32 instead)
     # if jax_enable_x64 is False
     return num_steps.astype(jnp.result_type(int))
@@ -145,7 +150,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
     if kinetic_fn is None:
         kinetic_fn = euclidean_kinetic_energy
     vv_update = None
-    trajectory_len = None
     max_treedepth = None
     wa_update = None
     wa_steps = None
@@ -204,10 +208,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
 
         """
         step_size = lax.convert_element_type(step_size, jnp.result_type(float))
-        nonlocal wa_update, trajectory_len, max_treedepth, vv_update, wa_steps, forward_mode_ad
+        trajectory_length = lax.convert_element_type(trajectory_length, jnp.result_type(float))
+        nonlocal wa_update, max_treedepth, vv_update, wa_steps, forward_mode_ad
         forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
-        trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
         if isinstance(init_params, ParamInfo):
             z, pe, z_grad = init_params
@@ -245,17 +249,24 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(jnp.array(0), vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
+                             None, trajectory_length,
                              jnp.array(0), jnp.zeros(()), jnp.zeros(()), jnp.array(False), wa_state, rng_key_hmc)
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
-                  model_args, model_kwargs, rng_key):
+                  model_args, model_kwargs, rng_key, trajectory_length):
         if potential_fn_gen:
             nonlocal vv_update, forward_mode_ad
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
 
-        num_steps = _get_num_steps(step_size, trajectory_len)
+        # no need to spend too many steps if the state z has 0 size (i.e. z is empty)
+        if inverse_mass_matrix.shape[0] == 0:
+            num_steps = 1
+        else:
+            num_steps = _get_num_steps(step_size, trajectory_length)
+        # makes sure trajectory length is constant, rather than step_size * num_steps
+        step_size = trajectory_length / num_steps
         vv_state_new = fori_loop(0, num_steps,
                                  lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
                                  vv_state)
@@ -272,7 +283,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         return vv_state, energy, num_steps, accept_prob, diverging
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state,
-                   model_args, model_kwargs, rng_key):
+                   model_args, model_kwargs, rng_key, trajectory_length):
         if potential_fn_gen:
             nonlocal vv_update, forward_mode_ad
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
@@ -306,14 +317,16 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         """
         model_kwargs = {} if model_kwargs is None else model_kwargs
         rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
-        r = momentum_generator(hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
+        r = momentum_generator(hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum) \
+            if hmc_state.r is None else hmc_state.r
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
                                                                     hmc_state.adapt_state.inverse_mass_matrix,
                                                                     vv_state,
                                                                     model_args,
                                                                     model_kwargs,
-                                                                    rng_key_transition)
+                                                                    rng_key_transition,
+                                                                    hmc_state.trajectory_length)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
                            (hmc_state.i, accept_prob, vv_state, hmc_state.adapt_state),
@@ -325,7 +338,9 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         n = jnp.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
 
-        return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy, num_steps,
+        r = vv_state.r if hmc_state.r is not None else None
+        return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
+                        r, hmc_state.trajectory_length, num_steps,
                         accept_prob, mean_accept_prob, diverging, adapt_state, rng_key)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
