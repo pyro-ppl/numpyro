@@ -4,7 +4,6 @@
 from numpy.testing import assert_allclose
 import pytest
 
-from jax import lax
 import jax.numpy as jnp
 from jax.test_util import check_eq
 from jax.tree_util import tree_flatten, tree_multimap
