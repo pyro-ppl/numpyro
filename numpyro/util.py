@@ -419,8 +419,8 @@ def generate_graph_specification(model_relations):
         }
 
     # infer plate structure
-    # TODO: when order of plates cannot be determined from ubset relations,
-    # the order follows the order in which plates appear in trace.
+    # (when the order of plates cannot be determined from subset relations,
+    # it follows the order in which plates appear in trace)
     plate_data = {}
     for plate1, plate2 in list(itertools.combinations(plate_groups, 2)):
         if plate1 is None or plate2 is None:
