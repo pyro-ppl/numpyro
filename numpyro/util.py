@@ -461,7 +461,8 @@ def render_graph(graph_specification, render_distributions=False):
         import graphviz  # noqa: F401
     except ImportError as e:
         raise ImportError(
-            'Looks like you want to use graphviz to render your model. '
+            'Looks like you want to use graphviz (https://graphviz.org/) '
+            'to render your model. '
             'You need to install `graphviz` to be able to use this feature. '
             'It can be installed with `pip install graphviz`.'
         ) from e
