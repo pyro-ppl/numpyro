@@ -13,6 +13,7 @@ from numpyro.infer.initialization import (
 )
 from numpyro.infer.barker import BarkerMH
 from numpyro.infer.mcmc import MCMC
+from numpyro.infer.mixed_hmc import MixedHMC
 from numpyro.infer.sa import SA
 from numpyro.infer.svi import SVI
 from numpyro.infer.util import Predictive, log_likelihood
@@ -35,6 +36,7 @@ __all__ = [
     'HMCECS',
     'HMCGibbs',
     'MCMC',
+    'MixedHMC',
     'NUTS',
     'Predictive',
     'RenyiELBO',
