@@ -131,7 +131,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith('0.6.0')
     parser = argparse.ArgumentParser(description='UCBadmit gender discrimination using HMC')
     parser.add_argument('-n', '--num-samples', nargs='?', default=2000, type=int)
     parser.add_argument('--num-warmup', nargs='?', default=500, type=int)

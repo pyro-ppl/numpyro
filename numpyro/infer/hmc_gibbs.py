@@ -478,7 +478,7 @@ class HMCECS(HMCGibbs):
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
     :param int num_blocks: Number of blocks to partition subsample into.
-    :param proxy: Either :function `~numpyro.infer.hmc_gibbs.taylor_proxy` for likelihood estimation,
+    :param proxy: Either :func:`~numpyro.infer.hmc_gibbs.taylor_proxy` for likelihood estimation,
                   or, None for naive (in-between trajectory) subsampling as outlined in [4].
 
     **Example**

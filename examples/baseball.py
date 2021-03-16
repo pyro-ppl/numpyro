@@ -196,7 +196,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith("0.6.0")
+    assert numpyro.__version__.startswith('0.6.0')
     parser = argparse.ArgumentParser(description="Baseball batting average using MCMC")
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs='?', default=1500, type=int)

@@ -574,6 +574,14 @@ real_vector
 -----------
 .. autodata:: numpyro.distributions.constraints.real_vector
 
+softplus_positive
+-----------------
+.. autodata:: numpyro.distributions.constraints.softplus_positive
+
+softplus_lower_cholesky
+-----------------------
+.. autodata:: numpyro.distributions.constraints.softplus_lower_cholesky
+
 simplex
 -------
 .. autodata:: numpyro.distributions.constraints.simplex

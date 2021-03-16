@@ -64,6 +64,8 @@ MCMC Kernels
 
 .. autofunction:: numpyro.infer.hmc.hmc.sample_kernel
 
+.. autofunction:: numpyro.infer.hmc_gibbs.taylor_proxy
+
 .. autodata:: numpyro.infer.barker.BarkerMHState
 
 .. autodata:: numpyro.infer.hmc.HMCState

@@ -10,8 +10,8 @@ from jax.nn import softplus
 import jax.numpy as jnp
 from jax.scipy.special import expit
 
-from numpyro.infer import init_to_uniform
 from numpyro.infer.hmc_util import warmup_adapter
+from numpyro.infer.initialization import init_to_uniform
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
