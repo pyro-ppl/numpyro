@@ -554,7 +554,7 @@ class HMCECS(HMCGibbs):
 
         model_kwargs["_gibbs_state"] = gibbs_state
         state = super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
-        return HMCECSState(state.z, state.hmc_state, state.rng_key, gibbs_state, jnp.array(0.))
+        return HMCECSState(state.z, state.hmc_state, state.rng_key, gibbs_state, jnp.zeros(()))
 
     def sample(self, state, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
