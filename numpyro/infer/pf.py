@@ -5,8 +5,6 @@ from functools import namedtuple, partial
 
 import tqdm
 
-import numpy as np
-
 import jax
 from jax import jit, lax, random, grad, vmap
 import jax.numpy as jnp
@@ -51,9 +49,9 @@ class PF(object):
                 dynamic_args=False,
                 model_args=args,
                 model_kwargs=kwargs)
-        self.latent_dim = init_params[0]['x'].shape[0]
 
-        particles = np.random.randn(self.num_particles, self.latent_dim)
+        self.latent_dim = init_params[0]['x'].shape[0]
+        particles = random.normal(rng_key, shape=(self.num_particles, self.latent_dim))
 
         return PFState(particles, self.lr)
 
@@ -77,7 +75,7 @@ class PF(object):
             during the course of fitting).
         :return: pf_state
         """
-        particles, lr = pf_state.particles, pf_state.lr
+        particles, lr = pf_state
         g = vmap(lambda p: grad(self._potential_fn)({'x': p}))(particles)['x']
         centered_particles = particles - particles.mean(0)
         quadratic_term = (centered_particles[:, None, :] @ centered_particles.T)[:, 0, :].T @ g / self.num_particles
