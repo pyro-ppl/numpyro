@@ -12,7 +12,6 @@ from jax.scipy.special import expit
 from jax.tree_util import tree_flatten, tree_map, tree_multimap
 
 import numpyro.distributions as dist
-from numpyro.distributions.util import get_dtype
 from numpyro.util import cond, identity, while_loop
 
 AdaptWindow = namedtuple('AdaptWindow', ['start', 'end'])
@@ -265,7 +264,7 @@ def find_reasonable_step_size(potential_fn, kinetic_fn, momentum_generator,
     z, _, potential_energy, z_grad = z_info
     if potential_energy is None or z_grad is None:
         potential_energy, z_grad = value_and_grad(potential_fn)(z)
-    finfo = jnp.finfo(get_dtype(init_step_size))
+    finfo = jnp.finfo(jnp.result_type(init_step_size))
 
     def _body_fn(state):
         step_size, _, direction, rng_key = state
@@ -459,7 +458,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                                   jnp.exp(log_step_size_avg),
                                   jnp.exp(log_step_size))
             # account the the case log_step_size is an extreme number
-            finfo = jnp.finfo(get_dtype(step_size))
+            finfo = jnp.finfo(jnp.result_type(step_size))
             step_size = jnp.clip(step_size, a_min=finfo.tiny, a_max=finfo.max)
 
         # update mass matrix state

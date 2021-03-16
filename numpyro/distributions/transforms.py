@@ -16,7 +16,6 @@ from jax.scipy.special import expit, logit
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
-    get_dtype,
     matrix_to_tril_vec,
     signed_stick_breaking_tril,
     sum_rightmost,
@@ -50,7 +49,7 @@ __all__ = [
 
 
 def _clipped_expit(x):
-    finfo = jnp.finfo(get_dtype(x))
+    finfo = jnp.finfo(jnp.result_type(x))
     return jnp.clip(expit(x), a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
