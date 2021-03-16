@@ -33,19 +33,20 @@ class PF(object):
         self.gamma = gamma
         self.natural = natural
         self.static_kwargs = static_kwargs
-        self.constrain_fn = None
         self.init_loc_fn = init_to_uniform
 
-    def init(self, *args, **kwargs):
+    def init(self, rng_key, *args, **kwargs):
         """
         Gets the initial PF state.
 
+        :param jax.random.PRNGKey rng_key: random key for initialization.
+
         :return: the initial :data:`PFState`
         """
-        rng_key = jax.random.PRNGKey(0) # numpyro.prng_key()
+        rng_key, rng_key_init_model = random.split(rng_key)
         with block():
             init_params, potential_fn, self._postprocess_fn, self.prototype_trace = initialize_model(
-                rng_key, self.model,
+                rng_key_init_model, self.model,
                 init_strategy=self.init_loc_fn,
                 dynamic_args=False,
                 model_args=args,
@@ -60,10 +61,10 @@ class PF(object):
 
     def get_params(self, pf_state):
         """
-        Gets values at `param` sites of the `model` and `guide`.
+        Get unconstrained and constrained particles.
 
-        :param svi_state: current state of SVI.
-        :return: the corresponding parameters
+        :param pf_state: current state of PF.
+        :return: tuple of unconstrained and constrained particles.
         """
         unconstrained_params = vmap(self._unravel_fn)(pf_state.particles)
         constrained_params = vmap(self._postprocess_fn)(unconstrained_params)
@@ -91,15 +92,16 @@ class PF(object):
         new_lr = pf_state.lr * self.gamma
         return PFState(new_particles, new_lr)
 
-    def run(self, num_steps):
+    def run(self, rng_key, num_steps):
         """
+        :param jax.random.PRNGKey rng_key: random key for initialization.
         :param int num_steps: the number of optimization steps.
         """
         def body_fn(pf_state, _):
             pf_state = self.update(pf_state)
             return pf_state, None
 
-        pf_state = self.init()
+        pf_state = self.init(rng_key)
         pf_state = lax.scan(body_fn, pf_state, None, length=num_steps)[0]
 
         return self.get_params(pf_state)
@@ -115,7 +117,9 @@ natural = 1
 num_steps = 50_000
 gamma = 0.1 ** (1 / num_steps)
 pf = PF(model, 3, lr=0.001, gamma=gamma, natural=natural)
-particles = pf.run(num_steps)[1]['x']
+
+rng_key = random.PRNGKey(0)
+particles = pf.run(rng_key, num_steps)[1]['x']
 
 print("particles\n", particles)
 mean = particles.mean(0)
