@@ -38,7 +38,7 @@ class MixedHMC(DiscreteHMCGibbs):
         discrete sample sites in the model. Otherwise, a sample will be drawn uniformly
         from the domain of `gibbs_site`. Defaults to False.
     :param bool modified: whether to use a modified proposal, as suggested in reference [2], which
-        always proposes a new state for the current Gibbs site (i.e. discrete site). Defaults to True.
+        always proposes a new state for the current Gibbs site (i.e. discrete site). Defaults to False.
         The modified scheme appears in the literature under the name "modified Gibbs sampler" or
         "Metropolised Gibbs sampler".
 
