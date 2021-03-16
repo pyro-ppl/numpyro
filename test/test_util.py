@@ -5,7 +5,6 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import lax
-from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
 from jax.test_util import check_eq
 from jax.tree_util import tree_flatten, tree_multimap
@@ -73,7 +72,7 @@ def test_ravel_pytree(pytree):
     unravel = unravel_fn(flat)
     tree_flatten(tree_multimap(lambda x, y: assert_allclose(x, y), unravel, pytree))
     assert all(tree_flatten(tree_multimap(lambda x, y:
-                                          canonicalize_dtype(lax.dtype(x)) == canonicalize_dtype(lax.dtype(y)),
+                                          jnp.result_type(x) == jnp.result_type(y),
                                           unravel, pytree))[0])
 
 

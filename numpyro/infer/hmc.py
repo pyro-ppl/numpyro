@@ -5,8 +5,7 @@ from collections import namedtuple
 import math
 import os
 
-from jax import device_put, lax, partial, random, vmap
-from jax.dtypes import canonicalize_dtype
+from jax import device_put, lax, partial, random, tree_map, vmap
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -59,7 +58,7 @@ def _get_num_steps(step_size, trajectory_length):
     num_steps = jnp.clip(trajectory_length / step_size, a_min=1)
     # NB: casting to jnp.int64 does not take effect (returns jnp.int32 instead)
     # if jax_enable_x64 is False
-    return num_steps.astype(canonicalize_dtype(jnp.int64))
+    return num_steps.astype(jnp.result_type(int))
 
 
 def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
@@ -204,7 +203,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             randomness.
 
         """
-        step_size = lax.convert_element_type(step_size, canonicalize_dtype(jnp.float64))
+        init_params = tree_map(lambda x: lax.convert_element_type(x, jnp.result_type(x)), init_params)
+        step_size = lax.convert_element_type(step_size, jnp.result_type(float))
         nonlocal wa_update, trajectory_len, max_treedepth, vv_update, wa_steps, forward_mode_ad
         forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
