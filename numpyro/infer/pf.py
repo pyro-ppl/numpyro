@@ -26,11 +26,12 @@ PFState = namedtuple('PFState', ['particles', 'lr'])
 class PF(object):
     """
     """
-    def __init__(self, model, num_particles, lr=0.001, gamma=1.0, **static_kwargs):
+    def __init__(self, model, num_particles, lr=0.001, gamma=1.0, natural=False, **static_kwargs):
         self.model = model
         self.num_particles = num_particles
         self.lr = lr
         self.gamma = gamma
+        self.natural = natural
         self.static_kwargs = static_kwargs
         self.constrain_fn = None
         self.init_loc_fn = init_to_uniform
@@ -79,7 +80,12 @@ class PF(object):
         g = vmap(lambda p: grad(self._potential_fn)({'x': p}))(particles)['x']
         centered_particles = particles - particles.mean(0)
         quadratic_term = (centered_particles[:, None, :] @ centered_particles.T)[:, 0, :].T @ g / self.num_particles
-        new_particles = particles - lr * (g.mean(0) + quadratic_term - centered_particles)
+        if self.natural:
+            cov = centered_particles.T @ centered_particles / self.num_particles
+            L = jnp.linalg.cholesky(cov)
+            new_particles = particles - lr * (L.T @ g.mean(0) + quadratic_term - centered_particles)
+        else:
+            new_particles = particles - lr * (g.mean(0) + quadratic_term - centered_particles)
         new_lr = pf_state.lr * self.gamma
         return PFState(new_particles, new_lr)
 
@@ -99,13 +105,14 @@ class PF(object):
 
 enable_x64()
 
-def model(rho=0.9):
+def model(rho=0.95):
     cov = jnp.array([[10.0, rho], [rho, 0.1]])
     x = numpyro.sample("x", dist.MultivariateNormal(jnp.array([-1.0, 1.0]), covariance_matrix=cov))
 
+natural = 1
 num_steps = 50_000
 gamma = 0.1 ** (1 / num_steps)
-pf = PF(model, 3, lr=0.003, gamma=gamma)
+pf = PF(model, 3, lr=0.001, gamma=gamma, natural=natural)
 particles = pf.run(num_steps)
 
 print("particles\n", particles)
