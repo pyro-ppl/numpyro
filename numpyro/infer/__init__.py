@@ -1,6 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+from numpyro.infer.barker import BarkerMH
 from numpyro.infer.elbo import ELBO, RenyiELBO, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.infer.hmc import HMC, NUTS
 from numpyro.infer.hmc_gibbs import HMCECS, DiscreteHMCGibbs, HMCGibbs
@@ -11,7 +12,6 @@ from numpyro.infer.initialization import (
     init_to_uniform,
     init_to_value
 )
-from numpyro.infer.barker import BarkerMH
 from numpyro.infer.mcmc import MCMC
 from numpyro.infer.mixed_hmc import MixedHMC
 from numpyro.infer.sa import SA

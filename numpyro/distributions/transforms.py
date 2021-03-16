@@ -8,7 +8,6 @@ import weakref
 import numpy as np
 
 from jax import lax, ops, tree_flatten, tree_map, vmap
-from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
 from jax.nn import softplus
 import jax.numpy as jnp
@@ -16,13 +15,7 @@ from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
 
 from numpyro.distributions import constraints
-from numpyro.distributions.util import (
-    get_dtype,
-    matrix_to_tril_vec,
-    signed_stick_breaking_tril,
-    sum_rightmost,
-    vec_to_tril_matrix
-)
+from numpyro.distributions.util import matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost, vec_to_tril_matrix
 from numpyro.util import not_jax_tracer
 
 __all__ = [
@@ -51,7 +44,7 @@ __all__ = [
 
 
 def _clipped_expit(x):
-    finfo = jnp.finfo(get_dtype(x))
+    finfo = jnp.finfo(jnp.result_type(x))
     return jnp.clip(expit(x), a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
@@ -654,7 +647,7 @@ class PermuteTransform(Transform):
 
     def _inverse(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(jnp.zeros(size, dtype=canonicalize_dtype(jnp.int64)),
+        permutation_inv = ops.index_update(jnp.zeros(size, dtype=jnp.result_type(int)),
                                            self.permutation,
                                            jnp.arange(size))
         return y[..., permutation_inv]

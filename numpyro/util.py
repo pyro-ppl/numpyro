@@ -14,10 +14,9 @@ from tqdm.auto import tqdm as tqdm_auto
 import jax
 from jax import device_put, jit, lax, ops, vmap
 from jax.core import Tracer
-from jax.dtypes import canonicalize_dtype
+from jax.experimental import host_callback
 import jax.numpy as jnp
 from jax.tree_util import tree_flatten, tree_map, tree_unflatten
-from jax.experimental import host_callback
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 
@@ -325,7 +324,7 @@ pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype
 
 def _ravel_list(*leaves):
     leaves_metadata = tree_map(lambda l: pytree_metadata(
-        jnp.ravel(l), jnp.shape(l), jnp.size(l), canonicalize_dtype(lax.dtype(l))), leaves)
+        jnp.ravel(l), jnp.shape(l), jnp.size(l), jnp.result_type(l)), leaves)
     leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.size for d in leaves_metadata)))
 
     def unravel_list(arr):

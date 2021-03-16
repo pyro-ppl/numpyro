@@ -6,7 +6,6 @@ import math
 import os
 
 from jax import device_put, lax, partial, random, vmap
-from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -64,7 +63,7 @@ def _get_num_steps(step_size, trajectory_length):
     num_steps = jnp.ceil(trajectory_length / step_size)
     # NB: casting to jnp.int64 does not take effect (returns jnp.int32 instead)
     # if jax_enable_x64 is False
-    return num_steps.astype(canonicalize_dtype(jnp.int64))
+    return num_steps.astype(jnp.result_type(int))
 
 
 def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
@@ -208,7 +207,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             randomness.
 
         """
-        step_size = lax.convert_element_type(step_size, canonicalize_dtype(jnp.float64))
+        step_size = lax.convert_element_type(step_size, jnp.result_type(float))
+        trajectory_length = lax.convert_element_type(trajectory_length, jnp.result_type(float))
         nonlocal wa_update, max_treedepth, vv_update, wa_steps, forward_mode_ad
         forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
@@ -250,7 +250,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
         hmc_state = HMCState(jnp.array(0), vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
                              None, trajectory_length,
-                             jnp.array(0), jnp.array(0.), jnp.array(0.), jnp.array(False), wa_state, rng_key_hmc)
+                             jnp.array(0), jnp.zeros(()), jnp.zeros(()), jnp.array(False), wa_state, rng_key_hmc)
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,

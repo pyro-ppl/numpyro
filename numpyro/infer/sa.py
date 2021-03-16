@@ -135,7 +135,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         k = random.categorical(rng_key_z, jnp.zeros(zs.shape[0]))
         z = unravel_fn(zs[k])
         pe = pes[k]
-        sa_state = SAState(jnp.array(0), z, pe, jnp.array(0.), jnp.array(0.), jnp.array(False),
+        sa_state = SAState(jnp.array(0), z, pe, jnp.zeros(()), jnp.zeros(()), jnp.array(False),
                            adapt_state, rng_key_sa)
         return device_put(sa_state)
 

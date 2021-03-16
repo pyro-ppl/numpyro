@@ -6,16 +6,15 @@ from collections import namedtuple
 import jax
 from jax import random
 from jax.flatten_util import ravel_pytree
+from jax.nn import softplus
 import jax.numpy as jnp
 from jax.scipy.special import expit
-from jax.nn import softplus
 
 from numpyro.infer.hmc_util import warmup_adapter
+from numpyro.infer.initialization import init_to_uniform
+from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import initialize_model
 from numpyro.util import identity
-from numpyro.infer import init_to_uniform
-from numpyro.infer.mcmc import MCMCKernel
-
 
 BarkerMHState = namedtuple("BarkerMHState", [
     "i", "z", "potential_energy", "z_grad", "accept_prob", "mean_accept_prob", "adapt_state", "rng_key"])
@@ -163,8 +162,8 @@ class BarkerMH(MCMCKernel):
         size = len(ravel_pytree(init_params)[0])
         wa_state = wa_init(None, rng_key_wa, self._step_size, mass_matrix_size=size)
         wa_state = wa_state._replace(rng_key=None)
-        init_state = BarkerMHState(jnp.array(0), init_params, pe, grad, jnp.array(0.),
-                                   jnp.array(0.), wa_state, rng_key)
+        init_state = BarkerMHState(jnp.array(0), init_params, pe, grad, jnp.zeros(()),
+                                   jnp.zeros(()), wa_state, rng_key)
         return jax.device_put(init_state)
 
     def postprocess_fn(self, args, kwargs):

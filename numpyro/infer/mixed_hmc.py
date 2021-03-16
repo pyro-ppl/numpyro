@@ -4,14 +4,13 @@
 from collections import namedtuple
 from functools import partial
 
-from jax import jacfwd, grad, lax, ops, random
+from jax import grad, jacfwd, lax, ops, random
 import jax.numpy as jnp
 
 from numpyro.infer.hmc import momentum_generator
 from numpyro.infer.hmc_gibbs import DiscreteHMCGibbs
 from numpyro.infer.hmc_util import euclidean_kinetic_energy, warmup_adapter
 from numpyro.util import cond, fori_loop, identity, ravel_pytree
-
 
 MixedHMCState = namedtuple("MixedHMCState", "z, hmc_state, rng_key, accept_prob")
 
@@ -94,7 +93,7 @@ class MixedHMC(DiscreteHMCGibbs):
         # In HMC, when `hmc_state.r` is not None, we will skip drawing a random momemtum at the
         # beginning of an HMC step. The reason is we need to maintain `r` between each sub-trajectories.
         r = momentum_generator(state.hmc_state.z, state.hmc_state.adapt_state.mass_matrix_sqrt, rng_r)
-        return MixedHMCState(state.z, state.hmc_state._replace(r=r), state.rng_key, jnp.array(0.))
+        return MixedHMCState(state.z, state.hmc_state._replace(r=r), state.rng_key, jnp.zeros(()))
 
     def sample(self, state, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs

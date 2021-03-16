@@ -3,7 +3,6 @@
 
 import numpy as np
 
-from jax.dtypes import canonicalize_dtype
 import jax.numpy as jnp
 from tensorflow_probability.substrates.jax import bijectors as tfb
 from tensorflow_probability.substrates.jax import distributions as tfd
@@ -162,7 +161,7 @@ class OneHotCategorical(tfd.OneHotCategorical, TFPDistributionMixin):
 
     def enumerate_support(self, expand=True):
         n = self.event_shape[-1]
-        values = jnp.identity(n, dtype=canonicalize_dtype(self.dtype))
+        values = jnp.identity(n, dtype=jnp.result_type(self.dtype))
         values = values.reshape((n,) + (1,) * len(self.batch_shape) + (n,))
         if expand:
             values = jnp.broadcast_to(values, (n,) + self.batch_shape + (n,))
