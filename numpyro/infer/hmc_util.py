@@ -118,14 +118,24 @@ def welford_covariance(diagonal=True):
     """
     def init_fn(size):
         """
-        :param int size: size of each sample.
+        :param int size: size of each sample. For structural mass matrix,
+            this is a dict mapping from tuples of site names to the shape
+            of the mass matrix.
         :return: initial state for the scheme.
         """
-        mean = jnp.zeros(size)
-        if diagonal:
-            m2 = jnp.zeros(size)
+        if isinstance(size, dict):
+            state = {}
+            for site_names, size_block in size.items():
+                state[site_names] = init_fn(size_block)
+            return state
+
+        if isinstance(size, int):
+            shape = (size,) if diagonal else (size, size)
         else:
-            m2 = jnp.zeros((size, size))
+            shape = size
+
+        mean = jnp.zeros(shape[-1])
+        m2 = jnp.zeros(shape)
         n = 0
         return mean, m2, n
 
@@ -135,12 +145,21 @@ def welford_covariance(diagonal=True):
         :param state: Current state of the scheme.
         :return: new state for the scheme.
         """
+        if isinstance(state, dict):
+            assert isinstance(sample, dict)
+            new_state = {}
+            for site_names, state_block in state.items():
+                sample_block = tuple(sample[k] for k in site_names)
+                new_state[site_names] = update_fn(sample_block, state_block)
+            return new_state
+
+        sample, _ = ravel_pytree(sample)
         mean, m2, n = state
         n = n + 1
         delta_pre = sample - mean
         mean = mean + delta_pre / n
         delta_post = sample - mean
-        if diagonal:
+        if jnp.ndim(m2) == 1:
             m2 = m2 + delta_pre * delta_post
         else:
             m2 = m2 + jnp.outer(delta_post, delta_pre)
@@ -153,6 +172,16 @@ def welford_covariance(diagonal=True):
         :return: a triple of estimated covariance, the square root of precision, and
             the inverse of that square root.
         """
+        if isinstance(state, dict):
+            cov, cov_inv_sqrt, tril_inv = {}
+            for site_names, state_block in state.items():
+                cov_block, cov_inv_sqrt_block, tril_inv_block = final_fn(
+                    state_block, regularize=regularize)
+                cov[site_names] = cov_block
+                cov_inv_sqrt[site_names]= cov_inv_sqrt_block
+                tril_inv[site_names] = tril_inv_block
+            return cov, cov_inv_sqrt, tril_inv
+
         mean, m2, n = state
         # XXX it is not necessary to check for the case n=1
         cov = m2 / (n - 1)
@@ -160,7 +189,7 @@ def welford_covariance(diagonal=True):
             # Regularization from Stan
             scaled_cov = (n / (n + 5)) * cov
             shrinkage = 1e-3 * (5 / (n + 5))
-            if diagonal:
+            if jnp.ndim(scaled_cov) == 1:
                 cov = scaled_cov + shrinkage
             else:
                 cov = scaled_cov + shrinkage * jnp.identity(mean.shape[0])
@@ -465,9 +494,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
         if adapt_mass_matrix:
             z = z_info[0]
-            z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
-                            (z_flat, mm_state), lambda args: mm_update(*args),
+                            (z, mm_state), lambda args: mm_update(*args),
                             mm_state, identity)
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
@@ -482,7 +510,18 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
     return init_fn, update_fn
 
 
-def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
+def _momentum_angle(inverse_mass_matrix, r_left, r_right, r_sum):
+    if isinstance(inverse_mass_matrix, dict):
+        left_angle, right_angle = 0., 0.
+        for site_names, inverse_mm in inverse_mass_matrix.items():
+            r_left_b = tuple(r_left[k] for k in site_names)
+            r_right_b = tuple(r_right[k] for k in site_names)
+            r_sum_b = tuple(r_sum[k] for k in site_names)
+            left_a, right_a = _momentum_angle(inverse_mm, r_left_b, r_right_b, r_sum_b)
+            left_angle = left_angle + left_a
+            right_angle = right_angle + right_a
+        return left_angle, right_angle
+
     r_left, _ = ravel_pytree(r_left)
     r_right, _ = ravel_pytree(r_right)
     r_sum, _ = ravel_pytree(r_sum)
@@ -498,8 +537,13 @@ def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
 
     # This implements dynamic termination criterion (ref [2], section A.4.2).
     r_sum = r_sum - (r_left + r_right) / 2
-    turning_at_left = jnp.dot(v_left, r_sum) <= 0
-    turning_at_right = jnp.dot(v_right, r_sum) <= 0
+    return jnp.dot(v_left, r_sum), jnp.dot(v_right, r_sum)
+
+
+def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
+    left_angle, right_angle = _momentum_angle(inverse_mass_matrix, r_left, r_right, r_sum)
+    turning_at_left = left_angle <= 0
+    turning_at_right = right_angle <= 0
     return turning_at_left | turning_at_right
 
 
@@ -725,8 +769,9 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     """
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
-    r_ckpts = jnp.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
-    r_sum_ckpts = jnp.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
+    latent_size = ravel_pytree(r)[0].shape[0]
+    r_ckpts = jnp.zeros((max_tree_depth, latent_size))
+    r_sum_ckpts = jnp.zeros((max_tree_depth, latent_size))
 
     tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad, energy_current,
                     depth=0, weight=0., r_sum=r, turning=False, diverging=False,

@@ -269,7 +269,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
 
         # no need to spend too many steps if the state z has 0 size (i.e. z is empty)
-        if inverse_mass_matrix.shape[0] == 0:
+        if len(inverse_mass_matrix) == 0:
             num_steps = 1
         else:
             num_steps = _get_num_steps(step_size, trajectory_length)
