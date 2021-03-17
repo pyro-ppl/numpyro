@@ -379,6 +379,60 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
+def _initialize_mass_matrix(z, inverse_mass_matrix, dense_mass):
+    if isinstance(dense_mass, list):
+        inverse_mass_matrix = {} if inverse_mass_matrix is None else inverse_mass_matrix
+        mass_matrix_sqrt = {}
+        mass_matrix_sqrt_inv = {}
+        for site_names in dense_mass:
+            inverse_mm = inverse_mass_matrix.get(site_names)
+            z_block = tuple(z[k] for k in site_names)
+            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z, inverse_mm, True)
+            inverse_mass_matrix[site_names] = inverse_mm
+            mass_matrix_sqrt[site_names] = mm_sqrt
+            mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
+        # NB: this branch only happens when users want to use block diagonal
+        # inverse_mass_matrix, for example, {("a",): jnp.ones(3), ("b",): jnp.ones(3)}.
+        for sites_names, inverse_mm in inverse_mass_matrix.items():
+            if site_names in dense_mass:
+                continue
+            z_block = tuple(z[k] for k in site_names)
+            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z_block, inverse_mm, False)
+            inverse_mass_matrix[site_names] = inverse_mm
+            mass_matrix_sqrt[site_names] = mm_sqrt
+            mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
+        remaining_sites = set(z) - set().union(*inverse_mass_matrix)
+        if len(remaining_sites) > 0:
+            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z, None, False)
+            inverse_mass_matrix[site_names] = inverse_mm
+            mass_matrix_sqrt[site_names] = mm_sqrt
+            mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
+        assert list(sorted(z)) == [k for site_names in inverse_mass_matrix for k in site_names]
+        return inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv
+
+    mass_matrix_size = jnp.size(ravel_pytree(z)[0])
+    if inverse_mass_matrix is None:
+        if dense_mass:
+            inverse_mass_matrix = jnp.identity(mass_matrix_size)
+        else:
+            inverse_mass_matrix = jnp.ones(mass_matrix_size)
+        mass_matrix_sqrt = mass_matrix_sqrt_inv = inverse_mass_matrix
+    else:
+        if dense_mass:
+            if jnp.ndim(inverse_mass_matrix) == 1:
+                inverse_mass_matrix = jnp.diag(inverse_mass_matrix)
+            mass_matrix_sqrt_inv = jnp.swapaxes(jnp.linalg.cholesky(
+                inverse_mass_matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
+            identity = jnp.identity(inverse_mass_matrix.shape[-1])
+            mass_matrix_sqrt = solve_triangular(mass_matrix_sqrt_inv, identity, lower=True)
+        else:
+            if jnp.ndim(inverse_mass_matrix) == 2:
+                inverse_mass_matrix = jnp.diag(inverse_mass_matrix)
+            mass_matrix_sqrt_inv = jnp.sqrt(inverse_mass_matrix)
+            mass_matrix_sqrt = jnp.reciprocal(mass_matrix_sqrt_inv)
+    return inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv
+
+
 def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    dense_mass=False, target_accept_prob=0.8):
@@ -419,22 +473,9 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         :return: initial state of the adapt scheme.
         """
         rng_key, rng_key_ss = random.split(rng_key)
-        if inverse_mass_matrix is None:
-            assert mass_matrix_size is not None
-            if dense_mass:
-                inverse_mass_matrix = jnp.identity(mass_matrix_size)
-            else:
-                inverse_mass_matrix = jnp.ones(mass_matrix_size)
-            mass_matrix_sqrt = mass_matrix_sqrt_inv = inverse_mass_matrix
-        else:
-            if dense_mass:
-                mass_matrix_sqrt_inv = jnp.swapaxes(jnp.linalg.cholesky(
-                    inverse_mass_matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
-                identity = jnp.identity(inverse_mass_matrix.shape[-1])
-                mass_matrix_sqrt = solve_triangular(mass_matrix_sqrt_inv, identity, lower=True)
-            else:
-                mass_matrix_sqrt_inv = jnp.sqrt(inverse_mass_matrix)
-                mass_matrix_sqrt = jnp.reciprocal(mass_matrix_sqrt_inv)
+        inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = _initialize_mass_matrix(
+            z_info.z, inverse_mass_matrix, dense_mass
+        )
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
@@ -769,7 +810,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     """
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
-    latent_size = ravel_pytree(r)[0].shape[0]
+    latent_size = jnp.size(ravel_pytree(r)[0])
     r_ckpts = jnp.zeros((max_tree_depth, latent_size))
     r_sum_ckpts = jnp.zeros((max_tree_depth, latent_size))
 

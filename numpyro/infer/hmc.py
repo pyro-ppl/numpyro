@@ -250,8 +250,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
         z_info = IntegratorState(z=z, potential_energy=pe, z_grad=z_grad)
         wa_state = wa_init(z_info, rng_key_wa, step_size,
-                           inverse_mass_matrix=inverse_mass_matrix,
-                           mass_matrix_size=jnp.size(ravel_pytree(z)[0]))
+                           inverse_mass_matrix=inverse_mass_matrix)
         r = momentum_generator(z, wa_state.mass_matrix_sqrt, rng_key_momentum)
         vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
@@ -382,12 +381,36 @@ class HMC(MCMCKernel):
     :param float step_size: Determines the size of a single step taken by the
         verlet integrator while computing the trajectory using Hamiltonian
         dynamics. If not specified, it will be set to 1.
+    :param inverse_mass_matrix: Initial value for inverse mass matrix.
+        This may be adapted during warmup if adapt_mass_matrix = True.
+        If no value is specified, then it is initialized to the identity matrix.
+        For a potential_fn with general JAX pytree parameters, the order of entries
+        of the mass matrix is the order of the flatten version of pytree parameters,
+        which is a bit ambiguous (see more at
+        https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
+        here we can specify a structured block mass matrix, with keys are tuple of
+        site names and values are the corresponding block of the mass matrix.
+        For more information about structured mass matrix, see `dense_mass` argument.
+    :type inverse_mass_matrix: numpy.ndarray or dict
     :param bool adapt_step_size: A flag to decide if we want to adapt step_size
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
         matrix during warm-up phase using Welford scheme.
-    :param bool dense_mass:  A flag to decide if mass matrix is dense or
-        diagonal (default when ``dense_mass=False``)
+    :param dense_mass:  A flag to decide if mass matrix is dense or
+        diagonal (default to ``dense_mass=False``). For structured mass matrix,
+        users can provide a list of tuples of site names. Each tuple represents
+        a block in the joint mass matrix. For example, assuming that the model
+        has latent variables "x", "y", "z" (each variable can be multi-dimensional),
+        here are the meaning of various structures:
+            + dense_mass=[("x", "y")]: using dense mass matrix for the joint
+              (x, y), diagonal mass matrix for z
+            + dense_mass=[] (equivalent to dense_mass=False): using diagonal mass
+              matrix for the joint (x, y, z)
+            + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
+              using dense mass matrix for the joint (x, y, z)
+            + dense_mass=[("x",), ("y",), ("z")]: using dense mass matrices for
+              each of x, y, z
+    :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
@@ -410,6 +433,7 @@ class HMC(MCMCKernel):
                  potential_fn=None,
                  kinetic_fn=None,
                  step_size=1.0,
+                 inverse_mass_matrix=None,
                  adapt_step_size=True,
                  adapt_mass_matrix=True,
                  dense_mass=False,
@@ -424,6 +448,7 @@ class HMC(MCMCKernel):
         self._potential_fn = potential_fn
         self._kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
         self._step_size = float(step_size) if isinstance(step_size, int) else step_size
+        self._inverse_mass_matrix = inverse_mass_matrix
         self._adapt_step_size = adapt_step_size
         self._adapt_mass_matrix = adapt_mass_matrix
         self._dense_mass = dense_mass
@@ -493,13 +518,31 @@ class HMC(MCMCKernel):
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
 
+        # change dense_mass to a structural form
+        dense_mass = self._dense_mass
+        if self._model is not None:
+            z = init_params[0] if isinstance(init_params, ParamInfo) else init_params
+            if isinstance(dense_mass, bool):
+                # XXX: by default, the order variables are sorted by their names,
+                # this is to be compatible with older numpyro versions
+                # and to match autoguide scale parameter and jax flatten utils
+                dense_mass = [tuple(sorted(z))] if dense_mass else []
+            else:
+                # assert that site_names in dense_mass and user-defined
+                # inverse_mass_matrix matched
+                assert isinstance(dense_mass, list)
+                if isinstance(self._inverse_mass_matrix, dict):
+                    for site_names in dense_mass:
+                        assert site_names in self._inverse_mass_matrix
+
         hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
+            inverse_mass_matrix=self._inverse_mass_matrix,
             adapt_step_size=self._adapt_step_size,
             adapt_mass_matrix=self._adapt_mass_matrix,
-            dense_mass=self._dense_mass,
+            dense_mass=dense_mass,
             target_accept_prob=self._target_accept_prob,
             trajectory_length=self._trajectory_length,
             max_tree_depth=self._max_tree_depth,
@@ -564,12 +607,36 @@ class NUTS(HMC):
     :param float step_size: Determines the size of a single step taken by the
         verlet integrator while computing the trajectory using Hamiltonian
         dynamics. If not specified, it will be set to 1.
+    :param inverse_mass_matrix: Initial value for inverse mass matrix.
+        This may be adapted during warmup if adapt_mass_matrix = True.
+        If no value is specified, then it is initialized to the identity matrix.
+        For a potential_fn with general JAX pytree parameters, the order of entries
+        of the mass matrix is the order of the flatten version of pytree parameters,
+        which is a bit ambiguous (see more at
+        https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
+        here we can specify a structured block mass matrix, with keys are tuple of
+        site names and values are the corresponding block of the mass matrix.
+        For more information about structured mass matrix, see `dense_mass` argument.
+    :type inverse_mass_matrix: numpy.ndarray or dict
     :param bool adapt_step_size: A flag to decide if we want to adapt step_size
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
         matrix during warm-up phase using Welford scheme.
-    :param bool dense_mass:  A flag to decide if mass matrix is dense or
-        diagonal (default when ``dense_mass=False``)
+    :param dense_mass:  A flag to decide if mass matrix is dense or
+        diagonal (default to ``dense_mass=False``). For structured mass matrix,
+        users can provide a list of tuples of site names. Each tuple represents
+        a block in the joint mass matrix. For example, assuming that the model
+        has latent variables "x", "y", "z" (each variable can be multi-dimensional),
+        here are the meaning of various structures:
+            + dense_mass=[("x", "y")]: using dense mass matrix for the joint
+              (x, y), diagonal mass matrix for z
+            + dense_mass=[] (equivalent to dense_mass=False): using diagonal mass
+              matrix for the joint (x, y, z)
+            + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
+              using dense mass matrix for the joint (x, y, z)
+            + dense_mass=[("x",), ("y",), ("z")]: using dense mass matrices for
+              each of x, y, z
+    :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
