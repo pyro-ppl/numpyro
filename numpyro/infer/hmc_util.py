@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
+from collections import OrderedDict, namedtuple
 
 from jax import grad, jacfwd, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
@@ -751,6 +751,13 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
 
 
 def euclidean_kinetic_energy(inverse_mass_matrix, r):
+    if isinstance(inverse_mass_matrix, dict):
+        ke = 0.
+        for site_names, inverse_mm in inverse_mass_matrix.items():
+            r_block = tuple(r[k] for k in site_names)
+            ke = ke + euclidean_kinetic_energy(inverse_mm, r_block)
+        return ke
+
     r, _ = ravel_pytree(r)
 
     if inverse_mass_matrix.ndim == 2:
@@ -764,6 +771,13 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
 
 
 def _euclidean_kinetic_energy_grad(inverse_mass_matrix, r):
+    if isinstance(inverse_mass_matrix, dict):
+        r_grad = {}
+        for site_names, inverse_mm in inverse_mass_matrix.items():
+            r_block = OrderedDict([(k, r[k]) for k in site_names])
+            r_grad.update(_euclidean_kinetic_energy_grad(inverse_mm, r_block))
+        return r_grad
+
     r, unravel_fn = ravel_pytree(r)
 
     if inverse_mass_matrix.ndim == 2:

@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
+from collections import OrderedDict, namedtuple
 import math
 import os
 
@@ -67,6 +67,14 @@ def _get_num_steps(step_size, trajectory_length):
 
 
 def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
+    if isinstance(mass_matrix_sqrt, dict):
+        rng_keys = random.split(rng_key, len(mass_matrix_sqrt))
+        r = {}
+        for (site_names, mm_sqrt), rng_key in zip(mass_matrix_sqrt.items(), rng_keys):
+            r_block = OrderedDict([(k, prototype_r[k]) for k in site_names])
+            r.update(momentum_generator(r_block, mm_sqrt, rng_key))
+        return r
+
     _, unpack_fn = ravel_pytree(prototype_r)
     eps = random.normal(rng_key, jnp.shape(mass_matrix_sqrt)[:1])
     if mass_matrix_sqrt.ndim == 1:
