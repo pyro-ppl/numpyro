@@ -27,14 +27,15 @@ PFState = namedtuple('PFState', ['particles', 'lr'])
 class PF(object):
     """
     """
-    def __init__(self, model, num_particles, lr=0.001, gamma=1.0, natural=False, **static_kwargs):
+    def __init__(self, model, num_particles, lr=0.001, gamma=1.0,
+                 natural=False, init_loc_fn=init_to_uniform, **static_kwargs):
         self.model = model
         self.num_particles = num_particles
         self.lr = lr
         self.gamma = gamma
         self.natural = natural
         self.static_kwargs = static_kwargs
-        self.init_loc_fn = init_to_uniform
+        self.init_loc_fn = init_loc_fn
 
     def init(self, rng_key, *args, **kwargs):
         """
@@ -93,38 +94,38 @@ class PF(object):
         new_lr = pf_state.lr * self.gamma
         return PFState(new_particles, new_lr)
 
-    def run(self, rng_key, num_steps):
+    def run(self, rng_key, num_steps, *args, **kwargs):
         """
         :param jax.random.PRNGKey rng_key: random key for initialization.
         :param int num_steps: the number of optimization steps.
         """
         def body_fn(pf_state, _):
-            pf_state = self.update(pf_state)
-            return pf_state, None
+            return self.update(pf_state, *args, **kwargs), None
 
-        pf_state = self.init(rng_key)
+        pf_state = self.init(rng_key, *args, **kwargs)
         pf_state = lax.scan(body_fn, pf_state, None, length=num_steps)[0]
 
         return self.get_params(pf_state)
 
 
-enable_x64()
+if __name__ == '__main__':
+    enable_x64()
 
-def model(rho=0.95):
-    cov = jnp.array([[10.0, rho], [rho, 0.1]])
-    x = numpyro.sample("x", dist.MultivariateNormal(jnp.array([-1.0, 1.0]), covariance_matrix=cov))
+    def model(rho=0.9):
+        cov = jnp.array([[10.0, rho], [rho, 0.1]])
+        x = numpyro.sample("x", dist.MultivariateNormal(jnp.array([-1.0, 1.0]), covariance_matrix=cov))
 
-natural = 1
-num_steps = 50_000
-gamma = 0.1 ** (1 / num_steps)
-pf = PF(model, 3, lr=0.001, gamma=gamma, natural=natural)
+    natural = 1
+    num_steps = 50_000
+    gamma = 0.1 ** (1 / num_steps)
+    pf = PF(model, 3, lr=0.001, gamma=gamma, natural=natural)
 
-rng_key = random.PRNGKey(0)
-particles = pf.run(rng_key, num_steps)[1]['x']
+    rng_key = random.PRNGKey(0)
+    particles = pf.run(rng_key, num_steps, rho=0.95)[1]['x']
 
-print("particles\n", particles)
-mean = particles.mean(0)
-print("mean", mean)
-delta = particles - mean
-cov = delta.T @ delta / particles.shape[0]
-print("cov\n", cov)
+    print("particles\n", particles)
+    mean = particles.mean(0)
+    print("mean", mean)
+    delta = particles - mean
+    cov = delta.T @ delta / particles.shape[0]
+    print("cov\n", cov)
