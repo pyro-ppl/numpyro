@@ -173,7 +173,7 @@ def welford_covariance(diagonal=True):
             the inverse of that square root.
         """
         if isinstance(state, dict):
-            cov, cov_inv_sqrt, tril_inv = {}
+            cov, cov_inv_sqrt, tril_inv = {}, {}, {}
             for site_names, state_block in state.items():
                 cov_block, cov_inv_sqrt_block, tril_inv_block = final_fn(
                     state_block, regularize=regularize)
@@ -401,12 +401,12 @@ def _initialize_mass_matrix(z, inverse_mass_matrix, dense_mass):
             inverse_mass_matrix[site_names] = inverse_mm
             mass_matrix_sqrt[site_names] = mm_sqrt
             mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
-        remaining_sites = set(z) - set().union(*inverse_mass_matrix)
+        remaining_sites = tuple(sorted(set(z) - set().union(*inverse_mass_matrix)))
         if len(remaining_sites) > 0:
             inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z, None, False)
-            inverse_mass_matrix[site_names] = inverse_mm
-            mass_matrix_sqrt[site_names] = mm_sqrt
-            mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
+            inverse_mass_matrix[remaining_sites] = inverse_mm
+            mass_matrix_sqrt[remaining_sites] = mm_sqrt
+            mass_matrix_sqrt_inv[remaining_sites] = mm_sqrt_inv
         assert list(sorted(z)) == [k for site_names in inverse_mass_matrix for k in site_names]
         return inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv
 
@@ -474,14 +474,18 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         """
         rng_key, rng_key_ss = random.split(rng_key)
         inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = _initialize_mass_matrix(
-            z_info.z, inverse_mass_matrix, dense_mass
+            z_info[0], inverse_mass_matrix, dense_mass
         )
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
         ss_state = ss_init(jnp.log(10 * step_size))
 
-        mm_state = mm_init(inverse_mass_matrix.shape[-1])
+        if isinstance(inverse_mass_matrix, dict):
+            size = {k: v.shape for k, v in inverse_mass_matrix.items()}
+        else:
+            size = inverse_mass_matrix.shape[-1]
+        mm_state = mm_init(size)
 
         window_idx = 0
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv,
@@ -493,7 +497,11 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
         if adapt_mass_matrix:
             inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = mm_final(mm_state, regularize=True)
-            mm_state = mm_init(inverse_mass_matrix.shape[-1])
+            if isinstance(inverse_mass_matrix, dict):
+                size = {k: v.shape for k, v in inverse_mass_matrix.items()}
+            else:
+                size = inverse_mass_matrix.shape[-1]
+            mm_state = mm_init(size)
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
@@ -716,11 +724,14 @@ def _leaf_idx_to_ckpt_idxs(n):
     return idx_min, idx_max
 
 
-def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, idx_min, idx_max):
+def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, idx_min, idx_max,
+                          unravel_fn=identity):
     def _body_fn(state):
         i, _ = state
         subtree_r_sum = r_sum - r_sum_ckpts[i] + r_ckpts[i]
-        return i - 1, _is_turning(inverse_mass_matrix, r_ckpts[i], r, subtree_r_sum)
+        subtree_r_sum = unravel_fn(subtree_r_sum)
+        r_left = unravel_fn(r_ckpts[i])
+        return i - 1, _is_turning(inverse_mass_matrix, r_left, r, subtree_r_sum)
 
     _, turning = while_loop(lambda it: (it[0] >= idx_min) & ~it[1],
                             _body_fn,
@@ -754,7 +765,7 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
         # NB: in the special case leaf_idx=0, ckpt_idx_min=1 and ckpt_idx_max=0,
         # the following logic is still valid for that case
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
-        r, _ = ravel_pytree(new_leaf.r_right)
+        r, unravel_fn = ravel_pytree(new_leaf.r_right)
         r_sum, _ = ravel_pytree(new_tree.r_sum)
         # we update checkpoints when leaf_idx is even
         r_ckpts, r_sum_ckpts = cond(leaf_idx % 2 == 0,
@@ -764,8 +775,9 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                                     (r_ckpts, r_sum_ckpts),
                                     identity)
 
-        turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
-                                        ckpt_idx_min, ckpt_idx_max)
+        turning = _is_iterative_turning(inverse_mass_matrix, new_leaf.r_right, r_sum,
+                                        r_ckpts, r_sum_ckpts,
+                                        ckpt_idx_min, ckpt_idx_max, unravel_fn)
         return new_tree, turning, r_ckpts, r_sum_ckpts, rng_key
 
     basetree = prototype_tree._replace(num_proposals=0)
@@ -815,8 +827,9 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     r_sum_ckpts = jnp.zeros((max_tree_depth, latent_size))
 
     tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad, energy_current,
-                    depth=0, weight=0., r_sum=r, turning=False, diverging=False,
-                    sum_accept_probs=0., num_proposals=0)
+                    depth=0, weight=jnp.zeros(()), r_sum=r, turning=jnp.array(False),
+                    diverging=jnp.array(False),
+                    sum_accept_probs=jnp.zeros(()), num_proposals=0)
 
     def _cond_fn(state):
         tree, _ = state

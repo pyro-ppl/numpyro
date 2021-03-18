@@ -236,6 +236,8 @@ def test_dense_mass(kernel_cls, rho):
     mcmc.run(random.PRNGKey(0))
 
     mass_matrix_sqrt = mcmc.last_state.adapt_state.mass_matrix_sqrt
+    if kernel_cls is HMC or kernel_cls is NUTS:
+        mass_matrix_sqrt = mass_matrix_sqrt[("x",)]
     mass_matrix = jnp.matmul(mass_matrix_sqrt, jnp.transpose(mass_matrix_sqrt))
     estimated_cov = jnp.linalg.inv(mass_matrix)
     assert_allclose(estimated_cov, true_cov, rtol=0.10)

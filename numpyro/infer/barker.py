@@ -160,7 +160,7 @@ class BarkerMH(MCMCKernel):
             dense_mass=self._dense_mass,
             target_accept_prob=self._target_accept_prob)
         size = len(ravel_pytree(init_params)[0])
-        wa_state = wa_init(None, rng_key_wa, self._step_size, mass_matrix_size=size)
+        wa_state = wa_init((init_params,), rng_key_wa, self._step_size, mass_matrix_size=size)
         wa_state = wa_state._replace(rng_key=None)
         init_state = BarkerMHState(jnp.array(0), init_params, pe, grad, jnp.zeros(()),
                                    jnp.zeros(()), wa_state, rng_key)
