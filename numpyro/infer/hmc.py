@@ -662,6 +662,7 @@ class NUTS(HMC):
                  potential_fn=None,
                  kinetic_fn=None,
                  step_size=1.0,
+                 inverse_mass_matrix=None,
                  adapt_step_size=True,
                  adapt_mass_matrix=True,
                  dense_mass=False,
@@ -672,7 +673,8 @@ class NUTS(HMC):
                  find_heuristic_step_size=False,
                  forward_mode_differentiation=False):
         super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
-                                   step_size=step_size, adapt_step_size=adapt_step_size,
+                                   step_size=step_size, inverse_mass_matrix=inverse_mass_matrix,
+                                   adapt_step_size=adapt_step_size,
                                    adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
                                    target_accept_prob=target_accept_prob,
                                    trajectory_length=trajectory_length,

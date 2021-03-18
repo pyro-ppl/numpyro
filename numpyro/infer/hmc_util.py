@@ -387,13 +387,13 @@ def _initialize_mass_matrix(z, inverse_mass_matrix, dense_mass):
         for site_names in dense_mass:
             inverse_mm = inverse_mass_matrix.get(site_names)
             z_block = tuple(z[k] for k in site_names)
-            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z, inverse_mm, True)
+            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z_block, inverse_mm, True)
             inverse_mass_matrix[site_names] = inverse_mm
             mass_matrix_sqrt[site_names] = mm_sqrt
             mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
         # NB: this branch only happens when users want to use block diagonal
         # inverse_mass_matrix, for example, {("a",): jnp.ones(3), ("b",): jnp.ones(3)}.
-        for sites_names, inverse_mm in inverse_mass_matrix.items():
+        for site_names, inverse_mm in inverse_mass_matrix.items():
             if site_names in dense_mass:
                 continue
             z_block = tuple(z[k] for k in site_names)
@@ -403,11 +403,12 @@ def _initialize_mass_matrix(z, inverse_mass_matrix, dense_mass):
             mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
         remaining_sites = tuple(sorted(set(z) - set().union(*inverse_mass_matrix)))
         if len(remaining_sites) > 0:
-            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z, None, False)
+            z_block = tuple(z[k] for k in remaining_sites)
+            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z_block, None, False)
             inverse_mass_matrix[remaining_sites] = inverse_mm
             mass_matrix_sqrt[remaining_sites] = mm_sqrt
             mass_matrix_sqrt_inv[remaining_sites] = mm_sqrt_inv
-        assert list(sorted(z)) == [k for site_names in inverse_mass_matrix for k in site_names]
+        assert sorted(z) == sorted([k for site_names in inverse_mass_matrix for k in site_names])
         return inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv
 
     mass_matrix_size = jnp.size(ravel_pytree(z)[0])
