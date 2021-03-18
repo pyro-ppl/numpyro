@@ -408,7 +408,11 @@ def _initialize_mass_matrix(z, inverse_mass_matrix, dense_mass):
             inverse_mass_matrix[remaining_sites] = inverse_mm
             mass_matrix_sqrt[remaining_sites] = mm_sqrt
             mass_matrix_sqrt_inv[remaining_sites] = mm_sqrt_inv
-        assert sorted(z) == sorted([k for site_names in inverse_mass_matrix for k in site_names])
+        expected_site_names = sorted(z)
+        actual_site_names = sorted([k for site_names in inverse_mass_matrix for k in site_names])
+        assert actual_site_names == expected_site_names, \
+            ("There seems to be a conflict of sites names specified in the initial"
+             " `inverse_mass_matrix` and in `dense_mass` argument.")
         return inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv
 
     mass_matrix_size = jnp.size(ravel_pytree(z)[0])

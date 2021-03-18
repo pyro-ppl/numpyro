@@ -403,6 +403,7 @@ class HMC(MCMCKernel):
         a block in the joint mass matrix. For example, assuming that the model
         has latent variables "x", "y", "z" (each variable can be multi-dimensional),
         here are the meaning of various structures:
+
             + dense_mass=[("x", "y")]: using dense mass matrix for the joint
               (x, y), diagonal mass matrix for z
             + dense_mass=[] (equivalent to dense_mass=False): using diagonal mass
@@ -411,6 +412,7 @@ class HMC(MCMCKernel):
               using dense mass matrix for the joint (x, y, z)
             + dense_mass=[("x",), ("y",), ("z")]: using dense mass matrices for
               each of x, y, z
+
     :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
@@ -629,6 +631,7 @@ class NUTS(HMC):
         a block in the joint mass matrix. For example, assuming that the model
         has latent variables "x", "y", "z" (each variable can be multi-dimensional),
         here are the meaning of various structures:
+
             + dense_mass=[("x", "y")]: using dense mass matrix for the joint
               (x, y), diagonal mass matrix for z
             + dense_mass=[] (equivalent to dense_mass=False): using diagonal mass
@@ -637,6 +640,7 @@ class NUTS(HMC):
               using dense mass matrix for the joint (x, y, z)
             + dense_mass=[("x",), ("y",), ("z")]: using dense mass matrices for
               each of x, y, z
+
     :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
