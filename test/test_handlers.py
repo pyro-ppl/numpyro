@@ -624,6 +624,7 @@ def test_collapse_beta_binomial():
     assert_allclose(params1["c0"], params2["c0"])
 
 
+@pytest.mark.xfail(reason="Issue: https://github.com/pyro-ppl/numpyro/issues/964")
 def test_collapse_beta_bernoulli():
     data = 0.
 

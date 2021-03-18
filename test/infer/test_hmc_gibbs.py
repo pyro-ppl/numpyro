@@ -101,7 +101,7 @@ def test_linear_model_sigma(kernel_cls, N=90, P=40, sigma=0.07, warmup_steps=500
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
+def test_gaussian_model(kernel_cls, D=2, warmup_steps=5000, num_samples=5000):
     np.random.seed(0)
     cov = np.random.randn(4 * D * D).reshape((2 * D, 2 * D))
     cov = jnp.matmul(jnp.transpose(cov), cov) + 0.25 * jnp.eye(2 * D)
