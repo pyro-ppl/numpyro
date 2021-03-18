@@ -255,9 +255,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
         energy = vv_state.potential_energy + kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
-        hmc_state = HMCState(jnp.array(0), vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
+        zero_int = jnp.array(0, dtype=jnp.result_type(int))
+        hmc_state = HMCState(zero_int, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
                              None, trajectory_length,
-                             jnp.array(0), jnp.zeros(()), jnp.zeros(()), jnp.array(False), wa_state, rng_key_hmc)
+                             zero_int, jnp.zeros(()), jnp.zeros(()), jnp.array(False), wa_state, rng_key_hmc)
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,

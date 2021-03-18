@@ -71,10 +71,10 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
             pulls the primal sequence towards it. Defaults to 0.
         :return: initial state for the scheme.
         """
-        x_t = 0.
-        x_avg = 0.  # average of primal sequence
-        g_avg = 0.  # average of dual sequence
-        t = 0
+        x_t = jnp.zeros(())
+        x_avg = jnp.zeros(())  # average of primal sequence
+        g_avg = jnp.zeros(())  # average of dual sequence
+        t = jnp.array(0, dtype=jnp.result_type(int))
         return x_t, x_avg, g_avg, t, prox_center
 
     def update_fn(g, state):
@@ -487,7 +487,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
             size = inverse_mass_matrix.shape[-1]
         mm_state = mm_init(size)
 
-        window_idx = 0
+        window_idx = jnp.array(0, dtype=jnp.result_type(int))
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv,
                              ss_state, mm_state, window_idx, rng_key)
 
@@ -561,7 +561,7 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
 def _momentum_angle(inverse_mass_matrix, r_left, r_right, r_sum):
     if isinstance(inverse_mass_matrix, dict):
-        left_angle, right_angle = 0., 0.
+        left_angle, right_angle = jnp.zeros(()), jnp.zeros(())
         for site_names, inverse_mm in inverse_mass_matrix.items():
             r_left_b = tuple(r_left[k] for k in site_names)
             r_right_b = tuple(r_right[k] for k in site_names)
@@ -829,7 +829,8 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad, energy_current,
                     depth=0, weight=jnp.zeros(()), r_sum=r, turning=jnp.array(False),
                     diverging=jnp.array(False),
-                    sum_accept_probs=jnp.zeros(()), num_proposals=0)
+                    sum_accept_probs=jnp.zeros(()),
+                    num_proposals=jnp.array(0, dtype=jnp.result_type(int)))
 
     def _cond_fn(state):
         tree, _ = state
@@ -851,7 +852,7 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
 
 def euclidean_kinetic_energy(inverse_mass_matrix, r):
     if isinstance(inverse_mass_matrix, dict):
-        ke = 0.
+        ke = jnp.zeros(())
         for site_names, inverse_mm in inverse_mass_matrix.items():
             r_block = tuple(r[k] for k in site_names)
             ke = ke + euclidean_kinetic_energy(inverse_mm, r_block)
