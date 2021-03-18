@@ -178,7 +178,7 @@ def welford_covariance(diagonal=True):
                 cov_block, cov_inv_sqrt_block, tril_inv_block = final_fn(
                     state_block, regularize=regularize)
                 cov[site_names] = cov_block
-                cov_inv_sqrt[site_names]= cov_inv_sqrt_block
+                cov_inv_sqrt[site_names] = cov_inv_sqrt_block
                 tril_inv[site_names] = tril_inv_block
             return cov, cov_inv_sqrt, tril_inv
 
