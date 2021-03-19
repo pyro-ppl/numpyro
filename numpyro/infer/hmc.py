@@ -386,7 +386,7 @@ class HMC(MCMCKernel):
         This may be adapted during warmup if adapt_mass_matrix = True.
         If no value is specified, then it is initialized to the identity matrix.
         For a potential_fn with general JAX pytree parameters, the order of entries
-        of the mass matrix is the order of the flatten version of pytree parameters
+        of the mass matrix is the order of the flattened version of pytree parameters
         obtained with `jax.tree_flatten`, which is a bit ambiguous (see more at
         https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
         here we can specify a structured block mass matrix as a dictionary, where
@@ -610,7 +610,7 @@ class NUTS(HMC):
         This may be adapted during warmup if adapt_mass_matrix = True.
         If no value is specified, then it is initialized to the identity matrix.
         For a potential_fn with general JAX pytree parameters, the order of entries
-        of the mass matrix is the order of the flatten version of pytree parameters
+        of the mass matrix is the order of the flattened version of pytree parameters
         obtained with `jax.tree_flatten`, which is a bit ambiguous (see more at
         https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
         here we can specify a structured block mass matrix as a dictionary, where
