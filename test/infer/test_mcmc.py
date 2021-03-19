@@ -760,14 +760,6 @@ def test_structured_mass():
     cov[2:4, 2:4] = xy_cov
     cov[4, 4] = z_var
 
-    # smoke tests
-    for dense_mass in [True, False]:
-        kernel = NUTS(model, dense_mass=dense_mass)
-        mcmc = MCMC(kernel, num_warmup=1, num_samples=1)
-        mcmc.run(random.PRNGKey(0), cov)
-        actual_dim = mcmc.last_state.adapt_state.inverse_mass_matrix[("w", "x", "y", "z")].ndim
-        assert actual_dim == 1 + int(dense_mass)
-
     kernel = NUTS(model, dense_mass=[("w",), ("x", "y")])
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1)
     mcmc.run(random.PRNGKey(1), cov)
@@ -785,16 +777,42 @@ def test_structured_mass():
     assert_allclose(inverse_mass_matrix[("z",)], z_var, atol=0.5, rtol=0.5)
 
 
-def test_initial_inverse_mass_matrix():
+@pytest.mark.parametrize("dense_mass, expected_shapes", [
+    (False, {("w", "x", "y", "z"): (16,)}),
+    (True, {("w", "x", "y", "z"): (16, 16)}),
+    ([("y", "w", "z", "x")], {("y", "w", "z", "x"): (16, 16)}),
+    ([("x", "w"), ("y",)], {("x", "w"): (11, 11), ("y",): (4, 4), ("z",): (1,)}),
+    ([("y",)], {("w", "x", "z"): (12,), ("y",): (4, 4)}),
+    ([("z",), ("w",), ("y",)], {("w",): (10, 10), ("x",): (1,), ("y",): (4, 4), ("z",): (1, 1)}),
+])
+def test_structured_mass_smoke(dense_mass, expected_shapes):
+    def model():
+        w = numpyro.sample("x", dist.Normal(0, 1))
+        x = numpyro.sample("y", dist.Normal(0, 1).expand([4]))
+        y = numpyro.sample("w", dist.Normal(0, 1).expand([2, 5]))
+        z = numpyro.sample("z", dist.Normal(0, 1).expand([1]))
+
+    kernel = NUTS(model, dense_mass=dense_mass)
+    mcmc = MCMC(kernel, num_warmup=0, num_samples=1)
+    mcmc.run(random.PRNGKey(0))
+    inverse_mm = mcmc.last_state.adapt_state.inverse_mass_matrix
+    actual_shapes = {k: v.shape for k, v in inverse_mm.items()}
+    assert expected_shapes == actual_shapes
+
+
+@pytest.mark.parametrize("dense_mass", [[("x",)], False])
+def test_initial_inverse_mass_matrix(dense_mass):
     def model():
         numpyro.sample("x", dist.Normal(0, 1).expand([3]))
         numpyro.sample("z", dist.Normal(0, 1).expand([2]))
 
     expected_mm = jnp.arange(1, 4.)
-    kernel = NUTS(model, inverse_mass_matrix={("x",): expected_mm}, adapt_mass_matrix=False)
+    kernel = NUTS(model, dense_mass=dense_mass,
+                  inverse_mass_matrix={("x",): expected_mm}, adapt_mass_matrix=False)
     mcmc = MCMC(kernel, 100, 1)
     mcmc.run(random.PRNGKey(0))
     inverse_mass_matrix = mcmc.last_state.adapt_state.inverse_mass_matrix
     assert set(inverse_mass_matrix.keys()) == {("x",), ("z",)}
+    expected_mm = jnp.diag(expected_mm) if dense_mass else expected_mm
     assert_allclose(inverse_mass_matrix[("x",)], expected_mm)
     assert_allclose(inverse_mass_matrix[("z",)], jnp.ones(2))

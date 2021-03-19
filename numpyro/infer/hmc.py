@@ -536,7 +536,7 @@ class HMC(MCMCKernel):
             assert isinstance(dense_mass, list)
             # if user specifies an ndarray inverse mass matrix, we will convert
             # it to a dictionary for consistency
-            if not isinstance(inverse_mass_matrix, dict):
+            if inverse_mass_matrix is not None and not isinstance(inverse_mass_matrix, dict):
                 assert len(dense_mass) == 1
                 inverse_mass_matrix = {dense_mass[0]: inverse_mass_matrix}
 
