@@ -787,10 +787,10 @@ def test_structured_mass():
 ])
 def test_structured_mass_smoke(dense_mass, expected_shapes):
     def model():
-        w = numpyro.sample("x", dist.Normal(0, 1))
-        x = numpyro.sample("y", dist.Normal(0, 1).expand([4]))
-        y = numpyro.sample("w", dist.Normal(0, 1).expand([2, 5]))
-        z = numpyro.sample("z", dist.Normal(0, 1).expand([1]))
+        numpyro.sample("x", dist.Normal(0, 1))
+        numpyro.sample("y", dist.Normal(0, 1).expand([4]))
+        numpyro.sample("w", dist.Normal(0, 1).expand([2, 5]))
+        numpyro.sample("z", dist.Normal(0, 1).expand([1]))
 
     kernel = NUTS(model, dense_mass=dense_mass)
     mcmc = MCMC(kernel, num_warmup=0, num_samples=1)
