@@ -386,32 +386,33 @@ class HMC(MCMCKernel):
         This may be adapted during warmup if adapt_mass_matrix = True.
         If no value is specified, then it is initialized to the identity matrix.
         For a potential_fn with general JAX pytree parameters, the order of entries
-        of the mass matrix is the order of the flatten version of pytree parameters,
-        which is a bit ambiguous (see more at
+        of the mass matrix is the order of the flatten version of pytree parameters
+        obtained with `jax.tree_flatten`, which is a bit ambiguous (see more at
         https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
-        here we can specify a structured block mass matrix, with keys are tuple of
-        site names and values are the corresponding block of the mass matrix.
+        here we can specify a structured block mass matrix as a dictionary, where
+        keys are tuple of site names and values are the corresponding block of the
+        mass matrix.
         For more information about structured mass matrix, see `dense_mass` argument.
     :type inverse_mass_matrix: numpy.ndarray or dict
     :param bool adapt_step_size: A flag to decide if we want to adapt step_size
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
         matrix during warm-up phase using Welford scheme.
-    :param dense_mass:  A flag to decide if mass matrix is dense or
-        diagonal (default to ``dense_mass=False``). For structured mass matrix,
+    :param dense_mass:  This flag controls whether mass matrix is dense (i.e. full-rank) or
+        diagonal (defaults to ``dense_mass=False``). To specify a structured mass matrix,
         users can provide a list of tuples of site names. Each tuple represents
         a block in the joint mass matrix. For example, assuming that the model
-        has latent variables "x", "y", "z" (each variable can be multi-dimensional),
-        here are the meaning of various structures:
+        has latent variables "x", "y", "z" (where each variable can be multi-dimensional),
+        possible specifications and corresponding mass matrix structures are as follows:
 
-            + dense_mass=[("x", "y")]: using dense mass matrix for the joint
-              (x, y), diagonal mass matrix for z
-            + dense_mass=[] (equivalent to dense_mass=False): using diagonal mass
+            + dense_mass=[("x", "y")]: use a dense mass matrix for the joint
+              (x, y) and a diagonal mass matrix for z
+            + dense_mass=[] (equivalent to dense_mass=False): use a diagonal mass
               matrix for the joint (x, y, z)
             + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
-              using dense mass matrix for the joint (x, y, z)
-            + dense_mass=[("x",), ("y",), ("z")]: using dense mass matrices for
-              each of x, y, z
+              use a dense mass matrix for the joint (x, y, z)
+            + dense_mass=[("x",), ("y",), ("z")]: use dense mass matrices for
+              each of x, y, and z (i.e. block-diagonal with 3 blocks)
 
     :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
@@ -523,6 +524,7 @@ class HMC(MCMCKernel):
 
         # change dense_mass to a structural form
         dense_mass = self._dense_mass
+        inverse_mass_matrix = self._inverse_mass_matrix
         if self._model is not None:
             z = init_params[0] if isinstance(init_params, ParamInfo) else init_params
             if isinstance(dense_mass, bool):
@@ -530,19 +532,19 @@ class HMC(MCMCKernel):
                 # this is to be compatible with older numpyro versions
                 # and to match autoguide scale parameter and jax flatten utils
                 dense_mass = [tuple(sorted(z))] if dense_mass else []
-            else:
-                # assert that site_names in dense_mass and user-defined
-                # inverse_mass_matrix matched
-                assert isinstance(dense_mass, list)
-                if isinstance(self._inverse_mass_matrix, dict):
-                    for site_names in dense_mass:
-                        assert site_names in self._inverse_mass_matrix
+
+            assert isinstance(dense_mass, list)
+            # if user specifies an ndarray inverse mass matrix, we will convert
+            # it to a dictionary for consistency
+            if not isinstance(inverse_mass_matrix, dict):
+                assert len(dense_mass) == 1
+                inverse_mass_matrix = {dense_mass[0]: inverse_mass_matrix}
 
         hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
-            inverse_mass_matrix=self._inverse_mass_matrix,
+            inverse_mass_matrix=inverse_mass_matrix,
             adapt_step_size=self._adapt_step_size,
             adapt_mass_matrix=self._adapt_mass_matrix,
             dense_mass=dense_mass,
@@ -614,32 +616,33 @@ class NUTS(HMC):
         This may be adapted during warmup if adapt_mass_matrix = True.
         If no value is specified, then it is initialized to the identity matrix.
         For a potential_fn with general JAX pytree parameters, the order of entries
-        of the mass matrix is the order of the flatten version of pytree parameters,
-        which is a bit ambiguous (see more at
+        of the mass matrix is the order of the flatten version of pytree parameters
+        obtained with `jax.tree_flatten`, which is a bit ambiguous (see more at
         https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
-        here we can specify a structured block mass matrix, with keys are tuple of
-        site names and values are the corresponding block of the mass matrix.
+        here we can specify a structured block mass matrix as a dictionary, where
+        keys are tuple of site names and values are the corresponding block of the
+        mass matrix.
         For more information about structured mass matrix, see `dense_mass` argument.
     :type inverse_mass_matrix: numpy.ndarray or dict
     :param bool adapt_step_size: A flag to decide if we want to adapt step_size
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
         matrix during warm-up phase using Welford scheme.
-    :param dense_mass:  A flag to decide if mass matrix is dense or
-        diagonal (default to ``dense_mass=False``). For structured mass matrix,
+    :param dense_mass:  This flag controls whether mass matrix is dense (i.e. full-rank) or
+        diagonal (defaults to ``dense_mass=False``). To specify a structured mass matrix,
         users can provide a list of tuples of site names. Each tuple represents
         a block in the joint mass matrix. For example, assuming that the model
-        has latent variables "x", "y", "z" (each variable can be multi-dimensional),
-        here are the meaning of various structures:
+        has latent variables "x", "y", "z" (where each variable can be multi-dimensional),
+        possible specifications and corresponding mass matrix structures are as follows:
 
-            + dense_mass=[("x", "y")]: using dense mass matrix for the joint
-              (x, y), diagonal mass matrix for z
-            + dense_mass=[] (equivalent to dense_mass=False): using diagonal mass
+            + dense_mass=[("x", "y")]: use a dense mass matrix for the joint
+              (x, y) and a diagonal mass matrix for z
+            + dense_mass=[] (equivalent to dense_mass=False): use a diagonal mass
               matrix for the joint (x, y, z)
             + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
-              using dense mass matrix for the joint (x, y, z)
-            + dense_mass=[("x",), ("y",), ("z")]: using dense mass matrices for
-              each of x, y, z
+              use a dense mass matrix for the joint (x, y, z)
+            + dense_mass=[("x",), ("y",), ("z")]: use dense mass matrices for
+              each of x, y, and z (i.e. block-diagonal with 3 blocks)
 
     :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size

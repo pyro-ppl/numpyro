@@ -118,7 +118,7 @@ def welford_covariance(diagonal=True):
     """
     def init_fn(size):
         """
-        :param int size: size of each sample. For structural mass matrix,
+        :param int size: size of each sample. For a structured mass matrix,
             this is a dict mapping from tuples of site names to the shape
             of the mass matrix.
         :return: initial state for the scheme.
