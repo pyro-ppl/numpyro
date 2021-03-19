@@ -809,10 +809,27 @@ def test_initial_inverse_mass_matrix(dense_mass):
     expected_mm = jnp.arange(1, 4.)
     kernel = NUTS(model, dense_mass=dense_mass,
                   inverse_mass_matrix={("x",): expected_mm}, adapt_mass_matrix=False)
-    mcmc = MCMC(kernel, 100, 1)
+    mcmc = MCMC(kernel, 1, 1)
     mcmc.run(random.PRNGKey(0))
     inverse_mass_matrix = mcmc.last_state.adapt_state.inverse_mass_matrix
     assert set(inverse_mass_matrix.keys()) == {("x",), ("z",)}
     expected_mm = jnp.diag(expected_mm) if dense_mass else expected_mm
     assert_allclose(inverse_mass_matrix[("x",)], expected_mm)
     assert_allclose(inverse_mass_matrix[("z",)], jnp.ones(2))
+
+
+@pytest.mark.parametrize("dense_mass", [True, False])
+def test_initial_inverse_mass_matrix_ndarray(dense_mass):
+    def model():
+        numpyro.sample("z", dist.Normal(0, 1).expand([2]))
+        numpyro.sample("x", dist.Normal(0, 1).expand([3]))
+
+    expected_mm = jnp.arange(1, 6.)
+    kernel = NUTS(model, dense_mass=dense_mass,
+                  inverse_mass_matrix=expected_mm, adapt_mass_matrix=False)
+    mcmc = MCMC(kernel, 1, 1)
+    mcmc.run(random.PRNGKey(0))
+    inverse_mass_matrix = mcmc.last_state.adapt_state.inverse_mass_matrix
+    assert set(inverse_mass_matrix.keys()) == {("x", "z")}
+    expected_mm = jnp.diag(expected_mm) if dense_mass else expected_mm
+    assert_allclose(inverse_mass_matrix[("x", "z")], expected_mm)

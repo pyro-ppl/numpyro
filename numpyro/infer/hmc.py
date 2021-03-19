@@ -532,13 +532,7 @@ class HMC(MCMCKernel):
                 # this is to be compatible with older numpyro versions
                 # and to match autoguide scale parameter and jax flatten utils
                 dense_mass = [tuple(sorted(z))] if dense_mass else []
-
             assert isinstance(dense_mass, list)
-            # if user specifies an ndarray inverse mass matrix, we will convert
-            # it to a dictionary for consistency
-            if inverse_mass_matrix is not None and not isinstance(inverse_mass_matrix, dict):
-                assert len(dense_mass) == 1
-                inverse_mass_matrix = {dense_mass[0]: inverse_mass_matrix}
 
         hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,

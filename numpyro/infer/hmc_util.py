@@ -381,7 +381,11 @@ def build_adaptation_schedule(num_steps):
 
 def _initialize_mass_matrix(z, inverse_mass_matrix, dense_mass):
     if isinstance(dense_mass, list):
-        inverse_mass_matrix = {} if inverse_mass_matrix is None else inverse_mass_matrix
+        if inverse_mass_matrix is None:
+            inverse_mass_matrix = {}
+        # if user specifies an ndarray mass matrix, then we convert it to a dict
+        elif not isinstance(inverse_mass_matrix, dict):
+            inverse_mass_matrix = {tuple(sorted(z)): inverse_mass_matrix}
         mass_matrix_sqrt = {}
         mass_matrix_sqrt_inv = {}
         for site_names in dense_mass:
