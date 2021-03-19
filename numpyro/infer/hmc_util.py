@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
+from collections import OrderedDict, namedtuple
 
 from jax import grad, jacfwd, random, value_and_grad, vmap
 from jax.flatten_util import ravel_pytree
@@ -71,10 +71,10 @@ def dual_averaging(t0=10, kappa=0.75, gamma=0.05):
             pulls the primal sequence towards it. Defaults to 0.
         :return: initial state for the scheme.
         """
-        x_t = 0.
-        x_avg = 0.  # average of primal sequence
-        g_avg = 0.  # average of dual sequence
-        t = 0
+        x_t = jnp.zeros(())
+        x_avg = jnp.zeros(())  # average of primal sequence
+        g_avg = jnp.zeros(())  # average of dual sequence
+        t = jnp.array(0, dtype=jnp.result_type(int))
         return x_t, x_avg, g_avg, t, prox_center
 
     def update_fn(g, state):
@@ -118,14 +118,24 @@ def welford_covariance(diagonal=True):
     """
     def init_fn(size):
         """
-        :param int size: size of each sample.
+        :param int size: size of each sample. For a structured mass matrix,
+            this is a dict mapping from tuples of site names to the shape
+            of the mass matrix.
         :return: initial state for the scheme.
         """
-        mean = jnp.zeros(size)
-        if diagonal:
-            m2 = jnp.zeros(size)
+        if isinstance(size, dict):
+            state = {}
+            for site_names, size_block in size.items():
+                state[site_names] = init_fn(size_block)
+            return state
+
+        if isinstance(size, int):
+            shape = (size,) if diagonal else (size, size)
         else:
-            m2 = jnp.zeros((size, size))
+            shape = size
+
+        mean = jnp.zeros(shape[-1])
+        m2 = jnp.zeros(shape)
         n = 0
         return mean, m2, n
 
@@ -135,12 +145,21 @@ def welford_covariance(diagonal=True):
         :param state: Current state of the scheme.
         :return: new state for the scheme.
         """
+        if isinstance(state, dict):
+            assert isinstance(sample, dict)
+            new_state = {}
+            for site_names, state_block in state.items():
+                sample_block = tuple(sample[k] for k in site_names)
+                new_state[site_names] = update_fn(sample_block, state_block)
+            return new_state
+
+        sample, _ = ravel_pytree(sample)
         mean, m2, n = state
         n = n + 1
         delta_pre = sample - mean
         mean = mean + delta_pre / n
         delta_post = sample - mean
-        if diagonal:
+        if jnp.ndim(m2) == 1:
             m2 = m2 + delta_pre * delta_post
         else:
             m2 = m2 + jnp.outer(delta_post, delta_pre)
@@ -153,6 +172,16 @@ def welford_covariance(diagonal=True):
         :return: a triple of estimated covariance, the square root of precision, and
             the inverse of that square root.
         """
+        if isinstance(state, dict):
+            cov, cov_inv_sqrt, tril_inv = {}, {}, {}
+            for site_names, state_block in state.items():
+                cov_block, cov_inv_sqrt_block, tril_inv_block = final_fn(
+                    state_block, regularize=regularize)
+                cov[site_names] = cov_block
+                cov_inv_sqrt[site_names] = cov_inv_sqrt_block
+                tril_inv[site_names] = tril_inv_block
+            return cov, cov_inv_sqrt, tril_inv
+
         mean, m2, n = state
         # XXX it is not necessary to check for the case n=1
         cov = m2 / (n - 1)
@@ -160,7 +189,7 @@ def welford_covariance(diagonal=True):
             # Regularization from Stan
             scaled_cov = (n / (n + 5)) * cov
             shrinkage = 1e-3 * (5 / (n + 5))
-            if diagonal:
+            if jnp.ndim(scaled_cov) == 1:
                 cov = scaled_cov + shrinkage
             else:
                 cov = scaled_cov + shrinkage * jnp.identity(mean.shape[0])
@@ -350,6 +379,69 @@ def build_adaptation_schedule(num_steps):
     return adaptation_schedule
 
 
+def _initialize_mass_matrix(z, inverse_mass_matrix, dense_mass):
+    if isinstance(dense_mass, list):
+        if inverse_mass_matrix is None:
+            inverse_mass_matrix = {}
+        # if user specifies an ndarray mass matrix, then we convert it to a dict
+        elif not isinstance(inverse_mass_matrix, dict):
+            inverse_mass_matrix = {tuple(sorted(z)): inverse_mass_matrix}
+        mass_matrix_sqrt = {}
+        mass_matrix_sqrt_inv = {}
+        for site_names in dense_mass:
+            inverse_mm = inverse_mass_matrix.get(site_names)
+            z_block = tuple(z[k] for k in site_names)
+            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z_block, inverse_mm, True)
+            inverse_mass_matrix[site_names] = inverse_mm
+            mass_matrix_sqrt[site_names] = mm_sqrt
+            mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
+        # NB: this branch only happens when users want to use block diagonal
+        # inverse_mass_matrix, for example, {("a",): jnp.ones(3), ("b",): jnp.ones(3)}.
+        for site_names, inverse_mm in inverse_mass_matrix.items():
+            if site_names in dense_mass:
+                continue
+            z_block = tuple(z[k] for k in site_names)
+            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z_block, inverse_mm, False)
+            inverse_mass_matrix[site_names] = inverse_mm
+            mass_matrix_sqrt[site_names] = mm_sqrt
+            mass_matrix_sqrt_inv[site_names] = mm_sqrt_inv
+        remaining_sites = tuple(sorted(set(z) - set().union(*inverse_mass_matrix)))
+        if len(remaining_sites) > 0:
+            z_block = tuple(z[k] for k in remaining_sites)
+            inverse_mm, mm_sqrt, mm_sqrt_inv = _initialize_mass_matrix(z_block, None, False)
+            inverse_mass_matrix[remaining_sites] = inverse_mm
+            mass_matrix_sqrt[remaining_sites] = mm_sqrt
+            mass_matrix_sqrt_inv[remaining_sites] = mm_sqrt_inv
+        expected_site_names = sorted(z)
+        actual_site_names = sorted([k for site_names in inverse_mass_matrix for k in site_names])
+        assert actual_site_names == expected_site_names, \
+            ("There seems to be a conflict of sites names specified in the initial"
+             " `inverse_mass_matrix` and in `dense_mass` argument.")
+        return inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv
+
+    mass_matrix_size = jnp.size(ravel_pytree(z)[0])
+    if inverse_mass_matrix is None:
+        if dense_mass:
+            inverse_mass_matrix = jnp.identity(mass_matrix_size)
+        else:
+            inverse_mass_matrix = jnp.ones(mass_matrix_size)
+        mass_matrix_sqrt = mass_matrix_sqrt_inv = inverse_mass_matrix
+    else:
+        if dense_mass:
+            if jnp.ndim(inverse_mass_matrix) == 1:
+                inverse_mass_matrix = jnp.diag(inverse_mass_matrix)
+            mass_matrix_sqrt_inv = jnp.swapaxes(jnp.linalg.cholesky(
+                inverse_mass_matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
+            identity = jnp.identity(inverse_mass_matrix.shape[-1])
+            mass_matrix_sqrt = solve_triangular(mass_matrix_sqrt_inv, identity, lower=True)
+        else:
+            if jnp.ndim(inverse_mass_matrix) == 2:
+                inverse_mass_matrix = jnp.diag(inverse_mass_matrix)
+            mass_matrix_sqrt_inv = jnp.sqrt(inverse_mass_matrix)
+            mass_matrix_sqrt = jnp.reciprocal(mass_matrix_sqrt_inv)
+    return inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv
+
+
 def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
                    adapt_step_size=True, adapt_mass_matrix=True,
                    dense_mass=False, target_accept_prob=0.8):
@@ -390,30 +482,21 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         :return: initial state of the adapt scheme.
         """
         rng_key, rng_key_ss = random.split(rng_key)
-        if inverse_mass_matrix is None:
-            assert mass_matrix_size is not None
-            if dense_mass:
-                inverse_mass_matrix = jnp.identity(mass_matrix_size)
-            else:
-                inverse_mass_matrix = jnp.ones(mass_matrix_size)
-            mass_matrix_sqrt = mass_matrix_sqrt_inv = inverse_mass_matrix
-        else:
-            if dense_mass:
-                mass_matrix_sqrt_inv = jnp.swapaxes(jnp.linalg.cholesky(
-                    inverse_mass_matrix[..., ::-1, ::-1])[..., ::-1, ::-1], -2, -1)
-                identity = jnp.identity(inverse_mass_matrix.shape[-1])
-                mass_matrix_sqrt = solve_triangular(mass_matrix_sqrt_inv, identity, lower=True)
-            else:
-                mass_matrix_sqrt_inv = jnp.sqrt(inverse_mass_matrix)
-                mass_matrix_sqrt = jnp.reciprocal(mass_matrix_sqrt_inv)
+        inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = _initialize_mass_matrix(
+            z_info[0], inverse_mass_matrix, dense_mass
+        )
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
         ss_state = ss_init(jnp.log(10 * step_size))
 
-        mm_state = mm_init(inverse_mass_matrix.shape[-1])
+        if isinstance(inverse_mass_matrix, dict):
+            size = {k: v.shape for k, v in inverse_mass_matrix.items()}
+        else:
+            size = inverse_mass_matrix.shape[-1]
+        mm_state = mm_init(size)
 
-        window_idx = 0
+        window_idx = jnp.array(0, dtype=jnp.result_type(int))
         return HMCAdaptState(step_size, inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv,
                              ss_state, mm_state, window_idx, rng_key)
 
@@ -423,7 +506,11 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
 
         if adapt_mass_matrix:
             inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = mm_final(mm_state, regularize=True)
-            mm_state = mm_init(inverse_mass_matrix.shape[-1])
+            if isinstance(inverse_mass_matrix, dict):
+                size = {k: v.shape for k, v in inverse_mass_matrix.items()}
+            else:
+                size = inverse_mass_matrix.shape[-1]
+            mm_state = mm_init(size)
 
         if adapt_step_size:
             step_size = find_reasonable_step_size(step_size, inverse_mass_matrix, z_info, rng_key_ss)
@@ -465,9 +552,8 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
         is_middle_window = (0 < window_idx) & (window_idx < (num_windows - 1))
         if adapt_mass_matrix:
             z = z_info[0]
-            z_flat, _ = ravel_pytree(z)
             mm_state = cond(is_middle_window,
-                            (z_flat, mm_state), lambda args: mm_update(*args),
+                            (z, mm_state), lambda args: mm_update(*args),
                             mm_state, identity)
 
         t_at_window_end = t == adaptation_schedule[window_idx, 1]
@@ -482,7 +568,18 @@ def warmup_adapter(num_adapt_steps, find_reasonable_step_size=None,
     return init_fn, update_fn
 
 
-def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
+def _momentum_angle(inverse_mass_matrix, r_left, r_right, r_sum):
+    if isinstance(inverse_mass_matrix, dict):
+        left_angle, right_angle = jnp.zeros(()), jnp.zeros(())
+        for site_names, inverse_mm in inverse_mass_matrix.items():
+            r_left_b = tuple(r_left[k] for k in site_names)
+            r_right_b = tuple(r_right[k] for k in site_names)
+            r_sum_b = tuple(r_sum[k] for k in site_names)
+            left_a, right_a = _momentum_angle(inverse_mm, r_left_b, r_right_b, r_sum_b)
+            left_angle = left_angle + left_a
+            right_angle = right_angle + right_a
+        return left_angle, right_angle
+
     r_left, _ = ravel_pytree(r_left)
     r_right, _ = ravel_pytree(r_right)
     r_sum, _ = ravel_pytree(r_sum)
@@ -498,8 +595,13 @@ def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
 
     # This implements dynamic termination criterion (ref [2], section A.4.2).
     r_sum = r_sum - (r_left + r_right) / 2
-    turning_at_left = jnp.dot(v_left, r_sum) <= 0
-    turning_at_right = jnp.dot(v_right, r_sum) <= 0
+    return jnp.dot(v_left, r_sum), jnp.dot(v_right, r_sum)
+
+
+def _is_turning(inverse_mass_matrix, r_left, r_right, r_sum):
+    left_angle, right_angle = _momentum_angle(inverse_mass_matrix, r_left, r_right, r_sum)
+    turning_at_left = left_angle <= 0
+    turning_at_right = right_angle <= 0
     return turning_at_left | turning_at_right
 
 
@@ -631,11 +733,14 @@ def _leaf_idx_to_ckpt_idxs(n):
     return idx_min, idx_max
 
 
-def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, idx_min, idx_max):
+def _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, idx_min, idx_max,
+                          unravel_fn=identity):
     def _body_fn(state):
         i, _ = state
         subtree_r_sum = r_sum - r_sum_ckpts[i] + r_ckpts[i]
-        return i - 1, _is_turning(inverse_mass_matrix, r_ckpts[i], r, subtree_r_sum)
+        subtree_r_sum = unravel_fn(subtree_r_sum)
+        r_left = unravel_fn(r_ckpts[i])
+        return i - 1, _is_turning(inverse_mass_matrix, r_left, r, subtree_r_sum)
 
     _, turning = while_loop(lambda it: (it[0] >= idx_min) & ~it[1],
                             _body_fn,
@@ -669,7 +774,7 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
         # NB: in the special case leaf_idx=0, ckpt_idx_min=1 and ckpt_idx_max=0,
         # the following logic is still valid for that case
         ckpt_idx_min, ckpt_idx_max = _leaf_idx_to_ckpt_idxs(leaf_idx)
-        r, _ = ravel_pytree(new_leaf.r_right)
+        r, unravel_fn = ravel_pytree(new_leaf.r_right)
         r_sum, _ = ravel_pytree(new_tree.r_sum)
         # we update checkpoints when leaf_idx is even
         r_ckpts, r_sum_ckpts = cond(leaf_idx % 2 == 0,
@@ -679,8 +784,9 @@ def _iterative_build_subtree(prototype_tree, vv_update, kinetic_fn,
                                     (r_ckpts, r_sum_ckpts),
                                     identity)
 
-        turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts,
-                                        ckpt_idx_min, ckpt_idx_max)
+        turning = _is_iterative_turning(inverse_mass_matrix, new_leaf.r_right, r_sum,
+                                        r_ckpts, r_sum_ckpts,
+                                        ckpt_idx_min, ckpt_idx_max, unravel_fn)
         return new_tree, turning, r_ckpts, r_sum_ckpts, rng_key
 
     basetree = prototype_tree._replace(num_proposals=0)
@@ -725,12 +831,15 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
     """
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
-    r_ckpts = jnp.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
-    r_sum_ckpts = jnp.zeros((max_tree_depth, inverse_mass_matrix.shape[-1]))
+    latent_size = jnp.size(ravel_pytree(r)[0])
+    r_ckpts = jnp.zeros((max_tree_depth, latent_size))
+    r_sum_ckpts = jnp.zeros((max_tree_depth, latent_size))
 
     tree = TreeInfo(z, r, z_grad, z, r, z_grad, z, potential_energy, z_grad, energy_current,
-                    depth=0, weight=0., r_sum=r, turning=False, diverging=False,
-                    sum_accept_probs=0., num_proposals=0)
+                    depth=0, weight=jnp.zeros(()), r_sum=r, turning=jnp.array(False),
+                    diverging=jnp.array(False),
+                    sum_accept_probs=jnp.zeros(()),
+                    num_proposals=jnp.array(0, dtype=jnp.result_type(int)))
 
     def _cond_fn(state):
         tree, _ = state
@@ -751,6 +860,13 @@ def build_tree(verlet_update, kinetic_fn, verlet_state, inverse_mass_matrix, ste
 
 
 def euclidean_kinetic_energy(inverse_mass_matrix, r):
+    if isinstance(inverse_mass_matrix, dict):
+        ke = jnp.zeros(())
+        for site_names, inverse_mm in inverse_mass_matrix.items():
+            r_block = tuple(r[k] for k in site_names)
+            ke = ke + euclidean_kinetic_energy(inverse_mm, r_block)
+        return ke
+
     r, _ = ravel_pytree(r)
 
     if inverse_mass_matrix.ndim == 2:
@@ -764,6 +880,13 @@ def euclidean_kinetic_energy(inverse_mass_matrix, r):
 
 
 def _euclidean_kinetic_energy_grad(inverse_mass_matrix, r):
+    if isinstance(inverse_mass_matrix, dict):
+        r_grad = {}
+        for site_names, inverse_mm in inverse_mass_matrix.items():
+            r_block = OrderedDict([(k, r[k]) for k in site_names])
+            r_grad.update(_euclidean_kinetic_energy_grad(inverse_mm, r_block))
+        return r_grad
+
     r, unravel_fn = ravel_pytree(r)
 
     if inverse_mass_matrix.ndim == 2:
