@@ -146,9 +146,11 @@ def transform_data(data):  # lines 438 -> 503
     return data
 
 
-def get_data():
-    file = "covid19AgeModel_v120_cmdstanv-40states_Oct29-140172_stanin.RData"
-    # file = "covid19AgeModel_v120_cmdstanv-40states_tau10_schoolbound6_v120-31875[1]_stanin.RData"
+def get_data(M_40=True):
+    if M_40:
+        file = "covid19AgeModel_v120_cmdstanv-40states_tau10_schoolbound6_v120-31875[1]_stanin.RData"
+    else:
+        file = "covid19AgeModel_v120_cmdstanv-40states_Oct29-140172_stanin.RData"
     ro.r['load'](file)
     r_df = ro.r['stan_data']
     r_df = dict(zip(r_df.names, list(r_df)))

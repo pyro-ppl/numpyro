@@ -8,7 +8,6 @@ import math
 import numpy as np
 
 from jax import jit, lax, random, vmap
-from jax.dtypes import canonicalize_dtype
 from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
@@ -253,10 +252,6 @@ def promote_shapes(*args, shape=()):
                 if len(s) < num_dims else arg for arg, s in zip(args, shapes)]
 
 
-def get_dtype(x):
-    return canonicalize_dtype(lax.dtype(x))
-
-
 def sum_rightmost(x, dim):
     """
     Sum out ``dim`` many rightmost dimensions of a given tensor.
@@ -351,7 +346,7 @@ def logmatmulexp(x, y):
 
 
 def clamp_probs(probs):
-    finfo = jnp.finfo(get_dtype(probs))
+    finfo = jnp.finfo(jnp.result_type(probs))
     return jnp.clip(probs, a_min=finfo.tiny, a_max=1. - finfo.eps)
 
 
@@ -392,7 +387,7 @@ def von_mises_centered(key, concentration, shape=(), dtype=jnp.float64):
         :return: centered samples from von Mises
     """
     shape = shape or jnp.shape(concentration)
-    dtype = canonicalize_dtype(dtype)
+    dtype = jnp.result_type(dtype)
     concentration = lax.convert_element_type(concentration, dtype)
     concentration = jnp.broadcast_to(concentration, shape)
     return _von_mises_centered(key, concentration, shape, dtype)

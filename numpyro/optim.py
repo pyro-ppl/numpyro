@@ -79,7 +79,7 @@ class _NumPyroOptim(object):
 
     def eval_and_stable_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
         """
-        Likes :meth:`eval_and_update` but when the value of objective function
+        Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
         and will set the objective output to `nan`.
 

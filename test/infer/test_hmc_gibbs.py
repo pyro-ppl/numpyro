@@ -13,7 +13,7 @@ from jax.scipy.linalg import cho_factor, cho_solve, inv, solve_triangular
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import HMC, HMCECS, MCMC, NUTS, DiscreteHMCGibbs, HMCGibbs
+from numpyro.infer import HMC, HMCECS, MCMC, NUTS, DiscreteHMCGibbs, HMCGibbs, MixedHMC
 from numpyro.infer.util import log_density
 
 
@@ -101,7 +101,7 @@ def test_linear_model_sigma(kernel_cls, N=90, P=40, sigma=0.07, warmup_steps=500
 
 
 @pytest.mark.parametrize('kernel_cls', [HMC, NUTS])
-def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
+def test_gaussian_model(kernel_cls, D=2, warmup_steps=5000, num_samples=5000):
     np.random.seed(0)
     cov = np.random.randn(4 * D * D).reshape((2 * D, 2 * D))
     cov = jnp.matmul(jnp.transpose(cov), cov) + 0.25 * jnp.eye(2 * D)
@@ -149,61 +149,78 @@ def test_gaussian_model(kernel_cls, D=2, warmup_steps=3000, num_samples=5000):
     assert_allclose(x1_std, np.sqrt(np.diagonal(cov11)), rtol=0.1)
 
 
+@pytest.mark.parametrize("kernel, inner_kernel, kwargs", [
+    (MixedHMC, HMC, {"num_discrete_updates": 5}),
+    (DiscreteHMCGibbs, NUTS, {})
+])
 @pytest.mark.parametrize("num_chains", [1, 2])
 @pytest.mark.filterwarnings("ignore:There are not enough devices:UserWarning")
-def test_discrete_gibbs_multiple_sites_chain(num_chains):
+def test_discrete_gibbs_multiple_sites_chain(kernel, inner_kernel, kwargs, num_chains):
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7).expand([3]))
         numpyro.sample("y", dist.Binomial(10, 0.3))
 
-    kernel = DiscreteHMCGibbs(NUTS(model))
-    mcmc = MCMC(kernel, 1000, 10000, num_chains=num_chains, progress_bar=False)
+    sampler = kernel(inner_kernel(model), **kwargs)
+    mcmc = MCMC(sampler, 1000, 10000, num_chains=num_chains, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
+    mcmc.print_summary()
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["x"], 0), 0.7 * jnp.ones(3), atol=0.01)
     assert_allclose(jnp.mean(samples["y"], 0), 0.3 * 10, atol=0.1)
 
 
-def test_discrete_gibbs_enum():
+@pytest.mark.parametrize("kernel, inner_kernel, kwargs", [
+    (MixedHMC, HMC, {"num_discrete_updates": 6}),
+    (DiscreteHMCGibbs, NUTS, {})
+])
+def test_discrete_gibbs_enum(kernel, inner_kernel, kwargs):
     def model():
         numpyro.sample("x", dist.Bernoulli(0.7), infer={"enumerate": "parallel"})
         y = numpyro.sample("y", dist.Binomial(10, 0.3))
         numpyro.deterministic("y2", y ** 2)
 
-    kernel = DiscreteHMCGibbs(NUTS(model))
-    mcmc = MCMC(kernel, 1000, 10000, progress_bar=False)
+    sampler = kernel(inner_kernel(model), **kwargs)
+    mcmc = MCMC(sampler, 1000, 10000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["y"], 0), 0.3 * 10, atol=0.1)
 
 
 @pytest.mark.parametrize("random_walk", [False, True])
-@pytest.mark.parametrize("modified", [False, True])
-def test_discrete_gibbs_bernoulli(random_walk, modified):
+@pytest.mark.parametrize("kernel, inner_kernel, kwargs", [
+    (MixedHMC, HMC, {"num_discrete_updates": 6}),
+    (DiscreteHMCGibbs, NUTS, {"modified": True}),
+    (DiscreteHMCGibbs, NUTS, {"modified": False}),
+])
+def test_discrete_gibbs_bernoulli(random_walk, kernel, inner_kernel, kwargs):
     def model():
         numpyro.sample("c", dist.Bernoulli(0.8))
 
-    kernel = DiscreteHMCGibbs(NUTS(model), random_walk=random_walk, modified=modified)
-    mcmc = MCMC(kernel, 1000, 200000, progress_bar=False)
+    sampler = kernel(inner_kernel(model), random_walk=random_walk, **kwargs)
+    mcmc = MCMC(sampler, 1000, 10000, progress_bar=False)
     mcmc.run(random.PRNGKey(0))
     samples = mcmc.get_samples()["c"]
     assert_allclose(jnp.mean(samples), 0.8, atol=0.05)
 
 
 @pytest.mark.parametrize("modified", [False, True])
-def test_discrete_gibbs_gmm_1d(modified):
+@pytest.mark.parametrize("kernel, inner_kernel, kwargs", [
+    (MixedHMC, HMC, {"num_discrete_updates": 20}),
+    (DiscreteHMCGibbs, NUTS, {})
+])
+def test_discrete_gibbs_gmm_1d(modified, kernel, inner_kernel, kwargs):
     def model(probs, locs):
         c = numpyro.sample("c", dist.Categorical(probs))
         numpyro.sample("x", dist.Normal(locs[c], 0.5))
 
     probs = jnp.array([0.15, 0.3, 0.3, 0.25])
     locs = jnp.array([-2, 0, 2, 4])
-    kernel = DiscreteHMCGibbs(NUTS(model), modified=modified)
-    mcmc = MCMC(kernel, 1000, 200000, progress_bar=False)
+    sampler = kernel(inner_kernel(model, trajectory_length=1.2), modified=modified, **kwargs)
+    mcmc = MCMC(sampler, 1000, 200000, progress_bar=False)
     mcmc.run(random.PRNGKey(0), probs, locs)
     samples = mcmc.get_samples()
     assert_allclose(jnp.mean(samples["x"]), 1.3, atol=0.1)
-    assert_allclose(jnp.var(samples["x"]), 4.36, atol=0.2)
+    assert_allclose(jnp.var(samples["x"]), 4.36, atol=0.4)
     assert_allclose(jnp.mean(samples["c"]), 1.65, atol=0.1)
     assert_allclose(jnp.var(samples["c"]), 1.03, atol=0.1)
 

@@ -42,7 +42,6 @@ from numpyro.distributions.util import (
     binomial,
     categorical,
     clamp_probs,
-    get_dtype,
     is_prng_key,
     lazy_property,
     multinomial,
@@ -66,7 +65,7 @@ def _to_probs_multinom(logits):
 
 
 def _to_logits_multinom(probs):
-    minval = jnp.finfo(get_dtype(probs)).min
+    minval = jnp.finfo(jnp.result_type(probs)).min
     return jnp.clip(jnp.log(probs), a_min=minval)
 
 
@@ -292,11 +291,11 @@ class CategoricalProbs(Distribution):
 
     @property
     def mean(self):
-        return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.probs))
+        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
 
     @property
     def variance(self):
-        return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.probs))
+        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.probs))
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
@@ -340,11 +339,11 @@ class CategoricalLogits(Distribution):
 
     @property
     def mean(self):
-        return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.logits))
+        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
 
     @property
     def variance(self):
-        return jnp.full(self.batch_shape, jnp.nan, dtype=get_dtype(self.logits))
+        return jnp.full(self.batch_shape, jnp.nan, dtype=jnp.result_type(self.logits))
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
@@ -609,7 +608,7 @@ class GeometricProbs(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         probs = self.probs
-        dtype = get_dtype(probs)
+        dtype = jnp.result_type(probs)
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
         return jnp.floor(jnp.log1p(-u) / jnp.log1p(-probs))
@@ -649,7 +648,7 @@ class GeometricLogits(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         logits = self.logits
-        dtype = get_dtype(logits)
+        dtype = jnp.result_type(logits)
         shape = sample_shape + self.batch_shape
         u = random.uniform(key, shape, dtype)
         return jnp.floor(jnp.log1p(-u) / -softplus(logits))

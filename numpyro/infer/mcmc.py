@@ -262,9 +262,7 @@ class MCMC(object):
                           .format(self.num_chains, local_device_count(), self.num_chains))
         self.chain_method = chain_method
         self.progress_bar = progress_bar
-        # TODO: We should have progress bars (maybe without diagnostics) for num_chains > 1
-        if (chain_method == 'parallel' and num_chains > 1) or (
-                "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ):
+        if "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
             self.progress_bar = False
         self._jit_model_args = jit_model_args
         self._states = None
@@ -352,7 +350,8 @@ class MCMC(object):
                                     thinning=self.thinning,
                                     collection_size=collection_size,
                                     progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
-                                    diagnostics_fn=diagnostics)
+                                    diagnostics_fn=diagnostics,
+                                    num_chains=self.num_chains if self.chain_method == 'parallel' else 1)
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
         last_state = last_val[0]
@@ -471,6 +470,7 @@ class MCMC(object):
             See https://jax.readthedocs.io/en/latest/async_dispatch.html and
             https://jax.readthedocs.io/en/latest/profiling.html for pointers on profiling jax programs.
         """
+        init_params = tree_map(lambda x: lax.convert_element_type(x, jnp.result_type(x)), init_params)
         self._args = args
         self._kwargs = kwargs
         init_state = self._get_cached_init_state(rng_key, args, kwargs)

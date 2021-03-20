@@ -478,7 +478,7 @@ class HMCECS(HMCGibbs):
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
     :param int num_blocks: Number of blocks to partition subsample into.
-    :param proxy: Either :function `~numpyro.infer.hmc_gibbs.taylor_proxy` for likelihood estimation,
+    :param proxy: Either :func:`~numpyro.infer.hmc_gibbs.taylor_proxy` for likelihood estimation,
                   or, None for naive (in-between trajectory) subsampling as outlined in [4].
 
     **Example**
@@ -554,7 +554,7 @@ class HMCECS(HMCGibbs):
 
         model_kwargs["_gibbs_state"] = gibbs_state
         state = super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
-        return HMCECSState(state.z, state.hmc_state, state.rng_key, gibbs_state, jnp.array(0.))
+        return HMCECSState(state.z, state.hmc_state, state.rng_key, gibbs_state, jnp.zeros(()))
 
     def sample(self, state, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()

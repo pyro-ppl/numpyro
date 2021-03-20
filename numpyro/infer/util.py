@@ -47,7 +47,7 @@ def log_density(model, model_args, model_kwargs, params):
     """
     model = substitute(model, data=params)
     model_trace = trace(model).get_trace(*model_args, **model_kwargs)
-    log_joint = jnp.array(0.)
+    log_joint = jnp.zeros(())
     for site in model_trace.values():
         if site['type'] == 'sample':
             value = site['value']

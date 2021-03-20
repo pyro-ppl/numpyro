@@ -186,7 +186,7 @@ def test_model_with_mask_false():
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=500, num_chains=1)
     mcmc.run(random.PRNGKey(1))
-    assert_allclose(mcmc.get_samples()['x'].mean(), 0., atol=0.1)
+    assert_allclose(mcmc.get_samples()['x'].mean(), 0., atol=0.15)
 
 
 @pytest.mark.parametrize('init_strategy', [
