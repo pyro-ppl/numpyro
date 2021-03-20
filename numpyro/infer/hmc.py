@@ -191,15 +191,39 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         :param float step_size: Determines the size of a single step taken by the
             verlet integrator while computing the trajectory using Hamiltonian
             dynamics. If not specified, it will be set to 1.
-        :param numpy.ndarray inverse_mass_matrix: Initial value for inverse mass matrix.
+        :param inverse_mass_matrix: Initial value for inverse mass matrix.
             This may be adapted during warmup if adapt_mass_matrix = True.
             If no value is specified, then it is initialized to the identity matrix.
+            For a potential_fn with general JAX pytree parameters, the order of entries
+            of the mass matrix is the order of the flattened version of pytree parameters
+            obtained with `jax.tree_flatten`, which is a bit ambiguous (see more at
+            https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
+            here we can specify a structured block mass matrix as a dictionary, where
+            keys are tuple of site names and values are the corresponding block of the
+            mass matrix.
+            For more information about structured mass matrix, see `dense_mass` argument.
+        :type inverse_mass_matrix: numpy.ndarray or dict
         :param bool adapt_step_size: A flag to decide if we want to adapt step_size
             during warm-up phase using Dual Averaging scheme.
         :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
             matrix during warm-up phase using Welford scheme.
-        :param bool dense_mass: A flag to decide if mass matrix is dense or
-            diagonal (default when ``dense_mass=False``)
+        :param dense_mass:  This flag controls whether mass matrix is dense (i.e. full-rank) or
+            diagonal (defaults to ``dense_mass=False``). To specify a structured mass matrix,
+            users can provide a list of tuples of site names. Each tuple represents
+            a block in the joint mass matrix. For example, assuming that the model
+            has latent variables "x", "y", "z" (where each variable can be multi-dimensional),
+            possible specifications and corresponding mass matrix structures are as follows:
+
+                + dense_mass=[("x", "y")]: use a dense mass matrix for the joint
+                (x, y) and a diagonal mass matrix for z
+                + dense_mass=[] (equivalent to dense_mass=False): use a diagonal mass
+                matrix for the joint (x, y, z)
+                + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
+                use a dense mass matrix for the joint (x, y, z)
+                + dense_mass=[("x",), ("y",), ("z")]: use dense mass matrices for
+                each of x, y, and z (i.e. block-diagonal with 3 blocks)
+
+        :type dense_mass: bool or list
         :param float target_accept_prob: Target acceptance probability for step size
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Default to 0.8.
