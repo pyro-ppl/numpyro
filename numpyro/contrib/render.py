@@ -17,21 +17,38 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
 
-    trace = handlers.trace(handlers.seed(model, 0)).get_trace(*model_args, **model_kwargs)
-    obs_sites = [name for name, site in trace.items()
-                 if site['type'] == 'sample' and site['is_observed']]
+    trace = handlers.trace(handlers.seed(model, 0)).get_trace(
+        *model_args, **model_kwargs
+    )
+    obs_sites = [
+        name
+        for name, site in trace.items()
+        if site['type'] == 'sample' and site['is_observed']
+    ]
 
     def _get_dist_name(fn):
-        if isinstance(fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)):
+        if isinstance(
+            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
+        ):
             return _get_dist_name(fn.base_dist)
         return type(fn).__name__
 
-    sample_dist = {name: _get_dist_name(site['fn']) for name, site in trace.items() if site['type'] == 'sample'}
+    sample_dist = {
+        name: _get_dist_name(site['fn'])
+        for name, site in trace.items()
+        if site['type'] == 'sample'
+    }
 
-    sample_plates = {name: [frame.name for frame in site['cond_indep_stack']]
-                     for name, site in trace.items() if site['type'] == 'sample'}
-    plate_samples = {k: {name for name, plates in sample_plates.items() if k in plates}
-                     for k in trace if trace[k]['type'] == 'plate'}
+    sample_plates = {
+        name: [frame.name for frame in site['cond_indep_stack']]
+        for name, site in trace.items()
+        if site['type'] == 'sample'
+    }
+    plate_samples = {
+        k: {name for name, plates in sample_plates.items() if k in plates}
+        for k in trace
+        if trace[k]['type'] == 'plate'
+    }
 
     def _resolve_plate_samples(plate_samples):
         for p, pv in plate_samples.items():
@@ -45,27 +62,44 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
 
     plate_samples = _resolve_plate_samples(plate_samples)
     # convert set to list to keep order of variables
-    plate_samples = {k: [name for name in trace if name in v]
-                     for k, v in plate_samples.items()}
+    plate_samples = {
+        k: [name for name in trace if name in v] for k, v in plate_samples.items()
+    }
 
     def get_log_probs(sample, seed=0):
-        with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(data=sample):
+        with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(
+            data=sample
+        ):
             model(*model_args, **model_kwargs)
-        return {name: site['fn'].log_prob(site['value'])
-                for name, site in tr.items() if site['type'] == 'sample'}
+        return {
+            name: site['fn'].log_prob(site['value'])
+            for name, site in tr.items()
+            if site['type'] == 'sample'
+        }
 
-    samples = {name: site['value'] for name, site in trace.items()
-               if site['type'] == 'sample' and not site['is_observed']
-               and not site['fn'].is_discrete}
+    samples = {
+        name: site['value']
+        for name, site in trace.items()
+        if site['type'] == 'sample'
+        and not site['is_observed']
+        and not site['fn'].is_discrete
+    }
     log_prob_grads = jax.jacobian(get_log_probs)(samples)
     sample_deps = {}
     for name, grads in log_prob_grads.items():
         sample_deps[name] = {n for n in grads if n != name and (grads[n] != 0).any()}
 
     # find discrete -> continuous dependency
-    samples = {name: site['value'] for name, site in trace.items() if site['type'] == 'sample'}
-    discrete_sites = [name for name, site in trace.items() if site['type'] == 'sample'
-                      and not site['is_observed'] and site['fn'].is_discrete]
+    samples = {
+        name: site['value'] for name, site in trace.items() if site['type'] == 'sample'
+    }
+    discrete_sites = [
+        name
+        for name, site in trace.items()
+        if site['type'] == 'sample'
+        and not site['is_observed']
+        and site['fn'].is_discrete
+    ]
     log_probs_prototype = get_log_probs(samples)
     for name in discrete_sites:
         samples_ = samples.copy()
@@ -84,7 +118,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
         'sample_sample': sample_sample,
         'sample_dist': sample_dist,
         'plate_sample': plate_samples,
-        'observed': obs_sites
+        'observed': obs_sites,
     }
 
 
@@ -210,11 +244,9 @@ def render_graph(graph_specification, render_distributions=False):
         dist_label = ''
         for rv, data in node_data.items():
             rv_dist = data['distribution']
-            dist_label += f'{rv} ~ {rv_dist}\l'
+            dist_label += rf'{rv} ~ {rv_dist}\l'
 
-        graph.node(
-            'distribution_description_node', label=dist_label, shape='plaintext'
-        )
+        graph.node('distribution_description_node', label=dist_label, shape='plaintext')
 
     # return whole graph
     return graph
