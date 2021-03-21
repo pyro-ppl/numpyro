@@ -4,7 +4,7 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.util import get_model_relations, generate_graph_specification
+from numpyro.contrib.render import get_model_relations, generate_graph_specification
 
 
 def simple(data):
