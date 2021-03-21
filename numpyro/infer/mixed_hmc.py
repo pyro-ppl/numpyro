@@ -219,3 +219,8 @@ class MixedHMC(DiscreteHMCGibbs):
 
         z = {**z_discrete, **hmc_state.z}
         return MixedHMCState(z, hmc_state, rng_key, accept_prob)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_wa_update"] = None
+        return state

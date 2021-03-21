@@ -332,3 +332,11 @@ class SA(MCMCKernel):
         :return: Next `state` after running SA.
         """
         return self._sample_fn(state, model_args, model_kwargs)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_sample_fn"] = None
+        state["_init_fn"] = None
+        state["_postprocess_fn"] = None
+        state["_potential_fn_gen"] = None
+        return state
