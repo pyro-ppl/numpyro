@@ -60,6 +60,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
+        sudo apt install -y graphviz
         python -m pip install --upgrade pip
         # Keep track of pyro-api master branch
         pip install https://github.com/pyro-ppl/pyro-api/archive/master.zip

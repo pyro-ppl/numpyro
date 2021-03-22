@@ -17,6 +17,7 @@ from numpyro.primitives import (
     subsample
 )
 from numpyro.util import enable_x64, set_host_device_count, set_platform
+from numpyro.contrib.render import render_model
 from numpyro.version import __version__
 
 set_platform("cpu")
@@ -40,6 +41,7 @@ __all__ = [
     "plate",
     "plate_stack",
     "prng_key",
+    "render_model",
     "sample",
     "subsample",
     "set_host_device_count",
