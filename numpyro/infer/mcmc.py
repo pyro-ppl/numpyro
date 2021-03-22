@@ -563,3 +563,8 @@ class MCMC(object):
         extra_fields = self.get_extra_fields()
         if 'diverging' in extra_fields:
             print("Number of divergences: {}".format(jnp.sum(extra_fields['diverging'])))
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_cache"] = {}
+        return state
