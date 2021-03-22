@@ -82,7 +82,7 @@ def main(args):
     svi_state = svi.init(rng_key_init, sample_batch)
 
     @jit
-    def epoch_train(svi_state, rng_key):
+    def epoch_train(svi_state, rng_key, train_idx):
         def body_fn(i, val):
             loss_sum, svi_state = val
             rng_key_binarize = random.fold_in(rng_key, i)
@@ -94,7 +94,7 @@ def main(args):
         return lax.fori_loop(0, num_train, body_fn, (0., svi_state))
 
     @jit
-    def eval_test(svi_state, rng_key):
+    def eval_test(svi_state, rng_key, test_idx):
         def body_fun(i, loss_sum):
             rng_key_binarize = random.fold_in(rng_key, i)
             batch = binarize(rng_key_binarize, test_fetch(i, test_idx)[0])
@@ -122,16 +122,16 @@ def main(args):
         rng_key, rng_key_train, rng_key_test, rng_key_reconstruct = random.split(rng_key, 4)
         t_start = time.time()
         num_train, train_idx = train_init()
-        _, svi_state = epoch_train(svi_state, rng_key_train)
+        _, svi_state = epoch_train(svi_state, rng_key_train, train_idx)
         rng_key, rng_key_test, rng_key_reconstruct = random.split(rng_key, 3)
         num_test, test_idx = test_init()
-        test_loss = eval_test(svi_state, rng_key_test)
+        test_loss = eval_test(svi_state, rng_key_test, test_idx)
         reconstruct_img(i, rng_key_reconstruct)
         print("Epoch {}: loss = {} ({:.2f} s.)".format(i, test_loss, time.time() - t_start))
 
 
 if __name__ == '__main__':
-    assert numpyro.__version__.startswith('0.5.0')
+    assert numpyro.__version__.startswith('0.6.0')
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('-n', '--num-epochs', default=15, type=int, help='number of training epochs')
     parser.add_argument('-lr', '--learning-rate', default=1.0e-3, type=float, help='learning rate')

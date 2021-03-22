@@ -28,13 +28,10 @@ HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """
 
 
-def _wrap_model(model):
-    def fn(*args, **kwargs):
-        gibbs_values = kwargs.pop("_gibbs_sites", {})
-        with condition(data=gibbs_values), substitute(data=gibbs_values):
-            model(*args, **kwargs)
-
-    return fn
+def _wrap_model(model, *args, **kwargs):
+    gibbs_values = kwargs.pop("_gibbs_sites", {})
+    with condition(data=gibbs_values), substitute(data=gibbs_values):
+        return model(*args, **kwargs)
 
 
 class HMCGibbs(MCMCKernel):
@@ -94,7 +91,7 @@ class HMCGibbs(MCMCKernel):
         assert inner_kernel.model is not None, "HMCGibbs does not support models specified via a potential function."
 
         self.inner_kernel = copy.copy(inner_kernel)
-        self.inner_kernel._model = _wrap_model(inner_kernel.model)
+        self.inner_kernel._model = partial(_wrap_model, inner_kernel.model)
         self._gibbs_sites = gibbs_sites
         self._gibbs_fn = gibbs_fn
         self._prototype_trace = None
@@ -336,7 +333,7 @@ class DiscreteHMCGibbs(HMCGibbs):
     """
 
     def __init__(self, inner_kernel, *, random_walk=False, modified=False):
-        super().__init__(inner_kernel, lambda *args: None, None)
+        super().__init__(inner_kernel, identity, None)
         self._random_walk = random_walk
         self._modified = modified
         if random_walk:
@@ -439,14 +436,11 @@ TaylorProxyState = namedtuple("TaylorProxyState", "ref_subsample_log_liks, "
                                                   "ref_subsample_log_lik_grads, ref_subsample_log_lik_hessians")
 
 
-def _wrap_gibbs_state(model):
-    def wrapped_fn(*args, **kwargs):
-        # this is to let estimate_likelihood handler knows what is the current gibbs_state
-        msg = {"type": "_gibbs_state", "value": kwargs.pop("_gibbs_state", ())}
-        numpyro.primitives.apply_stack(msg)
-        return model(*args, **kwargs)
-
-    return wrapped_fn
+def _wrap_gibbs_state(model, *args, **kwargs):
+    # this is to let estimate_likelihood handler knows what is the current gibbs_state
+    msg = {"type": "_gibbs_state", "value": kwargs.pop("_gibbs_state", ())}
+    numpyro.primitives.apply_stack(msg)
+    return model(*args, **kwargs)
 
 
 class HMCECS(HMCGibbs):
@@ -478,7 +472,7 @@ class HMCECS(HMCGibbs):
 
     :param inner_kernel: One of :class:`~numpyro.infer.hmc.HMC` or :class:`~numpyro.infer.hmc.NUTS`.
     :param int num_blocks: Number of blocks to partition subsample into.
-    :param proxy: Either :function `~numpyro.infer.hmc_gibbs.taylor_proxy` for likelihood estimation,
+    :param proxy: Either :func:`~numpyro.infer.hmc_gibbs.taylor_proxy` for likelihood estimation,
                   or, None for naive (in-between trajectory) subsampling as outlined in [4].
 
     **Example**
@@ -507,9 +501,9 @@ class HMCECS(HMCGibbs):
     """
 
     def __init__(self, inner_kernel, *, num_blocks=1, proxy=None):
-        super().__init__(inner_kernel, lambda *args: None, None)
+        super().__init__(inner_kernel, identity, None)
 
-        self.inner_kernel._model = _wrap_gibbs_state(self.inner_kernel._model)
+        self.inner_kernel._model = partial(_wrap_gibbs_state, self.inner_kernel._model)
         self._num_blocks = num_blocks
         self._proxy = proxy
 
@@ -554,7 +548,7 @@ class HMCECS(HMCGibbs):
 
         model_kwargs["_gibbs_state"] = gibbs_state
         state = super().init(rng_key, num_warmup, init_params, model_args, model_kwargs)
-        return HMCECSState(state.z, state.hmc_state, state.rng_key, gibbs_state, jnp.array(0.))
+        return HMCECSState(state.z, state.hmc_state, state.rng_key, gibbs_state, jnp.zeros(()))
 
     def sample(self, state, model_args, model_kwargs):
         model_kwargs = {} if model_kwargs is None else model_kwargs.copy()
@@ -760,10 +754,9 @@ class estimate_likelihood(numpyro.primitives.Messenger):
         if self.params is None:
             return
 
-        # add numpyro.factor; ideally, we will want to skip this computation when making prediction
-        # see: https://github.com/pyro-ppl/pyro/issues/2744
-        numpyro.factor("_biased_corrected_log_likelihood",
-                       self.method(self.likelihoods, self.params, self.gibbs_state))
+        if numpyro.get_mask() is not False:
+            numpyro.factor("_biased_corrected_log_likelihood",
+                           self.method(self.likelihoods, self.params, self.gibbs_state))
 
         # clean up
         self.params = None

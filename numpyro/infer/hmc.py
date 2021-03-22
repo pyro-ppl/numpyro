@@ -1,12 +1,11 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import namedtuple
+from collections import OrderedDict, namedtuple
 import math
 import os
 
 from jax import device_put, lax, partial, random, vmap
-from jax.dtypes import canonicalize_dtype
 from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 
@@ -22,7 +21,8 @@ from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import ParamInfo, init_to_uniform, initialize_model
 from numpyro.util import cond, fori_loop, identity
 
-HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy', 'num_steps', 'accept_prob',
+HMCState = namedtuple('HMCState', ['i', 'z', 'z_grad', 'potential_energy', 'energy',
+                                   'r', 'trajectory_length', 'num_steps', 'accept_prob',
                                    'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
@@ -33,6 +33,10 @@ A :func:`~collections.namedtuple` consisting of the following fields:
  - **z_grad** - Gradient of potential energy w.r.t. latent sample sites.
  - **potential_energy** - Potential energy computed at the given value of ``z``.
  - **energy** - Sum of potential energy and kinetic energy of the current state.
+ - **r** - The current momentum variable. If this is None, a new momentum variable
+   will be drawn at the beginning of each sampling step.
+ - **trajectory_length** - The amount of time to run HMC dynamics in each sampling step.
+   This field is not used in NUTS.
  - **num_steps** - Number of steps in the Hamiltonian trajectory (for diagnostics).
    In NUTS sampler, the tree depth of a trajectory can be computed from this field
    with `tree_depth = np.log2(num_steps).astype(int) + 1`.
@@ -56,13 +60,21 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
 
 def _get_num_steps(step_size, trajectory_length):
-    num_steps = jnp.clip(trajectory_length / step_size, a_min=1)
+    num_steps = jnp.ceil(trajectory_length / step_size)
     # NB: casting to jnp.int64 does not take effect (returns jnp.int32 instead)
     # if jax_enable_x64 is False
-    return num_steps.astype(canonicalize_dtype(jnp.int64))
+    return num_steps.astype(jnp.result_type(int))
 
 
 def momentum_generator(prototype_r, mass_matrix_sqrt, rng_key):
+    if isinstance(mass_matrix_sqrt, dict):
+        rng_keys = random.split(rng_key, len(mass_matrix_sqrt))
+        r = {}
+        for (site_names, mm_sqrt), rng_key in zip(mass_matrix_sqrt.items(), rng_keys):
+            r_block = OrderedDict([(k, prototype_r[k]) for k in site_names])
+            r.update(momentum_generator(r_block, mm_sqrt, rng_key))
+        return r
+
     _, unpack_fn = ravel_pytree(prototype_r)
     eps = random.normal(rng_key, jnp.shape(mass_matrix_sqrt)[:1])
     if mass_matrix_sqrt.ndim == 1:
@@ -146,7 +158,6 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
     if kinetic_fn is None:
         kinetic_fn = euclidean_kinetic_energy
     vv_update = None
-    trajectory_len = None
     max_treedepth = None
     wa_update = None
     wa_steps = None
@@ -180,15 +191,39 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         :param float step_size: Determines the size of a single step taken by the
             verlet integrator while computing the trajectory using Hamiltonian
             dynamics. If not specified, it will be set to 1.
-        :param numpy.ndarray inverse_mass_matrix: Initial value for inverse mass matrix.
+        :param inverse_mass_matrix: Initial value for inverse mass matrix.
             This may be adapted during warmup if adapt_mass_matrix = True.
             If no value is specified, then it is initialized to the identity matrix.
+            For a potential_fn with general JAX pytree parameters, the order of entries
+            of the mass matrix is the order of the flattened version of pytree parameters
+            obtained with `jax.tree_flatten`, which is a bit ambiguous (see more at
+            https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
+            here we can specify a structured block mass matrix as a dictionary, where
+            keys are tuple of site names and values are the corresponding block of the
+            mass matrix.
+            For more information about structured mass matrix, see `dense_mass` argument.
+        :type inverse_mass_matrix: numpy.ndarray or dict
         :param bool adapt_step_size: A flag to decide if we want to adapt step_size
             during warm-up phase using Dual Averaging scheme.
         :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
             matrix during warm-up phase using Welford scheme.
-        :param bool dense_mass: A flag to decide if mass matrix is dense or
-            diagonal (default when ``dense_mass=False``)
+        :param dense_mass:  This flag controls whether mass matrix is dense (i.e. full-rank) or
+            diagonal (defaults to ``dense_mass=False``). To specify a structured mass matrix,
+            users can provide a list of tuples of site names. Each tuple represents
+            a block in the joint mass matrix. For example, assuming that the model
+            has latent variables "x", "y", "z" (where each variable can be multi-dimensional),
+            possible specifications and corresponding mass matrix structures are as follows:
+
+                + dense_mass=[("x", "y")]: use a dense mass matrix for the joint
+                (x, y) and a diagonal mass matrix for z
+                + dense_mass=[] (equivalent to dense_mass=False): use a diagonal mass
+                matrix for the joint (x, y, z)
+                + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
+                use a dense mass matrix for the joint (x, y, z)
+                + dense_mass=[("x",), ("y",), ("z")]: use dense mass matrices for
+                each of x, y, and z (i.e. block-diagonal with 3 blocks)
+
+        :type dense_mass: bool or list
         :param float target_accept_prob: Target acceptance probability for step size
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
             step size, hence the sampling will be slower but more robust. Default to 0.8.
@@ -204,11 +239,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
             randomness.
 
         """
-        step_size = lax.convert_element_type(step_size, canonicalize_dtype(jnp.float64))
-        nonlocal wa_update, trajectory_len, max_treedepth, vv_update, wa_steps, forward_mode_ad
+        step_size = lax.convert_element_type(step_size, jnp.result_type(float))
+        trajectory_length = lax.convert_element_type(trajectory_length, jnp.result_type(float))
+        nonlocal wa_update, max_treedepth, vv_update, wa_steps, forward_mode_ad
         forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
-        trajectory_len = trajectory_length
         max_treedepth = max_tree_depth
         if isinstance(init_params, ParamInfo):
             z, pe, z_grad = init_params
@@ -239,24 +274,31 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
         z_info = IntegratorState(z=z, potential_energy=pe, z_grad=z_grad)
         wa_state = wa_init(z_info, rng_key_wa, step_size,
-                           inverse_mass_matrix=inverse_mass_matrix,
-                           mass_matrix_size=jnp.size(ravel_pytree(z)[0]))
+                           inverse_mass_matrix=inverse_mass_matrix)
         r = momentum_generator(z, wa_state.mass_matrix_sqrt, rng_key_momentum)
         vv_init, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
         vv_state = vv_init(z, r, potential_energy=pe, z_grad=z_grad)
-        energy = kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
-        hmc_state = HMCState(jnp.array(0), vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
-                             jnp.array(0), jnp.array(0.), jnp.array(0.), jnp.array(False), wa_state, rng_key_hmc)
+        energy = vv_state.potential_energy + kinetic_fn(wa_state.inverse_mass_matrix, vv_state.r)
+        zero_int = jnp.array(0, dtype=jnp.result_type(int))
+        hmc_state = HMCState(zero_int, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
+                             None, trajectory_length,
+                             zero_int, jnp.zeros(()), jnp.zeros(()), jnp.array(False), wa_state, rng_key_hmc)
         return device_put(hmc_state)
 
     def _hmc_next(step_size, inverse_mass_matrix, vv_state,
-                  model_args, model_kwargs, rng_key):
+                  model_args, model_kwargs, rng_key, trajectory_length):
         if potential_fn_gen:
             nonlocal vv_update, forward_mode_ad
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
             _, vv_update = velocity_verlet(pe_fn, kinetic_fn, forward_mode_ad)
 
-        num_steps = _get_num_steps(step_size, trajectory_len)
+        # no need to spend too many steps if the state z has 0 size (i.e. z is empty)
+        if len(inverse_mass_matrix) == 0:
+            num_steps = 1
+        else:
+            num_steps = _get_num_steps(step_size, trajectory_length)
+        # makes sure trajectory length is constant, rather than step_size * num_steps
+        step_size = trajectory_length / num_steps
         vv_state_new = fori_loop(0, num_steps,
                                  lambda i, val: vv_update(step_size, inverse_mass_matrix, val),
                                  vv_state)
@@ -273,7 +315,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         return vv_state, energy, num_steps, accept_prob, diverging
 
     def _nuts_next(step_size, inverse_mass_matrix, vv_state,
-                   model_args, model_kwargs, rng_key):
+                   model_args, model_kwargs, rng_key, trajectory_length):
         if potential_fn_gen:
             nonlocal vv_update, forward_mode_ad
             pe_fn = potential_fn_gen(*model_args, **model_kwargs)
@@ -307,14 +349,16 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         """
         model_kwargs = {} if model_kwargs is None else model_kwargs
         rng_key, rng_key_momentum, rng_key_transition = random.split(hmc_state.rng_key, 3)
-        r = momentum_generator(hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum)
+        r = momentum_generator(hmc_state.z, hmc_state.adapt_state.mass_matrix_sqrt, rng_key_momentum) \
+            if hmc_state.r is None else hmc_state.r
         vv_state = IntegratorState(hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad)
         vv_state, energy, num_steps, accept_prob, diverging = _next(hmc_state.adapt_state.step_size,
                                                                     hmc_state.adapt_state.inverse_mass_matrix,
                                                                     vv_state,
                                                                     model_args,
                                                                     model_kwargs,
-                                                                    rng_key_transition)
+                                                                    rng_key_transition,
+                                                                    hmc_state.trajectory_length)
         # not update adapt_state after warmup phase
         adapt_state = cond(hmc_state.i < wa_steps,
                            (hmc_state.i, accept_prob, vv_state, hmc_state.adapt_state),
@@ -326,7 +370,9 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo='NUTS'):
         n = jnp.where(hmc_state.i < wa_steps, itr, itr - wa_steps)
         mean_accept_prob = hmc_state.mean_accept_prob + (accept_prob - hmc_state.mean_accept_prob) / n
 
-        return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy, num_steps,
+        r = vv_state.r if hmc_state.r is not None else None
+        return HMCState(itr, vv_state.z, vv_state.z_grad, vv_state.potential_energy, energy,
+                        r, hmc_state.trajectory_length, num_steps,
                         accept_prob, mean_accept_prob, diverging, adapt_state, rng_key)
 
     # Make `init_kernel` and `sample_kernel` visible from the global scope once
@@ -360,12 +406,39 @@ class HMC(MCMCKernel):
     :param float step_size: Determines the size of a single step taken by the
         verlet integrator while computing the trajectory using Hamiltonian
         dynamics. If not specified, it will be set to 1.
+    :param inverse_mass_matrix: Initial value for inverse mass matrix.
+        This may be adapted during warmup if adapt_mass_matrix = True.
+        If no value is specified, then it is initialized to the identity matrix.
+        For a potential_fn with general JAX pytree parameters, the order of entries
+        of the mass matrix is the order of the flattened version of pytree parameters
+        obtained with `jax.tree_flatten`, which is a bit ambiguous (see more at
+        https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
+        here we can specify a structured block mass matrix as a dictionary, where
+        keys are tuple of site names and values are the corresponding block of the
+        mass matrix.
+        For more information about structured mass matrix, see `dense_mass` argument.
+    :type inverse_mass_matrix: numpy.ndarray or dict
     :param bool adapt_step_size: A flag to decide if we want to adapt step_size
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
         matrix during warm-up phase using Welford scheme.
-    :param bool dense_mass:  A flag to decide if mass matrix is dense or
-        diagonal (default when ``dense_mass=False``)
+    :param dense_mass:  This flag controls whether mass matrix is dense (i.e. full-rank) or
+        diagonal (defaults to ``dense_mass=False``). To specify a structured mass matrix,
+        users can provide a list of tuples of site names. Each tuple represents
+        a block in the joint mass matrix. For example, assuming that the model
+        has latent variables "x", "y", "z" (where each variable can be multi-dimensional),
+        possible specifications and corresponding mass matrix structures are as follows:
+
+            + dense_mass=[("x", "y")]: use a dense mass matrix for the joint
+              (x, y) and a diagonal mass matrix for z
+            + dense_mass=[] (equivalent to dense_mass=False): use a diagonal mass
+              matrix for the joint (x, y, z)
+            + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
+              use a dense mass matrix for the joint (x, y, z)
+            + dense_mass=[("x",), ("y",), ("z")]: use dense mass matrices for
+              each of x, y, and z (i.e. block-diagonal with 3 blocks)
+
+    :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
@@ -388,6 +461,7 @@ class HMC(MCMCKernel):
                  potential_fn=None,
                  kinetic_fn=None,
                  step_size=1.0,
+                 inverse_mass_matrix=None,
                  adapt_step_size=True,
                  adapt_mass_matrix=True,
                  dense_mass=False,
@@ -402,6 +476,7 @@ class HMC(MCMCKernel):
         self._potential_fn = potential_fn
         self._kinetic_fn = kinetic_fn if kinetic_fn is not None else euclidean_kinetic_energy
         self._step_size = float(step_size) if isinstance(step_size, int) else step_size
+        self._inverse_mass_matrix = inverse_mass_matrix
         self._adapt_step_size = adapt_step_size
         self._adapt_mass_matrix = adapt_mass_matrix
         self._dense_mass = dense_mass
@@ -471,13 +546,26 @@ class HMC(MCMCKernel):
             raise ValueError('Valid value of `init_params` must be provided with'
                              ' `potential_fn`.')
 
+        # change dense_mass to a structural form
+        dense_mass = self._dense_mass
+        inverse_mass_matrix = self._inverse_mass_matrix
+        if self._model is not None:
+            z = init_params[0] if isinstance(init_params, ParamInfo) else init_params
+            if isinstance(dense_mass, bool):
+                # XXX: by default, the order variables are sorted by their names,
+                # this is to be compatible with older numpyro versions
+                # and to match autoguide scale parameter and jax flatten utils
+                dense_mass = [tuple(sorted(z))] if dense_mass else []
+            assert isinstance(dense_mass, list)
+
         hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
+            inverse_mass_matrix=inverse_mass_matrix,
             adapt_step_size=self._adapt_step_size,
             adapt_mass_matrix=self._adapt_mass_matrix,
-            dense_mass=self._dense_mass,
+            dense_mass=dense_mass,
             target_accept_prob=self._target_accept_prob,
             trajectory_length=self._trajectory_length,
             max_tree_depth=self._max_tree_depth,
@@ -515,6 +603,14 @@ class HMC(MCMCKernel):
         """
         return self._sample_fn(state, model_args, model_kwargs)
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_sample_fn"] = None
+        state["_init_fn"] = None
+        state["_postprocess_fn"] = None
+        state["_potential_fn_gen"] = None
+        return state
+
 
 class NUTS(HMC):
     """
@@ -542,12 +638,39 @@ class NUTS(HMC):
     :param float step_size: Determines the size of a single step taken by the
         verlet integrator while computing the trajectory using Hamiltonian
         dynamics. If not specified, it will be set to 1.
+    :param inverse_mass_matrix: Initial value for inverse mass matrix.
+        This may be adapted during warmup if adapt_mass_matrix = True.
+        If no value is specified, then it is initialized to the identity matrix.
+        For a potential_fn with general JAX pytree parameters, the order of entries
+        of the mass matrix is the order of the flattened version of pytree parameters
+        obtained with `jax.tree_flatten`, which is a bit ambiguous (see more at
+        https://jax.readthedocs.io/en/latest/pytrees.html). If `model` is not None,
+        here we can specify a structured block mass matrix as a dictionary, where
+        keys are tuple of site names and values are the corresponding block of the
+        mass matrix.
+        For more information about structured mass matrix, see `dense_mass` argument.
+    :type inverse_mass_matrix: numpy.ndarray or dict
     :param bool adapt_step_size: A flag to decide if we want to adapt step_size
         during warm-up phase using Dual Averaging scheme.
     :param bool adapt_mass_matrix: A flag to decide if we want to adapt mass
         matrix during warm-up phase using Welford scheme.
-    :param bool dense_mass:  A flag to decide if mass matrix is dense or
-        diagonal (default when ``dense_mass=False``)
+    :param dense_mass:  This flag controls whether mass matrix is dense (i.e. full-rank) or
+        diagonal (defaults to ``dense_mass=False``). To specify a structured mass matrix,
+        users can provide a list of tuples of site names. Each tuple represents
+        a block in the joint mass matrix. For example, assuming that the model
+        has latent variables "x", "y", "z" (where each variable can be multi-dimensional),
+        possible specifications and corresponding mass matrix structures are as follows:
+
+            + dense_mass=[("x", "y")]: use a dense mass matrix for the joint
+              (x, y) and a diagonal mass matrix for z
+            + dense_mass=[] (equivalent to dense_mass=False): use a diagonal mass
+              matrix for the joint (x, y, z)
+            + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
+              use a dense mass matrix for the joint (x, y, z)
+            + dense_mass=[("x",), ("y",), ("z")]: use dense mass matrices for
+              each of x, y, and z (i.e. block-diagonal with 3 blocks)
+
+    :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
         step size, hence the sampling will be slower but more robust. Default to 0.8.
@@ -572,6 +695,7 @@ class NUTS(HMC):
                  potential_fn=None,
                  kinetic_fn=None,
                  step_size=1.0,
+                 inverse_mass_matrix=None,
                  adapt_step_size=True,
                  adapt_mass_matrix=True,
                  dense_mass=False,
@@ -582,7 +706,8 @@ class NUTS(HMC):
                  find_heuristic_step_size=False,
                  forward_mode_differentiation=False):
         super(NUTS, self).__init__(potential_fn=potential_fn, model=model, kinetic_fn=kinetic_fn,
-                                   step_size=step_size, adapt_step_size=adapt_step_size,
+                                   step_size=step_size, inverse_mass_matrix=inverse_mass_matrix,
+                                   adapt_step_size=adapt_step_size,
                                    adapt_mass_matrix=adapt_mass_matrix, dense_mass=dense_mass,
                                    target_accept_prob=target_accept_prob,
                                    trajectory_length=trajectory_length,

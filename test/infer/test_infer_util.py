@@ -186,7 +186,7 @@ def test_model_with_mask_false():
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=500, num_chains=1)
     mcmc.run(random.PRNGKey(1))
-    assert_allclose(mcmc.get_samples()['x'].mean(), 0., atol=0.1)
+    assert_allclose(mcmc.get_samples()['x'].mean(), 0., atol=0.15)
 
 
 @pytest.mark.parametrize('init_strategy', [
@@ -278,3 +278,47 @@ def test_improper_expand(event_shape):
 
     model_info = initialize_model(random.PRNGKey(0), model)
     assert model_info.param_info.z['incidence'].shape == (3,) + event_shape
+
+
+def test_get_mask_optimization():
+
+    def model():
+        with numpyro.handlers.seed(rng_seed=0):
+            x = numpyro.sample("x", dist.Normal(0, 1))
+            numpyro.sample("y", dist.Normal(x, 1), obs=0.)
+            called.add("model-always")
+            if numpyro.get_mask() is not False:
+                called.add("model-sometimes")
+                numpyro.factor("f", x + 1)
+
+    def guide():
+        with numpyro.handlers.seed(rng_seed=1):
+            x = numpyro.sample("x", dist.Normal(0, 1))
+            called.add("guide-always")
+            if numpyro.get_mask() is not False:
+                called.add("guide-sometimes")
+                numpyro.factor("g", 2 - x)
+
+    called = set()
+    trace = handlers.trace(guide).get_trace()
+    handlers.replay(model, trace)()
+    assert "model-always" in called
+    assert "guide-always" in called
+    assert "model-sometimes" in called
+    assert "guide-sometimes" in called
+
+    called = set()
+    with handlers.mask(mask=False):
+        trace = handlers.trace(guide).get_trace()
+        handlers.replay(model, trace)()
+    assert "model-always" in called
+    assert "guide-always" in called
+    assert "model-sometimes" not in called
+    assert "guide-sometimes" not in called
+
+    called = set()
+    Predictive(model, guide=guide, num_samples=2, parallel=True)(random.PRNGKey(2))
+    assert "model-always" in called
+    assert "guide-always" in called
+    assert "model-sometimes" not in called
+    assert "guide-sometimes" not in called

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import inspect
-from numpyro.distributions.transforms import AffineTransform
 import os
 
 from numpy.testing import assert_allclose
@@ -13,6 +12,7 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions.transforms import AffineTransform
 from numpyro.infer import MCMC, NUTS
 from numpyro.infer.reparam import TransformReparam
 

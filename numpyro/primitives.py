@@ -228,6 +228,49 @@ def deterministic(name, value):
     return msg['value']
 
 
+def _inspect():
+    """
+    EXPERIMENTAL Inspect the Pyro stack.
+
+    .. warning:: The format of the returned message may change at any time and
+        does not guarantee backwards compatibility.
+
+    :returns: A message with mask effects applied.
+    :rtype: dict
+    """
+    # NB: this is different from Pyro that in Pyro, all effects applied.
+    # Here, we only apply mask effect handler.
+    msg = {
+        "type": "inspect",
+        "fn": lambda: True,
+        "args": (),
+        "kwargs": {},
+        "value": None,
+        "mask": None,
+    }
+    apply_stack(msg)
+    return msg
+
+
+def get_mask():
+    """
+    Records the effects of enclosing ``handlers.mask`` handlers.
+    This is useful for avoiding expensive ``numpyro.factor()`` computations during
+    prediction, when the log density need not be computed, e.g.::
+
+        def model():
+            # ...
+            if numpyro.get_mask() is not False:
+                log_density = my_expensive_computation()
+                numpyro.factor("foo", log_density)
+            # ...
+
+    :returns: The mask.
+    :rtype: None, bool, or numpy.ndarray
+    """
+    return _inspect()["mask"]
+
+
 def module(name, nn, input_shape=None):
     """
     Declare a :mod:`~jax.experimental.stax` style neural network inside a
@@ -301,6 +344,7 @@ class plate(Messenger):
 
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
+        assert size > 0, "size of plate should be positive"
         self.size = size
         if dim is not None and dim >= 0:
             raise ValueError('dim arg must be negative.')
