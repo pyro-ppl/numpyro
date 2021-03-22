@@ -24,11 +24,11 @@ def nested_plates():
     N_plate = numpyro.plate('N', 10, dim=-2)
     M_plate = numpyro.plate('M', 5, dim=-1)
     with N_plate:
-        x = numpyro.sample('x', dist.Normal(0, 1))
+        numpyro.sample('x', dist.Normal(0, 1))
         with M_plate:
-            y = numpyro.sample('y', dist.Normal(0, 1))
+            numpyro.sample('y', dist.Normal(0, 1))
     with M_plate:
-        z = numpyro.sample('z', dist.Normal(0, 1))
+        numpyro.sample('z', dist.Normal(0, 1))
 
 
 def discrete_to_continuous(probs, locs):
