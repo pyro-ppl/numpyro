@@ -235,15 +235,7 @@ def _multinomial(key, p, n, n_max, shape=()):
         mask = 1
         excess = 0
     # NB: we transpose to move batch shape to the front
-    indices_2D = (
-        jnp.reshape(
-            indices * mask,
-            (
-                n_max,
-                -1,
-            ),
-        )
-    ).T
+    indices_2D = (jnp.reshape(indices * mask, (n_max, -1))).T
     samples_2D = vmap(_scatter_add_one, (0, 0, 0))(
         jnp.zeros((indices_2D.shape[0], p.shape[-1]), dtype=indices.dtype),
         jnp.expand_dims(indices_2D, axis=-1),

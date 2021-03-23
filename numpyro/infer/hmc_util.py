@@ -856,9 +856,7 @@ def _build_basetree(
 ):
     step_size = jnp.where(going_right, step_size, -step_size)
     z_new, r_new, potential_energy_new, z_new_grad = vv_update(
-        step_size,
-        inverse_mass_matrix,
-        (z, r, energy_current, z_grad),
+        step_size, inverse_mass_matrix, (z, r, energy_current, z_grad)
     )
 
     energy_new = potential_energy_new + kinetic_fn(inverse_mass_matrix, r_new)

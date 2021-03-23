@@ -7,9 +7,11 @@ import re
 
 import funsor
 import numpyro
-from numpyro.contrib.funsor.enum_messenger import infer_config
-from numpyro.contrib.funsor.enum_messenger import plate as enum_plate
-from numpyro.contrib.funsor.enum_messenger import trace as packed_trace
+from numpyro.contrib.funsor.enum_messenger import (
+    infer_config,
+    plate as enum_plate,
+    trace as packed_trace,
+)
 from numpyro.distributions.util import is_identically_one
 from numpyro.handlers import substitute
 

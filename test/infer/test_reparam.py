@@ -39,12 +39,7 @@ def get_moments(x):
 
 @pytest.mark.parametrize(
     "batch_shape,base_batch_shape",
-    [
-        ((), ()),
-        ((4,), (4,)),
-        ((2, 3), (2, 3)),
-        ((2, 3), ()),
-    ],
+    [((), ()), ((4,), (4,)), ((2, 3), (2, 3)), ((2, 3), ())],
     ids=str,
 )
 @pytest.mark.parametrize("event_shape", [(), (5,)], ids=str)

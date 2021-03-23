@@ -458,14 +458,7 @@ def gen_values_outside_bounds(constraint, size, key=random.PRNGKey(11)):
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-@pytest.mark.parametrize(
-    "prepend_shape",
-    [
-        (),
-        (2,),
-        (2, 3),
-    ],
-)
+@pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
     jax_dist = jax_dist(*params)
     rng_key = random.PRNGKey(0)
@@ -486,15 +479,7 @@ def test_dist_shape(jax_dist, sp_dist, params, prepend_shape):
         )
 
 
-@pytest.mark.parametrize(
-    "prepend_shape",
-    [
-        (),
-        (2,),
-        (2, 3),
-    ],
-    ids=str,
-)
+@pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)], ids=str)
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
@@ -668,14 +653,7 @@ def test_pathwise_gradient(jax_dist, sp_dist, params):
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-@pytest.mark.parametrize(
-    "prepend_shape",
-    [
-        (),
-        (2,),
-        (2, 3),
-    ],
-)
+@pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 @pytest.mark.parametrize("jit", [False, True])
 def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     jit_fn = _identity if not jit else jax.jit
@@ -890,8 +868,7 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     inv_tanh_logdet = jnp.sum(jnp.log(vmap(grad(inv_tanh))(partial_correlation)))
     unconstrained = inv_tanh(partial_correlation)
     corr_cholesky_logdet = biject_to(constraints.corr_cholesky).log_abs_det_jacobian(
-        unconstrained,
-        sample,
+        unconstrained, sample
     )
     signed_stick_breaking_logdet = corr_cholesky_logdet + inv_tanh_logdet
 
@@ -1112,14 +1089,7 @@ def test_mean_var(jax_dist, sp_dist, params):
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
-@pytest.mark.parametrize(
-    "prepend_shape",
-    [
-        (),
-        (2,),
-        (2, 3),
-    ],
-)
+@pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
     if jax_dist is _TruncatedNormal:
         pytest.skip("_TruncatedNormal is a function, not a class")
@@ -1455,9 +1425,9 @@ def test_biject_to(constraint, shape):
             expected = np.linalg.slogdet(jax.jacobian(transform)(x))[1]
             inv_expected = np.linalg.slogdet(jax.jacobian(transform.inv)(y))[1]
         elif constraint in [constraints.corr_cholesky, constraints.corr_matrix]:
-            vec_transform = lambda x: matrix_to_tril_vec(
+            vec_transform = lambda x: matrix_to_tril_vec(  # noqa: E731
                 transform(x), diagonal=-1
-            )  # noqa: E731
+            )
             y_tril = matrix_to_tril_vec(y, diagonal=-1)
 
             def inv_vec_transform(y):
@@ -1757,20 +1727,8 @@ def test_enumerate_support_smoke(jax_dist, params, support, batch_shape, expand)
 
 
 @pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS + DISCRETE)
-@pytest.mark.parametrize(
-    "prepend_shape",
-    [
-        (),
-        (2, 3),
-    ],
-)
-@pytest.mark.parametrize(
-    "sample_shape",
-    [
-        (),
-        (4,),
-    ],
-)
+@pytest.mark.parametrize("prepend_shape", [(), (2, 3)])
+@pytest.mark.parametrize("sample_shape", [(), (4,)])
 def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
     jax_dist = jax_dist(*params)
     new_batch_shape = prepend_shape + jax_dist.batch_shape
@@ -1791,13 +1749,7 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
             assert expanded_dist.expand((3,) + jax_dist.batch_shape)
 
 
-@pytest.mark.parametrize(
-    "batch_shape",
-    [
-        (),
-        (4,),
-    ],
-)
+@pytest.mark.parametrize("batch_shape", [(), (4,)])
 def test_polya_gamma(batch_shape, num_points=20000):
     d = dist.TruncatedPolyaGamma(batch_shape=batch_shape)
     rng_key = random.PRNGKey(0)
@@ -1817,12 +1769,7 @@ def test_polya_gamma(batch_shape, num_points=20000):
 
 @pytest.mark.parametrize(
     "extra_event_dims,expand_shape",
-    [
-        (0, (4, 3, 2, 1)),
-        (0, (4, 3, 2, 2)),
-        (1, (5, 4, 3, 2)),
-        (2, (5, 4, 3)),
-    ],
+    [(0, (4, 3, 2, 1)), (0, (4, 3, 2, 2)), (1, (5, 4, 3, 2)), (2, (5, 4, 3))],
 )
 def test_expand_reshaped_distribution(extra_event_dims, expand_shape):
     loc = jnp.zeros((1, 6))
@@ -1849,14 +1796,7 @@ def test_expand_reshaped_distribution(extra_event_dims, expand_shape):
 
 @pytest.mark.parametrize(
     "batch_shape, mask_shape",
-    [
-        ((), ()),
-        ((2,), ()),
-        ((), (2,)),
-        ((2,), (2,)),
-        ((4, 2), (1, 2)),
-        ((2,), (4, 2)),
-    ],
+    [((), ()), ((2,), ()), ((), (2,)), ((2,), (2,)), ((4, 2), (1, 2)), ((2,), (4, 2))],
 )
 @pytest.mark.parametrize("event_shape", [(), (3,)])
 def test_mask(batch_shape, event_shape, mask_shape):
@@ -1904,12 +1844,7 @@ def test_dist_pytree(jax_dist, sp_dist, params):
 
 
 @pytest.mark.parametrize(
-    "method, arg",
-    [
-        ("to_event", 1),
-        ("mask", False),
-        ("expand", [5]),
-    ],
+    "method, arg", [("to_event", 1), ("mask", False), ("expand", [5])]
 )
 def test_special_dist_pytree(method, arg):
     def f(x):

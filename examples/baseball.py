@@ -193,12 +193,7 @@ def main(args):
     at_bats, hits = train[:, 0], train[:, 1]
     season_at_bats, season_hits = test[:, 0], test[:, 1]
     for i, model in enumerate(
-        (
-            fully_pooled,
-            not_pooled,
-            partially_pooled,
-            partially_pooled_with_logit,
-        )
+        (fully_pooled, not_pooled, partially_pooled, partially_pooled_with_logit)
     ):
         rng_key, rng_key_predict = random.split(random.PRNGKey(i + 1))
         zs = run_inference(model, at_bats, hits, rng_key, args)

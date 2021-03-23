@@ -917,9 +917,7 @@ class TransformedDistribution(Distribution):
 
     def __init__(self, base_distribution, transforms, validate_args=None):
         if isinstance(transforms, Transform):
-            transforms = [
-                transforms,
-            ]
+            transforms = [transforms]
         elif isinstance(transforms, list):
             if not all(isinstance(t, Transform) for t in transforms):
                 raise ValueError(

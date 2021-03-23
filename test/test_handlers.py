@@ -51,20 +51,9 @@ def test_mask(mask_last, use_jit):
 @pytest.mark.parametrize("num_particles", [1, 2])
 @pytest.mark.parametrize(
     "mask",
-    [
-        True,
-        False,
-        np.array([True]),
-        np.array([False]),
-        np.array([False, True, False]),
-    ],
+    [True, False, np.array([True]), np.array([False]), np.array([False, True, False])],
 )
-@pytest.mark.parametrize(
-    "Elbo",
-    [
-        Trace_ELBO,
-    ],
-)
+@pytest.mark.parametrize("Elbo", [Trace_ELBO])
 def test_obs_mask_ok(Elbo, mask, num_particles):
     data = np.array([7.0, 7.0, 7.0])
 
@@ -100,12 +89,7 @@ def test_obs_mask_ok(Elbo, mask, num_particles):
         np.array([False, True, True, False]),
     ],
 )
-@pytest.mark.parametrize(
-    "Elbo",
-    [
-        Trace_ELBO,
-    ],
-)
+@pytest.mark.parametrize("Elbo", [Trace_ELBO])
 def test_obs_mask_multivariate_ok(Elbo, mask, num_particles):
     data = np.full((4, 3), 7.0)
 

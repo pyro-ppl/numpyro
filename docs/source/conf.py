@@ -278,7 +278,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, "NumPyro.tex", u"NumPyro Documentation", u"Uber AI Labs", "manual"),
+    (master_doc, "NumPyro.tex", u"NumPyro Documentation", u"Uber AI Labs", "manual")
 ]
 
 # -- Options for manual page output ------------------------------------------
@@ -301,7 +301,7 @@ texinfo_documents = [
         "NumPyro",
         "Pyro PPL on Numpy",
         "Miscellaneous",
-    ),
+    )
 ]
 
 

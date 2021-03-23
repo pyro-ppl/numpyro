@@ -280,10 +280,7 @@ def render_model(
     :param int num_tries: Times to trace model to detect discrete -> continuous dependency.
     """
     relations = get_model_relations(
-        model,
-        model_args=model_args,
-        model_kwargs=model_kwargs,
-        num_tries=num_tries,
+        model, model_args=model_args, model_kwargs=model_kwargs, num_tries=num_tries
     )
     graph_spec = generate_graph_specification(relations)
     graph = render_graph(graph_spec, render_distributions=render_distributions)
@@ -291,10 +288,7 @@ def render_model(
     if filename is not None:
         filename = Path(filename)
         graph.render(
-            filename.stem,
-            view=False,
-            cleanup=True,
-            format=filename.suffix[1:],  # remove leading period from suffix
-        )
+            filename.stem, view=False, cleanup=True, format=filename.suffix[1:]
+        )  # remove leading period from suffix
 
     return graph

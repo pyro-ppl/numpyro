@@ -27,24 +27,16 @@ os.makedirs(DATA_DIR, exist_ok=True)
 dset = namedtuple("dset", ["name", "urls"])
 
 BASEBALL = dset(
-    "baseball",
-    [
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt",
-    ],
+    "baseball", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt"]
 )
 
 COVTYPE = dset(
-    "covtype",
-    [
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip",
-    ],
+    "covtype", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip"]
 )
 
 DIPPER_VOLE = dset(
     "dipper_vole",
-    [
-        "https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true",
-    ],
+    ["https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true"],
 )
 
 MNIST = dset(
@@ -57,39 +49,24 @@ MNIST = dset(
     ],
 )
 
-SP500 = dset(
-    "SP500",
-    [
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/SP500.csv",
-    ],
-)
+SP500 = dset("SP500", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/SP500.csv"])
 
 UCBADMIT = dset(
-    "ucbadmit",
-    [
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv",
-    ],
+    "ucbadmit", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv"]
 )
 
 LYNXHARE = dset(
-    "lynxhare",
-    [
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt",
-    ],
+    "lynxhare", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt"]
 )
 
 JSB_CHORALES = dset(
     "jsb_chorales",
-    [
-        "https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle",
-    ],
+    ["https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle"],
 )
 
 HIGGS = dset(
     "higgs",
-    [
-        "https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz",
-    ],
+    ["https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"],
 )
 
 

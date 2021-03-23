@@ -68,15 +68,13 @@ TEST_CASES = [
             HessianPrecondMatrix(), RBFKernel(mode="matrix"), precond_mode="const"
         ),
         lambda d: {},
-        lambda x: -0.02 / 12 * x[0] ** 4
-        - 0.5 / 12 * x[1] ** 4
-        - x[0] * x[1],  # -hess = [[.02x_0^2 1] [1 .5x_1^2]]
+        lambda x: -0.02 / 12 * x[0] ** 4 - 0.5 / 12 * x[1] ** 4 - x[0] * x[1],
         {
             "matrix": jnp.array(
                 [[2.3780507e-04, -1.6688075e-05], [-1.6688075e-05, 1.2849815e-05]]
             )
         },
-    ),
+    ),  # -hess = [[.02x_0^2 1] [1 .5x_1^2]]
 ]
 
 PARTICLES = [(PARTICLES_2D, TPARTICLES_2D)]

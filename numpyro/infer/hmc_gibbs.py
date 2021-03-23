@@ -620,9 +620,8 @@ class HMCECS(HMCGibbs):
         self._subsample_plate_sizes = {
             name: site["args"]
             for name, site in self._prototype_trace.items()
-            if site["type"] == "plate"
-            and site["args"][0] > site["args"][1]  # i.e. size > subsample_size
-        }
+            if site["type"] == "plate" and site["args"][0] > site["args"][1]
+        }  # i.e. size > subsample_size
         self._gibbs_sites = list(self._subsample_plate_sizes.keys())
         assert self._gibbs_sites, "Cannot detect any subsample statements in the model."
         if self._proxy is not None:

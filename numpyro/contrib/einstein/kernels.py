@@ -275,12 +275,7 @@ class MixtureKernel(SteinKernel):
     :param kernel_fns: Different kernel functions to mix together
     """
 
-    def __init__(
-        self,
-        ws: List[float],
-        kernel_fns: List[SteinKernel],
-        mode="norm",
-    ):
+    def __init__(self, ws: List[float], kernel_fns: List[SteinKernel], mode="norm"):
         assert len(ws) == len(kernel_fns)
         assert len(kernel_fns) > 1
         assert all(kf.mode == mode for kf in kernel_fns)

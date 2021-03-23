@@ -167,7 +167,7 @@ latex_documents = [
         u"Numpyro Examples and Tutorials",
         u"Uber AI Labs",
         "manual",
-    ),
+    )
 ]
 
 
@@ -194,5 +194,5 @@ texinfo_documents = [
         "NumPyroTutorials",
         "One line description of project.",
         "Miscellaneous",
-    ),
+    )
 ]

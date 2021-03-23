@@ -618,21 +618,8 @@ def test_chain_inside_jit(kernel_cls, chain_method):
     assert_allclose(jnp.mean(samples["p_latent"], 0), true_probs, atol=0.02)
 
 
-@pytest.mark.parametrize(
-    "chain_method",
-    [
-        "sequential",
-        "parallel",
-        "vectorized",
-    ],
-)
-@pytest.mark.parametrize(
-    "compile_args",
-    [
-        False,
-        True,
-    ],
-)
+@pytest.mark.parametrize("chain_method", ["sequential", "parallel", "vectorized"])
+@pytest.mark.parametrize("compile_args", [False, True])
 @pytest.mark.skipif(
     "CI" in os.environ, reason="Compiling time the whole sampling process is slow."
 )

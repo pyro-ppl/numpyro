@@ -286,16 +286,8 @@ def test_enum_subsample_smoke():
 def test_hmcecs_normal_normal(kernel_cls, num_block, subsample_size):
     true_loc = jnp.array([0.3, 0.1, 0.9])
     num_warmup, num_samples = 200, 200
-    data = (
-        true_loc
-        + dist.Normal(
-            jnp.zeros(
-                3,
-            ),
-            jnp.ones(
-                3,
-            ),
-        ).sample(random.PRNGKey(1), (10000,))
+    data = true_loc + dist.Normal(jnp.zeros(3), jnp.ones(3)).sample(
+        random.PRNGKey(1), (10000,)
     )
 
     def model(data, subsample_size):

@@ -9,10 +9,8 @@ from jax import lax
 import jax.numpy as jnp
 
 import funsor
-from numpyro.handlers import infer_config
-from numpyro.handlers import trace as OrigTraceMessenger
-from numpyro.primitives import Messenger, apply_stack
-from numpyro.primitives import plate as OrigPlateMessenger
+from numpyro.handlers import infer_config, trace as OrigTraceMessenger
+from numpyro.primitives import Messenger, apply_stack, plate as OrigPlateMessenger
 
 funsor.set_backend("jax")
 
@@ -35,14 +33,7 @@ __all__ = [
 # name_to_dim : dict, dim_to_name : dict, parents : tuple, iter_parents : tuple
 class StackFrame(
     namedtuple(
-        "StackFrame",
-        [
-            "name_to_dim",
-            "dim_to_name",
-            "parents",
-            "iter_parents",
-            "keep",
-        ],
+        "StackFrame", ["name_to_dim", "dim_to_name", "parents", "iter_parents", "keep"]
     )
 ):
     def read(self, name, dim):

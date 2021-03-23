@@ -378,13 +378,7 @@ def test_warmup_adapter(jitted):
 
 @pytest.mark.parametrize(
     "leaf_idx, ckpt_idxs",
-    [
-        (0, (1, 0)),
-        (6, (3, 2)),
-        (7, (0, 2)),
-        (13, (2, 2)),
-        (15, (0, 3)),
-    ],
+    [(0, (1, 0)), (6, (3, 2)), (7, (0, 2)), (13, (2, 2)), (15, (0, 3))],
 )
 def test_leaf_idx_to_ckpt_idx(leaf_idx, ckpt_idxs):
     assert _leaf_idx_to_ckpt_idxs(leaf_idx) == ckpt_idxs
@@ -392,13 +386,7 @@ def test_leaf_idx_to_ckpt_idx(leaf_idx, ckpt_idxs):
 
 @pytest.mark.parametrize(
     "ckpt_idxs, expected_turning",
-    [
-        ((3, 2), False),
-        ((3, 3), True),
-        ((0, 0), False),
-        ((0, 1), True),
-        ((1, 3), True),
-    ],
+    [((3, 2), False), ((3, 3), True), ((0, 0), False), ((0, 1), True), ((1, 3), True)],
 )
 def test_is_iterative_turning(ckpt_idxs, expected_turning):
     inverse_mass_matrix = jnp.ones(1)
