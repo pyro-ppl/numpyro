@@ -1429,6 +1429,20 @@ def test_expand(jax_dist, sp_dist, params, prepend_shape, sample_shape):
             assert expanded_dist.expand((3,) + jax_dist.batch_shape)
 
 
+@pytest.mark.parametrize('base_shape', [(2, 1, 5), (3, 1), (2, 1, 1), (1, 1, 5)])
+@pytest.mark.parametrize('event_dim', [0, 1, 2, 3])
+@pytest.mark.parametrize('sample_shape', [(1000,), (1000, 7, 1), (1000, 1, 7)])
+def test_expand_shuffle_regression(base_shape, event_dim, sample_shape):
+    expand_shape = (2, 3, 5)
+    event_dim = min(event_dim, len(base_shape))
+    loc = random.normal(random.PRNGKey(0), base_shape) * 10
+    base_dist = dist.Normal(loc, 0.1).to_event(event_dim)
+    expanded_dist = base_dist.expand(expand_shape[:len(expand_shape) - event_dim])
+    samples = expanded_dist.sample(random.PRNGKey(1), sample_shape)
+    expected_mean = jnp.broadcast_to(loc, sample_shape[1:] + expanded_dist.shape())
+    assert_allclose(samples.mean(0), expected_mean, atol=0.1)
+
+
 @pytest.mark.parametrize('batch_shape', [
     (),
     (4,),
