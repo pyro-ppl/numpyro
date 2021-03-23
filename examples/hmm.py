@@ -107,9 +107,10 @@ def forward_log_prob(
     # >>> for word in words:
     # ...     log_prob = forward_one_step(log_prob, word, transition_log_prob, emission_log_prob)
     def scan_fn(log_prob, word):
-        return forward_one_step(
-            log_prob, word, transition_log_prob, emission_log_prob
-        ), jnp.zeros((0,))
+        return (
+            forward_one_step(log_prob, word, transition_log_prob, emission_log_prob),
+            None,  # we don't need to collect during scan
+        )
 
     if unroll_loop:
         log_prob = init_log_prob
