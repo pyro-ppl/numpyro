@@ -37,7 +37,12 @@ from jax import lax, tree_util
 import jax.numpy as jnp
 
 from numpyro.distributions.transforms import ComposeTransform, Transform
-from numpyro.distributions.util import lazy_property, promote_shapes, sum_rightmost, validate_sample
+from numpyro.distributions.util import (
+    lazy_property,
+    promote_shapes,
+    sum_rightmost,
+    validate_sample,
+)
 from numpyro.util import not_jax_tracer
 
 from . import constraints
@@ -120,6 +125,7 @@ class Distribution(metaclass=DistributionMeta):
        >>> d.event_shape
        (4,)
     """
+
     arg_constraints = {}
     support = None
     has_enumerate_support = False
@@ -131,12 +137,15 @@ class Distribution(metaclass=DistributionMeta):
     # ref: https://github.com/google/jax/issues/2916
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        tree_util.register_pytree_node(cls,
-                                       cls.tree_flatten,
-                                       cls.tree_unflatten)
+        tree_util.register_pytree_node(cls, cls.tree_flatten, cls.tree_unflatten)
 
     def tree_flatten(self):
-        return tuple(getattr(self, param) for param in sorted(self.arg_constraints.keys())), None
+        return (
+            tuple(
+                getattr(self, param) for param in sorted(self.arg_constraints.keys())
+            ),
+            None,
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
@@ -155,15 +164,20 @@ class Distribution(metaclass=DistributionMeta):
             self._validate_args = validate_args
         if self._validate_args:
             for param, constraint in self.arg_constraints.items():
-                if param not in self.__dict__ and isinstance(getattr(type(self), param), lazy_property):
+                if param not in self.__dict__ and isinstance(
+                    getattr(type(self), param), lazy_property
+                ):
                     continue
                 if constraints.is_dependent(constraint):
                     continue  # skip constraints that cannot be checked
                 is_valid = constraint(getattr(self, param))
                 if not_jax_tracer(is_valid):
                     if not np.all(is_valid):
-                        raise ValueError("{} distribution got invalid {} parameter.".format(
-                            self.__class__.__name__, param))
+                        raise ValueError(
+                            "{} distribution got invalid {} parameter.".format(
+                                self.__class__.__name__, param
+                            )
+                        )
         super(Distribution, self).__init__()
 
     @property
@@ -275,13 +289,15 @@ class Distribution(metaclass=DistributionMeta):
         mask = self.support(value)
         if not_jax_tracer(mask):
             if not np.all(mask):
-                warnings.warn('Out-of-support values provided to log prob method. '
-                              'The value argument should be within the support.')
+                warnings.warn(
+                    "Out-of-support values provided to log prob method. "
+                    "The value argument should be within the support."
+                )
         return mask
 
     def __call__(self, *args, **kwargs):
-        key = kwargs.pop('rng_key')
-        sample_intermediates = kwargs.pop('sample_intermediates', False)
+        key = kwargs.pop("rng_key")
+        sample_intermediates = kwargs.pop("sample_intermediates", False)
         if sample_intermediates:
             return self.sample_with_intermediates(key, *args, **kwargs)
         return self.sample(key, *args, **kwargs)
@@ -422,7 +438,7 @@ class Distribution(metaclass=DistributionMeta):
         batch_shapes = []
         for name, shape in kwargs.items():
             event_dim = cls.arg_constraints.get(name, constraints.real).event_dim
-            batch_shapes.append(shape[:len(shape) - event_dim])
+            batch_shapes.append(shape[: len(shape) - event_dim])
         batch_shape = lax.broadcast_shapes(*batch_shapes) if batch_shapes else ()
         event_shape = ()
         return batch_shape, event_shape
@@ -451,7 +467,9 @@ class ExpandedDistribution(Distribution):
 
     def __init__(self, base_dist, batch_shape=()):
         if isinstance(base_dist, ExpandedDistribution):
-            batch_shape, _, _ = self._broadcast_shape(base_dist.batch_shape, batch_shape)
+            batch_shape, _, _ = self._broadcast_shape(
+                base_dist.batch_shape, batch_shape
+            )
             base_dist = base_dist.base_dist
         self.base_dist = base_dist
 
@@ -459,8 +477,9 @@ class ExpandedDistribution(Distribution):
         # Do basic validation. e.g. we should not "unexpand" distributions even if that is possible.
         new_shape, _, _ = self._broadcast_shape(base_dist.batch_shape, batch_shape)
         # Record interstitial and expanded dims/sizes w.r.t. the base distribution
-        new_shape, expanded_sizes, interstitial_sizes = self._broadcast_shape(base_dist.batch_shape,
-                                                                              new_shape)
+        new_shape, expanded_sizes, interstitial_sizes = self._broadcast_shape(
+            base_dist.batch_shape, new_shape
+        )
         self._expanded_sizes = expanded_sizes
         self._interstitial_sizes = interstitial_sizes
         super().__init__(new_shape, base_dist.event_shape)
@@ -468,8 +487,11 @@ class ExpandedDistribution(Distribution):
     @staticmethod
     def _broadcast_shape(existing_shape, new_shape):
         if len(new_shape) < len(existing_shape):
-            raise ValueError("Cannot broadcast distribution of shape {} to shape {}"
-                             .format(existing_shape, new_shape))
+            raise ValueError(
+                "Cannot broadcast distribution of shape {} to shape {}".format(
+                    existing_shape, new_shape
+                )
+            )
         reversed_shape = list(reversed(existing_shape))
         expanded_sizes, interstitial_sizes = [], []
         for i, size in enumerate(reversed(new_shape)):
@@ -481,9 +503,16 @@ class ExpandedDistribution(Distribution):
                     reversed_shape[i] = size
                     interstitial_sizes.append((-i - 1, size))
             elif reversed_shape[i] != size:
-                raise ValueError("Cannot broadcast distribution of shape {} to shape {}"
-                                 .format(existing_shape, new_shape))
-        return tuple(reversed(reversed_shape)), OrderedDict(expanded_sizes), OrderedDict(interstitial_sizes)
+                raise ValueError(
+                    "Cannot broadcast distribution of shape {} to shape {}".format(
+                        existing_shape, new_shape
+                    )
+                )
+        return (
+            tuple(reversed(reversed_shape)),
+            OrderedDict(expanded_sizes),
+            OrderedDict(interstitial_sizes),
+        )
 
     @property
     def has_enumerate_support(self):
@@ -501,17 +530,26 @@ class ExpandedDistribution(Distribution):
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
+        # shape = sample_shape + expanded_sizes + interstitial_sizes + base_dist.shape()
         samples, intermediates = sample_fn(key, sample_shape=sample_shape + batch_shape)
 
+        interstitial_dims = tuple(self._interstitial_sizes.keys())
+        event_dim = len(self.event_shape)
+        batch_ndims = jnp.ndim(samples) - event_dim
+        interstitial_dims = tuple(batch_ndims + i for i in interstitial_dims)
+        interstitial_idx = len(sample_shape) + len(expanded_sizes)
+        interstitial_sample_dims = tuple(
+            range(interstitial_idx, interstitial_idx + len(interstitial_sizes))
+        )
+
         def reshape_sample(x):
-            """ Reshapes samples and intermediates to ensure that the output
-                shape is correct: This implicitly replaces the interstitial dims
-                of size 1 in the original batch_shape of base_dist with those
-                in the expanded dims. While it somewhat 'shuffles' over batch
-                dimensions, we don't care because they are considered independent."""
-            subshape = x.shape[len(sample_shape) + len(batch_shape):]
-            # subshape == base_dist.batch_shape + event_shape of x (latter unknown for intermediates)
-            event_shape = subshape[len(self.base_dist.batch_shape):]
+            """Reshapes samples and intermediates to ensure that the output
+            shape is correct: This implicitly replaces the interstitial dims
+            of size 1 in the original batch_shape of base_dist with those
+            in the expanded dims."""
+            for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
+                x = jnp.swapaxes(x, dim1, dim2)
+            event_shape = jnp.shape(x)[batch_ndims:]
             return x.reshape(sample_shape + self.batch_shape + event_shape)
 
         intermediates = tree_util.tree_map(reshape_sample, intermediates)
@@ -521,7 +559,8 @@ class ExpandedDistribution(Distribution):
     def rsample(self, key, sample_shape=()):
         return self._sample(
             lambda *args, **kwargs: (self.base_dist.rsample(*args, **kwargs), []),
-            key, sample_shape
+            key,
+            sample_shape,
         )
 
     @property
@@ -535,8 +574,10 @@ class ExpandedDistribution(Distribution):
         return self.sample_with_intermediates(key, sample_shape)[0]
 
     def log_prob(self, value):
-        shape = lax.broadcast_shapes(self.batch_shape,
-                                     jnp.shape(value)[:max(jnp.ndim(value) - self.event_dim, 0)])
+        shape = lax.broadcast_shapes(
+            self.batch_shape,
+            jnp.shape(value)[: max(jnp.ndim(value) - self.event_dim, 0)],
+        )
         log_prob = self.base_dist.log_prob(value)
         return jnp.broadcast_to(log_prob, shape)
 
@@ -550,17 +591,22 @@ class ExpandedDistribution(Distribution):
 
     @property
     def mean(self):
-        return jnp.broadcast_to(self.base_dist.mean, self.batch_shape + self.event_shape)
+        return jnp.broadcast_to(
+            self.base_dist.mean, self.batch_shape + self.event_shape
+        )
 
     @property
     def variance(self):
-        return jnp.broadcast_to(self.base_dist.variance, self.batch_shape + self.event_shape)
+        return jnp.broadcast_to(
+            self.base_dist.variance, self.batch_shape + self.event_shape
+        )
 
     def tree_flatten(self):
         prepend_ndim = len(self.batch_shape) - len(self.base_dist.batch_shape)
         base_dist = tree_util.tree_map(
             lambda x: promote_shapes(x, shape=(1,) * prepend_ndim + jnp.shape(x))[0],
-            self.base_dist)
+            self.base_dist,
+        )
         base_flatten, base_aux = base_dist.tree_flatten()
         return base_flatten, (type(self.base_dist), base_aux, self.batch_shape)
 
@@ -568,7 +614,9 @@ class ExpandedDistribution(Distribution):
     def tree_unflatten(cls, aux_data, params):
         base_cls, base_aux, batch_shape = aux_data
         base_dist = base_cls.tree_unflatten(base_aux, params)
-        prepend_shape = base_dist.batch_shape[:len(base_dist.batch_shape) - len(batch_shape)]
+        prepend_shape = base_dist.batch_shape[
+            : len(base_dist.batch_shape) - len(batch_shape)
+        ]
         return cls(base_dist, batch_shape=prepend_shape + batch_shape)
 
 
@@ -622,16 +670,19 @@ class ImproperUniform(Distribution):
         set `batch_shape=()`.
     :param tuple event_shape: event shape of this distribution.
     """
+
     arg_constraints = {}
     support = constraints.dependent
 
     def __init__(self, support, batch_shape, event_shape, validate_args=None):
-        self.support = constraints.independent(support, len(event_shape) - support.event_dim)
+        self.support = constraints.independent(
+            support, len(event_shape) - support.event_dim
+        )
         super().__init__(batch_shape, event_shape, validate_args=validate_args)
 
     @validate_sample
     def log_prob(self, value):
-        batch_shape = jnp.shape(value)[:jnp.ndim(value) - len(self.event_shape)]
+        batch_shape = jnp.shape(value)[: jnp.ndim(value) - len(self.event_shape)]
         batch_shape = lax.broadcast_shapes(batch_shape, self.batch_shape)
         return jnp.zeros(batch_shape)
 
@@ -648,7 +699,8 @@ class ImproperUniform(Distribution):
             "Please raising a feature request for your specific `support`. "
             "Alternatively, you can use '.mask(False)' pattern. "
             "For example, to define an improper prior over positive domain, "
-            "we can use the distribution `dist.LogNormal(0, 1).mask(False)`.")
+            "we can use the distribution `dist.LogNormal(0, 1).mask(False)`."
+        )
 
 
 class Independent(Distribution):
@@ -673,24 +725,32 @@ class Independent(Distribution):
     :param numpyro.distribution.Distribution base_distribution: a distribution instance.
     :param int reinterpreted_batch_ndims: the number of batch dims to reinterpret as event dims.
     """
+
     arg_constraints = {}
 
     def __init__(self, base_dist, reinterpreted_batch_ndims, validate_args=None):
         if reinterpreted_batch_ndims > len(base_dist.batch_shape):
-            raise ValueError("Expected reinterpreted_batch_ndims <= len(base_distribution.batch_shape), "
-                             "actual {} vs {}".format(reinterpreted_batch_ndims,
-                                                      len(base_dist.batch_shape)))
+            raise ValueError(
+                "Expected reinterpreted_batch_ndims <= len(base_distribution.batch_shape), "
+                "actual {} vs {}".format(
+                    reinterpreted_batch_ndims, len(base_dist.batch_shape)
+                )
+            )
         shape = base_dist.batch_shape + base_dist.event_shape
         event_dim = reinterpreted_batch_ndims + len(base_dist.event_shape)
-        batch_shape = shape[:len(shape) - event_dim]
-        event_shape = shape[len(shape) - event_dim:]
+        batch_shape = shape[: len(shape) - event_dim]
+        event_shape = shape[len(shape) - event_dim :]
         self.base_dist = base_dist
         self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
-        super(Independent, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+        super(Independent, self).__init__(
+            batch_shape, event_shape, validate_args=validate_args
+        )
 
     @property
     def support(self):
-        return constraints.independent(self.base_dist.support, self.reinterpreted_batch_ndims)
+        return constraints.independent(
+            self.base_dist.support, self.reinterpreted_batch_ndims
+        )
 
     @property
     def has_enumerate_support(self):
@@ -727,12 +787,20 @@ class Independent(Distribution):
         return sum_rightmost(log_prob, self.reinterpreted_batch_ndims)
 
     def expand(self, batch_shape):
-        base_batch_shape = batch_shape + self.event_shape[:self.reinterpreted_batch_ndims]
-        return self.base_dist.expand(base_batch_shape).to_event(self.reinterpreted_batch_ndims)
+        base_batch_shape = (
+            batch_shape + self.event_shape[: self.reinterpreted_batch_ndims]
+        )
+        return self.base_dist.expand(base_batch_shape).to_event(
+            self.reinterpreted_batch_ndims
+        )
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
-        return base_flatten, (type(self.base_dist), base_aux, self.reinterpreted_batch_ndims)
+        return base_flatten, (
+            type(self.base_dist),
+            base_aux,
+            self.reinterpreted_batch_ndims,
+        )
 
     @classmethod
     def tree_unflatten(cls, aux_data, params):
@@ -751,18 +819,21 @@ class MaskedDistribution(Distribution):
     :param mask: A boolean or boolean-valued array.
     :type mask: jnp.ndarray or bool
     """
+
     arg_constraints = {}
 
     def __init__(self, base_dist, mask):
         if isinstance(mask, bool):
             self._mask = mask
         else:
-            batch_shape = lax.broadcast_shapes(jnp.shape(mask), tuple(base_dist.batch_shape))
+            batch_shape = lax.broadcast_shapes(
+                jnp.shape(mask), tuple(base_dist.batch_shape)
+            )
             if mask.shape != batch_shape:
                 mask = jnp.broadcast_to(mask, batch_shape)
             if base_dist.batch_shape != batch_shape:
                 base_dist = base_dist.expand(batch_shape)
-            self._mask = mask.astype('bool')
+            self._mask = mask.astype("bool")
         self.base_dist = base_dist
         super().__init__(base_dist.batch_shape, base_dist.event_shape)
 
@@ -790,8 +861,10 @@ class MaskedDistribution(Distribution):
 
     def log_prob(self, value):
         if self._mask is False:
-            shape = lax.broadcast_shapes(tuple(self.base_dist.batch_shape),
-                                         jnp.shape(value)[:max(jnp.ndim(value) - len(self.event_shape), 0)])
+            shape = lax.broadcast_shapes(
+                tuple(self.base_dist.batch_shape),
+                jnp.shape(value)[: max(jnp.ndim(value) - len(self.event_shape), 0)],
+            )
             return jnp.zeros(shape)
         if self._mask is True:
             return self.base_dist.log_prob(value)
@@ -800,9 +873,11 @@ class MaskedDistribution(Distribution):
         except NotImplementedError:
             pass
         else:
-            mask = jnp.reshape(self._mask, jnp.shape(self._mask) + (1,) * self.event_dim)
+            mask = jnp.reshape(
+                self._mask, jnp.shape(self._mask) + (1,) * self.event_dim
+            )
             value = jnp.where(mask, value, default_value)
-        return jnp.where(self._mask, self.base_dist.log_prob(value), 0.)
+        return jnp.where(self._mask, self.base_dist.log_prob(value), 0.0)
 
     def enumerate_support(self, expand=True):
         return self.base_dist.enumerate_support(expand=expand)
@@ -846,16 +921,21 @@ class TransformedDistribution(Distribution):
     :param validate_args: Whether to enable validation of distribution
         parameters and arguments to `.log_prob` method.
     """
+
     arg_constraints = {}
 
     def __init__(self, base_distribution, transforms, validate_args=None):
         if isinstance(transforms, Transform):
-            transforms = [transforms, ]
+            transforms = [transforms]
         elif isinstance(transforms, list):
             if not all(isinstance(t, Transform) for t in transforms):
-                raise ValueError("transforms must be a Transform or a list of Transforms")
+                raise ValueError(
+                    "transforms must be a Transform or a list of Transforms"
+                )
         else:
-            raise ValueError("transforms must be a Transform or list, but was {}".format(transforms))
+            raise ValueError(
+                "transforms must be a Transform or list, but was {}".format(transforms)
+            )
         if isinstance(base_distribution, TransformedDistribution):
             base_dist = base_distribution.base_dist
             self.transforms = base_distribution.transforms + transforms
@@ -867,12 +947,17 @@ class TransformedDistribution(Distribution):
         transform = ComposeTransform(self.transforms)
         domain_event_dim = transform.domain.event_dim
         if len(base_shape) < domain_event_dim:
-            raise ValueError("Base distribution needs to have shape with size at least {}, but got {}."
-                             .format(domain_event_dim, base_shape))
+            raise ValueError(
+                "Base distribution needs to have shape with size at least {}, but got {}.".format(
+                    domain_event_dim, base_shape
+                )
+            )
         shape = transform.forward_shape(base_shape)
         expanded_base_shape = transform.inverse_shape(shape)
         if base_shape != expanded_base_shape:
-            base_batch_shape = expanded_base_shape[:len(expanded_base_shape) - base_event_dim]
+            base_batch_shape = expanded_base_shape[
+                : len(expanded_base_shape) - base_event_dim
+            ]
             base_dist = base_dist.expand(base_batch_shape)
         reinterpreted_batch_ndims = domain_event_dim - base_event_dim
         if reinterpreted_batch_ndims > 0:
@@ -880,12 +965,16 @@ class TransformedDistribution(Distribution):
         self.base_dist = base_dist
 
         # Compute shapes.
-        event_dim = transform.codomain.event_dim + max(base_event_dim - domain_event_dim, 0)
+        event_dim = transform.codomain.event_dim + max(
+            base_event_dim - domain_event_dim, 0
+        )
         assert len(shape) >= event_dim
         cut = len(shape) - event_dim
         batch_shape = shape[:cut]
         event_shape = shape[cut:]
-        super(TransformedDistribution, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+        super(TransformedDistribution, self).__init__(
+            batch_shape, event_shape, validate_args=validate_args
+        )
 
     @property
     def has_rsample(self):
@@ -905,7 +994,9 @@ class TransformedDistribution(Distribution):
         if self.event_dim == codomain_event_dim:
             return codomain
         else:
-            return constraints.independent(codomain, self.event_dim - codomain_event_dim)
+            return constraints.independent(
+                codomain, self.event_dim - codomain_event_dim
+            )
 
     def sample(self, key, sample_shape=()):
         x = self.base_dist(rng_key=key, sample_shape=sample_shape)
@@ -926,8 +1017,11 @@ class TransformedDistribution(Distribution):
     def log_prob(self, value, intermediates=None):
         if intermediates is not None:
             if len(intermediates) != len(self.transforms):
-                raise ValueError('Intermediates array has length = {}. Expected = {}.'
-                                 .format(len(intermediates), len(self.transforms)))
+                raise ValueError(
+                    "Intermediates array has length = {}. Expected = {}.".format(
+                        len(intermediates), len(self.transforms)
+                    )
+                )
         event_dim = len(self.event_shape)
         log_prob = 0.0
         y = value
@@ -940,8 +1034,9 @@ class TransformedDistribution(Distribution):
             event_dim = transform.domain.event_dim + batch_ndim
             y = x
 
-        log_prob = log_prob + sum_rightmost(self.base_dist.log_prob(y),
-                                            event_dim - len(self.base_dist.event_shape))
+        log_prob = log_prob + sum_rightmost(
+            self.base_dist.log_prob(y), event_dim - len(self.base_dist.event_shape)
+        )
         return log_prob
 
     @property
@@ -957,26 +1052,34 @@ class TransformedDistribution(Distribution):
             "Flatenning TransformedDistribution is only supported for some specific cases."
             " Consider using `TransformReparam` to convert this distribution to the base_dist,"
             " which is supported in most situtations. In addition, please reach out to us with"
-            " your usage cases.")
+            " your usage cases."
+        )
 
 
 class Delta(Distribution):
-    arg_constraints = {'v': constraints.dependent(is_discrete=False),
-                       'log_density': constraints.real}
-    reparameterized_params = ['v', 'log_density']
+    arg_constraints = {
+        "v": constraints.dependent(is_discrete=False),
+        "log_density": constraints.real,
+    }
+    reparameterized_params = ["v", "log_density"]
     is_discrete = True
 
-    def __init__(self, v=0., log_density=0., event_dim=0, validate_args=None):
+    def __init__(self, v=0.0, log_density=0.0, event_dim=0, validate_args=None):
         if event_dim > jnp.ndim(v):
-            raise ValueError('Expected event_dim <= v.dim(), actual {} vs {}'
-                             .format(event_dim, jnp.ndim(v)))
+            raise ValueError(
+                "Expected event_dim <= v.dim(), actual {} vs {}".format(
+                    event_dim, jnp.ndim(v)
+                )
+            )
         batch_dim = jnp.ndim(v) - event_dim
         batch_shape = jnp.shape(v)[:batch_dim]
         event_shape = jnp.shape(v)[batch_dim:]
         self.v = v
         # NB: following Pyro implementation, log_density should be broadcasted to batch_shape
         self.log_density = promote_shapes(log_density, shape=batch_shape)[0]
-        super(Delta, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+        super(Delta, self).__init__(
+            batch_shape, event_shape, validate_args=validate_args
+        )
 
     @constraints.dependent_property(is_discrete=True)
     def support(self):
@@ -1016,14 +1119,17 @@ class Unit(Distribution):
 
     This is used for :func:`numpyro.factor` statements.
     """
-    arg_constraints = {'log_factor': constraints.real}
+
+    arg_constraints = {"log_factor": constraints.real}
     support = constraints.real
 
     def __init__(self, log_factor, validate_args=None):
         batch_shape = jnp.shape(log_factor)
         event_shape = (0,)  # This satisfies .size == 0.
         self.log_factor = log_factor
-        super(Unit, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+        super(Unit, self).__init__(
+            batch_shape, event_shape, validate_args=validate_args
+        )
 
     def sample(self, key, sample_shape=()):
         return jnp.empty(sample_shape + self.batch_shape + self.event_shape)
