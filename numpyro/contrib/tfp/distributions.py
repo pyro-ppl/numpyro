@@ -43,6 +43,7 @@ class BijectorConstraint(constraints.Constraint):
 
     :param ~tensorflow_probability.substrates.jax.bijectors.Bijector bijector: a TensorFlow bijector
     """
+
     def __init__(self, bijector):
         self.bijector = bijector
 
@@ -65,6 +66,7 @@ class BijectorTransform(Transform):
 
     :param ~tensorflow_probability.substrates.jax.bijectors.Bijector bijector: a TensorFlow bijector
     """
+
     def __init__(self, bijector):
         self.bijector = bijector
 
@@ -88,13 +90,13 @@ class BijectorTransform(Transform):
     def forward_shape(self, shape):
         out_shape = self.bijector.forward_event_shape(shape)
         in_event_shape = self.bijector.inverse_event_shape(out_shape)
-        batch_shape = shape[:len(shape) - len(in_event_shape)]
+        batch_shape = shape[: len(shape) - len(in_event_shape)]
         return batch_shape + out_shape
 
     def inverse_shape(self, shape):
         in_shape = self.bijector.inverse_event_shape(shape)
         out_event_shape = self.bijector.forward_event_shape(in_shape)
-        batch_shape = shape[:len(shape) - len(out_event_shape)]
+        batch_shape = shape[: len(shape) - len(out_event_shape)]
         return batch_shape + in_shape
 
 
@@ -124,13 +126,14 @@ class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
     A mixin layer to make TensorFlow Probability (TFP) distribution compatible
     with NumPyro internal.
     """
+
     def __init_subclass__(cls, **kwargs):
         # skip register pytree because TFP distributions are already pytrees
         super(object, cls).__init_subclass__(**kwargs)
 
     def __call__(self, *args, **kwargs):
-        key = kwargs.pop('rng_key')
-        sample_intermediates = kwargs.pop('sample_intermediates', False)
+        key = kwargs.pop("rng_key")
+        sample_intermediates = kwargs.pop("sample_intermediates", False)
         if sample_intermediates:
             return self.sample(*args, seed=key, **kwargs), []
         return self.sample(*args, seed=key, **kwargs)
@@ -150,7 +153,10 @@ class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
 
 
 class InverseGamma(tfd.InverseGamma, TFPDistributionMixin):
-    arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "scale": constraints.positive,
+    }
 
 
 class OneHotCategorical(tfd.OneHotCategorical, TFPDistributionMixin):
@@ -173,10 +179,13 @@ class OrderedLogistic(tfd.OrderedLogistic, TFPDistributionMixin):
 
 
 class Pareto(tfd.Pareto, TFPDistributionMixin):
-    arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "scale": constraints.positive,
+    }
 
 
-__all__ = ['BijectorConstraint', 'BijectorTransform', 'TFPDistributionMixin']
+__all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistributionMixin"]
 _len_all = len(__all__)
 for _name, _Dist in tfd.__dict__.items():
     if not isinstance(_Dist, type):
@@ -203,21 +212,26 @@ for _name, _Dist in tfd.__dict__.items():
             _PyroDist.enumerate_support = numpyro_dist_class.enumerate_support
         locals()[_name] = _PyroDist
 
-    _PyroDist.__doc__ = '''
+    _PyroDist.__doc__ = """
     Wraps `{}.{} <https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/distributions/{}>`_
     with :class:`~numpyro.contrib.tfp.distributions.TFPDistributionMixin`.
-    '''.format(_Dist.__module__, _Dist.__name__, _Dist.__name__)
+    """.format(
+        _Dist.__module__, _Dist.__name__, _Dist.__name__
+    )
 
     __all__.append(_name)
 
 
 # Create sphinx documentation.
-__doc__ = '\n\n'.join([
-
-    '''
+__doc__ = "\n\n".join(
+    [
+        """
     {0}
     ----------------------------------------------------------------
     .. autoclass:: numpyro.contrib.tfp.distributions.{0}
-    '''.format(_name)
-    for _name in __all__[:_len_all] + sorted(__all__[_len_all:])
-])
+    """.format(
+            _name
+        )
+        for _name in __all__[:_len_all] + sorted(__all__[_len_all:])
+    ]
+)

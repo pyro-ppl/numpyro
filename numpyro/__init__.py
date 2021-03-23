@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpyro import compat, diagnostics, distributions, handlers, infer, optim
+from numpyro.contrib.render import render_model
 from numpyro.distributions.distribution import enable_validation, validation_enabled
 import numpyro.patch  # noqa: F401
 from numpyro.primitives import (
@@ -14,10 +15,9 @@ from numpyro.primitives import (
     plate_stack,
     prng_key,
     sample,
-    subsample
+    subsample,
 )
 from numpyro.util import enable_x64, set_host_device_count, set_platform
-from numpyro.contrib.render import render_model
 from numpyro.version import __version__
 
 set_platform("cpu")

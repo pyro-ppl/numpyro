@@ -4,16 +4,19 @@
 import warnings
 
 from numpyro.compat.util import UnsupportedAPIWarning
+from numpyro.primitives import module, plate, sample
 
-from numpyro.primitives import module, param as _param, plate, sample  # noqa: F401 isort:skip
+from numpyro.primitives import param as _param  # noqa: F401 isort:skip
 
 _PARAM_STORE = {}
 
 
 def get_param_store():
-    warnings.warn('A limited parameter store is provided for compatibility with Pyro. '
-                  'Value of SVI parameters should be obtained via SVI.get_params() method.',
-                  category=UnsupportedAPIWarning)
+    warnings.warn(
+        "A limited parameter store is provided for compatibility with Pyro. "
+        "Value of SVI parameters should be obtained via SVI.get_params() method.",
+        category=UnsupportedAPIWarning,
+    )
     # Return an empty dict for compatibility
     return _PARAM_STORE
 

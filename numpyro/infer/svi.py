@@ -13,7 +13,7 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import transform_fn
 
-SVIState = namedtuple('SVIState', ['optim_state', 'rng_key'])
+SVIState = namedtuple("SVIState", ["optim_state", "rng_key"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **optim_state** - current optimizer's state.
@@ -21,7 +21,7 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 """
 
 
-SVIRunResult = namedtuple('SVIRunResult', ['params', 'losses'])
+SVIRunResult = namedtuple("SVIRunResult", ["params", "losses"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **params** - the optimized parameters.
@@ -29,9 +29,12 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 """
 
 
-def _apply_loss_fn(loss_fn, rng_key, constrain_fn, model, guide,
-                   args, kwargs, static_kwargs, params):
-    return loss_fn(rng_key, constrain_fn(params), model, guide, *args, **kwargs, **static_kwargs)
+def _apply_loss_fn(
+    loss_fn, rng_key, constrain_fn, model, guide, args, kwargs, static_kwargs, params
+):
+    return loss_fn(
+        rng_key, constrain_fn(params), model, guide, *args, **kwargs, **static_kwargs
+    )
 
 
 class SVI(object):
@@ -81,6 +84,7 @@ class SVI(object):
         that remain constant during fitting.
     :return: tuple of `(init_fn, update_fn, evaluate)`.
     """
+
     def __init__(self, model, guide, optim, loss, **static_kwargs):
         self.model = model
         self.guide = guide
@@ -104,21 +108,25 @@ class SVI(object):
         model_init = seed(self.model, model_seed)
         guide_init = seed(self.guide, guide_seed)
         guide_trace = trace(guide_init).get_trace(*args, **kwargs, **self.static_kwargs)
-        model_trace = trace(replay(model_init, guide_trace)).get_trace(*args, **kwargs, **self.static_kwargs)
+        model_trace = trace(replay(model_init, guide_trace)).get_trace(
+            *args, **kwargs, **self.static_kwargs
+        )
         params = {}
         inv_transforms = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
         for site in list(model_trace.values()) + list(guide_trace.values()):
-            if site['type'] == 'param':
-                constraint = site['kwargs'].pop('constraint', constraints.real)
+            if site["type"] == "param":
+                constraint = site["kwargs"].pop("constraint", constraints.real)
                 transform = biject_to(constraint)
-                inv_transforms[site['name']] = transform
-                params[site['name']] = transform.inv(site['value'])
+                inv_transforms[site["name"]] = transform
+                params[site["name"]] = transform.inv(site["value"])
 
         self.constrain_fn = partial(transform_fn, inv_transforms)
         # we convert weak types like float to float32/float64
         # to avoid recompiling body_fn in svi.run
-        params = tree_map(lambda x: lax.convert_element_type(x, jnp.result_type(x)), params)
+        params = tree_map(
+            lambda x: lax.convert_element_type(x, jnp.result_type(x)), params
+        )
         return SVIState(self.optim.init(params), rng_key)
 
     def get_params(self, svi_state):
@@ -144,9 +152,20 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
-        loss_fn = partial(_apply_loss_fn, self.loss.loss, rng_key_step, self.constrain_fn, self.model,
-                          self.guide, args, kwargs, self.static_kwargs)
-        loss_val, optim_state = self.optim.eval_and_update(loss_fn, svi_state.optim_state)
+        loss_fn = partial(
+            _apply_loss_fn,
+            self.loss.loss,
+            rng_key_step,
+            self.constrain_fn,
+            self.model,
+            self.guide,
+            args,
+            kwargs,
+            self.static_kwargs,
+        )
+        loss_val, optim_state = self.optim.eval_and_update(
+            loss_fn, svi_state.optim_state
+        )
         return SVIState(optim_state, rng_key), loss_val
 
     def stable_update(self, svi_state, *args, **kwargs):
@@ -162,12 +181,31 @@ class SVI(object):
         :return: tuple of `(svi_state, loss)`.
         """
         rng_key, rng_key_step = random.split(svi_state.rng_key)
-        loss_fn = partial(_apply_loss_fn, self.loss.loss, rng_key_step, self.constrain_fn, self.model,
-                          self.guide, args, kwargs, self.static_kwargs)
-        loss_val, optim_state = self.optim.eval_and_stable_update(loss_fn, svi_state.optim_state)
+        loss_fn = partial(
+            _apply_loss_fn,
+            self.loss.loss,
+            rng_key_step,
+            self.constrain_fn,
+            self.model,
+            self.guide,
+            args,
+            kwargs,
+            self.static_kwargs,
+        )
+        loss_val, optim_state = self.optim.eval_and_stable_update(
+            loss_fn, svi_state.optim_state
+        )
         return SVIState(optim_state, rng_key), loss_val
 
-    def run(self, rng_key, num_steps, *args, progress_bar=True, stable_update=False, **kwargs):
+    def run(
+        self,
+        rng_key,
+        num_steps,
+        *args,
+        progress_bar=True,
+        stable_update=False,
+        **kwargs
+    ):
         """
         (EXPERIMENTAL INTERFACE) Run SVI with `num_steps` iterations, then return
         the optimized parameters and the stacked losses at every step. If `num_steps`
@@ -191,6 +229,7 @@ class SVI(object):
             and `losses` is the collected loss during the process.
         :rtype: SVIRunResult
         """
+
         def body_fn(svi_state, _):
             if stable_update:
                 svi_state, loss = self.stable_update(svi_state, *args, **kwargs)
@@ -208,17 +247,20 @@ class SVI(object):
                     losses.append(loss)
                     if i % batch == 0:
                         if stable_update:
-                            valid_losses = [x for x in losses[i - batch:] if x == x]
+                            valid_losses = [x for x in losses[i - batch :] if x == x]
                             num_valid = len(valid_losses)
                             if num_valid == 0:
-                                avg_loss = float('nan')
+                                avg_loss = float("nan")
                             else:
                                 avg_loss = sum(valid_losses) / num_valid
                         else:
-                            avg_loss = sum(losses[i-batch:]) / batch
-                        t.set_postfix_str("init loss: {:.4f}, avg. loss [{}-{}]: {:.4f}"
-                                          .format(losses[0], i - batch + 1, i, avg_loss),
-                                          refresh=False)
+                            avg_loss = sum(losses[i - batch :]) / batch
+                        t.set_postfix_str(
+                            "init loss: {:.4f}, avg. loss [{}-{}]: {:.4f}".format(
+                                losses[0], i - batch + 1, i, avg_loss
+                            ),
+                            refresh=False,
+                        )
             losses = jnp.stack(losses)
         else:
             svi_state, losses = lax.scan(body_fn, svi_state, None, length=num_steps)
@@ -239,5 +281,12 @@ class SVI(object):
         # we split to have the same seed as `update_fn` given an svi_state
         _, rng_key_eval = random.split(svi_state.rng_key)
         params = self.get_params(svi_state)
-        return self.loss.loss(rng_key_eval, params, self.model, self.guide,
-                              *args, **kwargs, **self.static_kwargs)
+        return self.loss.loss(
+            rng_key_eval,
+            params,
+            self.model,
+            self.guide,
+            *args,
+            **kwargs,
+            **self.static_kwargs
+        )
