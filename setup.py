@@ -42,6 +42,7 @@ setup(
         'doc': ['nbsphinx', 'sphinx', 'sphinx_rtd_theme', 'sphinx-gallery'],
         'test': [
             'flake8',
+            'ipython',
             'pytest>=4.1',
             'pyro-api>=0.1.1',
             'scipy>=1.1',
@@ -50,7 +51,6 @@ setup(
             'dm-haiku',
             'flax',
             'funsor',
-            'ipython',
             'isort',
             'tensorflow_probability',
             'graphviz',
