@@ -26,12 +26,13 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-from jax import lax, ops, tree_map
+from jax import lax, ops
 import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
 from jax.scipy.special import betainc, expit, gammaln, logit, logsumexp, multigammaln, ndtr, ndtri
+from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution

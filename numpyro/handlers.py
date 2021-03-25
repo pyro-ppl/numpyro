@@ -81,7 +81,7 @@ import warnings
 
 import numpy as np
 
-from jax import lax, random
+from jax import random
 import jax.numpy as jnp
 
 import numpyro
@@ -477,7 +477,7 @@ class mask(Messenger):
     """
 
     def __init__(self, fn=None, mask=True):
-        if lax.dtype(mask) != 'bool':
+        if jnp.result_type(mask) != 'bool':
             raise ValueError("`mask` should be a bool array.")
         self.mask = mask
         super().__init__(fn)
