@@ -24,7 +24,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        sudo apt install -y pandoc ghostscript
+        sudo apt install -y pandoc imagemagick ghostscript
         python -m pip install --upgrade pip
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
