@@ -29,7 +29,7 @@ jobs:
         pip install https://github.com/pyro-ppl/funsor/archive/master.zip
         pip install jaxlib
         pip install jax
-        pip install .[doc,test]
+        pip install .[doc,test,dev]
         pip install -r docs/requirements.txt
         pip freeze
     - name: Lint with flake8
