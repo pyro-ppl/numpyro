@@ -154,7 +154,6 @@ def _load_sp500():
         for row in csv_reader:
             date.append(row['DATE'])
             value.append(float(row['VALUE']))
-    date = np.stack(date)
     value = np.stack(value)
 
     return {'train': (date, value)}
