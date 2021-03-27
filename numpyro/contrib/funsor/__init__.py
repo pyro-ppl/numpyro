@@ -11,6 +11,7 @@ except ImportError as e:
 
 from numpyro.contrib.funsor.enum_messenger import enum, infer_config, markov, plate, to_data, to_funsor, trace
 from numpyro.contrib.funsor.infer_util import config_enumerate, log_density, plate_to_enum_plate
+from numpyro.contrib.funsor.discrete import infer_discrete
 
 funsor.set_backend("jax")
 
@@ -19,6 +20,7 @@ __all__ = [
     "config_enumerate",
     "enum",
     "infer_config",
+    "infer_discrete",
     "log_density",
     "markov",
     "plate",
