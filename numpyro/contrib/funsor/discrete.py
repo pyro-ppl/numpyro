@@ -5,14 +5,10 @@ from collections import OrderedDict
 import functools
 
 import funsor
-
-import numpyro
-from numpyro.contrib.funsor import enum, plate_to_enum_plate, trace
-# from pyro.contrib.funsor.handlers.enum_messenger import _get_support_value
-# from pyro.contrib.funsor.infer.traceenum_elbo import terms_from_trace
+from numpyro.contrib.funsor import enum, plate_to_enum_plate, trace as packed_trace
 from numpyro.distributions.util import is_identically_one
-from numpyro.handlers import block, replay
-# from pyro.poutine.util import site_is_subsample
+from numpyro.handlers import block, replay, trace
+from numpyro.infer.util import _guess_max_plate_nesting
 
 
 @functools.singledispatch
@@ -34,22 +30,11 @@ def _get_support_value_delta(funsor_dist, name, **kwargs):
     return OrderedDict(funsor_dist.terms)[name][0]
 
 
-# @_get_support_value.register(funsor.Tensor)
-# def _get_support_value_tensor(funsor_dist, name, **kwargs):
-#    assert name in funsor_dist.inputs
-#    return funsor.Tensor(
-#        funsor.ops.new_arange(funsor_dist.data, funsor_dist.inputs[name].size),
-#        OrderedDict([(name, funsor_dist.inputs[name])]),
-#        funsor_dist.inputs[name].size
-#    )
-
-
 def terms_from_trace(tr):
     """Helper function to extract elbo components from execution traces."""
     log_factors = {}
     log_measures = {}
     sum_vars, prod_vars = frozenset(), frozenset()
-    history = 1
     for site in tr.values():
         if site['type'] == 'sample':
             value = site['value']
@@ -64,7 +49,7 @@ def terms_from_trace(tr):
                 log_prob = scale * log_prob
 
             dim_to_name = site["infer"]["dim_to_name"]
-            log_prob_factor = funsor.to_funsor(log_prob, output=funsor.reals(), dim_to_name=dim_to_name)
+            log_prob_factor = funsor.to_funsor(log_prob, output=funsor.Real, dim_to_name=dim_to_name)
 
             if site['is_observed']:
                 log_factors[site["name"]] = log_prob_factor
@@ -88,10 +73,14 @@ def _sample_posterior(model, first_available_dim, temperature, rng_key, *args, *
     else:
         raise ValueError("temperature must be 0 (map) or 1 (sample) for now")
 
-    with block():
+    if first_available_dim is None:
+        with block():
+            model_trace = trace(model).get_trace(*args, **kwargs)
+        first_available_dim = -_guess_max_plate_nesting(model_trace) - 1
+
+    with block(), enum(first_available_dim=first_available_dim):
         with plate_to_enum_plate():
-            with enum(first_available_dim=first_available_dim):
-                model_tr = trace(model).get_trace(*args, **kwargs)
+            model_tr = packed_trace(model).get_trace(*args, **kwargs)
 
     terms = terms_from_trace(model_tr)
     # terms["log_factors"] = [log p(x) for each observed or latent sample site x]
@@ -126,15 +115,14 @@ def _sample_posterior(model, first_available_dim, temperature, rng_key, *args, *
             node["value"] = funsor.to_data(value, name_to_dim=node["infer"]["name_to_dim"])
         else:
             log_measure = approx_factors[terms["log_measures"][name]]
-            sample_subs[name] =  _get_support_value(log_measure, name)
+            sample_subs[name] = _get_support_value(log_measure, name)
             node["value"] = funsor.to_data(sample_subs[name], name_to_dim=node["infer"]["name_to_dim"])
 
     with replay(guide_trace=sample_tr):
         return model(*args, **kwargs)
 
 
-def infer_discrete(model, first_available_dim, temperature=1, rng_key=None):
-    assert first_available_dim is not None
+def infer_discrete(model, first_available_dim=None, temperature=1, rng_key=None):
     if temperature == 1:
         assert rng_key is not None
     return functools.partial(_sample_posterior, model, first_available_dim, temperature, rng_key)

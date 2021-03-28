@@ -446,7 +446,7 @@ class plate(GlobalNamedMessenger):
         self.subsample_size = indices.shape[0]
         self._indices = funsor.Tensor(
             indices,
-            OrderedDict([(self.name, funsor.bint(self.subsample_size))]),
+            OrderedDict([(self.name, funsor.Bint[self.subsample_size])]),
             self.subsample_size
         )
         super(plate, self).__init__(None)
@@ -528,7 +528,7 @@ class enum(BaseEnumMessenger):
         raw_value = jnp.arange(0, size)
         funsor_value = funsor.Tensor(
             raw_value,
-            OrderedDict([(msg["name"], funsor.bint(size))]),
+            OrderedDict([(msg["name"], funsor.Bint[size])]),
             size
         )
 

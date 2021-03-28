@@ -102,7 +102,7 @@ def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_di
 
         # we eliminate all plate and enum dimensions not available at markov sites.
         eliminate_vars = (sum_vars | prod_vars) - time_to_markov_dims[time_var]
-        with funsor.interpreter.interpretation(funsor.terms.lazy):
+        with funsor.interpretations.lazy:
             lazy_result = funsor.sum_product.sum_product(
                 funsor.ops.logaddexp, funsor.ops.add, log_factors,
                 eliminate=eliminate_vars, plates=prod_vars)
@@ -167,12 +167,12 @@ def log_density(model, model_args, model_kwargs, params):
                 log_prob = scale * log_prob
 
             dim_to_name = site["infer"]["dim_to_name"]
-            log_prob_factor = funsor.to_funsor(log_prob, output=funsor.reals(), dim_to_name=dim_to_name)
+            log_prob_factor = funsor.to_funsor(log_prob, output=funsor.Real, dim_to_name=dim_to_name)
 
             time_dim = None
             for dim, name in dim_to_name.items():
                 if name.startswith("_time"):
-                    time_dim = funsor.Variable(name, funsor.domains.bint(log_prob.shape[dim]))
+                    time_dim = funsor.Variable(name, funsor.Bint[log_prob.shape[dim]])
                     time_to_factors[time_dim].append(log_prob_factor)
                     history = max(history, max(_get_shift(s) for s in dim_to_name.values()))
                     time_to_init_vars[time_dim] |= frozenset(
@@ -197,7 +197,7 @@ def log_density(model, model_args, model_kwargs, params):
                                                 time_to_markov_dims, sum_vars, prod_vars, history)
         log_factors = log_factors + markov_factors
 
-    with funsor.interpreter.interpretation(funsor.terms.lazy):
+    with funsor.interpretations.lazy:
         lazy_result = funsor.sum_product.sum_product(
             funsor.ops.logaddexp, funsor.ops.add, log_factors,
             eliminate=sum_vars | prod_vars, plates=prod_vars)
