@@ -12,13 +12,13 @@ import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers, infer
-from numpyro.distributions.util import is_identically_one
 import numpyro.distributions as dist
+from numpyro.distributions.util import is_identically_one
 
 # put all funsor-related imports here, so test collection works without funsor
 try:
     import funsor
-    from numpyro.contrib.funsor import config_enumerate, markov, infer_discrete
+    from numpyro.contrib.funsor import config_enumerate, infer_discrete, markov
 
     funsor.set_backend("jax")
 except ImportError:

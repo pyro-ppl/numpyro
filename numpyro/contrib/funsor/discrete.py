@@ -5,7 +5,8 @@ from collections import OrderedDict
 import functools
 
 import funsor
-from numpyro.contrib.funsor import enum, plate_to_enum_plate, trace as packed_trace
+from numpyro.contrib.funsor import enum, plate_to_enum_plate
+from numpyro.contrib.funsor import trace as packed_trace
 from numpyro.distributions.util import is_identically_one
 from numpyro.handlers import block, replay, trace
 from numpyro.infer.util import _guess_max_plate_nesting
