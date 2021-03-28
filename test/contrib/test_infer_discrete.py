@@ -53,8 +53,8 @@ def test_hmm_smoke(length, temperature):
 
     # This should match the example in the infer_discrete docstring.
     def hmm(data, hidden_dim=10):
-        transition = 0.3 / hidden_dim + 0.7 * np.eye(hidden_dim)
-        means = np.arange(float(hidden_dim))
+        transition = 0.3 / hidden_dim + 0.7 * jnp.eye(hidden_dim)
+        means = jnp.arange(float(hidden_dim))
         states = [0]
         for t in markov(range(len(data))):
             states.append(numpyro.sample("states_{}".format(t),
@@ -64,11 +64,11 @@ def test_hmm_smoke(length, temperature):
                                      obs=data[t])
         return states, data
 
-    true_states, data = hmm([None] * length)
+    true_states, data = handlers.seed(hmm, 0)([None] * length)
     assert len(data) == length
     assert len(true_states) == 1 + len(data)
 
-    decoder = infer_discrete(config_enumerate(hmm), temperature=temperature)
+    decoder = infer_discrete(config_enumerate(hmm), temperature=temperature, rng_key=random.PRNGKey(1))
     inferred_states, _ = decoder(data)
     assert len(inferred_states) == len(true_states)
 

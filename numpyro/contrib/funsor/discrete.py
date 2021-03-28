@@ -4,11 +4,14 @@
 from collections import OrderedDict
 import functools
 
+from jax import random
+
 import funsor
-from numpyro.contrib.funsor import enum, plate_to_enum_plate
-from numpyro.contrib.funsor import trace as packed_trace
+from numpyro.contrib.funsor.enum_messenger import enum
+from numpyro.contrib.funsor.enum_messenger import trace as packed_trace
+from numpyro.contrib.funsor.infer_util import plate_to_enum_plate
 from numpyro.distributions.util import is_identically_one
-from numpyro.handlers import block, replay, trace
+from numpyro.handlers import block, replay, seed, trace
 from numpyro.infer.util import _guess_max_plate_nesting
 
 
@@ -70,13 +73,14 @@ def _sample_posterior(model, first_available_dim, temperature, rng_key, *args, *
         approx = funsor.approximations.argmax_approximate
     elif temperature == 1:
         sum_op, prod_op = funsor.ops.logaddexp, funsor.ops.add
-        approx = funsor.montecarlo.MonteCarlo(rng_key=rng_key)
+        rng_key, sub_key = random.split(rng_key)
+        approx = funsor.montecarlo.MonteCarlo(rng_key=sub_key)
     else:
         raise ValueError("temperature must be 0 (map) or 1 (sample) for now")
 
     if first_available_dim is None:
         with block():
-            model_trace = trace(model).get_trace(*args, **kwargs)
+            model_trace = trace(seed(model, rng_key)).get_trace(*args, **kwargs)
         first_available_dim = -_guess_max_plate_nesting(model_trace) - 1
 
     with block(), enum(first_available_dim=first_available_dim):
@@ -124,6 +128,6 @@ def _sample_posterior(model, first_available_dim, temperature, rng_key, *args, *
 
 
 def infer_discrete(model, first_available_dim=None, temperature=1, rng_key=None):
-    if temperature == 1:
+    if temperature == 1 or first_available_dim is None:
         assert rng_key is not None
     return functools.partial(_sample_posterior, model, first_available_dim, temperature, rng_key)
