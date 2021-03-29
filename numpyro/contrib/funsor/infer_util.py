@@ -3,6 +3,7 @@
 
 from collections import defaultdict
 from contextlib import contextmanager
+import functools
 import re
 
 import funsor
@@ -39,7 +40,7 @@ def plate_to_enum_plate():
         numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)
 
 
-def config_enumerate(fn, default='parallel'):
+def config_enumerate(fn=None, default='parallel'):
     """
     Configures enumeration for all relevant sites in a NumPyro model.
 
@@ -63,6 +64,9 @@ def config_enumerate(fn, default='parallel'):
     :param str default: Which enumerate strategy to use, one of
         "sequential", "parallel", or None. Defaults to "parallel".
     """
+    if fn is None:  # support use as a decorator
+        return functools.partial(config_enumerate, default=default)
+
     def config_fn(site):
         if site['type'] == 'sample' and (not site['is_observed']) \
                 and site['fn'].has_enumerate_support:

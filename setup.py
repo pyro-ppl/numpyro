@@ -49,7 +49,7 @@ setup(
         'dev': [
             'dm-haiku',
             'flax',
-            'funsor',
+            'funsor @ git+https://github.com/pyro-ppl/funsor.git@d5574988665dd822ec64e41f2b54b9dc929959dc',
             'ipython',
             'isort',
             'tensorflow_probability',

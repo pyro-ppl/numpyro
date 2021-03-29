@@ -127,7 +127,49 @@ def _sample_posterior(model, first_available_dim, temperature, rng_key, *args, *
         return model(*args, **kwargs)
 
 
-def infer_discrete(model, first_available_dim=None, temperature=1, rng_key=None):
+def infer_discrete(fn=None, first_available_dim=None, temperature=1, rng_key=None):
+    """
+    A handler that samples discrete sites marked with
+    ``site["infer"]["enumerate"] = "parallel"`` from the posterior,
+    conditioned on observations.
+
+    Example::
+
+        @infer_discrete(first_available_dim=-1, temperature=0)
+        @config_enumerate
+        def viterbi_decoder(data, hidden_dim=10):
+            transition = 0.3 / hidden_dim + 0.7 * jnp.eye(hidden_dim)
+            means = jnp.arange(float(hidden_dim))
+            states = [0]
+            for t in markov(range(len(data))):
+                states.append(numpyro.sample("states_{}".format(t),
+                                             dist.Categorical(transition[states[-1]])))
+                numpyro.sample("obs_{}".format(t),
+                               dist.Normal(means[states[-1]], 1.),
+                               obs=data[t])
+            return states  # returns maximum likelihood states
+
+    .. warning: This does not yet support :func:`numpyro.contrib.control_flow.scan`
+        primitive.
+
+    .. warning: The ``log_prob``s of the inferred model's trace are not
+        meaningful, and may be changed in a future release.
+
+    :param fn: a stochastic function (callable containing NumPyro primitive calls)
+    :param int first_available_dim: The first tensor dimension (counting
+        from the right) that is available for parallel enumeration. This
+        dimension and all dimensions left may be used internally by Pyro.
+        This should be a negative integer.
+    :param int temperature: Either 1 (sample via forward-filter backward-sample)
+        or 0 (optimize via Viterbi-like MAP inference). Defaults to 1 (sample).
+    :param jax.random.PRNGKey rng_key: a random number generator key, to be used in
+        cases ``temperature=1`` or ``first_available_dim is None``.
+    """
     if temperature == 1 or first_available_dim is None:
         assert rng_key is not None
-    return functools.partial(_sample_posterior, model, first_available_dim, temperature, rng_key)
+    if fn is None:  # support use as a decorator
+        return functools.partial(infer_discrete,
+                                 first_available_dim=first_available_dim,
+                                 temperature=temperature,
+                                 rng_key=rng_key)
+    return functools.partial(_sample_posterior, fn, first_available_dim, temperature, rng_key)
