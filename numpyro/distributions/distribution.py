@@ -509,9 +509,10 @@ class ExpandedDistribution(Distribution):
         batch_ndims = jnp.ndim(samples) - event_dim
         interstitial_dims = tuple(batch_ndims + i for i in interstitial_dims)
         interstitial_idx = len(sample_shape) + len(expanded_sizes)
-        interstitial_sample_dims = tuple(
-            range(interstitial_idx, interstitial_idx + len(interstitial_sizes))
-        )
+        interstitial_sample_dims = range(interstitial_idx, interstitial_idx + len(interstitial_dims))
+        permutation = list(range(batch_ndims))
+        for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
+            permutation[dim1], permutation[dim2] = permutation[dim2], permutation[dim1]
 
         def reshape_sample(x):
             """
@@ -520,8 +521,7 @@ class ExpandedDistribution(Distribution):
             of size 1 in the original batch_shape of base_dist with those
             in the expanded dims.
             """
-            for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
-                x = jnp.swapaxes(x, dim1, dim2)
+            x = jnp.transpose(x, permutation + list(range(batch_ndims, jnp.ndim(x))))
             event_shape = jnp.shape(x)[batch_ndims:]
             return x.reshape(sample_shape + self.batch_shape + event_shape)
 
