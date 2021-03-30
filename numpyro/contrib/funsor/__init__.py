@@ -11,6 +11,7 @@ except ImportError as e:
         "It can be installed with `pip install funsor`."
     ) from e
 
+from numpyro.contrib.funsor.discrete import infer_discrete
 from numpyro.contrib.funsor.enum_messenger import (
     enum,
     infer_config,
@@ -33,6 +34,7 @@ __all__ = [
     "config_enumerate",
     "enum",
     "infer_config",
+    "infer_discrete",
     "log_density",
     "markov",
     "plate",

@@ -15,8 +15,7 @@ import zipfile
 
 import numpy as np
 
-from jax import device_put, lax
-from jax.interpreters.xla import DeviceArray
+from jax import lax
 
 if "CI" in os.environ:
     DATA_DIR = os.path.expanduser("~/.data")
@@ -93,7 +92,7 @@ def _load_baseball():
                 train.append(np.array([int(at_bats), int(hits)]))
                 season_at_bats, season_hits = row["SeasonAt-Bats"], row["SeasonHits"]
                 test.append(np.array([int(season_at_bats), int(season_hits)]))
-        return np.stack(train), np.stack(test), np.array(player_names)
+        return np.stack(train), np.stack(test), player_names
 
     train, test, player_names = train_test_split(
         os.path.join(DATA_DIR, "EfronMorrisBB.txt")
@@ -140,13 +139,13 @@ def _load_mnist():
         with gzip.open(file, "rb") as f:
             f.read(8)
             data = np.frombuffer(f.read(), dtype=np.int8) / np.float32(255.0)
-            return device_put(data)
+            return data
 
     def read_img(file):
         with gzip.open(file, "rb") as f:
             _, _, nrows, ncols = struct.unpack(">IIII", f.read(16))
             data = np.frombuffer(f.read(), dtype=np.uint8) / np.float32(255.0)
-            return device_put(data.reshape(-1, nrows, ncols))
+            return data.reshape(-1, nrows, ncols)
 
     files = [
         os.path.join(DATA_DIR, os.path.basename(urlparse(url).path))
@@ -167,7 +166,6 @@ def _load_sp500():
         for row in csv_reader:
             date.append(row["DATE"])
             value.append(float(row["VALUE"]))
-    date = np.stack(date)
     value = np.stack(value)
 
     return {"train": (date, value)}
@@ -332,9 +330,9 @@ def load_dataset(
     def get_batch(i=0, idxs=idxs):
         ret_idx = lax.dynamic_slice_in_dim(idxs, i * batch_size, batch_size)
         return tuple(
-            lax.index_take(a, (ret_idx,), axes=(0,))
-            if isinstance(a, DeviceArray)
-            else np.take(a, ret_idx, axis=0)
+            np.take(a, ret_idx, axis=0)
+            if isinstance(a, list)
+            else lax.index_take(a, (ret_idx,), axes=(0,))
             for a in arrays
         )
 

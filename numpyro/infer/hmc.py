@@ -232,13 +232,13 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             possible specifications and corresponding mass matrix structures are as follows:
 
                 + dense_mass=[("x", "y")]: use a dense mass matrix for the joint
-                (x, y) and a diagonal mass matrix for z
+                  (x, y) and a diagonal mass matrix for z
                 + dense_mass=[] (equivalent to dense_mass=False): use a diagonal mass
-                matrix for the joint (x, y, z)
+                  matrix for the joint (x, y, z)
                 + dense_mass=[("x", "y", "z")] (equivalent to full_mass=True):
-                use a dense mass matrix for the joint (x, y, z)
+                  use a dense mass matrix for the joint (x, y, z)
                 + dense_mass=[("x",), ("y",), ("z")]: use dense mass matrices for
-                each of x, y, and z (i.e. block-diagonal with 3 blocks)
+                  each of x, y, and z (i.e. block-diagonal with 3 blocks)
 
         :type dense_mass: bool or list
         :param float target_accept_prob: Target acceptance probability for step size
@@ -681,7 +681,7 @@ class HMC(MCMCKernel):
                 dense_mass = [tuple(sorted(z))] if dense_mass else []
             assert isinstance(dense_mass, list)
 
-        hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
+        hmc_init_fn = lambda init_params, rng_key: self._init_fn(
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
@@ -697,7 +697,7 @@ class HMC(MCMCKernel):
             model_args=model_args,
             model_kwargs=model_kwargs,
             rng_key=rng_key,
-        )
+        )  # noqa: E731
         if rng_key.ndim == 1:
             init_state = hmc_init_fn(init_params, rng_key)
         else:

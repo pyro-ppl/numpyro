@@ -39,7 +39,13 @@ setup(
         "tqdm",
     ],
     extras_require={
-        "doc": ["nbsphinx", "sphinx", "sphinx_rtd_theme", "sphinx-gallery"],
+        "doc": [
+            "ipython",  # sphinx needs this to render codes
+            "nbsphinx",
+            "sphinx",
+            "sphinx_rtd_theme",
+            "sphinx-gallery",
+        ],
         "test": [
             "black",
             "flake8",
@@ -51,7 +57,7 @@ setup(
         "dev": [
             "dm-haiku",
             "flax",
-            "funsor",
+            "funsor @ git+https://github.com/pyro-ppl/funsor.git@d5574988665dd822ec64e41f2b54b9dc929959dc",
             "graphviz",
             "tensorflow_probability",
         ],

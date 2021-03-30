@@ -3,6 +3,7 @@
 
 from collections import defaultdict
 from contextlib import contextmanager
+import functools
 import re
 
 import funsor
@@ -41,7 +42,7 @@ def plate_to_enum_plate():
         numpyro.plate.__new__ = lambda *args, **kwargs: object.__new__(numpyro.plate)
 
 
-def config_enumerate(fn, default="parallel"):
+def config_enumerate(fn=None, default="parallel"):
     """
     Configures enumeration for all relevant sites in a NumPyro model.
 
@@ -65,6 +66,8 @@ def config_enumerate(fn, default="parallel"):
     :param str default: Which enumerate strategy to use, one of
         "sequential", "parallel", or None. Defaults to "parallel".
     """
+    if fn is None:  # support use as a decorator
+        return functools.partial(config_enumerate, default=default)
 
     def config_fn(site):
         if (
@@ -114,7 +117,7 @@ def compute_markov_factors(
 
         # we eliminate all plate and enum dimensions not available at markov sites.
         eliminate_vars = (sum_vars | prod_vars) - time_to_markov_dims[time_var]
-        with funsor.interpreter.interpretation(funsor.terms.lazy):
+        with funsor.interpretations.lazy:
             lazy_result = funsor.sum_product.sum_product(
                 funsor.ops.logaddexp,
                 funsor.ops.add,
@@ -192,15 +195,13 @@ def log_density(model, model_args, model_kwargs, params):
 
             dim_to_name = site["infer"]["dim_to_name"]
             log_prob_factor = funsor.to_funsor(
-                log_prob, output=funsor.reals(), dim_to_name=dim_to_name
+                log_prob, output=funsor.Real, dim_to_name=dim_to_name
             )
 
             time_dim = None
             for dim, name in dim_to_name.items():
                 if name.startswith("_time"):
-                    time_dim = funsor.Variable(
-                        name, funsor.domains.bint(log_prob.shape[dim])
-                    )
+                    time_dim = funsor.Variable(name, funsor.Bint[log_prob.shape[dim]])
                     time_to_factors[time_dim].append(log_prob_factor)
                     history = max(
                         history, max(_get_shift(s) for s in dim_to_name.values())
@@ -238,7 +239,7 @@ def log_density(model, model_args, model_kwargs, params):
         )
         log_factors = log_factors + markov_factors
 
-    with funsor.interpreter.interpretation(funsor.terms.lazy):
+    with funsor.interpretations.lazy:
         lazy_result = funsor.sum_product.sum_product(
             funsor.ops.logaddexp,
             funsor.ops.add,

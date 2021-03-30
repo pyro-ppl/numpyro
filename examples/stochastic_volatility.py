@@ -71,7 +71,7 @@ def print_results(posterior, dates):
         row_name_fmt = "{:>8}"
         header_format = row_name_fmt + "{:>12}" * 5
         row_format = row_name_fmt + "{:>12.3f}" * 5
-        columns = ["(p{})".format(q * 100) for q in quantiles]
+        columns = ["(p{})".format(int(q * 100)) for q in quantiles]
         q_values = jnp.quantile(values, quantiles, axis=0)
         print(header_format.format("", *columns))
         print(row_format.format(row_name, *q_values))

@@ -530,17 +530,30 @@ class ExpandedDistribution(Distribution):
         interstitial_sizes = tuple(self._interstitial_sizes.values())
         expanded_sizes = tuple(self._expanded_sizes.values())
         batch_shape = expanded_sizes + interstitial_sizes
+        # shape = sample_shape + expanded_sizes + interstitial_sizes + base_dist.shape()
         samples, intermediates = sample_fn(key, sample_shape=sample_shape + batch_shape)
 
+        interstitial_dims = tuple(self._interstitial_sizes.keys())
+        event_dim = len(self.event_shape)
+        batch_ndims = jnp.ndim(samples) - event_dim
+        interstitial_dims = tuple(batch_ndims + i for i in interstitial_dims)
+        interstitial_idx = len(sample_shape) + len(expanded_sizes)
+        interstitial_sample_dims = range(
+            interstitial_idx, interstitial_idx + len(interstitial_dims)
+        )
+        permutation = list(range(batch_ndims))
+        for dim1, dim2 in zip(interstitial_dims, interstitial_sample_dims):
+            permutation[dim1], permutation[dim2] = permutation[dim2], permutation[dim1]
+
         def reshape_sample(x):
-            """Reshapes samples and intermediates to ensure that the output
+            """
+            Reshapes samples and intermediates to ensure that the output
             shape is correct: This implicitly replaces the interstitial dims
             of size 1 in the original batch_shape of base_dist with those
-            in the expanded dims. While it somewhat 'shuffles' over batch
-            dimensions, we don't care because they are considered independent."""
-            subshape = x.shape[len(sample_shape) + len(batch_shape) :]
-            # subshape == base_dist.batch_shape + event_shape of x (latter unknown for intermediates)
-            event_shape = subshape[len(self.base_dist.batch_shape) :]
+            in the expanded dims.
+            """
+            x = jnp.transpose(x, permutation + list(range(batch_ndims, jnp.ndim(x))))
+            event_shape = jnp.shape(x)[batch_ndims:]
             return x.reshape(sample_shape + self.batch_shape + event_shape)
 
         intermediates = tree_util.tree_map(reshape_sample, intermediates)

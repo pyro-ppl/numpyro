@@ -267,7 +267,7 @@ def render_model(
     Wrap all functions needed to automatically render a model.
 
     .. warning:: This utility does not support the
-        :func:``~numpyro.contrib.control_flow.scan` primitive yet.
+        :func:`~numpyro.contrib.control_flow.scan` primitive yet.
 
     .. warning:: Currently, this utility uses a heuristic approach,
         which will work for most cases, to detect dependencies in a NumPyro model.

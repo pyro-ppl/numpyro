@@ -26,13 +26,7 @@ def step(opt_state, optim):
         (optim.Adam, (1e-2,)),
         (optim.ClippedAdam, (1e-2,)),
         (optim.Adagrad, (1e-1,)),
-        (
-            optim.Momentum,
-            (
-                1e-2,
-                0.5,
-            ),
-        ),
+        (optim.Momentum, (1e-2, 0.5)),
         (optim.RMSProp, (1e-2, 0.95)),
         (optim.RMSPropMomentum, (1e-4,)),
         (optim.SGD, (1e-2,)),
@@ -56,13 +50,7 @@ def test_optim_multi_params(optim_class, args):
         (optim.Adam, (1e-2,)),
         (optim.ClippedAdam, (1e-2,)),
         (optim.Adagrad, (1e-1,)),
-        (
-            optim.Momentum,
-            (
-                1e-2,
-                0.5,
-            ),
-        ),
+        (optim.Momentum, (1e-2, 0.5)),
         (optim.RMSProp, (1e-2, 0.95)),
         (optim.RMSPropMomentum, (1e-4,)),
         (optim.SGD, (1e-2,)),

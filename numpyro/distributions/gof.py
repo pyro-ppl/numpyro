@@ -78,13 +78,7 @@ def print_histogram(probs, counts):
         print("{: >8.3f} {: >8d} {}".format(prob, count, "-" * width))
 
 
-def multinomial_goodness_of_fit(
-    probs,
-    counts,
-    *,
-    total_count=None,
-    plot=False,
-):
+def multinomial_goodness_of_fit(probs, counts, *, total_count=None, plot=False):
     """
     Pearson's chi^2 test, on possibly truncated data.
     https://en.wikipedia.org/wiki/Pearson%27s_chi-squared_test

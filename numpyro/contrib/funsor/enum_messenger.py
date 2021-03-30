@@ -15,15 +15,7 @@ from numpyro.primitives import Messenger, apply_stack, plate as OrigPlateMesseng
 funsor.set_backend("jax")
 
 
-__all__ = [
-    "enum",
-    "infer_config",
-    "markov",
-    "plate",
-    "to_data",
-    "to_funsor",
-    "trace",
-]
+__all__ = ["enum", "infer_config", "markov", "plate", "to_data", "to_funsor", "trace"]
 
 
 ##################################
@@ -499,7 +491,7 @@ class plate(GlobalNamedMessenger):
         self.subsample_size = indices.shape[0]
         self._indices = funsor.Tensor(
             indices,
-            OrderedDict([(self.name, funsor.bint(self.subsample_size))]),
+            OrderedDict([(self.name, funsor.Bint[self.subsample_size])]),
             self.subsample_size,
         )
         super(plate, self).__init__(None)
@@ -598,7 +590,7 @@ class enum(BaseEnumMessenger):
         size = msg["fn"].enumerate_support(expand=False).shape[0]
         raw_value = jnp.arange(0, size)
         funsor_value = funsor.Tensor(
-            raw_value, OrderedDict([(msg["name"], funsor.bint(size))]), size
+            raw_value, OrderedDict([(msg["name"], funsor.Bint[size])]), size
         )
 
         msg["value"] = to_data(funsor_value)
@@ -623,6 +615,9 @@ class trace(OrigTraceMessenger):
             msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(
                 total_batch_shape
             )
+            msg["infer"]["name_to_dim"] = {
+                name: dim for dim, name in msg["infer"]["dim_to_name"].items()
+            }
         if msg["type"] in ("sample", "param"):
             super().postprocess_message(msg)
 

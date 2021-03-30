@@ -2,16 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from collections import namedtuple
-from functools import update_wrapper
+from functools import partial, update_wrapper
 import math
 
 import numpy as np
 
+import jax
 from jax import jit, lax, random, vmap
-from jax.lib import xla_bridge
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
-from jax.util import partial
 
 # Parameters for Transformed Rejection with Squeeze (TRS) algorithm - page 3.
 _tr_params = namedtuple(
@@ -169,7 +168,7 @@ def _binomial(key, p, n, shape):
     p = jnp.reshape(jnp.broadcast_to(p, shape), -1)
     n = jnp.reshape(jnp.broadcast_to(n, shape), -1)
     key = random.split(key, jnp.size(p))
-    if xla_bridge.get_backend().platform == "cpu":
+    if jax.default_backend() == "cpu":
         ret = lax.map(lambda x: _binomial_dispatch(*x), (key, p, n))
     else:
         ret = vmap(lambda *x: _binomial_dispatch(*x))(key, p, n)

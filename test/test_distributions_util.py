@@ -24,26 +24,14 @@ from numpyro.distributions.util import (
 )
 
 
-@pytest.mark.parametrize(
-    "x, y",
-    [
-        (0.2, 10.0),
-        (0.6, -10.0),
-    ],
-)
+@pytest.mark.parametrize("x, y", [(0.2, 10.0), (0.6, -10.0)])
 def test_binary_cross_entropy_with_logits(x, y):
     actual = -y * jnp.log(expit(x)) - (1 - y) * jnp.log(expit(-x))
     expect = binary_cross_entropy_with_logits(x, y)
     assert_allclose(actual, expect, rtol=1e-6)
 
 
-@pytest.mark.parametrize(
-    "prim",
-    [
-        xlogy,
-        xlog1py,
-    ],
-)
+@pytest.mark.parametrize("prim", [xlogy, xlog1py])
 def test_binop_batch_rule(prim):
     bx = jnp.array([1.0, 2.0, 3.0])
     by = jnp.array([2.0, 3.0, 4.0])
@@ -66,10 +54,10 @@ def test_binop_batch_rule(prim):
 @pytest.mark.parametrize(
     "p, shape",
     [
-        (jnp.array([0.1, 0.9]), ()),
-        (jnp.array([0.2, 0.8]), (2,)),
-        (jnp.array([[0.1, 0.9], [0.2, 0.8]]), ()),
-        (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
+        (np.array([0.1, 0.9]), ()),
+        (np.array([0.2, 0.8]), (2,)),
+        (np.array([[0.1, 0.9], [0.2, 0.8]]), ()),
+        (np.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
     ],
 )
 def test_categorical_shape(p, shape):
@@ -78,13 +66,7 @@ def test_categorical_shape(p, shape):
     assert jnp.shape(categorical(rng_key, p, shape)) == expected_shape
 
 
-@pytest.mark.parametrize(
-    "p",
-    [
-        jnp.array([0.2, 0.3, 0.5]),
-        jnp.array([0.8, 0.1, 0.1]),
-    ],
-)
+@pytest.mark.parametrize("p", [jnp.array([0.2, 0.3, 0.5]), jnp.array([0.8, 0.1, 0.1])])
 def test_categorical_stats(p):
     rng_key = random.PRNGKey(0)
     n = 10000
@@ -96,10 +78,10 @@ def test_categorical_stats(p):
 @pytest.mark.parametrize(
     "p, shape",
     [
-        (jnp.array([0.1, 0.9]), ()),
-        (jnp.array([0.2, 0.8]), (2,)),
-        (jnp.array([[0.1, 0.9], [0.2, 0.8]]), ()),
-        (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
+        (np.array([0.1, 0.9]), ()),
+        (np.array([0.2, 0.8]), (2,)),
+        (np.array([[0.1, 0.9], [0.2, 0.8]]), ()),
+        (np.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
     ],
 )
 def test_multinomial_shape(p, shape):
@@ -109,20 +91,8 @@ def test_multinomial_shape(p, shape):
     assert jnp.shape(multinomial(rng_key, p, n, shape)) == expected_shape
 
 
-@pytest.mark.parametrize(
-    "p",
-    [
-        jnp.array([0.2, 0.3, 0.5]),
-        jnp.array([0.8, 0.1, 0.1]),
-    ],
-)
-@pytest.mark.parametrize(
-    "n",
-    [
-        10000,
-        jnp.array([10000, 20000]),
-    ],
-)
+@pytest.mark.parametrize("p", [np.array([0.2, 0.3, 0.5]), np.array([0.8, 0.1, 0.1])])
+@pytest.mark.parametrize("n", [10000, np.array([10000, 20000])])
 def test_multinomial_stats(p, n):
     rng_key = random.PRNGKey(0)
     z = multinomial(rng_key, p, n)
@@ -131,22 +101,8 @@ def test_multinomial_stats(p, n):
     assert_allclose(z / n, p, atol=0.01)
 
 
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (6,),
-        (5, 10),
-        (3, 4, 3),
-    ],
-)
-@pytest.mark.parametrize(
-    "diagonal",
-    [
-        0,
-        -1,
-        -2,
-    ],
-)
+@pytest.mark.parametrize("shape", [(6,), (5, 10), (3, 4, 3)])
+@pytest.mark.parametrize("diagonal", [0, -1, -2])
 def test_vec_to_tril_matrix(shape, diagonal):
     rng_key = random.PRNGKey(0)
     x = random.normal(rng_key, shape)

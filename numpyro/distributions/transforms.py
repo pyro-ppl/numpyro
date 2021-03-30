@@ -7,12 +7,13 @@ import weakref
 
 import numpy as np
 
-from jax import lax, ops, tree_flatten, tree_map, vmap
+from jax import lax, ops, vmap
 from jax.flatten_util import ravel_pytree
 from jax.nn import softplus
 import jax.numpy as jnp
 from jax.scipy.linalg import solve_triangular
 from jax.scipy.special import expit, logit
+from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.distributions import constraints
 from numpyro.distributions.util import (
