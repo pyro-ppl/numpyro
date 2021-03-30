@@ -11,9 +11,7 @@ _PARAM_STORE = {}
 
 
 def get_param_store():
-    warnings.warn('A limited parameter store is provided for compatibility with Pyro. '
-                  'Value of SVI parameters should be obtained via SVI.get_params() method.',
-                  category=UnsupportedAPIWarning)
+    warnings.warn("A limited parameter store is provided for compatibility with Pyro. " "Value of SVI parameters should be obtained via SVI.get_params() method.", category=UnsupportedAPIWarning)
     # Return an empty dict for compatibility
     return _PARAM_STORE
 

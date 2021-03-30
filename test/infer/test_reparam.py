@@ -32,12 +32,7 @@ def get_moments(x):
     return jnp.stack([m1, m2, m3, m4])
 
 
-@pytest.mark.parametrize("batch_shape,base_batch_shape", [
-    ((), ()),
-    ((4,), (4,)),
-    ((2, 3), (2, 3)),
-    ((2, 3), ()),
-], ids=str)
+@pytest.mark.parametrize("batch_shape,base_batch_shape", [((), ()), ((4,), (4,)), ((2, 3), (2, 3)), ((2, 3), ())], ids=str)
 @pytest.mark.parametrize("event_shape", [(), (5,)], ids=str)
 def test_log_normal(batch_shape, base_batch_shape, event_shape):
     shape = batch_shape + event_shape
@@ -46,9 +41,7 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
     scale = np.random.rand(*base_shape) + 0.5
 
     def model():
-        fn = dist.TransformedDistribution(
-            dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)),
-            [AffineTransform(loc, scale), ExpTransform()]).expand(shape)
+        fn = dist.TransformedDistribution(dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)), [AffineTransform(loc, scale), ExpTransform()]).expand(shape)
         if event_shape:
             fn = fn.to_event(len(event_shape)).expand_by([100000])
         with numpyro.plate_stack("plates", batch_shape):
@@ -68,16 +61,16 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
 
 
 def neals_funnel(dim):
-    y = numpyro.sample('y', dist.Normal(0, 3))
-    with numpyro.plate('D', dim):
-        numpyro.sample('x', dist.Normal(0, jnp.exp(y / 2)))
+    y = numpyro.sample("y", dist.Normal(0, 3))
+    with numpyro.plate("D", dim):
+        numpyro.sample("x", dist.Normal(0, jnp.exp(y / 2)))
 
 
 def dirichlet_categorical(data):
     concentration = jnp.array([1.0, 1.0, 1.0])
-    p_latent = numpyro.sample('p', dist.Dirichlet(concentration))
-    with numpyro.plate('N', data.shape[0]):
-        numpyro.sample('obs', dist.Categorical(p_latent), obs=data)
+    p_latent = numpyro.sample("p", dist.Dirichlet(concentration))
+    with numpyro.plate("N", data.shape[0]):
+        numpyro.sample("obs", dist.Categorical(p_latent), obs=data)
     return p_latent
 
 
@@ -101,15 +94,12 @@ def test_neals_funnel_smoke():
     mcmc = MCMC(nuts, num_warmup=50, num_samples=50)
     mcmc.run(random.PRNGKey(1), dim)
     samples = mcmc.get_samples()
-    transformed_samples = neutra.transform_sample(samples['auto_shared_latent'])
-    assert 'x' in transformed_samples
-    assert 'y' in transformed_samples
+    transformed_samples = neutra.transform_sample(samples["auto_shared_latent"])
+    assert "x" in transformed_samples
+    assert "y" in transformed_samples
 
 
-@pytest.mark.parametrize('model, kwargs', [
-    (neals_funnel, {'dim': 10}),
-    (dirichlet_categorical, {'data': jnp.ones(10, dtype=jnp.int32)})
-])
+@pytest.mark.parametrize("model, kwargs", [(neals_funnel, {"dim": 10}), (dirichlet_categorical, {"data": jnp.ones(10, dtype=jnp.int32)})])
 def test_reparam_log_joint(model, kwargs):
     guide = AutoIAFNormal(model)
     svi = SVI(model, guide, Adam(1e-10), Trace_ELBO(), **kwargs)
@@ -128,16 +118,16 @@ def test_reparam_log_joint(model, kwargs):
 
 
 @pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
-@pytest.mark.parametrize("centered", [0., 0.6, 1., None])
+@pytest.mark.parametrize("centered", [0.0, 0.6, 1.0, None])
 @pytest.mark.parametrize("dist_type", ["Normal", "StudentT"])
 @pytest.mark.parametrize("event_dim", [0, 1])
 def test_loc_scale(dist_type, centered, shape, event_dim):
-    loc = np.random.uniform(-1., 1., shape)
+    loc = np.random.uniform(-1.0, 1.0, shape)
     scale = np.random.uniform(0.5, 1.5, shape)
     event_dim = min(event_dim, len(shape))
 
     def model(loc, scale):
-        with numpyro.plate_stack("plates", shape[:len(shape) - event_dim]):
+        with numpyro.plate_stack("plates", shape[: len(shape) - event_dim]):
             with numpyro.plate("particles", 10000):
                 if "dist_type" == "Normal":
                     numpyro.sample("x", dist.Normal(loc, scale).to_event(event_dim))
@@ -175,7 +165,6 @@ def test_loc_scale(dist_type, centered, shape, event_dim):
 @pytest.mark.parametrize("shape", [(), (4,), (3, 2)], ids=str)
 @pytest.mark.parametrize("dim", [2, 3, 4])
 def test_projected_normal(shape, dim):
-
     def model(concentration):
         with numpyro.plate_stack("plates", shape):
             with numpyro.plate("particles", 10000):

@@ -39,8 +39,8 @@ def enable_x64(use_x64=True):
         else 32 bits.
     """
     if not use_x64:
-        use_x64 = os.getenv('JAX_ENABLE_X64', 0)
-    jax.config.update('jax_enable_x64', use_x64)
+        use_x64 = os.getenv("JAX_ENABLE_X64", 0)
+    jax.config.update("jax_enable_x64", use_x64)
 
 
 def set_platform(platform=None):
@@ -51,8 +51,8 @@ def set_platform(platform=None):
     :param str platform: either 'cpu', 'gpu', or 'tpu'.
     """
     if platform is None:
-        platform = os.getenv('JAX_PLATFORM_NAME', 'cpu')
-    jax.config.update('jax_platform_name', platform)
+        platform = os.getenv("JAX_PLATFORM_NAME", "cpu")
+    jax.config.update("jax_platform_name", platform)
 
 
 def set_host_device_count(n):
@@ -74,10 +74,9 @@ def set_host_device_count(n):
 
     :param int n: number of CPU devices to use.
     """
-    xla_flags = os.getenv('XLA_FLAGS', '').lstrip('--')
-    xla_flags = re.sub(r'xla_force_host_platform_device_count=.+\s', '', xla_flags).split()
-    os.environ['XLA_FLAGS'] = ' '.join(['--xla_force_host_platform_device_count={}'.format(n)]
-                                       + xla_flags)
+    xla_flags = os.getenv("XLA_FLAGS", "").lstrip("--")
+    xla_flags = re.sub(r"xla_force_host_platform_device_count=.+\s", "", xla_flags).split()
+    os.environ["XLA_FLAGS"] = " ".join(["--xla_force_host_platform_device_count={}".format(n)] + xla_flags)
 
 
 @contextmanager
@@ -147,7 +146,7 @@ def identity(x, *args, **kwargs):
 def cached_by(outer_fn, *keys):
     # Restrict cache size to prevent ref cycles.
     max_size = 8
-    outer_fn._cache = getattr(outer_fn, '_cache', OrderedDict())
+    outer_fn._cache = getattr(outer_fn, "_cache", OrderedDict())
 
     def _wrapped(fn):
         fn_cache = outer_fn._cache
@@ -181,11 +180,11 @@ def progress_bar_factory(num_samples, num_chains):
     finished_chains = []
     for chain in range(num_chains):
         tqdm_bars[chain] = tqdm_auto(range(num_samples), position=chain)
-        tqdm_bars[chain].set_description("Compiling.. ", refresh=True,)
+        tqdm_bars[chain].set_description("Compiling.. ", refresh=True)
 
     def _update_tqdm(arg, transform, device):
         chain = int(str(device)[4:])
-        tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False,)
+        tqdm_bars[chain].set_description(f"Running chain {chain}", refresh=False)
         tqdm_bars[chain].update(arg)
 
     def _close_tqdm(arg, transform, device):
@@ -201,42 +200,27 @@ def progress_bar_factory(num_samples, num_chains):
         Usage: carry = progress_bar((iter_num, print_rate), carry)
         """
 
-        _ = lax.cond(
-            iter_num == 1,
-            lambda _: host_callback.id_tap(_update_tqdm, 0, result=iter_num, tap_with_device=True),
-            lambda _: iter_num,
-            operand=None,
-        )
-        _ = lax.cond(
-            iter_num % print_rate == 0,
-            lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num, tap_with_device=True),
-            lambda _: iter_num,
-            operand=None,
-        )
-        _ = lax.cond(
-            iter_num == num_samples,
-            lambda _: host_callback.id_tap(_close_tqdm, remainder, result=iter_num, tap_with_device=True),
-            lambda _: iter_num,
-            operand=None,
-        )
+        _ = lax.cond(iter_num == 1, lambda _: host_callback.id_tap(_update_tqdm, 0, result=iter_num, tap_with_device=True), lambda _: iter_num, operand=None)
+        _ = lax.cond(iter_num % print_rate == 0, lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num, tap_with_device=True), lambda _: iter_num, operand=None)
+        _ = lax.cond(iter_num == num_samples, lambda _: host_callback.id_tap(_close_tqdm, remainder, result=iter_num, tap_with_device=True), lambda _: iter_num, operand=None)
 
     def progress_bar_fori_loop(func):
         """Decorator that adds a progress bar to `body_fun` used in `lax.fori_loop`.
         Note that `body_fun` must be looping over a tuple who's first element is `np.arange(num_samples)`.
         This means that `iter_num` is the current iteration number
         """
+
         def wrapper_progress_bar(i, vals):
             result = func(i, vals)
             _update_progress_bar(i + 1)
             return result
+
         return wrapper_progress_bar
 
     return progress_bar_fori_loop
 
 
-def fori_collect(lower, upper, body_fun, init_val, transform=identity,
-                 progbar=True, return_last_val=False, collection_size=None,
-                 thinning=1, **progbar_opts):
+def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=True, return_last_val=False, collection_size=None, thinning=1, **progbar_opts):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
@@ -276,18 +260,14 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     assert collection_size >= (upper - lower) // thinning
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
-    num_chains = progbar_opts.pop('num_chains', 1)
+    num_chains = progbar_opts.pop("num_chains", 1)
 
     @cached_by(fori_collect, body_fun, transform)
     def _body_fn(i, vals):
         val, collection, start_idx, thinning = vals
         val = body_fun(val)
         idx = (i - start_idx) // thinning
-        collection = cond(idx >= 0,
-                          collection,
-                          lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
-                          collection,
-                          identity)
+        collection = cond(idx >= 0, collection, lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]), collection, identity)
         return val, collection, start_idx, thinning
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
@@ -298,8 +278,8 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
         _body_fn_pbar = progress_bar_fori_loop(_body_fn)
         last_val, collection, _, _ = fori_loop(0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning))
     else:
-        diagnostics_fn = progbar_opts.pop('diagnostics_fn', None)
-        progbar_desc = progbar_opts.pop('progbar_desc', lambda x: '')
+        diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
+        progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
 
         vals = (init_val, collection, device_put(start_idx), device_put(thinning))
         if upper == 0:
@@ -319,18 +299,15 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity,
     return (unravel_collection, last_val) if return_last_val else unravel_collection
 
 
-pytree_metadata = namedtuple('pytree_metadata', ['flat', 'shape', 'size', 'dtype'])
+pytree_metadata = namedtuple("pytree_metadata", ["flat", "shape", "size", "dtype"])
 
 
 def _ravel_list(*leaves):
-    leaves_metadata = tree_map(lambda l: pytree_metadata(
-        jnp.ravel(l), jnp.shape(l), jnp.size(l), jnp.result_type(l)), leaves)
+    leaves_metadata = tree_map(lambda l: pytree_metadata(jnp.ravel(l), jnp.shape(l), jnp.size(l), jnp.result_type(l)), leaves)
     leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.size for d in leaves_metadata)))
 
     def unravel_list(arr):
-        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size),
-                            m.shape).astype(m.dtype)
-                for i, m in enumerate(leaves_metadata)]
+        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size), m.shape).astype(m.dtype) for i, m in enumerate(leaves_metadata)]
 
     flat = jnp.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else jnp.array([])
     return flat, unravel_list

@@ -240,9 +240,7 @@ def model_5(capture_history, sex):
 # Do inference
 
 
-models = {name[len('model_'):]: model
-          for name, model in globals().items()
-          if name.startswith('model_')}
+models = {name[len("model_") :]: model for name, model in globals().items() if name.startswith("model_")}
 
 
 def run_inference(model, capture_history, sex, rng_key, args):
@@ -250,8 +248,7 @@ def run_inference(model, capture_history, sex, rng_key, args):
         kernel = NUTS(model)
     elif args.algo == "HMC":
         kernel = HMC(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
-                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, capture_history, sex)
     mcmc.print_summary()
     return mcmc.get_samples()
@@ -260,35 +257,31 @@ def run_inference(model, capture_history, sex, rng_key, args):
 def main(args):
     # load data
     if args.dataset == "dipper":
-        capture_history, sex = load_dataset(DIPPER_VOLE, split='dipper', shuffle=False)[1]()
+        capture_history, sex = load_dataset(DIPPER_VOLE, split="dipper", shuffle=False)[1]()
     elif args.dataset == "vole":
         if args.model in ["4", "5"]:
-            raise ValueError("Cannot run model_{} on meadow voles data, since we lack sex "
-                             "information for these animals.".format(args.model))
-        capture_history, = load_dataset(DIPPER_VOLE, split='vole', shuffle=False)[1]()
+            raise ValueError("Cannot run model_{} on meadow voles data, since we lack sex " "information for these animals.".format(args.model))
+        (capture_history,) = load_dataset(DIPPER_VOLE, split="vole", shuffle=False)[1]()
         sex = None
     else:
-        raise ValueError("Available datasets are \'dipper\' and \'vole\'.")
+        raise ValueError("Available datasets are 'dipper' and 'vole'.")
 
     N, T = capture_history.shape
-    print("Loaded {} capture history for {} individuals collected over {} time periods.".format(
-          args.dataset, N, T))
+    print("Loaded {} capture history for {} individuals collected over {} time periods.".format(args.dataset, N, T))
 
     model = models[args.model]
     rng_key = random.PRNGKey(args.rng_seed)
     run_inference(model, capture_history, sex, rng_key, args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CJS capture-recapture model for ecological data")
-    parser.add_argument("-m", "--model", default="1", type=str,
-                        help="one of: {}".format(", ".join(sorted(models.keys()))))
+    parser.add_argument("-m", "--model", default="1", type=str, help="one of: {}".format(", ".join(sorted(models.keys()))))
     parser.add_argument("-d", "--dataset", default="dipper", type=str)
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=1000, type=int)
-    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
-    parser.add_argument('--rng_seed', default=0, type=int, help='random number generator seed')
-    parser.add_argument('--algo', default='NUTS', type=str,
-                        help='whether to run "NUTS" or "HMC"')
+    parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
+    parser.add_argument("--num-chains", nargs="?", default=1, type=int)
+    parser.add_argument("--rng_seed", default=0, type=int, help="random number generator seed")
+    parser.add_argument("--algo", default="NUTS", type=str, help='whether to run "NUTS" or "HMC"')
     args = parser.parse_args()
     main(args)

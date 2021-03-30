@@ -17,20 +17,10 @@ import jax.numpy as jnp
 from jax.scipy.optimize import minimize
 from jax.tree_util import register_pytree_node, tree_map
 
-__all__ = [
-    'Adam',
-    'Adagrad',
-    'ClippedAdam',
-    'Minimize',
-    'Momentum',
-    'RMSProp',
-    'RMSPropMomentum',
-    'SGD',
-    'SM3',
-]
+__all__ = ["Adam", "Adagrad", "ClippedAdam", "Minimize", "Momentum", "RMSProp", "RMSPropMomentum", "SGD", "SM3"]
 
-_Params = TypeVar('_Params')
-_OptState = TypeVar('_OptState')
+_Params = TypeVar("_Params")
+_OptState = TypeVar("_OptState")
 _IterOptState = Tuple[int, _OptState]
 
 
@@ -89,10 +79,7 @@ class _NumPyroOptim(object):
         """
         params = self.get_params(state)
         out, grads = value_and_grad(fn)(params)
-        out, state = lax.cond(jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
-                              lambda _: (out, self.update(grads, state)),
-                              lambda _: (jnp.nan, state),
-                              None)
+        out, state = lax.cond(jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(), lambda _: (out, self.update(grads, state)), lambda _: (jnp.nan, state), None)
         return out, state
 
     def get_params(self, state: _IterOptState) -> _Params:
@@ -108,8 +95,7 @@ class _NumPyroOptim(object):
 
 def _add_doc(fn):
     def _wrapped(cls):
-        cls.__doc__ = 'Wrapper class for the JAX optimizer: :func:`~jax.experimental.optimizers.{}`'\
-            .format(fn.__name__)
+        cls.__doc__ = "Wrapper class for the JAX optimizer: :func:`~jax.experimental.optimizers.{}`".format(fn.__name__)
         return cls
 
     return _wrapped
@@ -133,7 +119,8 @@ class ClippedAdam(_NumPyroOptim):
     `A Method for Stochastic Optimization`, Diederik P. Kingma, Jimmy Ba
     https://arxiv.org/abs/1412.6980
     """
-    def __init__(self, *args, clip_norm=10., **kwargs):
+
+    def __init__(self, *args, clip_norm=10.0, **kwargs):
         self.clip_norm = clip_norm
         super(ClippedAdam, self).__init__(optimizers.adam, *args, **kwargs)
 
@@ -187,10 +174,7 @@ class SM3(_NumPyroOptim):
 # When arbitrary pytree is supported in JAX, we can just simply use
 # identity functions for `init_fn` and `get_params`.
 _MinimizeState = namedtuple("MinimizeState", ["flat_params", "unravel_fn"])
-register_pytree_node(
-    _MinimizeState,
-    lambda state: ((state.flat_params,), (state.unravel_fn,)),
-    lambda data, xs: _MinimizeState(xs[0], data[0]))
+register_pytree_node(_MinimizeState, lambda state: ((state.flat_params,), (state.unravel_fn,)), lambda data, xs: _MinimizeState(xs[0], data[0]))
 
 
 def _minimize_wrapper():
@@ -248,6 +232,7 @@ class Minimize(_NumPyroOptim):
         >>> assert_allclose(quantiles["a"], 2., atol=1e-3)
         >>> assert_allclose(quantiles["b"], 3., atol=1e-3)
     """
+
     def __init__(self, method="BFGS", **kwargs):
         super().__init__(_minimize_wrapper)
         self._method = method
@@ -255,8 +240,7 @@ class Minimize(_NumPyroOptim):
 
     def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
         i, (flat_params, unravel_fn) = state
-        results = minimize(lambda x: fn(unravel_fn(x)), flat_params, (),
-                           method=self._method, **self._kwargs)
+        results = minimize(lambda x: fn(unravel_fn(x)), flat_params, (), method=self._method, **self._kwargs)
         flat_params, out = results.x, results.fun
         state = (i + 1, _MinimizeState(flat_params, unravel_fn))
         return out, state

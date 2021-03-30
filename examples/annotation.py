@@ -57,29 +57,7 @@ def get_data():
     """
     # NB: the first annotator assessed each item 3 times
     positions = np.array([1, 1, 1, 2, 3, 4, 5])
-    annotations = np.array([
-        [1, 3, 1, 2, 2, 2, 1, 3, 2, 2, 4, 2, 1, 2, 1,
-         1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1,
-         1, 3, 1, 2, 2, 4, 2, 2, 3, 1, 1, 1, 2, 1, 2],
-        [1, 3, 1, 2, 2, 2, 2, 3, 2, 3, 4, 2, 1, 2, 2,
-         1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 3, 1, 1, 1,
-         1, 3, 1, 2, 2, 3, 2, 3, 3, 1, 1, 2, 3, 2, 2],
-        [1, 3, 2, 2, 2, 2, 2, 3, 2, 2, 4, 2, 1, 2, 1,
-         1, 1, 1, 2, 2, 2, 2, 2, 1, 1, 1, 2, 1, 1, 2,
-         1, 3, 1, 2, 2, 3, 1, 2, 3, 1, 1, 1, 2, 1, 2],
-        [1, 4, 2, 3, 3, 3, 2, 3, 2, 2, 4, 3, 1, 3, 1,
-         2, 1, 1, 2, 1, 2, 2, 3, 2, 1, 1, 2, 1, 1, 1,
-         1, 3, 1, 2, 3, 4, 2, 3, 3, 1, 1, 2, 2, 1, 2],
-        [1, 3, 1, 1, 2, 3, 1, 4, 2, 2, 4, 3, 1, 2, 1,
-         1, 1, 1, 2, 3, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1,
-         1, 2, 1, 2, 2, 3, 2, 2, 4, 1, 1, 1, 2, 1, 2],
-        [1, 3, 2, 2, 2, 2, 1, 3, 2, 2, 4, 4, 1, 1, 1,
-         1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 2,
-         1, 3, 1, 2, 3, 4, 3, 3, 3, 1, 1, 1, 2, 1, 2],
-        [1, 4, 2, 1, 2, 2, 1, 3, 3, 3, 4, 3, 1, 2, 1,
-         1, 1, 1, 1, 2, 2, 1, 2, 2, 1, 1, 2, 1, 1, 1,
-         1, 3, 1, 2, 2, 3, 2, 3, 2, 1, 1, 1, 2, 1, 2],
-    ]).T
+    annotations = np.array([[1, 3, 1, 2, 2, 2, 1, 3, 2, 2, 4, 2, 1, 2, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 3, 1, 2, 2, 4, 2, 2, 3, 1, 1, 1, 2, 1, 2], [1, 3, 1, 2, 2, 2, 2, 3, 2, 3, 4, 2, 1, 2, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 3, 1, 1, 1, 1, 3, 1, 2, 2, 3, 2, 3, 3, 1, 1, 2, 3, 2, 2], [1, 3, 2, 2, 2, 2, 2, 3, 2, 2, 4, 2, 1, 2, 1, 1, 1, 1, 2, 2, 2, 2, 2, 1, 1, 1, 2, 1, 1, 2, 1, 3, 1, 2, 2, 3, 1, 2, 3, 1, 1, 1, 2, 1, 2], [1, 4, 2, 3, 3, 3, 2, 3, 2, 2, 4, 3, 1, 3, 1, 2, 1, 1, 2, 1, 2, 2, 3, 2, 1, 1, 2, 1, 1, 1, 1, 3, 1, 2, 3, 4, 2, 3, 3, 1, 1, 2, 2, 1, 2], [1, 3, 1, 1, 2, 3, 1, 4, 2, 2, 4, 3, 1, 2, 1, 1, 1, 1, 2, 3, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 2, 1, 2, 2, 3, 2, 2, 4, 1, 1, 1, 2, 1, 2], [1, 3, 2, 2, 2, 2, 1, 3, 2, 2, 4, 4, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 2, 1, 3, 1, 2, 3, 4, 3, 3, 3, 1, 1, 1, 2, 1, 2], [1, 4, 2, 1, 2, 2, 1, 3, 3, 3, 4, 3, 1, 2, 1, 1, 1, 1, 1, 2, 2, 1, 2, 2, 1, 1, 2, 1, 1, 1, 1, 3, 1, 2, 2, 3, 2, 3, 2, 1, 1, 1, 2, 1, 2]]).T
     # we minus 1 because in Python, the first index is 0
     return positions - 1, annotations - 1
 
@@ -239,14 +217,7 @@ def logistic_random_effects(positions, annotations):
             numpyro.sample("y", dist.Categorical(logits=logits), obs=annotations)
 
 
-NAME_TO_MODEL = {
-    "mn": multinomial,
-    "ds": dawid_skene,
-    "mace": mace,
-    "hds": hierarchical_dawid_skene,
-    "id": item_difficulty,
-    "lre": logistic_random_effects,
-}
+NAME_TO_MODEL = {"mn": multinomial, "ds": dawid_skene, "mace": mace, "hds": hierarchical_dawid_skene, "id": item_difficulty, "lre": logistic_random_effects}
 
 
 def main(args):
@@ -254,31 +225,18 @@ def main(args):
     model = NAME_TO_MODEL[args.model]
     data = (annotations,) if model in [multinomial, item_difficulty] else (annotators, annotations)
 
-    mcmc = MCMC(
-        NUTS(model),
-        args.num_warmup,
-        args.num_samples,
-        num_chains=args.num_chains,
-        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
-    )
+    mcmc = MCMC(NUTS(model), args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(random.PRNGKey(0), *data)
     mcmc.print_summary()
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.6.0')
+    assert numpyro.__version__.startswith("0.6.0")
     parser = argparse.ArgumentParser(description="Bayesian Models of Annotation")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
-    parser.add_argument(
-        "--model",
-        nargs="?",
-        default="ds",
-        help='one of "mn" (multinomial), "ds" (dawid_skene), "mace",'
-        ' "hds" (hierarchical_dawid_skene),'
-        ' "id" (item_difficulty), "lre" (logistic_random_effects)',
-    )
+    parser.add_argument("--model", nargs="?", default="ds", help='one of "mn" (multinomial), "ds" (dawid_skene), "mace",' ' "hds" (hierarchical_dawid_skene),' ' "id" (item_difficulty), "lre" (logistic_random_effects)')
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 

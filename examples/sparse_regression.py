@@ -58,14 +58,14 @@ def kernel(X, Z, eta1, eta2, c, jitter=1.0e-4):
 
 # Most of the model code is concerned with constructing the sparsity inducing prior.
 def model(X, Y, hypers):
-    S, P, N = hypers['expected_sparsity'], X.shape[1], X.shape[0]
+    S, P, N = hypers["expected_sparsity"], X.shape[1], X.shape[0]
 
-    sigma = numpyro.sample("sigma", dist.HalfNormal(hypers['alpha3']))
+    sigma = numpyro.sample("sigma", dist.HalfNormal(hypers["alpha3"]))
     phi = sigma * (S / jnp.sqrt(N)) / (P - S)
     eta1 = numpyro.sample("eta1", dist.HalfCauchy(phi))
 
-    msq = numpyro.sample("msq", dist.InverseGamma(hypers['alpha1'], hypers['beta1']))
-    xisq = numpyro.sample("xisq", dist.InverseGamma(hypers['alpha2'], hypers['beta2']))
+    msq = numpyro.sample("msq", dist.InverseGamma(hypers["alpha1"], hypers["beta1"]))
+    xisq = numpyro.sample("xisq", dist.InverseGamma(hypers["alpha2"], hypers["beta2"]))
 
     eta2 = jnp.square(eta1) * jnp.sqrt(xisq) / msq
 
@@ -74,12 +74,11 @@ def model(X, Y, hypers):
 
     # compute kernel
     kX = kappa * X
-    k = kernel(kX, kX, eta1, eta2, hypers['c']) + sigma ** 2 * jnp.eye(N)
+    k = kernel(kX, kX, eta1, eta2, hypers["c"]) + sigma ** 2 * jnp.eye(N)
     assert k.shape == (N, N)
 
     # sample Y according to the standard gaussian process formula
-    numpyro.sample("Y", dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k),
-                   obs=Y)
+    numpyro.sample("Y", dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k), obs=Y)
 
 
 # Compute the mean and variance of coefficient theta_i (where i = dimension) for a
@@ -159,8 +158,8 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
     start2 = 0
 
     for dim in range(P):
-        probe = jax.ops.index_update(probe, jax.ops.index[start1:start1 + 2, dim], jnp.array([1.0, -1.0]))
-        vec = jax.ops.index_update(vec, jax.ops.index[start2, start1:start1 + 2], jnp.array([0.5, -0.5]))
+        probe = jax.ops.index_update(probe, jax.ops.index[start1 : start1 + 2, dim], jnp.array([1.0, -1.0]))
+        vec = jax.ops.index_update(vec, jax.ops.index[start2, start1 : start1 + 2], jnp.array([0.5, -0.5]))
         start1 += 2
         start2 += 1
 
@@ -168,12 +167,9 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
         for dim2 in active_dims:
             if dim1 >= dim2:
                 continue
-            probe = jax.ops.index_update(probe, jax.ops.index[start1:start1 + 4, dim1],
-                                         jnp.array([1.0, 1.0, -1.0, -1.0]))
-            probe = jax.ops.index_update(probe, jax.ops.index[start1:start1 + 4, dim2],
-                                         jnp.array([1.0, -1.0, 1.0, -1.0]))
-            vec = jax.ops.index_update(vec, jax.ops.index[start2, start1:start1 + 4],
-                                       jnp.array([0.25, -0.25, -0.25, 0.25]))
+            probe = jax.ops.index_update(probe, jax.ops.index[start1 : start1 + 4, dim1], jnp.array([1.0, 1.0, -1.0, -1.0]))
+            probe = jax.ops.index_update(probe, jax.ops.index[start1 : start1 + 4, dim2], jnp.array([1.0, -1.0, 1.0, -1.0]))
+            vec = jax.ops.index_update(vec, jax.ops.index[start2, start1 : start1 + 4], jnp.array([0.25, -0.25, -0.25, 0.25]))
             start1 += 4
             start2 += 1
 
@@ -206,11 +202,10 @@ def sample_theta_space(X, Y, active_dims, msq, lam, eta1, xisq, c, sigma):
 def run_inference(model, args, rng_key, X, Y, hypers):
     start = time.time()
     kernel = NUTS(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains,
-                progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
     mcmc.run(rng_key, X, Y, hypers)
     mcmc.print_summary()
-    print('\nMCMC elapsed time:', time.time() - start)
+    print("\nMCMC elapsed time:", time.time() - start)
     return mcmc.get_samples()
 
 
@@ -244,10 +239,8 @@ def get_data(N=20, S=2, P=10, sigma_obs=0.05):
 
 # Helper function for analyzing the posterior statistics for coefficient theta_i
 def analyze_dimension(samples, X, Y, dimension, hypers):
-    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['sigma'])
-    mus, variances = vmap(lambda msq, lam, eta1, xisq, sigma:
-                          compute_singleton_mean_variance(X, Y, dimension, msq, lam,
-                                                          eta1, xisq, hypers['c'], sigma))(*vmap_args)
+    vmap_args = (samples["msq"], samples["lambda"], samples["eta1"], samples["xisq"], samples["sigma"])
+    mus, variances = vmap(lambda msq, lam, eta1, xisq, sigma: compute_singleton_mean_variance(X, Y, dimension, msq, lam, eta1, xisq, hypers["c"], sigma))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = jnp.sqrt(variance)
     return mean, std
@@ -255,24 +248,18 @@ def analyze_dimension(samples, X, Y, dimension, hypers):
 
 # Helper function for analyzing the posterior statistics for coefficient theta_ij
 def analyze_pair_of_dimensions(samples, X, Y, dim1, dim2, hypers):
-    vmap_args = (samples['msq'], samples['lambda'], samples['eta1'], samples['xisq'], samples['sigma'])
-    mus, variances = vmap(lambda msq, lam, eta1, xisq, sigma:
-                          compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam,
-                                                         eta1, xisq, hypers['c'], sigma))(*vmap_args)
+    vmap_args = (samples["msq"], samples["lambda"], samples["eta1"], samples["xisq"], samples["sigma"])
+    mus, variances = vmap(lambda msq, lam, eta1, xisq, sigma: compute_pairwise_mean_variance(X, Y, dim1, dim2, msq, lam, eta1, xisq, hypers["c"], sigma))(*vmap_args)
     mean, variance = gaussian_mixture_stats(mus, variances)
     std = jnp.sqrt(variance)
     return mean, std
 
 
 def main(args):
-    X, Y, expected_thetas, expected_pairwise = get_data(N=args.num_data, P=args.num_dimensions,
-                                                        S=args.active_dimensions)
+    X, Y, expected_thetas, expected_pairwise = get_data(N=args.num_data, P=args.num_dimensions, S=args.active_dimensions)
 
     # setup hyperparameters
-    hypers = {'expected_sparsity': max(1.0, args.num_dimensions / 10),
-              'alpha1': 3.0, 'beta1': 1.0,
-              'alpha2': 3.0, 'beta2': 1.0,
-              'alpha3': 1.0, 'c': 1.0}
+    hypers = {"expected_sparsity": max(1.0, args.num_dimensions / 10), "alpha1": 3.0, "beta1": 1.0, "alpha2": 3.0, "beta2": 1.0, "alpha3": 1.0, "c": 1.0}
 
     # do inference
     rng_key = random.PRNGKey(0)
@@ -293,15 +280,13 @@ def main(args):
             active_dimensions.append(dim)
         print("[dimension %02d/%02d]  %s:\t%.2e +- %.2e" % (dim + 1, args.num_dimensions, inactive, mean, std))
 
-    print("Identified a total of %d active dimensions; expected %d." % (len(active_dimensions),
-                                                                        args.active_dimensions))
+    print("Identified a total of %d active dimensions; expected %d." % (len(active_dimensions), args.active_dimensions))
 
     # Compute the mean and square root variance of coefficients theta_ij for i,j active dimensions.
     # Note that the resulting numbers are only meaningful for i != j.
     if len(active_dimensions) > 0:
         dim_pairs = jnp.array(list(itertools.product(active_dimensions, active_dimensions)))
-        means, stds = vmap(lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y,
-                                                                       dim_pair[0], dim_pair[1], hypers))(dim_pairs)
+        means, stds = vmap(lambda dim_pair: analyze_pair_of_dimensions(samples, X, Y, dim_pair[0], dim_pair[1], hypers))(dim_pairs)
         for dim_pair, mean, std in zip(dim_pairs, means, stds):
             dim1, dim2 = dim_pair
             if dim1 >= dim2:
@@ -314,21 +299,20 @@ def main(args):
         # Draw a single sample of coefficients theta from the posterior, where we return all singleton
         # coefficients theta_i and pairwise coefficients theta_ij for i, j active dimensions. We use the
         # final MCMC sample obtained from the HMC sampler.
-        thetas = sample_theta_space(X, Y, active_dimensions, samples['msq'][-1], samples['lambda'][-1],
-                                    samples['eta1'][-1], samples['xisq'][-1], hypers['c'], samples['sigma'][-1])
+        thetas = sample_theta_space(X, Y, active_dimensions, samples["msq"][-1], samples["lambda"][-1], samples["eta1"][-1], samples["xisq"][-1], hypers["c"], samples["sigma"][-1])
         print("Single posterior sample theta:\n", thetas)
 
 
 if __name__ == "__main__":
-    assert numpyro.__version__.startswith('0.6.0')
+    assert numpyro.__version__.startswith("0.6.0")
     parser = argparse.ArgumentParser(description="Gaussian Process example")
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
-    parser.add_argument("--num-warmup", nargs='?', default=500, type=int)
-    parser.add_argument("--num-chains", nargs='?', default=1, type=int)
-    parser.add_argument("--num-data", nargs='?', default=100, type=int)
-    parser.add_argument("--num-dimensions", nargs='?', default=20, type=int)
-    parser.add_argument("--active-dimensions", nargs='?', default=3, type=int)
-    parser.add_argument("--device", default='cpu', type=str, help='use "cpu" or "gpu".')
+    parser.add_argument("--num-warmup", nargs="?", default=500, type=int)
+    parser.add_argument("--num-chains", nargs="?", default=1, type=int)
+    parser.add_argument("--num-data", nargs="?", default=100, type=int)
+    parser.add_argument("--num-dimensions", nargs="?", default=20, type=int)
+    parser.add_argument("--active-dimensions", nargs="?", default=3, type=int)
+    parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

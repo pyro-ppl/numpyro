@@ -24,7 +24,7 @@ def _get_proposal_loc_and_scale(samples, loc, scale, new_sample):
     if scale.ndim > loc.ndim:
         new_scale = cholesky_update(scale, new_sample - loc, weight)
         proposal_scale = cholesky_update(new_scale, samples - loc, -weight)
-        proposal_scale = cholesky_update(proposal_scale, new_sample - samples, - (weight ** 2))
+        proposal_scale = cholesky_update(proposal_scale, new_sample - samples, -(weight ** 2))
     else:
         var = jnp.square(scale) + weight * jnp.square(new_sample - loc)
         proposal_var = var - weight * jnp.square(samples - loc)
@@ -46,9 +46,8 @@ def _sample_proposal(inv_mass_matrix_sqrt, rng_key, batch_shape=()):
     return r
 
 
-SAAdaptState = namedtuple('SAAdaptState', ['zs', 'pes', 'loc', 'inv_mass_matrix_sqrt'])
-SAState = namedtuple('SAState', ['i', 'z', 'potential_energy', 'accept_prob',
-                                 'mean_accept_prob', 'diverging', 'adapt_state', 'rng_key'])
+SAAdaptState = namedtuple("SAAdaptState", ["zs", "pes", "loc", "inv_mass_matrix_sqrt"])
+SAState = namedtuple("SAState", ["i", "z", "potential_energy", "accept_prob", "mean_accept_prob", "diverging", "adapt_state", "rng_key"])
 """
 A :func:`~collections.namedtuple` used in Sample Adaptive MCMC.
 This consists of the following fields:
@@ -87,22 +86,15 @@ def _numpy_delete(x, idx):
 # TODO: consider to expose this functional style
 def _sa(potential_fn=None, potential_fn_gen=None):
     wa_steps = None
-    max_delta_energy = 1000.
+    max_delta_energy = 1000.0
 
-    def init_kernel(init_params,
-                    num_warmup,
-                    adapt_state_size=None,
-                    inverse_mass_matrix=None,
-                    dense_mass=False,
-                    model_args=(),
-                    model_kwargs=None,
-                    rng_key=random.PRNGKey(0)):
+    def init_kernel(init_params, num_warmup, adapt_state_size=None, inverse_mass_matrix=None, dense_mass=False, model_args=(), model_kwargs=None, rng_key=random.PRNGKey(0)):
         nonlocal wa_steps
         wa_steps = num_warmup
         pe_fn = potential_fn
         if potential_fn_gen:
             if pe_fn is not None:
-                raise ValueError('Only one of `potential_fn` or `potential_fn_gen` must be provided.')
+                raise ValueError("Only one of `potential_fn` or `potential_fn_gen` must be provided.")
             else:
                 kwargs = {} if model_kwargs is None else model_kwargs
                 pe_fn = potential_fn_gen(*model_args, **kwargs)
@@ -111,13 +103,12 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         z_flat, unravel_fn = ravel_pytree(z)
         if inverse_mass_matrix is None:
             inverse_mass_matrix = jnp.identity(z_flat.shape[-1]) if dense_mass else jnp.ones(z_flat.shape[-1])
-        inv_mass_matrix_sqrt = jnp.linalg.cholesky(inverse_mass_matrix) if dense_mass \
-            else jnp.sqrt(inverse_mass_matrix)
+        inv_mass_matrix_sqrt = jnp.linalg.cholesky(inverse_mass_matrix) if dense_mass else jnp.sqrt(inverse_mass_matrix)
         if adapt_state_size is None:
             # XXX: heuristic choice
             adapt_state_size = 2 * z_flat.shape[-1]
         else:
-            assert adapt_state_size > 1, 'adapt_state_size should be greater than 1.'
+            assert adapt_state_size > 1, "adapt_state_size should be greater than 1."
         # NB: mean is init_params
         zs = z_flat + _sample_proposal(inv_mass_matrix_sqrt, rng_key_zs, (adapt_state_size,))
         # compute potential energies
@@ -135,8 +126,7 @@ def _sa(potential_fn=None, potential_fn_gen=None):
         k = random.categorical(rng_key_z, jnp.zeros(zs.shape[0]))
         z = unravel_fn(zs[k])
         pe = pes[k]
-        sa_state = SAState(jnp.array(0), z, pe, jnp.zeros(()), jnp.zeros(()), jnp.array(False),
-                           adapt_state, rng_key_sa)
+        sa_state = SAState(jnp.array(0), z, pe, jnp.zeros(()), jnp.zeros(()), jnp.array(False), adapt_state, rng_key_sa)
         return device_put(sa_state)
 
     def sample_kernel(sa_state, model_args=(), model_kwargs=None):
@@ -237,10 +227,10 @@ class SA(MCMCKernel):
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     """
-    def __init__(self, model=None, potential_fn=None, adapt_state_size=None,
-                 dense_mass=True, init_strategy=init_to_uniform):
+
+    def __init__(self, model=None, potential_fn=None, adapt_state_size=None, dense_mass=True, init_strategy=init_to_uniform):
         if not (model is None) ^ (potential_fn is None):
-            raise ValueError('Only one of `model` or `potential_fn` must be specified.')
+            raise ValueError("Only one of `model` or `potential_fn` must be specified.")
         self._model = model
         self._potential_fn = potential_fn
         self._adapt_state_size = adapt_state_size
@@ -253,13 +243,7 @@ class SA(MCMCKernel):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            init_params, potential_fn, postprocess_fn, _ = initialize_model(
-                rng_key,
-                self._model,
-                dynamic_args=True,
-                init_strategy=self._init_strategy,
-                model_args=model_args,
-                model_kwargs=model_kwargs)
+            init_params, potential_fn, postprocess_fn, _ = initialize_model(rng_key, self._model, dynamic_args=True, init_strategy=self._init_strategy, model_args=model_args, model_kwargs=model_kwargs)
             init_params = init_params[0]
             # NB: init args is different from HMC
             self._init_fn, sample_fn = _sa(potential_fn_gen=potential_fn)
@@ -284,19 +268,10 @@ class SA(MCMCKernel):
             rng_key_init_model = rng_key_init_model[0]
         init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
         if self._potential_fn and init_params is None:
-            raise ValueError('Valid value of `init_params` must be provided with'
-                             ' `potential_fn`.')
+            raise ValueError("Valid value of `init_params` must be provided with" " `potential_fn`.")
 
         # NB: init args is different from HMC
-        sa_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
-            init_params,
-            num_warmup=num_warmup,
-            adapt_state_size=self._adapt_state_size,
-            dense_mass=self._dense_mass,
-            rng_key=rng_key,
-            model_args=model_args,
-            model_kwargs=model_kwargs,
-        )
+        sa_init_fn = lambda init_params, rng_key: self._init_fn(init_params, num_warmup=num_warmup, adapt_state_size=self._adapt_state_size, dense_mass=self._dense_mass, rng_key=rng_key, model_args=model_args, model_kwargs=model_kwargs)  # noqa: E731
         if rng_key.ndim == 1:
             init_state = sa_init_fn(init_params, rng_key)
         else:
@@ -307,14 +282,14 @@ class SA(MCMCKernel):
 
     @property
     def sample_field(self):
-        return 'z'
+        return "z"
 
     @property
     def default_fields(self):
-        return ('z', 'diverging')
+        return ("z", "diverging")
 
     def get_diagnostics_str(self, state):
-        return 'acc. prob={:.2f}'.format(state.mean_accept_prob)
+        return "acc. prob={:.2f}".format(state.mean_accept_prob)
 
     def postprocess_fn(self, args, kwargs):
         if self._postprocess_fn is None:

@@ -16,10 +16,7 @@ from jax.tree_util import tree_flatten, tree_map, tree_multimap
 from numpyro.diagnostics import print_summary
 from numpyro.util import cached_by, fori_collect, identity
 
-__all__ = [
-    'MCMCKernel',
-    'MCMC',
-]
+__all__ = ["MCMCKernel", "MCMC"]
 
 
 class MCMCKernel(ABC):
@@ -67,6 +64,7 @@ class MCMCKernel(ABC):
         >>> samples = mcmc.get_samples()
         >>> mcmc.print_summary()  # doctest: +SKIP
     """
+
     def postprocess_fn(self, model_args, model_kwargs):
         """
         Get a function that transforms unconstrained values at sample sites to values
@@ -137,13 +135,13 @@ class MCMCKernel(ABC):
         Given the current `state`, returns the diagnostics string to
         be added to progress bar for diagnostics purpose.
         """
-        return ''
+        return ""
 
 
 def _get_progbar_desc_str(num_warmup, phase, i):
     if phase is not None:
         return phase
-    return 'warmup' if i < num_warmup else 'sample'
+    return "warmup" if i < num_warmup else "sample"
 
 
 def _get_value_from_index(xs, i):
@@ -168,7 +166,7 @@ def _sample_fn_jit_args(state, sampler):
 
 def _sample_fn_nojit_args(state, sampler, args, kwargs):
     # state is a tuple of size 1 - containing HMCState
-    return sampler.sample(state[0], args, kwargs),
+    return (sampler.sample(state[0], args, kwargs),)
 
 
 def _collect_fn(collect_fields):
@@ -229,16 +227,8 @@ class MCMC(object):
         computation as a function of model arguments. As such, calling `MCMC.run` again
         on a same sized but different dataset will not result in additional compilation cost.
     """
-    def __init__(self,
-                 sampler,
-                 num_warmup,
-                 num_samples,
-                 num_chains=1,
-                 thinning=1,
-                 postprocess_fn=None,
-                 chain_method='parallel',
-                 progress_bar=True,
-                 jit_model_args=False):
+
+    def __init__(self, sampler, num_warmup, num_samples, num_chains=1, thinning=1, postprocess_fn=None, chain_method="parallel", progress_bar=True, jit_model_args=False):
         self.sampler = sampler
         self._sample_field = sampler.sample_field
         self._default_fields = sampler.default_fields
@@ -246,20 +236,14 @@ class MCMC(object):
         self.num_samples = num_samples
         self.num_chains = num_chains
         if not isinstance(thinning, int) or thinning < 1:
-            raise ValueError('thinning must be a positive integer')
+            raise ValueError("thinning must be a positive integer")
         self.thinning = thinning
         self.postprocess_fn = postprocess_fn
-        if chain_method not in ['parallel', 'vectorized', 'sequential']:
-            raise ValueError('Only supporting the following methods to draw chains:'
-                             ' "sequential", "parallel", or "vectorized"')
-        if chain_method == 'parallel' and local_device_count() < self.num_chains:
-            chain_method = 'sequential'
-            warnings.warn('There are not enough devices to run parallel chains: expected {} but got {}.'
-                          ' Chains will be drawn sequentially. If you are running MCMC in CPU,'
-                          ' consider using `numpyro.set_host_device_count({})` at the beginning'
-                          ' of your program. You can double-check how many devices are available in'
-                          ' your system using `jax.local_device_count()`.'
-                          .format(self.num_chains, local_device_count(), self.num_chains))
+        if chain_method not in ["parallel", "vectorized", "sequential"]:
+            raise ValueError("Only supporting the following methods to draw chains:" ' "sequential", "parallel", or "vectorized"')
+        if chain_method == "parallel" and local_device_count() < self.num_chains:
+            chain_method = "sequential"
+            warnings.warn("There are not enough devices to run parallel chains: expected {} but got {}." " Chains will be drawn sequentially. If you are running MCMC in CPU," " consider using `numpyro.set_host_device_count({})` at the beginning" " of your program. You can double-check how many devices are available in" " your system using `jax.local_device_count()`.".format(self.num_chains, local_device_count(), self.num_chains))
         self.chain_method = chain_method
         self.progress_bar = progress_bar
         if "CI" in os.environ or "PYTEST_XDIST_WORKER" in os.environ:
@@ -306,10 +290,8 @@ class MCMC(object):
                 sample_fn = partial(_sample_fn_jit_args, sampler=self.sampler)
                 postprocess_fn = jit(laxmap_postprocess_fn)
             else:
-                sample_fn = partial(_sample_fn_nojit_args, sampler=self.sampler,
-                                    args=self._args, kwargs=self._kwargs)
-                postprocess_fn = jit(partial(laxmap_postprocess_fn,
-                                             args=self._args, kwargs=self._kwargs))
+                sample_fn = partial(_sample_fn_nojit_args, sampler=self.sampler, args=self._args, kwargs=self._kwargs)
+                postprocess_fn = jit(partial(laxmap_postprocess_fn, args=self._args, kwargs=self._kwargs))
 
             fns = sample_fn, postprocess_fn
             if key is not None:
@@ -330,28 +312,16 @@ class MCMC(object):
     def _single_chain_mcmc(self, init, args, kwargs, collect_fields):
         rng_key, init_state, init_params = init
         if init_state is None:
-            init_state = self.sampler.init(rng_key, self.num_warmup, init_params,
-                                           model_args=args, model_kwargs=kwargs)
+            init_state = self.sampler.init(rng_key, self.num_warmup, init_params, model_args=args, model_kwargs=kwargs)
         sample_fn, postprocess_fn = self._get_cached_fns()
-        diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else ''   # noqa: E731
+        diagnostics = lambda x: self.sampler.get_diagnostics_str(x[0]) if rng_key.ndim == 1 else ""  # noqa: E731
         init_val = (init_state, args, kwargs) if self._jit_model_args else (init_state,)
         lower_idx = self._collection_params["lower"]
         upper_idx = self._collection_params["upper"]
         phase = self._collection_params["phase"]
         collection_size = self._collection_params["collection_size"]
         collection_size = collection_size if collection_size is None else collection_size // self.thinning
-        collect_vals = fori_collect(lower_idx,
-                                    upper_idx,
-                                    sample_fn,
-                                    init_val,
-                                    transform=_collect_fn(collect_fields),
-                                    progbar=self.progress_bar,
-                                    return_last_val=True,
-                                    thinning=self.thinning,
-                                    collection_size=collection_size,
-                                    progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase),
-                                    diagnostics_fn=diagnostics,
-                                    num_chains=self.num_chains if self.chain_method == 'parallel' else 1)
+        collect_vals = fori_collect(lower_idx, upper_idx, sample_fn, init_val, transform=_collect_fn(collect_fields), progbar=self.progress_bar, return_last_val=True, thinning=self.thinning, collection_size=collection_size, progbar_desc=partial(_get_progbar_desc_str, lower_idx, phase), diagnostics_fn=diagnostics, num_chains=self.num_chains if self.chain_method == "parallel" else 1)
         states, last_val = collect_vals
         # Get first argument of type `HMCState`
         last_state = last_val[0]
@@ -484,26 +454,21 @@ class MCMC(object):
         if init_params is not None and self.num_chains > 1:
             prototype_init_val = tree_flatten(init_params)[0][0]
             if jnp.shape(prototype_init_val)[0] != self.num_chains:
-                raise ValueError('`init_params` must have the same leading dimension'
-                                 ' as `num_chains`.')
+                raise ValueError("`init_params` must have the same leading dimension" " as `num_chains`.")
         assert isinstance(extra_fields, (tuple, list))
-        collect_fields = tuple(set((self._sample_field,) + tuple(self._default_fields) +
-                                   tuple(extra_fields)))
-        partial_map_fn = partial(self._single_chain_mcmc,
-                                 args=args,
-                                 kwargs=kwargs,
-                                 collect_fields=collect_fields)
+        collect_fields = tuple(set((self._sample_field,) + tuple(self._default_fields) + tuple(extra_fields)))
+        partial_map_fn = partial(self._single_chain_mcmc, args=args, kwargs=kwargs, collect_fields=collect_fields)
         map_args = (rng_key, init_state, init_params)
         if self.num_chains == 1:
             states_flat, last_state = partial_map_fn(map_args)
             states = tree_map(lambda x: x[jnp.newaxis, ...], states_flat)
         else:
-            if self.chain_method == 'sequential':
+            if self.chain_method == "sequential":
                 states, last_state = _laxmap(partial_map_fn, map_args)
-            elif self.chain_method == 'parallel':
+            elif self.chain_method == "parallel":
                 states, last_state = pmap(partial_map_fn)(map_args)
             else:
-                assert self.chain_method == 'vectorized'
+                assert self.chain_method == "vectorized"
                 states, last_state = partial_map_fn(map_args)
                 # swap num_samples x num_chains to num_chains x num_samples
                 states = tree_map(lambda x: jnp.swapaxes(x, 0, 1), states)
@@ -524,8 +489,7 @@ class MCMC(object):
             but can be any :func:`jaxlib.pytree`, more generally (e.g. when defining a
             `potential_fn` for HMC that takes `list` args).
         """
-        return self._states[self._sample_field] if group_by_chain \
-            else self._states_flat[self._sample_field]
+        return self._states[self._sample_field] if group_by_chain else self._states_flat[self._sample_field]
 
     def get_extra_fields(self, group_by_chain=False):
         """
@@ -557,12 +521,11 @@ class MCMC(object):
             # they can have different key names, not necessary due to deterministic
             # behavior. We might revise this logic if needed in the future.
             if isinstance(state_sample_field, dict):
-                sites = {k: v for k, v in self._states[self._sample_field].items()
-                         if k in state_sample_field}
+                sites = {k: v for k, v in self._states[self._sample_field].items() if k in state_sample_field}
         print_summary(sites, prob=prob)
         extra_fields = self.get_extra_fields()
-        if 'diverging' in extra_fields:
-            print("Number of divergences: {}".format(jnp.sum(extra_fields['diverging'])))
+        if "diverging" in extra_fields:
+            print("Number of divergences: {}".format(jnp.sum(extra_fields["diverging"])))
 
     def __getstate__(self):
         state = self.__dict__.copy()

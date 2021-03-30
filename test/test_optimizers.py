@@ -10,7 +10,7 @@ from numpyro import optim
 
 
 def loss(params):
-    return jnp.sum(params['x'] ** 2 + params['y'] ** 2)
+    return jnp.sum(params["x"] ** 2 + params["y"] ** 2)
 
 
 @partial(jit, static_argnums=(1,))
@@ -20,17 +20,9 @@ def step(opt_state, optim):
     return optim.update(g, opt_state)
 
 
-@pytest.mark.parametrize('optim_class, args', [
-    (optim.Adam, (1e-2,)),
-    (optim.ClippedAdam, (1e-2,)),
-    (optim.Adagrad, (1e-1,)),
-    (optim.Momentum, (1e-2, 0.5,)),
-    (optim.RMSProp, (1e-2, 0.95)),
-    (optim.RMSPropMomentum, (1e-4,)),
-    (optim.SGD, (1e-2,))
-])
+@pytest.mark.parametrize("optim_class, args", [(optim.Adam, (1e-2,)), (optim.ClippedAdam, (1e-2,)), (optim.Adagrad, (1e-1,)), (optim.Momentum, (1e-2, 0.5)), (optim.RMSProp, (1e-2, 0.95)), (optim.RMSPropMomentum, (1e-4,)), (optim.SGD, (1e-2,))])
 def test_optim_multi_params(optim_class, args):
-    params = {'x': jnp.array([1., 1., 1.]), 'y': jnp.array([-1, -1., -1.])}
+    params = {"x": jnp.array([1.0, 1.0, 1.0]), "y": jnp.array([-1, -1.0, -1.0])}
     opt = optim_class(*args)
     opt_state = opt.init(params)
     for i in range(2000):
@@ -41,15 +33,7 @@ def test_optim_multi_params(optim_class, args):
 
 # note: this is somewhat of a bruteforce test. testing directly from
 # _NumpyroOptim would probably be better
-@pytest.mark.parametrize('optim_class, args', [
-    (optim.Adam, (1e-2,)),
-    (optim.ClippedAdam, (1e-2,)),
-    (optim.Adagrad, (1e-1,)),
-    (optim.Momentum, (1e-2, 0.5,)),
-    (optim.RMSProp, (1e-2, 0.95)),
-    (optim.RMSPropMomentum, (1e-4,)),
-    (optim.SGD, (1e-2,))
-])
+@pytest.mark.parametrize("optim_class, args", [(optim.Adam, (1e-2,)), (optim.ClippedAdam, (1e-2,)), (optim.Adagrad, (1e-1,)), (optim.Momentum, (1e-2, 0.5)), (optim.RMSProp, (1e-2, 0.95)), (optim.RMSPropMomentum, (1e-4,)), (optim.SGD, (1e-2,))])
 def test_numpyrooptim_no_double_jit(optim_class, args):
 
     opt = optim_class(*args)
@@ -65,8 +49,8 @@ def test_numpyrooptim_no_double_jit(optim_class, args):
         state = opt.update(g, state)
         return state
 
-    state = my_fn(state, jnp.ones(10)*1.)
-    state = my_fn(state, jnp.ones(10)*2.)
-    state = my_fn(state, jnp.ones(10)*3.)
+    state = my_fn(state, jnp.ones(10) * 1.0)
+    state = my_fn(state, jnp.ones(10) * 2.0)
+    state = my_fn(state, jnp.ones(10) * 3.0)
 
     assert my_fn_calls == 1

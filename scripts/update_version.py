@@ -17,12 +17,11 @@ with open(os.path.join(root, "numpyro", "version.py")) as f:
 filenames = []
 for path in ["examples", "notebooks/source"]:
     for ext in ["*.py", "*.ipynb"]:
-        filenames.extend(glob.glob(os.path.join(root, path, "**", ext),
-                                   recursive=True))
+        filenames.extend(glob.glob(os.path.join(root, path, "**", ext), recursive=True))
 filenames.sort()
 
 # Update version string.
-pattern1 = re.compile("assert numpyro.__version__.startswith\\(\"[^\"]*\"\\)")
+pattern1 = re.compile('assert numpyro.__version__.startswith\\("[^"]*"\\)')
 pattern2 = re.compile("assert numpyro.__version__.startswith\\('[^']*'\\)")
 text = f"assert numpyro.__version__.startswith({new_version})"
 for filename in filenames:

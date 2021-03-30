@@ -37,23 +37,14 @@ from jax.tree_util import tree_map
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
 from numpyro.distributions.transforms import AffineTransform, CorrMatrixCholeskyTransform, ExpTransform, PowerTransform
-from numpyro.distributions.util import (
-    cholesky_of_inverse,
-    is_prng_key,
-    lazy_property,
-    matrix_to_tril_vec,
-    promote_shapes,
-    signed_stick_breaking_tril,
-    validate_sample,
-    vec_to_tril_matrix
-)
+from numpyro.distributions.util import cholesky_of_inverse, is_prng_key, lazy_property, matrix_to_tril_vec, promote_shapes, signed_stick_breaking_tril, validate_sample, vec_to_tril_matrix
 
 EULER_MASCHERONI = 0.5772156649015328606065120900824024310421
 
 
 class Beta(Distribution):
-    arg_constraints = {'concentration1': constraints.positive, 'concentration0': constraints.positive}
-    reparametrized_params = ['concentration1', 'concentration0']
+    arg_constraints = {"concentration1": constraints.positive, "concentration0": constraints.positive}
+    reparametrized_params = ["concentration1", "concentration0"]
     support = constraints.unit_interval
 
     def __init__(self, concentration1, concentration0, validate_args=None):
@@ -61,8 +52,7 @@ class Beta(Distribution):
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration1), jnp.shape(concentration0))
         concentration1 = jnp.broadcast_to(concentration1, batch_shape)
         concentration0 = jnp.broadcast_to(concentration0, batch_shape)
-        self._dirichlet = Dirichlet(jnp.stack([concentration1, concentration0],
-                                              axis=-1))
+        self._dirichlet = Dirichlet(jnp.stack([concentration1, concentration0], axis=-1))
         super(Beta, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
@@ -71,7 +61,7 @@ class Beta(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return self._dirichlet.log_prob(jnp.stack([value, 1. - value], -1))
+        return self._dirichlet.log_prob(jnp.stack([value, 1.0 - value], -1))
 
     @property
     def mean(self):
@@ -87,11 +77,11 @@ class Beta(Distribution):
 
 
 class Cauchy(Distribution):
-    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale']
+    reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0., scale=1., validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Cauchy, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
@@ -103,7 +93,7 @@ class Cauchy(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        return - jnp.log(jnp.pi) - jnp.log(self.scale) - jnp.log1p(((value - self.loc) / self.scale) ** 2)
+        return -jnp.log(jnp.pi) - jnp.log(self.scale) - jnp.log1p(((value - self.loc) / self.scale) ** 2)
 
     @property
     def mean(self):
@@ -122,8 +112,8 @@ class Cauchy(Distribution):
 
 
 class Dirichlet(Distribution):
-    arg_constraints = {'concentration': constraints.independent(constraints.positive, 1)}
-    reparametrized_params = ['concentration']
+    arg_constraints = {"concentration": constraints.independent(constraints.positive, 1)}
+    reparametrized_params = ["concentration"]
     support = constraints.simplex
 
     def __init__(self, concentration, validate_args=None):
@@ -131,9 +121,7 @@ class Dirichlet(Distribution):
             raise ValueError("`concentration` parameter must be at least one-dimensional.")
         self.concentration = concentration
         batch_shape, event_shape = concentration.shape[:-1], concentration.shape[-1:]
-        super(Dirichlet, self).__init__(batch_shape=batch_shape,
-                                        event_shape=event_shape,
-                                        validate_args=validate_args)
+        super(Dirichlet, self).__init__(batch_shape=batch_shape, event_shape=event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -153,9 +141,8 @@ class Dirichlet(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        normalize_term = (jnp.sum(gammaln(self.concentration), axis=-1) -
-                          gammaln(jnp.sum(self.concentration, axis=-1)))
-        return jnp.sum(jnp.log(value) * (self.concentration - 1.), axis=-1) - normalize_term
+        normalize_term = jnp.sum(gammaln(self.concentration), axis=-1) - gammaln(jnp.sum(self.concentration, axis=-1))
+        return jnp.sum(jnp.log(value) * (self.concentration - 1.0), axis=-1) - normalize_term
 
     @property
     def mean(self):
@@ -174,11 +161,11 @@ class Dirichlet(Distribution):
 
 
 class Exponential(Distribution):
-    reparametrized_params = ['rate']
-    arg_constraints = {'rate': constraints.positive}
+    reparametrized_params = ["rate"]
+    arg_constraints = {"rate": constraints.positive}
     support = constraints.positive
 
-    def __init__(self, rate=1., validate_args=None):
+    def __init__(self, rate=1.0, validate_args=None):
         self.rate = rate
         super(Exponential, self).__init__(batch_shape=jnp.shape(rate), validate_args=validate_args)
 
@@ -200,16 +187,14 @@ class Exponential(Distribution):
 
 
 class Gamma(Distribution):
-    arg_constraints = {'concentration': constraints.positive,
-                       'rate': constraints.positive}
+    arg_constraints = {"concentration": constraints.positive, "rate": constraints.positive}
     support = constraints.positive
-    reparametrized_params = ['concentration', 'rate']
+    reparametrized_params = ["concentration", "rate"]
 
-    def __init__(self, concentration, rate=1., validate_args=None):
+    def __init__(self, concentration, rate=1.0, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
         batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(rate))
-        super(Gamma, self).__init__(batch_shape=batch_shape,
-                                    validate_args=validate_args)
+        super(Gamma, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -218,8 +203,7 @@ class Gamma(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        normalize_term = (gammaln(self.concentration) -
-                          self.concentration * jnp.log(self.rate))
+        normalize_term = gammaln(self.concentration) - self.concentration * jnp.log(self.rate)
         return (self.concentration - 1) * jnp.log(value) - self.rate * value - normalize_term
 
     @property
@@ -232,8 +216,8 @@ class Gamma(Distribution):
 
 
 class Chi2(Gamma):
-    arg_constraints = {'df': constraints.positive}
-    reparametrized_params = ['df']
+    arg_constraints = {"df": constraints.positive}
+    reparametrized_params = ["df"]
 
     def __init__(self, df, validate_args=None):
         self.df = df
@@ -241,13 +225,12 @@ class Chi2(Gamma):
 
 
 class GaussianRandomWalk(Distribution):
-    arg_constraints = {'scale': constraints.positive}
+    arg_constraints = {"scale": constraints.positive}
     support = constraints.real_vector
-    reparametrized_params = ['scale']
+    reparametrized_params = ["scale"]
 
-    def __init__(self, scale=1., num_steps=1, validate_args=None):
-        assert isinstance(num_steps, int) and num_steps > 0, \
-            "`num_steps` argument should be an positive integer."
+    def __init__(self, scale=1.0, num_steps=1, validate_args=None):
+        assert isinstance(num_steps, int) and num_steps > 0, "`num_steps` argument should be an positive integer."
         self.scale = scale
         self.num_steps = num_steps
         batch_shape, event_shape = jnp.shape(scale), (num_steps,)
@@ -261,7 +244,7 @@ class GaussianRandomWalk(Distribution):
 
     @validate_sample
     def log_prob(self, value):
-        init_prob = Normal(0., self.scale).log_prob(value[..., 0])
+        init_prob = Normal(0.0, self.scale).log_prob(value[..., 0])
         scale = jnp.expand_dims(self.scale, -1)
         step_probs = Normal(value[..., :-1], scale).log_prob(value[..., 1:])
         return init_prob + jnp.sum(step_probs, axis=-1)
@@ -272,8 +255,7 @@ class GaussianRandomWalk(Distribution):
 
     @property
     def variance(self):
-        return jnp.broadcast_to(jnp.expand_dims(self.scale, -1) ** 2 * jnp.arange(1, self.num_steps + 1),
-                                self.batch_shape + self.event_shape)
+        return jnp.broadcast_to(jnp.expand_dims(self.scale, -1) ** 2 * jnp.arange(1, self.num_steps + 1), self.batch_shape + self.event_shape)
 
     def tree_flatten(self):
         return (self.scale,), self.num_steps
@@ -284,12 +266,12 @@ class GaussianRandomWalk(Distribution):
 
 
 class HalfCauchy(Distribution):
-    reparametrized_params = ['scale']
+    reparametrized_params = ["scale"]
     support = constraints.positive
-    arg_constraints = {'scale': constraints.positive}
+    arg_constraints = {"scale": constraints.positive}
 
-    def __init__(self, scale=1., validate_args=None):
-        self._cauchy = Cauchy(0., scale)
+    def __init__(self, scale=1.0, validate_args=None):
+        self._cauchy = Cauchy(0.0, scale)
         self.scale = scale
         super(HalfCauchy, self).__init__(batch_shape=jnp.shape(scale), validate_args=validate_args)
 
@@ -311,12 +293,12 @@ class HalfCauchy(Distribution):
 
 
 class HalfNormal(Distribution):
-    reparametrized_params = ['scale']
+    reparametrized_params = ["scale"]
     support = constraints.positive
-    arg_constraints = {'scale': constraints.positive}
+    arg_constraints = {"scale": constraints.positive}
 
-    def __init__(self, scale=1., validate_args=None):
-        self._normal = Normal(0., scale)
+    def __init__(self, scale=1.0, validate_args=None):
+        self._normal = Normal(0.0, scale)
         self.scale = scale
         super(HalfNormal, self).__init__(batch_shape=jnp.shape(scale), validate_args=validate_args)
 
@@ -343,16 +325,16 @@ class InverseGamma(TransformedDistribution):
         it plays the role of scale parameter of InverseGamma in literatures
         (e.g. wikipedia: https://en.wikipedia.org/wiki/Inverse-gamma_distribution)
     """
-    arg_constraints = {'concentration': constraints.positive, 'rate': constraints.positive}
+
+    arg_constraints = {"concentration": constraints.positive, "rate": constraints.positive}
     reparametrized_params = ["concentration", "rate"]
     support = constraints.positive
 
-    def __init__(self, concentration, rate=1., validate_args=None):
+    def __init__(self, concentration, rate=1.0, validate_args=None):
         base_dist = Gamma(concentration, rate)
         self.concentration = base_dist.concentration
         self.rate = base_dist.rate
-        super(InverseGamma, self).__init__(base_dist, PowerTransform(-1.0),
-                                           validate_args=validate_args)
+        super(InverseGamma, self).__init__(base_dist, PowerTransform(-1.0), validate_args=validate_args)
 
     @property
     def mean(self):
@@ -371,16 +353,15 @@ class InverseGamma(TransformedDistribution):
 
 
 class Gumbel(Distribution):
-    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale']
+    reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0., scale=1., validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
 
-        super(Gumbel, self).__init__(batch_shape=batch_shape,
-                                     validate_args=validate_args)
+        super(Gumbel, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -394,21 +375,19 @@ class Gumbel(Distribution):
 
     @property
     def mean(self):
-        return jnp.broadcast_to(self.loc + self.scale * EULER_MASCHERONI,
-                                self.batch_shape)
+        return jnp.broadcast_to(self.loc + self.scale * EULER_MASCHERONI, self.batch_shape)
 
     @property
     def variance(self):
-        return jnp.broadcast_to(jnp.pi**2 / 6. * self.scale**2,
-                                self.batch_shape)
+        return jnp.broadcast_to(jnp.pi ** 2 / 6.0 * self.scale ** 2, self.batch_shape)
 
 
 class Laplace(Distribution):
-    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale']
+    reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0., scale=1., validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Laplace, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
@@ -466,16 +445,15 @@ class LKJ(TransformedDistribution):
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
-    arg_constraints = {'concentration': constraints.positive}
+    arg_constraints = {"concentration": constraints.positive}
     reparametrized_params = ["concentration"]
     support = constraints.corr_matrix
 
-    def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
+    def __init__(self, dimension, concentration=1.0, sample_method="onion", validate_args=None):
         base_dist = LKJCholesky(dimension, concentration, sample_method)
         self.dimension, self.concentration = base_dist.dimension, base_dist.concentration
         self.sample_method = sample_method
-        super(LKJ, self).__init__(base_dist, CorrMatrixCholeskyTransform().inv,
-                                  validate_args=validate_args)
+        super(LKJ, self).__init__(base_dist, CorrMatrixCholeskyTransform().inv, validate_args=validate_args)
 
     @property
     def mean(self):
@@ -518,11 +496,11 @@ class LKJCholesky(Distribution):
     [1] `Generating random correlation matrices based on vines and extended onion method`,
     Daniel Lewandowski, Dorota Kurowicka, Harry Joe
     """
-    arg_constraints = {'concentration': constraints.positive}
-    reparametrized_params = ['concentration']
+    arg_constraints = {"concentration": constraints.positive}
+    reparametrized_params = ["concentration"]
     support = constraints.corr_cholesky
 
-    def __init__(self, dimension, concentration=1., sample_method='onion', validate_args=None):
+    def __init__(self, dimension, concentration=1.0, sample_method="onion", validate_args=None):
         if dimension < 2:
             raise ValueError("Dimension must be greater than or equal to 2.")
         self.dimension = dimension
@@ -540,13 +518,13 @@ class LKJCholesky(Distribution):
         Dm1 = self.dimension - 1
         marginal_concentration = concentration + 0.5 * (self.dimension - 2)
         offset = 0.5 * jnp.arange(Dm1)
-        if sample_method == 'onion':
+        if sample_method == "onion":
             # The following construction follows from the algorithm in Section 3.2 of [1]:
             # NB: in [1], the method for case k > 1 can also work for the case k = 1.
             beta_concentration0 = jnp.expand_dims(marginal_concentration, axis=-1) - offset
             beta_concentration1 = offset + 0.5
             self._beta = Beta(beta_concentration1, beta_concentration0)
-        elif sample_method == 'cvine':
+        elif sample_method == "cvine":
             # The following construction follows from the algorithm in Section 2.4 of [1]:
             # offset_tril is [0, 1, 1, 2, 2, 2,...] / 2
             offset_tril = matrix_to_tril_vec(jnp.broadcast_to(offset, (Dm1, Dm1)))
@@ -556,9 +534,7 @@ class LKJCholesky(Distribution):
             raise ValueError("`method` should be one of 'cvine' or 'onion'.")
         self.sample_method = sample_method
 
-        super(LKJCholesky, self).__init__(batch_shape=batch_shape,
-                                          event_shape=event_shape,
-                                          validate_args=validate_args)
+        super(LKJCholesky, self).__init__(batch_shape=batch_shape, event_shape=event_shape, validate_args=validate_args)
 
     def _cvine(self, key, size):
         # C-vine method first uses beta_dist to generate partial correlations,
@@ -587,20 +563,16 @@ class LKJCholesky(Distribution):
         beta_sample = self._beta.sample(key_beta, size)
         # The following Normal distribution is used to create a uniform distribution on
         # a hypershere (ref: http://mathworld.wolfram.com/HyperspherePointPicking.html)
-        normal_sample = random.normal(
-            key_normal,
-            shape=size + self.batch_shape + (self.dimension * (self.dimension - 1) // 2,)
-        )
+        normal_sample = random.normal(key_normal, shape=size + self.batch_shape + (self.dimension * (self.dimension - 1) // 2,))
         normal_sample = vec_to_tril_matrix(normal_sample, diagonal=0)
         u_hypershere = normal_sample / jnp.linalg.norm(normal_sample, axis=-1, keepdims=True)
         w = jnp.expand_dims(jnp.sqrt(beta_sample), axis=-1) * u_hypershere
 
         # put w into the off-diagonal triangular part
-        cholesky = ops.index_add(jnp.zeros(size + self.batch_shape + self.event_shape),
-                                 ops.index[..., 1:, :-1], w)
+        cholesky = ops.index_add(jnp.zeros(size + self.batch_shape + self.event_shape), ops.index[..., 1:, :-1], w)
         # correct the diagonal
         # NB: we clip due to numerical precision
-        diag = jnp.sqrt(jnp.clip(1 - jnp.sum(cholesky ** 2, axis=-1), a_min=0.))
+        diag = jnp.sqrt(jnp.clip(1 - jnp.sum(cholesky ** 2, axis=-1), a_min=0.0))
         cholesky = cholesky + jnp.expand_dims(diag, axis=-1) * jnp.identity(self.dimension)
         return cholesky
 
@@ -666,11 +638,11 @@ class LKJCholesky(Distribution):
 
 
 class LogNormal(TransformedDistribution):
-    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.positive
-    reparametrized_params = ['loc', 'scale']
+    reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0., scale=1., validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
         base_dist = Normal(loc, scale)
         self.loc, self.scale = base_dist.loc, base_dist.scale
         super(LogNormal, self).__init__(base_dist, ExpTransform(), validate_args=validate_args)
@@ -688,11 +660,11 @@ class LogNormal(TransformedDistribution):
 
 
 class Logistic(Distribution):
-    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale']
+    reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0., scale=1., validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Logistic, self).__init__(batch_shape, validate_args=validate_args)
@@ -745,10 +717,7 @@ def _batch_mahalanobis(bL, bx):
     bx_new_shape += (-1,)
     bx = jnp.reshape(bx, bx_new_shape)
     # Permute bx to make it have shape (..., 1, j, i, 1, n)
-    permute_dims = (tuple(range(sample_ndim))
-                    + tuple(range(sample_ndim, bx.ndim - 1, 2))
-                    + tuple(range(sample_ndim + 1, bx.ndim - 1, 2))
-                    + (bx.ndim - 1,))
+    permute_dims = tuple(range(sample_ndim)) + tuple(range(sample_ndim, bx.ndim - 1, 2)) + tuple(range(sample_ndim + 1, bx.ndim - 1, 2)) + (bx.ndim - 1,)
     bx = jnp.transpose(bx, permute_dims)
 
     # reshape to (-1, i, 1, n)
@@ -770,17 +739,13 @@ def _batch_mahalanobis(bL, bx):
 
 
 class MultivariateNormal(Distribution):
-    arg_constraints = {'loc': constraints.real_vector,
-                       'covariance_matrix': constraints.positive_definite,
-                       'precision_matrix': constraints.positive_definite,
-                       'scale_tril': constraints.lower_cholesky}
+    arg_constraints = {"loc": constraints.real_vector, "covariance_matrix": constraints.positive_definite, "precision_matrix": constraints.positive_definite, "scale_tril": constraints.lower_cholesky}
     support = constraints.real_vector
-    reparametrized_params = ['loc', 'covariance_matrix', 'precision_matrix', 'scale_tril']
+    reparametrized_params = ["loc", "covariance_matrix", "precision_matrix", "scale_tril"]
 
-    def __init__(self, loc=0., covariance_matrix=None, precision_matrix=None, scale_tril=None,
-                 validate_args=None):
+    def __init__(self, loc=0.0, covariance_matrix=None, precision_matrix=None, scale_tril=None, validate_args=None):
         if jnp.ndim(loc) == 0:
-            loc, = promote_shapes(loc, shape=(1,))
+            (loc,) = promote_shapes(loc, shape=(1,))
         # temporary append a new axis to loc
         loc = loc[..., jnp.newaxis]
         if covariance_matrix is not None:
@@ -792,14 +757,11 @@ class MultivariateNormal(Distribution):
         elif scale_tril is not None:
             loc, self.scale_tril = promote_shapes(loc, scale_tril)
         else:
-            raise ValueError('One of `covariance_matrix`, `precision_matrix`, `scale_tril`'
-                             ' must be specified.')
+            raise ValueError("One of `covariance_matrix`, `precision_matrix`, `scale_tril`" " must be specified.")
         batch_shape = lax.broadcast_shapes(jnp.shape(loc)[:-2], jnp.shape(self.scale_tril)[:-2])
         event_shape = jnp.shape(self.scale_tril)[-1:]
         self.loc = loc[..., 0]
-        super(MultivariateNormal, self).__init__(batch_shape=batch_shape,
-                                                 event_shape=event_shape,
-                                                 validate_args=validate_args)
+        super(MultivariateNormal, self).__init__(batch_shape=batch_shape, event_shape=event_shape, validate_args=validate_args)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -811,7 +773,7 @@ class MultivariateNormal(Distribution):
         M = _batch_mahalanobis(self.scale_tril, value - self.loc)
         half_log_det = jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1)
         normalize_term = half_log_det + 0.5 * self.scale_tril.shape[-1] * jnp.log(2 * jnp.pi)
-        return - 0.5 * M - normalize_term
+        return -0.5 * M - normalize_term
 
     @lazy_property
     def covariance_matrix(self):
@@ -828,8 +790,7 @@ class MultivariateNormal(Distribution):
 
     @property
     def variance(self):
-        return jnp.broadcast_to(jnp.sum(self.scale_tril ** 2, axis=-1),
-                                self.batch_shape + self.event_shape)
+        return jnp.broadcast_to(jnp.sum(self.scale_tril ** 2, axis=-1), self.batch_shape + self.event_shape)
 
     def tree_flatten(self):
         return (self.loc, self.scale_tril), None
@@ -897,24 +858,18 @@ def _batch_lowrank_mahalanobis(W, D, x, capacitance_tril):
 
 
 class LowRankMultivariateNormal(Distribution):
-    arg_constraints = {
-        "loc": constraints.real_vector,
-        "cov_factor": constraints.independent(constraints.real, 2),
-        "cov_diag": constraints.independent(constraints.positive, 1)
-    }
+    arg_constraints = {"loc": constraints.real_vector, "cov_factor": constraints.independent(constraints.real, 2), "cov_diag": constraints.independent(constraints.positive, 1)}
     support = constraints.real_vector
-    reparametrized_params = ['loc', 'cov_factor', 'cov_diag']
+    reparametrized_params = ["loc", "cov_factor", "cov_diag"]
 
     def __init__(self, loc, cov_factor, cov_diag, validate_args=None):
         if jnp.ndim(loc) < 1:
             raise ValueError("`loc` must be at least one-dimensional.")
         event_shape = jnp.shape(loc)[-1:]
         if jnp.ndim(cov_factor) < 2:
-            raise ValueError("`cov_factor` must be at least two-dimensional, "
-                             "with optional leading batch dimensions")
+            raise ValueError("`cov_factor` must be at least two-dimensional, " "with optional leading batch dimensions")
         if jnp.shape(cov_factor)[-2:-1] != event_shape:
-            raise ValueError("`cov_factor` must be a batch of matrices with shape {} x m"
-                             .format(event_shape[0]))
+            raise ValueError("`cov_factor` must be a batch of matrices with shape {} x m".format(event_shape[0]))
         if jnp.shape(cov_diag)[-1:] != event_shape:
             raise ValueError("`cov_diag` must be a batch of vectors with shape {}".format(self.event_shape))
 
@@ -925,9 +880,7 @@ class LowRankMultivariateNormal(Distribution):
         cov_diag = cov_diag[..., 0]
         self.cov_diag = cov_diag
         self._capacitance_tril = _batch_capacitance_tril(cov_factor, cov_diag)
-        super(LowRankMultivariateNormal, self).__init__(
-            batch_shape=batch_shape, event_shape=event_shape, validate_args=validate_args
-            )
+        super(LowRankMultivariateNormal, self).__init__(batch_shape=batch_shape, event_shape=event_shape, validate_args=validate_args)
 
     @property
     def mean(self):
@@ -956,9 +909,7 @@ class LowRankMultivariateNormal(Distribution):
     def covariance_matrix(self):
         # TODO: find a better solution to create a diagonal matrix
         new_diag = self.cov_diag[..., jnp.newaxis] * jnp.identity(self.loc.shape[-1])
-        covariance_matrix = new_diag + jnp.matmul(
-            self.cov_factor, jnp.swapaxes(self.cov_factor, -1, -2)
-            )
+        covariance_matrix = new_diag + jnp.matmul(self.cov_factor, jnp.swapaxes(self.cov_factor, -1, -2))
         return covariance_matrix
 
     @lazy_property
@@ -966,8 +917,7 @@ class LowRankMultivariateNormal(Distribution):
         # We use "Woodbury matrix identity" to take advantage of low rank form::
         #     inv(W @ W.T + D) = inv(D) - inv(D) @ W @ inv(C) @ W.T @ inv(D)
         # where :math:`C` is the capacitance matrix.
-        Wt_Dinv = (jnp.swapaxes(self.cov_factor, -1, -2)
-                   / jnp.expand_dims(self.cov_diag, axis=-2))
+        Wt_Dinv = jnp.swapaxes(self.cov_factor, -1, -2) / jnp.expand_dims(self.cov_diag, axis=-2)
         A = solve_triangular(Wt_Dinv, self._capacitance_tril, lower=True)
         # TODO: find a better solution to create a diagonal matrix
         inverse_cov_diag = jnp.reciprocal(self.cov_diag)
@@ -982,25 +932,17 @@ class LowRankMultivariateNormal(Distribution):
         D_shape = batch_shape + self.cov_diag.shape[-1:]
         eps_W = random.normal(key_W, W_shape)
         eps_D = random.normal(key_D, D_shape)
-        return (self.loc + _batch_mv(self.cov_factor, eps_W)
-                + jnp.sqrt(self.cov_diag) * eps_D)
+        return self.loc + _batch_mv(self.cov_factor, eps_W) + jnp.sqrt(self.cov_diag) * eps_D
 
     @validate_sample
     def log_prob(self, value):
         diff = value - self.loc
-        M = _batch_lowrank_mahalanobis(self.cov_factor,
-                                       self.cov_diag,
-                                       diff,
-                                       self._capacitance_tril)
-        log_det = _batch_lowrank_logdet(self.cov_factor,
-                                        self.cov_diag,
-                                        self._capacitance_tril)
+        M = _batch_lowrank_mahalanobis(self.cov_factor, self.cov_diag, diff, self._capacitance_tril)
+        log_det = _batch_lowrank_logdet(self.cov_factor, self.cov_diag, self._capacitance_tril)
         return -0.5 * (self.loc.shape[-1] * jnp.log(2 * jnp.pi) + log_det + M)
 
     def entropy(self):
-        log_det = _batch_lowrank_logdet(self.cov_factor,
-                                        self.cov_diag,
-                                        self._capacitance_tril)
+        log_det = _batch_lowrank_logdet(self.cov_factor, self.cov_diag, self._capacitance_tril)
         H = 0.5 * (self.loc.shape[-1] * (1.0 + jnp.log(2 * jnp.pi)) + log_det)
         return jnp.broadcast_to(H, self.batch_shape)
 
@@ -1012,11 +954,11 @@ class LowRankMultivariateNormal(Distribution):
 
 
 class Normal(Distribution):
-    arg_constraints = {'loc': constraints.real, 'scale': constraints.positive}
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
-    reparametrized_params = ['loc', 'scale']
+    reparametrized_params = ["loc", "scale"]
 
-    def __init__(self, loc=0., scale=1., validate_args=None):
+    def __init__(self, loc=0.0, scale=1.0, validate_args=None):
         self.loc, self.scale = promote_shapes(loc, scale)
         batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
         super(Normal, self).__init__(batch_shape=batch_shape, validate_args=validate_args)
@@ -1049,7 +991,7 @@ class Normal(Distribution):
 
 
 class Pareto(TransformedDistribution):
-    arg_constraints = {'scale': constraints.positive, 'alpha': constraints.positive}
+    arg_constraints = {"scale": constraints.positive, "alpha": constraints.positive}
     reparametrized_params = ["scale", "alpha"]
 
     def __init__(self, scale, alpha, validate_args=None):
@@ -1082,11 +1024,11 @@ class Pareto(TransformedDistribution):
 
 
 class StudentT(Distribution):
-    arg_constraints = {'df': constraints.positive, 'loc': constraints.real, 'scale': constraints.positive}
+    arg_constraints = {"df": constraints.positive, "loc": constraints.real, "scale": constraints.positive}
     support = constraints.real
-    reparametrized_params = ['df', 'loc', 'scale']
+    reparametrized_params = ["df", "loc", "scale"]
 
-    def __init__(self, df, loc=0., scale=1., validate_args=None):
+    def __init__(self, df, loc=0.0, scale=1.0, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(df), jnp.shape(loc), jnp.shape(scale))
         self.df, self.loc, self.scale = promote_shapes(df, loc, scale, shape=batch_shape)
         df = jnp.broadcast_to(df, batch_shape)
@@ -1104,9 +1046,8 @@ class StudentT(Distribution):
     @validate_sample
     def log_prob(self, value):
         y = (value - self.loc) / self.scale
-        z = (jnp.log(self.scale) + 0.5 * jnp.log(self.df) + 0.5 * jnp.log(jnp.pi) +
-             gammaln(0.5 * self.df) - gammaln(0.5 * (self.df + 1.)))
-        return -0.5 * (self.df + 1.) * jnp.log1p(y ** 2. / self.df) - z
+        z = jnp.log(self.scale) + 0.5 * jnp.log(self.df) + 0.5 * jnp.log(jnp.pi) + gammaln(0.5 * self.df) - gammaln(0.5 * (self.df + 1.0))
+        return -0.5 * (self.df + 1.0) * jnp.log1p(y ** 2.0 / self.df) - z
 
     @property
     def mean(self):
@@ -1141,13 +1082,12 @@ class LeftTruncatedDistribution(Distribution):
     reparametrized_params = ["low"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
 
-    def __init__(self, base_dist, low=0., validate_args=None):
+    def __init__(self, base_dist, low=0.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
-        assert base_dist.support is constraints.real, \
-            "The base distribution should be univariate and have real support."
+        assert base_dist.support is constraints.real, "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low))
         self.base_dist = tree_map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
-        self.low, = promote_shapes(low, shape=batch_shape)
+        (self.low,) = promote_shapes(low, shape=batch_shape)
         self._support = constraints.greater_than(low)
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -1159,27 +1099,25 @@ class LeftTruncatedDistribution(Distribution):
     def _tail_prob_at_low(self):
         # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
         loc = self.base_dist.loc
-        sign = jnp.where(loc >= self.low, 1., -1.)
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return self.base_dist.cdf(loc - sign * (loc - self.low))
 
     @lazy_property
     def _tail_prob_at_high(self):
         # if low < loc, returns cdf(high) = 1; otherwise returns 1 - cdf(high) = 0
-        return jnp.where(self.low <= self.base_dist.loc, 1., 0.)
+        return jnp.where(self.low <= self.base_dist.loc, 1.0, 0.0)
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
         loc = self.base_dist.loc
-        sign = jnp.where(loc >= self.low, 1., -1.)
-        return (1 - sign) * loc + sign * self.base_dist.icdf(
-            (1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high)
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
+        return (1 - sign) * loc + sign * self.base_dist.icdf((1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high)
 
     @validate_sample
     def log_prob(self, value):
-        sign = jnp.where(self.base_dist.loc >= self.low, 1., -1.)
-        return self.base_dist.log_prob(value) - \
-            jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
+        sign = jnp.where(self.base_dist.loc >= self.low, 1.0, -1.0)
+        return self.base_dist.log_prob(value) - jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
@@ -1205,13 +1143,12 @@ class RightTruncatedDistribution(Distribution):
     reparametrized_params = ["high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
 
-    def __init__(self, base_dist, high=0., validate_args=None):
+    def __init__(self, base_dist, high=0.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
-        assert base_dist.support is constraints.real, \
-            "The base distribution should be univariate and have real support."
+        assert base_dist.support is constraints.real, "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(high))
         self.base_dist = tree_map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
-        self.high, = promote_shapes(high, shape=batch_shape)
+        (self.high,) = promote_shapes(high, shape=batch_shape)
         self._support = constraints.less_than(high)
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -1256,14 +1193,13 @@ class TwoSidedTruncatedDistribution(Distribution):
     reparametrized_params = ["low", "high"]
     supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
 
-    def __init__(self, base_dist, low=0., high=1., validate_args=None):
+    def __init__(self, base_dist, low=0.0, high=1.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
-        assert base_dist.support is constraints.real, \
-            "The base distribution should be univariate and have real support."
+        assert base_dist.support is constraints.real, "The base distribution should be univariate and have real support."
         batch_shape = lax.broadcast_shapes(base_dist.batch_shape, jnp.shape(low), jnp.shape(high))
         self.base_dist = tree_map(lambda p: promote_shapes(p, shape=batch_shape)[0], base_dist)
-        self.low, = promote_shapes(low, shape=batch_shape)
-        self.high, = promote_shapes(high, shape=batch_shape)
+        (self.low,) = promote_shapes(low, shape=batch_shape)
+        (self.high,) = promote_shapes(high, shape=batch_shape)
         self._support = constraints.interval(low, high)
         super().__init__(batch_shape, validate_args=validate_args)
 
@@ -1275,14 +1211,14 @@ class TwoSidedTruncatedDistribution(Distribution):
     def _tail_prob_at_low(self):
         # if low < loc, returns cdf(low); otherwise returns 1 - cdf(low)
         loc = self.base_dist.loc
-        sign = jnp.where(loc >= self.low, 1., -1.)
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return self.base_dist.cdf(loc - sign * (loc - self.low))
 
     @lazy_property
     def _tail_prob_at_high(self):
         # if low < loc, returns cdf(high); otherwise returns 1 - cdf(high)
         loc = self.base_dist.loc
-        sign = jnp.where(loc >= self.low, 1., -1.)
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
         return self.base_dist.cdf(loc - sign * (loc - self.high))
 
     def sample(self, key, sample_shape=()):
@@ -1297,9 +1233,8 @@ class TwoSidedTruncatedDistribution(Distribution):
         # Else
         #   A = 2 * loc - icdf[(1 - u) * cdf(2*loc-low)) + u * cdf(2*loc - high)]
         loc = self.base_dist.loc
-        sign = jnp.where(loc >= self.low, 1., -1.)
-        return (1 - sign) * loc + sign * self.base_dist.icdf(
-            (1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high)
+        sign = jnp.where(loc >= self.low, 1.0, -1.0)
+        return (1 - sign) * loc + sign * self.base_dist.icdf((1 - u) * self._tail_prob_at_low + u * self._tail_prob_at_high)
 
     @validate_sample
     def log_prob(self, value):
@@ -1308,16 +1243,13 @@ class TwoSidedTruncatedDistribution(Distribution):
         #   cdf(high) - cdf(low) = as-is
         # if low > loc
         #   cdf(high) - cdf(low) = cdf(2 * loc - low) - cdf(2 * loc - high)
-        sign = jnp.where(self.base_dist.loc >= self.low, 1., -1.)
-        return self.base_dist.log_prob(value) - \
-            jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
+        sign = jnp.where(self.base_dist.loc >= self.low, 1.0, -1.0)
+        return self.base_dist.log_prob(value) - jnp.log(sign * (self._tail_prob_at_high - self._tail_prob_at_low))
 
     def tree_flatten(self):
         base_flatten, base_aux = self.base_dist.tree_flatten()
-        if isinstance(self._support.lower_bound, (int, float)) and \
-                isinstance(self._support.upper_bound, (int, float)):
-            return base_flatten, (type(self.base_dist), base_aux,
-                                  self._support.lower_bound, self._support.upper_bound)
+        if isinstance(self._support.lower_bound, (int, float)) and isinstance(self._support.upper_bound, (int, float)):
+            return base_flatten, (type(self.base_dist), base_aux, self._support.lower_bound, self._support.upper_bound)
         else:
             return (base_flatten, self.low, self.high), (type(self.base_dist), base_aux)
 
@@ -1357,11 +1289,10 @@ def TruncatedDistribution(base_dist, low=None, high=None, validate_args=None):
 
 
 class TruncatedCauchy(LeftTruncatedDistribution):
-    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
-                       'scale': constraints.positive}
+    arg_constraints = {"low": constraints.real, "loc": constraints.real, "scale": constraints.positive}
     reparametrized_params = ["low", "loc", "scale"]
 
-    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
+    def __init__(self, low=0.0, loc=0.0, scale=1.0, validate_args=None):
         self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
         super().__init__(Cauchy(self.loc, self.scale), low=self.low, validate_args=validate_args)
 
@@ -1389,11 +1320,10 @@ class TruncatedCauchy(LeftTruncatedDistribution):
 
 
 class TruncatedNormal(LeftTruncatedDistribution):
-    arg_constraints = {'low': constraints.real, 'loc': constraints.real,
-                       'scale': constraints.positive}
+    arg_constraints = {"low": constraints.real, "loc": constraints.real, "scale": constraints.positive}
     reparametrized_params = ["low", "loc", "scale"]
 
-    def __init__(self, low=0., loc=0., scale=1., validate_args=None):
+    def __init__(self, low=0.0, loc=0.0, scale=1.0, validate_args=None):
         self.low, self.loc, self.scale = promote_shapes(low, loc, scale)
         super().__init__(Normal(self.loc, self.scale), low=self.low, validate_args=validate_args)
 
@@ -1423,10 +1353,10 @@ class TruncatedNormal(LeftTruncatedDistribution):
 
 
 class Uniform(Distribution):
-    arg_constraints = {'low': constraints.dependent, 'high': constraints.dependent}
-    reparametrized_params = ['low', 'high']
+    arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
+    reparametrized_params = ["low", "high"]
 
-    def __init__(self, low=0., high=1., validate_args=None):
+    def __init__(self, low=0.0, high=1.0, validate_args=None):
         self.low, self.high = promote_shapes(low, high)
         batch_shape = lax.broadcast_shapes(jnp.shape(low), jnp.shape(high))
         self._support = constraints.interval(low, high)
@@ -1443,19 +1373,18 @@ class Uniform(Distribution):
     @validate_sample
     def log_prob(self, value):
         shape = lax.broadcast_shapes(jnp.shape(value), self.batch_shape)
-        return - jnp.broadcast_to(jnp.log(self.high - self.low), shape)
+        return -jnp.broadcast_to(jnp.log(self.high - self.low), shape)
 
     @property
     def mean(self):
-        return self.low + (self.high - self.low) / 2.
+        return self.low + (self.high - self.low) / 2.0
 
     @property
     def variance(self):
-        return (self.high - self.low) ** 2 / 12.
+        return (self.high - self.low) ** 2 / 12.0
 
     def tree_flatten(self):
-        if isinstance(self._support.lower_bound, (int, float)) and \
-                isinstance(self._support.upper_bound, (int, float)):
+        if isinstance(self._support.lower_bound, (int, float)) and isinstance(self._support.upper_bound, (int, float)):
             aux_data = (self._support.lower_bound, self._support.upper_bound)
         else:
             aux_data = None

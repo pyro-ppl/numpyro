@@ -20,38 +20,18 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
     model_args = model_args or ()
     model_kwargs = model_kwargs or {}
 
-    trace = handlers.trace(handlers.seed(model, 0)).get_trace(
-        *model_args, **model_kwargs
-    )
-    obs_sites = [
-        name
-        for name, site in trace.items()
-        if site['type'] == 'sample' and site['is_observed']
-    ]
+    trace = handlers.trace(handlers.seed(model, 0)).get_trace(*model_args, **model_kwargs)
+    obs_sites = [name for name, site in trace.items() if site["type"] == "sample" and site["is_observed"]]
 
     def _get_dist_name(fn):
-        if isinstance(
-            fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
-        ):
+        if isinstance(fn, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)):
             return _get_dist_name(fn.base_dist)
         return type(fn).__name__
 
-    sample_dist = {
-        name: _get_dist_name(site['fn'])
-        for name, site in trace.items()
-        if site['type'] == 'sample'
-    }
+    sample_dist = {name: _get_dist_name(site["fn"]) for name, site in trace.items() if site["type"] == "sample"}
 
-    sample_plates = {
-        name: [frame.name for frame in site['cond_indep_stack']]
-        for name, site in trace.items()
-        if site['type'] == 'sample'
-    }
-    plate_samples = {
-        k: {name for name, plates in sample_plates.items() if k in plates}
-        for k in trace
-        if trace[k]['type'] == 'plate'
-    }
+    sample_plates = {name: [frame.name for frame in site["cond_indep_stack"]] for name, site in trace.items() if site["type"] == "sample"}
+    plate_samples = {k: {name for name, plates in sample_plates.items() if k in plates} for k in trace if trace[k]["type"] == "plate"}
 
     def _resolve_plate_samples(plate_samples):
         for p, pv in plate_samples.items():
@@ -59,50 +39,28 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
                 if len(pv & qv) > 0 and len(pv - qv) > 0 and len(qv - pv) > 0:
                     plate_samples_ = plate_samples.copy()
                     plate_samples_[q] = pv & qv
-                    plate_samples_[q + '__CLONE'] = qv - pv
+                    plate_samples_[q + "__CLONE"] = qv - pv
                     return _resolve_plate_samples(plate_samples_)
         return plate_samples
 
     plate_samples = _resolve_plate_samples(plate_samples)
     # convert set to list to keep order of variables
-    plate_samples = {
-        k: [name for name in trace if name in v] for k, v in plate_samples.items()
-    }
+    plate_samples = {k: [name for name in trace if name in v] for k, v in plate_samples.items()}
 
     def get_log_probs(sample, seed=0):
-        with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(
-            data=sample
-        ):
+        with handlers.trace() as tr, handlers.seed(model, seed), handlers.substitute(data=sample):
             model(*model_args, **model_kwargs)
-        return {
-            name: site['fn'].log_prob(site['value'])
-            for name, site in tr.items()
-            if site['type'] == 'sample'
-        }
+        return {name: site["fn"].log_prob(site["value"]) for name, site in tr.items() if site["type"] == "sample"}
 
-    samples = {
-        name: site['value']
-        for name, site in trace.items()
-        if site['type'] == 'sample'
-        and not site['is_observed']
-        and not site['fn'].is_discrete
-    }
+    samples = {name: site["value"] for name, site in trace.items() if site["type"] == "sample" and not site["is_observed"] and not site["fn"].is_discrete}
     log_prob_grads = jax.jacobian(get_log_probs)(samples)
     sample_deps = {}
     for name, grads in log_prob_grads.items():
         sample_deps[name] = {n for n in grads if n != name and (grads[n] != 0).any()}
 
     # find discrete -> continuous dependency
-    samples = {
-        name: site['value'] for name, site in trace.items() if site['type'] == 'sample'
-    }
-    discrete_sites = [
-        name
-        for name, site in trace.items()
-        if site['type'] == 'sample'
-        and not site['is_observed']
-        and site['fn'].is_discrete
-    ]
+    samples = {name: site["value"] for name, site in trace.items() if site["type"] == "sample"}
+    discrete_sites = [name for name, site in trace.items() if site["type"] == "sample" and not site["is_observed"] and site["fn"].is_discrete]
     log_probs_prototype = get_log_probs(samples)
     for name in discrete_sites:
         samples_ = samples.copy()
@@ -117,12 +75,7 @@ def get_model_relations(model, model_args=None, model_kwargs=None, num_tries=10)
     sample_sample = {}
     for name in samples:
         sample_sample[name] = [var for var in samples if var in sample_deps[name]]
-    return {
-        'sample_sample': sample_sample,
-        'sample_dist': sample_dist,
-        'plate_sample': plate_samples,
-        'observed': obs_sites,
-    }
+    return {"sample_sample": sample_sample, "sample_dist": sample_dist, "plate_sample": plate_samples, "observed": obs_sites}
 
 
 def generate_graph_specification(model_relations):
@@ -131,19 +84,14 @@ def generate_graph_specification(model_relations):
     converted into a network.
     """
     # group nodes by plate
-    plate_groups = dict(model_relations['plate_sample'])
+    plate_groups = dict(model_relations["plate_sample"])
     plate_rvs = {rv for rvs in plate_groups.values() for rv in rvs}
-    plate_groups[None] = [
-        rv for rv in model_relations['sample_sample'] if rv not in plate_rvs
-    ]  # RVs which are in no plate
+    plate_groups[None] = [rv for rv in model_relations["sample_sample"] if rv not in plate_rvs]  # RVs which are in no plate
 
     # retain node metadata
     node_data = {}
-    for rv in model_relations['sample_sample']:
-        node_data[rv] = {
-            'is_observed': rv in model_relations['observed'],
-            'distribution': model_relations['sample_dist'][rv],
-        }
+    for rv in model_relations["sample_sample"]:
+        node_data[rv] = {"is_observed": rv in model_relations["observed"], "distribution": model_relations["sample_dist"][rv]}
 
     # infer plate structure
     # (when the order of plates cannot be determined from subset relations,
@@ -154,28 +102,23 @@ def generate_graph_specification(model_relations):
             continue
 
         if set(plate_groups[plate1]) < set(plate_groups[plate2]):
-            plate_data[plate1] = {'parent': plate2}
+            plate_data[plate1] = {"parent": plate2}
         elif set(plate_groups[plate1]) >= set(plate_groups[plate2]):
-            plate_data[plate2] = {'parent': plate1}
+            plate_data[plate2] = {"parent": plate1}
 
     for plate in plate_groups:
         if plate is None:
             continue
 
         if plate not in plate_data:
-            plate_data[plate] = {'parent': None}
+            plate_data[plate] = {"parent": None}
 
     # infer RV edges
     edge_list = []
-    for target, source_list in model_relations['sample_sample'].items():
+    for target, source_list in model_relations["sample_sample"].items():
         edge_list.extend([(source, target) for source in source_list])
 
-    return {
-        'plate_groups': plate_groups,
-        'plate_data': plate_data,
-        'node_data': node_data,
-        'edge_list': edge_list,
-    }
+    return {"plate_groups": plate_groups, "plate_data": plate_data, "node_data": node_data, "edge_list": edge_list}
 
 
 def render_graph(graph_specification, render_distributions=False):
@@ -187,28 +130,19 @@ def render_graph(graph_specification, render_distributions=False):
     try:
         import graphviz  # noqa: F401
     except ImportError as e:
-        raise ImportError(
-            'Looks like you want to use graphviz (https://graphviz.org/) '
-            'to render your model. '
-            'You need to install `graphviz` to be able to use this feature. '
-            'It can be installed with `pip install graphviz`.'
-        ) from e
+        raise ImportError("Looks like you want to use graphviz (https://graphviz.org/) " "to render your model. " "You need to install `graphviz` to be able to use this feature. " "It can be installed with `pip install graphviz`.") from e
 
-    plate_groups = graph_specification['plate_groups']
-    plate_data = graph_specification['plate_data']
-    node_data = graph_specification['node_data']
-    edge_list = graph_specification['edge_list']
+    plate_groups = graph_specification["plate_groups"]
+    plate_data = graph_specification["plate_data"]
+    node_data = graph_specification["node_data"]
+    edge_list = graph_specification["edge_list"]
 
     graph = graphviz.Digraph()
 
     # add plates
-    plate_graph_dict = {
-        plate: graphviz.Digraph(name=f'cluster_{plate}')
-        for plate in plate_groups
-        if plate is not None
-    }
+    plate_graph_dict = {plate: graphviz.Digraph(name=f"cluster_{plate}") for plate in plate_groups if plate is not None}
     for plate, plate_graph in plate_graph_dict.items():
-        plate_graph.attr(label=plate.split('__CLONE')[0], labeljust='r', labelloc='b')
+        plate_graph.attr(label=plate.split("__CLONE")[0], labeljust="r", labelloc="b")
 
     plate_graph_dict[None] = graph
 
@@ -217,19 +151,17 @@ def render_graph(graph_specification, render_distributions=False):
         cur_graph = plate_graph_dict[plate]
 
         for rv in rv_list:
-            color = 'grey' if node_data[rv]['is_observed'] else 'white'
-            cur_graph.node(
-                rv, label=rv, shape='ellipse', style='filled', fillcolor=color
-            )
+            color = "grey" if node_data[rv]["is_observed"] else "white"
+            cur_graph.node(rv, label=rv, shape="ellipse", style="filled", fillcolor=color)
 
     # add leaf nodes first
     while len(plate_data) >= 1:
         for plate, data in plate_data.items():
-            parent_plate = data['parent']
+            parent_plate = data["parent"]
             is_leaf = True
 
             for plate2, data2 in plate_data.items():
-                if plate == data2['parent']:
+                if plate == data2["parent"]:
                     is_leaf = False
                     break
 
@@ -244,25 +176,18 @@ def render_graph(graph_specification, render_distributions=False):
 
     # render distributions if requested
     if render_distributions:
-        dist_label = ''
+        dist_label = ""
         for rv, data in node_data.items():
-            rv_dist = data['distribution']
-            dist_label += rf'{rv} ~ {rv_dist}\l'
+            rv_dist = data["distribution"]
+            dist_label += rf"{rv} ~ {rv_dist}\l"
 
-        graph.node('distribution_description_node', label=dist_label, shape='plaintext')
+        graph.node("distribution_description_node", label=dist_label, shape="plaintext")
 
     # return whole graph
     return graph
 
 
-def render_model(
-    model,
-    model_args=None,
-    model_kwargs=None,
-    filename=None,
-    render_distributions=False,
-    num_tries=10,
-):
+def render_model(model, model_args=None, model_kwargs=None, filename=None, render_distributions=False, num_tries=10):
     """
     Wrap all functions needed to automatically render a model.
 
@@ -279,22 +204,12 @@ def render_model(
     :param bool render_distributions: Whether to include RV distribution annotations in the plot.
     :param int num_tries: Times to trace model to detect discrete -> continuous dependency.
     """
-    relations = get_model_relations(
-        model,
-        model_args=model_args,
-        model_kwargs=model_kwargs,
-        num_tries=num_tries,
-    )
+    relations = get_model_relations(model, model_args=model_args, model_kwargs=model_kwargs, num_tries=num_tries)
     graph_spec = generate_graph_specification(relations)
     graph = render_graph(graph_spec, render_distributions=render_distributions)
 
     if filename is not None:
         filename = Path(filename)
-        graph.render(
-            filename.stem,
-            view=False,
-            cleanup=True,
-            format=filename.suffix[1:],  # remove leading period from suffix
-        )
+        graph.render(filename.stem, view=False, cleanup=True, format=filename.suffix[1:])  # remove leading period from suffix
 
     return graph

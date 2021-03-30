@@ -26,32 +26,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-__all__ = [
-    'boolean',
-    'corr_cholesky',
-    'corr_matrix',
-    'dependent',
-    'greater_than',
-    'integer_interval',
-    'integer_greater_than',
-    'interval',
-    'is_dependent',
-    'less_than',
-    'lower_cholesky',
-    'multinomial',
-    'nonnegative_integer',
-    'positive',
-    'positive_definite',
-    'positive_integer',
-    'real',
-    'real_vector',
-    'simplex',
-    'sphere',
-    'softplus_lower_cholesky',
-    'softplus_positive',
-    'unit_interval',
-    'Constraint',
-]
+__all__ = ["boolean", "corr_cholesky", "corr_matrix", "dependent", "greater_than", "integer_interval", "integer_greater_than", "interval", "is_dependent", "less_than", "lower_cholesky", "multinomial", "nonnegative_integer", "positive", "positive_definite", "positive_integer", "real", "real_vector", "simplex", "sphere", "softplus_lower_cholesky", "softplus_positive", "unit_interval", "Constraint"]
 
 import numpy as np
 
@@ -65,6 +40,7 @@ class Constraint(object):
     A constraint object represents a region over which a variable is valid,
     e.g. within which a variable can be optimized.
     """
+
     event_dim = 0
 
     def __call__(self, x):
@@ -137,6 +113,7 @@ class _Dependent(Constraint):
         computed statically. If not provided, access to the ``.event_dim``
         attribute will raise a NotImplementedError.
     """
+
     def __init__(self, *, is_discrete=NotImplemented, event_dim=NotImplemented):
         self._is_discrete = is_discrete
         self._event_dim = event_dim
@@ -156,7 +133,7 @@ class _Dependent(Constraint):
 
     def __call__(self, x=None, *, is_discrete=NotImplemented, event_dim=NotImplemented):
         if x is not None:
-            raise ValueError('Cannot determine validity of dependent constraint')
+            raise ValueError("Cannot determine validity of dependent constraint")
 
         # Support for syntax to customize static attributes::
         #     constraints.dependent(is_discrete=True, event_dim=1)
@@ -205,6 +182,7 @@ class _IndependentConstraint(Constraint):
     dims in :meth:`check`, so that an event is valid only if all its
     independent entries are valid.
     """
+
     def __init__(self, base_constraint, reinterpreted_batch_ndims):
         assert isinstance(base_constraint, Constraint)
         assert isinstance(reinterpreted_batch_ndims, int)
@@ -227,8 +205,7 @@ class _IndependentConstraint(Constraint):
         elif jax.numpy.ndim(result) < self.reinterpreted_batch_ndims:
             expected = self.event_dim
             raise ValueError(f"Expected value.dim() >= {expected} but got {jax.numpy.ndim(value)}")
-        result = result.reshape(
-            jax.numpy.shape(result)[:jax.numpy.ndim(result) - self.reinterpreted_batch_ndims] + (-1,))
+        result = result.reshape(jax.numpy.shape(result)[: jax.numpy.ndim(result) - self.reinterpreted_batch_ndims] + (-1,))
         result = result.all(-1)
         return result
 
@@ -341,20 +318,20 @@ class _PositiveOrderedVector(Constraint):
     Constrains to a positive real-valued tensor where the elements are monotonically
     increasing along the `event_shape` dimension.
     """
+
     event_dim = 1
 
     def __call__(self, x):
         return ordered_vector.check(x) & independent(positive, 1).check(x)
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))),
-                                      prototype.shape)
+        return jax.numpy.broadcast_to(jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))), prototype.shape)
 
 
 class _Real(Constraint):
     def __call__(self, x):
         # XXX: consider to relax this condition to [-inf, inf] interval
-        return (x == x) & (x != float('inf')) & (x != float('-inf'))
+        return (x == x) & (x != float("inf")) & (x != float("-inf"))
 
     def feasible_like(self, prototype):
         return jax.numpy.zeros_like(prototype)
@@ -388,8 +365,9 @@ class _Sphere(Constraint):
     """
     Constrain to the Euclidean sphere of any dimension.
     """
+
     event_dim = 1
-    reltol = 10.  # Relative to finfo.eps.
+    reltol = 10.0  # Relative to finfo.eps.
 
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
@@ -419,7 +397,7 @@ lower_cholesky = _LowerCholesky()
 multinomial = _Multinomial
 nonnegative_integer = _IntegerGreaterThan(0)
 ordered_vector = _OrderedVector()
-positive = _GreaterThan(0.)
+positive = _GreaterThan(0.0)
 positive_definite = _PositiveDefinite()
 positive_integer = _IntegerGreaterThan(1)
 positive_ordered_vector = _PositiveOrderedVector()
@@ -429,4 +407,4 @@ simplex = _Simplex()
 softplus_lower_cholesky = _SoftplusLowerCholesky()
 softplus_positive = _SoftplusPositive()
 sphere = _Sphere()
-unit_interval = _Interval(0., 1.)
+unit_interval = _Interval(0.0, 1.0)

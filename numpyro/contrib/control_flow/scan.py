@@ -21,13 +21,13 @@ class PytreeTrace:
     def tree_flatten(self):
         trace, aux_trace = {}, {}
         for name, site in self.trace.items():
-            if site['type'] in ['sample', 'deterministic']:
-                trace[name], aux_trace[name] = {}, {'_control_flow_done': True}
+            if site["type"] in ["sample", "deterministic"]:
+                trace[name], aux_trace[name] = {}, {"_control_flow_done": True}
                 for key in site:
-                    if key in ['fn', 'args', 'value', 'intermediates']:
+                    if key in ["fn", "args", "value", "intermediates"]:
                         trace[name][key] = site[key]
                     # scanned sites have stop field because we trace them inside a block handler
-                    elif key != 'stop':
+                    elif key != "stop":
                         aux_trace[name][key] = site[key]
         # keep the site order information because in JAX, flatten and unflatten do not preserve
         # the order of keys in a dict
@@ -37,7 +37,7 @@ class PytreeTrace:
     @classmethod
     def tree_unflatten(cls, aux_data, children):
         aux_trace, site_names = aux_data
-        trace, = children
+        (trace,) = children
         trace_with_aux = {}
         for name in site_names:
             trace[name].update(aux_trace[name])
@@ -47,17 +47,17 @@ class PytreeTrace:
 
 def _subs_wrapper(subs_map, i, length, site):
     value = None
-    if isinstance(subs_map, dict) and site['name'] in subs_map:
-        value = subs_map[site['name']]
+    if isinstance(subs_map, dict) and site["name"] in subs_map:
+        value = subs_map[site["name"]]
     elif callable(subs_map):
-        rng_key = site['kwargs'].get('rng_key')
+        rng_key = site["kwargs"].get("rng_key")
         subs_map = handlers.seed(subs_map, rng_seed=rng_key) if rng_key is not None else subs_map
         value = subs_map(site)
 
     if value is not None:
         value_ndim = jnp.ndim(value)
-        sample_shape = site['kwargs']['sample_shape']
-        fn_ndim = len(sample_shape + site['fn'].shape())
+        sample_shape = site["kwargs"]["sample_shape"]
+        fn_ndim = len(sample_shape + site["fn"].shape())
         if value_ndim == fn_ndim:
             # this branch happens when substitute_fn is init_strategy,
             # where we apply init_strategy to each element in the scanned series
@@ -68,23 +68,15 @@ def _subs_wrapper(subs_map, i, length, site):
             if shape[0] == length:
                 return value[i]
             elif shape[0] < length:
-                rng_key = site['kwargs']['rng_key']
+                rng_key = site["kwargs"]["rng_key"]
                 assert rng_key is not None
                 # we use the substituted values if i < shape[0]
                 # and generate a new sample otherwise
-                return lax.cond(i < shape[0],
-                                (value, i),
-                                lambda val: val[0][val[1]],
-                                rng_key,
-                                lambda val: site['fn'](rng_key=val, sample_shape=sample_shape))
+                return lax.cond(i < shape[0], (value, i), lambda val: val[0][val[1]], rng_key, lambda val: site["fn"](rng_key=val, sample_shape=sample_shape))
             else:
-                raise RuntimeError(f"Substituted value for site {site['name']} "
-                                   "requires length less than or equal to scan length."
-                                   f" Expected length <= {length}, but got {shape[0]}.")
+                raise RuntimeError(f"Substituted value for site {site['name']} " "requires length less than or equal to scan length." f" Expected length <= {length}, but got {shape[0]}.")
         else:
-            raise RuntimeError(f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim+1},"
-                               f" but got {value_ndim}. This might happen when you use nested scan,"
-                               " which is currently not supported. Please report the issue to us!")
+            raise RuntimeError(f"Something goes wrong. Expected ndim = {fn_ndim} or {fn_ndim+1}," f" but got {value_ndim}. This might happen when you use nested scan," " which is currently not supported. Please report the issue to us!")
 
 
 class _promote_fn_shapes(Messenger):
@@ -114,8 +106,7 @@ def _promote_scanned_value_shapes(value, fn):
         return value
 
 
-def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None, history=1,
-              first_available_dim=None):
+def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None, history=1, first_available_dim=None):
     from numpyro.contrib.funsor import config_enumerate, enum, markov
     from numpyro.contrib.funsor import trace as packed_trace
 
@@ -138,19 +129,19 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
 
         # we need to tell unconstrained messenger in potential energy computation
         # that only the item at time `i` is needed when transforming
-        fn = handlers.infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
+        fn = handlers.infer_config(f, config_fn=lambda msg: {"_scan_current_index": i})
 
         seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
         for subs_type, subs_map in substitute_stack:
             subs_fn = partial(_subs_wrapper, subs_map, i, length)
-            if subs_type == 'condition':
+            if subs_type == "condition":
                 seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
-            elif subs_type == 'substitute':
+            elif subs_type == "substitute":
                 seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
         if init:
             # handler the name to match the pattern of sakkar_bilmes product
-            with handlers.scope(prefix='_PREV_' * (unroll_steps - i), divider=''):
+            with handlers.scope(prefix="_PREV_" * (unroll_steps - i), divider=""):
                 new_carry, y = config_enumerate(seeded_fn)(carry, x)
                 trace = {}
         else:
@@ -171,12 +162,10 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
                 carry_shapes.append([jnp.shape(x) for x in tree_flatten(new_carry)[0]])
             # make new_carry have the same shape as carry
             # FIXME: is this rigorous?
-            new_carry = tree_multimap(lambda a, b: jnp.reshape(a, jnp.shape(b)),
-                                      new_carry, carry)
+            new_carry = tree_multimap(lambda a, b: jnp.reshape(a, jnp.shape(b)), new_carry, carry)
         return (i + 1, rng_key, new_carry), (PytreeTrace(trace), y)
 
-    with handlers.block(hide_fn=lambda site: not site["name"].startswith("_PREV_")), \
-            enum(first_available_dim=first_available_dim):
+    with handlers.block(hide_fn=lambda site: not site["name"].startswith("_PREV_")), enum(first_available_dim=first_available_dim):
         wrapped_carry = (0, rng_key, init)
         y0s = []
         # We run unroll_steps + 1 where the last step is used for rolling with `lax.scan`
@@ -198,14 +187,13 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
                 if length == unroll_steps:
                     return wrapped_carry, (PytreeTrace({}), y0s)
                 wrapped_carry = device_put(wrapped_carry)
-                wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs_,
-                                                             length - unroll_steps, reverse)
+                wrapped_carry, (pytree_trace, ys) = lax.scan(body_fn, wrapped_carry, xs_, length - unroll_steps, reverse)
 
     first_var = None
     for name, site in pytree_trace.trace.items():
         # currently, we only record sample or deterministic in the trace
         # we don't need to adjust `dim_to_name` for deterministic site
-        if site['type'] not in ('sample',):
+        if site["type"] not in ("sample",):
             continue
         # add `time` dimension, the name will be '_time_{first variable in the trace}'
         if first_var is None:
@@ -216,8 +204,8 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
 
         # XXX: site['infer']['dim_to_name'] is not enough to determine leftmost dimension because
         # we don't record 1-size dimensions in this field
-        time_dim = -min(len(site['fn'].batch_shape), jnp.ndim(site['value']) - site['fn'].event_dim)
-        site['infer']['dim_to_name'][time_dim] = '_time_{}'.format(first_var)
+        time_dim = -min(len(site["fn"].batch_shape), jnp.ndim(site["value"]) - site["fn"].event_dim)
+        site["infer"]["dim_to_name"][time_dim] = "_time_{}".format(first_var)
 
     # similar to carry, we need to reshape due to shape alternating in markov
     ys = tree_multimap(lambda z0, z: jnp.reshape(z, z.shape[:1] + jnp.shape(z0)[1:]), y0s, ys)
@@ -228,21 +216,18 @@ def scan_enum(f, init, xs, length, reverse, rng_key=None, substitute_stack=None,
     t, rng_key, carry = wrapped_carry
     carry_shape = carry_shapes[i]
     flatten_carry, treedef = tree_flatten(carry)
-    flatten_carry = [jnp.reshape(x, t1_shape)
-                     for x, t1_shape in zip(flatten_carry, carry_shape)]
+    flatten_carry = [jnp.reshape(x, t1_shape) for x, t1_shape in zip(flatten_carry, carry_shape)]
     carry = tree_unflatten(treedef, flatten_carry)
     wrapped_carry = (t, rng_key, carry)
     return wrapped_carry, (pytree_trace, ys)
 
 
-def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False,
-                 history=1, first_available_dim=None):
+def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[], enum=False, history=1, first_available_dim=None):
     if length is None:
         length = tree_flatten(xs)[0][0].shape[0]
 
     if enum and history > 0:
-        return scan_enum(f, init, xs, length, reverse, rng_key, substitute_stack, history,
-                         first_available_dim)
+        return scan_enum(f, init, xs, length, reverse, rng_key, substitute_stack, history, first_available_dim)
 
     def body_fn(wrapped_carry, x):
         i, rng_key, carry = wrapped_carry
@@ -252,14 +237,14 @@ def scan_wrapper(f, init, xs, length, reverse, rng_key=None, substitute_stack=[]
 
             # we need to tell unconstrained messenger in potential energy computation
             # that only the item at time `i` is needed when transforming
-            fn = handlers.infer_config(f, config_fn=lambda msg: {'_scan_current_index': i})
+            fn = handlers.infer_config(f, config_fn=lambda msg: {"_scan_current_index": i})
 
             seeded_fn = handlers.seed(fn, subkey) if subkey is not None else fn
             for subs_type, subs_map in substitute_stack:
                 subs_fn = partial(_subs_wrapper, subs_map, i, length)
-                if subs_type == 'condition':
+                if subs_type == "condition":
                     seeded_fn = handlers.condition(seeded_fn, condition_fn=subs_fn)
-                elif subs_type == 'substitute':
+                elif subs_type == "substitute":
                     seeded_fn = handlers.substitute(seeded_fn, substitute_fn=subs_fn)
 
             with handlers.trace() as trace:
@@ -378,23 +363,14 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
     """
     # if there are no active Messengers, we just run and return it as expected:
     if not _PYRO_STACK:
-        (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(
-            f, init, xs, length=length, reverse=reverse)
+        (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(f, init, xs, length=length, reverse=reverse)
     else:
         # Otherwise, we initialize a message...
-        initial_msg = {
-            'type': 'control_flow',
-            'fn': scan_wrapper,
-            'args': (f, init, xs, length, reverse),
-            'kwargs': {'rng_key': None,
-                       'substitute_stack': [],
-                       'history': history},
-            'value': None,
-        }
+        initial_msg = {"type": "control_flow", "fn": scan_wrapper, "args": (f, init, xs, length, reverse), "kwargs": {"rng_key": None, "substitute_stack": [], "history": history}, "value": None}
 
         # ...and use apply_stack to send it to the Messengers
         msg = apply_stack(initial_msg)
-        (length, rng_key, carry), (pytree_trace, ys) = msg['value']
+        (length, rng_key, carry), (pytree_trace, ys) = msg["value"]
 
     if not msg["kwargs"].get("enum", False):
         for msg in pytree_trace.trace.values():

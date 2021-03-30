@@ -10,5 +10,5 @@ pytestmark = pytest.mark.filterwarnings("ignore::numpyro.compat.util.Unsupported
 
 @pytest.fixture
 def backend():
-    with pyro_backend('numpy'):
+    with pyro_backend("numpy"):
         yield

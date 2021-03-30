@@ -83,12 +83,7 @@ class MixedHMC(DiscreteHMCGibbs):
 
         # NB: the warmup adaptation can not be performed in sub-trajectories (i.e. the hmc trajectory
         # between two discrete updates), so we will do it here, at the end of each MixedHMC step.
-        _, self._wa_update = warmup_adapter(num_warmup,
-                                            adapt_step_size=self.inner_kernel._adapt_step_size,
-                                            adapt_mass_matrix=self.inner_kernel._adapt_mass_matrix,
-                                            dense_mass=self.inner_kernel._dense_mass,
-                                            target_accept_prob=self.inner_kernel._target_accept_prob,
-                                            find_reasonable_step_size=None)
+        _, self._wa_update = warmup_adapter(num_warmup, adapt_step_size=self.inner_kernel._adapt_step_size, adapt_mass_matrix=self.inner_kernel._adapt_mass_matrix, dense_mass=self.inner_kernel._dense_mass, target_accept_prob=self.inner_kernel._target_accept_prob, find_reasonable_step_size=None)
 
         # In HMC, when `hmc_state.r` is not None, we will skip drawing a random momemtum at the
         # beginning of an HMC step. The reason is we need to maintain `r` between each sub-trajectories.
@@ -100,25 +95,17 @@ class MixedHMC(DiscreteHMCGibbs):
         num_discretes = self._support_sizes_flat.shape[0]
 
         def potential_fn(z_gibbs, z_hmc):
-            return self.inner_kernel._potential_fn_gen(
-                *model_args, _gibbs_sites=z_gibbs, **model_kwargs)(z_hmc)
+            return self.inner_kernel._potential_fn_gen(*model_args, _gibbs_sites=z_gibbs, **model_kwargs)(z_hmc)
 
         def update_discrete(idx, rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum):
             # Algo 1, line 19: get a new discrete proposal
-            rng_key, z_discrete_new, pe_new, log_accept_ratio = self._discrete_proposal_fn(
-                rng_key, z_discrete, hmc_state.potential_energy,
-                partial(potential_fn, z_hmc=hmc_state.z), idx, self._support_sizes_flat[idx])
+            rng_key, z_discrete_new, pe_new, log_accept_ratio = self._discrete_proposal_fn(rng_key, z_discrete, hmc_state.potential_energy, partial(potential_fn, z_hmc=hmc_state.z), idx, self._support_sizes_flat[idx])
             # Algo 1, line 20: depending on reject or refract, we will update
             # the discrete variable and its corresponding kinetic energy. In case of
             # refract, we will need to update the potential energy and its grad w.r.t. hmc_state.z
             ke_discrete_i_new = ke_discrete[idx] + log_accept_ratio
             grad_ = jacfwd if self.inner_kernel._forward_mode_differentiation else grad
-            z_discrete, pe, ke_discrete_i, z_grad = lax.cond(
-                ke_discrete_i_new > 0,
-                (z_discrete_new, pe_new, ke_discrete_i_new),
-                lambda vals: vals + (grad_(partial(potential_fn, vals[0]))(hmc_state.z),),
-                (z_discrete, hmc_state.potential_energy, ke_discrete[idx], hmc_state.z_grad),
-                identity)
+            z_discrete, pe, ke_discrete_i, z_grad = lax.cond(ke_discrete_i_new > 0, (z_discrete_new, pe_new, ke_discrete_i_new), lambda vals: vals + (grad_(partial(potential_fn, vals[0]))(hmc_state.z),), (z_discrete, hmc_state.potential_energy, ke_discrete[idx], hmc_state.z_grad), identity)
 
             delta_pe_sum = delta_pe_sum + pe - hmc_state.potential_energy
             ke_discrete = ops.index_update(ke_discrete, idx, ke_discrete_i)
@@ -133,9 +120,7 @@ class MixedHMC(DiscreteHMCGibbs):
             # each time a sub-trajectory is performed, we need to reset i and adapt_state
             # (we will only update them at the end of HMCGibbs step)
             # For `num_steps`, we will record its cumulative sum for diagnostics
-            hmc_state = hmc_state_new._replace(i=hmc_state.i,
-                                               adapt_state=hmc_state.adapt_state,
-                                               num_steps=hmc_state.num_steps + hmc_state_new.num_steps)
+            hmc_state = hmc_state_new._replace(i=hmc_state.i, adapt_state=hmc_state.adapt_state, num_steps=hmc_state.num_steps + hmc_state_new.num_steps)
             return hmc_state
 
         def body_fn(i, vals):
@@ -145,7 +130,7 @@ class MixedHMC(DiscreteHMCGibbs):
             # (see the note at total_time below)
             trajectory_length = arrival_times[idx] * time_unit
             arrival_times = arrival_times - arrival_times[idx]
-            arrival_times = ops.index_update(arrival_times, idx, 1.)
+            arrival_times = ops.index_update(arrival_times, idx, 1.0)
 
             # this is a trick, so that in a sub-trajectory of HMC, we always accept the new proposal
             pe = jnp.inf
@@ -153,8 +138,7 @@ class MixedHMC(DiscreteHMCGibbs):
             # Algo 1, line 7: perform a sub-trajectory
             hmc_state = update_continuous(hmc_state, z_discrete)
             # Algo 1, line 8: perform a discrete update
-            rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum = update_discrete(
-                idx, rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum)
+            rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum = update_discrete(idx, rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum)
             return rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum, arrival_times
 
         z_discrete = {k: v for k, v in state.z.items() if k not in state.hmc_state.z}
@@ -166,8 +150,7 @@ class MixedHMC(DiscreteHMCGibbs):
         # the same job: the sub-trajectory length eta_t * M_t is the lag between two arrival time.
         arrival_times = random.uniform(rng_time, (num_discretes,))
         # compute the amount of time to make `num_discrete_updates` discrete updates
-        total_time = (self._num_discrete_updates - 1) // num_discretes \
-            + jnp.sort(arrival_times)[(self._num_discrete_updates - 1) % num_discretes]
+        total_time = (self._num_discrete_updates - 1) // num_discretes + jnp.sort(arrival_times)[(self._num_discrete_updates - 1) % num_discretes]
         # NB: total_time can be different from the HMC trajectory length, so we need to scale
         # the time unit so that total_time * time_unit = hmc_trajectory_length
         time_unit = state.hmc_state.trajectory_length / total_time
@@ -180,11 +163,10 @@ class MixedHMC(DiscreteHMCGibbs):
         energy_old = hmc_ke + hmc_state.potential_energy
 
         # Algo 1, line 3: set initial values
-        delta_pe_sum = 0.
+        delta_pe_sum = 0.0
         init_val = (rng_key, hmc_state, z_discrete, ke_discrete, delta_pe_sum, arrival_times)
         # Algo 1, line 6-9: perform the update loop
-        rng_key, hmc_state_new, z_discrete_new, _, delta_pe_sum, _ = fori_loop(
-            0, self._num_discrete_updates, body_fn, init_val)
+        rng_key, hmc_state_new, z_discrete_new, _, delta_pe_sum, _ = fori_loop(0, self._num_discrete_updates, body_fn, init_val)
         # Algo 1, line 10: compute the proposal energy
         hmc_ke = euclidean_kinetic_energy(hmc_state.adapt_state.inverse_mass_matrix, hmc_state_new.r)
         energy_new = hmc_ke + hmc_state_new.potential_energy
@@ -197,25 +179,16 @@ class MixedHMC(DiscreteHMCGibbs):
         hmc_state = hmc_state._replace(num_steps=hmc_state_new.num_steps)
         # reset the trajectory length
         hmc_state_new = hmc_state_new._replace(trajectory_length=hmc_state.trajectory_length)
-        hmc_state, z_discrete = cond(random.bernoulli(rng_key, accept_prob),
-                                     (hmc_state_new, z_discrete_new), identity,
-                                     (hmc_state, z_discrete), identity)
+        hmc_state, z_discrete = cond(random.bernoulli(rng_key, accept_prob), (hmc_state_new, z_discrete_new), identity, (hmc_state, z_discrete), identity)
 
         # perform hmc adapting (similar to the implementation in hmc)
-        adapt_state = cond(hmc_state.i < self._num_warmup,
-                           (hmc_state.i, accept_prob, (hmc_state.z,), hmc_state.adapt_state),
-                           lambda args: self._wa_update(*args),
-                           hmc_state.adapt_state,
-                           identity)
+        adapt_state = cond(hmc_state.i < self._num_warmup, (hmc_state.i, accept_prob, (hmc_state.z,), hmc_state.adapt_state), lambda args: self._wa_update(*args), hmc_state.adapt_state, identity)
 
         itr = hmc_state.i + 1
         n = jnp.where(hmc_state.i < self._num_warmup, itr, itr - self._num_warmup)
         mean_accept_prob_prev = state.hmc_state.mean_accept_prob
         mean_accept_prob = mean_accept_prob_prev + (accept_prob - mean_accept_prob_prev) / n
-        hmc_state = hmc_state._replace(i=itr,
-                                       accept_prob=accept_prob,
-                                       mean_accept_prob=mean_accept_prob,
-                                       adapt_state=adapt_state)
+        hmc_state = hmc_state._replace(i=itr, accept_prob=accept_prob, mean_accept_prob=mean_accept_prob, adapt_state=adapt_state)
 
         z = {**z_discrete, **hmc_state.z}
         return MixedHMCState(z, hmc_state, rng_key, accept_prob)

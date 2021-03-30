@@ -17,15 +17,7 @@ from numpyro.primitives import plate as OrigPlateMessenger
 funsor.set_backend("jax")
 
 
-__all__ = [
-    "enum",
-    "infer_config",
-    "markov",
-    "plate",
-    "to_data",
-    "to_funsor",
-    "trace",
-]
+__all__ = ["enum", "infer_config", "markov", "plate", "to_data", "to_funsor", "trace"]
 
 
 ##################################
@@ -33,14 +25,7 @@ __all__ = [
 ##################################
 
 # name_to_dim : dict, dim_to_name : dict, parents : tuple, iter_parents : tuple
-class StackFrame(namedtuple('StackFrame', [
-            'name_to_dim',
-            'dim_to_name',
-            'parents',
-            'iter_parents',
-            'keep',
-        ])):
-
+class StackFrame(namedtuple("StackFrame", ["name_to_dim", "dim_to_name", "parents", "iter_parents", "keep"])):
     def read(self, name, dim):
         found_name = self.dim_to_name.get(dim, name)
         found_dim = self.name_to_dim.get(name, dim)
@@ -60,14 +45,15 @@ class StackFrame(namedtuple('StackFrame', [
 
 class DimType(Enum):
     """Enumerates the possible types of dimensions to allocate"""
+
     LOCAL = 0
     GLOBAL = 1
     VISIBLE = 2
 
 
-DimRequest = namedtuple('DimRequest', ['dim', 'dim_type'])
+DimRequest = namedtuple("DimRequest", ["dim", "dim_type"])
 DimRequest.__new__.__defaults__ = (None, DimType.LOCAL)
-NameRequest = namedtuple('NameRequest', ['name', 'dim_type'])
+NameRequest = namedtuple("NameRequest", ["name", "dim_type"])
 NameRequest.__new__.__defaults__ = (None, DimType.LOCAL)
 
 
@@ -78,11 +64,9 @@ class DimStack:
     Replaces the plate DimAllocator, the enum EnumAllocator, the stack in MarkovMessenger,
     _param_dims and _value_dims in EnumMessenger, and dim_to_symbol in msg['infer']
     """
+
     def __init__(self):
-        self._stack = [StackFrame(
-            name_to_dim=OrderedDict(), dim_to_name=OrderedDict(),
-            parents=(), iter_parents=(), keep=False,
-        )]
+        self._stack = [StackFrame(name_to_dim=OrderedDict(), dim_to_name=OrderedDict(), parents=(), iter_parents=(), keep=False)]
         self._first_available_dim = -1
         self.outermost = None
 
@@ -117,8 +101,7 @@ class DimStack:
         else:
             fresh_name = name_request.name
 
-        conflict_frames = (self.current_frame, self.global_frame) + \
-            self.current_frame.parents + self.current_frame.iter_parents
+        conflict_frames = (self.current_frame, self.global_frame) + self.current_frame.parents + self.current_frame.iter_parents
         if dim_request.dim is None:
             fresh_dim = self._first_available_dim if dim_type != DimType.VISIBLE else -1
             fresh_dim = -1 if fresh_dim is None else fresh_dim
@@ -127,9 +110,7 @@ class DimStack:
         else:
             fresh_dim = dim_request.dim
 
-        if fresh_dim < self.MAX_DIM or \
-                any(fresh_dim in p.dim_to_name for p in conflict_frames) or \
-                (dim_type == DimType.VISIBLE and fresh_dim <= self._first_available_dim):
+        if fresh_dim < self.MAX_DIM or any(fresh_dim in p.dim_to_name for p in conflict_frames) or (dim_type == DimType.VISIBLE and fresh_dim <= self._first_available_dim):
             raise ValueError(f"Ran out of free dims during allocation for {fresh_name}")
 
         return fresh_name, fresh_dim
@@ -141,8 +122,7 @@ class DimStack:
         elif isinstance(name, NameRequest):
             name, dim_type = name.name, name.dim_type
 
-        read_frames = (self.global_frame,) if dim_type != DimType.LOCAL else \
-            (self.current_frame,) + self.current_frame.parents + self.current_frame.iter_parents + (self.global_frame,)
+        read_frames = (self.global_frame,) if dim_type != DimType.LOCAL else (self.current_frame,) + self.current_frame.parents + self.current_frame.iter_parents + (self.global_frame,)
 
         # read dimension
         for frame in read_frames:
@@ -154,8 +134,7 @@ class DimStack:
         if not found:
             name, dim = self._gendim(NameRequest(name, dim_type), DimRequest(dim, dim_type))
 
-            write_frames = (self.global_frame,) if dim_type != DimType.LOCAL else \
-                (self.current_frame,) + (self.current_frame.parents if self.current_frame.keep else ())
+            write_frames = (self.global_frame,) if dim_type != DimType.LOCAL else (self.current_frame,) + (self.current_frame.parents if self.current_frame.keep else ())
 
             # store the fresh dimension
             for frame in write_frames:
@@ -170,6 +149,7 @@ _DIM_STACK = DimStack()  # only one global instance
 #################################################
 # Messengers that implement guts of enumeration
 #################################################
+
 
 class ReentrantMessenger(Messenger):
     def __init__(self, fn=None):
@@ -192,7 +172,6 @@ class ReentrantMessenger(Messenger):
 
 
 class DimStackCleanupMessenger(ReentrantMessenger):
-
     def __init__(self, fn=None):
         self._saved_dims = ()
         return super().__init__(fn)
@@ -214,7 +193,6 @@ class DimStackCleanupMessenger(ReentrantMessenger):
 
 
 class NamedMessenger(DimStackCleanupMessenger):
-
     def process_message(self, msg):
         if msg["type"] == "to_funsor":
             self._pyro_to_funsor(msg)
@@ -239,7 +217,7 @@ class NamedMessenger(DimStackCleanupMessenger):
     @classmethod  # only depends on the global _DIM_STACK state, not self
     def _pyro_to_data(cls, msg):
 
-        funsor_value, = msg["args"]
+        (funsor_value,) = msg["args"]
         name_to_dim = msg["kwargs"].setdefault("name_to_dim", OrderedDict())
         dim_type = msg["kwargs"].setdefault("dim_type", DimType.LOCAL)
 
@@ -282,7 +260,7 @@ class NamedMessenger(DimStackCleanupMessenger):
         try:
             batch_shape = raw_value.batch_shape  # TODO make make this more robust
         except AttributeError:
-            batch_shape = raw_value.shape[:len(raw_value.shape) - event_dim]
+            batch_shape = raw_value.shape[: len(raw_value.shape) - event_dim]
 
         dim_to_name.update(cls._get_dim_to_name(batch_shape, dim_to_name=dim_to_name, dim_type=dim_type))
         msg["stop"] = True  # only need to run this once per to_funsor call
@@ -300,6 +278,7 @@ class LocalNamedMessenger(NamedMessenger):
         level can depend on each other; if ``keep=False``, neighboring branches
         are independent (conditioned on their shared ancestors).
     """
+
     def __init__(self, fn=None, history=1, keep=False):
         self.history = history
         self.keep = keep
@@ -335,12 +314,7 @@ class LocalNamedMessenger(NamedMessenger):
         else:
             name_to_dim, dim_to_name = OrderedDict(), OrderedDict()
 
-        frame = StackFrame(
-            name_to_dim=name_to_dim, dim_to_name=dim_to_name,
-            parents=tuple(reversed(_DIM_STACK._stack[len(_DIM_STACK._stack) - self.history:])),
-            iter_parents=tuple(self._iter_parents),
-            keep=self.keep
-        )
+        frame = StackFrame(name_to_dim=name_to_dim, dim_to_name=dim_to_name, parents=tuple(reversed(_DIM_STACK._stack[len(_DIM_STACK._stack) - self.history :])), iter_parents=tuple(self._iter_parents), keep=self.keep)
 
         _DIM_STACK.push(frame)
         return super().__enter__()
@@ -349,10 +323,7 @@ class LocalNamedMessenger(NamedMessenger):
         if self.keep:
             # don't keep around references to other frames
             old_frame = _DIM_STACK.pop()
-            saved_frame = StackFrame(
-                name_to_dim=old_frame.name_to_dim, dim_to_name=old_frame.dim_to_name,
-                parents=(), iter_parents=(), keep=self.keep
-            )
+            saved_frame = StackFrame(name_to_dim=old_frame.name_to_dim, dim_to_name=old_frame.dim_to_name, parents=(), iter_parents=(), keep=self.keep)
             self._saved_frames.append(saved_frame)
         else:
             _DIM_STACK.pop()
@@ -360,7 +331,6 @@ class LocalNamedMessenger(NamedMessenger):
 
 
 class GlobalNamedMessenger(NamedMessenger):
-
     def __init__(self, fn=None):
         self._saved_globals = ()
         super().__init__(fn)
@@ -399,6 +369,7 @@ class BaseEnumMessenger(NamedMessenger):
     """
     Handles first_available_dim management, enum effects should inherit from this
     """
+
     def __init__(self, fn=None, first_available_dim=None):
         assert first_available_dim is None or first_available_dim < 0, first_available_dim
         self.first_available_dim = first_available_dim
@@ -419,6 +390,7 @@ class BaseEnumMessenger(NamedMessenger):
 # User-facing handler implementations
 ##########################################
 
+
 class plate(GlobalNamedMessenger):
     """
     An alternative implementation of :class:`numpyro.primitives.plate` primitive. Note
@@ -437,18 +409,15 @@ class plate(GlobalNamedMessenger):
         is used as the plate dim. If `None` (default), the leftmost available dim
         is allocated.
     """
+
     def __init__(self, name, size, subsample_size=None, dim=None):
         self.name = name
         self.size = size
         if dim is not None and dim >= 0:
-            raise ValueError('dim arg must be negative.')
+            raise ValueError("dim arg must be negative.")
         self.dim, indices = OrigPlateMessenger._subsample(self.name, self.size, subsample_size, dim)
         self.subsample_size = indices.shape[0]
-        self._indices = funsor.Tensor(
-            indices,
-            OrderedDict([(self.name, funsor.Bint[self.subsample_size])]),
-            self.subsample_size
-        )
+        self._indices = funsor.Tensor(indices, OrderedDict([(self.name, funsor.Bint[self.subsample_size])]), self.subsample_size)
         super(plate, self).__init__(None)
 
     def __enter__(self):
@@ -489,9 +458,7 @@ class plate(GlobalNamedMessenger):
                             statement = "numpyro.param({}, ..., event_dim={})".format(msg["name"], event_dim)
                         else:
                             statement = "numpyro.subsample(..., event_dim={})".format(event_dim)
-                        raise ValueError(
-                            "Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}"
-                            .format(self.name, self.size, self.dim, statement, shape))
+                        raise ValueError("Inside numpyro.plate({}, {}, dim={}) invalid shape of {}: {}".format(self.name, self.size, self.dim, statement, shape))
                     if self.subsample_size < self.size:
                         value = msg["value"]
                         new_value = jnp.take(value, self.indices, dim)
@@ -509,10 +476,9 @@ class enum(BaseEnumMessenger):
         dimension and all dimensions left may be used internally by Pyro.
         This should be a negative integer or None.
     """
+
     def process_message(self, msg):
-        if msg["type"] != "sample" or \
-                msg.get("done", False) or msg["is_observed"] or msg["infer"].get("expand", False) or \
-                msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
+        if msg["type"] != "sample" or msg.get("done", False) or msg["is_observed"] or msg["infer"].get("expand", False) or msg["infer"].get("enumerate") != "parallel" or (not msg["fn"].has_enumerate_support):
             if msg["type"] == "control_flow":
                 msg["kwargs"]["enum"] = True
                 msg["kwargs"]["first_available_dim"] = self.first_available_dim
@@ -526,11 +492,7 @@ class enum(BaseEnumMessenger):
 
         size = msg["fn"].enumerate_support(expand=False).shape[0]
         raw_value = jnp.arange(0, size)
-        funsor_value = funsor.Tensor(
-            raw_value,
-            OrderedDict([(msg["name"], funsor.Bint[size])]),
-            size
-        )
+        funsor_value = funsor.Tensor(raw_value, OrderedDict([(msg["name"], funsor.Bint[size])]), size)
 
         msg["value"] = to_data(funsor_value)
         msg["done"] = True
@@ -544,12 +506,10 @@ class trace(OrigTraceMessenger):
     Each sample site is annotated with a "dim_to_name" dictionary,
     which can be passed directly to :func:`to_funsor`.
     """
+
     def postprocess_message(self, msg):
         if msg["type"] == "sample":
-            total_batch_shape = lax.broadcast_shapes(
-                tuple(msg["fn"].batch_shape),
-                jnp.shape(msg["value"])[:jnp.ndim(msg["value"]) - msg["fn"].event_dim]
-            )
+            total_batch_shape = lax.broadcast_shapes(tuple(msg["fn"].batch_shape), jnp.shape(msg["value"])[: jnp.ndim(msg["value"]) - msg["fn"].event_dim])
             msg["infer"]["dim_to_name"] = NamedMessenger._get_dim_to_name(total_batch_shape)
             msg["infer"]["name_to_dim"] = {name: dim for dim, name in msg["infer"]["dim_to_name"].items()}
         if msg["type"] in ("sample", "param"):
@@ -580,6 +540,7 @@ def markov(fn=None, history=1, keep=False):
 # New primitives
 ####################
 
+
 def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
     """
     A primitive to convert a Python object to a :class:`~funsor.terms.Funsor`.
@@ -597,17 +558,10 @@ def to_funsor(x, output=None, dim_to_name=None, dim_type=DimType.LOCAL):
     """
     dim_to_name = OrderedDict() if dim_to_name is None else dim_to_name
 
-    initial_msg = {
-        'type': 'to_funsor',
-        'fn': lambda x, output, dim_to_name, dim_type: funsor.to_funsor(x, output=output, dim_to_name=dim_to_name),
-        'args': (x,),
-        'kwargs': {"output": output, "dim_to_name": dim_to_name, "dim_type": dim_type},
-        'value': None,
-        'mask': None,
-    }
+    initial_msg = {"type": "to_funsor", "fn": lambda x, output, dim_to_name, dim_type: funsor.to_funsor(x, output=output, dim_to_name=dim_to_name), "args": (x,), "kwargs": {"output": output, "dim_to_name": dim_to_name, "dim_type": dim_type}, "value": None, "mask": None}
 
     msg = apply_stack(initial_msg)
-    return msg['value']
+    return msg["value"]
 
 
 def to_data(x, name_to_dim=None, dim_type=DimType.LOCAL):
@@ -624,14 +578,7 @@ def to_data(x, name_to_dim=None, dim_type=DimType.LOCAL):
     """
     name_to_dim = OrderedDict() if name_to_dim is None else name_to_dim
 
-    initial_msg = {
-        'type': 'to_data',
-        'fn': lambda x, name_to_dim, dim_type: funsor.to_data(x, name_to_dim=name_to_dim),
-        'args': (x,),
-        'kwargs': {"name_to_dim": name_to_dim, "dim_type": dim_type},
-        'value': None,
-        'mask': None,
-    }
+    initial_msg = {"type": "to_data", "fn": lambda x, name_to_dim, dim_type: funsor.to_data(x, name_to_dim=name_to_dim), "args": (x,), "kwargs": {"name_to_dim": name_to_dim, "dim_type": dim_type}, "value": None, "mask": None}
 
     msg = apply_stack(initial_msg)
-    return msg['value']
+    return msg["value"]

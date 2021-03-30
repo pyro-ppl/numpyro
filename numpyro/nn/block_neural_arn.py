@@ -39,17 +39,13 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
         # Initialize each column block using W_init
         W = jnp.zeros((input_dim, out_dim))
         for i in range(num_blocks):
-            W = ops.index_add(
-                W,
-                ops.index[:(i + 1) * in_factor, i * out_factor:(i + 1) * out_factor],
-                W_init(k1[i], ((i + 1) * in_factor, out_factor))
-            )
+            W = ops.index_add(W, ops.index[: (i + 1) * in_factor, i * out_factor : (i + 1) * out_factor], W_init(k1[i], ((i + 1) * in_factor, out_factor)))
 
         # initialize weight scale
-        ws = jnp.log(uniform(1.)(k2, (out_dim,)))
+        ws = jnp.log(uniform(1.0)(k2, (out_dim,)))
 
         if bias:
-            b = (uniform(1.)(k3, (out_dim,)) - 0.5) * (2 / jnp.sqrt(out_dim))
+            b = (uniform(1.0)(k3, (out_dim,)) - 0.5) * (2 / jnp.sqrt(out_dim))
             params = (W, ws, b)
         else:
             params = (W, ws)
@@ -93,13 +89,14 @@ def Tanh():
 
     :return: an (`init_fn`, `update_fn`) pair.
     """
+
     def init_fun(rng, input_shape):
         return input_shape, ()
 
     def apply_fun(params, inputs, **kwargs):
         x, logdet = inputs
         out = jnp.tanh(x)
-        tanh_logdet = -2 * (x + softplus(-2 * x) - jnp.log(2.))
+        tanh_logdet = -2 * (x + softplus(-2 * x) - jnp.log(2.0))
         # logdet.shape = batch_shape + (num_blocks, in_factor, out_factor)
         # tanh_logdet.shape = batch_shape + (num_blocks x out_factor,)
         # so we need to reshape tanh_logdet to: batch_shape + (num_blocks, 1, out_factor)
@@ -116,6 +113,7 @@ def FanInResidualNormal():
 
     :return: an (`init_fn`, `update_fn`) pair.
     """
+
     def init_fun(rng, input_shape):
         return input_shape[0], ()
 
@@ -127,7 +125,7 @@ def FanInResidualNormal():
     return init_fun, apply_fun
 
 
-def FanInResidualGated(gate_init=normal(1.)):
+def FanInResidualGated(gate_init=normal(1.0)):
     """
     Similar to FanInNormal uses a learnable parameter `gate` to interpolate two fan-in branches.
     It is required that the second fan-in branch is identity.
@@ -135,6 +133,7 @@ def FanInResidualGated(gate_init=normal(1.)):
     :param gate_init: initialization method for the gate.
     :return: an (`init_fn`, `update_fn`) pair.
     """
+
     def init_fun(rng, input_shape):
         return input_shape[0], gate_init(rng, ())
 

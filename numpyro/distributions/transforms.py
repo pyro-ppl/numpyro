@@ -19,34 +19,12 @@ from numpyro.distributions import constraints
 from numpyro.distributions.util import matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost, vec_to_tril_matrix
 from numpyro.util import not_jax_tracer
 
-__all__ = [
-    'biject_to',
-    'AbsTransform',
-    'AffineTransform',
-    'CholeskyTransform',
-    'ComposeTransform',
-    'CorrCholeskyTransform',
-    'CorrMatrixCholeskyTransform',
-    'ExpTransform',
-    'SoftplusTransform',
-    'IdentityTransform',
-    'InvCholeskyTransform',
-    'LowerCholeskyTransform',
-    'LowerCholeskyAffine',
-    'PermuteTransform',
-    'PowerTransform',
-    'SigmoidTransform',
-    'SoftplusTransform',
-    'SoftplusLowerCholeskyTransform',
-    'StickBreakingTransform',
-    'Transform',
-    'UnpackTransform',
-]
+__all__ = ["biject_to", "AbsTransform", "AffineTransform", "CholeskyTransform", "ComposeTransform", "CorrCholeskyTransform", "CorrMatrixCholeskyTransform", "ExpTransform", "SoftplusTransform", "IdentityTransform", "InvCholeskyTransform", "LowerCholeskyTransform", "LowerCholeskyAffine", "PermuteTransform", "PowerTransform", "SigmoidTransform", "SoftplusTransform", "SoftplusLowerCholeskyTransform", "StickBreakingTransform", "Transform", "UnpackTransform"]
 
 
 def _clipped_expit(x):
     finfo = jnp.finfo(jnp.result_type(x))
-    return jnp.clip(expit(x), a_min=finfo.tiny, a_max=1. - finfo.eps)
+    return jnp.clip(expit(x), a_min=finfo.tiny, a_max=1.0 - finfo.eps)
 
 
 class Transform(object):
@@ -56,9 +34,7 @@ class Transform(object):
 
     @property
     def event_dim(self):
-        warnings.warn("transform.event_dim is deprecated. Please use Transform.domain.event_dim to "
-                      "get input event dim or Transform.codomain.event_dim to get output event dim.",
-                      FutureWarning)
+        warnings.warn("transform.event_dim is deprecated. Please use Transform.domain.event_dim to " "get input event dim or Transform.codomain.event_dim to get output event dim.", FutureWarning)
         return self.domain.event_dim
 
     @property
@@ -148,6 +124,7 @@ class AffineTransform(Transform):
     .. note:: When `scale` is a JAX tracer, we always assume that `scale > 0`
         when calculating `codomain`.
     """
+
     def __init__(self, loc, scale, domain=constraints.real):
         self.loc = loc
         self.scale = scale
@@ -171,11 +148,9 @@ class AffineTransform(Transform):
                 return constraints.less_than(self(self.domain.upper_bound))
         elif isinstance(self.domain, constraints.interval):
             if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
-                return constraints.interval(self(self.domain.upper_bound),
-                                            self(self.domain.lower_bound))
+                return constraints.interval(self(self.domain.upper_bound), self(self.domain.lower_bound))
             else:
-                return constraints.interval(self(self.domain.lower_bound),
-                                            self(self.domain.upper_bound))
+                return constraints.interval(self(self.domain.lower_bound), self(self.domain.upper_bound))
         else:
             raise NotImplementedError
 
@@ -189,19 +164,15 @@ class AffineTransform(Transform):
         return jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x))
 
     def forward_shape(self, shape):
-        return lax.broadcast_shapes(shape,
-                                    getattr(self.loc, "shape", ()),
-                                    getattr(self.scale, "shape", ()))
+        return lax.broadcast_shapes(shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ()))
 
     def inverse_shape(self, shape):
-        return lax.broadcast_shapes(shape,
-                                    getattr(self.loc, "shape", ()),
-                                    getattr(self.scale, "shape", ()))
+        return lax.broadcast_shapes(shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ()))
 
 
 def _get_compose_transform_input_event_dim(parts):
     input_event_dim = parts[-1].domain.event_dim
-    for part in parts[len(parts) - 1::-1]:
+    for part in parts[len(parts) - 1 :: -1]:
         input_event_dim = part.domain.event_dim + max(input_event_dim - part.codomain.event_dim, 0)
     return input_event_dim
 
@@ -250,10 +221,9 @@ class ComposeTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         if intermediates is not None:
             if len(intermediates) != len(self.parts):
-                raise ValueError('Intermediates array has length = {}. Expected = {}.'
-                                 .format(len(intermediates), len(self.parts)))
+                raise ValueError("Intermediates array has length = {}. Expected = {}.".format(len(intermediates), len(self.parts)))
 
-        result = 0.
+        result = 0.0
         input_event_dim = self.domain.event_dim
         for i, part in enumerate(self.parts[:-1]):
             y_tmp = part(x) if intermediates is None else intermediates[i][0]
@@ -374,10 +344,8 @@ class CorrCholeskyTransform(Transform):
         z1m_cumprod = 1 - jnp.cumsum(y * y, axis=-1)
         pad_width = [(0, 0)] * y.ndim
         pad_width[-1] = (1, 0)
-        z1m_cumprod_shifted = jnp.pad(z1m_cumprod[..., :-1], pad_width,
-                                      mode="constant", constant_values=1.)
-        t = matrix_to_tril_vec(y, diagonal=-1) / jnp.sqrt(
-            matrix_to_tril_vec(z1m_cumprod_shifted, diagonal=-1))
+        z1m_cumprod_shifted = jnp.pad(z1m_cumprod[..., :-1], pad_width, mode="constant", constant_values=1.0)
+        t = matrix_to_tril_vec(y, diagonal=-1) / jnp.sqrt(matrix_to_tril_vec(z1m_cumprod_shifted, diagonal=-1))
         # inverse of tanh
         x = jnp.log((1 + t) / (1 - t)) / 2
         return x
@@ -394,7 +362,7 @@ class CorrCholeskyTransform(Transform):
         z1m_cumprod_tril = matrix_to_tril_vec(z1m_cumprod, diagonal=-2)
         stick_breaking_logdet = 0.5 * jnp.sum(jnp.log(z1m_cumprod_tril), axis=-1)
 
-        tanh_logdet = -2 * jnp.sum(x + softplus(-2 * x) - jnp.log(2.), axis=-1)
+        tanh_logdet = -2 * jnp.sum(x + softplus(-2 * x) - jnp.log(2.0), axis=-1)
         return stick_breaking_logdet + tanh_logdet
 
     def forward_shape(self, shape):
@@ -432,8 +400,7 @@ class ExpTransform(Transform):
         elif isinstance(self.domain, constraints.greater_than):
             return constraints.greater_than(self.__call__(self.domain.lower_bound))
         elif isinstance(self.domain, constraints.interval):
-            return constraints.interval(self.__call__(self.domain.lower_bound),
-                                        self.__call__(self.domain.upper_bound))
+            return constraints.interval(self.__call__(self.domain.lower_bound), self.__call__(self.domain.upper_bound))
         else:
             raise NotImplementedError
 
@@ -449,7 +416,6 @@ class ExpTransform(Transform):
 
 
 class IdentityTransform(Transform):
-
     def __call__(self, x):
         return x
 
@@ -466,6 +432,7 @@ class IndependentTransform(Transform):
     dims in :meth:`check`, so that an event is valid only if all its
     independent entries are valid.
     """
+
     def __init__(self, base_transform, reinterpreted_batch_ndims):
         assert isinstance(base_transform, Transform)
         assert isinstance(reinterpreted_batch_ndims, int)
@@ -512,8 +479,7 @@ class InvCholeskyTransform(Transform):
     """
 
     def __init__(self, domain=constraints.lower_cholesky):
-        warnings.warn("InvCholeskyTransform is deprecated. Please use CholeskyTransform"
-                      " or CorrMatrixCholeskyTransform instead.", FutureWarning)
+        warnings.warn("InvCholeskyTransform is deprecated. Please use CholeskyTransform" " or CorrMatrixCholeskyTransform instead.", FutureWarning)
         assert domain in [constraints.lower_cholesky, constraints.corr_cholesky]
         self.domain = domain
 
@@ -555,9 +521,7 @@ class LowerCholeskyAffine(Transform):
 
     def __init__(self, loc, scale_tril):
         if jnp.ndim(scale_tril) != 2:
-            raise ValueError("Only support 2-dimensional scale_tril matrix. "
-                             "Please make a feature request if you need to "
-                             "use this transform with batched scale_tril.")
+            raise ValueError("Only support 2-dimensional scale_tril matrix. " "Please make a feature request if you need to " "use this transform with batched scale_tril.")
         self.loc = loc
         self.scale_tril = scale_tril
 
@@ -572,8 +536,7 @@ class LowerCholeskyAffine(Transform):
         return jnp.reshape(xt.T, original_shape)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return jnp.broadcast_to(jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
-                                jnp.shape(x)[:-1])
+        return jnp.broadcast_to(jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1), jnp.shape(x)[:-1])
 
     def forward_shape(self, shape):
         if len(shape) < 1:
@@ -621,6 +584,7 @@ class OrderedTransform(Transform):
     1. *Stan Reference Manual v2.20, section 10.6*,
        Stan Development Team
     """
+
     domain = constraints.real_vector
     codomain = constraints.ordered_vector
 
@@ -648,13 +612,11 @@ class PermuteTransform(Transform):
 
     def _inverse(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(jnp.zeros(size, dtype=jnp.result_type(int)),
-                                           self.permutation,
-                                           jnp.arange(size))
+        permutation_inv = ops.index_update(jnp.zeros(size, dtype=jnp.result_type(int)), self.permutation, jnp.arange(size))
         return y[..., permutation_inv]
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return jnp.full(jnp.shape(x)[:-1], 0.)
+        return jnp.full(jnp.shape(x)[:-1], 0.0)
 
 
 class PowerTransform(Transform):
@@ -722,6 +684,7 @@ class SoftplusLowerCholeskyTransform(Transform):
     nonnegative diagonal entries. This is useful for parameterizing positive
     definite matrices in terms of their Cholesky factorization.
     """
+
     domain = constraints.real_vector
     codomain = constraints.softplus_lower_cholesky
 
@@ -760,10 +723,10 @@ class StickBreakingTransform(Transform):
         z1m_cumprod = jnp.cumprod(1 - z, axis=-1)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (0, 1)
-        z_padded = jnp.pad(z, pad_width, mode="constant", constant_values=1.)
+        z_padded = jnp.pad(z, pad_width, mode="constant", constant_values=1.0)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (1, 0)
-        z1m_cumprod_shifted = jnp.pad(z1m_cumprod, pad_width, mode="constant", constant_values=1.)
+        z1m_cumprod_shifted = jnp.pad(z1m_cumprod, pad_width, mode="constant", constant_values=1.0)
         return z_padded * z1m_cumprod_shifted
 
     def _inverse(self, y):
@@ -799,6 +762,7 @@ class UnpackTransform(Transform):
 
     :param unpack_fn: callable used to unpack a contiguous array.
     """
+
     domain = constraints.real_vector
     codomain = constraints.dependent
 
@@ -814,13 +778,11 @@ class UnpackTransform(Transform):
             return self.unpack_fn(x)
 
     def _inverse(self, y):
-        leading_dims = [v.shape[0] if jnp.ndim(v) > 0 else 0
-                        for v in tree_flatten(y)[0]]
+        leading_dims = [v.shape[0] if jnp.ndim(v) > 0 else 0 for v in tree_flatten(y)[0]]
         d0 = leading_dims[0]
         not_scalar = d0 > 0 or len(leading_dims) > 1
         if not_scalar and all(d == d0 for d in leading_dims[1:]):
-            warnings.warn("UnpackTransform.inv might lead to an unexpected behavior because it"
-                          " cannot transform a batch of unpacked arrays.")
+            warnings.warn("UnpackTransform.inv might lead to an unexpected behavior because it" " cannot transform a batch of unpacked arrays.")
         return ravel_pytree(y)[0]
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -836,6 +798,7 @@ class UnpackTransform(Transform):
 ##########################################################
 # CONSTRAINT_REGISTRY
 ##########################################################
+
 
 class ConstraintRegistry(object):
     def __init__(self):
@@ -869,30 +832,24 @@ def _transform_to_corr_cholesky(constraint):
 
 @biject_to.register(constraints.corr_matrix)
 def _transform_to_corr_matrix(constraint):
-    return ComposeTransform([CorrCholeskyTransform(),
-                             CorrMatrixCholeskyTransform().inv])
+    return ComposeTransform([CorrCholeskyTransform(), CorrMatrixCholeskyTransform().inv])
 
 
 @biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
     if constraint is constraints.positive:
         return ExpTransform()
-    return ComposeTransform([ExpTransform(),
-                             AffineTransform(constraint.lower_bound, 1,
-                                             domain=constraints.positive)])
+    return ComposeTransform([ExpTransform(), AffineTransform(constraint.lower_bound, 1, domain=constraints.positive)])
 
 
 @biject_to.register(constraints.less_than)
 def _transform_to_less_than(constraint):
-    return ComposeTransform([ExpTransform(),
-                             AffineTransform(constraint.upper_bound, -1,
-                                             domain=constraints.positive)])
+    return ComposeTransform([ExpTransform(), AffineTransform(constraint.upper_bound, -1, domain=constraints.positive)])
 
 
 @biject_to.register(constraints.independent)
 def _biject_to_independent(constraint):
-    return IndependentTransform(biject_to(constraint.base_constraint),
-                                constraint.reinterpreted_batch_ndims)
+    return IndependentTransform(biject_to(constraint.base_constraint), constraint.reinterpreted_batch_ndims)
 
 
 @biject_to.register(constraints.interval)
@@ -900,9 +857,7 @@ def _transform_to_interval(constraint):
     if constraint is constraints.unit_interval:
         return SigmoidTransform()
     scale = constraint.upper_bound - constraint.lower_bound
-    return ComposeTransform([SigmoidTransform(),
-                             AffineTransform(constraint.lower_bound, scale,
-                                             domain=constraints.unit_interval)])
+    return ComposeTransform([SigmoidTransform(), AffineTransform(constraint.lower_bound, scale, domain=constraints.unit_interval)])
 
 
 @biject_to.register(constraints.lower_cholesky)

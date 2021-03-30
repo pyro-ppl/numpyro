@@ -22,8 +22,7 @@ def _get_support_value(funsor_dist, name, **kwargs):
 
 @_get_support_value.register(funsor.cnf.Contraction)
 def _get_support_value_contraction(funsor_dist, name, **kwargs):
-    delta_terms = [v for v in funsor_dist.terms
-                   if isinstance(v, funsor.delta.Delta) and name in v.fresh]
+    delta_terms = [v for v in funsor_dist.terms if isinstance(v, funsor.delta.Delta) and name in v.fresh]
     assert len(delta_terms) == 1
     return _get_support_value(delta_terms[0], name, **kwargs)
 
@@ -40,14 +39,14 @@ def terms_from_trace(tr):
     log_measures = {}
     sum_vars, prod_vars = frozenset(), frozenset()
     for site in tr.values():
-        if site['type'] == 'sample':
-            value = site['value']
-            intermediates = site['intermediates']
-            scale = site['scale']
+        if site["type"] == "sample":
+            value = site["value"]
+            intermediates = site["intermediates"]
+            scale = site["scale"]
             if intermediates:
-                log_prob = site['fn'].log_prob(value, intermediates)
+                log_prob = site["fn"].log_prob(value, intermediates)
             else:
-                log_prob = site['fn'].log_prob(value)
+                log_prob = site["fn"].log_prob(value)
 
             if (scale is not None) and (not is_identically_one(scale)):
                 log_prob = scale * log_prob
@@ -55,15 +54,14 @@ def terms_from_trace(tr):
             dim_to_name = site["infer"]["dim_to_name"]
             log_prob_factor = funsor.to_funsor(log_prob, output=funsor.Real, dim_to_name=dim_to_name)
 
-            if site['is_observed']:
+            if site["is_observed"]:
                 log_factors[site["name"]] = log_prob_factor
             else:
                 log_measures[site["name"]] = log_prob_factor
-                sum_vars |= frozenset({site['name']})
-            prod_vars |= frozenset(f.name for f in site['cond_indep_stack'] if f.dim is not None)
+                sum_vars |= frozenset({site["name"]})
+            prod_vars |= frozenset(f.name for f in site["cond_indep_stack"] if f.dim is not None)
 
-    return {"log_factors": log_factors, "log_measures": log_measures,
-            "measure_vars": sum_vars, "plate_vars": prod_vars}
+    return {"log_factors": log_factors, "log_measures": log_measures, "measure_vars": sum_vars, "plate_vars": prod_vars}
 
 
 def _sample_posterior(model, first_available_dim, temperature, rng_key, *args, **kwargs):
@@ -93,12 +91,7 @@ def _sample_posterior(model, first_available_dim, temperature, rng_key, *args, *
     #                          for each latent sample site z]
 
     with funsor.interpretations.lazy:
-        log_prob = funsor.sum_product.sum_product(
-            sum_op, prod_op,
-            list(terms["log_factors"].values()) + list(terms["log_measures"].values()),
-            eliminate=terms["measure_vars"] | terms["plate_vars"],
-            plates=terms["plate_vars"]
-        )
+        log_prob = funsor.sum_product.sum_product(sum_op, prod_op, list(terms["log_factors"].values()) + list(terms["log_measures"].values()), eliminate=terms["measure_vars"] | terms["plate_vars"], plates=terms["plate_vars"])
         log_prob = funsor.optimizer.apply_optimizer(log_prob)
 
     with approx:
@@ -168,8 +161,5 @@ def infer_discrete(fn=None, first_available_dim=None, temperature=1, rng_key=Non
     if temperature == 1 or first_available_dim is None:
         assert rng_key is not None
     if fn is None:  # support use as a decorator
-        return functools.partial(infer_discrete,
-                                 first_available_dim=first_available_dim,
-                                 temperature=temperature,
-                                 rng_key=rng_key)
+        return functools.partial(infer_discrete, first_available_dim=first_available_dim, temperature=temperature, rng_key=rng_key)
     return functools.partial(_sample_posterior, fn, first_available_dim, temperature, rng_key)

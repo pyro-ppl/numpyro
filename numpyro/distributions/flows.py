@@ -28,10 +28,11 @@ class InverseAutoregressiveTransform(Transform):
     1. *Improving Variational Inference with Inverse Autoregressive Flow* [arXiv:1606.04934],
        Diederik P. Kingma, Tim Salimans, Rafal Jozefowicz, Xi Chen, Ilya Sutskever, Max Welling
     """
+
     domain = real_vector
     codomain = real_vector
 
-    def __init__(self, autoregressive_nn, log_scale_min_clip=-5., log_scale_max_clip=3.):
+    def __init__(self, autoregressive_nn, log_scale_min_clip=-5.0, log_scale_max_clip=3.0):
         """
         :param autoregressive_nn: an autoregressive neural network whose forward call returns a real-valued
             mean and log scale as a tuple
@@ -59,8 +60,7 @@ class InverseAutoregressiveTransform(Transform):
         # NOTE: Inversion is an expensive operation that scales in the dimension of the input
         def _update_x(i, x):
             mean, log_scale = self.arn(x)
-            inverse_scale = jnp.exp(-_clamp_preserve_gradients(
-                log_scale, min=self.log_scale_min_clip, max=self.log_scale_max_clip))
+            inverse_scale = jnp.exp(-_clamp_preserve_gradients(log_scale, min=self.log_scale_min_clip, max=self.log_scale_max_clip))
             x = (y - mean) * inverse_scale
             return x
 
@@ -92,6 +92,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
     1. *Block Neural Autoregressive Flow*,
        Nicola De Cao, Ivan Titov, Wilker Aziz
     """
+
     domain = real_vector
     codomain = real_vector
 
@@ -109,8 +110,7 @@ class BlockNeuralAutoregressiveTransform(Transform):
         return y, logdet
 
     def _inverse(self, y):
-        raise NotImplementedError("Block neural autoregressive transform does not have an analytic"
-                                  " inverse implemented.")
+        raise NotImplementedError("Block neural autoregressive transform does not have an analytic" " inverse implemented.")
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         """

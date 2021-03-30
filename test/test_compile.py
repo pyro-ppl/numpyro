@@ -22,8 +22,8 @@ def model(deterministic=True):
         numpyro.deterministic("x_copy", x)
 
 
-@pytest.mark.parametrize('deterministic', [True, False])
-@pytest.mark.parametrize('find_heuristic_step_size', [True, False])
+@pytest.mark.parametrize("deterministic", [True, False])
+@pytest.mark.parametrize("find_heuristic_step_size", [True, False])
 def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
     GLOBAL["count"] = 0
     mcmc = MCMC(NUTS(model, find_heuristic_step_size=find_heuristic_step_size), 100, 100)
@@ -37,7 +37,7 @@ def test_mcmc_one_chain(deterministic, find_heuristic_step_size):
         assert GLOBAL["count"] == 3 + num_traces_for_heuristic
 
 
-@pytest.mark.parametrize('deterministic', [True, False])
+@pytest.mark.parametrize("deterministic", [True, False])
 @pytest.mark.skipif(xla_bridge.device_count() < 2, reason="only one device is available")
 def test_mcmc_parallel_chain(deterministic):
     GLOBAL["count"] = 0
@@ -51,7 +51,7 @@ def test_mcmc_parallel_chain(deterministic):
         assert GLOBAL["count"] == 3
 
 
-@pytest.mark.parametrize('deterministic', [True, False])
+@pytest.mark.parametrize("deterministic", [True, False])
 def test_autoguide(deterministic):
     GLOBAL["count"] = 0
     guide = AutoDiagonalNormal(model)

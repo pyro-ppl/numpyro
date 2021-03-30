@@ -3,6 +3,4 @@
 
 from numpyro.contrib.control_flow.scan import scan
 
-__all__ = [
-    'scan',
-]
+__all__ = ["scan"]
