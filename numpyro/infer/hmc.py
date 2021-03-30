@@ -681,7 +681,7 @@ class HMC(MCMCKernel):
                 dense_mass = [tuple(sorted(z))] if dense_mass else []
             assert isinstance(dense_mass, list)
 
-        hmc_init_fn = lambda init_params, rng_key: self._init_fn(
+        hmc_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
             step_size=self._step_size,
@@ -697,7 +697,7 @@ class HMC(MCMCKernel):
             model_args=model_args,
             model_kwargs=model_kwargs,
             rng_key=rng_key,
-        )  # noqa: E731
+        )
         if rng_key.ndim == 1:
             init_state = hmc_init_fn(init_params, rng_key)
         else:

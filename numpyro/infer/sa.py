@@ -347,7 +347,7 @@ class SA(MCMCKernel):
             )
 
         # NB: init args is different from HMC
-        sa_init_fn = lambda init_params, rng_key: self._init_fn(
+        sa_init_fn = lambda init_params, rng_key: self._init_fn(  # noqa: E731
             init_params,
             num_warmup=num_warmup,
             adapt_state_size=self._adapt_state_size,
@@ -355,7 +355,7 @@ class SA(MCMCKernel):
             rng_key=rng_key,
             model_args=model_args,
             model_kwargs=model_kwargs,
-        )  # noqa: E731
+        )
         if rng_key.ndim == 1:
             init_state = sa_init_fn(init_params, rng_key)
         else:
