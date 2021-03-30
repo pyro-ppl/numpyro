@@ -30,22 +30,34 @@ def test_gaussian_mixture_model():
     def gmm(data):
         mix_proportions = numpyro.sample("phi", dist.Dirichlet(jnp.ones(K)))
         with numpyro.plate("num_clusters", K, dim=-1):
-            cluster_means = numpyro.sample("cluster_means", dist.Normal(jnp.arange(K), 1.0))
+            cluster_means = numpyro.sample(
+                "cluster_means", dist.Normal(jnp.arange(K), 1.0)
+            )
         with numpyro.plate("data", data.shape[0], dim=-1):
-            assignments = numpyro.sample("assignments", dist.Categorical(mix_proportions))
-            numpyro.sample("obs", dist.Normal(cluster_means[assignments], 1.0), obs=data)
+            assignments = numpyro.sample(
+                "assignments", dist.Categorical(mix_proportions)
+            )
+            numpyro.sample(
+                "obs", dist.Normal(cluster_means[assignments], 1.0), obs=data
+            )
 
     true_cluster_means = jnp.array([1.0, 5.0, 10.0])
     true_mix_proportions = jnp.array([0.1, 0.3, 0.6])
-    cluster_assignments = dist.Categorical(true_mix_proportions).sample(random.PRNGKey(0), (N,))
-    data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample(random.PRNGKey(1))
+    cluster_assignments = dist.Categorical(true_mix_proportions).sample(
+        random.PRNGKey(0), (N,)
+    )
+    data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample(
+        random.PRNGKey(1)
+    )
 
     nuts_kernel = NUTS(gmm)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
     mcmc.run(random.PRNGKey(2), data)
     samples = mcmc.get_samples()
     assert_allclose(samples["phi"].mean(0).sort(), true_mix_proportions, atol=0.05)
-    assert_allclose(samples["cluster_means"].mean(0).sort(), true_cluster_means, atol=0.2)
+    assert_allclose(
+        samples["cluster_means"].mean(0).sort(), true_cluster_means, atol=0.2
+    )
 
 
 def test_bernoulli_latent_model():
@@ -82,7 +94,84 @@ def test_change_point():
         with numpyro.plate("data", n_count_data):
             numpyro.sample("obs", dist.Poisson(lambda_), obs=count_data)
 
-    count_data = jnp.array([13, 24, 8, 24, 7, 35, 14, 11, 15, 11, 22, 22, 11, 57, 11, 19, 29, 6, 19, 12, 22, 12, 18, 72, 32, 9, 7, 13, 19, 23, 27, 20, 6, 17, 13, 10, 14, 6, 16, 15, 7, 2, 15, 15, 19, 70, 49, 7, 53, 22, 21, 31, 19, 11, 1, 20, 12, 35, 17, 23, 17, 4, 2, 31, 30, 13, 27, 0, 39, 37, 5, 14, 13, 22])
+    count_data = jnp.array(
+        [
+            13,
+            24,
+            8,
+            24,
+            7,
+            35,
+            14,
+            11,
+            15,
+            11,
+            22,
+            22,
+            11,
+            57,
+            11,
+            19,
+            29,
+            6,
+            19,
+            12,
+            22,
+            12,
+            18,
+            72,
+            32,
+            9,
+            7,
+            13,
+            19,
+            23,
+            27,
+            20,
+            6,
+            17,
+            13,
+            10,
+            14,
+            6,
+            16,
+            15,
+            7,
+            2,
+            15,
+            15,
+            19,
+            70,
+            49,
+            7,
+            53,
+            22,
+            21,
+            31,
+            19,
+            11,
+            1,
+            20,
+            12,
+            35,
+            17,
+            23,
+            17,
+            4,
+            2,
+            31,
+            30,
+            13,
+            27,
+            0,
+            39,
+            37,
+            5,
+            14,
+            13,
+            22,
+        ]
+    )
 
     kernel = NUTS(model)
     mcmc = MCMC(kernel, num_warmup=500, num_samples=500)
@@ -105,7 +194,9 @@ def test_gaussian_hmm():
         trans_prob = numpyro.sample("initialize", dist.Dirichlet(jnp.ones(dim)))
         for t, y in markov(enumerate(data)):
             x = numpyro.sample("x_{}".format(t), dist.Categorical(trans_prob))
-            numpyro.sample("y_{}".format(t), dist.Normal(emission_loc[x], emission_scale[x]), obs=y)
+            numpyro.sample(
+                "y_{}".format(t), dist.Normal(emission_loc[x], emission_scale[x]), obs=y
+            )
             trans_prob = transition[x]
 
     def _generate_data():
@@ -161,12 +252,16 @@ def test_nesting():
                 assert v2.shape == (2, 1)
 
                 with markov():
-                    v3 = to_data(Tensor(jnp.ones(2), OrderedDict([("3", Bint[2])]), "real"))
+                    v3 = to_data(
+                        Tensor(jnp.ones(2), OrderedDict([("3", Bint[2])]), "real")
+                    )
                     print(3, v3.shape)  # shapes should alternate
                     assert v3.shape == (2,)
 
                     with markov():
-                        v4 = to_data(Tensor(jnp.ones(2), OrderedDict([("4", Bint[2])]), "real"))
+                        v4 = to_data(
+                            Tensor(jnp.ones(2), OrderedDict([("4", Bint[2])]), "real")
+                        )
                         print(4, v4.shape)  # shapes should alternate
 
                         assert v4.shape == (2, 1)
@@ -179,7 +274,9 @@ def test_staggered():
     def testing():
         for i in markov(range(12)):
             if i % 4 == 0:
-                v2 = to_data(Tensor(jnp.zeros(2), OrderedDict([("a", Bint[2])]), "real"))
+                v2 = to_data(
+                    Tensor(jnp.zeros(2), OrderedDict([("a", Bint[2])]), "real")
+                )
                 fv2 = to_funsor(v2, Real)
                 assert v2.shape == (2,)
                 print("a", v2.shape)
@@ -224,7 +321,9 @@ def test_scan_enum_one_latent(num_steps):
         return x
 
     expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
-    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[
+        0
+    ]
     assert_allclose(actual_log_joint, expected_log_joint)
 
     actual_last_x = enum(config_enumerate(fun_model))(data)
@@ -258,8 +357,12 @@ def test_scan_enum_plate():
 
         scan(transition_fn, None, data)
 
-    expected_log_joint = log_density(enum(config_enumerate(model), -2), (data,), {}, {})[0]
-    actual_log_joint = log_density(enum(config_enumerate(fun_model), -2), (data,), {}, {})[0]
+    expected_log_joint = log_density(
+        enum(config_enumerate(model), -2), (data,), {}, {}
+    )[0]
+    actual_log_joint = log_density(
+        enum(config_enumerate(fun_model), -2), (data,), {}, {}
+    )[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -296,8 +399,12 @@ def test_scan_enum_separated_plates_same_dim():
 
         scan(transition_fn, None, (data1, data2))
 
-    actual_log_joint = log_density(enum(config_enumerate(fun_model), -2), (data1, data2), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(model), -2), (data1, data2), {}, {})[0]
+    actual_log_joint = log_density(
+        enum(config_enumerate(fun_model), -2), (data1, data2), {}, {}
+    )[0]
+    expected_log_joint = log_density(
+        enum(config_enumerate(model), -2), (data1, data2), {}, {}
+    )[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -328,8 +435,12 @@ def test_scan_enum_separated_plate_discrete():
 
         scan(transition_fn, 0, data)
 
-    actual_log_joint = log_density(enum(config_enumerate(fun_model), -2), (data,), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(model), -2), (data,), {}, {})[0]
+    actual_log_joint = log_density(
+        enum(config_enumerate(fun_model), -2), (data,), {}, {}
+    )[0]
+    expected_log_joint = log_density(
+        enum(config_enumerate(model), -2), (data,), {}, {}
+    )[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -355,7 +466,9 @@ def test_scan_enum_discrete_outside():
 
         scan(transition_fn, 0, data)
 
-    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[
+        0
+    ]
     expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
@@ -385,7 +498,9 @@ def test_scan_enum_two_latents():
 
         scan(transition_fn, (0, 0), data)
 
-    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[0]
+    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data,), {}, {})[
+        0
+    ]
     expected_log_joint = log_density(enum(config_enumerate(model)), (data,), {}, {})[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
@@ -418,8 +533,12 @@ def test_scan_enum_scan_enum():
         scan(partial(transition_fn, "x", probs_x, locs_x), 0, data_x)
         scan(partial(transition_fn, "w", probs_w, locs_w), 0, data_w)
 
-    actual_log_joint = log_density(enum(config_enumerate(fun_model)), (data_x, data_w), {}, {})[0]
-    expected_log_joint = log_density(enum(config_enumerate(model)), (data_x, data_w), {}, {})[0]
+    actual_log_joint = log_density(
+        enum(config_enumerate(fun_model)), (data_x, data_w), {}, {}
+    )[0]
+    expected_log_joint = log_density(
+        enum(config_enumerate(model)), (data_x, data_w), {}, {}
+    )[0]
     assert_allclose(actual_log_joint, expected_log_joint)
 
 
@@ -434,7 +553,9 @@ def test_scan_history(history, T):
         x_curr = 0
         for t in markov(range(T), history=history):
             probs = p[x_prev, x_curr, z]
-            x_prev, x_curr = x_curr, numpyro.sample("x_{}".format(t), dist.Bernoulli(probs))
+            x_prev, x_curr = x_curr, numpyro.sample(
+                "x_{}".format(t), dist.Bernoulli(probs)
+            )
             numpyro.sample("y_{}".format(t), dist.Bernoulli(q[x_curr]), obs=0)
         return x_prev, x_curr
 
@@ -472,13 +593,21 @@ def test_missing_plate(monkeypatch):
         cluster_means = numpyro.sample("cluster_means", dist.Normal(jnp.arange(K), 1.0))
 
         with numpyro.plate("data", data.shape[0], dim=-1):
-            assignments = numpyro.sample("assignments", dist.Categorical(mix_proportions))
-            numpyro.sample("obs", dist.Normal(cluster_means[assignments], 1.0), obs=data)
+            assignments = numpyro.sample(
+                "assignments", dist.Categorical(mix_proportions)
+            )
+            numpyro.sample(
+                "obs", dist.Normal(cluster_means[assignments], 1.0), obs=data
+            )
 
     true_cluster_means = jnp.array([1.0, 5.0, 10.0])
     true_mix_proportions = jnp.array([0.1, 0.3, 0.6])
-    cluster_assignments = dist.Categorical(true_mix_proportions).sample(random.PRNGKey(0), (N,))
-    data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample(random.PRNGKey(1))
+    cluster_assignments = dist.Categorical(true_mix_proportions).sample(
+        random.PRNGKey(0), (N,)
+    )
+    data = dist.Normal(true_cluster_means[cluster_assignments], 1.0).sample(
+        random.PRNGKey(1)
+    )
 
     nuts_kernel = NUTS(gmm)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)

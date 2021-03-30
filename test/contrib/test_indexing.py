@@ -131,7 +131,11 @@ def test_hmm_example(prev_enum_dim, curr_enum_dim):
     x_prev = jnp.arange(hidden_dim).reshape((-1,) + (1,) * (-1 - prev_enum_dim))
     x_curr = jnp.arange(hidden_dim).reshape((-1,) + (1,) * (-1 - curr_enum_dim))
 
-    expected = probs_x[x_prev.reshape(x_prev.shape + (1,)), x_curr.reshape(x_curr.shape + (1,)), jnp.arange(hidden_dim)]
+    expected = probs_x[
+        x_prev.reshape(x_prev.shape + (1,)),
+        x_curr.reshape(x_curr.shape + (1,)),
+        jnp.arange(hidden_dim),
+    ]
 
     actual = Vindex(probs_x)[x_prev, x_curr, :]
     assert jnp.all(actual == expected)

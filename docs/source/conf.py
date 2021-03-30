@@ -64,7 +64,16 @@ release = version
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ["nbsphinx", "sphinx.ext.autodoc", "sphinx.ext.doctest", "sphinx.ext.imgconverter", "sphinx.ext.intersphinx", "sphinx.ext.mathjax", "sphinx.ext.viewcode", "sphinx_gallery.gen_gallery"]
+extensions = [
+    "nbsphinx",
+    "sphinx.ext.autodoc",
+    "sphinx.ext.doctest",
+    "sphinx.ext.imgconverter",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.mathjax",
+    "sphinx.ext.viewcode",
+    "sphinx_gallery.gen_gallery",
+]
 
 # Enable documentation inheritance
 
@@ -106,7 +115,12 @@ language = None
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path .
-exclude_patterns = [".ipynb_checkpoints", "tutorials/logistic_regression.ipynb", "examples/*ipynb", "examples/*py"]
+exclude_patterns = [
+    ".ipynb_checkpoints",
+    "tutorials/logistic_regression.ipynb",
+    "examples/*ipynb",
+    "examples/*py",
+]
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "sphinx"
@@ -185,7 +199,9 @@ sphinx_gallery_conf = {
 
 nbsphinx_thumbnails = {}
 
-for src_file in glob.glob("../../notebooks/source/*.ipynb") + glob.glob("../../examples/*.py"):
+for src_file in glob.glob("../../notebooks/source/*.ipynb") + glob.glob(
+    "../../examples/*.py"
+):
     toctree_path = "tutorials/" if src_file.endswith("ipynb") else "examples/"
     filename = os.path.splitext(src_file.split("/")[-1])[0]
     png_path = "_static/img/" + toctree_path + filename + ".png"
@@ -261,7 +277,9 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
-latex_documents = [(master_doc, "NumPyro.tex", u"NumPyro Documentation", u"Uber AI Labs", "manual")]
+latex_documents = [
+    (master_doc, "NumPyro.tex", u"NumPyro Documentation", u"Uber AI Labs", "manual")
+]
 
 # -- Options for manual page output ------------------------------------------
 
@@ -274,7 +292,17 @@ man_pages = [(master_doc, "NumPyro", u"NumPyro Documentation", [author], 1)]
 # Grouping the document tree into Texinfo files. List of tuples
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
-texinfo_documents = [(master_doc, "NumPyro", u"NumPyro Documentation", author, "NumPyro", "Pyro PPL on Numpy", "Miscellaneous")]
+texinfo_documents = [
+    (
+        master_doc,
+        "NumPyro",
+        u"NumPyro Documentation",
+        author,
+        "NumPyro",
+        "Pyro PPL on Numpy",
+        "Miscellaneous",
+    )
+]
 
 
 # -- Extension configuration -------------------------------------------------
@@ -282,4 +310,9 @@ texinfo_documents = [(master_doc, "NumPyro", u"NumPyro Documentation", author, "
 # -- Options for intersphinx extension ---------------------------------------
 
 # Example configuration for intersphinx: refer to the Python standard library.
-intersphinx_mapping = {"python": ("https://docs.python.org/3/", None), "numpy": ("http://docs.scipy.org/doc/numpy/", None), "jax": ("https://jax.readthedocs.io/en/latest/", None), "pyro": ("http://docs.pyro.ai/en/stable/", None)}
+intersphinx_mapping = {
+    "python": ("https://docs.python.org/3/", None),
+    "numpy": ("http://docs.scipy.org/doc/numpy/", None),
+    "jax": ("https://jax.readthedocs.io/en/latest/", None),
+    "pyro": ("http://docs.pyro.ai/en/stable/", None),
+}

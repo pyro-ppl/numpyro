@@ -36,7 +36,9 @@ def test_mask(mask_last, use_jit):
     data = random.normal(random.PRNGKey(0), (N,))
     x = random.normal(random.PRNGKey(1), (N,))
     if use_jit:
-        log_joint = jit(lambda *args: log_density(*args)[0], static_argnums=(0,))(model, (data, mask), {}, {"x": x, "y": x})
+        log_joint = jit(lambda *args: log_density(*args)[0], static_argnums=(0,))(
+            model, (data, mask), {}, {"x": x, "y": x}
+        )
     else:
         log_joint = log_density(model, (data, mask), {}, {"x": x, "y": x})[0]
     log_prob_x = dist.Normal(0, 1).log_prob(x)
@@ -47,7 +49,10 @@ def test_mask(mask_last, use_jit):
 
 
 @pytest.mark.parametrize("num_particles", [1, 2])
-@pytest.mark.parametrize("mask", [True, False, np.array([True]), np.array([False]), np.array([False, True, False])])
+@pytest.mark.parametrize(
+    "mask",
+    [True, False, np.array([True]), np.array([False]), np.array([False, True, False])],
+)
 @pytest.mark.parametrize("Elbo", [Trace_ELBO])
 def test_obs_mask_ok(Elbo, mask, num_particles):
     data = np.array([7.0, 7.0, 7.0])
@@ -74,7 +79,16 @@ def test_obs_mask_ok(Elbo, mask, num_particles):
 
 
 @pytest.mark.parametrize("num_particles", [1, 2])
-@pytest.mark.parametrize("mask", [True, False, np.array([True]), np.array([False]), np.array([False, True, True, False])])
+@pytest.mark.parametrize(
+    "mask",
+    [
+        True,
+        False,
+        np.array([True]),
+        np.array([False]),
+        np.array([False, True, True, False]),
+    ],
+)
 @pytest.mark.parametrize("Elbo", [Trace_ELBO])
 def test_obs_mask_multivariate_ok(Elbo, mask, num_particles):
     data = np.full((4, 3), 7.0)
@@ -82,7 +96,9 @@ def test_obs_mask_multivariate_ok(Elbo, mask, num_particles):
     def model():
         x = numpyro.sample("x", dist.MultivariateNormal(np.zeros(3), np.eye(3)))
         with numpyro.plate("plate", len(data)):
-            y = numpyro.sample("y", dist.MultivariateNormal(x, np.eye(3)), obs=data, obs_mask=mask)
+            y = numpyro.sample(
+                "y", dist.MultivariateNormal(x, np.eye(3)), obs=data, obs_mask=mask
+            )
             if not_jax_tracer(y):
                 assert ((y == data).all(-1) == mask).all()
 
@@ -120,15 +136,24 @@ def test_scale(use_context_manager):
     data = random.normal(random.PRNGKey(0), (3,))
     x = random.normal(random.PRNGKey(1))
     log_joint = log_density(model, (data,), {}, {"x": x})[0]
-    log_prob1, log_prob2 = dist.Normal(0, 1).log_prob(x), dist.Normal(x, 1).log_prob(data).sum()
-    expected = log_prob1 + 10 * log_prob2 if use_context_manager else 10 * (log_prob1 + log_prob2)
+    log_prob1, log_prob2 = (
+        dist.Normal(0, 1).log_prob(x),
+        dist.Normal(x, 1).log_prob(data).sum(),
+    )
+    expected = (
+        log_prob1 + 10 * log_prob2
+        if use_context_manager
+        else 10 * (log_prob1 + log_prob2)
+    )
     assert_allclose(log_joint, expected)
 
 
 def test_substitute():
     def model():
         x = numpyro.param("x", None)
-        y = handlers.substitute(lambda: numpyro.param("y", None) * numpyro.param("x", None), {"y": x})()
+        y = handlers.substitute(
+            lambda: numpyro.param("y", None) * numpyro.param("x", None), {"y": x}
+        )()
         return x + y
 
     assert handlers.substitute(model, {"x": 3.0})() == 12.0
@@ -146,7 +171,9 @@ def test_seed():
             xs.append(_sample())
     xs = jnp.stack(xs)
 
-    ys = vmap(lambda rng_key: handlers.seed(lambda: _sample(), rng_key)())(jnp.arange(100))
+    ys = vmap(lambda rng_key: handlers.seed(lambda: _sample(), rng_key)())(
+        jnp.arange(100)
+    )
     assert_allclose(xs, ys, atol=1e-6)
 
 
@@ -293,7 +320,18 @@ def model_subsample_2():
         assert subsample_data.shape == (5, 1, 10)
 
 
-@pytest.mark.parametrize("model", [model_nested_plates_0, model_nested_plates_1, model_nested_plates_2, model_nested_plates_3, model_dist_batch_shape, model_subsample_1, model_subsample_2])
+@pytest.mark.parametrize(
+    "model",
+    [
+        model_nested_plates_0,
+        model_nested_plates_1,
+        model_nested_plates_2,
+        model_nested_plates_3,
+        model_dist_batch_shape,
+        model_subsample_1,
+        model_subsample_2,
+    ],
+)
 def test_plate(model):
     trace = handlers.trace(handlers.seed(model, random.PRNGKey(1))).get_trace()
     jit_trace = handlers.trace(jit(handlers.seed(model, random.PRNGKey(1)))).get_trace()
@@ -328,7 +366,9 @@ def test_subsample_substitute():
     data = jnp.arange(100.0)
     subsample_size = 7
     subsample = jnp.array([13, 3, 30, 4, 1, 68, 5])
-    with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(data={"a": subsample}):
+    with handlers.trace() as tr, handlers.seed(rng_seed=0), handlers.substitute(
+        data={"a": subsample}
+    ):
         with numpyro.plate("a", len(data), subsample_size=subsample_size) as idx:
             assert data[idx].shape == (subsample_size,)
             assert_allclose(idx, subsample)
@@ -383,24 +423,45 @@ def test_subsample_gradient(scale, subsample):
     normalizer = 2 if subsample else 1
     if subsample_size == 1:
         subsample = jnp.array([0])
-        loss1, grads1 = value_and_grad(lambda x: svi.loss.loss(svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
+        loss1, grads1 = value_and_grad(
+            lambda x: svi.loss.loss(
+                svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample
+            )
+        )(params)
         subsample = jnp.array([1])
-        loss2, grads2 = value_and_grad(lambda x: svi.loss.loss(svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
+        loss2, grads2 = value_and_grad(
+            lambda x: svi.loss.loss(
+                svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample
+            )
+        )(params)
         grads = tree_multimap(lambda *vals: vals[0] + vals[1], grads1, grads2)
         loss = loss1 + loss2
     else:
         subsample = jnp.array([0, 1])
-        loss, grads = value_and_grad(lambda x: svi.loss.loss(svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample))(params)
+        loss, grads = value_and_grad(
+            lambda x: svi.loss.loss(
+                svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, subsample
+            )
+        )(params)
 
     actual_loss = loss / normalizer
-    expected_loss, _ = value_and_grad(lambda x: svi.loss.loss(svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, None))(params)
+    expected_loss, _ = value_and_grad(
+        lambda x: svi.loss.loss(
+            svi_state.rng_key, svi.constrain_fn(x), svi.model, svi.guide, None
+        )
+    )(params)
     assert_allclose(actual_loss, expected_loss, rtol=precision, atol=precision)
 
     actual_grads = {name: grad / normalizer for name, grad in grads.items()}
-    expected_grads = {"loc": scale * jnp.array([0.5, -2.0]), "scale": scale * jnp.array([2.0])}
+    expected_grads = {
+        "loc": scale * jnp.array([0.5, -2.0]),
+        "scale": scale * jnp.array([2.0]),
+    }
     assert actual_grads.keys() == expected_grads.keys()
     for name in expected_grads:
-        assert_allclose(actual_grads[name], expected_grads[name], rtol=precision, atol=precision)
+        assert_allclose(
+            actual_grads[name], expected_grads[name], rtol=precision, atol=precision
+        )
 
 
 def test_messenger_fn_invalid():
@@ -419,7 +480,15 @@ def test_plate_stack(shape):
     assert x.shape == shape
 
 
-@pytest.mark.parametrize("intervene,observe,flip", [(True, False, False), (False, True, False), (True, True, False), (True, True, True)])
+@pytest.mark.parametrize(
+    "intervene,observe,flip",
+    [
+        (True, False, False),
+        (False, True, False),
+        (True, True, False),
+        (True, True, True),
+    ],
+)
 def test_counterfactual_query(intervene, observe, flip):
     # x -> y -> z -> w
 
@@ -441,7 +510,9 @@ def test_counterfactual_query(intervene, observe, flip):
         if observe:
             model = handlers.condition(model, data=observations)
     elif flip and intervene and observe:
-        model = handlers.do(handlers.condition(model, data=observations), data=interventions)
+        model = handlers.do(
+            handlers.condition(model, data=observations), data=interventions
+        )
 
     with handlers.trace() as tr:
         actual_values = model()
@@ -454,16 +525,31 @@ def test_counterfactual_query(intervene, observe, flip):
                 assert_allclose(observations[name], tr[name]["value"])
             if interventions[name] != observations[name]:
                 if interventions[name] is not None:
-                    assert_raises(AssertionError, assert_allclose, interventions[name], actual_values[name])
+                    assert_raises(
+                        AssertionError,
+                        assert_allclose,
+                        interventions[name],
+                        actual_values[name],
+                    )
         # case 2: purely interventional query like old handlers.do
         elif intervene and not observe:
             assert not tr[name]["is_observed"]
             if interventions[name] is not None:
                 assert_allclose(interventions[name], actual_values[name])
             if observations[name] is not None:
-                assert_raises(AssertionError, assert_allclose, observations[name], tr[name]["value"])
+                assert_raises(
+                    AssertionError,
+                    assert_allclose,
+                    observations[name],
+                    tr[name]["value"],
+                )
             if interventions[name] is not None:
-                assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]["value"])
+                assert_raises(
+                    AssertionError,
+                    assert_allclose,
+                    interventions[name],
+                    tr[name]["value"],
+                )
         # case 3: counterfactual query mixing intervention and observation
         elif intervene and observe:
             if observations[name] is not None:
@@ -473,7 +559,12 @@ def test_counterfactual_query(intervene, observe, flip):
                 assert_allclose(interventions[name], actual_values[name])
             if interventions[name] != observations[name]:
                 if interventions[name] is not None:
-                    assert_raises(AssertionError, assert_allclose, interventions[name], tr[name]["value"])
+                    assert_raises(
+                        AssertionError,
+                        assert_allclose,
+                        interventions[name],
+                        tr[name]["value"],
+                    )
 
 
 def test_block():
@@ -659,7 +750,11 @@ def test_subsample_fn():
     subsamples = vmap(subsample_fn)(rng_keys)
     for k in range(1, 11):
         i = random.randint(random.PRNGKey(k), (), 0, size)
-        assert_allclose(jnp.mean(subsamples == i, axis=0), jnp.full(subsample_size, 1 / size), atol=1e-3)
+        assert_allclose(
+            jnp.mean(subsamples == i, axis=0),
+            jnp.full(subsample_size, 1 / size),
+            atol=1e-3,
+        )
 
         # test that values are not duplicated
         assert len(set(subsamples[k])) == subsample_size

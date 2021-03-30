@@ -62,24 +62,40 @@ def dual_moon_model():
 def main(args):
     print("Start vanilla HMC...")
     nuts_kernel = NUTS(dual_moon_model)
-    mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(
+        nuts_kernel,
+        args.num_warmup,
+        args.num_samples,
+        num_chains=args.num_chains,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     mcmc.run(random.PRNGKey(0))
     mcmc.print_summary()
     vanilla_samples = mcmc.get_samples()["x"].copy()
 
-    guide = AutoBNAFNormal(dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor])
+    guide = AutoBNAFNormal(
+        dual_moon_model, hidden_factors=[args.hidden_factor, args.hidden_factor]
+    )
     svi = SVI(dual_moon_model, guide, optim.Adam(0.003), Trace_ELBO())
 
     print("Start training guide...")
     svi_result = svi.run(random.PRNGKey(1), args.num_iters)
     print("Finish training guide. Extract samples...")
-    guide_samples = guide.sample_posterior(random.PRNGKey(2), svi_result.params, sample_shape=(args.num_samples,))["x"].copy()
+    guide_samples = guide.sample_posterior(
+        random.PRNGKey(2), svi_result.params, sample_shape=(args.num_samples,)
+    )["x"].copy()
 
     print("\nStart NeuTra HMC...")
     neutra = NeuTraReparam(guide, svi_result.params)
     neutra_model = neutra.reparam(dual_moon_model)
     nuts_kernel = NUTS(neutra_model)
-    mcmc = MCMC(nuts_kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(
+        nuts_kernel,
+        args.num_warmup,
+        args.num_samples,
+        num_chains=args.num_chains,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     mcmc.run(random.PRNGKey(3))
     mcmc.print_summary()
     zs = mcmc.get_samples(group_by_chain=True)["auto_shared_latent"]
@@ -92,7 +108,9 @@ def main(args):
     # make plots
 
     # guide samples (for plotting)
-    guide_base_samples = dist.Normal(jnp.zeros(2), 1.0).sample(random.PRNGKey(4), (1000,))
+    guide_base_samples = dist.Normal(jnp.zeros(2), 1.0).sample(
+        random.PRNGKey(4), (1000,)
+    )
     guide_trans_samples = neutra.transform_sample(guide_base_samples)["x"]
 
     x1 = jnp.linspace(-3, 3, 100)
@@ -114,23 +132,66 @@ def main(args):
 
     ax2.contourf(X1, X2, P, cmap="OrRd")
     sns.kdeplot(x=guide_samples[:, 0], y=guide_samples[:, 1], n_levels=30, ax=ax2)
-    ax2.set(xlim=[-3, 3], ylim=[-3, 3], xlabel="x0", ylabel="x1", title="Posterior using\nAutoBNAFNormal guide")
+    ax2.set(
+        xlim=[-3, 3],
+        ylim=[-3, 3],
+        xlabel="x0",
+        ylabel="x1",
+        title="Posterior using\nAutoBNAFNormal guide",
+    )
 
-    sns.scatterplot(x=guide_base_samples[:, 0], y=guide_base_samples[:, 1], ax=ax3, hue=guide_trans_samples[:, 0] < 0.0)
-    ax3.set(xlim=[-3, 3], ylim=[-3, 3], xlabel="x0", ylabel="x1", title="AutoBNAFNormal base samples\n(True=left moon; False=right moon)")
+    sns.scatterplot(
+        x=guide_base_samples[:, 0],
+        y=guide_base_samples[:, 1],
+        ax=ax3,
+        hue=guide_trans_samples[:, 0] < 0.0,
+    )
+    ax3.set(
+        xlim=[-3, 3],
+        ylim=[-3, 3],
+        xlabel="x0",
+        ylabel="x1",
+        title="AutoBNAFNormal base samples\n(True=left moon; False=right moon)",
+    )
 
     ax4.contourf(X1, X2, P, cmap="OrRd")
     sns.kdeplot(x=vanilla_samples[:, 0], y=vanilla_samples[:, 1], n_levels=30, ax=ax4)
     ax4.plot(vanilla_samples[-50:, 0], vanilla_samples[-50:, 1], "bo-", alpha=0.5)
-    ax4.set(xlim=[-3, 3], ylim=[-3, 3], xlabel="x0", ylabel="x1", title="Posterior using\nvanilla HMC sampler")
+    ax4.set(
+        xlim=[-3, 3],
+        ylim=[-3, 3],
+        xlabel="x0",
+        ylabel="x1",
+        title="Posterior using\nvanilla HMC sampler",
+    )
 
-    sns.scatterplot(x=zs[:, 0], y=zs[:, 1], ax=ax5, hue=samples[:, 0] < 0.0, s=30, alpha=0.5, edgecolor="none")
-    ax5.set(xlim=[-5, 5], ylim=[-5, 5], xlabel="x0", ylabel="x1", title="Samples from the\nwarped posterior - p(z)")
+    sns.scatterplot(
+        x=zs[:, 0],
+        y=zs[:, 1],
+        ax=ax5,
+        hue=samples[:, 0] < 0.0,
+        s=30,
+        alpha=0.5,
+        edgecolor="none",
+    )
+    ax5.set(
+        xlim=[-5, 5],
+        ylim=[-5, 5],
+        xlabel="x0",
+        ylabel="x1",
+        title="Samples from the\nwarped posterior - p(z)",
+    )
 
     ax6.contourf(X1, X2, P, cmap="OrRd")
     sns.kdeplot(x=samples[:, 0], y=samples[:, 1], n_levels=30, ax=ax6)
     ax6.plot(samples[-50:, 0], samples[-50:, 1], "bo-", alpha=0.2)
-    ax6.set(xlim=[-3, 3], ylim=[-3, 3], xlabel="x0", ylabel="x1", title="Posterior using\nNeuTra HMC sampler")
+    ax6.set(
+        xlim=[-3, 3],
+        ylim=[-3, 3],
+        xlabel="x0",
+        ylabel="x1",
+        title="Posterior using\nNeuTra HMC sampler",
+    )
 
     plt.savefig("neutra.pdf")
 

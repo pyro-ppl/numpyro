@@ -96,7 +96,11 @@ class LocScaleReparam(Reparam):
         # Apply a partial decentering transform.
         params = {key: getattr(fn, key) for key in self.shape_params}
         if self.centered is None:
-            centered = numpyro.param("{}_centered".format(name), jnp.full(event_shape, 0.5), constraint=constraints.unit_interval)
+            centered = numpyro.param(
+                "{}_centered".format(name),
+                jnp.full(event_shape, 0.5),
+                constraint=constraints.unit_interval,
+            )
         params["loc"] = fn.loc * centered
         params["scale"] = fn.scale ** centered
         decentered_fn = self._wrap(type(fn)(**params), expand_shape, event_dim)
@@ -128,14 +132,22 @@ class TransformReparam(Reparam):
         assert obs is None, "TransformReparam does not support observe statements"
         fn, expand_shape, event_dim = self._unwrap(fn)
         if isinstance(fn, (dist.Uniform, dist.TruncatedCauchy, dist.TruncatedNormal)):
-            raise ValueError("TransformReparam does not automatically work with {}" " distribution anymore. Please explicitly using" " TransformedDistribution(base_dist, AffineTransform(...)) pattern" " with TransformReparam.".format(type(fn).__name__))
+            raise ValueError(
+                "TransformReparam does not automatically work with {}"
+                " distribution anymore. Please explicitly using"
+                " TransformedDistribution(base_dist, AffineTransform(...)) pattern"
+                " with TransformReparam.".format(type(fn).__name__)
+            )
         assert isinstance(fn, dist.TransformedDistribution)
 
         # Draw noise from the base distribution.
         base_event_dim = event_dim
         for t in reversed(fn.transforms):
             base_event_dim += t.domain.event_dim - t.codomain.event_dim
-        x = numpyro.sample("{}_base".format(name), self._wrap(fn.base_dist, expand_shape, base_event_dim))
+        x = numpyro.sample(
+            "{}_base".format(name),
+            self._wrap(fn.base_dist, expand_shape, base_event_dim),
+        )
 
         # Differentiably transform.
         for t in fn.transforms:
@@ -160,7 +172,9 @@ class ProjectedNormalReparam(Reparam):
 
         # Draw parameter-free noise.
         new_fn = dist.Normal(jnp.zeros(fn.concentration.shape), 1).to_event(1)
-        x = numpyro.sample("{}_normal".format(name), self._wrap(new_fn, expand_shape, event_dim))
+        x = numpyro.sample(
+            "{}_normal".format(name), self._wrap(new_fn, expand_shape, event_dim)
+        )
 
         # Differentiably transform.
         value = safe_normalize(x + fn.concentration)
@@ -202,17 +216,27 @@ class NeuTraReparam(Reparam):
 
     def __init__(self, guide, params):
         if not isinstance(guide, AutoContinuous):
-            raise TypeError("NeuTraReparam expected an AutoContinuous guide, but got {}".format(type(guide)))
+            raise TypeError(
+                "NeuTraReparam expected an AutoContinuous guide, but got {}".format(
+                    type(guide)
+                )
+            )
         self.guide = guide
         self.params = params
         try:
             self.transform = self.guide.get_transform(params)
         except (NotImplementedError, TypeError) as e:
-            raise ValueError("NeuTraReparam only supports guides that implement " "`get_transform` method that does not depend on the " "model's `*args, **kwargs`") from e
+            raise ValueError(
+                "NeuTraReparam only supports guides that implement "
+                "`get_transform` method that does not depend on the "
+                "model's `*args, **kwargs`"
+            ) from e
         self._x_unconstrained = {}
 
     def _reparam_config(self, site):
-        if site["name"] in self.guide.prototype_trace and not site.get("is_observed", False):
+        if site["name"] in self.guide.prototype_trace and not site.get(
+            "is_observed", False
+        ):
             return self
 
     def reparam(self, fn=None):
@@ -227,12 +251,17 @@ class NeuTraReparam(Reparam):
         compute_density = numpyro.get_mask() is not False
         if not self._x_unconstrained:  # On first sample site.
             # Sample a shared latent.
-            z_unconstrained = numpyro.sample("{}_shared_latent".format(self.guide.prefix), self.guide.get_base_dist().mask(False))
+            z_unconstrained = numpyro.sample(
+                "{}_shared_latent".format(self.guide.prefix),
+                self.guide.get_base_dist().mask(False),
+            )
 
             # Differentiably transform.
             x_unconstrained = self.transform(z_unconstrained)
             if compute_density:
-                log_density = self.transform.log_abs_det_jacobian(z_unconstrained, x_unconstrained)
+                log_density = self.transform.log_abs_det_jacobian(
+                    z_unconstrained, x_unconstrained
+                )
             self._x_unconstrained = self.guide._unpack_latent(x_unconstrained)
 
         # Extract a single site's value from the shared latent.
@@ -241,7 +270,9 @@ class NeuTraReparam(Reparam):
         value = transform(unconstrained_value)
         if compute_density:
             logdet = transform.log_abs_det_jacobian(unconstrained_value, value)
-            logdet = sum_rightmost(logdet, jnp.ndim(logdet) - jnp.ndim(value) + len(fn.event_shape))
+            logdet = sum_rightmost(
+                logdet, jnp.ndim(logdet) - jnp.ndim(value) + len(fn.event_shape)
+            )
             log_density = log_density + fn.log_prob(value) + logdet
         numpyro.factor("_{}_log_prob".format(name), log_density)
         return None, value

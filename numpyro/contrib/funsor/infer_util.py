@@ -68,7 +68,11 @@ def config_enumerate(fn=None, default="parallel"):
         return functools.partial(config_enumerate, default=default)
 
     def config_fn(site):
-        if site["type"] == "sample" and (not site["is_observed"]) and site["fn"].has_enumerate_support:
+        if (
+            site["type"] == "sample"
+            and (not site["is_observed"])
+            and site["fn"].has_enumerate_support
+        ):
             return {"enumerate": site["infer"].get("enumerate", default)}
         return {}
 
@@ -87,7 +91,14 @@ def _shift_name(name, t):
     return name.replace("_PREV_" * -t, "", 1)
 
 
-def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_dims, sum_vars, prod_vars, history):
+def compute_markov_factors(
+    time_to_factors,
+    time_to_init_vars,
+    time_to_markov_dims,
+    sum_vars,
+    prod_vars,
+    history,
+):
     """
     :param dict time_to_factors: a map from time variable to the log prob factors.
     :param dict time_to_init_vars: a map from time variable to init discrete sites.
@@ -105,16 +116,35 @@ def compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_di
         # we eliminate all plate and enum dimensions not available at markov sites.
         eliminate_vars = (sum_vars | prod_vars) - time_to_markov_dims[time_var]
         with funsor.interpretations.lazy:
-            lazy_result = funsor.sum_product.sum_product(funsor.ops.logaddexp, funsor.ops.add, log_factors, eliminate=eliminate_vars, plates=prod_vars)
+            lazy_result = funsor.sum_product.sum_product(
+                funsor.ops.logaddexp,
+                funsor.ops.add,
+                log_factors,
+                eliminate=eliminate_vars,
+                plates=prod_vars,
+            )
         trans = funsor.optimizer.apply_optimizer(lazy_result)
 
         if history > 1:
-            global_vars = frozenset(set(trans.inputs) - {time_var.name} - prev_vars - {_shift_name(k, -_get_shift(k)) for k in prev_vars})
-            markov_factors.append(funsor.sum_product.sarkka_bilmes_product(funsor.ops.logaddexp, funsor.ops.add, trans, time_var, global_vars))
+            global_vars = frozenset(
+                set(trans.inputs)
+                - {time_var.name}
+                - prev_vars
+                - {_shift_name(k, -_get_shift(k)) for k in prev_vars}
+            )
+            markov_factors.append(
+                funsor.sum_product.sarkka_bilmes_product(
+                    funsor.ops.logaddexp, funsor.ops.add, trans, time_var, global_vars
+                )
+            )
         else:
             # remove `_PREV_` prefix to convert prev to curr
             prev_to_curr = {k: _shift_name(k, -_get_shift(k)) for k in prev_vars}
-            markov_factors.append(funsor.sum_product.sequential_sum_product(funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr))
+            markov_factors.append(
+                funsor.sum_product.sequential_sum_product(
+                    funsor.ops.logaddexp, funsor.ops.add, trans, time_var, prev_to_curr
+                )
+            )
     return markov_factors
 
 
@@ -162,37 +192,65 @@ def log_density(model, model_args, model_kwargs, params):
                 log_prob = scale * log_prob
 
             dim_to_name = site["infer"]["dim_to_name"]
-            log_prob_factor = funsor.to_funsor(log_prob, output=funsor.Real, dim_to_name=dim_to_name)
+            log_prob_factor = funsor.to_funsor(
+                log_prob, output=funsor.Real, dim_to_name=dim_to_name
+            )
 
             time_dim = None
             for dim, name in dim_to_name.items():
                 if name.startswith("_time"):
                     time_dim = funsor.Variable(name, funsor.Bint[log_prob.shape[dim]])
                     time_to_factors[time_dim].append(log_prob_factor)
-                    history = max(history, max(_get_shift(s) for s in dim_to_name.values()))
-                    time_to_init_vars[time_dim] |= frozenset(s for s in dim_to_name.values() if s.startswith("_PREV_"))
+                    history = max(
+                        history, max(_get_shift(s) for s in dim_to_name.values())
+                    )
+                    time_to_init_vars[time_dim] |= frozenset(
+                        s for s in dim_to_name.values() if s.startswith("_PREV_")
+                    )
                     break
             if time_dim is None:
                 log_factors.append(log_prob_factor)
 
             if not site["is_observed"]:
                 sum_vars |= frozenset({site["name"]})
-            prod_vars |= frozenset(f.name for f in site["cond_indep_stack"] if f.dim is not None)
+            prod_vars |= frozenset(
+                f.name for f in site["cond_indep_stack"] if f.dim is not None
+            )
 
     for time_dim, init_vars in time_to_init_vars.items():
         for var in init_vars:
             curr_var = _shift_name(var, -_get_shift(var))
             dim_to_name = model_trace[curr_var]["infer"]["dim_to_name"]
             if var in dim_to_name.values():  # i.e. _PREV_* (i.e. prev) in dim_to_name
-                time_to_markov_dims[time_dim] |= frozenset(name for name in dim_to_name.values())
+                time_to_markov_dims[time_dim] |= frozenset(
+                    name for name in dim_to_name.values()
+                )
 
     if len(time_to_factors) > 0:
-        markov_factors = compute_markov_factors(time_to_factors, time_to_init_vars, time_to_markov_dims, sum_vars, prod_vars, history)
+        markov_factors = compute_markov_factors(
+            time_to_factors,
+            time_to_init_vars,
+            time_to_markov_dims,
+            sum_vars,
+            prod_vars,
+            history,
+        )
         log_factors = log_factors + markov_factors
 
     with funsor.interpretations.lazy:
-        lazy_result = funsor.sum_product.sum_product(funsor.ops.logaddexp, funsor.ops.add, log_factors, eliminate=sum_vars | prod_vars, plates=prod_vars)
+        lazy_result = funsor.sum_product.sum_product(
+            funsor.ops.logaddexp,
+            funsor.ops.add,
+            log_factors,
+            eliminate=sum_vars | prod_vars,
+            plates=prod_vars,
+        )
     result = funsor.optimizer.apply_optimizer(lazy_result)
     if len(result.inputs) > 0:
-        raise ValueError("Expected the joint log density is a scalar, but got {}. " "There seems to be something wrong at the following sites: {}.".format(result.data.shape, {k.split("__BOUND")[0] for k in result.inputs}))
+        raise ValueError(
+            "Expected the joint log density is a scalar, but got {}. "
+            "There seems to be something wrong at the following sites: {}.".format(
+                result.data.shape, {k.split("__BOUND")[0] for k in result.inputs}
+            )
+        )
     return result.data, model_trace

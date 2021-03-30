@@ -90,7 +90,13 @@ def glmm(dept, male, applications, admit=None):
 
 def run_inference(dept, male, applications, admit, rng_key, args):
     kernel = NUTS(glmm)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(
+        kernel,
+        args.num_warmup,
+        args.num_samples,
+        args.num_chains,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     mcmc.run(rng_key, dept, male, applications, admit)
     return mcmc.get_samples()
 
@@ -111,7 +117,9 @@ def main(args):
     dept, male, applications, admit = fetch_train()
     rng_key, rng_key_predict = random.split(random.PRNGKey(1))
     zs = run_inference(dept, male, applications, admit, rng_key, args)
-    pred_probs = Predictive(glmm, zs)(rng_key_predict, dept, male, applications)["probs"]
+    pred_probs = Predictive(glmm, zs)(rng_key_predict, dept, male, applications)[
+        "probs"
+    ]
     header = "=" * 30 + "glmm - TRAIN" + "=" * 30
     print_results(header, pred_probs, dept, male, admit / applications)
 
@@ -119,10 +127,24 @@ def main(args):
     fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
 
     ax.plot(range(1, 13), admit / applications, "o", ms=7, label="actual rate")
-    ax.errorbar(range(1, 13), jnp.mean(pred_probs, 0), jnp.std(pred_probs, 0), fmt="o", c="k", mfc="none", ms=7, elinewidth=1, label=r"mean $\pm$ std")
+    ax.errorbar(
+        range(1, 13),
+        jnp.mean(pred_probs, 0),
+        jnp.std(pred_probs, 0),
+        fmt="o",
+        c="k",
+        mfc="none",
+        ms=7,
+        elinewidth=1,
+        label=r"mean $\pm$ std",
+    )
     ax.plot(range(1, 13), jnp.percentile(pred_probs, 5, 0), "k+")
     ax.plot(range(1, 13), jnp.percentile(pred_probs, 95, 0), "k+")
-    ax.set(xlabel="cases", ylabel="admit rate", title="Posterior Predictive Check with 90% CI")
+    ax.set(
+        xlabel="cases",
+        ylabel="admit rate",
+        title="Posterior Predictive Check with 90% CI",
+    )
     ax.legend()
 
     plt.savefig("ucbadmit_plot.pdf")
@@ -130,7 +152,9 @@ def main(args):
 
 if __name__ == "__main__":
     assert numpyro.__version__.startswith("0.6.0")
-    parser = argparse.ArgumentParser(description="UCBadmit gender discrimination using HMC")
+    parser = argparse.ArgumentParser(
+        description="UCBadmit gender discrimination using HMC"
+    )
     parser.add_argument("-n", "--num-samples", nargs="?", default=2000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=500, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)

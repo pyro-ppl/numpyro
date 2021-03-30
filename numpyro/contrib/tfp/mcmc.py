@@ -27,7 +27,9 @@ def _extract_kernel_functions(kernel):
     def sample_fn(state, model_args=(), model_kwargs=None):
         rng_key, rng_key_transition = random.split(state.rng_key)
         z_flat, unravel_fn = ravel_pytree(state.z)
-        z_new_flat, results = kernel.one_step(z_flat, state.kernel_results, seed=rng_key_transition)
+        z_new_flat, results = kernel.one_step(
+            z_flat, state.kernel_results, seed=rng_key_transition
+        )
         return TFPKernelState(unravel_fn(z_new_flat), results, rng_key)
 
     return init_fn, sample_fn
@@ -38,8 +40,12 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
         # we deal with batched x in case the kernel is ReplicaExchangeMC
         batch_shape = jnp.shape(x)[:-1]
         if batch_shape:
-            flatten_result = vmap(lambda a: -potential_fn(unravel_fn(a)))(jnp.reshape(x, (-1,) + jnp.shape(x)[-1:]))
-            return tree_map(lambda a: jnp.reshape(a, batch_shape + jnp.shape(a)[1:]), flatten_result)
+            flatten_result = vmap(lambda a: -potential_fn(unravel_fn(a)))(
+                jnp.reshape(x, (-1,) + jnp.shape(x)[-1:])
+            )
+            return tree_map(
+                lambda a: jnp.reshape(a, batch_shape + jnp.shape(a)[1:]), flatten_result
+            )
         else:
             return -potential_fn(unravel_fn(x))
 
@@ -49,7 +55,9 @@ def _make_log_prob_fn(potential_fn, unravel_fn):
 class _TFPKernelMeta(ABCMeta):
     def __getitem__(cls, kernel_class):
         assert issubclass(kernel_class, tfp.mcmc.TransitionKernel)
-        assert "target_log_prob_fn" in inspect.getfullargspec(kernel_class).args, f"the first argument of {kernel_class} must be `target_log_prob_fn`"
+        assert (
+            "target_log_prob_fn" in inspect.getfullargspec(kernel_class).args
+        ), f"the first argument of {kernel_class} must be `target_log_prob_fn`"
 
         _PyroKernel = type(kernel_class.__name__, (TFPKernel,), {})
         _PyroKernel.kernel_class = kernel_class
@@ -87,7 +95,13 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
 
     kernel_class = None
 
-    def __init__(self, model=None, potential_fn=None, init_strategy=init_to_uniform, **kernel_kwargs):
+    def __init__(
+        self,
+        model=None,
+        potential_fn=None,
+        init_strategy=init_to_uniform,
+        **kernel_kwargs,
+    ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError("Only one of `model` or `potential_fn` must be specified.")
         self._model = model
@@ -101,11 +115,23 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
 
     def _init_state(self, rng_key, model_args, model_kwargs, init_params):
         if self._model is not None:
-            init_params, potential_fn, postprocess_fn, model_trace = initialize_model(rng_key, self._model, init_strategy=self._init_strategy, dynamic_args=True, model_args=model_args, model_kwargs=model_kwargs)
+            init_params, potential_fn, postprocess_fn, model_trace = initialize_model(
+                rng_key,
+                self._model,
+                init_strategy=self._init_strategy,
+                dynamic_args=True,
+                model_args=model_args,
+                model_kwargs=model_kwargs,
+            )
             init_params = init_params.z
             if self._init_fn is None:
                 _, unravel_fn = ravel_pytree(init_params)
-                kernel = self.kernel_class(_make_log_prob_fn(potential_fn(*model_args, **model_kwargs), unravel_fn), **self._kernel_kwargs)
+                kernel = self.kernel_class(
+                    _make_log_prob_fn(
+                        potential_fn(*model_args, **model_kwargs), unravel_fn
+                    ),
+                    **self._kernel_kwargs,
+                )
                 # Uncalibrated... kernels have to used inside MetropolisHastings, see
                 # https://www.tensorflow.org/probability/api_docs/python/tfp/substrates/jax/mcmc/UncalibratedLangevin
                 if self.kernel_class.__name__.startswith("Uncalibrated"):
@@ -114,7 +140,9 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
             self._postprocess_fn = postprocess_fn
         elif self._init_fn is None:
             _, unravel_fn = ravel_pytree(init_params)
-            kernel = self.kernel_class(_make_log_prob_fn(self._potential_fn, unravel_fn), **self._kernel_kwargs)
+            kernel = self.kernel_class(
+                _make_log_prob_fn(self._potential_fn, unravel_fn), **self._kernel_kwargs
+            )
             if self.kernel_class.__name__.startswith("Uncalibrated"):
                 kernel = tfp.mcmc.MetropolisHastings(kernel)
             self._init_fn, self._sample_fn = _extract_kernel_functions(kernel)
@@ -139,16 +167,25 @@ class TFPKernel(MCMCKernel, metaclass=_TFPKernelMeta):
         """
         return ""
 
-    def init(self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}):
+    def init(
+        self, rng_key, num_warmup, init_params=None, model_args=(), model_kwargs={}
+    ):
         # non-vectorized
         if rng_key.ndim == 1:
             rng_key, rng_key_init_model = random.split(rng_key)
         # vectorized
         else:
-            rng_key, rng_key_init_model = jnp.swapaxes(vmap(random.split)(rng_key), 0, 1)
-        init_params = self._init_state(rng_key_init_model, model_args, model_kwargs, init_params)
+            rng_key, rng_key_init_model = jnp.swapaxes(
+                vmap(random.split)(rng_key), 0, 1
+            )
+        init_params = self._init_state(
+            rng_key_init_model, model_args, model_kwargs, init_params
+        )
         if self._potential_fn and init_params is None:
-            raise ValueError("Valid value of `init_params` must be provided with" " `target_log_prob_fn`.")
+            raise ValueError(
+                "Valid value of `init_params` must be provided with"
+                " `target_log_prob_fn`."
+            )
 
         if rng_key.ndim == 1:
             init_state = self._init_fn(init_params, rng_key)

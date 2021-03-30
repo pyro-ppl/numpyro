@@ -25,23 +25,48 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 dset = namedtuple("dset", ["name", "urls"])
 
-BASEBALL = dset("baseball", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt"])
+BASEBALL = dset(
+    "baseball", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/EfronMorrisBB.txt"]
+)
 
-COVTYPE = dset("covtype", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip"])
+COVTYPE = dset(
+    "covtype", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/covtype.zip"]
+)
 
-DIPPER_VOLE = dset("dipper_vole", ["https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true"])
+DIPPER_VOLE = dset(
+    "dipper_vole",
+    ["https://github.com/pyro-ppl/datasets/blob/master/dipper_vole.zip?raw=true"],
+)
 
-MNIST = dset("mnist", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz", "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-labels-idx1-ubyte.gz", "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-images-idx3-ubyte.gz", "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz"])
+MNIST = dset(
+    "mnist",
+    [
+        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-images-idx3-ubyte.gz",
+        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/train-labels-idx1-ubyte.gz",
+        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-images-idx3-ubyte.gz",
+        "https://d2hg8soec8ck9v.cloudfront.net/datasets/mnist/t10k-labels-idx1-ubyte.gz",
+    ],
+)
 
 SP500 = dset("SP500", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/SP500.csv"])
 
-UCBADMIT = dset("ucbadmit", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv"])
+UCBADMIT = dset(
+    "ucbadmit", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/UCBadmit.csv"]
+)
 
-LYNXHARE = dset("lynxhare", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt"])
+LYNXHARE = dset(
+    "lynxhare", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/LynxHare.txt"]
+)
 
-JSB_CHORALES = dset("jsb_chorales", ["https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle"])
+JSB_CHORALES = dset(
+    "jsb_chorales",
+    ["https://d2hg8soec8ck9v.cloudfront.net/datasets/polyphonic/jsb_chorales.pickle"],
+)
 
-HIGGS = dset("higgs", ["https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"])
+HIGGS = dset(
+    "higgs",
+    ["https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz"],
+)
 
 
 def _download(dset):
@@ -69,7 +94,9 @@ def _load_baseball():
                 test.append(np.array([int(season_at_bats), int(season_hits)]))
         return np.stack(train), np.stack(test), player_names
 
-    train, test, player_names = train_test_split(os.path.join(DATA_DIR, "EfronMorrisBB.txt"))
+    train, test, player_names = train_test_split(
+        os.path.join(DATA_DIR, "EfronMorrisBB.txt")
+    )
     return {"train": (train, player_names), "test": (test, player_names)}
 
 
@@ -88,8 +115,19 @@ def _load_dipper_vole():
     file_path = os.path.join(DATA_DIR, "dipper_vole.zip")
     data = {}
     with zipfile.ZipFile(file_path) as zipper:
-        data["dipper"] = (np.genfromtxt(zipper.open("dipper_capture_history.csv"), delimiter=",")[:, 1:].astype(int), np.genfromtxt(zipper.open("dipper_sex.csv"), delimiter=",")[:, 1].astype(int))
-        data["vole"] = (np.genfromtxt(zipper.open("meadow_voles_capture_history.csv"), delimiter=",")[:, 1:],)
+        data["dipper"] = (
+            np.genfromtxt(zipper.open("dipper_capture_history.csv"), delimiter=",")[
+                :, 1:
+            ].astype(int),
+            np.genfromtxt(zipper.open("dipper_sex.csv"), delimiter=",")[:, 1].astype(
+                int
+            ),
+        )
+        data["vole"] = (
+            np.genfromtxt(
+                zipper.open("meadow_voles_capture_history.csv"), delimiter=","
+            )[:, 1:],
+        )
 
     return data
 
@@ -109,8 +147,14 @@ def _load_mnist():
             data = np.frombuffer(f.read(), dtype=np.uint8) / np.float32(255.0)
             return data.reshape(-1, nrows, ncols)
 
-    files = [os.path.join(DATA_DIR, os.path.basename(urlparse(url).path)) for url in MNIST.urls]
-    return {"train": (read_img(files[0]), read_label(files[1])), "test": (read_img(files[2]), read_label(files[3]))}
+    files = [
+        os.path.join(DATA_DIR, os.path.basename(urlparse(url).path))
+        for url in MNIST.urls
+    ]
+    return {
+        "train": (read_img(files[0]), read_label(files[1])),
+        "test": (read_img(files[2]), read_label(files[3])),
+    }
 
 
 def _load_sp500():
@@ -132,7 +176,11 @@ def _load_ucbadmit():
 
     dept, male, applications, admit = [], [], [], []
     with open(os.path.join(DATA_DIR, "UCBadmit.csv")) as f:
-        csv_reader = csv.DictReader(f, delimiter=";", fieldnames=["index", "dept", "gender", "admit", "reject", "applications"])
+        csv_reader = csv.DictReader(
+            f,
+            delimiter=";",
+            fieldnames=["index", "dept", "gender", "admit", "reject", "applications"],
+        )
         next(csv_reader)  # skip the first row
         for row in csv_reader:
             dept.append(ord(row["dept"]) - ord("A"))
@@ -140,7 +188,14 @@ def _load_ucbadmit():
             applications.append(int(row["applications"]))
             admit.append(int(row["admit"]))
 
-    return {"train": (np.stack(dept), np.stack(male), np.stack(applications), np.stack(admit))}
+    return {
+        "train": (
+            np.stack(dept),
+            np.stack(male),
+            np.stack(applications),
+            np.stack(admit),
+        )
+    }
 
 
 def _load_lynxhare():
@@ -215,7 +270,10 @@ def _load_higgs(num_datapoints):
     data = np.stack(data)
     (n,) = obs.shape
 
-    return {"train": (data[: -(n // 20)], obs[: -(n // 20)]), "test": (data[-(n // 20) :], obs[-(n // 20) :])}  # standard split -500_000: as test
+    return {
+        "train": (data[: -(n // 20)], obs[: -(n // 20)]),
+        "test": (data[-(n // 20) :], obs[-(n // 20) :]),
+    }  # standard split -500_000: as test
 
 
 def _load(dset, num_datapoints=-1):
@@ -254,7 +312,9 @@ def iter_dataset(dset, batch_size=None, split="train", shuffle=True):
         yield tuple(a[idxs[start_idx:end_idx]] for a in arrays)
 
 
-def load_dataset(dset, batch_size=None, split="train", shuffle=True, num_datapoints=None):
+def load_dataset(
+    dset, batch_size=None, split="train", shuffle=True, num_datapoints=None
+):
     arrays = _load(dset, num_datapoints)[split]
     num_records = len(arrays[0])
     idxs = np.arange(num_records)
@@ -262,10 +322,18 @@ def load_dataset(dset, batch_size=None, split="train", shuffle=True, num_datapoi
         batch_size = num_records
 
     def init():
-        return num_records // batch_size, np.random.permutation(idxs) if shuffle else idxs
+        return (
+            num_records // batch_size,
+            np.random.permutation(idxs) if shuffle else idxs,
+        )
 
     def get_batch(i=0, idxs=idxs):
         ret_idx = lax.dynamic_slice_in_dim(idxs, i * batch_size, batch_size)
-        return tuple(np.take(a, ret_idx, axis=0) if isinstance(a, list) else lax.index_take(a, (ret_idx,), axes=(0,)) for a in arrays)
+        return tuple(
+            np.take(a, ret_idx, axis=0)
+            if isinstance(a, list)
+            else lax.index_take(a, (ret_idx,), axes=(0,))
+            for a in arrays
+        )
 
     return init, get_batch

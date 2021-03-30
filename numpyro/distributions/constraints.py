@@ -26,7 +26,32 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 
-__all__ = ["boolean", "corr_cholesky", "corr_matrix", "dependent", "greater_than", "integer_interval", "integer_greater_than", "interval", "is_dependent", "less_than", "lower_cholesky", "multinomial", "nonnegative_integer", "positive", "positive_definite", "positive_integer", "real", "real_vector", "simplex", "sphere", "softplus_lower_cholesky", "softplus_positive", "unit_interval", "Constraint"]
+__all__ = [
+    "boolean",
+    "corr_cholesky",
+    "corr_matrix",
+    "dependent",
+    "greater_than",
+    "integer_interval",
+    "integer_greater_than",
+    "interval",
+    "is_dependent",
+    "less_than",
+    "lower_cholesky",
+    "multinomial",
+    "nonnegative_integer",
+    "positive",
+    "positive_definite",
+    "positive_integer",
+    "real",
+    "real_vector",
+    "simplex",
+    "sphere",
+    "softplus_lower_cholesky",
+    "softplus_positive",
+    "unit_interval",
+    "Constraint",
+]
 
 import numpy as np
 
@@ -74,14 +99,18 @@ class _CorrCholesky(Constraint):
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
-        lower_triangular = jnp.all(jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        lower_triangular = jnp.all(
+            jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1
+        )
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         x_norm = jnp.linalg.norm(x, axis=-1)
         unit_norm_row = jnp.all((x_norm <= 1) & (x_norm > 1 - 1e-6), axis=-1)
         return lower_triangular & positive_diagonal & unit_norm_row
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+        return jax.numpy.broadcast_to(
+            jax.numpy.eye(prototype.shape[-1]), prototype.shape
+        )
 
 
 class _CorrMatrix(Constraint):
@@ -94,11 +123,15 @@ class _CorrMatrix(Constraint):
         # check for the smallest eigenvalue is positive
         positive = jnp.linalg.eigh(x)[0][..., 0] > 0
         # check for diagonal equal to 1
-        unit_variance = jnp.all(jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1)
+        unit_variance = jnp.all(
+            jnp.abs(jnp.diagonal(x, axis1=-2, axis2=-1) - 1) < 1e-6, axis=-1
+        )
         return symmetric & positive & unit_variance
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+        return jax.numpy.broadcast_to(
+            jax.numpy.eye(prototype.shape[-1]), prototype.shape
+        )
 
 
 class _Dependent(Constraint):
@@ -145,7 +178,9 @@ class _Dependent(Constraint):
 
 
 class dependent_property(property, _Dependent):
-    def __init__(self, fn=None, *, is_discrete=NotImplemented, event_dim=NotImplemented):
+    def __init__(
+        self, fn=None, *, is_discrete=NotImplemented, event_dim=NotImplemented
+    ):
         super().__init__(fn)
         self._is_discrete = is_discrete
         self._event_dim = event_dim
@@ -158,7 +193,9 @@ class dependent_property(property, _Dependent):
         #     @constraints.dependent_property(is_discrete=True, event_dim=1)
         #     def support(self):
         #         ...
-        return dependent_property(x, is_discrete=self._is_discrete, event_dim=self._event_dim)
+        return dependent_property(
+            x, is_discrete=self._is_discrete, event_dim=self._event_dim
+        )
 
 
 def is_dependent(constraint):
@@ -188,7 +225,9 @@ class _IndependentConstraint(Constraint):
         assert isinstance(reinterpreted_batch_ndims, int)
         assert reinterpreted_batch_ndims >= 0
         if isinstance(base_constraint, _IndependentConstraint):
-            reinterpreted_batch_ndims = reinterpreted_batch_ndims + base_constraint.reinterpreted_batch_ndims
+            reinterpreted_batch_ndims = (
+                reinterpreted_batch_ndims + base_constraint.reinterpreted_batch_ndims
+            )
             base_constraint = base_constraint.base_constraint
         self.base_constraint = base_constraint
         self.reinterpreted_batch_ndims = reinterpreted_batch_ndims
@@ -204,8 +243,15 @@ class _IndependentConstraint(Constraint):
             return result
         elif jax.numpy.ndim(result) < self.reinterpreted_batch_ndims:
             expected = self.event_dim
-            raise ValueError(f"Expected value.dim() >= {expected} but got {jax.numpy.ndim(value)}")
-        result = result.reshape(jax.numpy.shape(result)[: jax.numpy.ndim(result) - self.reinterpreted_batch_ndims] + (-1,))
+            raise ValueError(
+                f"Expected value.dim() >= {expected} but got {jax.numpy.ndim(value)}"
+            )
+        result = result.reshape(
+            jax.numpy.shape(result)[
+                : jax.numpy.ndim(result) - self.reinterpreted_batch_ndims
+            ]
+            + (-1,)
+        )
         result = result.all(-1)
         return result
 
@@ -256,7 +302,9 @@ class _Interval(Constraint):
         return (x >= self.lower_bound) & (x <= self.upper_bound)
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to((self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype))
+        return jax.numpy.broadcast_to(
+            (self.lower_bound + self.upper_bound) / 2, jax.numpy.shape(prototype)
+        )
 
 
 class _LowerCholesky(Constraint):
@@ -265,12 +313,16 @@ class _LowerCholesky(Constraint):
     def __call__(self, x):
         jnp = np if isinstance(x, (np.ndarray, np.generic)) else jax.numpy
         tril = jnp.tril(x)
-        lower_triangular = jnp.all(jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1)
+        lower_triangular = jnp.all(
+            jnp.reshape(tril == x, x.shape[:-2] + (-1,)), axis=-1
+        )
         positive_diagonal = jnp.all(jnp.diagonal(x, axis1=-2, axis2=-1) > 0, axis=-1)
         return lower_triangular & positive_diagonal
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+        return jax.numpy.broadcast_to(
+            jax.numpy.eye(prototype.shape[-1]), prototype.shape
+        )
 
 
 class _Multinomial(Constraint):
@@ -283,7 +335,9 @@ class _Multinomial(Constraint):
         return (x >= 0).all(axis=-1) & (x.sum(axis=-1) == self.upper_bound)
 
     def feasible_like(self, prototype):
-        pad_width = ((0, 0),) * jax.numpy.ndim(self.upper_bound) + ((0, prototype.shape[-1] - 1),)
+        pad_width = ((0, 0),) * jax.numpy.ndim(self.upper_bound) + (
+            (0, prototype.shape[-1] - 1),
+        )
         value = jax.numpy.pad(jax.numpy.expand_dims(self.upper_bound, -1), pad_width)
         return jax.numpy.broadcast_to(value, prototype.shape)
 
@@ -295,7 +349,9 @@ class _OrderedVector(Constraint):
         return (x[..., 1:] > x[..., :-1]).all(axis=-1)
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(jax.numpy.arange(float(prototype.shape[-1])), prototype.shape)
+        return jax.numpy.broadcast_to(
+            jax.numpy.arange(float(prototype.shape[-1])), prototype.shape
+        )
 
 
 class _PositiveDefinite(Constraint):
@@ -310,7 +366,9 @@ class _PositiveDefinite(Constraint):
         return symmetric & positive
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]), prototype.shape)
+        return jax.numpy.broadcast_to(
+            jax.numpy.eye(prototype.shape[-1]), prototype.shape
+        )
 
 
 class _PositiveOrderedVector(Constraint):
@@ -325,7 +383,9 @@ class _PositiveOrderedVector(Constraint):
         return ordered_vector.check(x) & independent(positive, 1).check(x)
 
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))), prototype.shape)
+        return jax.numpy.broadcast_to(
+            jax.numpy.exp(jax.numpy.arange(float(prototype.shape[-1]))), prototype.shape
+        )
 
 
 class _Real(Constraint):
@@ -358,7 +418,9 @@ class _SoftplusPositive(_GreaterThan):
 
 class _SoftplusLowerCholesky(_LowerCholesky):
     def feasible_like(self, prototype):
-        return jax.numpy.broadcast_to(jax.numpy.eye(prototype.shape[-1]) * np.log(2), prototype.shape)
+        return jax.numpy.broadcast_to(
+            jax.numpy.eye(prototype.shape[-1]) * np.log(2), prototype.shape
+        )
 
 
 class _Sphere(Constraint):

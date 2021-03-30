@@ -38,7 +38,9 @@ def model(data, obs, subsample_size):
     with numpyro.plate("N", n, subsample_size=subsample_size):
         batch_feats = numpyro.subsample(data, event_dim=1)
         batch_obs = numpyro.subsample(obs, event_dim=0)
-        numpyro.sample("obs", dist.Bernoulli(logits=theta @ batch_feats.T), obs=batch_obs)
+        numpyro.sample(
+            "obs", dist.Bernoulli(logits=theta @ batch_feats.T), obs=batch_obs
+        )
 
 
 def run_hmcecs(hmcecs_key, args, data, obs, inner_kernel):
@@ -48,7 +50,9 @@ def run_hmcecs(hmcecs_key, args, data, obs, inner_kernel):
     optimizer = numpyro.optim.Adam(step_size=1e-3)
     guide = autoguide.AutoDelta(model)
     svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-    params, losses = svi.run(svi_key, args.num_svi_steps, data, obs, args.subsample_size)
+    params, losses = svi.run(
+        svi_key, args.num_svi_steps, data, obs, args.subsample_size
+    )
     ref_params = {"theta": params["theta_auto_loc"]}
 
     # taylor proxy estimates log likelihood (ll) by
@@ -72,10 +76,14 @@ def run_hmc(mcmc_key, args, data, obs, kernel):
 
 
 def main(args):
-    assert 11_000_000 >= args.num_datapoints, "11,000,000 data points in the Higgs dataset"
+    assert (
+        11_000_000 >= args.num_datapoints
+    ), "11,000,000 data points in the Higgs dataset"
     # full dataset takes hours for plain hmc!
     if args.dataset == "higgs":
-        _, fetch = load_dataset(HIGGS, shuffle=False, num_datapoints=args.num_datapoints)
+        _, fetch = load_dataset(
+            HIGGS, shuffle=False, num_datapoints=args.num_datapoints
+        )
         data, obs = fetch()
     else:
         data, obs = (np.random.normal(size=(10, 28)), np.ones(10))
@@ -132,17 +140,25 @@ def summary_plot(losses, hmc_samples, hmcecs_samples, hmc_runtime, hmcecs_runtim
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser("Hamiltonian Monte Carlo with Energy Conserving Subsampling")
+    parser = argparse.ArgumentParser(
+        "Hamiltonian Monte Carlo with Energy Conserving Subsampling"
+    )
     parser.add_argument("--subsample_size", type=int, default=1300)
     parser.add_argument("--num_svi_steps", type=int, default=5000)
     parser.add_argument("--num_blocks", type=int, default=100)
     parser.add_argument("--num_warmup", type=int, default=500)
     parser.add_argument("--num_samples", type=int, default=500)
     parser.add_argument("--num_datapoints", type=int, default=1_500_000)
-    parser.add_argument("--dataset", type=str, choices=["higgs", "mock"], default="higgs")
-    parser.add_argument("--inner_kernel", type=str, choices=["nuts", "hmc"], default="nuts")
+    parser.add_argument(
+        "--dataset", type=str, choices=["higgs", "mock"], default="higgs"
+    )
+    parser.add_argument(
+        "--inner_kernel", type=str, choices=["nuts", "hmc"], default="nuts"
+    )
     parser.add_argument("--device", default="cpu", type=str, choices=["cpu", "gpu"])
-    parser.add_argument("--rng_seed", default=37, type=int, help="random number generator seed")
+    parser.add_argument(
+        "--rng_seed", default=37, type=int, help="random number generator seed"
+    )
 
     args = parser.parse_args()
 

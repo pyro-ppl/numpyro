@@ -6,10 +6,34 @@ from numpy.testing import assert_allclose
 import pytest
 from scipy.fftpack import next_fast_len
 
-from numpyro.diagnostics import _fft_next_fast_len, autocorrelation, autocovariance, effective_sample_size, gelman_rubin, hpdi, split_gelman_rubin
+from numpyro.diagnostics import (
+    _fft_next_fast_len,
+    autocorrelation,
+    autocovariance,
+    effective_sample_size,
+    gelman_rubin,
+    hpdi,
+    split_gelman_rubin,
+)
 
 
-@pytest.mark.parametrize("statistics, input_shape, output_shape", [(autocorrelation, (10,), (10,)), (autocorrelation, (10, 3), (10, 3)), (autocovariance, (10,), (10,)), (autocovariance, (10, 3), (10, 3)), (hpdi, (10,), (2,)), (hpdi, (10, 3), (2, 3)), (gelman_rubin, (4, 10), ()), (gelman_rubin, (4, 10, 3), (3,)), (split_gelman_rubin, (4, 10), ()), (split_gelman_rubin, (4, 10, 3), (3,)), (effective_sample_size, (4, 10), ()), (effective_sample_size, (4, 10, 3), (3,))])
+@pytest.mark.parametrize(
+    "statistics, input_shape, output_shape",
+    [
+        (autocorrelation, (10,), (10,)),
+        (autocorrelation, (10, 3), (10, 3)),
+        (autocovariance, (10,), (10,)),
+        (autocovariance, (10, 3), (10, 3)),
+        (hpdi, (10,), (2,)),
+        (hpdi, (10, 3), (2, 3)),
+        (gelman_rubin, (4, 10), ()),
+        (gelman_rubin, (4, 10, 3), (3,)),
+        (split_gelman_rubin, (4, 10), ()),
+        (split_gelman_rubin, (4, 10, 3), (3,)),
+        (effective_sample_size, (4, 10), ()),
+        (effective_sample_size, (4, 10, 3), (3,)),
+    ],
+)
 def test_shape(statistics, input_shape, output_shape):
     x = np.random.normal(size=input_shape)
     y = statistics(x)
@@ -44,7 +68,9 @@ def test_autocorrelation():
 def test_autocovariance():
     x = np.arange(10.0)
     actual = autocovariance(x)
-    expected = np.array([8.25, 6.42, 4.25, 1.75, -1.08, -4.25, -7.75, -11.58, -15.75, -20.25])
+    expected = np.array(
+        [8.25, 6.42, 4.25, 1.75, -1.08, -4.25, -7.75, -11.58, -15.75, -20.25]
+    )
     assert_allclose(actual, expected, atol=0.01)
 
 

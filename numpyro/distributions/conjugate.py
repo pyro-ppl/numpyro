@@ -30,14 +30,24 @@ class BetaBinomial(Distribution):
         Beta distribution.
     :param numpy.ndarray total_count: number of Bernoulli trials.
     """
-    arg_constraints = {"concentration1": constraints.positive, "concentration0": constraints.positive, "total_count": constraints.nonnegative_integer}
+    arg_constraints = {
+        "concentration1": constraints.positive,
+        "concentration0": constraints.positive,
+        "total_count": constraints.nonnegative_integer,
+    }
     has_enumerate_support = True
     is_discrete = True
     enumerate_support = BinomialProbs.enumerate_support
 
-    def __init__(self, concentration1, concentration0, total_count=1, validate_args=None):
-        self.concentration1, self.concentration0, self.total_count = promote_shapes(concentration1, concentration0, total_count)
-        batch_shape = lax.broadcast_shapes(jnp.shape(concentration1), jnp.shape(concentration0), jnp.shape(total_count))
+    def __init__(
+        self, concentration1, concentration0, total_count=1, validate_args=None
+    ):
+        self.concentration1, self.concentration0, self.total_count = promote_shapes(
+            concentration1, concentration0, total_count
+        )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration1), jnp.shape(concentration0), jnp.shape(total_count)
+        )
         concentration1 = jnp.broadcast_to(concentration1, batch_shape)
         concentration0 = jnp.broadcast_to(concentration0, batch_shape)
         self._beta = Beta(concentration1, concentration0)
@@ -47,11 +57,20 @@ class BetaBinomial(Distribution):
         assert is_prng_key(key)
         key_beta, key_binom = random.split(key)
         probs = self._beta.sample(key_beta, sample_shape)
-        return BinomialProbs(total_count=self.total_count, probs=probs).sample(key_binom)
+        return BinomialProbs(total_count=self.total_count, probs=probs).sample(
+            key_binom
+        )
 
     @validate_sample
     def log_prob(self, value):
-        return -_log_beta_1(self.total_count - value + 1, value) + betaln(value + self.concentration1, self.total_count - value + self.concentration0) - betaln(self.concentration0, self.concentration1)
+        return (
+            -_log_beta_1(self.total_count - value + 1, value)
+            + betaln(
+                value + self.concentration1,
+                self.total_count - value + self.concentration0,
+            )
+            - betaln(self.concentration0, self.concentration1)
+        )
 
     @property
     def mean(self):
@@ -59,7 +78,11 @@ class BetaBinomial(Distribution):
 
     @property
     def variance(self):
-        return self._beta.variance * self.total_count * (self.concentration0 + self.concentration1 + self.total_count)
+        return (
+            self._beta.variance
+            * self.total_count
+            * (self.concentration0 + self.concentration1 + self.total_count)
+        )
 
     @constraints.dependent_property(is_discrete=True, event_dim=0)
     def support(self):
@@ -78,31 +101,46 @@ class DirichletMultinomial(Distribution):
         Dirichlet distribution.
     :param numpy.ndarray total_count: number of Categorical trials.
     """
-    arg_constraints = {"concentration": constraints.independent(constraints.positive, 1), "total_count": constraints.nonnegative_integer}
+    arg_constraints = {
+        "concentration": constraints.independent(constraints.positive, 1),
+        "total_count": constraints.nonnegative_integer,
+    }
     is_discrete = True
 
     def __init__(self, concentration, total_count=1, validate_args=None):
         if jnp.ndim(concentration) < 1:
-            raise ValueError("`concentration` parameter must be at least one-dimensional.")
+            raise ValueError(
+                "`concentration` parameter must be at least one-dimensional."
+            )
 
-        batch_shape = lax.broadcast_shapes(jnp.shape(concentration)[:-1], jnp.shape(total_count))
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(concentration)[:-1], jnp.shape(total_count)
+        )
         concentration_shape = batch_shape + jnp.shape(concentration)[-1:]
         (self.concentration,) = promote_shapes(concentration, shape=concentration_shape)
         (self.total_count,) = promote_shapes(total_count, shape=batch_shape)
         concentration = jnp.broadcast_to(self.concentration, concentration_shape)
         self._dirichlet = Dirichlet(concentration)
-        super().__init__(self._dirichlet.batch_shape, self._dirichlet.event_shape, validate_args=validate_args)
+        super().__init__(
+            self._dirichlet.batch_shape,
+            self._dirichlet.event_shape,
+            validate_args=validate_args,
+        )
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         key_dirichlet, key_multinom = random.split(key)
         probs = self._dirichlet.sample(key_dirichlet, sample_shape)
-        return MultinomialProbs(total_count=self.total_count, probs=probs).sample(key_multinom)
+        return MultinomialProbs(total_count=self.total_count, probs=probs).sample(
+            key_multinom
+        )
 
     @validate_sample
     def log_prob(self, value):
         alpha = self.concentration
-        return _log_beta_1(alpha.sum(-1), value.sum(-1)) - _log_beta_1(alpha, value).sum(-1)
+        return _log_beta_1(alpha.sum(-1), value.sum(-1)) - _log_beta_1(
+            alpha, value
+        ).sum(-1)
 
     @property
     def mean(self):
@@ -137,14 +175,19 @@ class GammaPoisson(Distribution):
     :param numpy.ndarray concentration: shape parameter (alpha) of the Gamma distribution.
     :param numpy.ndarray rate: rate parameter (beta) for the Gamma distribution.
     """
-    arg_constraints = {"concentration": constraints.positive, "rate": constraints.positive}
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "rate": constraints.positive,
+    }
     support = constraints.nonnegative_integer
     is_discrete = True
 
     def __init__(self, concentration, rate=1.0, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
         self._gamma = Gamma(concentration, rate)
-        super(GammaPoisson, self).__init__(self._gamma.batch_shape, validate_args=validate_args)
+        super(GammaPoisson, self).__init__(
+            self._gamma.batch_shape, validate_args=validate_args
+        )
 
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
@@ -155,7 +198,12 @@ class GammaPoisson(Distribution):
     @validate_sample
     def log_prob(self, value):
         post_value = self.concentration + value
-        return -betaln(self.concentration, value + 1) - jnp.log(post_value) + self.concentration * jnp.log(self.rate) - post_value * jnp.log1p(self.rate)
+        return (
+            -betaln(self.concentration, value + 1)
+            - jnp.log(post_value)
+            + self.concentration * jnp.log(self.rate)
+            - post_value * jnp.log1p(self.rate)
+        )
 
     @property
     def mean(self):

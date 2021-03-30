@@ -57,7 +57,339 @@ def get_data():
     """
     # NB: the first annotator assessed each item 3 times
     positions = np.array([1, 1, 1, 2, 3, 4, 5])
-    annotations = np.array([[1, 3, 1, 2, 2, 2, 1, 3, 2, 2, 4, 2, 1, 2, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 3, 1, 2, 2, 4, 2, 2, 3, 1, 1, 1, 2, 1, 2], [1, 3, 1, 2, 2, 2, 2, 3, 2, 3, 4, 2, 1, 2, 2, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 3, 1, 1, 1, 1, 3, 1, 2, 2, 3, 2, 3, 3, 1, 1, 2, 3, 2, 2], [1, 3, 2, 2, 2, 2, 2, 3, 2, 2, 4, 2, 1, 2, 1, 1, 1, 1, 2, 2, 2, 2, 2, 1, 1, 1, 2, 1, 1, 2, 1, 3, 1, 2, 2, 3, 1, 2, 3, 1, 1, 1, 2, 1, 2], [1, 4, 2, 3, 3, 3, 2, 3, 2, 2, 4, 3, 1, 3, 1, 2, 1, 1, 2, 1, 2, 2, 3, 2, 1, 1, 2, 1, 1, 1, 1, 3, 1, 2, 3, 4, 2, 3, 3, 1, 1, 2, 2, 1, 2], [1, 3, 1, 1, 2, 3, 1, 4, 2, 2, 4, 3, 1, 2, 1, 1, 1, 1, 2, 3, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 2, 1, 2, 2, 3, 2, 2, 4, 1, 1, 1, 2, 1, 2], [1, 3, 2, 2, 2, 2, 1, 3, 2, 2, 4, 4, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 2, 1, 3, 1, 2, 3, 4, 3, 3, 3, 1, 1, 1, 2, 1, 2], [1, 4, 2, 1, 2, 2, 1, 3, 3, 3, 4, 3, 1, 2, 1, 1, 1, 1, 1, 2, 2, 1, 2, 2, 1, 1, 2, 1, 1, 1, 1, 3, 1, 2, 2, 3, 2, 3, 2, 1, 1, 1, 2, 1, 2]]).T
+    annotations = np.array(
+        [
+            [
+                1,
+                3,
+                1,
+                2,
+                2,
+                2,
+                1,
+                3,
+                2,
+                2,
+                4,
+                2,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                3,
+                1,
+                2,
+                2,
+                4,
+                2,
+                2,
+                3,
+                1,
+                1,
+                1,
+                2,
+                1,
+                2,
+            ],
+            [
+                1,
+                3,
+                1,
+                2,
+                2,
+                2,
+                2,
+                3,
+                2,
+                3,
+                4,
+                2,
+                1,
+                2,
+                2,
+                1,
+                1,
+                1,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                1,
+                1,
+                3,
+                1,
+                1,
+                1,
+                1,
+                3,
+                1,
+                2,
+                2,
+                3,
+                2,
+                3,
+                3,
+                1,
+                1,
+                2,
+                3,
+                2,
+                2,
+            ],
+            [
+                1,
+                3,
+                2,
+                2,
+                2,
+                2,
+                2,
+                3,
+                2,
+                2,
+                4,
+                2,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                2,
+                2,
+                2,
+                2,
+                2,
+                1,
+                1,
+                1,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                1,
+                2,
+                2,
+                3,
+                1,
+                2,
+                3,
+                1,
+                1,
+                1,
+                2,
+                1,
+                2,
+            ],
+            [
+                1,
+                4,
+                2,
+                3,
+                3,
+                3,
+                2,
+                3,
+                2,
+                2,
+                4,
+                3,
+                1,
+                3,
+                1,
+                2,
+                1,
+                1,
+                2,
+                1,
+                2,
+                2,
+                3,
+                2,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                3,
+                1,
+                2,
+                3,
+                4,
+                2,
+                3,
+                3,
+                1,
+                1,
+                2,
+                2,
+                1,
+                2,
+            ],
+            [
+                1,
+                3,
+                1,
+                1,
+                2,
+                3,
+                1,
+                4,
+                2,
+                2,
+                4,
+                3,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                2,
+                3,
+                2,
+                2,
+                2,
+                2,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                2,
+                1,
+                2,
+                2,
+                3,
+                2,
+                2,
+                4,
+                1,
+                1,
+                1,
+                2,
+                1,
+                2,
+            ],
+            [
+                1,
+                3,
+                2,
+                2,
+                2,
+                2,
+                1,
+                3,
+                2,
+                2,
+                4,
+                4,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                2,
+                2,
+                2,
+                2,
+                2,
+                1,
+                1,
+                2,
+                1,
+                1,
+                2,
+                1,
+                3,
+                1,
+                2,
+                3,
+                4,
+                3,
+                3,
+                3,
+                1,
+                1,
+                1,
+                2,
+                1,
+                2,
+            ],
+            [
+                1,
+                4,
+                2,
+                1,
+                2,
+                2,
+                1,
+                3,
+                3,
+                3,
+                4,
+                3,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                1,
+                2,
+                2,
+                1,
+                2,
+                2,
+                1,
+                1,
+                2,
+                1,
+                1,
+                1,
+                1,
+                3,
+                1,
+                2,
+                2,
+                3,
+                2,
+                3,
+                2,
+                1,
+                1,
+                1,
+                2,
+                1,
+                2,
+            ],
+        ]
+    ).T
     # we minus 1 because in Python, the first index is 0
     return positions - 1, annotations - 1
 
@@ -101,7 +433,9 @@ def dawid_skene(positions, annotations):
         # here we use Vindex to allow broadcasting for the second index `c`
         # ref: http://num.pyro.ai/en/latest/utilities.html#numpyro.contrib.indexing.vindex
         with numpyro.plate("position", num_positions):
-            numpyro.sample("y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations)
+            numpyro.sample(
+                "y", dist.Categorical(Vindex(beta)[positions, c, :]), obs=annotations
+            )
 
 
 def mace(positions, annotations):
@@ -123,7 +457,9 @@ def mace(positions, annotations):
 
         with numpyro.plate("position", num_positions):
             s = numpyro.sample("s", dist.Bernoulli(1 - theta[positions]))
-            probs = jnp.where(s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions])
+            probs = jnp.where(
+                s[..., None] == 0, nn.one_hot(c, num_classes), epsilon[positions]
+            )
             numpyro.sample("y", dist.Categorical(probs), obs=annotations)
 
 
@@ -139,8 +475,12 @@ def hierarchical_dawid_skene(positions, annotations):
         # NB: we define `beta` as the `logits` of `y` likelihood; but `logits` is
         # invariant up to a constant, so we'll follow [1]: fix the last term of `beta`
         # to 0 and only define hyperpriors for the first `num_classes - 1` terms.
-        zeta = numpyro.sample("zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1))
-        omega = numpyro.sample("Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1))
+        zeta = numpyro.sample(
+            "zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
+        )
+        omega = numpyro.sample(
+            "Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
+        )
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
@@ -168,8 +508,12 @@ def item_difficulty(annotations):
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("class", num_classes):
-        eta = numpyro.sample("eta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1))
-        chi = numpyro.sample("Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1))
+        eta = numpyro.sample(
+            "eta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
+        )
+        chi = numpyro.sample(
+            "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
+        )
 
     pi = numpyro.sample("pi", dist.Dirichlet(jnp.ones(num_classes)))
 
@@ -193,9 +537,15 @@ def logistic_random_effects(positions, annotations):
     num_items, num_positions = annotations.shape
 
     with numpyro.plate("class", num_classes):
-        zeta = numpyro.sample("zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1))
-        omega = numpyro.sample("Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1))
-        chi = numpyro.sample("Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1))
+        zeta = numpyro.sample(
+            "zeta", dist.Normal(0, 1).expand([num_classes - 1]).to_event(1)
+        )
+        omega = numpyro.sample(
+            "Omega", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
+        )
+        chi = numpyro.sample(
+            "Chi", dist.HalfNormal(1).expand([num_classes - 1]).to_event(1)
+        )
 
     with numpyro.plate("annotator", num_annotators, dim=-2):
         with numpyro.plate("class", num_classes):
@@ -217,15 +567,32 @@ def logistic_random_effects(positions, annotations):
             numpyro.sample("y", dist.Categorical(logits=logits), obs=annotations)
 
 
-NAME_TO_MODEL = {"mn": multinomial, "ds": dawid_skene, "mace": mace, "hds": hierarchical_dawid_skene, "id": item_difficulty, "lre": logistic_random_effects}
+NAME_TO_MODEL = {
+    "mn": multinomial,
+    "ds": dawid_skene,
+    "mace": mace,
+    "hds": hierarchical_dawid_skene,
+    "id": item_difficulty,
+    "lre": logistic_random_effects,
+}
 
 
 def main(args):
     annotators, annotations = get_data()
     model = NAME_TO_MODEL[args.model]
-    data = (annotations,) if model in [multinomial, item_difficulty] else (annotators, annotations)
+    data = (
+        (annotations,)
+        if model in [multinomial, item_difficulty]
+        else (annotators, annotations)
+    )
 
-    mcmc = MCMC(NUTS(model), args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(
+        NUTS(model),
+        args.num_warmup,
+        args.num_samples,
+        num_chains=args.num_chains,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     mcmc.run(random.PRNGKey(0), *data)
     mcmc.print_summary()
 
@@ -236,7 +603,14 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
-    parser.add_argument("--model", nargs="?", default="ds", help='one of "mn" (multinomial), "ds" (dawid_skene), "mace",' ' "hds" (hierarchical_dawid_skene),' ' "id" (item_difficulty), "lre" (logistic_random_effects)')
+    parser.add_argument(
+        "--model",
+        nargs="?",
+        default="ds",
+        help='one of "mn" (multinomial), "ds" (dawid_skene), "mace",'
+        ' "hds" (hierarchical_dawid_skene),'
+        ' "id" (item_difficulty), "lre" (logistic_random_effects)',
+    )
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 

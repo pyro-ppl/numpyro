@@ -27,7 +27,15 @@ import jax.random as random
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS, init_to_feasible, init_to_median, init_to_sample, init_to_uniform, init_to_value
+from numpyro.infer import (
+    MCMC,
+    NUTS,
+    init_to_feasible,
+    init_to_median,
+    init_to_sample,
+    init_to_uniform,
+    init_to_value,
+)
 
 matplotlib.use("Agg")  # noqa: E402
 
@@ -51,7 +59,11 @@ def model(X, Y):
     k = kernel(X, X, var, length, noise)
 
     # sample Y according to the standard gaussian process formula
-    numpyro.sample("Y", dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k), obs=Y)
+    numpyro.sample(
+        "Y",
+        dist.MultivariateNormal(loc=jnp.zeros(X.shape[0]), covariance_matrix=k),
+        obs=Y,
+    )
 
 
 # helper function for doing hmc inference
@@ -59,7 +71,9 @@ def run_inference(model, args, rng_key, X, Y):
     start = time.time()
     # demonstrate how to use different HMC initialization strategies
     if args.init_strategy == "value":
-        init_strategy = init_to_value(values={"kernel_var": 1.0, "kernel_noise": 0.05, "kernel_length": 0.5})
+        init_strategy = init_to_value(
+            values={"kernel_var": 1.0, "kernel_noise": 0.05, "kernel_length": 0.5}
+        )
     elif args.init_strategy == "median":
         init_strategy = init_to_median(num_samples=10)
     elif args.init_strategy == "feasible":
@@ -69,7 +83,14 @@ def run_inference(model, args, rng_key, X, Y):
     elif args.init_strategy == "uniform":
         init_strategy = init_to_uniform(radius=1)
     kernel = NUTS(model, init_strategy=init_strategy)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, thinning=args.thinning, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(
+        kernel,
+        args.num_warmup,
+        args.num_samples,
+        num_chains=args.num_chains,
+        thinning=args.thinning,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     mcmc.run(rng_key, X, Y)
     mcmc.print_summary()
     print("\nMCMC elapsed time:", time.time() - start)
@@ -85,7 +106,9 @@ def predict(rng_key, X, Y, X_test, var, length, noise):
     k_XX = kernel(X, X, var, length, noise, include_noise=True)
     K_xx_inv = jnp.linalg.inv(k_XX)
     K = k_pp - jnp.matmul(k_pX, jnp.matmul(K_xx_inv, jnp.transpose(k_pX)))
-    sigma_noise = jnp.sqrt(jnp.clip(jnp.diag(K), a_min=0.0)) * jax.random.normal(rng_key, X_test.shape[:1])
+    sigma_noise = jnp.sqrt(jnp.clip(jnp.diag(K), a_min=0.0)) * jax.random.normal(
+        rng_key, X_test.shape[:1]
+    )
     mean = jnp.matmul(k_pX, jnp.matmul(K_xx_inv, Y))
     # we return both the mean function and a sample from the posterior predictive for the
     # given set of hyperparameters
@@ -117,8 +140,17 @@ def main(args):
     samples = run_inference(model, args, rng_key, X, Y)
 
     # do prediction
-    vmap_args = (random.split(rng_key_predict, samples["kernel_var"].shape[0]), samples["kernel_var"], samples["kernel_length"], samples["kernel_noise"])
-    means, predictions = vmap(lambda rng_key, var, length, noise: predict(rng_key, X, Y, X_test, var, length, noise))(*vmap_args)
+    vmap_args = (
+        random.split(rng_key_predict, samples["kernel_var"].shape[0]),
+        samples["kernel_var"],
+        samples["kernel_length"],
+        samples["kernel_noise"],
+    )
+    means, predictions = vmap(
+        lambda rng_key, var, length, noise: predict(
+            rng_key, X, Y, X_test, var, length, noise
+        )
+    )(*vmap_args)
 
     mean_prediction = np.mean(means, axis=0)
     percentiles = np.percentile(predictions, [5.0, 95.0], axis=0)
@@ -146,7 +178,12 @@ if __name__ == "__main__":
     parser.add_argument("--thinning", nargs="?", default=2, type=int)
     parser.add_argument("--num-data", nargs="?", default=25, type=int)
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
-    parser.add_argument("--init-strategy", default="median", type=str, choices=["median", "feasible", "value", "uniform", "sample"])
+    parser.add_argument(
+        "--init-strategy",
+        default="median",
+        type=str,
+        choices=["median", "feasible", "value", "uniform", "sample"],
+    )
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

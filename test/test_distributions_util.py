@@ -12,7 +12,16 @@ from jax import lax, random, vmap
 import jax.numpy as jnp
 from jax.scipy.special import expit, xlog1py, xlogy
 
-from numpyro.distributions.util import binary_cross_entropy_with_logits, binomial, categorical, cholesky_update, multinomial, safe_normalize, vec_to_tril_matrix, von_mises_centered
+from numpyro.distributions.util import (
+    binary_cross_entropy_with_logits,
+    binomial,
+    categorical,
+    cholesky_update,
+    multinomial,
+    safe_normalize,
+    vec_to_tril_matrix,
+    von_mises_centered,
+)
 
 
 @pytest.mark.parametrize("x, y", [(0.2, 10.0), (0.6, -10.0)])
@@ -42,7 +51,15 @@ def test_binop_batch_rule(prim):
         assert_allclose(actual_bx_y[i], prim(bx[i], y))
 
 
-@pytest.mark.parametrize("p, shape", [(jnp.array([0.1, 0.9]), ()), (jnp.array([0.2, 0.8]), (2,)), (jnp.array([[0.1, 0.9], [0.2, 0.8]]), ()), (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2))])
+@pytest.mark.parametrize(
+    "p, shape",
+    [
+        (jnp.array([0.1, 0.9]), ()),
+        (jnp.array([0.2, 0.8]), (2,)),
+        (jnp.array([[0.1, 0.9], [0.2, 0.8]]), ()),
+        (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
+    ],
+)
 def test_categorical_shape(p, shape):
     rng_key = random.PRNGKey(0)
     expected_shape = lax.broadcast_shapes(p.shape[:-1], shape)
@@ -58,7 +75,15 @@ def test_categorical_stats(p):
     assert_allclose(counts / float(n), p, atol=0.01)
 
 
-@pytest.mark.parametrize("p, shape", [(jnp.array([0.1, 0.9]), ()), (jnp.array([0.2, 0.8]), (2,)), (jnp.array([[0.1, 0.9], [0.2, 0.8]]), ()), (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2))])
+@pytest.mark.parametrize(
+    "p, shape",
+    [
+        (jnp.array([0.1, 0.9]), ()),
+        (jnp.array([0.2, 0.8]), (2,)),
+        (jnp.array([[0.1, 0.9], [0.2, 0.8]]), ()),
+        (jnp.array([[0.1, 0.9], [0.2, 0.8]]), (3, 2)),
+    ],
+)
 def test_multinomial_shape(p, shape):
     rng_key = random.PRNGKey(0)
     n = 10000

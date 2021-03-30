@@ -19,7 +19,16 @@ from numpyro.distributions import constraints, transforms
 from numpyro.distributions.flows import InverseAutoregressiveTransform
 from numpyro.handlers import substitute
 from numpyro.infer import SVI, Trace_ELBO, TraceMeanField_ELBO
-from numpyro.infer.autoguide import AutoBNAFNormal, AutoDelta, AutoDiagonalNormal, AutoIAFNormal, AutoLaplaceApproximation, AutoLowRankMultivariateNormal, AutoMultivariateNormal, AutoNormal
+from numpyro.infer.autoguide import (
+    AutoBNAFNormal,
+    AutoDelta,
+    AutoDiagonalNormal,
+    AutoIAFNormal,
+    AutoLaplaceApproximation,
+    AutoLowRankMultivariateNormal,
+    AutoMultivariateNormal,
+    AutoNormal,
+)
 from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import TransformReparam
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
@@ -28,7 +37,19 @@ from numpyro.util import fori_loop
 init_strategy = init_to_median(num_samples=2)
 
 
-@pytest.mark.parametrize("auto_class", [AutoDiagonalNormal, AutoIAFNormal, AutoBNAFNormal, AutoMultivariateNormal, AutoLaplaceApproximation, AutoLowRankMultivariateNormal, AutoNormal, AutoDelta])
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoDiagonalNormal,
+        AutoIAFNormal,
+        AutoBNAFNormal,
+        AutoMultivariateNormal,
+        AutoLaplaceApproximation,
+        AutoLowRankMultivariateNormal,
+        AutoNormal,
+        AutoDelta,
+    ],
+)
 def test_beta_bernoulli(auto_class):
     data = jnp.array([[1.0] * 8 + [0.0] * 2, [1.0] * 4 + [0.0] * 6]).T
 
@@ -49,11 +70,25 @@ def test_beta_bernoulli(auto_class):
     params = svi.get_params(svi_state)
     true_coefs = (jnp.sum(data, axis=0) + 1) / (data.shape[0] + 2)
     # test .sample_posterior method
-    posterior_samples = guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(1000,))
+    posterior_samples = guide.sample_posterior(
+        random.PRNGKey(1), params, sample_shape=(1000,)
+    )
     assert_allclose(jnp.mean(posterior_samples["beta"], 0), true_coefs, atol=0.05)
 
 
-@pytest.mark.parametrize("auto_class", [AutoDiagonalNormal, AutoIAFNormal, AutoBNAFNormal, AutoMultivariateNormal, AutoLaplaceApproximation, AutoLowRankMultivariateNormal, AutoNormal, AutoDelta])
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoDiagonalNormal,
+        AutoIAFNormal,
+        AutoBNAFNormal,
+        AutoMultivariateNormal,
+        AutoLaplaceApproximation,
+        AutoLowRankMultivariateNormal,
+        AutoNormal,
+        AutoDelta,
+    ],
+)
 @pytest.mark.parametrize("Elbo", [Trace_ELBO, TraceMeanField_ELBO])
 def test_logistic_regression(auto_class, Elbo):
     N, dim = 3000, 3
@@ -95,7 +130,9 @@ def test_logistic_regression(auto_class, Elbo):
             median = guide.quantiles(params, [0.2, 0.5])
             assert_allclose(median["coefs"][1], true_coefs, rtol=0.1)
     # test .sample_posterior method
-    posterior_samples = guide.sample_posterior(random.PRNGKey(1), params, sample_shape=(1000,))
+    posterior_samples = guide.sample_posterior(
+        random.PRNGKey(1), params, sample_shape=(1000,)
+    )
     expected_coefs = jnp.array([0.97, 2.05, 3.18])
     assert_allclose(jnp.mean(posterior_samples["coefs"], 0), expected_coefs, rtol=0.1)
 
@@ -130,17 +167,28 @@ def test_iaf():
     for i in range(guide.num_flows):
         if i > 0:
             flows.append(transforms.PermuteTransform(jnp.arange(dim + 1)[::-1]))
-        arn_init, arn_apply = AutoregressiveNN(dim + 1, [dim + 1, dim + 1], permutation=jnp.arange(dim + 1), skip_connections=guide._skip_connections, nonlinearity=guide._nonlinearity)
+        arn_init, arn_apply = AutoregressiveNN(
+            dim + 1,
+            [dim + 1, dim + 1],
+            permutation=jnp.arange(dim + 1),
+            skip_connections=guide._skip_connections,
+            nonlinearity=guide._nonlinearity,
+        )
         arn = partial(arn_apply, params["auto_arn__{}$params".format(i)])
         flows.append(InverseAutoregressiveTransform(arn))
     flows.append(guide._unpack_latent)
 
     transform = transforms.ComposeTransform(flows)
     _, rng_key_sample = random.split(rng_key)
-    expected_sample = transform(dist.Normal(jnp.zeros(dim + 1), 1).sample(rng_key_sample))
+    expected_sample = transform(
+        dist.Normal(jnp.zeros(dim + 1), 1).sample(rng_key_sample)
+    )
     expected_output = transform(x)
     assert_allclose(actual_sample["coefs"], expected_sample["coefs"])
-    assert_allclose(actual_sample["offset"], transforms.biject_to(constraints.interval(-1, 1))(expected_sample["offset"]))
+    assert_allclose(
+        actual_sample["offset"],
+        transforms.biject_to(constraints.interval(-1, 1))(expected_sample["offset"]),
+    )
     check_eq(actual_output, expected_output)
 
 
@@ -151,7 +199,12 @@ def test_uniform_normal():
     def model(data):
         alpha = numpyro.sample("alpha", dist.Uniform(0, 1))
         with numpyro.handlers.reparam(config={"loc": TransformReparam()}):
-            loc = numpyro.sample("loc", dist.TransformedDistribution(dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)))
+            loc = numpyro.sample(
+                "loc",
+                dist.TransformedDistribution(
+                    dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)
+                ),
+            )
         numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     adam = optim.Adam(0.01)
@@ -190,7 +243,9 @@ def test_param():
     # this class is used to force init value of `x` to x_init
     class _AutoGuide(AutoDiagonalNormal):
         def __call__(self, *args, **kwargs):
-            return substitute(super(_AutoGuide, self).__call__, {"_auto_latent": x_init})(*args, **kwargs)
+            return substitute(
+                super(_AutoGuide, self).__call__, {"_auto_latent": x_init}
+            )(*args, **kwargs)
 
     adam = optim.Adam(0.01)
     rng_key_init = random.PRNGKey(1)
@@ -206,7 +261,9 @@ def test_param():
 
     actual_loss = svi.evaluate(svi_state)
     assert jnp.isfinite(actual_loss)
-    expected_loss = dist.Normal(guide._init_latent, guide._init_scale).log_prob(x_init) - dist.Normal(a_init, b_init).log_prob(x_init)
+    expected_loss = dist.Normal(guide._init_latent, guide._init_scale).log_prob(
+        x_init
+    ) - dist.Normal(a_init, b_init).log_prob(x_init)
     assert_allclose(actual_loss, expected_loss, rtol=1e-6)
 
 
@@ -217,7 +274,12 @@ def test_dynamic_supports():
     def actual_model(data):
         alpha = numpyro.sample("alpha", dist.Uniform(0, 1))
         with numpyro.handlers.reparam(config={"loc": TransformReparam()}):
-            loc = numpyro.sample("loc", dist.TransformedDistribution(dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)))
+            loc = numpyro.sample(
+                "loc",
+                dist.TransformedDistribution(
+                    dist.Uniform(0, 1), transforms.AffineTransform(0, alpha)
+                ),
+            )
         numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     def expected_model(data):
@@ -275,9 +337,15 @@ def test_improper():
     y = random.normal(random.PRNGKey(0), (100,))
 
     def model(y):
-        lambda1 = numpyro.sample("lambda1", dist.ImproperUniform(dist.constraints.real, (), ()))
-        lambda2 = numpyro.sample("lambda2", dist.ImproperUniform(dist.constraints.real, (), ()))
-        sigma = numpyro.sample("sigma", dist.ImproperUniform(dist.constraints.positive, (), ()))
+        lambda1 = numpyro.sample(
+            "lambda1", dist.ImproperUniform(dist.constraints.real, (), ())
+        )
+        lambda2 = numpyro.sample(
+            "lambda2", dist.ImproperUniform(dist.constraints.real, (), ())
+        )
+        sigma = numpyro.sample(
+            "sigma", dist.ImproperUniform(dist.constraints.positive, (), ())
+        )
         mu = numpyro.deterministic("mu", lambda1 + lambda2)
         numpyro.sample("y", dist.Normal(mu, sigma), obs=y)
 
@@ -316,10 +384,14 @@ def test_subsample_guide(auto_class):
         def transition_fn(z_prev, y_curr):
             with plate:
                 z_curr = numpyro.sample("state", dist.Normal(z_prev, drift))
-                y_curr = numpyro.sample("obs", dist.Bernoulli(logits=z_curr), obs=y_curr)
+                y_curr = numpyro.sample(
+                    "obs", dist.Bernoulli(logits=z_curr), obs=y_curr
+                )
             return z_curr, y_curr
 
-        _, result = scan(transition_fn, jnp.zeros(len(subsample)), batch, length=num_time_steps)
+        _, result = scan(
+            transition_fn, jnp.zeros(len(subsample)), batch, length=num_time_steps
+        )
         return result
 
     def create_plates(batch, subsample, full_size):
@@ -336,7 +408,12 @@ def test_subsample_guide(auto_class):
     assert data.shape == (num_time_steps, full_size)
 
     svi = SVI(model, guide, optim.Adam(0.02), Trace_ELBO())
-    svi_state = svi.init(random.PRNGKey(0), data[:, :batch_size], jnp.arange(batch_size), full_size=full_size)
+    svi_state = svi.init(
+        random.PRNGKey(0),
+        data[:, :batch_size],
+        jnp.arange(batch_size),
+        full_size=full_size,
+    )
     update_fn = jit(svi.update, static_argnums=(3,))
     for epoch in range(2):
         beg = 0

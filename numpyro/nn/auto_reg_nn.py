@@ -63,7 +63,14 @@ def create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier):
     return masks, mask_skip
 
 
-def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None, skip_connections=False, nonlinearity=stax.Relu):
+def AutoregressiveNN(
+    input_dim,
+    hidden_dims,
+    param_dims=[1, 1],
+    permutation=None,
+    skip_connections=False,
+    nonlinearity=stax.Relu,
+):
     """
     An implementation of a MADE-like auto-regressive neural network.
 
@@ -116,7 +123,12 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
         permutation = jnp.arange(input_dim)
 
     # Create masks
-    masks, mask_skip = create_mask(input_dim=input_dim, hidden_dims=hidden_dims, permutation=permutation, output_dim_multiplier=output_multiplier)
+    masks, mask_skip = create_mask(
+        input_dim=input_dim,
+        hidden_dims=hidden_dims,
+        permutation=permutation,
+        output_dim_multiplier=output_multiplier,
+    )
 
     main_layers = []
     # Create masked layers
@@ -126,7 +138,13 @@ def AutoregressiveNN(input_dim, hidden_dims, param_dims=[1, 1], permutation=None
             main_layers.append(nonlinearity)
 
     if skip_connections:
-        net_init, net = stax.serial(stax.FanOut(2), stax.parallel(stax.serial(*main_layers), MaskedDense(mask_skip, bias=False)), stax.FanInSum)
+        net_init, net = stax.serial(
+            stax.FanOut(2),
+            stax.parallel(
+                stax.serial(*main_layers), MaskedDense(mask_skip, bias=False)
+            ),
+            stax.FanInSum,
+        )
     else:
         net_init, net = stax.serial(*main_layers)
 

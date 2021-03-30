@@ -42,10 +42,68 @@ def discrete_to_continuous(probs, locs):
 @pytest.mark.parametrize(
     "test_model,model_kwargs,expected_graph_spec",
     [
-        (simple, dict(data=jnp.ones(10)), {"plate_groups": {"N": ["obs"], None: ["x", "sd"]}, "plate_data": {"N": {"parent": None}}, "node_data": {"x": {"is_observed": False, "distribution": "Normal"}, "sd": {"is_observed": False, "distribution": "LogNormal"}, "obs": {"is_observed": True, "distribution": "Normal"}}, "edge_list": [("x", "sd"), ("x", "obs"), ("sd", "obs")]}),
-        (plate_improper_subsets, dict(), {"plate_groups": {"N": ["x"], "M": ["x"], None: []}, "plate_data": {"N": {"parent": None}, "M": {"parent": "N"}}, "node_data": {"x": {"is_observed": False, "distribution": "Normal"}}, "edge_list": []}),
-        (nested_plates, dict(), {"plate_groups": {"N": ["x", "y"], "M": ["y"], "M__CLONE": ["z"], None: []}, "plate_data": {"N": {"parent": None}, "M": {"parent": "N"}, "M__CLONE": {"parent": None}}, "node_data": {"x": {"is_observed": False, "distribution": "Normal"}, "y": {"is_observed": False, "distribution": "Normal"}, "z": {"is_observed": False, "distribution": "Normal"}}, "edge_list": []}),
-        (discrete_to_continuous, dict(probs=jnp.array([0.15, 0.3, 0.3, 0.25]), locs=jnp.array([-2, 0, 2, 4])), {"plate_groups": {None: ["c", "x"]}, "plate_data": {}, "node_data": {"c": {"is_observed": False, "distribution": "CategoricalProbs"}, "x": {"is_observed": False, "distribution": "Normal"}}, "edge_list": [("c", "x")]}),
+        (
+            simple,
+            dict(data=jnp.ones(10)),
+            {
+                "plate_groups": {"N": ["obs"], None: ["x", "sd"]},
+                "plate_data": {"N": {"parent": None}},
+                "node_data": {
+                    "x": {"is_observed": False, "distribution": "Normal"},
+                    "sd": {"is_observed": False, "distribution": "LogNormal"},
+                    "obs": {"is_observed": True, "distribution": "Normal"},
+                },
+                "edge_list": [("x", "sd"), ("x", "obs"), ("sd", "obs")],
+            },
+        ),
+        (
+            plate_improper_subsets,
+            dict(),
+            {
+                "plate_groups": {"N": ["x"], "M": ["x"], None: []},
+                "plate_data": {"N": {"parent": None}, "M": {"parent": "N"}},
+                "node_data": {"x": {"is_observed": False, "distribution": "Normal"}},
+                "edge_list": [],
+            },
+        ),
+        (
+            nested_plates,
+            dict(),
+            {
+                "plate_groups": {
+                    "N": ["x", "y"],
+                    "M": ["y"],
+                    "M__CLONE": ["z"],
+                    None: [],
+                },
+                "plate_data": {
+                    "N": {"parent": None},
+                    "M": {"parent": "N"},
+                    "M__CLONE": {"parent": None},
+                },
+                "node_data": {
+                    "x": {"is_observed": False, "distribution": "Normal"},
+                    "y": {"is_observed": False, "distribution": "Normal"},
+                    "z": {"is_observed": False, "distribution": "Normal"},
+                },
+                "edge_list": [],
+            },
+        ),
+        (
+            discrete_to_continuous,
+            dict(
+                probs=jnp.array([0.15, 0.3, 0.3, 0.25]), locs=jnp.array([-2, 0, 2, 4])
+            ),
+            {
+                "plate_groups": {None: ["c", "x"]},
+                "plate_data": {},
+                "node_data": {
+                    "c": {"is_observed": False, "distribution": "CategoricalProbs"},
+                    "x": {"is_observed": False, "distribution": "Normal"},
+                },
+                "edge_list": [("c", "x")],
+            },
+        ),
     ],
 )
 def test_model_transformation(test_model, model_kwargs, expected_graph_spec):

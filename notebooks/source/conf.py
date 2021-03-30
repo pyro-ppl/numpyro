@@ -37,7 +37,15 @@ import sphinx_rtd_theme
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
-extensions = ["sphinx.ext.intersphinx", "sphinx.ext.todo", "sphinx.ext.mathjax", "sphinx.ext.githubpages", "nbsphinx", "sphinx.ext.autodoc", "IPython.sphinxext.ipython_console_highlighting"]
+extensions = [
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.todo",
+    "sphinx.ext.mathjax",
+    "sphinx.ext.githubpages",
+    "nbsphinx",
+    "sphinx.ext.autodoc",
+    "IPython.sphinxext.ipython_console_highlighting",
+]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
@@ -152,14 +160,24 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
-latex_documents = [(master_doc, "NumPyroTutorials.tex", u"Numpyro Examples and Tutorials", u"Uber AI Labs", "manual")]
+latex_documents = [
+    (
+        master_doc,
+        "NumPyroTutorials.tex",
+        u"Numpyro Examples and Tutorials",
+        u"Uber AI Labs",
+        "manual",
+    )
+]
 
 
 # -- Options for manual page output ---------------------------------------
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "NumPyroTutorials", u"Numpyro Examples and Tutorials", [author], 1)]
+man_pages = [
+    (master_doc, "NumPyroTutorials", u"Numpyro Examples and Tutorials", [author], 1)
+]
 
 
 # -- Options for Texinfo output -------------------------------------------
@@ -167,4 +185,14 @@ man_pages = [(master_doc, "NumPyroTutorials", u"Numpyro Examples and Tutorials",
 # Grouping the document tree into Texinfo files. List of tuples
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
-texinfo_documents = [(master_doc, "NumPyroTutorials", u"NumPyro Examples and Tutorials", author, "NumPyroTutorials", "One line description of project.", "Miscellaneous")]
+texinfo_documents = [
+    (
+        master_doc,
+        "NumPyroTutorials",
+        u"NumPyro Examples and Tutorials",
+        author,
+        "NumPyroTutorials",
+        "One line description of project.",
+        "Miscellaneous",
+    )
+]

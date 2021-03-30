@@ -74,7 +74,9 @@ def model_1(capture_history, sex):
                 # NumPyro exactly sums out the discrete states z_t.
                 z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
                 mu_y_t = rho * z
-                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+                numpyro.sample(
+                    "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
+                )
 
         first_capture_mask = first_capture_mask | y.astype(bool)
         return (first_capture_mask, z), None
@@ -84,7 +86,11 @@ def model_1(capture_history, sex):
     # that arise for a given individual before its first capture.
     first_capture_mask = capture_history[:, 0].astype(bool)
     # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
-    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
+    scan(
+        transition_fn,
+        (first_capture_mask, z),
+        jnp.swapaxes(capture_history[:, 1:], 0, 1),
+    )
 
 
 # %%
@@ -108,7 +114,9 @@ def model_2(capture_history, sex):
                 # NumPyro exactly sums out the discrete states z_t.
                 z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
                 mu_y_t = rho * z
-                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+                numpyro.sample(
+                    "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
+                )
 
         first_capture_mask = first_capture_mask | y.astype(bool)
         return (first_capture_mask, z), None
@@ -118,7 +126,11 @@ def model_2(capture_history, sex):
     # that arise for a given individual before its first capture.
     first_capture_mask = capture_history[:, 0].astype(bool)
     # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
-    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
+    scan(
+        transition_fn,
+        (first_capture_mask, z),
+        jnp.swapaxes(capture_history[:, 1:], 0, 1),
+    )
 
 
 # %%
@@ -129,7 +141,9 @@ def model_2(capture_history, sex):
 
 def model_3(capture_history, sex):
     N, T = capture_history.shape
-    phi_mean = numpyro.sample("phi_mean", dist.Uniform(0.0, 1.0))  # mean survival probability
+    phi_mean = numpyro.sample(
+        "phi_mean", dist.Uniform(0.0, 1.0)
+    )  # mean survival probability
     phi_logit_mean = logit(phi_mean)
     # controls temporal variability of survival probability
     phi_sigma = numpyro.sample("phi_sigma", dist.Uniform(0.0, 10.0))
@@ -138,7 +152,9 @@ def model_3(capture_history, sex):
     def transition_fn(carry, y):
         first_capture_mask, z = carry
         with handlers.reparam(config={"phi_logit": LocScaleReparam(0)}):
-            phi_logit_t = numpyro.sample("phi_logit", dist.Normal(phi_logit_mean, phi_sigma))
+            phi_logit_t = numpyro.sample(
+                "phi_logit", dist.Normal(phi_logit_mean, phi_sigma)
+            )
         phi_t = expit(phi_logit_t)
         with numpyro.plate("animals", N, dim=-1):
             with handlers.mask(mask=first_capture_mask):
@@ -146,7 +162,9 @@ def model_3(capture_history, sex):
                 # NumPyro exactly sums out the discrete states z_t.
                 z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
                 mu_y_t = rho * z
-                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+                numpyro.sample(
+                    "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
+                )
 
         first_capture_mask = first_capture_mask | y.astype(bool)
         return (first_capture_mask, z), None
@@ -156,7 +174,11 @@ def model_3(capture_history, sex):
     # that arise for a given individual before its first capture.
     first_capture_mask = capture_history[:, 0].astype(bool)
     # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
-    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
+    scan(
+        transition_fn,
+        (first_capture_mask, z),
+        jnp.swapaxes(capture_history[:, 1:], 0, 1),
+    )
 
 
 # %%
@@ -182,7 +204,9 @@ def model_4(capture_history, sex):
                 # NumPyro exactly sums out the discrete states z_t.
                 z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
                 mu_y_t = rho * z
-                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+                numpyro.sample(
+                    "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
+                )
 
         first_capture_mask = first_capture_mask | y.astype(bool)
         return (first_capture_mask, z), None
@@ -192,7 +216,11 @@ def model_4(capture_history, sex):
     # that arise for a given individual before its first capture.
     first_capture_mask = capture_history[:, 0].astype(bool)
     # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
-    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
+    scan(
+        transition_fn,
+        (first_capture_mask, z),
+        jnp.swapaxes(capture_history[:, 1:], 0, 1),
+    )
 
 
 # %%
@@ -223,7 +251,9 @@ def model_5(capture_history, sex):
                 # NumPyro exactly sums out the discrete states z_t.
                 z = numpyro.sample("z", dist.Bernoulli(dist.util.clamp_probs(mu_z_t)))
                 mu_y_t = rho * z
-                numpyro.sample("y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y)
+                numpyro.sample(
+                    "y", dist.Bernoulli(dist.util.clamp_probs(mu_y_t)), obs=y
+                )
 
         first_capture_mask = first_capture_mask | y.astype(bool)
         return (first_capture_mask, z), None
@@ -233,14 +263,22 @@ def model_5(capture_history, sex):
     # that arise for a given individual before its first capture.
     first_capture_mask = capture_history[:, 0].astype(bool)
     # NB swapaxes: we move time dimension of `capture_history` to the front to scan over it
-    scan(transition_fn, (first_capture_mask, z), jnp.swapaxes(capture_history[:, 1:], 0, 1))
+    scan(
+        transition_fn,
+        (first_capture_mask, z),
+        jnp.swapaxes(capture_history[:, 1:], 0, 1),
+    )
 
 
 # %%
 # Do inference
 
 
-models = {name[len("model_") :]: model for name, model in globals().items() if name.startswith("model_")}
+models = {
+    name[len("model_") :]: model
+    for name, model in globals().items()
+    if name.startswith("model_")
+}
 
 
 def run_inference(model, capture_history, sex, rng_key, args):
@@ -248,7 +286,13 @@ def run_inference(model, capture_history, sex, rng_key, args):
         kernel = NUTS(model)
     elif args.algo == "HMC":
         kernel = HMC(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(
+        kernel,
+        args.num_warmup,
+        args.num_samples,
+        num_chains=args.num_chains,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     mcmc.run(rng_key, capture_history, sex)
     mcmc.print_summary()
     return mcmc.get_samples()
@@ -257,17 +301,26 @@ def run_inference(model, capture_history, sex, rng_key, args):
 def main(args):
     # load data
     if args.dataset == "dipper":
-        capture_history, sex = load_dataset(DIPPER_VOLE, split="dipper", shuffle=False)[1]()
+        capture_history, sex = load_dataset(DIPPER_VOLE, split="dipper", shuffle=False)[
+            1
+        ]()
     elif args.dataset == "vole":
         if args.model in ["4", "5"]:
-            raise ValueError("Cannot run model_{} on meadow voles data, since we lack sex " "information for these animals.".format(args.model))
+            raise ValueError(
+                "Cannot run model_{} on meadow voles data, since we lack sex "
+                "information for these animals.".format(args.model)
+            )
         (capture_history,) = load_dataset(DIPPER_VOLE, split="vole", shuffle=False)[1]()
         sex = None
     else:
         raise ValueError("Available datasets are 'dipper' and 'vole'.")
 
     N, T = capture_history.shape
-    print("Loaded {} capture history for {} individuals collected over {} time periods.".format(args.dataset, N, T))
+    print(
+        "Loaded {} capture history for {} individuals collected over {} time periods.".format(
+            args.dataset, N, T
+        )
+    )
 
     model = models[args.model]
     rng_key = random.PRNGKey(args.rng_seed)
@@ -275,13 +328,25 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="CJS capture-recapture model for ecological data")
-    parser.add_argument("-m", "--model", default="1", type=str, help="one of: {}".format(", ".join(sorted(models.keys()))))
+    parser = argparse.ArgumentParser(
+        description="CJS capture-recapture model for ecological data"
+    )
+    parser.add_argument(
+        "-m",
+        "--model",
+        default="1",
+        type=str,
+        help="one of: {}".format(", ".join(sorted(models.keys()))),
+    )
     parser.add_argument("-d", "--dataset", default="dipper", type=str)
     parser.add_argument("-n", "--num-samples", nargs="?", default=1000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1000, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
-    parser.add_argument("--rng_seed", default=0, type=int, help="random number generator seed")
-    parser.add_argument("--algo", default="NUTS", type=str, help='whether to run "NUTS" or "HMC"')
+    parser.add_argument(
+        "--rng_seed", default=0, type=int, help="random number generator seed"
+    )
+    parser.add_argument(
+        "--algo", default="NUTS", type=str, help='whether to run "NUTS" or "HMC"'
+    )
     args = parser.parse_args()
     main(args)

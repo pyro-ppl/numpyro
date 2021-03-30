@@ -56,9 +56,13 @@ matplotlib.use("Agg")  # noqa: E402
 
 def model(returns):
     step_size = numpyro.sample("sigma", dist.Exponential(50.0))
-    s = numpyro.sample("s", dist.GaussianRandomWalk(scale=step_size, num_steps=jnp.shape(returns)[0]))
+    s = numpyro.sample(
+        "s", dist.GaussianRandomWalk(scale=step_size, num_steps=jnp.shape(returns)[0])
+    )
     nu = numpyro.sample("nu", dist.Exponential(0.1))
-    return numpyro.sample("r", dist.StudentT(df=nu, loc=0.0, scale=jnp.exp(s)), obs=returns)
+    return numpyro.sample(
+        "r", dist.StudentT(df=nu, loc=0.0, scale=jnp.exp(s)), obs=returns
+    )
 
 
 def print_results(posterior, dates):
@@ -88,8 +92,17 @@ def main(args):
     init_rng_key, sample_rng_key = random.split(random.PRNGKey(args.rng_seed))
     model_info = initialize_model(init_rng_key, model, model_args=(returns,))
     init_kernel, sample_kernel = hmc(model_info.potential_fn, algo="NUTS")
-    hmc_state = init_kernel(model_info.param_info, args.num_warmup, rng_key=sample_rng_key)
-    hmc_states = fori_collect(args.num_warmup, args.num_warmup + args.num_samples, sample_kernel, hmc_state, transform=lambda hmc_state: model_info.postprocess_fn(hmc_state.z), progbar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    hmc_state = init_kernel(
+        model_info.param_info, args.num_warmup, rng_key=sample_rng_key
+    )
+    hmc_states = fori_collect(
+        args.num_warmup,
+        args.num_warmup + args.num_samples,
+        sample_kernel,
+        hmc_state,
+        transform=lambda hmc_state: model_info.postprocess_fn(hmc_state.z),
+        progbar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     print_results(hmc_states, dates)
 
     fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
@@ -114,7 +127,9 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num-samples", nargs="?", default=600, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=600, type=int)
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
-    parser.add_argument("--rng_seed", default=21, type=int, help="random number generator seed")
+    parser.add_argument(
+        "--rng_seed", default=21, type=int, help="random number generator seed"
+    )
     args = parser.parse_args()
 
     numpyro.set_platform(args.device)

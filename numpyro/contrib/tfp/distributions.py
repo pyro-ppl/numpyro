@@ -153,7 +153,10 @@ class TFPDistributionMixin(NumPyroDistribution, metaclass=_TFPMixinMeta):
 
 
 class InverseGamma(tfd.InverseGamma, TFPDistributionMixin):
-    arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "scale": constraints.positive,
+    }
 
 
 class OneHotCategorical(tfd.OneHotCategorical, TFPDistributionMixin):
@@ -176,7 +179,10 @@ class OrderedLogistic(tfd.OrderedLogistic, TFPDistributionMixin):
 
 
 class Pareto(tfd.Pareto, TFPDistributionMixin):
-    arg_constraints = {"concentration": constraints.positive, "scale": constraints.positive}
+    arg_constraints = {
+        "concentration": constraints.positive,
+        "scale": constraints.positive,
+    }
 
 
 __all__ = ["BijectorConstraint", "BijectorTransform", "TFPDistributionMixin"]

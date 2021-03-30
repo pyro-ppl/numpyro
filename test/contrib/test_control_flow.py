@@ -46,7 +46,12 @@ def test_scan():
     # this tests for the composition of condition and substitute
     # this also tests if we can use `vmap` for predictive.
     future = 5
-    predictive = Predictive(numpyro.handlers.condition(model, {"x": x}), samples, return_sites=["x", "y", "y2"], parallel=True)
+    predictive = Predictive(
+        numpyro.handlers.condition(model, {"x": x}),
+        samples,
+        return_sites=["x", "y", "y2"],
+        parallel=True,
+    )
     result = predictive(random.PRNGKey(1), T=T + future)
     expected_shape = (num_samples, T + future)
     assert result["x"].shape == expected_shape

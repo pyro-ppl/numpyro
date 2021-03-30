@@ -89,7 +89,22 @@ from numpyro.distributions.distribution import COERCIONS
 from numpyro.primitives import _PYRO_STACK, Messenger, apply_stack, plate
 from numpyro.util import not_jax_tracer
 
-__all__ = ["block", "collapse", "condition", "infer_config", "lift", "mask", "reparam", "replay", "scale", "scope", "seed", "substitute", "trace", "do"]
+__all__ = [
+    "block",
+    "collapse",
+    "condition",
+    "infer_config",
+    "lift",
+    "mask",
+    "reparam",
+    "replay",
+    "scale",
+    "scope",
+    "seed",
+    "substitute",
+    "trace",
+    "do",
+]
 
 
 class trace(Messenger):
@@ -132,7 +147,11 @@ class trace(Messenger):
             # skip recording helper messages e.g. `control_flow`, `to_data`, `to_funsor`
             # which has no name
             return
-        assert not (msg["type"] == "sample" and msg["name"] in self.trace), "all sites must have unique names but got `{}` duplicated".format(msg["name"])
+        assert not (
+            msg["type"] == "sample" and msg["name"] in self.trace
+        ), "all sites must have unique names but got `{}` duplicated".format(
+            msg["name"]
+        )
         self.trace[msg["name"]] = msg.copy()
 
     def get_trace(self, *args, **kwargs):
@@ -265,7 +284,9 @@ class collapse(trace):
                 msg["stop"] = True
 
     def __enter__(self):
-        self.preserved_plates = frozenset(h.name for h in _PYRO_STACK if isinstance(h, plate))
+        self.preserved_plates = frozenset(
+            h.name for h in _PYRO_STACK if isinstance(h, plate)
+        )
         COERCIONS.append(self._coerce)
         return super().__enter__()
 
@@ -297,7 +318,13 @@ class collapse(trace):
             plates |= frozenset(f.name for f in site["cond_indep_stack"])
         assert log_prob_terms, "nothing to collapse"
         reduced_plates = plates - self.preserved_plates
-        log_prob = funsor.sum_product.sum_product(funsor.ops.logaddexp, funsor.ops.add, log_prob_terms, eliminate=frozenset(reduced_vars) | reduced_plates, plates=plates)
+        log_prob = funsor.sum_product.sum_product(
+            funsor.ops.logaddexp,
+            funsor.ops.add,
+            log_prob_terms,
+            eliminate=frozenset(reduced_vars) | reduced_plates,
+            plates=plates,
+        )
         name = reduced_vars[0]
         numpyro.factor(name, log_prob.data)
 
@@ -337,7 +364,9 @@ class condition(Messenger):
         self.condition_fn = condition_fn
         self.data = data
         if sum((x is not None for x in (data, condition_fn))) != 1:
-            raise ValueError("Only one of `data` or `condition_fn` " "should be provided.")
+            raise ValueError(
+                "Only one of `data` or `condition_fn` " "should be provided."
+            )
         super(condition, self).__init__(fn)
 
     def process_message(self, msg):
@@ -346,7 +375,9 @@ class condition(Messenger):
                 if self.data is not None:
                     msg["kwargs"]["substitute_stack"].append(("condition", self.data))
                 if self.condition_fn is not None:
-                    msg["kwargs"]["substitute_stack"].append(("condition", self.condition_fn))
+                    msg["kwargs"]["substitute_stack"].append(
+                        ("condition", self.condition_fn)
+                    )
             return
 
         if self.data is not None:
@@ -427,7 +458,10 @@ class lift(Messenger):
             msg["type"] = "sample"
             msg["fn"] = fn
             msg["args"] = ()
-            msg["kwargs"] = {"rng_key": msg["kwargs"].get("rng_key", None), "sample_shape": msg["kwargs"].get("sample_shape", ())}
+            msg["kwargs"] = {
+                "rng_key": msg["kwargs"].get("rng_key", None),
+                "sample_shape": msg["kwargs"].get("sample_shape", ()),
+            }
             msg["intermediates"] = []
             msg["infer"] = msg.get("infer", {})
         else:
@@ -462,7 +496,9 @@ class mask(Messenger):
     def process_message(self, msg):
         if msg["type"] != "sample":
             if msg["type"] == "inspect":
-                msg["mask"] = self.mask if msg["mask"] is None else (self.mask & msg["mask"])
+                msg["mask"] = (
+                    self.mask if msg["mask"] is None else (self.mask & msg["mask"])
+                )
             return
 
         msg["fn"] = msg["fn"].mask(self.mask)
@@ -548,7 +584,9 @@ class scale(Messenger):
         if msg["type"] not in ("param", "sample", "plate"):
             return
 
-        msg["scale"] = self.scale if msg.get("scale") is None else self.scale * msg["scale"]
+        msg["scale"] = (
+            self.scale if msg.get("scale") is None else self.scale * msg["scale"]
+        )
 
 
 class scope(Messenger):
@@ -628,15 +666,25 @@ class seed(Messenger):
     """
 
     def __init__(self, fn=None, rng_seed=None):
-        if isinstance(rng_seed, int) or (isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)):
+        if isinstance(rng_seed, int) or (
+            isinstance(rng_seed, jnp.ndarray) and not jnp.shape(rng_seed)
+        ):
             rng_seed = random.PRNGKey(rng_seed)
-        if not (isinstance(rng_seed, jnp.ndarray) and rng_seed.dtype == jnp.uint32 and rng_seed.shape == (2,)):
+        if not (
+            isinstance(rng_seed, jnp.ndarray)
+            and rng_seed.dtype == jnp.uint32
+            and rng_seed.shape == (2,)
+        ):
             raise TypeError("Incorrect type for rng_seed: {}".format(type(rng_seed)))
         self.rng_key = rng_seed
         super(seed, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg["type"] == "sample" and not msg["is_observed"] and msg["kwargs"]["rng_key"] is None) or msg["type"] in ["prng_key", "plate", "control_flow"]:
+        if (
+            msg["type"] == "sample"
+            and not msg["is_observed"]
+            and msg["kwargs"]["rng_key"] is None
+        ) or msg["type"] in ["prng_key", "plate", "control_flow"]:
             if msg["value"] is not None:
                 # no need to create a new key when value is available
                 return
@@ -684,16 +732,22 @@ class substitute(Messenger):
         self.substitute_fn = substitute_fn
         self.data = data
         if sum((x is not None for x in (data, substitute_fn))) != 1:
-            raise ValueError("Only one of `data` or `substitute_fn` " "should be provided.")
+            raise ValueError(
+                "Only one of `data` or `substitute_fn` " "should be provided."
+            )
         super(substitute, self).__init__(fn)
 
     def process_message(self, msg):
-        if (msg["type"] not in ("sample", "param", "plate")) or msg.get("_control_flow_done", False):
+        if (msg["type"] not in ("sample", "param", "plate")) or msg.get(
+            "_control_flow_done", False
+        ):
             if msg["type"] == "control_flow":
                 if self.data is not None:
                     msg["kwargs"]["substitute_stack"].append(("substitute", self.data))
                 if self.substitute_fn is not None:
-                    msg["kwargs"]["substitute_stack"].append(("substitute", self.substitute_fn))
+                    msg["kwargs"]["substitute_stack"].append(
+                        ("substitute", self.substitute_fn)
+                    )
             return
 
         if self.data is not None:
@@ -757,9 +811,16 @@ class do(Messenger):
     def process_message(self, msg):
         if msg["type"] != "sample":
             return
-        if msg.get("_intervener_id", None) != self._intervener_id and self.data.get(msg["name"]) is not None:
+        if (
+            msg.get("_intervener_id", None) != self._intervener_id
+            and self.data.get(msg["name"]) is not None
+        ):
             if msg.get("_intervener_id", None) is not None:
-                warnings.warn("Attempting to intervene on variable {} multiple times," "this is almost certainly incorrect behavior".format(msg["name"]), RuntimeWarning)
+                warnings.warn(
+                    "Attempting to intervene on variable {} multiple times,"
+                    "this is almost certainly incorrect behavior".format(msg["name"]),
+                    RuntimeWarning,
+                )
             msg["_intervener_id"] = self._intervener_id
 
             # split node, avoid reapplying self recursively to new node

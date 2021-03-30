@@ -16,10 +16,37 @@ from jax.scipy.special import expit, logit
 from jax.tree_util import tree_flatten, tree_map
 
 from numpyro.distributions import constraints
-from numpyro.distributions.util import matrix_to_tril_vec, signed_stick_breaking_tril, sum_rightmost, vec_to_tril_matrix
+from numpyro.distributions.util import (
+    matrix_to_tril_vec,
+    signed_stick_breaking_tril,
+    sum_rightmost,
+    vec_to_tril_matrix,
+)
 from numpyro.util import not_jax_tracer
 
-__all__ = ["biject_to", "AbsTransform", "AffineTransform", "CholeskyTransform", "ComposeTransform", "CorrCholeskyTransform", "CorrMatrixCholeskyTransform", "ExpTransform", "SoftplusTransform", "IdentityTransform", "InvCholeskyTransform", "LowerCholeskyTransform", "LowerCholeskyAffine", "PermuteTransform", "PowerTransform", "SigmoidTransform", "SoftplusTransform", "SoftplusLowerCholeskyTransform", "StickBreakingTransform", "Transform", "UnpackTransform"]
+__all__ = [
+    "biject_to",
+    "AbsTransform",
+    "AffineTransform",
+    "CholeskyTransform",
+    "ComposeTransform",
+    "CorrCholeskyTransform",
+    "CorrMatrixCholeskyTransform",
+    "ExpTransform",
+    "SoftplusTransform",
+    "IdentityTransform",
+    "InvCholeskyTransform",
+    "LowerCholeskyTransform",
+    "LowerCholeskyAffine",
+    "PermuteTransform",
+    "PowerTransform",
+    "SigmoidTransform",
+    "SoftplusTransform",
+    "SoftplusLowerCholeskyTransform",
+    "StickBreakingTransform",
+    "Transform",
+    "UnpackTransform",
+]
 
 
 def _clipped_expit(x):
@@ -34,7 +61,11 @@ class Transform(object):
 
     @property
     def event_dim(self):
-        warnings.warn("transform.event_dim is deprecated. Please use Transform.domain.event_dim to " "get input event dim or Transform.codomain.event_dim to get output event dim.", FutureWarning)
+        warnings.warn(
+            "transform.event_dim is deprecated. Please use Transform.domain.event_dim to "
+            "get input event dim or Transform.codomain.event_dim to get output event dim.",
+            FutureWarning,
+        )
         return self.domain.event_dim
 
     @property
@@ -148,9 +179,13 @@ class AffineTransform(Transform):
                 return constraints.less_than(self(self.domain.upper_bound))
         elif isinstance(self.domain, constraints.interval):
             if not_jax_tracer(self.scale) and np.all(np.less(self.scale, 0)):
-                return constraints.interval(self(self.domain.upper_bound), self(self.domain.lower_bound))
+                return constraints.interval(
+                    self(self.domain.upper_bound), self(self.domain.lower_bound)
+                )
             else:
-                return constraints.interval(self(self.domain.lower_bound), self(self.domain.upper_bound))
+                return constraints.interval(
+                    self(self.domain.lower_bound), self(self.domain.upper_bound)
+                )
         else:
             raise NotImplementedError
 
@@ -164,23 +199,31 @@ class AffineTransform(Transform):
         return jnp.broadcast_to(jnp.log(jnp.abs(self.scale)), jnp.shape(x))
 
     def forward_shape(self, shape):
-        return lax.broadcast_shapes(shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ()))
+        return lax.broadcast_shapes(
+            shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ())
+        )
 
     def inverse_shape(self, shape):
-        return lax.broadcast_shapes(shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ()))
+        return lax.broadcast_shapes(
+            shape, getattr(self.loc, "shape", ()), getattr(self.scale, "shape", ())
+        )
 
 
 def _get_compose_transform_input_event_dim(parts):
     input_event_dim = parts[-1].domain.event_dim
     for part in parts[len(parts) - 1 :: -1]:
-        input_event_dim = part.domain.event_dim + max(input_event_dim - part.codomain.event_dim, 0)
+        input_event_dim = part.domain.event_dim + max(
+            input_event_dim - part.codomain.event_dim, 0
+        )
     return input_event_dim
 
 
 def _get_compose_transform_output_event_dim(parts):
     output_event_dim = parts[0].codomain.event_dim
     for part in parts[1:]:
-        output_event_dim = part.codomain.event_dim + max(output_event_dim - part.domain.event_dim, 0)
+        output_event_dim = part.codomain.event_dim + max(
+            output_event_dim - part.domain.event_dim, 0
+        )
     return output_event_dim
 
 
@@ -196,7 +239,9 @@ class ComposeTransform(Transform):
         if input_event_dim == first_input_event_dim:
             return self.parts[0].domain
         else:
-            return constraints.independent(self.parts[0].domain, input_event_dim - first_input_event_dim)
+            return constraints.independent(
+                self.parts[0].domain, input_event_dim - first_input_event_dim
+            )
 
     @property
     def codomain(self):
@@ -206,7 +251,9 @@ class ComposeTransform(Transform):
         if output_event_dim == last_output_event_dim:
             return self.parts[-1].codomain
         else:
-            return constraints.independent(self.parts[-1].codomain, output_event_dim - last_output_event_dim)
+            return constraints.independent(
+                self.parts[-1].codomain, output_event_dim - last_output_event_dim
+            )
 
     def __call__(self, x):
         for part in self.parts:
@@ -221,7 +268,11 @@ class ComposeTransform(Transform):
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         if intermediates is not None:
             if len(intermediates) != len(self.parts):
-                raise ValueError("Intermediates array has length = {}. Expected = {}.".format(len(intermediates), len(self.parts)))
+                raise ValueError(
+                    "Intermediates array has length = {}. Expected = {}.".format(
+                        len(intermediates), len(self.parts)
+                    )
+                )
 
         result = 0.0
         input_event_dim = self.domain.event_dim
@@ -302,7 +353,9 @@ class CholeskyTransform(Transform):
         # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
         n = jnp.shape(x)[-1]
         order = -jnp.arange(n, 0, -1)
-        return -n * jnp.log(2) + jnp.sum(order * jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1)), axis=-1)
+        return -n * jnp.log(2) + jnp.sum(
+            order * jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1)), axis=-1
+        )
 
 
 class CorrCholeskyTransform(Transform):
@@ -344,8 +397,12 @@ class CorrCholeskyTransform(Transform):
         z1m_cumprod = 1 - jnp.cumsum(y * y, axis=-1)
         pad_width = [(0, 0)] * y.ndim
         pad_width[-1] = (1, 0)
-        z1m_cumprod_shifted = jnp.pad(z1m_cumprod[..., :-1], pad_width, mode="constant", constant_values=1.0)
-        t = matrix_to_tril_vec(y, diagonal=-1) / jnp.sqrt(matrix_to_tril_vec(z1m_cumprod_shifted, diagonal=-1))
+        z1m_cumprod_shifted = jnp.pad(
+            z1m_cumprod[..., :-1], pad_width, mode="constant", constant_values=1.0
+        )
+        t = matrix_to_tril_vec(y, diagonal=-1) / jnp.sqrt(
+            matrix_to_tril_vec(z1m_cumprod_shifted, diagonal=-1)
+        )
         # inverse of tanh
         x = jnp.log((1 + t) / (1 - t)) / 2
         return x
@@ -400,7 +457,10 @@ class ExpTransform(Transform):
         elif isinstance(self.domain, constraints.greater_than):
             return constraints.greater_than(self.__call__(self.domain.lower_bound))
         elif isinstance(self.domain, constraints.interval):
-            return constraints.interval(self.__call__(self.domain.lower_bound), self.__call__(self.domain.upper_bound))
+            return constraints.interval(
+                self.__call__(self.domain.lower_bound),
+                self.__call__(self.domain.upper_bound),
+            )
         else:
             raise NotImplementedError
 
@@ -443,11 +503,15 @@ class IndependentTransform(Transform):
 
     @property
     def domain(self):
-        return constraints.independent(self.base_transform.domain, self.reinterpreted_batch_ndims)
+        return constraints.independent(
+            self.base_transform.domain, self.reinterpreted_batch_ndims
+        )
 
     @property
     def codomain(self):
-        return constraints.independent(self.base_transform.codomain, self.reinterpreted_batch_ndims)
+        return constraints.independent(
+            self.base_transform.codomain, self.reinterpreted_batch_ndims
+        )
 
     def __call__(self, x):
         return self.base_transform(x)
@@ -456,7 +520,9 @@ class IndependentTransform(Transform):
         return self.base_transform._inverse(y)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        result = self.base_transform.log_abs_det_jacobian(x, y, intermediates=intermediates)
+        result = self.base_transform.log_abs_det_jacobian(
+            x, y, intermediates=intermediates
+        )
         if jnp.ndim(result) < self.reinterpreted_batch_ndims:
             expected = self.domain.event_dim
             raise ValueError(f"Expected x.dim() >= {expected} but got {jnp.ndim(x)}")
@@ -479,7 +545,11 @@ class InvCholeskyTransform(Transform):
     """
 
     def __init__(self, domain=constraints.lower_cholesky):
-        warnings.warn("InvCholeskyTransform is deprecated. Please use CholeskyTransform" " or CorrMatrixCholeskyTransform instead.", FutureWarning)
+        warnings.warn(
+            "InvCholeskyTransform is deprecated. Please use CholeskyTransform"
+            " or CorrMatrixCholeskyTransform instead.",
+            FutureWarning,
+        )
         assert domain in [constraints.lower_cholesky, constraints.corr_cholesky]
         self.domain = domain
 
@@ -501,12 +571,16 @@ class InvCholeskyTransform(Transform):
             # Ref: http://web.mit.edu/18.325/www/handouts/handout2.pdf page 13
             n = jnp.shape(x)[-1]
             order = jnp.arange(n, 0, -1)
-            return n * jnp.log(2) + jnp.sum(order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
+            return n * jnp.log(2) + jnp.sum(
+                order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1
+            )
         else:
             # NB: see derivation in LKJCholesky implementation
             n = jnp.shape(x)[-1]
             order = jnp.arange(n - 1, -1, -1)
-            return jnp.sum(order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1)
+            return jnp.sum(
+                order * jnp.log(jnp.diagonal(x, axis1=-2, axis2=-1)), axis=-1
+            )
 
 
 class LowerCholeskyAffine(Transform):
@@ -521,12 +595,18 @@ class LowerCholeskyAffine(Transform):
 
     def __init__(self, loc, scale_tril):
         if jnp.ndim(scale_tril) != 2:
-            raise ValueError("Only support 2-dimensional scale_tril matrix. " "Please make a feature request if you need to " "use this transform with batched scale_tril.")
+            raise ValueError(
+                "Only support 2-dimensional scale_tril matrix. "
+                "Please make a feature request if you need to "
+                "use this transform with batched scale_tril."
+            )
         self.loc = loc
         self.scale_tril = scale_tril
 
     def __call__(self, x):
-        return self.loc + jnp.squeeze(jnp.matmul(self.scale_tril, x[..., jnp.newaxis]), axis=-1)
+        return self.loc + jnp.squeeze(
+            jnp.matmul(self.scale_tril, x[..., jnp.newaxis]), axis=-1
+        )
 
     def _inverse(self, y):
         y = y - self.loc
@@ -536,7 +616,10 @@ class LowerCholeskyAffine(Transform):
         return jnp.reshape(xt.T, original_shape)
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
-        return jnp.broadcast_to(jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1), jnp.shape(x)[:-1])
+        return jnp.broadcast_to(
+            jnp.log(jnp.diagonal(self.scale_tril, axis1=-2, axis2=-1)).sum(-1),
+            jnp.shape(x)[:-1],
+        )
 
     def forward_shape(self, shape):
         if len(shape) < 1:
@@ -561,7 +644,9 @@ class LowerCholeskyTransform(Transform):
 
     def _inverse(self, y):
         z = matrix_to_tril_vec(y, diagonal=-1)
-        return jnp.concatenate([z, jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1))], axis=-1)
+        return jnp.concatenate(
+            [z, jnp.log(jnp.diagonal(y, axis1=-2, axis2=-1))], axis=-1
+        )
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
         # the jacobian is diagonal, so logdet is the sum of diagonal `exp` transform
@@ -612,7 +697,11 @@ class PermuteTransform(Transform):
 
     def _inverse(self, y):
         size = self.permutation.size
-        permutation_inv = ops.index_update(jnp.zeros(size, dtype=jnp.result_type(int)), self.permutation, jnp.arange(size))
+        permutation_inv = ops.index_update(
+            jnp.zeros(size, dtype=jnp.result_type(int)),
+            self.permutation,
+            jnp.arange(size),
+        )
         return y[..., permutation_inv]
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -726,12 +815,16 @@ class StickBreakingTransform(Transform):
         z_padded = jnp.pad(z, pad_width, mode="constant", constant_values=1.0)
         pad_width = [(0, 0)] * x.ndim
         pad_width[-1] = (1, 0)
-        z1m_cumprod_shifted = jnp.pad(z1m_cumprod, pad_width, mode="constant", constant_values=1.0)
+        z1m_cumprod_shifted = jnp.pad(
+            z1m_cumprod, pad_width, mode="constant", constant_values=1.0
+        )
         return z_padded * z1m_cumprod_shifted
 
     def _inverse(self, y):
         y_crop = y[..., :-1]
-        z1m_cumprod = jnp.clip(1 - jnp.cumsum(y_crop, axis=-1), a_min=jnp.finfo(y.dtype).tiny)
+        z1m_cumprod = jnp.clip(
+            1 - jnp.cumsum(y_crop, axis=-1), a_min=jnp.finfo(y.dtype).tiny
+        )
         # hence x = logit(z) = log(z / (1 - z)) = y[::-1] / z1m_cumprod
         x = jnp.log(y_crop / z1m_cumprod)
         return x + jnp.log(x.shape[-1] - jnp.arange(x.shape[-1]))
@@ -773,16 +866,23 @@ class UnpackTransform(Transform):
         batch_shape = x.shape[:-1]
         if batch_shape:
             unpacked = vmap(self.unpack_fn)(x.reshape((-1,) + x.shape[-1:]))
-            return tree_map(lambda z: jnp.reshape(z, batch_shape + z.shape[1:]), unpacked)
+            return tree_map(
+                lambda z: jnp.reshape(z, batch_shape + z.shape[1:]), unpacked
+            )
         else:
             return self.unpack_fn(x)
 
     def _inverse(self, y):
-        leading_dims = [v.shape[0] if jnp.ndim(v) > 0 else 0 for v in tree_flatten(y)[0]]
+        leading_dims = [
+            v.shape[0] if jnp.ndim(v) > 0 else 0 for v in tree_flatten(y)[0]
+        ]
         d0 = leading_dims[0]
         not_scalar = d0 > 0 or len(leading_dims) > 1
         if not_scalar and all(d == d0 for d in leading_dims[1:]):
-            warnings.warn("UnpackTransform.inv might lead to an unexpected behavior because it" " cannot transform a batch of unpacked arrays.")
+            warnings.warn(
+                "UnpackTransform.inv might lead to an unexpected behavior because it"
+                " cannot transform a batch of unpacked arrays."
+            )
         return ravel_pytree(y)[0]
 
     def log_abs_det_jacobian(self, x, y, intermediates=None):
@@ -832,24 +932,38 @@ def _transform_to_corr_cholesky(constraint):
 
 @biject_to.register(constraints.corr_matrix)
 def _transform_to_corr_matrix(constraint):
-    return ComposeTransform([CorrCholeskyTransform(), CorrMatrixCholeskyTransform().inv])
+    return ComposeTransform(
+        [CorrCholeskyTransform(), CorrMatrixCholeskyTransform().inv]
+    )
 
 
 @biject_to.register(constraints.greater_than)
 def _transform_to_greater_than(constraint):
     if constraint is constraints.positive:
         return ExpTransform()
-    return ComposeTransform([ExpTransform(), AffineTransform(constraint.lower_bound, 1, domain=constraints.positive)])
+    return ComposeTransform(
+        [
+            ExpTransform(),
+            AffineTransform(constraint.lower_bound, 1, domain=constraints.positive),
+        ]
+    )
 
 
 @biject_to.register(constraints.less_than)
 def _transform_to_less_than(constraint):
-    return ComposeTransform([ExpTransform(), AffineTransform(constraint.upper_bound, -1, domain=constraints.positive)])
+    return ComposeTransform(
+        [
+            ExpTransform(),
+            AffineTransform(constraint.upper_bound, -1, domain=constraints.positive),
+        ]
+    )
 
 
 @biject_to.register(constraints.independent)
 def _biject_to_independent(constraint):
-    return IndependentTransform(biject_to(constraint.base_constraint), constraint.reinterpreted_batch_ndims)
+    return IndependentTransform(
+        biject_to(constraint.base_constraint), constraint.reinterpreted_batch_ndims
+    )
 
 
 @biject_to.register(constraints.interval)
@@ -857,7 +971,14 @@ def _transform_to_interval(constraint):
     if constraint is constraints.unit_interval:
         return SigmoidTransform()
     scale = constraint.upper_bound - constraint.lower_bound
-    return ComposeTransform([SigmoidTransform(), AffineTransform(constraint.lower_bound, scale, domain=constraints.unit_interval)])
+    return ComposeTransform(
+        [
+            SigmoidTransform(),
+            AffineTransform(
+                constraint.lower_bound, scale, domain=constraints.unit_interval
+            ),
+        ]
+    )
 
 
 @biject_to.register(constraints.lower_cholesky)

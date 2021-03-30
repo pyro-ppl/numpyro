@@ -13,7 +13,20 @@ from jax import device_put, disable_jit, grad, jit, random, tree_map
 import jax.numpy as jnp
 
 import numpyro.distributions as dist
-from numpyro.infer.hmc_util import AdaptWindow, _is_iterative_turning, _leaf_idx_to_ckpt_idxs, build_adaptation_schedule, build_tree, consensus, dual_averaging, find_reasonable_step_size, parametric_draws, velocity_verlet, warmup_adapter, welford_covariance
+from numpyro.infer.hmc_util import (
+    AdaptWindow,
+    _is_iterative_turning,
+    _leaf_idx_to_ckpt_idxs,
+    build_adaptation_schedule,
+    build_tree,
+    consensus,
+    dual_averaging,
+    find_reasonable_step_size,
+    parametric_draws,
+    velocity_verlet,
+    warmup_adapter,
+    welford_covariance,
+)
 from numpyro.util import control_flow_prims_disabled, fori_loop, optional
 
 logger = logging.getLogger(__name__)
@@ -43,7 +56,9 @@ def test_dual_averaging(jitted):
 @pytest.mark.parametrize("regularize", [True, False])
 @pytest.mark.filterwarnings("ignore:numpy.linalg support is experimental:UserWarning")
 def test_welford_covariance(jitted, diagonal, regularize):
-    with optional(jitted, disable_jit()), optional(jitted, control_flow_prims_disabled()):
+    with optional(jitted, disable_jit()), optional(
+        jitted, control_flow_prims_disabled()
+    ):
         np.random.seed(0)
         loc = np.random.randn(3)
         a = np.random.randn(3, 3)
@@ -67,7 +82,9 @@ def test_welford_covariance(jitted, diagonal, regularize):
             assert_allclose(cov_inv_sqrt, jnp.sqrt(jnp.reciprocal(diag_cov)), rtol=0.06)
         else:
             assert_allclose(cov, target_cov, rtol=0.06)
-            assert_allclose(cov_inv_sqrt, jnp.linalg.cholesky(jnp.linalg.inv(cov)), rtol=0.06)
+            assert_allclose(
+                cov_inv_sqrt, jnp.linalg.cholesky(jnp.linalg.inv(cov)), rtol=0.06
+            )
 
 
 ########################################
@@ -77,7 +94,10 @@ def test_welford_covariance(jitted, diagonal, regularize):
 TEST_EXAMPLES = []
 EXAMPLE_IDS = []
 
-ModelArgs = namedtuple("model_args", ["step_size", "num_steps", "q_i", "p_i", "q_f", "p_f", "m_inv", "prec"])
+ModelArgs = namedtuple(
+    "model_args",
+    ["step_size", "num_steps", "q_i", "p_i", "q_f", "p_f", "m_inv", "prec"],
+)
 Example = namedtuple("test_case", ["model", "args"])
 
 
@@ -96,7 +116,20 @@ def register_model(init_args):
     return register_fn
 
 
-@register_model([ModelArgs(step_size=0.01, num_steps=100, q_i={"x": 0.0}, p_i={"x": 1.0}, q_f={"x": jnp.sin(1.0)}, p_f={"x": jnp.cos(1.0)}, m_inv=jnp.array([1.0]), prec=1e-4)])
+@register_model(
+    [
+        ModelArgs(
+            step_size=0.01,
+            num_steps=100,
+            q_i={"x": 0.0},
+            p_i={"x": 1.0},
+            q_f={"x": jnp.sin(1.0)},
+            p_f={"x": jnp.cos(1.0)},
+            m_inv=jnp.array([1.0]),
+            prec=1e-4,
+        )
+    ]
+)
 class HarmonicOscillator(object):
     @staticmethod
     def kinetic_fn(m_inv, p):
@@ -107,7 +140,20 @@ class HarmonicOscillator(object):
         return 0.5 * q["x"] ** 2
 
 
-@register_model([ModelArgs(step_size=0.01, num_steps=628, q_i={"x": 1.0, "y": 0.0}, p_i={"x": 0.0, "y": 1.0}, q_f={"x": 1.0, "y": 0.0}, p_f={"x": 0.0, "y": 1.0}, m_inv=jnp.array([1.0, 1.0]), prec=5.0e-3)])
+@register_model(
+    [
+        ModelArgs(
+            step_size=0.01,
+            num_steps=628,
+            q_i={"x": 1.0, "y": 0.0},
+            p_i={"x": 0.0, "y": 1.0},
+            q_f={"x": 1.0, "y": 0.0},
+            p_f={"x": 0.0, "y": 1.0},
+            m_inv=jnp.array([1.0, 1.0]),
+            prec=5.0e-3,
+        )
+    ]
+)
 class CircularPlanetaryMotion(object):
     @staticmethod
     def kinetic_fn(m_inv, p):
@@ -119,7 +165,20 @@ class CircularPlanetaryMotion(object):
         return -1.0 / jnp.power(q["x"] ** 2 + q["y"] ** 2, 0.5)
 
 
-@register_model([ModelArgs(step_size=0.1, num_steps=1810, q_i={"x": 0.02}, p_i={"x": 0.0}, q_f={"x": -0.02}, p_f={"x": 0.0}, m_inv=jnp.array([1.0]), prec=1.0e-4)])
+@register_model(
+    [
+        ModelArgs(
+            step_size=0.1,
+            num_steps=1810,
+            q_i={"x": 0.02},
+            p_i={"x": 0.0},
+            q_f={"x": -0.02},
+            p_f={"x": 0.0},
+            m_inv=jnp.array([1.0]),
+            prec=1.0e-4,
+        )
+    ]
+)
 class QuarticOscillator(object):
     @staticmethod
     def kinetic_fn(m_inv, p):
@@ -136,7 +195,9 @@ def test_velocity_verlet(jitted, example):
     def get_final_state(model, step_size, num_steps, q_i, p_i):
         vv_init, vv_update = velocity_verlet(model.potential_fn, model.kinetic_fn)
         vv_state = vv_init(q_i, p_i)
-        q_f, p_f, _, _ = fori_loop(0, num_steps, lambda i, val: vv_update(step_size, args.m_inv, val), vv_state)
+        q_f, p_f, _, _ = fori_loop(
+            0, num_steps, lambda i, val: vv_update(step_size, args.m_inv, val), vv_state
+        )
         return (q_f, p_f)
 
     model, args = example
@@ -151,7 +212,9 @@ def test_velocity_verlet(jitted, example):
         assert_allclose(p_f[node], args.p_f[node], atol=args.prec)
 
     logger.info("Test energy conservation:")
-    energy_initial = model.kinetic_fn(args.m_inv, args.p_i) + model.potential_fn(args.q_i)
+    energy_initial = model.kinetic_fn(args.m_inv, args.p_i) + model.potential_fn(
+        args.q_i
+    )
     energy_final = model.kinetic_fn(args.m_inv, p_f) + model.potential_fn(q_f)
     logger.info("initial energy: {}".format(energy_initial))
     logger.info("final energy: {}".format(energy_final))
@@ -177,9 +240,21 @@ def test_find_reasonable_step_size(jitted, init_step_size):
     q = 0.0
     m_inv = jnp.array([1.0])
 
-    fn = jit(find_reasonable_step_size, static_argnums=(0, 1, 2)) if jitted else find_reasonable_step_size
+    fn = (
+        jit(find_reasonable_step_size, static_argnums=(0, 1, 2))
+        if jitted
+        else find_reasonable_step_size
+    )
     rng_key = random.PRNGKey(0)
-    step_size = fn(potential_fn, kinetic_fn, p_generator, init_step_size, m_inv, (q, None, None, None), rng_key)
+    step_size = fn(
+        potential_fn,
+        kinetic_fn,
+        p_generator,
+        init_step_size,
+        m_inv,
+        (q, None, None, None),
+        rng_key,
+    )
 
     # Apply 1 velocity verlet step with step_size=eps, we have
     # z_new = eps, r_new = 1 - eps^2 / 2, hence energy_new = 0.5 + eps^4 / 8,
@@ -198,14 +273,32 @@ def test_find_reasonable_step_size(jitted, init_step_size):
         assert step_size < threshold
 
 
-@pytest.mark.parametrize("num_steps, expected", [(18, [(0, 17)]), (50, [(0, 6), (7, 44), (45, 49)]), (100, [(0, 14), (15, 89), (90, 99)]), (150, [(0, 74), (75, 99), (100, 149)]), (200, [(0, 74), (75, 99), (100, 149), (150, 199)]), (280, [(0, 74), (75, 99), (100, 229), (230, 279)])])
+@pytest.mark.parametrize(
+    "num_steps, expected",
+    [
+        (18, [(0, 17)]),
+        (50, [(0, 6), (7, 44), (45, 49)]),
+        (100, [(0, 14), (15, 89), (90, 99)]),
+        (150, [(0, 74), (75, 99), (100, 149)]),
+        (200, [(0, 74), (75, 99), (100, 149), (150, 199)]),
+        (280, [(0, 74), (75, 99), (100, 229), (230, 279)]),
+    ],
+)
 def test_build_adaptation_schedule(num_steps, expected):
     adaptation_schedule = build_adaptation_schedule(num_steps)
     expected_schedule = [AdaptWindow(i, j) for i, j in expected]
     assert adaptation_schedule == expected_schedule
 
 
-@pytest.mark.parametrize("jitted", [True, pytest.param(False, marks=pytest.mark.skipif("CI" in os.environ, reason="slow in Travis"))])
+@pytest.mark.parametrize(
+    "jitted",
+    [
+        True,
+        pytest.param(
+            False, marks=pytest.mark.skipif("CI" in os.environ, reason="slow in Travis")
+        ),
+    ],
+)
 def test_warmup_adapter(jitted):
     def find_reasonable_step_size(step_size, m_inv, z, rng_key):
         return jnp.where(step_size < 1, step_size * 4, step_size / 4)
@@ -220,15 +313,24 @@ def test_warmup_adapter(jitted):
 
     rng_key = random.PRNGKey(0)
     z = jnp.ones(3)
-    wa_state = wa_init((z, None, None, None), rng_key, init_step_size, mass_matrix_size=mass_matrix_size)
+    wa_state = wa_init(
+        (z, None, None, None),
+        rng_key,
+        init_step_size,
+        mass_matrix_size=mass_matrix_size,
+    )
     step_size, inverse_mass_matrix, _, _, _, _, window_idx, _ = wa_state
-    assert step_size == find_reasonable_step_size(init_step_size, inverse_mass_matrix, z, rng_key)
+    assert step_size == find_reasonable_step_size(
+        init_step_size, inverse_mass_matrix, z, rng_key
+    )
     assert_allclose(inverse_mass_matrix, jnp.ones(mass_matrix_size))
     assert window_idx == 0
 
     window = adaptation_schedule[0]
     for t in range(window.start, window.end + 1):
-        wa_state = wa_update(t, 0.7 + 0.1 * t / (window.end - window.start), z, wa_state)
+        wa_state = wa_update(
+            t, 0.7 + 0.1 * t / (window.end - window.start), z, wa_state
+        )
     last_step_size = step_size
     step_size, inverse_mass_matrix, _, _, _, _, window_idx, _ = wa_state
     assert window_idx == 1
@@ -240,7 +342,9 @@ def test_warmup_adapter(jitted):
     window = adaptation_schedule[1]
     window_len = window.end - window.start
     for t in range(window.start, window.end + 1):
-        wa_state = wa_update(t, 0.8 + 0.1 * (t - window.start) / window_len, 2 * z, wa_state)
+        wa_state = wa_update(
+            t, 0.8 + 0.1 * (t - window.start) / window_len, 2 * z, wa_state
+        )
     last_step_size = step_size
     step_size, inverse_mass_matrix, _, _, _, _, window_idx, _ = wa_state
     assert window_idx == 2
@@ -252,7 +356,11 @@ def test_warmup_adapter(jitted):
     # This also verifies that z_flat terms in the first window does not affect
     # the second window.
     welford_regularize_term = 1e-3 * (5 / (window.end + 1 - window.start + 5))
-    assert_allclose(inverse_mass_matrix, jnp.full((mass_matrix_size,), welford_regularize_term), atol=1e-7)
+    assert_allclose(
+        inverse_mass_matrix,
+        jnp.full((mass_matrix_size,), welford_regularize_term),
+        atol=1e-7,
+    )
 
     window = adaptation_schedule[2]
     for t in range(window.start, window.end + 1):
@@ -268,12 +376,18 @@ def test_warmup_adapter(jitted):
     assert_allclose(final_inverse_mass_matrix, inverse_mass_matrix)
 
 
-@pytest.mark.parametrize("leaf_idx, ckpt_idxs", [(0, (1, 0)), (6, (3, 2)), (7, (0, 2)), (13, (2, 2)), (15, (0, 3))])
+@pytest.mark.parametrize(
+    "leaf_idx, ckpt_idxs",
+    [(0, (1, 0)), (6, (3, 2)), (7, (0, 2)), (13, (2, 2)), (15, (0, 3))],
+)
 def test_leaf_idx_to_ckpt_idx(leaf_idx, ckpt_idxs):
     assert _leaf_idx_to_ckpt_idxs(leaf_idx) == ckpt_idxs
 
 
-@pytest.mark.parametrize("ckpt_idxs, expected_turning", [((3, 2), False), ((3, 3), True), ((0, 0), False), ((0, 1), True), ((1, 3), True)])
+@pytest.mark.parametrize(
+    "ckpt_idxs, expected_turning",
+    [((3, 2), False), ((3, 3), True), ((0, 0), False), ((0, 1), True), ((1, 3), True)],
+)
 def test_is_iterative_turning(ckpt_idxs, expected_turning):
     inverse_mass_matrix = jnp.ones(1)
     r = 1.0
@@ -281,7 +395,9 @@ def test_is_iterative_turning(ckpt_idxs, expected_turning):
     r_ckpts = jnp.array([1.0, 2.0, 3.0, -2.0])
     r_sum_ckpts = jnp.array([2.0, 4.0, 4.0, -1.0])
 
-    actual_turning = _is_iterative_turning(inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, *ckpt_idxs)
+    actual_turning = _is_iterative_turning(
+        inverse_mass_matrix, r, r_sum, r_ckpts, r_sum_ckpts, *ckpt_idxs
+    )
     assert expected_turning == actual_turning
 
 
@@ -300,7 +416,9 @@ def test_build_tree(step_size):
 
     @jit
     def fn(vv_state):
-        tree = build_tree(vv_update, kinetic_fn, vv_state, inverse_mass_matrix, step_size, rng_key)
+        tree = build_tree(
+            vv_update, kinetic_fn, vv_state, inverse_mass_matrix, step_size, rng_key
+        )
         return tree
 
     tree = fn(vv_state)
@@ -333,7 +451,11 @@ def test_gaussian_subposterior(method, diagonal):
     mean = jnp.arange(D)
     cov = jnp.ones((D, D)) * 0.9 + jnp.identity(D) * 0.1
     subcov = n_subs * cov  # subposterior's covariance
-    subposteriors = list(dist.MultivariateNormal(mean, subcov).sample(random.PRNGKey(1), (n_subs, n_samples)))
+    subposteriors = list(
+        dist.MultivariateNormal(mean, subcov).sample(
+            random.PRNGKey(1), (n_subs, n_samples)
+        )
+    )
 
     draws = method(subposteriors, n_draws, diagonal=diagonal)
     assert draws.shape == (n_draws, D)
@@ -346,7 +468,9 @@ def test_gaussian_subposterior(method, diagonal):
 
 @pytest.mark.parametrize("method", [consensus, parametric_draws])
 def test_subposterior_structure(method):
-    subposteriors = [{"x": jnp.ones((100, 3)), "y": jnp.zeros((100,))} for i in range(10)]
+    subposteriors = [
+        {"x": jnp.ones((100, 3)), "y": jnp.zeros((100,))} for i in range(10)
+    ]
     draws = method(subposteriors, num_draws=9)
     assert draws["x"].shape == (9, 3)
     assert draws["y"].shape == (9,)

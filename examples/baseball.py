@@ -143,7 +143,15 @@ def run_inference(model, at_bats, hits, rng_key, args):
         kernel = HMC(model)
     elif args.algo == "SA":
         kernel = SA(model)
-    mcmc = MCMC(kernel, args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if ("NUMPYRO_SPHINXBUILD" in os.environ or args.disable_progbar) else True)
+    mcmc = MCMC(
+        kernel,
+        args.num_warmup,
+        args.num_samples,
+        num_chains=args.num_chains,
+        progress_bar=False
+        if ("NUMPYRO_SPHINXBUILD" in os.environ or args.disable_progbar)
+        else True,
+    )
     mcmc.run(rng_key, at_bats, hits)
     return mcmc.get_samples()
 
@@ -151,13 +159,19 @@ def run_inference(model, at_bats, hits, rng_key, args):
 def predict(model, at_bats, hits, z, rng_key, player_names, train=True):
     header = model.__name__ + (" - TRAIN" if train else " - TEST")
     predictions = Predictive(model, posterior_samples=z)(rng_key, at_bats)["obs"]
-    print_results("=" * 30 + header + "=" * 30, predictions, player_names, at_bats, hits)
+    print_results(
+        "=" * 30 + header + "=" * 30, predictions, player_names, at_bats, hits
+    )
     if not train:
         post_loglik = log_likelihood(model, z, at_bats, hits)["obs"]
         # computes expected log predictive density at each data point
-        exp_log_density = logsumexp(post_loglik, axis=0) - jnp.log(jnp.shape(post_loglik)[0])
+        exp_log_density = logsumexp(post_loglik, axis=0) - jnp.log(
+            jnp.shape(post_loglik)[0]
+        )
         # reports log predictive density of all test points
-        print("\nLog pointwise predictive density: {:.2f}\n".format(exp_log_density.sum()))
+        print(
+            "\nLog pointwise predictive density: {:.2f}\n".format(exp_log_density.sum())
+        )
 
 
 def print_results(header, preds, player_names, at_bats, hits):
@@ -178,11 +192,21 @@ def main(args):
     test, _ = fetch_test()
     at_bats, hits = train[:, 0], train[:, 1]
     season_at_bats, season_hits = test[:, 0], test[:, 1]
-    for i, model in enumerate((fully_pooled, not_pooled, partially_pooled, partially_pooled_with_logit)):
+    for i, model in enumerate(
+        (fully_pooled, not_pooled, partially_pooled, partially_pooled_with_logit)
+    ):
         rng_key, rng_key_predict = random.split(random.PRNGKey(i + 1))
         zs = run_inference(model, at_bats, hits, rng_key, args)
         predict(model, at_bats, hits, zs, rng_key_predict, player_names)
-        predict(model, season_at_bats, season_hits, zs, rng_key_predict, player_names, train=False)
+        predict(
+            model,
+            season_at_bats,
+            season_hits,
+            zs,
+            rng_key_predict,
+            player_names,
+            train=False,
+        )
 
 
 if __name__ == "__main__":
@@ -191,8 +215,16 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--num-samples", nargs="?", default=3000, type=int)
     parser.add_argument("--num-warmup", nargs="?", default=1500, type=int)
     parser.add_argument("--num-chains", nargs="?", default=1, type=int)
-    parser.add_argument("--algo", default="NUTS", type=str, help='whether to run "HMC", "NUTS", or "SA"')
-    parser.add_argument("-dp", "--disable-progbar", action="store_true", default=False, help="whether to disable progress bar")
+    parser.add_argument(
+        "--algo", default="NUTS", type=str, help='whether to run "HMC", "NUTS", or "SA"'
+    )
+    parser.add_argument(
+        "-dp",
+        "--disable-progbar",
+        action="store_true",
+        default=False,
+        help="whether to disable progress bar",
+    )
     parser.add_argument("--device", default="cpu", type=str, help='use "cpu" or "gpu".')
     args = parser.parse_args()
 

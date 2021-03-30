@@ -13,7 +13,15 @@ import numpy as np
 from jax import device_get
 from jax.tree_util import tree_flatten, tree_map
 
-__all__ = ["autocorrelation", "autocovariance", "effective_sample_size", "gelman_rubin", "hpdi", "split_gelman_rubin", "print_summary"]
+__all__ = [
+    "autocorrelation",
+    "autocovariance",
+    "effective_sample_size",
+    "gelman_rubin",
+    "hpdi",
+    "split_gelman_rubin",
+    "print_summary",
+]
 
 
 def _compute_chain_variance_stats(x):
@@ -171,7 +179,13 @@ def effective_sample_size(x):
 
     # initial monotone (decreasing) sequence
     Rho_init = Rho_k[:1]
-    Rho_k = np.concatenate([Rho_init, np.minimum.accumulate(np.clip(Rho_k[1:, ...], a_min=0, a_max=None), axis=0)], axis=0)
+    Rho_k = np.concatenate(
+        [
+            Rho_init,
+            np.minimum.accumulate(np.clip(Rho_k[1:, ...], a_min=0, a_max=None), axis=0),
+        ],
+        axis=0,
+    )
 
     tau = -1.0 + 2.0 * Rho_k.sum(axis=0)
     n_eff = np.prod(x.shape[:2]) / tau
@@ -226,7 +240,9 @@ def summary(samples, prob=0.90, group_by_chain=True):
     if not group_by_chain:
         samples = tree_map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
-        samples = {"Param:{}".format(i): v for i, v in enumerate(tree_flatten(samples)[0])}
+        samples = {
+            "Param:{}".format(i): v for i, v in enumerate(tree_flatten(samples)[0])
+        }
 
     summary_dict = {}
     for name, value in samples.items():
@@ -240,7 +256,17 @@ def summary(samples, prob=0.90, group_by_chain=True):
         r_hat = split_gelman_rubin(value)
         hpd_lower = "{:.1f}%".format(50 * (1 - prob))
         hpd_upper = "{:.1f}%".format(50 * (1 + prob))
-        summary_dict[name] = OrderedDict([("mean", mean), ("std", std), ("median", median), (hpd_lower, hpd[0]), (hpd_upper, hpd[1]), ("n_eff", n_eff), ("r_hat", r_hat)])
+        summary_dict[name] = OrderedDict(
+            [
+                ("mean", mean),
+                ("std", std),
+                ("median", median),
+                (hpd_lower, hpd[0]),
+                (hpd_upper, hpd[1]),
+                ("n_eff", n_eff),
+                ("r_hat", r_hat),
+            ]
+        )
     return summary_dict
 
 
@@ -264,10 +290,15 @@ def print_summary(samples, prob=0.90, group_by_chain=True):
     if not group_by_chain:
         samples = tree_map(lambda x: x[None, ...], samples)
     if not isinstance(samples, dict):
-        samples = {"Param:{}".format(i): v for i, v in enumerate(tree_flatten(samples)[0])}
+        samples = {
+            "Param:{}".format(i): v for i, v in enumerate(tree_flatten(samples)[0])
+        }
     summary_dict = summary(samples, prob, group_by_chain=True)
 
-    row_names = {k: k + "[" + ",".join(map(lambda x: str(x - 1), v.shape[2:])) + "]" for k, v in samples.items()}
+    row_names = {
+        k: k + "[" + ",".join(map(lambda x: str(x - 1), v.shape[2:])) + "]"
+        for k, v in samples.items()
+    }
     max_len = max(max(map(lambda x: len(x), row_names.values())), 10)
     name_format = "{:>" + str(max_len) + "}"
     header_format = name_format + " {:>9}" * 7
@@ -284,5 +315,9 @@ def print_summary(samples, prob=0.90, group_by_chain=True):
         else:
             for idx in product(*map(range, shape)):
                 idx_str = "[{}]".format(",".join(map(str, idx)))
-                print(row_format.format(name + idx_str, *[v[idx] for v in stats_dict.values()]))
+                print(
+                    row_format.format(
+                        name + idx_str, *[v[idx] for v in stats_dict.values()]
+                    )
+                )
     print()

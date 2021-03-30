@@ -75,8 +75,12 @@ def set_host_device_count(n):
     :param int n: number of CPU devices to use.
     """
     xla_flags = os.getenv("XLA_FLAGS", "").lstrip("--")
-    xla_flags = re.sub(r"xla_force_host_platform_device_count=.+\s", "", xla_flags).split()
-    os.environ["XLA_FLAGS"] = " ".join(["--xla_force_host_platform_device_count={}".format(n)] + xla_flags)
+    xla_flags = re.sub(
+        r"xla_force_host_platform_device_count=.+\s", "", xla_flags
+    ).split()
+    os.environ["XLA_FLAGS"] = " ".join(
+        ["--xla_force_host_platform_device_count={}".format(n)] + xla_flags
+    )
 
 
 @contextmanager
@@ -200,9 +204,30 @@ def progress_bar_factory(num_samples, num_chains):
         Usage: carry = progress_bar((iter_num, print_rate), carry)
         """
 
-        _ = lax.cond(iter_num == 1, lambda _: host_callback.id_tap(_update_tqdm, 0, result=iter_num, tap_with_device=True), lambda _: iter_num, operand=None)
-        _ = lax.cond(iter_num % print_rate == 0, lambda _: host_callback.id_tap(_update_tqdm, print_rate, result=iter_num, tap_with_device=True), lambda _: iter_num, operand=None)
-        _ = lax.cond(iter_num == num_samples, lambda _: host_callback.id_tap(_close_tqdm, remainder, result=iter_num, tap_with_device=True), lambda _: iter_num, operand=None)
+        _ = lax.cond(
+            iter_num == 1,
+            lambda _: host_callback.id_tap(
+                _update_tqdm, 0, result=iter_num, tap_with_device=True
+            ),
+            lambda _: iter_num,
+            operand=None,
+        )
+        _ = lax.cond(
+            iter_num % print_rate == 0,
+            lambda _: host_callback.id_tap(
+                _update_tqdm, print_rate, result=iter_num, tap_with_device=True
+            ),
+            lambda _: iter_num,
+            operand=None,
+        )
+        _ = lax.cond(
+            iter_num == num_samples,
+            lambda _: host_callback.id_tap(
+                _close_tqdm, remainder, result=iter_num, tap_with_device=True
+            ),
+            lambda _: iter_num,
+            operand=None,
+        )
 
     def progress_bar_fori_loop(func):
         """Decorator that adds a progress bar to `body_fun` used in `lax.fori_loop`.
@@ -220,7 +245,18 @@ def progress_bar_factory(num_samples, num_chains):
     return progress_bar_fori_loop
 
 
-def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=True, return_last_val=False, collection_size=None, thinning=1, **progbar_opts):
+def fori_collect(
+    lower,
+    upper,
+    body_fun,
+    init_val,
+    transform=identity,
+    progbar=True,
+    return_last_val=False,
+    collection_size=None,
+    thinning=1,
+    **progbar_opts,
+):
     """
     This looping construct works like :func:`~jax.lax.fori_loop` but with the additional
     effect of collecting values from the loop body. In addition, this allows for
@@ -256,7 +292,9 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
     """
     assert lower <= upper
     assert thinning >= 1
-    collection_size = (upper - lower) // thinning if collection_size is None else collection_size
+    collection_size = (
+        (upper - lower) // thinning if collection_size is None else collection_size
+    )
     assert collection_size >= (upper - lower) // thinning
     init_val_flat, unravel_fn = ravel_pytree(transform(init_val))
     start_idx = lower + (upper - lower) % thinning
@@ -267,16 +305,26 @@ def fori_collect(lower, upper, body_fun, init_val, transform=identity, progbar=T
         val, collection, start_idx, thinning = vals
         val = body_fun(val)
         idx = (i - start_idx) // thinning
-        collection = cond(idx >= 0, collection, lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]), collection, identity)
+        collection = cond(
+            idx >= 0,
+            collection,
+            lambda x: ops.index_update(x, idx, ravel_pytree(transform(val))[0]),
+            collection,
+            identity,
+        )
         return val, collection, start_idx, thinning
 
     collection = jnp.zeros((collection_size,) + init_val_flat.shape)
     if not progbar:
-        last_val, collection, _, _ = fori_loop(0, upper, _body_fn, (init_val, collection, start_idx, thinning))
+        last_val, collection, _, _ = fori_loop(
+            0, upper, _body_fn, (init_val, collection, start_idx, thinning)
+        )
     elif num_chains > 1:
         progress_bar_fori_loop = progress_bar_factory(upper, num_chains)
         _body_fn_pbar = progress_bar_fori_loop(_body_fn)
-        last_val, collection, _, _ = fori_loop(0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning))
+        last_val, collection, _, _ = fori_loop(
+            0, upper, _body_fn_pbar, (init_val, collection, start_idx, thinning)
+        )
     else:
         diagnostics_fn = progbar_opts.pop("diagnostics_fn", None)
         progbar_desc = progbar_opts.pop("progbar_desc", lambda x: "")
@@ -303,13 +351,27 @@ pytree_metadata = namedtuple("pytree_metadata", ["flat", "shape", "size", "dtype
 
 
 def _ravel_list(*leaves):
-    leaves_metadata = tree_map(lambda l: pytree_metadata(jnp.ravel(l), jnp.shape(l), jnp.size(l), jnp.result_type(l)), leaves)
+    leaves_metadata = tree_map(
+        lambda l: pytree_metadata(
+            jnp.ravel(l), jnp.shape(l), jnp.size(l), jnp.result_type(l)
+        ),
+        leaves,
+    )
     leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.size for d in leaves_metadata)))
 
     def unravel_list(arr):
-        return [jnp.reshape(lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size), m.shape).astype(m.dtype) for i, m in enumerate(leaves_metadata)]
+        return [
+            jnp.reshape(
+                lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size), m.shape
+            ).astype(m.dtype)
+            for i, m in enumerate(leaves_metadata)
+        ]
 
-    flat = jnp.concatenate([m.flat for m in leaves_metadata]) if leaves_metadata else jnp.array([])
+    flat = (
+        jnp.concatenate([m.flat for m in leaves_metadata])
+        if leaves_metadata
+        else jnp.array([])
+    )
     return flat, unravel_list
 
 
@@ -345,19 +407,28 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     # we'll do map(vmap(fn), xs) and make xs.shape = (num_chunks, chunk_size, ...)
     num_chunks = batch_size = int(np.prod(batch_shape))
     prepend_shape = (-1,) if batch_size > 1 else ()
-    xs = tree_map(lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs)
+    xs = tree_map(
+        lambda x: jnp.reshape(x, prepend_shape + jnp.shape(x)[batch_ndims:]), xs
+    )
     # XXX: probably for the default behavior with chunk_size=None,
     # it is better to catch OOM error and reduce chunk_size by half until OOM disappears.
     chunk_size = batch_size if chunk_size is None else min(batch_size, chunk_size)
     if chunk_size > 1:
         pad = chunk_size - (batch_size % chunk_size)
-        xs = tree_map(lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs)
+        xs = tree_map(
+            lambda x: jnp.pad(x, ((0, pad),) + ((0, 0),) * (np.ndim(x) - 1)), xs
+        )
         num_chunks = batch_size // chunk_size + int(pad > 0)
         prepend_shape = (-1,) if num_chunks > 1 else ()
-        xs = tree_map(lambda x: jnp.reshape(x, prepend_shape + (chunk_size,) + jnp.shape(x)[1:]), xs)
+        xs = tree_map(
+            lambda x: jnp.reshape(x, prepend_shape + (chunk_size,) + jnp.shape(x)[1:]),
+            xs,
+        )
         fn = vmap(fn)
 
     ys = lax.map(fn, xs) if num_chunks > 1 else fn(xs)
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
-    ys = tree_map(lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys)
+    ys = tree_map(
+        lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys
+    )
     return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)

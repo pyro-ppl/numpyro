@@ -57,15 +57,23 @@ def test_hmm_smoke(length, temperature):
         means = jnp.arange(float(hidden_dim))
         states = [0]
         for t in markov(range(len(data))):
-            states.append(numpyro.sample("states_{}".format(t), dist.Categorical(transition[states[-1]])))
-            data[t] = numpyro.sample("obs_{}".format(t), dist.Normal(means[states[-1]], 1.0), obs=data[t])
+            states.append(
+                numpyro.sample(
+                    "states_{}".format(t), dist.Categorical(transition[states[-1]])
+                )
+            )
+            data[t] = numpyro.sample(
+                "obs_{}".format(t), dist.Normal(means[states[-1]], 1.0), obs=data[t]
+            )
         return states, data
 
     true_states, data = handlers.seed(hmm, 0)([None] * length)
     assert len(data) == length
     assert len(true_states) == 1 + len(data)
 
-    decoder = infer_discrete(config_enumerate(hmm), temperature=temperature, rng_key=random.PRNGKey(1))
+    decoder = infer_discrete(
+        config_enumerate(hmm), temperature=temperature, rng_key=random.PRNGKey(1)
+    )
     inferred_states, _ = decoder(data)
     assert len(inferred_states) == len(true_states)
 
@@ -99,17 +107,31 @@ def test_distribution_1(temperature):
             numpyro.sample("x", dist.Normal(z, 1.0), obs=data)
 
     first_available_dim = -3
-    vectorized_model = model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
-    sampled_model = infer_discrete(vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1))
+    vectorized_model = (
+        model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
+    )
+    sampled_model = infer_discrete(
+        vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1)
+    )
     sampled_trace = handlers.trace(sampled_model).get_trace()
-    conditioned_traces = {z: handlers.trace(model).get_trace(z=np.array(z)) for z in [0, 1]}
+    conditioned_traces = {
+        z: handlers.trace(model).get_trace(z=np.array(z)) for z in [0, 1]
+    }
 
     # Check  posterior over z.
     actual_z_mean = sampled_trace["z"]["value"].astype(float).mean()
     if temperature:
-        expected_z_mean = 1 / (1 + np.exp(log_prob_sum(conditioned_traces[0]) - log_prob_sum(conditioned_traces[1])))
+        expected_z_mean = 1 / (
+            1
+            + np.exp(
+                log_prob_sum(conditioned_traces[0])
+                - log_prob_sum(conditioned_traces[1])
+            )
+        )
     else:
-        expected_z_mean = (log_prob_sum(conditioned_traces[1]) > log_prob_sum(conditioned_traces[0])).astype(float)
+        expected_z_mean = (
+            log_prob_sum(conditioned_traces[1]) > log_prob_sum(conditioned_traces[0])
+        ).astype(float)
         expected_max = max(log_prob_sum(t) for t in conditioned_traces.values())
         actual_max = log_prob_sum(sampled_trace)
         assert_allclose(expected_max, actual_max, atol=1e-5)
@@ -140,17 +162,32 @@ def test_distribution_2(temperature):
             numpyro.sample("x2", dist.Normal(loc[z2], 1.0), obs=data[1])
 
     first_available_dim = -3
-    vectorized_model = model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
-    sampled_model = infer_discrete(vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1))
+    vectorized_model = (
+        model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
+    )
+    sampled_model = infer_discrete(
+        vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1)
+    )
     sampled_trace = handlers.trace(sampled_model).get_trace()
-    conditioned_traces = {(z1, z2): handlers.trace(model).get_trace(z1=np.array(z1), z2=np.array(z2)) for z1 in [0, 1] for z2 in [0, 1]}
+    conditioned_traces = {
+        (z1, z2): handlers.trace(model).get_trace(z1=np.array(z1), z2=np.array(z2))
+        for z1 in [0, 1]
+        for z2 in [0, 1]
+    }
 
     # Check joint posterior over (z1, z2).
     actual_probs = np.zeros((2, 2))
     expected_probs = np.zeros((2, 2))
     for (z1, z2), tr in conditioned_traces.items():
         expected_probs[z1, z2] = np.exp(log_prob_sum(tr))
-        actual_probs[z1, z2] = ((sampled_trace["z1"]["value"] == z1) & (sampled_trace["z2"]["value"] == z2)).astype(float).mean()
+        actual_probs[z1, z2] = (
+            (
+                (sampled_trace["z1"]["value"] == z1)
+                & (sampled_trace["z2"]["value"] == z2)
+            )
+            .astype(float)
+            .mean()
+        )
 
     if temperature:
         expected_probs = expected_probs / expected_probs.sum()
@@ -182,17 +219,32 @@ def test_distribution_3_simple(temperature):
             numpyro.sample("x2", dist.Normal(loc[z2], 1.0), obs=data)
 
     first_available_dim = -3
-    vectorized_model = model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
-    sampled_model = infer_discrete(vectorized_model, first_available_dim, temperature, random.PRNGKey(1))
+    vectorized_model = (
+        model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
+    )
+    sampled_model = infer_discrete(
+        vectorized_model, first_available_dim, temperature, random.PRNGKey(1)
+    )
     sampled_trace = handlers.trace(sampled_model).get_trace()
-    conditioned_traces = {(z20, z21): handlers.trace(model).get_trace(z2=np.array([z20, z21])) for z20 in [0, 1] for z21 in [0, 1]}
+    conditioned_traces = {
+        (z20, z21): handlers.trace(model).get_trace(z2=np.array([z20, z21]))
+        for z20 in [0, 1]
+        for z21 in [0, 1]
+    }
 
     # Check joint posterior over (z2[0], z2[1]).
     actual_probs = np.zeros((2, 2))
     expected_probs = np.zeros((2, 2))
     for (z20, z21), tr in conditioned_traces.items():
         expected_probs[z20, z21] = np.exp(log_prob_sum(tr))
-        actual_probs[z20, z21] = ((sampled_trace["z2"]["value"][..., :1] == z20) & (sampled_trace["z2"]["value"][..., 1:] == z21)).astype(float).mean()
+        actual_probs[z20, z21] = (
+            (
+                (sampled_trace["z2"]["value"][..., :1] == z20)
+                & (sampled_trace["z2"]["value"][..., 1:] == z21)
+            )
+            .astype(float)
+            .mean()
+        )
     if temperature:
         expected_probs = expected_probs / expected_probs.sum()
     else:
@@ -226,17 +278,36 @@ def test_distribution_3(temperature):
             numpyro.sample("x2", dist.Normal(loc[z2], 1.0), obs=data[1])
 
     first_available_dim = -3
-    vectorized_model = model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
-    sampled_model = infer_discrete(vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1))
+    vectorized_model = (
+        model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
+    )
+    sampled_model = infer_discrete(
+        vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1)
+    )
     sampled_trace = handlers.trace(sampled_model).get_trace()
-    conditioned_traces = {(z1, z20, z21): handlers.trace(model).get_trace(z1=np.array(z1), z2=np.array([z20, z21])) for z1 in [0, 1] for z20 in [0, 1] for z21 in [0, 1]}
+    conditioned_traces = {
+        (z1, z20, z21): handlers.trace(model).get_trace(
+            z1=np.array(z1), z2=np.array([z20, z21])
+        )
+        for z1 in [0, 1]
+        for z20 in [0, 1]
+        for z21 in [0, 1]
+    }
 
     # Check joint posterior over (z1, z2[0], z2[1]).
     actual_probs = np.zeros((2, 2, 2))
     expected_probs = np.zeros((2, 2, 2))
     for (z1, z20, z21), tr in conditioned_traces.items():
         expected_probs[z1, z20, z21] = jnp.exp(log_prob_sum(tr))
-        actual_probs[z1, z20, z21] = ((sampled_trace["z1"]["value"] == z1) & (sampled_trace["z2"]["value"][..., :1] == z20) & (sampled_trace["z2"]["value"][..., 1:] == z21)).astype(float).mean()
+        actual_probs[z1, z20, z21] = (
+            (
+                (sampled_trace["z1"]["value"] == z1)
+                & (sampled_trace["z2"]["value"][..., :1] == z20)
+                & (sampled_trace["z2"]["value"][..., 1:] == z21)
+            )
+            .astype(float)
+            .mean()
+        )
     if temperature:
         expected_probs = expected_probs / expected_probs.sum()
     else:
@@ -291,7 +362,9 @@ def model2():
 def test_mcmc_model_side_enumeration(model, temperature):
     mcmc = infer.MCMC(infer.NUTS(model), 0, 1)
     mcmc.run(random.PRNGKey(0))
-    mcmc_data = {k: v[0] for k, v in mcmc.get_samples().items() if k in ["loc", "scale"]}
+    mcmc_data = {
+        k: v[0] for k, v in mcmc.get_samples().items() if k in ["loc", "scale"]
+    }
 
     # MAP estimate discretes, conditioned on posterior sampled continous latents.
     model = handlers.seed(model, rng_seed=1)
@@ -328,15 +401,29 @@ def test_distribution_masked(temperature):
             numpyro.sample("x", dist.Normal(z, 1.0), obs=data)
 
     first_available_dim = -3
-    vectorized_model = model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
-    sampled_model = infer_discrete(vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1))
+    vectorized_model = (
+        model if temperature == 0 else vectorize_model(model, num_particles, dim=-2)
+    )
+    sampled_model = infer_discrete(
+        vectorized_model, first_available_dim, temperature, rng_key=random.PRNGKey(1)
+    )
     sampled_trace = handlers.trace(sampled_model).get_trace()
-    conditioned_traces = {z: handlers.trace(model).get_trace(z=np.array(z)) for z in [0.0, 1.0]}
+    conditioned_traces = {
+        z: handlers.trace(model).get_trace(z=np.array(z)) for z in [0.0, 1.0]
+    }
 
     # Check  posterior over z.
     actual_z_mean = sampled_trace["z"]["value"].astype(float).mean()
     if temperature:
-        expected_z_mean = 1 / (1 + jnp.exp(log_prob_sum(conditioned_traces[0]) - log_prob_sum(conditioned_traces[1])))
+        expected_z_mean = 1 / (
+            1
+            + jnp.exp(
+                log_prob_sum(conditioned_traces[0])
+                - log_prob_sum(conditioned_traces[1])
+            )
+        )
     else:
-        expected_z_mean = (log_prob_sum(conditioned_traces[1]) > log_prob_sum(conditioned_traces[0])).astype(float)
+        expected_z_mean = (
+            log_prob_sum(conditioned_traces[1]) > log_prob_sum(conditioned_traces[0])
+        ).astype(float)
     assert_allclose(actual_z_mean, expected_z_mean, atol=1e-2)

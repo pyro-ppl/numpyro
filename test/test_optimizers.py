@@ -20,7 +20,18 @@ def step(opt_state, optim):
     return optim.update(g, opt_state)
 
 
-@pytest.mark.parametrize("optim_class, args", [(optim.Adam, (1e-2,)), (optim.ClippedAdam, (1e-2,)), (optim.Adagrad, (1e-1,)), (optim.Momentum, (1e-2, 0.5)), (optim.RMSProp, (1e-2, 0.95)), (optim.RMSPropMomentum, (1e-4,)), (optim.SGD, (1e-2,))])
+@pytest.mark.parametrize(
+    "optim_class, args",
+    [
+        (optim.Adam, (1e-2,)),
+        (optim.ClippedAdam, (1e-2,)),
+        (optim.Adagrad, (1e-1,)),
+        (optim.Momentum, (1e-2, 0.5)),
+        (optim.RMSProp, (1e-2, 0.95)),
+        (optim.RMSPropMomentum, (1e-4,)),
+        (optim.SGD, (1e-2,)),
+    ],
+)
 def test_optim_multi_params(optim_class, args):
     params = {"x": jnp.array([1.0, 1.0, 1.0]), "y": jnp.array([-1, -1.0, -1.0])}
     opt = optim_class(*args)
@@ -33,7 +44,18 @@ def test_optim_multi_params(optim_class, args):
 
 # note: this is somewhat of a bruteforce test. testing directly from
 # _NumpyroOptim would probably be better
-@pytest.mark.parametrize("optim_class, args", [(optim.Adam, (1e-2,)), (optim.ClippedAdam, (1e-2,)), (optim.Adagrad, (1e-1,)), (optim.Momentum, (1e-2, 0.5)), (optim.RMSProp, (1e-2, 0.95)), (optim.RMSPropMomentum, (1e-4,)), (optim.SGD, (1e-2,))])
+@pytest.mark.parametrize(
+    "optim_class, args",
+    [
+        (optim.Adam, (1e-2,)),
+        (optim.ClippedAdam, (1e-2,)),
+        (optim.Adagrad, (1e-1,)),
+        (optim.Momentum, (1e-2, 0.5)),
+        (optim.RMSProp, (1e-2, 0.95)),
+        (optim.RMSPropMomentum, (1e-4,)),
+        (optim.SGD, (1e-2,)),
+    ],
+)
 def test_numpyrooptim_no_double_jit(optim_class, args):
 
     opt = optim_class(*args)

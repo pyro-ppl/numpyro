@@ -46,7 +46,12 @@ def dz_dt(z, t, theta):
     """
     u = z[0]
     v = z[1]
-    alpha, beta, gamma, delta = theta[..., 0], theta[..., 1], theta[..., 2], theta[..., 3]
+    alpha, beta, gamma, delta = (
+        theta[..., 0],
+        theta[..., 1],
+        theta[..., 2],
+        theta[..., 3],
+    )
     du_dt = (alpha - beta * v) * u
     dv_dt = (-gamma + delta * u) * v
     return jnp.stack([du_dt, dv_dt])
@@ -62,7 +67,14 @@ def model(N, y=None):
     # measurement times
     ts = jnp.arange(float(N))
     # parameters alpha, beta, gamma, delta of dz_dt
-    theta = numpyro.sample("theta", dist.TruncatedNormal(low=0.0, loc=jnp.array([1.0, 0.05, 1.0, 0.05]), scale=jnp.array([0.5, 0.05, 0.5, 0.05])))
+    theta = numpyro.sample(
+        "theta",
+        dist.TruncatedNormal(
+            low=0.0,
+            loc=jnp.array([1.0, 0.05, 1.0, 0.05]),
+            scale=jnp.array([0.5, 0.05, 0.5, 0.05]),
+        ),
+    )
     # integrate dz/dt, the result will have shape N x 2
     z = odeint(dz_dt, z_init, ts, theta, rtol=1e-6, atol=1e-5, mxstep=1000)
     # measurement errors
@@ -76,7 +88,13 @@ def main(args):
     year, data = fetch()  # data is in hare -> lynx order
 
     # use dense_mass for better mixing rate
-    mcmc = MCMC(NUTS(model, dense_mass=True), args.num_warmup, args.num_samples, num_chains=args.num_chains, progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True)
+    mcmc = MCMC(
+        NUTS(model, dense_mass=True),
+        args.num_warmup,
+        args.num_samples,
+        num_chains=args.num_chains,
+        progress_bar=False if "NUMPYRO_SPHINXBUILD" in os.environ else True,
+    )
     mcmc.run(PRNGKey(1), N=data.shape[0], y=data)
     mcmc.print_summary()
 

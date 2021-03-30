@@ -14,7 +14,12 @@ from numpyro.distributions.transforms import AffineTransform, ExpTransform
 import numpyro.handlers as handlers
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoIAFNormal
-from numpyro.infer.reparam import LocScaleReparam, NeuTraReparam, ProjectedNormalReparam, TransformReparam
+from numpyro.infer.reparam import (
+    LocScaleReparam,
+    NeuTraReparam,
+    ProjectedNormalReparam,
+    TransformReparam,
+)
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
 
@@ -32,7 +37,11 @@ def get_moments(x):
     return jnp.stack([m1, m2, m3, m4])
 
 
-@pytest.mark.parametrize("batch_shape,base_batch_shape", [((), ()), ((4,), (4,)), ((2, 3), (2, 3)), ((2, 3), ())], ids=str)
+@pytest.mark.parametrize(
+    "batch_shape,base_batch_shape",
+    [((), ()), ((4,), (4,)), ((2, 3), (2, 3)), ((2, 3), ())],
+    ids=str,
+)
 @pytest.mark.parametrize("event_shape", [(), (5,)], ids=str)
 def test_log_normal(batch_shape, base_batch_shape, event_shape):
     shape = batch_shape + event_shape
@@ -41,7 +50,10 @@ def test_log_normal(batch_shape, base_batch_shape, event_shape):
     scale = np.random.rand(*base_shape) + 0.5
 
     def model():
-        fn = dist.TransformedDistribution(dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)), [AffineTransform(loc, scale), ExpTransform()]).expand(shape)
+        fn = dist.TransformedDistribution(
+            dist.Normal(jnp.zeros_like(loc), jnp.ones_like(scale)),
+            [AffineTransform(loc, scale), ExpTransform()],
+        ).expand(shape)
         if event_shape:
             fn = fn.to_event(len(event_shape)).expand_by([100000])
         with numpyro.plate_stack("plates", batch_shape):
@@ -99,7 +111,13 @@ def test_neals_funnel_smoke():
     assert "y" in transformed_samples
 
 
-@pytest.mark.parametrize("model, kwargs", [(neals_funnel, {"dim": 10}), (dirichlet_categorical, {"data": jnp.ones(10, dtype=jnp.int32)})])
+@pytest.mark.parametrize(
+    "model, kwargs",
+    [
+        (neals_funnel, {"dim": 10}),
+        (dirichlet_categorical, {"data": jnp.ones(10, dtype=jnp.int32)}),
+    ],
+)
 def test_reparam_log_joint(model, kwargs):
     guide = AutoIAFNormal(model)
     svi = SVI(model, guide, Adam(1e-10), Trace_ELBO(), **kwargs)
@@ -108,7 +126,9 @@ def test_reparam_log_joint(model, kwargs):
     neutra = NeuTraReparam(guide, params)
     reparam_model = neutra.reparam(model)
     _, pe_fn, _, _ = initialize_model(random.PRNGKey(1), model, model_kwargs=kwargs)
-    init_params, pe_fn_neutra, _, _ = initialize_model(random.PRNGKey(2), reparam_model, model_kwargs=kwargs)
+    init_params, pe_fn_neutra, _, _ = initialize_model(
+        random.PRNGKey(2), reparam_model, model_kwargs=kwargs
+    )
     latent_x = list(init_params[0].values())[0]
     pe_transformed = pe_fn_neutra(init_params[0])
     latent_y = neutra.transform(latent_x)
@@ -132,7 +152,9 @@ def test_loc_scale(dist_type, centered, shape, event_dim):
                 if "dist_type" == "Normal":
                     numpyro.sample("x", dist.Normal(loc, scale).to_event(event_dim))
                 else:
-                    numpyro.sample("x", dist.StudentT(10.0, loc, scale).to_event(event_dim))
+                    numpyro.sample(
+                        "x", dist.StudentT(10.0, loc, scale).to_event(event_dim)
+                    )
 
     def get_expected_probe(loc, scale):
         with numpyro.handlers.trace() as trace:

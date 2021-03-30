@@ -20,11 +20,17 @@ def init_to_median(site=None, num_samples=15):
     if site is None:
         return partial(init_to_median, num_samples=num_samples)
 
-    if site["type"] == "sample" and not site["is_observed"] and not site["fn"].is_discrete:
+    if (
+        site["type"] == "sample"
+        and not site["is_observed"]
+        and not site["fn"].is_discrete
+    ):
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape")
         try:
-            samples = site["fn"](sample_shape=(num_samples,) + sample_shape, rng_key=rng_key)
+            samples = site["fn"](
+                sample_shape=(num_samples,) + sample_shape, rng_key=rng_key
+            )
             return jnp.median(samples, axis=0)
         except NotImplementedError:
             return init_to_uniform(site)
@@ -47,14 +53,20 @@ def init_to_uniform(site=None, radius=2):
     if site is None:
         return partial(init_to_uniform, radius=radius)
 
-    if site["type"] == "sample" and not site["is_observed"] and not site["fn"].is_discrete:
+    if (
+        site["type"] == "sample"
+        and not site["is_observed"]
+        and not site["fn"].is_discrete
+    ):
         rng_key = site["kwargs"].get("rng_key")
         sample_shape = site["kwargs"].get("sample_shape")
         rng_key, subkey = random.split(rng_key)
 
         transform = biject_to(site["fn"].support)
         unconstrained_shape = transform.inverse_shape(site["fn"].shape())
-        unconstrained_samples = dist.Uniform(-radius, radius)(rng_key=rng_key, sample_shape=sample_shape + unconstrained_shape)
+        unconstrained_samples = dist.Uniform(-radius, radius)(
+            rng_key=rng_key, sample_shape=sample_shape + unconstrained_shape
+        )
         return transform(unconstrained_samples)
 
 

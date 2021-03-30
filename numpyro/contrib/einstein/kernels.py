@@ -37,7 +37,12 @@ class SteinKernel(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def compute(self, particles: jnp.ndarray, particle_info: Dict[str, Tuple[int, int]], loss_fn: Callable[[jnp.ndarray], float]):
+    def compute(
+        self,
+        particles: jnp.ndarray,
+        particle_info: Dict[str, Tuple[int, int]],
+        loss_fn: Callable[[jnp.ndarray], float],
+    ):
         """
         Computes the kernel function given the input Stein particles
 
@@ -67,7 +72,12 @@ class RBFKernel(SteinKernel):
     :param bandwidth_factor: A multiplier to the bandwidth based on data size n (default 1/log(n))
     """
 
-    def __init__(self, mode="norm", matrix_mode="norm_diag", bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n)):
+    def __init__(
+        self,
+        mode="norm",
+        matrix_mode="norm_diag",
+        bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n),
+    ):
         assert mode == "norm" or mode == "vector" or mode == "matrix"
         assert matrix_mode == "norm_diag" or matrix_mode == "vector_diag"
         self._mode = mode
@@ -75,10 +85,14 @@ class RBFKernel(SteinKernel):
         self.bandwidth_factor = bandwidth_factor
 
     def _normed(self):
-        return self._mode == "norm" or (self.mode == "matrix" and self.matrix_mode == "norm_diag")
+        return self._mode == "norm" or (
+            self.mode == "matrix" and self.matrix_mode == "norm_diag"
+        )
 
     def compute(self, particles, particle_info, loss_fn):
-        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1)  # N x N (x D)
+        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(
+            particles, axis=1
+        )  # N x N (x D)
         if self._normed() and particles.ndim == 2:
             diffs = safe_norm(diffs, ord=2, axis=-1)  # N x D -> N
         diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1))  # N * N (x D)
@@ -188,7 +202,13 @@ class RandomFeatureKernel(SteinKernel):
 
     """
 
-    def __init__(self, mode="norm", bandwidth_subset=None, random_indices=None, bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n)):
+    def __init__(
+        self,
+        mode="norm",
+        bandwidth_subset=None,
+        random_indices=None,
+        bandwidth_factor: Callable[[float], float] = lambda n: 1 / jnp.log(n),
+    ):
         assert bandwidth_subset is None or bandwidth_subset > 0
         assert mode == "norm"
         self._mode = "norm"
@@ -209,7 +229,9 @@ class RandomFeatureKernel(SteinKernel):
         factor = self.bandwidth_factor(particles.shape[0])
         if self.bandwidth_subset is not None:
             particles = particles[npr.choice(particles.shape[0], self.bandwidth_subset)]
-        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(particles, axis=1)  # N x N x D
+        diffs = jnp.expand_dims(particles, axis=0) - jnp.expand_dims(
+            particles, axis=1
+        )  # N x N x D
         if particles.ndim == 2:
             diffs = safe_norm(diffs, ord=2, axis=-1)  # N x N x D -> N x N
         diffs = jnp.reshape(diffs, (diffs.shape[0] * diffs.shape[1], -1))  # N * N x 1
@@ -224,9 +246,19 @@ class RandomFeatureKernel(SteinKernel):
             return jnp.sqrt(2) * jnp.cos((x @ w + b) / bandwidth)
 
         def kernel(x, y):
-            ws = self._random_weights if self.random_indices is None else self._random_weights[self.random_indices]
-            bs = self._random_biases if self.random_indices is None else self._random_biases[self.random_indices]
-            return jnp.sum(jax.vmap(lambda w, b: feature(x, w, b) * feature(y, w, b))(ws, bs))
+            ws = (
+                self._random_weights
+                if self.random_indices is None
+                else self._random_weights[self.random_indices]
+            )
+            bs = (
+                self._random_biases
+                if self.random_indices is None
+                else self._random_biases[self.random_indices]
+            )
+            return jnp.sum(
+                jax.vmap(lambda w, b: feature(x, w, b) * feature(y, w, b))(ws, bs)
+            )
 
         return kernel
 
@@ -255,7 +287,9 @@ class MixtureKernel(SteinKernel):
         return self.kernel_fns[0].mode
 
     def compute(self, particles, particle_info, loss_fn):
-        kernels = [kf.compute(particles, particle_info, loss_fn) for kf in self.kernel_fns]
+        kernels = [
+            kf.compute(particles, particle_info, loss_fn) for kf in self.kernel_fns
+        ]
 
         def kernel(x, y):
             res = self.ws[0] * kernels[0](x, y)
@@ -296,7 +330,12 @@ class PrecondMatrixKernel(SteinKernel):
                          or as mixture with anchor points ('anchor_points')
     """
 
-    def __init__(self, precond_matrix_fn: PrecondMatrix, inner_kernel_fn: SteinKernel, precond_mode="anchor_points"):
+    def __init__(
+        self,
+        precond_matrix_fn: PrecondMatrix,
+        inner_kernel_fn: SteinKernel,
+        precond_mode="anchor_points",
+    ):
         assert inner_kernel_fn.mode == "matrix"
         assert precond_mode == "const" or precond_mode == "anchor_points"
         self.precond_matrix_fn = precond_matrix_fn
@@ -321,9 +360,28 @@ class PrecondMatrixKernel(SteinKernel):
                 wxs = jnp.array([1.0])
                 wys = jnp.array([1.0])
             else:
-                wxs = jax.nn.softmax(jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, posdef(q_inv)).log_prob(x))(particles, qs_inv))
-                wys = jax.nn.softmax(jax.vmap(lambda z, q_inv: dist.MultivariateNormal(z, posdef(q_inv)).log_prob(y))(particles, qs_inv))
-            return jnp.sum(jax.vmap(lambda qs, qis, wx, wy: wx * wy * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose()))(qs_sqrt, qs_inv_sqrt, wxs, wys), axis=0)
+                wxs = jax.nn.softmax(
+                    jax.vmap(
+                        lambda z, q_inv: dist.MultivariateNormal(
+                            z, posdef(q_inv)
+                        ).log_prob(x)
+                    )(particles, qs_inv)
+                )
+                wys = jax.nn.softmax(
+                    jax.vmap(
+                        lambda z, q_inv: dist.MultivariateNormal(
+                            z, posdef(q_inv)
+                        ).log_prob(y)
+                    )(particles, qs_inv)
+                )
+            return jnp.sum(
+                jax.vmap(
+                    lambda qs, qis, wx, wy: wx
+                    * wy
+                    * (qis @ inner_kernel(qs @ x, qs @ y) @ qis.transpose())
+                )(qs_sqrt, qs_inv_sqrt, wxs, wys),
+                axis=0,
+            )
 
         return kernel
 
@@ -342,7 +400,12 @@ class GraphicalKernel(SteinKernel):
     :param default_kernel_fn: The default choice of kernel function when none is specified for a particular parameter
     """
 
-    def __init__(self, mode="matrix", local_kernel_fns: Dict[str, SteinKernel] = None, default_kernel_fn: SteinKernel = RBFKernel()):
+    def __init__(
+        self,
+        mode="matrix",
+        local_kernel_fns: Dict[str, SteinKernel] = None,
+        default_kernel_fn: SteinKernel = RBFKernel(),
+    ):
         assert mode == "matrix"
 
         self.local_kernel_fns = local_kernel_fns if local_kernel_fns is not None else {}
@@ -355,14 +418,22 @@ class GraphicalKernel(SteinKernel):
     def compute(self, particles, particle_info, loss_fn):
         def pk_loss_fn(start, end):
             def fn(ps):
-                return loss_fn(jnp.concatenate([particles[:, :start], ps, particles[:, end:]], axis=-1))
+                return loss_fn(
+                    jnp.concatenate(
+                        [particles[:, :start], ps, particles[:, end:]], axis=-1
+                    )
+                )
 
             return fn
 
         local_kernels = []
         for pk, (start_idx, end_idx) in particle_info.items():
             pk_kernel_fn = self.local_kernel_fns.get(pk, self.default_kernel_fn)
-            pk_kernel = pk_kernel_fn.compute(particles[:, start_idx:end_idx], {pk: (0, end_idx - start_idx)}, pk_loss_fn(start_idx, end_idx))
+            pk_kernel = pk_kernel_fn.compute(
+                particles[:, start_idx:end_idx],
+                {pk: (0, end_idx - start_idx)},
+                pk_loss_fn(start_idx, end_idx),
+            )
             local_kernels.append((pk_kernel, pk_kernel_fn.mode, start_idx, end_idx))
 
         def kernel(x, y):

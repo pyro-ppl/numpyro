@@ -24,7 +24,13 @@ from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
     rng_key, rng_key_perm = random.split(random.PRNGKey(0))
     perm = random.permutation(rng_key_perm, np.arange(input_dim))
-    arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims, skip_connections=skip_connections, permutation=perm)
+    arn_init, arn = AutoregressiveNN(
+        input_dim,
+        hidden_dims,
+        param_dims=param_dims,
+        skip_connections=skip_connections,
+        permutation=perm,
+    )
 
     batch_size = 4
     input_shape = (batch_size, input_dim)
@@ -65,7 +71,9 @@ def test_masks(input_dim, n_layers, output_dim_multiplier):
     hidden_dim = input_dim * 3
     hidden_dims = [hidden_dim] * n_layers
     permutation = np.random.permutation(input_dim)
-    masks, mask_skip = create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier)
+    masks, mask_skip = create_mask(
+        input_dim, hidden_dims, permutation, output_dim_multiplier
+    )
     masks = [np.transpose(m) for m in masks]
     mask_skip = np.transpose(mask_skip)
 
@@ -110,7 +118,9 @@ def test_masks(input_dim, n_layers, output_dim_multiplier):
 def test_masked_dense(input_dim):
     hidden_dim = input_dim * 3
     output_dim_multiplier = input_dim - 4
-    mask, _ = create_mask(input_dim, [hidden_dim], np.random.permutation(input_dim), output_dim_multiplier)
+    mask, _ = create_mask(
+        input_dim, [hidden_dim], np.random.permutation(input_dim), output_dim_multiplier
+    )
     init_random_params, masked_dense = serial(MaskedDense(mask[0]))
 
     rng_key = random.PRNGKey(0)
