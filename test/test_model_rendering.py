@@ -6,8 +6,8 @@ import pytest
 import jax.numpy as jnp
 
 import numpyro
+from numpyro.contrib.render import generate_graph_specification, get_model_relations
 import numpyro.distributions as dist
-from numpyro.contrib.render import get_model_relations, generate_graph_specification
 
 
 def simple(data):
