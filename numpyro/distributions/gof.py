@@ -72,19 +72,13 @@ class InvalidTest(ValueError):
 
 def print_histogram(probs, counts):
     max_count = max(counts)
-    print('{: >8} {: >8}'.format('Prob', 'Count'))
+    print("{: >8} {: >8}".format("Prob", "Count"))
     for prob, count in sorted(zip(probs, counts), reverse=True):
         width = int(round(HISTOGRAM_WIDTH * count / max_count))
-        print('{: >8.3f} {: >8d} {}'.format(prob, count, '-' * width))
+        print("{: >8.3f} {: >8d} {}".format(prob, count, "-" * width))
 
 
-def multinomial_goodness_of_fit(
-    probs,
-    counts,
-    *,
-    total_count=None,
-    plot=False,
-):
+def multinomial_goodness_of_fit(probs, counts, *, total_count=None, plot=False):
     """
     Pearson's chi^2 test, on possibly truncated data.
     https://en.wikipedia.org/wiki/Pearson%27s_chi-squared_test
@@ -114,16 +108,16 @@ def multinomial_goodness_of_fit(
     for p, c in zip(probs.tolist(), counts.tolist()):
         if abs(p - 1) < 1e-8:
             return 1 if c == total_count else 0
-        assert p < 1, f'bad probability: {p:g}'
+        assert p < 1, f"bad probability: {p:g}"
         if p > 0:
             mean = total_count * p
             variance = total_count * p * (1 - p)
             if not (variance > 1):
-                raise InvalidTest('Goodness of fit is inaccurate; use more samples')
+                raise InvalidTest("Goodness of fit is inaccurate; use more samples")
             chi_squared += (c - mean) ** 2 / variance
             dof += 1
         else:
-            warnings.warn('Zero probability in goodness-of-fit test')
+            warnings.warn("Zero probability in goodness-of-fit test")
             if c > 0:
                 return math.inf
 
@@ -149,7 +143,7 @@ def unif01_goodness_of_fit(samples, *, plot=False):
     assert samples.max() <= 1
     bin_count = int(round(len(samples) ** 0.333))
     if bin_count < 7:
-        raise InvalidTest('imprecise test, use more samples')
+        raise InvalidTest("imprecise test, use more samples")
     probs = np.ones(bin_count) / bin_count
     binned = (samples * bin_count).astype(np.int)
     binned = np.clip(binned, 0, bin_count - 1)
@@ -190,9 +184,9 @@ def density_goodness_of_fit(samples, probs, plot=False):
     probs = jax.lax.stop_gradient(probs)
     assert samples.shape == probs.shape
     if len(samples) <= 100:
-        raise InvalidTest('imprecision; use more samples')
+        raise InvalidTest("imprecision; use more samples")
 
-    index = np.argsort(samples, 0, kind='quicksort')
+    index = np.argsort(samples, 0, kind="quicksort")
     samples = samples[index]
     probs = probs[index]
     gaps = samples[1:] - samples[:-1]
@@ -213,6 +207,7 @@ def get_nearest_neighbor_distances(samples):
     try:
         # This version scales as O(N log(N)).
         from scipy.spatial import cKDTree
+
         distances, indices = cKDTree(samples).query(samples, k=2)
         return distances[:, 1]
     except ImportError:
@@ -259,7 +254,7 @@ def vector_density_goodness_of_fit(samples, probs, *, dim=None, plot=False):
         dim = samples.shape[-1]
     assert dim
     if len(samples) <= 1000 * dim:
-        raise InvalidTest('imprecision; use more samples')
+        raise InvalidTest("imprecision; use more samples")
     radii = get_nearest_neighbor_distances(samples)
     density = len(samples) * probs
     volume = volume_of_sphere(dim, radii)

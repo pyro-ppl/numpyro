@@ -19,6 +19,7 @@ def MaskedDense(mask, bias=True, W_init=glorot_normal(), b_init=normal()):
     :param array b_init: initialization method for the bias terms.
     :return: a (`init_fn`, `update_fn`) pair.
     """
+
     def init_fun(rng_key, input_shape):
         k1, k2 = random.split(rng_key)
         W = W_init(k1, mask.shape)

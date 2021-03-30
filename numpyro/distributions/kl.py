@@ -37,19 +37,27 @@ from numpyro.distributions.distribution import (
     Distribution,
     ExpandedDistribution,
     Independent,
-    MaskedDistribution
+    MaskedDistribution,
 )
 from numpyro.distributions.util import scale_and_mask, sum_rightmost
 
-_KL_REGISTRY = {}  # Source of truth mapping a few general (type, type) pairs to functions.
-_KL_MEMOIZE = {}  # Memoized version mapping many specific (type, type) pairs to functions.
+_KL_REGISTRY = (
+    {}
+)  # Source of truth mapping a few general (type, type) pairs to functions.
+_KL_MEMOIZE = (
+    {}
+)  # Memoized version mapping many specific (type, type) pairs to functions.
 
 
 def register_kl(type_p, type_q):
     if not isinstance(type_p, type) and issubclass(type_p, Distribution):
-        raise TypeError('Expected type_p to be a Distribution subclass but got {}'.format(type_p))
+        raise TypeError(
+            "Expected type_p to be a Distribution subclass but got {}".format(type_p)
+        )
     if not isinstance(type_q, type) and issubclass(type_q, Distribution):
-        raise TypeError('Expected type_q to be a Distribution subclass but got {}'.format(type_q))
+        raise TypeError(
+            "Expected type_q to be a Distribution subclass but got {}".format(type_q)
+        )
 
     def decorator(fun):
         _KL_REGISTRY[type_p, type_q] = fun
@@ -61,7 +69,7 @@ def register_kl(type_p, type_q):
 
 @total_ordering
 class _Match(object):
-    __slots__ = ['types']
+    __slots__ = ["types"]
 
     def __init__(self, *types):
         self.types = types
@@ -82,8 +90,11 @@ def _dispatch_kl(type_p, type_q):
     """
     Find the most specific approximate match, assuming single inheritance.
     """
-    matches = [(super_p, super_q) for super_p, super_q in _KL_REGISTRY
-               if issubclass(type_p, super_p) and issubclass(type_q, super_q)]
+    matches = [
+        (super_p, super_q)
+        for super_p, super_q in _KL_REGISTRY
+        if issubclass(type_p, super_p) and issubclass(type_q, super_q)
+    ]
     if not matches:
         return NotImplemented
     # Check that the left- and right- lexicographic orders agree.
@@ -92,9 +103,12 @@ def _dispatch_kl(type_p, type_q):
     left_fun = _KL_REGISTRY[left_p, left_q]
     right_fun = _KL_REGISTRY[right_p, right_q]
     if left_fun is not right_fun:
-        warnings.warn('Ambiguous kl_divergence({}, {}). Please register_kl({}, {})'.format(
-            type_p.__name__, type_q.__name__, left_p.__name__, right_q.__name__),
-            RuntimeWarning)
+        warnings.warn(
+            "Ambiguous kl_divergence({}, {}). Please register_kl({}, {})".format(
+                type_p.__name__, type_q.__name__, left_p.__name__, right_q.__name__
+            ),
+            RuntimeWarning,
+        )
     return left_fun
 
 
@@ -170,7 +184,7 @@ def _kl_masked_masked(p, q):
         mask = p._mask & q._mask
 
     if mask is False:
-        return 0.
+        return 0.0
     if mask is True:
         return kl_divergence(p.base_dist, q.base_dist)
     kl = kl_divergence(p.base_dist, q.base_dist)

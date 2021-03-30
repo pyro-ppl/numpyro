@@ -38,6 +38,7 @@ class Trace_ELBO:
     :param num_particles: The number of particles/samples used to form the ELBO
         (gradient) estimators.
     """
+
     def __init__(self, num_particles=1):
         self.num_particles = num_particles
 
@@ -56,11 +57,14 @@ class Trace_ELBO:
             during the course of fitting).
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
+
         def single_particle_elbo(rng_key):
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
-            guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
+            guide_log_density, guide_trace = log_density(
+                seeded_guide, args, kwargs, param_map
+            )
             seeded_model = replay(seeded_model, guide_trace)
             model_log_density, _ = log_density(seeded_model, args, kwargs, param_map)
 
@@ -71,25 +75,27 @@ class Trace_ELBO:
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
         if self.num_particles == 1:
-            return - single_particle_elbo(rng_key)
+            return -single_particle_elbo(rng_key)
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            return - jnp.mean(vmap(single_particle_elbo)(rng_keys))
+            return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
 class ELBO(Trace_ELBO):
     def __init__(self, num_particles=1):
-        warnings.warn("Using ELBO directly in SVI is deprecated. Please use Trace_ELBO class instead.",
-                      FutureWarning)
+        warnings.warn(
+            "Using ELBO directly in SVI is deprecated. Please use Trace_ELBO class instead.",
+            FutureWarning,
+        )
         super().__init__(num_particles=num_particles)
 
 
 def _get_log_prob_sum(site):
-    if site['intermediates']:
-        log_prob = site['fn'].log_prob(site['value'], site['intermediates'])
+    if site["intermediates"]:
+        log_prob = site["fn"].log_prob(site["value"], site["intermediates"])
     else:
-        log_prob = site['fn'].log_prob(site['value'])
-    log_prob = scale_and_mask(log_prob, site['scale'])
+        log_prob = site["fn"].log_prob(site["value"])
+    log_prob = scale_and_mask(log_prob, site["scale"])
     return jnp.sum(log_prob)
 
 
@@ -98,17 +104,27 @@ def _check_mean_field_requirement(model_trace, guide_trace):
     Checks that the guide and model sample sites are ordered identically.
     This is sufficient but not necessary for correctness.
     """
-    model_sites = [name for name, site in model_trace.items()
-                   if site["type"] == "sample" and name in guide_trace]
-    guide_sites = [name for name, site in guide_trace.items()
-                   if site["type"] == "sample" and name in model_trace]
+    model_sites = [
+        name
+        for name, site in model_trace.items()
+        if site["type"] == "sample" and name in guide_trace
+    ]
+    guide_sites = [
+        name
+        for name, site in guide_trace.items()
+        if site["type"] == "sample" and name in model_trace
+    ]
     assert set(model_sites) == set(guide_sites)
     if model_sites != guide_sites:
-        warnings.warn("Failed to verify mean field restriction on the guide. "
-                      "To eliminate this warning, ensure model and guide sites "
-                      "occur in the same order.\n" +
-                      "Model sites:\n  " + "\n  ".join(model_sites) +
-                      "Guide sites:\n  " + "\n  ".join(guide_sites))
+        warnings.warn(
+            "Failed to verify mean field restriction on the guide. "
+            "To eliminate this warning, ensure model and guide sites "
+            "occur in the same order.\n"
+            + "Model sites:\n  "
+            + "\n  ".join(model_sites)
+            + "Guide sites:\n  "
+            + "\n  ".join(guide_sites)
+        )
 
 
 class TraceMeanField_ELBO(Trace_ELBO):
@@ -128,6 +144,7 @@ class TraceMeanField_ELBO(Trace_ELBO):
         condition is always satisfied if the model and guide have identical
         dependency structures.
     """
+
     def loss(self, rng_key, param_map, model, guide, *args, **kwargs):
         """
         Evaluates the ELBO with an estimator that uses num_particles many samples/particles.
@@ -143,6 +160,7 @@ class TraceMeanField_ELBO(Trace_ELBO):
             during the course of fitting).
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
+
         def single_particle_elbo(rng_key):
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
@@ -165,8 +183,11 @@ class TraceMeanField_ELBO(Trace_ELBO):
                             kl_qp = scale_and_mask(kl_qp, scale=guide_site["scale"])
                             elbo_particle = elbo_particle - jnp.sum(kl_qp)
                         except NotImplementedError:
-                            elbo_particle = elbo_particle + _get_log_prob_sum(model_site) \
+                            elbo_particle = (
+                                elbo_particle
+                                + _get_log_prob_sum(model_site)
                                 - _get_log_prob_sum(guide_site)
+                            )
 
             # handle auxiliary sites in the guide
             for name, site in guide_trace.items():
@@ -177,10 +198,10 @@ class TraceMeanField_ELBO(Trace_ELBO):
             return elbo_particle
 
         if self.num_particles == 1:
-            return - single_particle_elbo(rng_key)
+            return -single_particle_elbo(rng_key)
         else:
             rng_keys = random.split(rng_key, self.num_particles)
-            return - jnp.mean(vmap(single_particle_elbo)(rng_keys))
+            return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
 
 
 class RenyiELBO(Trace_ELBO):
@@ -205,10 +226,13 @@ class RenyiELBO(Trace_ELBO):
     1. *Renyi Divergence Variational Inference*, Yingzhen Li, Richard E. Turner
     2. *Importance Weighted Autoencoders*, Yuri Burda, Roger Grosse, Ruslan Salakhutdinov
     """
+
     def __init__(self, alpha=0, num_particles=2):
         if alpha == 1:
-            raise ValueError("The order alpha should not be equal to 1. Please use ELBO class"
-                             "for the case alpha = 1.")
+            raise ValueError(
+                "The order alpha should not be equal to 1. Please use ELBO class"
+                "for the case alpha = 1."
+            )
         self.alpha = alpha
         super(RenyiELBO, self).__init__(num_particles=num_particles)
 
@@ -227,15 +251,22 @@ class RenyiELBO(Trace_ELBO):
             during the course of fitting).
         :returns: negative of the Renyi Evidence Lower Bound (ELBO) to be minimized.
         """
+
         def single_particle_elbo(rng_key):
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
-            guide_log_density, guide_trace = log_density(seeded_guide, args, kwargs, param_map)
+            guide_log_density, guide_trace = log_density(
+                seeded_guide, args, kwargs, param_map
+            )
             # NB: we only want to substitute params not available in guide_trace
-            model_param_map = {k: v for k, v in param_map.items() if k not in guide_trace}
+            model_param_map = {
+                k: v for k, v in param_map.items() if k not in guide_trace
+            }
             seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, _ = log_density(seeded_model, args, kwargs, model_param_map)
+            model_log_density, _ = log_density(
+                seeded_model, args, kwargs, model_param_map
+            )
 
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
@@ -243,9 +274,9 @@ class RenyiELBO(Trace_ELBO):
 
         rng_keys = random.split(rng_key, self.num_particles)
         elbos = vmap(single_particle_elbo)(rng_keys)
-        scaled_elbos = (1. - self.alpha) * elbos
+        scaled_elbos = (1.0 - self.alpha) * elbos
         avg_log_exp = logsumexp(scaled_elbos) - jnp.log(self.num_particles)
         weights = jnp.exp(scaled_elbos - avg_log_exp)
-        renyi_elbo = avg_log_exp / (1. - self.alpha)
+        renyi_elbo = avg_log_exp / (1.0 - self.alpha)
         weighted_elbo = jnp.dot(stop_gradient(weights), elbos) / self.num_particles
-        return - (stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)
+        return -(stop_gradient(renyi_elbo - weighted_elbo) + weighted_elbo)

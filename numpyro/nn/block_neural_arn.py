@@ -12,7 +12,9 @@ import jax.numpy as jnp
 from numpyro.distributions.util import logmatmulexp, vec_to_tril_matrix
 
 
-def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot_uniform()):
+def BlockMaskedDense(
+    num_blocks, in_factor, out_factor, bias=True, W_init=glorot_uniform()
+):
     """
     Module that implements a linear layer with block matrices with positive diagonal blocks.
     Moreover, it uses Weight Normalization (https://arxiv.org/abs/1602.07868) for stability.
@@ -29,7 +31,9 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
     mask_d = np.identity(num_blocks)[..., None]
     mask_d = np.tile(mask_d, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
     # Off-diagonal block mask for upper triangular weight matrix
-    mask_o = vec_to_tril_matrix(jnp.ones(num_blocks * (num_blocks - 1) // 2), diagonal=-1).T[..., None]
+    mask_o = vec_to_tril_matrix(
+        jnp.ones(num_blocks * (num_blocks - 1) // 2), diagonal=-1
+    ).T[..., None]
     mask_o = jnp.tile(mask_o, (1, in_factor, out_factor)).reshape(input_dim, out_dim)
 
     def init_fun(rng, input_shape):
@@ -41,15 +45,15 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
         for i in range(num_blocks):
             W = ops.index_add(
                 W,
-                ops.index[:(i + 1) * in_factor, i * out_factor:(i + 1) * out_factor],
-                W_init(k1[i], ((i + 1) * in_factor, out_factor))
+                ops.index[: (i + 1) * in_factor, i * out_factor : (i + 1) * out_factor],
+                W_init(k1[i], ((i + 1) * in_factor, out_factor)),
             )
 
         # initialize weight scale
-        ws = jnp.log(uniform(1.)(k2, (out_dim,)))
+        ws = jnp.log(uniform(1.0)(k2, (out_dim,)))
 
         if bias:
-            b = (uniform(1.)(k3, (out_dim,)) - 0.5) * (2 / jnp.sqrt(out_dim))
+            b = (uniform(1.0)(k3, (out_dim,)) - 0.5) * (2 / jnp.sqrt(out_dim))
             params = (W, ws, b)
         else:
             params = (W, ws)
@@ -77,7 +81,9 @@ def BlockMaskedDense(num_blocks, in_factor, out_factor, bias=True, W_init=glorot
 
         dense_logdet = ws + W - jnp.log(w_norm)
         # logdet of block diagonal
-        dense_logdet = dense_logdet[mask_d.astype(bool)].reshape(num_blocks, in_factor, out_factor)
+        dense_logdet = dense_logdet[mask_d.astype(bool)].reshape(
+            num_blocks, in_factor, out_factor
+        )
         if logdet is None:
             logdet = jnp.broadcast_to(dense_logdet, x.shape[:-1] + dense_logdet.shape)
         else:
@@ -93,13 +99,14 @@ def Tanh():
 
     :return: an (`init_fn`, `update_fn`) pair.
     """
+
     def init_fun(rng, input_shape):
         return input_shape, ()
 
     def apply_fun(params, inputs, **kwargs):
         x, logdet = inputs
         out = jnp.tanh(x)
-        tanh_logdet = -2 * (x + softplus(-2 * x) - jnp.log(2.))
+        tanh_logdet = -2 * (x + softplus(-2 * x) - jnp.log(2.0))
         # logdet.shape = batch_shape + (num_blocks, in_factor, out_factor)
         # tanh_logdet.shape = batch_shape + (num_blocks x out_factor,)
         # so we need to reshape tanh_logdet to: batch_shape + (num_blocks, 1, out_factor)
@@ -116,6 +123,7 @@ def FanInResidualNormal():
 
     :return: an (`init_fn`, `update_fn`) pair.
     """
+
     def init_fun(rng, input_shape):
         return input_shape[0], ()
 
@@ -127,7 +135,7 @@ def FanInResidualNormal():
     return init_fun, apply_fun
 
 
-def FanInResidualGated(gate_init=normal(1.)):
+def FanInResidualGated(gate_init=normal(1.0)):
     """
     Similar to FanInNormal uses a learnable parameter `gate` to interpolate two fan-in branches.
     It is required that the second fan-in branch is identity.
@@ -135,6 +143,7 @@ def FanInResidualGated(gate_init=normal(1.)):
     :param gate_init: initialization method for the gate.
     :return: an (`init_fn`, `update_fn`) pair.
     """
+
     def init_fun(rng, input_shape):
         return input_shape[0], gate_init(rng, ())
 
@@ -174,8 +183,12 @@ def BlockNeuralAutoregressiveNN(input_dim, hidden_factors=[8, 8], residual=None)
     layers.append(BlockMaskedDense(input_dim, in_factor, 1))
     arn = stax.serial(*layers)
     if residual is not None:
-        FanInResidual = FanInResidualGated if residual == "gated" else FanInResidualNormal
-        arn = stax.serial(stax.FanOut(2), stax.parallel(arn, stax.Identity), FanInResidual())
+        FanInResidual = (
+            FanInResidualGated if residual == "gated" else FanInResidualNormal
+        )
+        arn = stax.serial(
+            stax.FanOut(2), stax.parallel(arn, stax.Identity), FanInResidual()
+        )
 
     def init_fun(rng, input_shape):
         return arn[0](rng, input_shape)

@@ -17,15 +17,20 @@ from numpyro.nn.auto_reg_nn import create_mask
 from numpyro.nn.block_neural_arn import BlockNeuralAutoregressiveNN
 
 
-@pytest.mark.parametrize('input_dim', [5])
-@pytest.mark.parametrize('param_dims', [[1], [1, 1], [2], [2, 3]])
-@pytest.mark.parametrize('hidden_dims', [[8], [6, 7]])
-@pytest.mark.parametrize('skip_connections', [True, False])
+@pytest.mark.parametrize("input_dim", [5])
+@pytest.mark.parametrize("param_dims", [[1], [1, 1], [2], [2, 3]])
+@pytest.mark.parametrize("hidden_dims", [[8], [6, 7]])
+@pytest.mark.parametrize("skip_connections", [True, False])
 def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
     rng_key, rng_key_perm = random.split(random.PRNGKey(0))
     perm = random.permutation(rng_key_perm, np.arange(input_dim))
-    arn_init, arn = AutoregressiveNN(input_dim, hidden_dims, param_dims=param_dims,
-                                     skip_connections=skip_connections, permutation=perm)
+    arn_init, arn = AutoregressiveNN(
+        input_dim,
+        hidden_dims,
+        param_dims=param_dims,
+        skip_connections=skip_connections,
+        permutation=perm,
+    )
 
     batch_size = 4
     input_shape = (batch_size, input_dim)
@@ -59,14 +64,16 @@ def test_auto_reg_nn(input_dim, hidden_dims, param_dims, skip_connections):
     assert np.sum(np.abs(np.triu(permuted_jac))) == 0.0
 
 
-@pytest.mark.parametrize('input_dim', [2, 6])
-@pytest.mark.parametrize('n_layers', [1, 2])
-@pytest.mark.parametrize('output_dim_multiplier', [1, 2])
+@pytest.mark.parametrize("input_dim", [2, 6])
+@pytest.mark.parametrize("n_layers", [1, 2])
+@pytest.mark.parametrize("output_dim_multiplier", [1, 2])
 def test_masks(input_dim, n_layers, output_dim_multiplier):
     hidden_dim = input_dim * 3
     hidden_dims = [hidden_dim] * n_layers
     permutation = np.random.permutation(input_dim)
-    masks, mask_skip = create_mask(input_dim, hidden_dims, permutation, output_dim_multiplier)
+    masks, mask_skip = create_mask(
+        input_dim, hidden_dims, permutation, output_dim_multiplier
+    )
     masks = [np.transpose(m) for m in masks]
     mask_skip = np.transpose(mask_skip)
 
@@ -78,7 +85,7 @@ def test_masks(input_dim, n_layers, output_dim_multiplier):
     # Loop over variables
     for idx in range(input_dim):
         # Calculate correct answer
-        correct = np.array(sorted(_permutation[0:np.where(permutation == idx)[0][0]]))
+        correct = np.array(sorted(_permutation[0 : np.where(permutation == idx)[0][0]]))
 
         # Loop over parameters for each variable
         for jdx in range(output_dim_multiplier):
@@ -107,11 +114,13 @@ def test_masks(input_dim, n_layers, output_dim_multiplier):
             assert_array_equal(list(sorted(skip_connections)), correct)
 
 
-@pytest.mark.parametrize('input_dim', [5, 7])
+@pytest.mark.parametrize("input_dim", [5, 7])
 def test_masked_dense(input_dim):
     hidden_dim = input_dim * 3
     output_dim_multiplier = input_dim - 4
-    mask, _ = create_mask(input_dim, [hidden_dim], np.random.permutation(input_dim), output_dim_multiplier)
+    mask, _ = create_mask(
+        input_dim, [hidden_dim], np.random.permutation(input_dim), output_dim_multiplier
+    )
     init_random_params, masked_dense = serial(MaskedDense(mask[0]))
 
     rng_key = random.PRNGKey(0)
@@ -122,10 +131,10 @@ def test_masked_dense(input_dim):
     assert output.shape == (batch_size, hidden_dim)
 
 
-@pytest.mark.parametrize('input_dim', [5])
-@pytest.mark.parametrize('hidden_factors', [[4], [2, 3]])
-@pytest.mark.parametrize('residual', [None, "normal", "gated"])
-@pytest.mark.parametrize('batch_shape', [(3,), ()])
+@pytest.mark.parametrize("input_dim", [5])
+@pytest.mark.parametrize("hidden_factors", [[4], [2, 3]])
+@pytest.mark.parametrize("residual", [None, "normal", "gated"])
+@pytest.mark.parametrize("batch_shape", [(3,), ()])
 def test_block_neural_arn(input_dim, hidden_factors, residual, batch_shape):
     arn_init, arn = BlockNeuralAutoregressiveNN(input_dim, hidden_factors, residual)
 
