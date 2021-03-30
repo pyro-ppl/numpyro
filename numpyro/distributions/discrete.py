@@ -29,7 +29,7 @@ import warnings
 
 import numpy as np
 
-from jax import device_put, lax
+from jax import lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
 import jax.random as random
@@ -578,7 +578,7 @@ class ZeroInflatedPoisson(Distribution):
         key_bern, key_poisson = random.split(key)
         shape = sample_shape + self.batch_shape
         mask = random.bernoulli(key_bern, self.gate, shape)
-        samples = random.poisson(key_poisson, device_put(self.rate), shape)
+        samples = random.poisson(key_poisson, self.rate, shape)
         return jnp.where(mask, 0, samples)
 
     @validate_sample
