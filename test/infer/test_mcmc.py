@@ -156,7 +156,8 @@ def test_uniform_normal(forward_mode_differentiation):
     assert_allclose(jnp.mean(samples["loc"], 0), true_coef, atol=0.05)
 
 
-def test_improper_normal():
+@pytest.mark.parametrize("max_tree_depth", [10, (5, 10)])
+def test_improper_normal(max_tree_depth):
     true_coef = 0.9
 
     def model(data):
@@ -171,7 +172,7 @@ def test_improper_normal():
         numpyro.sample("obs", dist.Normal(loc, 0.1), obs=data)
 
     data = true_coef + random.normal(random.PRNGKey(0), (1000,))
-    kernel = NUTS(model=model)
+    kernel = NUTS(model=model, max_tree_depth=max_tree_depth)
     mcmc = MCMC(kernel, num_warmup=1000, num_samples=1000)
     mcmc.run(random.PRNGKey(0), data)
     samples = mcmc.get_samples()

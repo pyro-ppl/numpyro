@@ -1094,6 +1094,7 @@ def build_tree(
     step_size,
     rng_key,
     max_delta_energy=1000.0,
+    max_tree_depth_current=10,
     max_tree_depth=10,
 ):
     """
@@ -1147,7 +1148,7 @@ def build_tree(
 
     def _cond_fn(state):
         tree, _ = state
-        return (tree.depth < max_tree_depth) & ~tree.turning & ~tree.diverging
+        return (tree.depth < max_tree_depth_current) & ~tree.turning & ~tree.diverging
 
     def _body_fn(state):
         tree, key = state

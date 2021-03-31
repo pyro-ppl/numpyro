@@ -263,7 +263,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         nonlocal wa_update, max_treedepth, vv_update, wa_steps, forward_mode_ad
         forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
-        max_treedepth = max_tree_depth
+        max_treedepth = max_tree_depth if isinstance(max_tree_depth, tuple) \
+            else (max_tree_depth, max_tree_depth)
         if isinstance(init_params, ParamInfo):
             z, pe, z_grad = init_params
         else:
@@ -376,7 +377,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         model_args,
         model_kwargs,
         rng_key,
-        trajectory_length,
+        max_tree_depth,
     ):
         if potential_fn_gen:
             nonlocal vv_update, forward_mode_ad
@@ -391,7 +392,8 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             step_size,
             rng_key,
             max_delta_energy=max_delta_energy,
-            max_tree_depth=max_treedepth,
+            max_tree_depth_current=max_tree_depth,
+            max_tree_depth=max(max_treedepth),
         )
         accept_prob = binary_tree.sum_accept_probs / binary_tree.num_proposals
         num_steps = binary_tree.num_proposals
@@ -437,6 +439,11 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         vv_state = IntegratorState(
             hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad
         )
+        if algo == "HMC":
+            trajectory_length = hmc_state.trajectory_length
+        else:
+            trajectory_length = jnp.where(
+                hmc_state.i < wa_steps, max_treedepth[0], max_treedepth[1])
         vv_state, energy, num_steps, accept_prob, diverging = _next(
             hmc_state.adapt_state.step_size,
             hmc_state.adapt_state.inverse_mass_matrix,
@@ -444,7 +451,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             model_args,
             model_kwargs,
             rng_key_transition,
-            hmc_state.trajectory_length,
+            trajectory_length,
         )
         # not update adapt_state after warmup phase
         adapt_state = cond(
