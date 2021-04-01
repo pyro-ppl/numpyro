@@ -37,7 +37,7 @@ def main(args):
         dense_mass.extend([ ("log_ifr_age_base",) ])
         print(dense_mass)
     else:
-        dense_mass = None
+        dense_mass = []
 
     kernel = NUTS(model, step_size=args.step_size,
                   max_tree_depth=(args.mtd_warmup, args.mtd),
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     parser.add_argument("--tap", default=0.90, type=float)
     parser.add_argument("--mtd", default=11, type=int)
     parser.add_argument("--mtd-warmup", default=10, type=int)
-    parser.add_argument("--M", default=40, type=int)
+    parser.add_argument("--M", default=4, type=int)
     parser.add_argument("--reparam", default='true', type=str, choices=['true', 'false'])
     parser.add_argument("--dense-mass", default='true', type=str, choices=['true', 'false'])
     args = parser.parse_args()
