@@ -19,6 +19,7 @@ from jax import (
     random,
     value_and_grad,
 )
+from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.scipy.special import expit
 
@@ -28,7 +29,7 @@ from numpyro.handlers import block, condition, seed, substitute, trace
 from numpyro.infer.hmc import HMC
 from numpyro.infer.mcmc import MCMCKernel
 from numpyro.infer.util import _unconstrain_reparam
-from numpyro.util import cond, fori_loop, identity, ravel_pytree
+from numpyro.util import cond, fori_loop, identity
 
 HMCGibbsState = namedtuple("HMCGibbsState", "z, hmc_state, rng_key")
 """

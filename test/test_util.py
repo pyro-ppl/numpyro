@@ -4,11 +4,12 @@
 from numpy.testing import assert_allclose
 import pytest
 
+from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
 from jax.test_util import check_eq
 from jax.tree_util import tree_flatten, tree_multimap
 
-from numpyro.util import fori_collect, ravel_pytree, soft_vmap
+from numpyro.util import fori_collect, soft_vmap
 
 
 def test_fori_collect_thinning():
