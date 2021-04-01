@@ -244,7 +244,7 @@ def test_param():
     class _AutoGuide(AutoDiagonalNormal):
         def __call__(self, *args, **kwargs):
             return substitute(
-                super(_AutoGuide, self).__call__, {"_auto_latent": x_init}
+                super(_AutoGuide, self).__call__, {"_auto_latent": x_init[None]}
             )(*args, **kwargs)
 
     adam = optim.Adam(0.01)
