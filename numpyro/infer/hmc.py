@@ -247,7 +247,9 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
-            scheme of NUTS sampler. Defaults to 10.
+            scheme of NUTS sampler. Defaults to 10. This argument also accepts a tuple of
+            integers `(d1, d2)`, where `d1` is the max tree depth during warmup phase and
+            `d2` is the max tree depth during post warmup phase.
         :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
             step size at the beginning of each adaptation window. Defaults to False.
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
@@ -257,13 +259,18 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
 
         """
         step_size = lax.convert_element_type(step_size, jnp.result_type(float))
-        trajectory_length = lax.convert_element_type(
-            trajectory_length, jnp.result_type(float)
-        )
+        if trajectory_length is not None:
+            trajectory_length = lax.convert_element_type(
+                trajectory_length, jnp.result_type(float)
+            )
         nonlocal wa_update, max_treedepth, vv_update, wa_steps, forward_mode_ad
         forward_mode_ad = forward_mode_differentiation
         wa_steps = num_warmup
-        max_treedepth = max_tree_depth
+        max_treedepth = (
+            max_tree_depth
+            if isinstance(max_tree_depth, tuple)
+            else (max_tree_depth, max_tree_depth)
+        )
         if isinstance(init_params, ParamInfo):
             z, pe, z_grad = init_params
         else:
@@ -376,7 +383,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         model_args,
         model_kwargs,
         rng_key,
-        trajectory_length,
+        max_treedepth_current,
     ):
         if potential_fn_gen:
             nonlocal vv_update, forward_mode_ad
@@ -391,7 +398,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             step_size,
             rng_key,
             max_delta_energy=max_delta_energy,
-            max_tree_depth=max_treedepth,
+            max_tree_depth=(max_treedepth_current, max(max_treedepth)),
         )
         accept_prob = binary_tree.sum_accept_probs / binary_tree.num_proposals
         num_steps = binary_tree.num_proposals
@@ -437,6 +444,12 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         vv_state = IntegratorState(
             hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad
         )
+        if algo == "HMC":
+            hmc_length_args = (hmc_state.trajectory_length,)
+        else:
+            hmc_length_args = (
+                jnp.where(hmc_state.i < wa_steps, max_treedepth[0], max_treedepth[1]),
+            )
         vv_state, energy, num_steps, accept_prob, diverging = _next(
             hmc_state.adapt_state.step_size,
             hmc_state.adapt_state.inverse_mass_matrix,
@@ -444,7 +457,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             model_args,
             model_kwargs,
             rng_key_transition,
-            hmc_state.trajectory_length,
+            *hmc_length_args,
         )
         # not update adapt_state after warmup phase
         adapt_state = cond(
@@ -800,7 +813,9 @@ class NUTS(HMC):
     :param float trajectory_length: Length of a MCMC trajectory for HMC. This arg has
         no effect in NUTS sampler.
     :param int max_tree_depth: Max depth of the binary tree created during the doubling
-        scheme of NUTS sampler. Defaults to 10.
+        scheme of NUTS sampler. Defaults to 10. This argument also accepts a tuple of
+        integers `(d1, d2)`, where `d1` is the max tree depth during warmup phase and
+        `d2` is the max tree depth during post warmup phase.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
     :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
