@@ -64,7 +64,7 @@ def haiku_model_by_kwargs_2(w, x, y):
 def flax_model_by_shape(x, y):
     import flax
 
-    linear_module = flax.nn.Dense.partial(features=100)
+    linear_module = flax.linen.Dense(features=100)
     nn = flax_module("nn", linear_module, input_shape=(100,))
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
@@ -73,7 +73,7 @@ def flax_model_by_shape(x, y):
 def flax_model_by_kwargs(x, y):
     import flax
 
-    linear_module = flax.nn.Dense.partial(features=100)
+    linear_module = flax.linen.Dense(features=100)
     nn = flax_module("nn", linear_module, inputs=x)
     mean = nn(x)
     numpyro.sample("y", numpyro.distributions.Normal(mean, 0.1), obs=y)
@@ -85,13 +85,15 @@ def test_flax_module():
 
     with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
         flax_model_by_shape(X, Y)
-    assert flax_tr["nn$params"]["value"]["kernel"].shape == (100, 100)
-    assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
+    params = flax_tr["nn$params"]["value"]["params"]
+    assert params["kernel"].shape == (100, 100)
+    assert params["bias"].shape == (100,)
 
     with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
         flax_model_by_kwargs(X, Y)
-    assert flax_tr["nn$params"]["value"]["kernel"].shape == (100, 100)
-    assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
+    params = flax_tr["nn$params"]["value"]["params"]
+    assert params["kernel"].shape == (100, 100)
+    assert params["bias"].shape == (100,)
 
 
 def test_haiku_module():
@@ -154,9 +156,9 @@ def test_random_module__mcmc(backend, init):
     if backend == "flax":
         import flax
 
-        linear_module = flax.nn.Dense.partial(features=1)
-        bias_name = "bias"
-        weight_name = "kernel"
+        linear_module = flax.linen.Dense(features=1)
+        bias_name = "params.bias"
+        weight_name = "params.kernel"
         random_module = random_flax_module
         kwargs_name = "inputs"
     elif backend == "haiku":
