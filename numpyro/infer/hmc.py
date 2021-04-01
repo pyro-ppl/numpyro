@@ -444,10 +444,10 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             hmc_state.z, r, hmc_state.potential_energy, hmc_state.z_grad
         )
         if algo == "HMC":
-            trajectory_length = hmc_state.trajectory_length
+            hmc_length_args = (hmc_state.trajectory_length,)
         else:
-            trajectory_length = jnp.where(
-                hmc_state.i < wa_steps, max_treedepth[0], max_treedepth[1]
+            hmc_length_args = (
+                jnp.where(hmc_state.i < wa_steps, max_treedepth[0], max_treedepth[1]),
             )
         vv_state, energy, num_steps, accept_prob, diverging = _next(
             hmc_state.adapt_state.step_size,
@@ -456,7 +456,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             model_args,
             model_kwargs,
             rng_key_transition,
-            trajectory_length,
+            *hmc_length_args,
         )
         # not update adapt_state after warmup phase
         adapt_state = cond(
