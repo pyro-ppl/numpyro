@@ -20,9 +20,6 @@ from numpyro.primitives import (
 from numpyro.util import enable_x64, set_host_device_count, set_platform
 from numpyro.version import __version__
 
-set_platform("cpu")
-
-
 __all__ = [
     "__version__",
     "compat",

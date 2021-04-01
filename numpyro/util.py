@@ -1,7 +1,7 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from contextlib import contextmanager
 import os
 import random
@@ -15,8 +15,9 @@ import jax
 from jax import device_put, jit, lax, ops, vmap
 from jax.core import Tracer
 from jax.experimental import host_callback
+from jax.flatten_util import ravel_pytree
 import jax.numpy as jnp
-from jax.tree_util import tree_flatten, tree_map, tree_unflatten
+from jax.tree_util import tree_flatten, tree_map
 
 _DISABLE_CONTROL_FLOW_PRIM = False
 
@@ -345,44 +346,6 @@ def fori_collect(
 
     unravel_collection = vmap(unravel_fn)(collection)
     return (unravel_collection, last_val) if return_last_val else unravel_collection
-
-
-pytree_metadata = namedtuple("pytree_metadata", ["flat", "shape", "size", "dtype"])
-
-
-def _ravel_list(*leaves):
-    leaves_metadata = tree_map(
-        lambda l: pytree_metadata(
-            jnp.ravel(l), jnp.shape(l), jnp.size(l), jnp.result_type(l)
-        ),
-        leaves,
-    )
-    leaves_idx = jnp.cumsum(jnp.array((0,) + tuple(d.size for d in leaves_metadata)))
-
-    def unravel_list(arr):
-        return [
-            jnp.reshape(
-                lax.dynamic_slice_in_dim(arr, leaves_idx[i], m.size), m.shape
-            ).astype(m.dtype)
-            for i, m in enumerate(leaves_metadata)
-        ]
-
-    flat = (
-        jnp.concatenate([m.flat for m in leaves_metadata])
-        if leaves_metadata
-        else jnp.array([])
-    )
-    return flat, unravel_list
-
-
-def ravel_pytree(pytree):
-    leaves, treedef = tree_flatten(pytree)
-    flat, unravel_list = _ravel_list(*leaves)
-
-    def unravel_pytree(arr):
-        return tree_unflatten(treedef, unravel_list(arr))
-
-    return flat, unravel_pytree
 
 
 def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
