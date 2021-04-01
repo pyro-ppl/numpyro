@@ -1116,9 +1116,17 @@ def build_tree(
         randomness.
     :param float max_delta_energy: A threshold to decide if the new state diverges
         (based on the energy difference) too much from the initial integrator state.
+    :param int max_tree_depth: Max depth of the binary tree created during the doubling
+        scheme of NUTS sampler. Defaults to 10. This argument also accepts a tuple of
+        integers `(d1, d2)`, where `d1` is the max tree depth at the current MCMC
+        step and `d2` is the global max tree depth for all MCMC steps.
     :return: information of the tree.
     :rtype: :data:`TreeInfo`
     """
+    if isinstance(max_tree_depth, tuple):
+        max_tree_depth_current, max_tree_depth = max_tree_depth
+    else:
+        max_tree_depth_current = max_tree_depth
     z, r, potential_energy, z_grad = verlet_state
     energy_current = potential_energy + kinetic_fn(inverse_mass_matrix, r)
     latent_size = jnp.size(ravel_pytree(r)[0])
@@ -1147,7 +1155,7 @@ def build_tree(
 
     def _cond_fn(state):
         tree, _ = state
-        return (tree.depth < max_tree_depth) & ~tree.turning & ~tree.diverging
+        return (tree.depth < max_tree_depth_current) & ~tree.turning & ~tree.diverging
 
     def _body_fn(state):
         tree, key = state
