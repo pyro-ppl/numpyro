@@ -17,7 +17,7 @@ from numpyro.contrib.module import (
     flax_module,
     haiku_module,
     random_flax_module,
-    random_haiku_module
+    random_haiku_module,
 )
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
@@ -85,13 +85,13 @@ def test_flax_module():
 
     with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
         flax_model_by_shape(X, Y)
-    assert flax_tr["nn$params"]['value']['kernel'].shape == (100, 100)
-    assert flax_tr["nn$params"]['value']['bias'].shape == (100,)
+    assert flax_tr["nn$params"]["value"]["kernel"].shape == (100, 100)
+    assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
 
     with handlers.trace() as flax_tr, handlers.seed(rng_seed=1):
         flax_model_by_kwargs(X, Y)
-    assert flax_tr["nn$params"]['value']['kernel'].shape == (100, 100)
-    assert flax_tr["nn$params"]['value']['bias'].shape == (100,)
+    assert flax_tr["nn$params"]["value"]["kernel"].shape == (100, 100)
+    assert flax_tr["nn$params"]["value"]["bias"].shape == (100,)
 
 
 def test_haiku_module():
@@ -101,31 +101,50 @@ def test_haiku_module():
 
     with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
         haiku_model_by_shape(X, Y)
-    assert haiku_tr["nn$params"]['value']['linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['linear']['b'].shape == (100,)
+    assert haiku_tr["nn$params"]["value"]["linear"]["w"].shape == (100, 100)
+    assert haiku_tr["nn$params"]["value"]["linear"]["b"].shape == (100,)
 
     with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
         haiku_model_by_kwargs_1(X, Y)
-    assert haiku_tr["nn$params"]['value']['linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['linear']['b'].shape == (100,)
+    assert haiku_tr["nn$params"]["value"]["linear"]["w"].shape == (100, 100)
+    assert haiku_tr["nn$params"]["value"]["linear"]["b"].shape == (100,)
 
     with handlers.trace() as haiku_tr, handlers.seed(rng_seed=1):
         haiku_model_by_kwargs_2(W, X, Y)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/w_linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/w_linear']['b'].shape == (100,)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/x_linear']['w'].shape == (100, 100)
-    assert haiku_tr["nn$params"]['value']['test_haiku_module/x_linear']['b'].shape == (100,)
+    assert haiku_tr["nn$params"]["value"]["test_haiku_module/w_linear"]["w"].shape == (
+        100,
+        100,
+    )
+    assert haiku_tr["nn$params"]["value"]["test_haiku_module/w_linear"]["b"].shape == (
+        100,
+    )
+    assert haiku_tr["nn$params"]["value"]["test_haiku_module/x_linear"]["w"].shape == (
+        100,
+        100,
+    )
+    assert haiku_tr["nn$params"]["value"]["test_haiku_module/x_linear"]["b"].shape == (
+        100,
+    )
 
 
 def test_update_params():
-    params = {'a': {'b': {'c': {'d': 1}, 'e': np.array(2)}, 'f': np.ones(4)}}
-    prior = {'a.b.c.d': dist.Delta(4), 'a.f': dist.Delta(5)}
+    params = {"a": {"b": {"c": {"d": 1}, "e": np.array(2)}, "f": np.ones(4)}}
+    prior = {"a.b.c.d": dist.Delta(4), "a.f": dist.Delta(5)}
     new_params = deepcopy(params)
     with handlers.seed(rng_seed=0):
         _update_params(params, new_params, prior)
-    assert params == {'a': {'b': {'c': {'d': ParamShape(())}, 'e': 2}, 'f': ParamShape((4,))}}
-    test_util.check_eq(new_params, {'a': {'b': {'c': {'d': np.array(4.)}, 'e': np.array(2)},
-                                          'f': np.full((4,), 5.)}})
+    assert params == {
+        "a": {"b": {"c": {"d": ParamShape(())}, "e": 2}, "f": ParamShape((4,))}
+    }
+    test_util.check_eq(
+        new_params,
+        {
+            "a": {
+                "b": {"c": {"d": np.array(4.0)}, "e": np.array(2)},
+                "f": np.full((4,), 5.0),
+            }
+        },
+    )
 
 
 @pytest.mark.parametrize("backend", ["flax", "haiku"])
@@ -152,7 +171,7 @@ def test_random_module__mcmc(backend, init):
     N, dim = 3000, 3
     warmup_steps, num_samples = (1000, 1000)
     data = random.normal(random.PRNGKey(0), (N, dim))
-    true_coefs = np.arange(1., dim + 1.)
+    true_coefs = np.arange(1.0, dim + 1.0)
     logits = np.sum(true_coefs * data, axis=-1)
     labels = dist.Bernoulli(logits=logits).sample(random.PRNGKey(1))
 
@@ -162,9 +181,12 @@ def test_random_module__mcmc(backend, init):
         kwargs = {kwargs_name: data}
 
     def model(data, labels):
-        nn = random_module("nn", linear_module,
-                           {bias_name: dist.Cauchy(), weight_name: dist.Normal()},
-                           **kwargs)
+        nn = random_module(
+            "nn",
+            linear_module,
+            {bias_name: dist.Cauchy(), weight_name: dist.Normal()},
+            **kwargs
+        )
         logits = nn(data).squeeze(-1)
         numpyro.sample("y", dist.Bernoulli(logits=logits), obs=labels)
 
@@ -173,5 +195,12 @@ def test_random_module__mcmc(backend, init):
     mcmc.run(random.PRNGKey(2), data, labels)
     mcmc.print_summary()
     samples = mcmc.get_samples()
-    assert set(samples.keys()) == {"nn/{}".format(bias_name), "nn/{}".format(weight_name)}
-    assert_allclose(np.mean(samples["nn/{}".format(weight_name)].squeeze(-1), 0), true_coefs, atol=0.22)
+    assert set(samples.keys()) == {
+        "nn/{}".format(bias_name),
+        "nn/{}".format(weight_name),
+    }
+    assert_allclose(
+        np.mean(samples["nn/{}".format(weight_name)].squeeze(-1), 0),
+        true_coefs,
+        atol=0.22,
+    )
