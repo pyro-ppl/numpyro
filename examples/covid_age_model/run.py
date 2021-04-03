@@ -25,16 +25,30 @@ def main(args):
 
     init_strategy=init_to_value(values=generate_init_values(data, seed=0))
 
-    if args.dense_mass == 'true':
-        dense_mass = [ ("R0_{}".format(m), "dip_rnde_{}".format(m), "e_cases_N0_{}".format(m))
+    if args.dense_mass == 'large':
+        dense_mass = [ ("R0_{}".format(m), "dip_rnde_{}_base".format(m), "e_cases_N0_{}".format(m))
                       for m in range(args.M) ]
         dense_mass.extend([ ("sd_upswing_timeeff_reduced", "beta1") ])
-        dense_mass.extend([ ("hyper_log_ifr_age_rnde_mid1", "log_ifr_age_rnde_mid1") ])
-        dense_mass.extend([ ("hyper_log_ifr_age_rnde_mid2", "log_ifr_age_rnde_mid2") ])
-        dense_mass.extend([ ("hyper_log_ifr_age_rnde_old", "log_ifr_age_rnde_old")])
-        dense_mass.extend([ ("timeeff_shift_mid1", "hyper_timeeff_shift_mid1") ])
-        dense_mass.extend([('upswing_timeeff_reduced_{}'.format(m),) for m in range(args.M)])
-        dense_mass.extend([ ("log_ifr_age_base",) ])
+        dense_mass.extend([ ("hyper_log_ifr_age_rnde_mid1", "log_ifr_age_rnde_mid1_base") ])
+        dense_mass.extend([ ("hyper_log_ifr_age_rnde_mid2", "log_ifr_age_rnde_mid2_base") ])
+        dense_mass.extend([ ("hyper_log_ifr_age_rnde_old", "log_ifr_age_rnde_old_base")])
+        dense_mass.extend([ ("timeeff_shift_mid1_base", "hyper_timeeff_shift_mid1") ])
+        dense_mass.extend([('upswing_timeeff_reduced_early_{}'.format(m),
+                            'upswing_timeeff_reduced_late_{}'.format(m)) for m in range(args.M)])
+        dense_mass.extend([ ("log_ifr_age_base_young", "log_ifr_age_base_old") ])
+        print(dense_mass)
+    elif args.dense_mass == 'small':
+        dense_mass = [ ("R0_{}".format(m), "dip_rnde_{}_base".format(m), "e_cases_N0_{}".format(m))
+                      for m in range(args.M) ]
+        dense_mass.extend([ ("sd_upswing_timeeff_reduced", "beta1") ])
+        dense_mass.extend([ ("hyper_log_ifr_age_rnde_mid1", "log_ifr_age_rnde_mid1_base") ])
+        dense_mass.extend([ ("hyper_log_ifr_age_rnde_mid2", "log_ifr_age_rnde_mid2_base") ])
+        dense_mass.extend([ ("hyper_log_ifr_age_rnde_old", "log_ifr_age_rnde_old_base")])
+        dense_mass.extend([ ("timeeff_shift_mid1_base", "hyper_timeeff_shift_mid1") ])
+        dense_mass.extend([('upswing_timeeff_reduced_early_{}'.format(m),) for m in range(args.M)])
+        dense_mass.extend([('upswing_timeeff_reduced_late_{}'.format(m),) for m in range(args.M)])
+        dense_mass.extend([ ("log_ifr_age_base_young",) ])
+        dense_mass.extend([ ("log_ifr_age_base_old",) ])
         print(dense_mass)
     else:
         dense_mass = []
@@ -60,7 +74,7 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Covid Age Model")
-    parser.add_argument("-n", "--num-samples", nargs="?", default=500, type=int)
+    parser.add_argument("-n", "--num-samples", nargs="?", default=400, type=int)
     parser.add_argument("--num-warmup", default=500, type=int)
     parser.add_argument("--device", default='cpu', type=str, choices=['cpu', 'gpu'])
     parser.add_argument("--num-chains", default=1, type=int)
@@ -68,9 +82,9 @@ if __name__ == "__main__":
     parser.add_argument("--tap", default=0.90, type=float)
     parser.add_argument("--mtd", default=11, type=int)
     parser.add_argument("--mtd-warmup", default=10, type=int)
-    parser.add_argument("--M", default=4, type=int)
+    parser.add_argument("--M", default=40, type=int)
     parser.add_argument("--reparam", default='true', type=str, choices=['true', 'false'])
-    parser.add_argument("--dense-mass", default='true', type=str, choices=['true', 'false'])
+    parser.add_argument("--dense-mass", default='small', type=str, choices=['none', 'small', 'large'])
     args = parser.parse_args()
 
     numpyro.enable_x64()

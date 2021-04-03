@@ -87,15 +87,24 @@ def model(data, reparam=False):
     beta1 = numpyro.sample("beta1", dist.Normal(0., 1.))
     beta = jnp.stack([beta0, beta1])
 
-    with numpyro.plate("A", data["A"]):
+    #with numpyro.plate("A", data["A"]):
         # probability of death for age band a
         # alternatively, we can use dist.TruncatedDistribution(dist.Normal(loc, scale), high=0.)
-        log_ifr_age_base = numpyro.sample(
-            "log_ifr_age_base",
-            dist.ImproperUniform(dist.constraints.less_than(0), (), ()))
+        #log_ifr_age_base = numpyro.sample(
+        #    "log_ifr_age_base",
+        #    dist.ImproperUniform(dist.constraints.less_than(0), (), ()))
+    #numpyro.factor("log_ifr_age_base_log_factor",
+     #              dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"])
+      #                 .log_prob(log_ifr_age_base).sum())
+
+    log_ifr_age_base_young = numpyro.sample(
+        "log_ifr_age_base_young", dist.ImproperUniform(dist.constraints.less_than(0), (), ()).expand([data["A"] // 2]))
+    log_ifr_age_base_old = numpyro.sample(
+        "log_ifr_age_base_old", dist.ImproperUniform(dist.constraints.less_than(0), (), ()).expand([data["A"] // 2]))
+    log_ifr_age_base = jnp.concatenate([log_ifr_age_base_young, log_ifr_age_base_old])
     numpyro.factor("log_ifr_age_base_log_factor",
-                   dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"])
-                       .log_prob(log_ifr_age_base).sum())
+               dist.Normal(data["hyperpara_ifr_age_lnmu"], data["hyperpara_ifr_age_lnsd"])
+                   .log_prob(log_ifr_age_base).sum())
 
     #upswing_timeeff_reduced_init = numpyro.sample(
     #    "upswing_timeeff_reduced_init", dist.HalfNormal(0.025).expand([data["M"]]))
@@ -106,9 +115,13 @@ def model(data, reparam=False):
     #    upswing_timeeff_reduced_init[None], upswing_timeeff_reduced_base])
     #scale = jnp.concatenate([jnp.ones((1,)), jnp.repeat(sd_upswing_timeeff_reduced, data["N_IMP"] - 1)])
     #    upswing_timeeff_reduced = jnp.cumsum(upswing_timeeff_reduced_base * scale[:, None], axis=0)
-    upswing_timeeff_reduced = jnp.stack([numpyro.sample(
-        "upswing_timeeff_reduced_{}".format(m),
-        dist.ImproperUniform(dist.constraints.positive, (data["N_IMP"],), ())) for m in range(data['M'])]).T
+    upswing_timeeff_reduced_early = jnp.stack([numpyro.sample(
+        "upswing_timeeff_reduced_early_{}".format(m),
+        dist.ImproperUniform(dist.constraints.positive, (data["N_IMP"] // 2,), ())) for m in range(data['M'])]).T
+    upswing_timeeff_reduced_late = jnp.stack([numpyro.sample(
+        "upswing_timeeff_reduced_late_{}".format(m),
+        dist.ImproperUniform(dist.constraints.positive, (data["N_IMP"] // 2,), ())) for m in range(data['M'])]).T
+    upswing_timeeff_reduced = jnp.concatenate([upswing_timeeff_reduced_early, upswing_timeeff_reduced_late], axis=0)
     numpyro.factor("upswing_timeeff_reduced_init_log_factor",
                    # alternatively, we can use dist.HalfNormal(0.025)
                    dist.Normal(0., 0.025).log_prob(upswing_timeeff_reduced[0]))
