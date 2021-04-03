@@ -1,14 +1,15 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import functools
 
 from jax import random
+import jax.numpy as jnp
 
 import funsor
 from numpyro.contrib.funsor.enum_messenger import enum
-from numpyro.contrib.funsor.infer_util import _enum_log_density
+from numpyro.contrib.funsor.infer_util import _enum_log_density, _get_shift, _shift_name
 from numpyro.handlers import block, seed, substitute, trace
 from numpyro.infer.util import _guess_max_plate_nesting
 
@@ -95,7 +96,28 @@ def _sample_posterior(
         for name, site in sample_tr.items()
         if site["type"] == "sample"
     }
-    print(data)
+
+    # concatenate _PREV_foo to foo
+    time_vars = defaultdict(list)
+    for name in data:
+        if name.startswith("_PREV_"):
+            root_name = _shift_name(name, -_get_shift(name))
+            time_vars[root_name].append(name)
+    for name in time_vars:
+        if name in data:
+            time_vars[name].append(name)
+        time_vars[name] = sorted(time_vars[name], key=len, reverse=True)
+
+    for root_name, vars in time_vars.items():
+        prototype_shape = model_trace[root_name]["value"].shape
+        values = [data.pop(name) for name in vars]
+        if len(values) == 1:
+            data[root_name] = values[0].reshape(prototype_shape)
+        else:
+            assert len(prototype_shape) >= 1
+            values = [v.reshape((-1,) + prototype_shape[1:]) for v in values]
+            data[root_name] = jnp.concatenate(values)
+
     with substitute(data=data):
         return model(*args, **kwargs)
 
