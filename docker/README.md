@@ -34,6 +34,6 @@ Design Choices:
 Future Work:
 
 - Right now the jax, jaxlib, and numpyro versions are manually specified, so they have to be updated every NumPyro release. There are two ways forward for this:
-    1. If there is a CI/CD in place to build and push images to a repository like Dockerhub, then the jax, jaxlib, and numpyro versions can be passed in as environment variables (for example, if something like [Drone CI](http://plugins.drone.io/drone-plugins/drone-docker/). If implemented this way, the jax/jaxlib/numpyro versions will be ephemereal (not stored in source code).
+    1. If there is a CI/CD in place to build and push images to a repository like Dockerhub, then the jax, jaxlib, and numpyro versions can be passed in as environment variables (for example, if something like [Drone CI](http://plugins.drone.io/drone-plugins/drone-docker/) is used). If implemented this way, the jax/jaxlib/numpyro versions will be ephemereal (not stored in source code).
     2. Alternative, one can create a Python script that will modify the Dockerfiles upon release accordingly (using a hook of some sort). 
 - For development work, it would be nice to be able to pull the latest versions of jax and jaxlib into the `dev` image. This would be made a lot easier if jax upstream published Docker images for CUDA-accelerated jaxlibs. There is [currently an issue for it](https://github.com/google/jax/issues/6340).
