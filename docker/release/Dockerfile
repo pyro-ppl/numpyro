@@ -21,6 +21,9 @@ ENV IMG_NAME=11.2.2-cudnn8-devel-ubuntu20.04 \
 RUN apt update && \
     apt install python3-dev python3-pip -y
 
+# add .local/bin to PATH for tqdm and f2py
+ENV PATH=/root/.local/bin:$PATH
+
 # install python packages via pip
 RUN pip3 install --user \
     numpyro==${NUMPYRO_VERSION} \
