@@ -28,12 +28,6 @@ RUN pip3 install pip-versions
 RUN pip-versions latest jaxlib | xargs -I{} pip3 install jaxlib=={}+cuda${JAXLIB_CUDA} -f https://storage.googleapis.com/jax-releases/jax_releases.html \
     jax
 
-RUN pip3 install --user \
-    jax==${JAX_VERSION} \
-    # we pull wheels from google's api as per https://github.com/google/jax#installation
-    # the pre-compiled wheels that google provides work for now. This may change in the future (and necessitate building from source)
-    jaxlib==${JAXLIB_VERSION}+cuda${JAXLIB_CUDA} -f https://storage.googleapis.com/jax-releases/jax_releases.html
-
 # clone the numpyro git repository and run pip install
 RUN git clone https://github.com/pyro-ppl/numpyro.git && \
     cd numpyro && \
