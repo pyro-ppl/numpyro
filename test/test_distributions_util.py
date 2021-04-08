@@ -91,6 +91,18 @@ def test_multinomial_shape(p, shape):
     assert jnp.shape(multinomial(rng_key, p, n, shape)) == expected_shape
 
 
+@pytest.mark.parametrize("n", [0, 1, np.array([0, 0]), np.array([2, 1, 0])])
+@pytest.mark.parametrize("device_array", [True, False])
+def test_multinomial_inhomogeneous(n, device_array):
+    if device_array:
+        n = jnp.asarray(n)
+
+    p = jnp.array([0.5, 0.5])
+    x = multinomial(random.PRNGKey(0), p, n)
+    assert x.shape == jnp.shape(n) + jnp.shape(p)
+    assert_allclose(x.sum(-1), n)
+
+
 @pytest.mark.parametrize("p", [np.array([0.2, 0.3, 0.5]), np.array([0.8, 0.1, 0.1])])
 @pytest.mark.parametrize("n", [10000, np.array([10000, 20000])])
 def test_multinomial_stats(p, n):
