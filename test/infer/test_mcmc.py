@@ -53,7 +53,8 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
         assert hmc_states.dtype == jnp.float64
 
 
-def test_correlated_mvn():
+@pytest.mark.parametrize("regularize", [True, False])
+def test_correlated_mvn(regularize):
     # This requires dense mass matrix estimation.
     D = 5
 
@@ -71,7 +72,9 @@ def test_correlated_mvn():
         return 0.5 * jnp.dot(z.T, jnp.dot(true_prec, z))
 
     init_params = jnp.zeros(D)
-    kernel = NUTS(potential_fn=potential_fn, dense_mass=True)
+    kernel = NUTS(
+        potential_fn=potential_fn, dense_mass=True, regularize_mass_matrix=regularize
+    )
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     samples = mcmc.get_samples()
