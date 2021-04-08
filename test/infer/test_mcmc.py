@@ -900,6 +900,16 @@ def test_forward_mode_differentiation():
     mcmc.run(random.PRNGKey(0))
 
 
+def test_SA_gradient_free():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
+        numpyro.sample("obs", dist.Normal(y, 1), obs=1.0)
+
+    mcmc = MCMC(SA(model), 10, 10)
+    mcmc.run(random.PRNGKey(0))
+
+
 def test_model_with_lift_handler():
     def model(data):
         c = numpyro.param("c", jnp.array(1.0), constraint=dist.constraints.positive)

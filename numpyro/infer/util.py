@@ -188,6 +188,7 @@ def find_valid_initial_params(
     model_kwargs=None,
     prototype_params=None,
     forward_mode_differentiation=False,
+    validate_grad=True,
 ):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
@@ -207,6 +208,10 @@ def find_valid_initial_params(
     :param dict model_kwargs: kwargs provided to the model.
     :param dict prototype_params: an optional prototype parameters, which is used
         to define the shape for initial parameters.
+    :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+        or reverse-mode differentiation. Defaults to False.
+    :param bool validate_grad: whether to validate gradient of the initial params.
+        Defaults to True.
     :return: tuple of `init_params_info` and `is_valid`, where `init_params_info` is the tuple
         containing the initial params, their potential energy, and their gradients.
     """
@@ -264,13 +269,19 @@ def find_valid_initial_params(
         potential_fn = partial(
             potential_energy, model, model_args, model_kwargs, enum=enum
         )
-        if forward_mode_differentiation:
-            pe = potential_fn(params)
-            z_grad = jacfwd(potential_fn)(params)
+        if validate_grad:
+            if forward_mode_differentiation:
+                pe = potential_fn(params)
+                z_grad = jacfwd(potential_fn)(params)
+            else:
+                pe, z_grad = value_and_grad(potential_fn)(params)
+            z_grad_flat = ravel_pytree(z_grad)[0]
+            is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
         else:
-            pe, z_grad = value_and_grad(potential_fn)(params)
-        z_grad_flat = ravel_pytree(z_grad)[0]
-        is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
+            pe = potential_fn(params)
+            is_valid = jnp.isfinite(pe)
+            z_grad = None
+
         return i + 1, key, (params, pe, z_grad), is_valid
 
     def _find_valid_params(rng_key, exit_early=False):
@@ -443,6 +454,7 @@ def initialize_model(
     model_args=(),
     model_kwargs=None,
     forward_mode_differentiation=False,
+    validate_grad=True,
 ):
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
@@ -468,6 +480,8 @@ def initialize_model(
         only supports forward-mode differentiation. See
         `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
         for more information.
+    :param bool validate_grad: whether to validate gradient of the initial params.
+        Defaults to True.
     :return: a namedtupe `ModelInfo` which contains the fields
         (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`), where
         `param_info` is a namedtuple `ParamInfo` containing values from the prior
@@ -546,6 +560,7 @@ def initialize_model(
         model_kwargs=model_kwargs,
         prototype_params=prototype_params,
         forward_mode_differentiation=forward_mode_differentiation,
+        validate_grad=validate_grad,
     )
 
     if not_jax_tracer(is_valid):
