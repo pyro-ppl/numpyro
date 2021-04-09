@@ -1252,6 +1252,62 @@ class Pareto(TransformedDistribution):
         return super(TransformedDistribution, self).tree_flatten()
 
 
+class SoftLaplace(Distribution):
+    """
+    Smooth distribution with Laplace-like tail behavior.
+
+    This distribution corresponds to the log-convex density::
+
+        z = (value - loc) / scale
+        log_prob = log(2 / pi) - log(scale) - logaddexp(z, -z)
+
+    Like the Laplace density, this density has the heaviest possible tails
+    (asymptotically) while still being log-convex. Unlike the Laplace
+    distribution, this distribution is infinitely differentiable everywhere,
+    and is thus suitable for HMC and Laplace approximation.
+
+    :param loc: Location parameter.
+    :param scale: Scale parameter.
+    """
+
+    arg_constraints = {"loc": constraints.real, "scale": constraints.positive}
+    support = constraints.real
+    reparametrized_params = ["loc", "scale"]
+
+    def __init__(self, loc, scale, *, validate_args=None):
+        self.loc, self.scale = promote_shapes(loc, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(loc), jnp.shape(scale))
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    @validate_sample
+    def log_prob(self, value):
+        z = (value - self.loc) / self.scale
+        return jnp.log(2 / jnp.pi) - jnp.log(self.scale) - jnp.logaddexp(z, -z)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        u = random.uniform(
+            key, shape=sample_shape + self.batch_shape + self.event_shape
+        )
+        return self.icdf(u)
+
+    @validate_sample
+    def cdf(self, value):
+        z = (value - self.loc) / self.scale
+        return jnp.arctan(jnp.exp(z)) * (2 / jnp.pi)
+
+    def icdf(self, value):
+        return jnp.log(jnp.tan(value * (jnp.pi / 2))) * self.scale + self.loc
+
+    @property
+    def mean(self):
+        return self.loc
+
+    @property
+    def variance(self):
+        return (jnp.pi / 2 * self.scale) ** 2
+
+
 class StudentT(Distribution):
     arg_constraints = {
         "df": constraints.positive,
@@ -1331,7 +1387,7 @@ class StudentT(Distribution):
 class LeftTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.real}
     reparametrized_params = ["low"]
-    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
+    supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
     def __init__(self, base_dist, low=0.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -1404,7 +1460,7 @@ class LeftTruncatedDistribution(Distribution):
 class RightTruncatedDistribution(Distribution):
     arg_constraints = {"high": constraints.real}
     reparametrized_params = ["high"]
-    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
+    supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
     def __init__(self, base_dist, high=0.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -1462,7 +1518,7 @@ class RightTruncatedDistribution(Distribution):
 class TwoSidedTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
     reparametrized_params = ["low", "high"]
-    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
+    supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
     def __init__(self, base_dist, low=0.0, high=1.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)

@@ -215,6 +215,8 @@ def _multinomial(key, p, n, n_max, shape=()):
         n = jnp.broadcast_to(n, broadcast_shape)
         p = jnp.broadcast_to(p, broadcast_shape + jnp.shape(p)[-1:])
     shape = shape or p.shape[:-1]
+    if n_max == 0:
+        return jnp.zeros(shape + p.shape[-1:], dtype=jnp.result_type(int))
     # get indices from categorical distribution then gather the result
     indices = categorical(key, p, (n_max,) + shape)
     # mask out values when counts is heterogeneous
@@ -244,7 +246,10 @@ def _multinomial(key, p, n, n_max, shape=()):
 
 
 def multinomial(key, p, n, shape=()):
-    n_max = int(jnp.max(n))
+    assert not isinstance(
+        n, jax.core.Tracer
+    ), "The total count parameter `n` should not be a jax abstract array."
+    n_max = int(np.max(jax.device_get(n)))
     return _multinomial(key, p, n, n_max, shape)
 
 
