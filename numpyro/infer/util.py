@@ -182,6 +182,7 @@ def _init_to_unconstrained_value(site=None, values={}):
 def find_valid_initial_params(
     rng_key,
     model,
+    *,
     init_strategy=init_to_uniform,
     enum=False,
     model_args=(),
@@ -347,6 +348,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
 def get_potential_fn(
     model,
     inv_transforms,
+    *,
     enum=False,
     replay_model=False,
     dynamic_args=False,
@@ -449,6 +451,7 @@ def _validate_model(model_trace):
 def initialize_model(
     rng_key,
     model,
+    *,
     init_strategy=init_to_uniform,
     dynamic_args=False,
     model_args=(),
