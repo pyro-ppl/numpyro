@@ -1387,7 +1387,7 @@ class StudentT(Distribution):
 class LeftTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.real}
     reparametrized_params = ["low"]
-    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
+    supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
     def __init__(self, base_dist, low=0.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -1460,7 +1460,7 @@ class LeftTruncatedDistribution(Distribution):
 class RightTruncatedDistribution(Distribution):
     arg_constraints = {"high": constraints.real}
     reparametrized_params = ["high"]
-    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
+    supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
     def __init__(self, base_dist, high=0.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
@@ -1518,7 +1518,7 @@ class RightTruncatedDistribution(Distribution):
 class TwoSidedTruncatedDistribution(Distribution):
     arg_constraints = {"low": constraints.dependent, "high": constraints.dependent}
     reparametrized_params = ["low", "high"]
-    supported_types = (Cauchy, Laplace, Logistic, Normal, StudentT)
+    supported_types = (Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT)
 
     def __init__(self, base_dist, low=0.0, high=1.0, validate_args=None):
         assert isinstance(base_dist, self.supported_types)
