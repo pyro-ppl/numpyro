@@ -246,6 +246,8 @@ CONTINUOUS = [
     T(dist.Pareto, 1.0, 2.0),
     T(dist.Pareto, jnp.array([1.0, 0.5]), jnp.array([0.3, 2.0])),
     T(dist.Pareto, jnp.array([[1.0], [3.0]]), jnp.array([1.0, 0.5])),
+    T(dist.SoftLaplace, 1.0, 1.0),
+    T(dist.SoftLaplace, jnp.array([-1.0, 50.0]), jnp.array([4.0, 100.0])),
     T(dist.StudentT, 1.0, 1.0, 0.5),
     T(dist.StudentT, 2.0, jnp.array([1.0, 2.0]), 2.0),
     T(dist.StudentT, jnp.array([3.0, 5.0]), jnp.array([[1.0], [2.0]]), 2.0),

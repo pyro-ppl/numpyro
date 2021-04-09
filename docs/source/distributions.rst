@@ -245,6 +245,14 @@ RightTruncatedDistribution
     :show-inheritance:
     :member-order: bysource
 
+SoftLaplace
+-----------
+.. autoclass:: numpyro.distributions.continuous.SoftLaplace
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
 StudentT
 --------
 .. autoclass:: numpyro.distributions.continuous.StudentT
