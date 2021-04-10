@@ -597,16 +597,16 @@ class scope(Messenger):
 
     .. doctest::
 
-       >>> import numpyro
-       >>> import numpyro.distributions as dist
-       >>> from numpyro.handlers import scope, seed, trace
-       >>>
-       >>> def model():
-       ...     with scope(prefix="a"):
-       ...         with scope(prefix="b", divider="."):
-       ...             return numpyro.sample("x", dist.Bernoulli(0.5))
-       ...
-       >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
+        >>> import numpyro
+        >>> import numpyro.distributions as dist
+        >>> from numpyro.handlers import scope, seed, trace
+        >>>
+        >>> def model():
+        ...     with scope(prefix="a"):
+        ...         with scope(prefix="b", divider="."):
+        ...             return numpyro.sample("x", dist.Bernoulli(0.5))
+        ...
+        >>> assert "a/b.x" in trace(seed(model, 0)).get_trace()
 
     :param fn: Python callable with NumPyro primitives.
     :param str prefix: a string to prepend to sample names
