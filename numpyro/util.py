@@ -77,7 +77,7 @@ def set_host_device_count(n):
     """
     xla_flags = os.getenv("XLA_FLAGS", "")
     xla_flags = re.sub(
-        r"--xla_force_host_platform_device_count=\S.", "", xla_flags
+        r"--xla_force_host_platform_device_count=\S+", "", xla_flags
     ).split()
     os.environ["XLA_FLAGS"] = " ".join(
         ["--xla_force_host_platform_device_count={}".format(n)] + xla_flags
