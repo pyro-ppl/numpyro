@@ -47,9 +47,7 @@ def _identity(x):
 
 class T(namedtuple("TestCase", ["jax_dist", "sp_dist", "params"])):
     def __new__(cls, jax_dist, *params):
-        sp_dist = None
-        if jax_dist in _DIST_MAP:
-            sp_dist = _DIST_MAP[jax_dist]
+        sp_dist = get_sp_dist(jax_dist)
         return super(cls, T).__new__(cls, jax_dist, sp_dist, params)
 
 
@@ -98,6 +96,11 @@ class _ImproperWrapper(dist.ImproperUniform):
         return transform(unconstrained_samples)
 
 
+class SparsePoisson(dist.Poisson):
+    def __init__(self, rate, *, validate_args=None):
+        super().__init__(rate, is_sparse=True, validate_args=validate_args)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -140,6 +143,14 @@ _DIST_MAP = {
     ),
     _TruncatedNormal: _truncnorm_to_scipy,
 }
+
+
+def get_sp_dist(jax_dist):
+    classes = jax_dist.mro() if isinstance(jax_dist, type) else [jax_dist]
+    for cls in classes:
+        if cls in _DIST_MAP:
+            return _DIST_MAP[cls]
+
 
 CONTINUOUS = [
     T(dist.Beta, 0.2, 1.1),
@@ -331,6 +342,8 @@ DISCRETE = [
     T(dist.OrderedLogistic, jnp.array([-4, 3, 4, 5]), jnp.array([-1.5])),
     T(dist.Poisson, 2.0),
     T(dist.Poisson, jnp.array([2.0, 3.0, 5.0])),
+    T(SparsePoisson, 2.0),
+    T(SparsePoisson, jnp.array([2.0, 3.0, 5.0])),
     T(dist.ZeroInflatedPoisson, 0.6, 2.0),
     T(dist.ZeroInflatedPoisson, jnp.array([0.2, 0.7, 0.3]), jnp.array([2.0, 3.0, 5.0])),
 ]
@@ -688,7 +701,7 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
                 # old api
                 low, loc, scale = params
                 high = jnp.inf
-            sp_dist = _DIST_MAP[type(jax_dist.base_dist)](loc, scale)
+            sp_dist = get_sp_dist(type(jax_dist.base_dist))(loc, scale)
             expected = sp_dist.logpdf(samples) - jnp.log(
                 sp_dist.cdf(high) - sp_dist.cdf(low)
             )

@@ -609,7 +609,7 @@ class Poisson(Distribution):
     support = constraints.nonnegative_integer
     is_discrete = True
 
-    def __init__(self, rate, *, is_sparse=True, validate_args=None):
+    def __init__(self, rate, *, is_sparse=False, validate_args=None):
         self.rate = rate
         self.is_sparse = is_sparse
         super(Poisson, self).__init__(jnp.shape(rate), validate_args=validate_args)
