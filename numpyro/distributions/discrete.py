@@ -631,8 +631,8 @@ class Poisson(Distribution):
         ):
             shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
             rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
-            nonzero = jnp.broadcast_to(value > 0, shape).reshape(-1).nonzero()
             value = jnp.broadcast_to(value, shape).reshape(-1)
+            nonzero = value > 0
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
             return index_add(
