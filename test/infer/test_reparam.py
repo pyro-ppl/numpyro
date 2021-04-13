@@ -37,6 +37,59 @@ def get_moments(x):
     return jnp.stack([m1, m2, m3, m4])
 
 
+def test_syntax():
+    loc = np.random.uniform(-1.0, 1.0, ())
+    scale = np.random.uniform(0.5, 1.5, ())
+    data = np.random.uniform(-1.0, 1.0, ())
+    config = {"x": LocScaleReparam(), "y": LocScaleReparam()}
+
+    def model():
+        x = numpyro.sample("x", dist.Normal(loc, scale))
+        y = numpyro.sample("y", dist.Normal(x, scale))
+        numpyro.sample("z", dist.Normal(y, scale), obs=data)
+
+    # Context manager syntax.
+    seed = numpyro.handlers.seed(rng_seed=0)
+    trace = numpyro.handlers.trace()
+    reparam = numpyro.handlers.reparam(config=config)
+    with reparam, trace, seed:
+        model()
+    tr1 = trace.trace
+
+    # Eager function syntax.
+    seed = numpyro.handlers.seed(model, rng_seed=0)
+    trace = numpyro.handlers.trace(seed)
+    reparam = numpyro.handlers.reparam(trace, config=config)
+    reparam()
+    tr2 = trace.trace
+
+    # Partial function syntax.
+    seed = numpyro.handlers.seed(rng_seed=0)
+    trace = numpyro.handlers.trace()
+    reparam = numpyro.handlers.reparam(config=config)
+    m = model
+    m = seed(m)
+    m = trace(m)
+    m = reparam(m)
+    m()
+    tr3 = trace.trace
+
+    # Decorator syntax.
+    seed = numpyro.handlers.seed(rng_seed=0)
+    trace = numpyro.handlers.trace()
+    reparam = numpyro.handlers.reparam(config=config)
+
+    @reparam
+    @trace
+    @seed
+    def m():
+        return model()
+
+    tr4 = trace.trace
+
+    assert tr1.keys() == tr2.keys() == tr3.keys() == tr4.keys()
+
+
 @pytest.mark.parametrize(
     "batch_shape,base_batch_shape",
     [((), ()), ((4,), (4,)), ((2, 3), (2, 3)), ((2, 3), ())],
