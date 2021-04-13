@@ -205,14 +205,6 @@ MultivariateNormal
     :show-inheritance:
     :member-order: bysource
 
-LeftTruncatedDistribution
--------------------------
-.. autoclass:: numpyro.distributions.continuous.LeftTruncatedDistribution
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 LowRankMultivariateNormal
 -------------------------
 .. autoclass:: numpyro.distributions.continuous.LowRankMultivariateNormal
@@ -237,14 +229,6 @@ Pareto
     :show-inheritance:
     :member-order: bysource
 
-RightTruncatedDistribution
---------------------------
-.. autoclass:: numpyro.distributions.continuous.RightTruncatedDistribution
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
 SoftLaplace
 -----------
 .. autoclass:: numpyro.distributions.continuous.SoftLaplace
@@ -256,42 +240,6 @@ SoftLaplace
 StudentT
 --------
 .. autoclass:: numpyro.distributions.continuous.StudentT
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-TruncatedCauchy
----------------
-.. autoclass:: numpyro.distributions.continuous.TruncatedCauchy
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-TruncatedDistribution
----------------------
-.. autofunction:: numpyro.distributions.continuous.TruncatedDistribution
-
-TruncatedNormal
----------------
-.. autoclass:: numpyro.distributions.continuous.TruncatedNormal
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-TruncatedPolyaGamma
--------------------
-.. autoclass:: numpyro.distributions.continuous.TruncatedPolyaGamma
-    :members:
-    :undoc-members:
-    :show-inheritance:
-    :member-order: bysource
-
-TwoSidedTruncatedDistribution
------------------------------
-.. autoclass:: numpyro.distributions.continuous.TwoSidedTruncatedDistribution
     :members:
     :undoc-members:
     :show-inheritance:
@@ -484,6 +432,62 @@ ProjectedNormal
 VonMises
 --------
 .. autoclass:: numpyro.distributions.directional.VonMises
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+
+Truncated Distributions
+=======================
+
+LeftTruncatedDistribution
+-------------------------
+.. autoclass:: numpyro.distributions.truncated.LeftTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+RightTruncatedDistribution
+--------------------------
+.. autoclass:: numpyro.distributions.truncated.RightTruncatedDistribution
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TruncatedCauchy
+---------------
+.. autoclass:: numpyro.distributions.truncated.TruncatedCauchy
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TruncatedDistribution
+---------------------
+.. autofunction:: numpyro.distributions.truncated.TruncatedDistribution
+
+TruncatedNormal
+---------------
+.. autoclass:: numpyro.distributions.truncated.TruncatedNormal
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TruncatedPolyaGamma
+-------------------
+.. autoclass:: numpyro.distributions.truncated.TruncatedPolyaGamma
+    :members:
+    :undoc-members:
+    :show-inheritance:
+    :member-order: bysource
+
+TwoSidedTruncatedDistribution
+-----------------------------
+.. autoclass:: numpyro.distributions.truncated.TwoSidedTruncatedDistribution
     :members:
     :undoc-members:
     :show-inheritance:
