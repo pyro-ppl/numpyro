@@ -8,8 +8,15 @@ from jax.scipy.special import logsumexp
 from jax.tree_util import tree_map
 
 from numpyro.distributions import constraints
+from numpyro.distributions.continuous import (
+    Cauchy,
+    Laplace,
+    Logistic,
+    Normal,
+    SoftLaplace,
+    StudentT,
+)
 from numpyro.distributions.distribution import Distribution
-from numpyro.distributions.continuous import Cauchy, Laplace, Logistic, Normal, SoftLaplace, StudentT
 from numpyro.distributions.util import (
     is_prng_key,
     lazy_property,

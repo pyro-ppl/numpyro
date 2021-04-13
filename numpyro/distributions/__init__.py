@@ -75,7 +75,6 @@ from numpyro.distributions.truncated import (
     TwoSidedTruncatedDistribution,
 )
 
-
 from . import constraints, transforms
 
 __all__ = [

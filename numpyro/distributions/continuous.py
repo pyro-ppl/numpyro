@@ -31,15 +31,7 @@ import jax.nn as nn
 import jax.numpy as jnp
 import jax.random as random
 from jax.scipy.linalg import cho_solve, solve_triangular
-from jax.scipy.special import (
-    betainc,
-    expit,
-    gammaln,
-    logit,
-    multigammaln,
-    ndtr,
-    ndtri,
-)
+from jax.scipy.special import betainc, expit, gammaln, logit, multigammaln, ndtr, ndtri
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution, TransformedDistribution
