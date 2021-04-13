@@ -184,6 +184,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
     def init_kernel(
         init_params,
         num_warmup,
+        *,
         step_size=1.0,
         inverse_mass_matrix=None,
         adapt_step_size=True,
@@ -194,6 +195,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         max_tree_depth=10,
         find_heuristic_step_size=False,
         forward_mode_differentiation=False,
+        regularize_mass_matrix=True,
         model_args=(),
         model_kwargs=None,
         rng_key=random.PRNGKey(0),
@@ -243,7 +245,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
         :type dense_mass: bool or list
         :param float target_accept_prob: Target acceptance probability for step size
             adaptation using Dual Averaging. Increasing this value will lead to a smaller
-            step size, hence the sampling will be slower but more robust. Default to 0.8.
+            step size, hence the sampling will be slower but more robust. Defaults to 0.8.
         :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
             value is :math:`2\\pi`.
         :param int max_tree_depth: Max depth of the binary tree created during the doubling
@@ -252,6 +254,9 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             `d2` is the max tree depth during post warmup phase.
         :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
             step size at the beginning of each adaptation window. Defaults to False.
+        :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
+            matrix for numerical stability during warmup phase. Defaults to True. This flag
+            does not take effect if ``adapt_mass_matrix == False``.
         :param tuple model_args: Model arguments if `potential_fn_gen` is specified.
         :param dict model_kwargs: Model keyword arguments if `potential_fn_gen` is specified.
         :param jax.random.PRNGKey rng_key: random key to be used as the source of
@@ -298,6 +303,7 @@ def hmc(potential_fn=None, potential_fn_gen=None, kinetic_fn=None, algo="NUTS"):
             dense_mass=dense_mass,
             target_accept_prob=target_accept_prob,
             find_reasonable_step_size=find_reasonable_ss,
+            regularize_mass_matrix=regularize_mass_matrix,
         )
 
         rng_key_hmc, rng_key_wa, rng_key_momentum = random.split(rng_key, 3)
@@ -557,13 +563,14 @@ class HMC(MCMCKernel):
     :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
-        step size, hence the sampling will be slower but more robust. Default to 0.8.
+        step size, hence the sampling will be slower but more robust. Defaults to 0.8.
     :param float trajectory_length: Length of a MCMC trajectory for HMC. Default
         value is :math:`2\\pi`.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
-        step size at the beginning of each adaptation window. Defaults to False.
+    :param bool find_heuristic_step_size: whether or not to use a heuristic function
+        to adjust the step size at the beginning of each adaptation window. Defaults
+        to False.
     :param bool forward_mode_differentiation: whether to use forward-mode differentiation
         or reverse-mode differentiation. By default, we use reverse mode but the forward
         mode can be useful in some cases to improve the performance. In addition, some
@@ -571,6 +578,9 @@ class HMC(MCMCKernel):
         only supports forward-mode differentiation. See
         `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
         for more information.
+    :param bool regularize_mass_matrix: whether or not to regularize the estimated mass
+        matrix for numerical stability during warmup phase. Defaults to True. This flag
+        does not take effect if ``adapt_mass_matrix == False``.
     """
 
     def __init__(
@@ -588,6 +598,7 @@ class HMC(MCMCKernel):
         init_strategy=init_to_uniform,
         find_heuristic_step_size=False,
         forward_mode_differentiation=False,
+        regularize_mass_matrix=True,
     ):
         if not (model is None) ^ (potential_fn is None):
             raise ValueError("Only one of `model` or `potential_fn` must be specified.")
@@ -612,6 +623,7 @@ class HMC(MCMCKernel):
         self._init_strategy = init_strategy
         self._find_heuristic_step_size = find_heuristic_step_size
         self._forward_mode_differentiation = forward_mode_differentiation
+        self._regularize_mass_matrix = regularize_mass_matrix
         # Set on first call to init
         self._init_fn = None
         self._potential_fn_gen = None
@@ -707,6 +719,7 @@ class HMC(MCMCKernel):
             max_tree_depth=self._max_tree_depth,
             find_heuristic_step_size=self._find_heuristic_step_size,
             forward_mode_differentiation=self._forward_mode_differentiation,
+            regularize_mass_matrix=self._regularize_mass_matrix,
             model_args=model_args,
             model_kwargs=model_kwargs,
             rng_key=rng_key,
@@ -809,7 +822,7 @@ class NUTS(HMC):
     :type dense_mass: bool or list
     :param float target_accept_prob: Target acceptance probability for step size
         adaptation using Dual Averaging. Increasing this value will lead to a smaller
-        step size, hence the sampling will be slower but more robust. Default to 0.8.
+        step size, hence the sampling will be slower but more robust. Defaults to 0.8.
     :param float trajectory_length: Length of a MCMC trajectory for HMC. This arg has
         no effect in NUTS sampler.
     :param int max_tree_depth: Max depth of the binary tree created during the doubling
@@ -818,8 +831,9 @@ class NUTS(HMC):
         `d2` is the max tree depth during post warmup phase.
     :param callable init_strategy: a per-site initialization function.
         See :ref:`init_strategy` section for available functions.
-    :param bool find_heuristic_step_size: whether to a heuristic function to adjust the
-        step size at the beginning of each adaptation window. Defaults to False.
+    :param bool find_heuristic_step_size: whether or not to use a heuristic function
+        to adjust the step size at the beginning of each adaptation window. Defaults
+        to False.
     :param bool forward_mode_differentiation: whether to use forward-mode differentiation
         or reverse-mode differentiation. By default, we use reverse mode but the forward
         mode can be useful in some cases to improve the performance. In addition, some
@@ -845,6 +859,7 @@ class NUTS(HMC):
         init_strategy=init_to_uniform,
         find_heuristic_step_size=False,
         forward_mode_differentiation=False,
+        regularize_mass_matrix=True,
     ):
         super(NUTS, self).__init__(
             potential_fn=potential_fn,
@@ -860,6 +875,7 @@ class NUTS(HMC):
             init_strategy=init_strategy,
             find_heuristic_step_size=find_heuristic_step_size,
             forward_mode_differentiation=forward_mode_differentiation,
+            regularize_mass_matrix=regularize_mass_matrix,
         )
         self._max_tree_depth = max_tree_depth
         self._algo = "NUTS"

@@ -517,6 +517,7 @@ def warmup_adapter(
     adapt_mass_matrix=True,
     dense_mass=False,
     target_accept_prob=0.8,
+    regularize_mass_matrix=True,
 ):
     """
     A scheme to adapt tunable parameters, namely step size and mass matrix, during
@@ -601,7 +602,7 @@ def warmup_adapter(
 
         if adapt_mass_matrix:
             inverse_mass_matrix, mass_matrix_sqrt, mass_matrix_sqrt_inv = mm_final(
-                mm_state, regularize=True
+                mm_state, regularize=regularize_mass_matrix
             )
             if isinstance(inverse_mass_matrix, dict):
                 size = {k: v.shape for k, v in inverse_mass_matrix.items()}

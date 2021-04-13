@@ -53,7 +53,8 @@ def test_unnormalized_normal_x64(kernel_cls, dense_mass):
         assert hmc_states.dtype == jnp.float64
 
 
-def test_correlated_mvn():
+@pytest.mark.parametrize("regularize", [True, False])
+def test_correlated_mvn(regularize):
     # This requires dense mass matrix estimation.
     D = 5
 
@@ -71,7 +72,9 @@ def test_correlated_mvn():
         return 0.5 * jnp.dot(z.T, jnp.dot(true_prec, z))
 
     init_params = jnp.zeros(D)
-    kernel = NUTS(potential_fn=potential_fn, dense_mass=True)
+    kernel = NUTS(
+        potential_fn=potential_fn, dense_mass=True, regularize_mass_matrix=regularize
+    )
     mcmc = MCMC(kernel, warmup_steps, num_samples)
     mcmc.run(random.PRNGKey(0), init_params=init_params)
     samples = mcmc.get_samples()
@@ -894,6 +897,16 @@ def test_forward_mode_differentiation():
 
     # this fails in reverse mode
     mcmc = MCMC(NUTS(model, forward_mode_differentiation=True), 10, 10)
+    mcmc.run(random.PRNGKey(0))
+
+
+def test_SA_gradient_free():
+    def model():
+        x = numpyro.sample("x", dist.Normal(0, 1))
+        y = lax.while_loop(lambda x: x < 10, lambda x: x + 1, x)
+        numpyro.sample("obs", dist.Normal(y, 1), obs=1.0)
+
+    mcmc = MCMC(SA(model), 10, 10)
     mcmc.run(random.PRNGKey(0))
 
 
