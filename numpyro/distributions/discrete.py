@@ -622,16 +622,18 @@ class Poisson(Distribution):
     def log_prob(self, value):
         if self._validate_args:
             self._validate_sample(value)
-        if self.is_sparse and value.shape:
-            rate, value = promote_shapes(self.rate, value)
-            nonzero = value > 0
+        if self.is_sparse:
+            shape = lax.broadcast_shapes(self.batch_shape, jnp.shape(value))
+            rate = jnp.broadcast_to(self.rate, shape).reshape(-1)
+            nonzero = jnp.broadcast_to(value > 0, shape).reshape(-1)
+            value = jnp.broadcast_to(value, shape).reshape(-1)
             sparse_value = value[nonzero]
             sparse_rate = rate[nonzero]
             return index_add(
                 -rate,
                 nonzero,
                 jnp.log(sparse_rate) * sparse_value - gammaln(sparse_value + 1),
-            )
+            ).reshape(shape)
         return (jnp.log(self.rate) * value) - gammaln(value + 1) - self.rate
 
     @property
