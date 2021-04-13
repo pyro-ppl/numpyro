@@ -668,6 +668,29 @@ def test_pathwise_gradient(jax_dist, sp_dist, params):
 @pytest.mark.parametrize(
     "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
 )
+def test_jit_log_likelihood(jax_dist, sp_dist, params):
+    if jax_dist.__name__ in (
+        "GaussianRandomWalk",
+        "_ImproperWrapper",
+        "LKJ",
+        "LKJCholesky",
+    ):
+        pytest.xfail(reason="non-jittable params")
+
+    rng_key = random.PRNGKey(0)
+    samples = jax_dist(*params).sample(key=rng_key, sample_shape=(2, 3))
+
+    def log_likelihood(*params):
+        return jax_dist(*params).log_prob(samples)
+
+    expected = log_likelihood(*params)
+    actual = jax.jit(log_likelihood)(*params)
+    assert_allclose(actual, expected, atol=1e-5)
+
+
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params", CONTINUOUS + DISCRETE + DIRECTIONAL
+)
 @pytest.mark.parametrize("prepend_shape", [(), (2,), (2, 3)])
 @pytest.mark.parametrize("jit", [False, True])
 def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
