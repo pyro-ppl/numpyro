@@ -58,6 +58,7 @@ from numpyro.distributions.discrete import (
     OrderedLogistic,
     Poisson,
     PRNGIdentity,
+    ZeroInflatedDistribution,
     ZeroInflatedPoisson,
 )
 from numpyro.distributions.distribution import (
@@ -141,5 +142,6 @@ __all__ = [
     "Uniform",
     "Unit",
     "VonMises",
+    "ZeroInflatedDistribution",
     "ZeroInflatedPoisson",
 ]
