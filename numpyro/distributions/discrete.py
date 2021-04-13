@@ -631,6 +631,10 @@ class Poisson(Distribution):
         return self.rate
 
 
+class ZeroInflatedDistribution(Distribution):
+    pass
+
+
 class ZeroInflatedPoisson(Distribution):
     """
     A Zero Inflated Poisson distribution.
