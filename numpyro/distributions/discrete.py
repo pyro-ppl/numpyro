@@ -33,7 +33,7 @@ from jax import lax
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
+from jax.scipy.special import expit, gammainc, gammaln, logsumexp, xlog1py, xlogy
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -629,6 +629,9 @@ class Poisson(Distribution):
     @property
     def variance(self):
         return self.rate
+
+    def cdf(self, value):
+        return 1 - gammainc(value + 1, self.rate)
 
 
 class ZeroInflatedPoisson(Distribution):
