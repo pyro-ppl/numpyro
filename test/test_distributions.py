@@ -289,7 +289,7 @@ CONTINUOUS = [
         None,
         jnp.array([-2.0, 2.0]),
     ),
-    T(dist.continuous.TwoSidedTruncatedDistribution, dist.Laplace(0.0, 1.0), -2.0, 3.0),
+    T(dist.TwoSidedTruncatedDistribution, dist.Laplace(0.0, 1.0), -2.0, 3.0),
     T(dist.Uniform, 0.0, 2.0),
     T(dist.Uniform, 1.0, jnp.array([2.0, 3.0])),
     T(dist.Uniform, jnp.array([0.0, 0.0]), jnp.array([[2.0], [3.0]])),
@@ -1143,7 +1143,7 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         ):
             continue
         if (
-            jax_dist is dist.continuous.TwoSidedTruncatedDistribution
+            jax_dist is dist.TwoSidedTruncatedDistribution
             and dist_args[i] == "base_dist"
         ):
             continue
