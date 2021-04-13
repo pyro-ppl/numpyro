@@ -98,6 +98,14 @@ class _ImproperWrapper(dist.ImproperUniform):
         return transform(unconstrained_samples)
 
 
+class ZeroInflatedPoissonLogits(dist.discrete.ZeroInflatedLogits):
+    arg_constraints = {"rate": constraints.positive, "gate_logits": constraints.real}
+
+    def __init__(self, rate, gate_logits, *, validate_args=None):
+        self.rate = rate
+        super().__init__(dist.Poisson(rate), gate_logits, validate_args=validate_args)
+
+
 _DIST_MAP = {
     dist.BernoulliProbs: lambda probs: osp.bernoulli(p=probs),
     dist.BernoulliLogits: lambda logits: osp.bernoulli(p=_to_probs_bernoulli(logits)),
@@ -333,6 +341,12 @@ DISCRETE = [
     T(dist.Poisson, jnp.array([2.0, 3.0, 5.0])),
     T(dist.ZeroInflatedPoisson, 0.6, 2.0),
     T(dist.ZeroInflatedPoisson, jnp.array([0.2, 0.7, 0.3]), jnp.array([2.0, 3.0, 5.0])),
+    T(ZeroInflatedPoissonLogits, 2.0, 3.0),
+    T(
+        ZeroInflatedPoissonLogits,
+        jnp.array([0.2, 4.0, 0.3]),
+        jnp.array([2.0, -3.0, 5.0]),
+    ),
 ]
 
 
