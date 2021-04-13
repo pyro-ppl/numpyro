@@ -20,7 +20,6 @@ from numpyro.distributions.continuous import (
     HalfNormal,
     InverseGamma,
     Laplace,
-    LeftTruncatedDistribution,
     LKJCholesky,
     Logistic,
     LogNormal,
@@ -28,14 +27,8 @@ from numpyro.distributions.continuous import (
     MultivariateNormal,
     Normal,
     Pareto,
-    RightTruncatedDistribution,
     SoftLaplace,
     StudentT,
-    TruncatedCauchy,
-    TruncatedDistribution,
-    TruncatedNormal,
-    TruncatedPolyaGamma,
-    TwoSidedTruncatedDistribution,
     Uniform,
 )
 from numpyro.distributions.directional import ProjectedNormal, VonMises
@@ -72,6 +65,15 @@ from numpyro.distributions.distribution import (
 )
 from numpyro.distributions.kl import kl_divergence
 from numpyro.distributions.transforms import biject_to
+from numpyro.distributions.truncated import (
+    LeftTruncatedDistribution,
+    RightTruncatedDistribution,
+    TruncatedCauchy,
+    TruncatedDistribution,
+    TruncatedNormal,
+    TruncatedPolyaGamma,
+    TwoSidedTruncatedDistribution,
+)
 
 from . import constraints, transforms
 
