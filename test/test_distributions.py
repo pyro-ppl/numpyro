@@ -731,7 +731,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
-        if d.shape() == ():
+        if d.shape() == () and not d.is_discrete:
             rtol = 1e-3 if jax_dist is dist.StudentT else 1e-5
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
@@ -748,8 +748,6 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
         assert_allclose(d.cdf(d.icdf(quantiles)), quantiles, atol=1e-5, rtol=1e-5)
         assert_allclose(d.icdf(d.cdf(samples)), samples, atol=1e-5, rtol=1e-5)
     except NotImplementedError:
-        pass
-    except TypeError:
         pass
 
     # test against scipy
