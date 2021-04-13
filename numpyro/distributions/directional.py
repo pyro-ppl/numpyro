@@ -87,7 +87,7 @@ class ProjectedNormal(Distribution):
     with a :class:`~numpyro.infer.reparam.ProjectedNormalReparam`
     reparametrizer in the model, e.g.::
 
-        @handlers.reparam(config={"direction": ProjectedNormalReparam()})
+        @partial(reparam, config={"direction": ProjectedNormalReparam()})
         def model():
             direction = numpyro.sample("direction",
                                        ProjectedNormal(zeros(3)))
