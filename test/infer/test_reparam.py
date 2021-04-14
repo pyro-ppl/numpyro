@@ -85,6 +85,7 @@ def test_syntax():
     def m():
         return model()
 
+    m()
     tr4 = trace.trace
 
     assert tr1.keys() == tr2.keys() == tr3.keys() == tr4.keys()
