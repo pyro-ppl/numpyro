@@ -392,6 +392,6 @@ def soft_vmap(fn, xs, batch_ndims=1, chunk_size=None):
     ys = lax.map(fn, xs) if num_chunks > 1 else fn(xs)
     map_ndims = int(num_chunks > 1) + int(chunk_size > 1)
     ys = tree_map(
-        lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size], ys
+        lambda y: jnp.reshape(y, (-1,) + jnp.shape(y)[map_ndims:])[:batch_size] if y.size else y, ys
     )
-    return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]), ys)
+    return tree_map(lambda y: jnp.reshape(y, batch_shape + jnp.shape(y)[1:]) if y.size else y, ys)
