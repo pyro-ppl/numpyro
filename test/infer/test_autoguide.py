@@ -31,6 +31,7 @@ from numpyro.infer.autoguide import (
 )
 from numpyro.infer.initialization import init_to_median
 from numpyro.infer.reparam import TransformReparam
+from numpyro.infer.util import Predictive
 from numpyro.nn.auto_reg_nn import AutoregressiveNN
 from numpyro.util import fori_loop
 
@@ -74,6 +75,16 @@ def test_beta_bernoulli(auto_class):
         random.PRNGKey(1), params, sample_shape=(1000,)
     )
     assert_allclose(jnp.mean(posterior_samples["beta"], 0), true_coefs, atol=0.05)
+
+    # Predictive can be instantiated from posterior samples...
+    predictive = Predictive(model, posterior_samples=posterior_samples)
+    predictive_samples = predictive(random.PRNGKey(1), None)
+    assert predictive_samples["obs"].shape == (1000, 2)
+
+    # ... or from the guide + params
+    predictive = Predictive(model, guide=guide, params=params, num_samples=1000)
+    predictive_samples = predictive(random.PRNGKey(1), None)
+    assert predictive_samples["obs"].shape == (1000, 2)
 
 
 @pytest.mark.parametrize(
