@@ -214,7 +214,10 @@ def main(args):
         gp, n_random_draws=args.num_random, objective=ackley_1d, x_bounds=(-4, 4)
     )
 
-    for i in range(20):
+    fig, axes = plt.subplots(
+        args.num_samples - args.num_random, 1, figsize=(6, 12), constrained_layout=True
+    )
+    for i in range(args.num_samples):
         (
             X,
             y,
@@ -224,30 +227,30 @@ def main(args):
             posterior_std,
         ) = thompson.choose_next_sample(n_step=args.num_step,)
 
-        fig, ax = plt.subplots(figsize=(8, 6), constrained_layout=True)
+        if i >= args.num_random:
+            ax = axes[i - args.num_random]
+            # plot training data
+            ax.scatter(X, y, color="blue", marker="o", label="samples")
+            ax.plot(X_grid, ackley_1d(X_grid), color="black", linestyle="--")
+            ax.plot(
+                X_grid,
+                posterior_sample,
+                color="red",
+                linestyle="-",
+                label="posterior sample",
+            )
+            # plot 90% confidence level of predictions
+            ax.fill_between(
+                X_grid,
+                posterior_mean - posterior_std,
+                posterior_mean + posterior_std,
+                color="red",
+                alpha=0.5,
+            )
+            ax.set(xlabel="X", ylabel="Y")
 
-        # plot training data
-        ax.scatter(X, y, color="blue", marker="o", label="samples")
-        ax.plot(X_grid, ackley_1d(X_grid), color="black", linestyle="--")
-        ax.plot(
-            X_grid,
-            posterior_sample,
-            color="red",
-            linestyle="-",
-            label="posterior sample",
-        )
-        # plot 90% confidence level of predictions
-        ax.fill_between(
-            X_grid,
-            posterior_mean - posterior_std,
-            posterior_mean + posterior_std,
-            color="red",
-            alpha=0.5,
-        )
-        ax.set(xlabel="X", ylabel="Y")
-
-        plt.legend()
-        plt.show()
+    plt.legend(frameon=True)
+    plt.show()
 
 
 if __name__ == "__main__":
@@ -255,6 +258,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Thompson sampling example")
     parser.add_argument(
         "--num-random", nargs="?", default=2, type=int, help="number of random draws"
+    )
+    parser.add_argument(
+        "--num-samples", nargs="?", default=10, type=int, help="number of samples"
     )
     parser.add_argument(
         "--num-step",
