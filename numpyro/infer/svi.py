@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import namedtuple, partial
+import warnings
 
 import tqdm
 
@@ -126,7 +127,7 @@ class SVI(object):
                 and (not site["is_observed"])
                 and site["fn"].support.is_discrete
             ):
-                raise ValueError(
+                warnings.warn(
                     "Currently, SVI does not support models with discrete latent variables"
                 )
 

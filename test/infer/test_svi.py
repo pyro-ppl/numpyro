@@ -227,5 +227,5 @@ def test_svi_discrete_latent():
         numpyro.sample("x", dist.Bernoulli(probs))
 
     svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
-    with pytest.raises(ValueError, match="SVI does not support models with discrete"):
+    with pytest.warns(UserWarning, match="SVI does not support models with discrete"):
         svi.run(random.PRNGKey(0), 10)
