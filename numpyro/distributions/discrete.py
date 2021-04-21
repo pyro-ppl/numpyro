@@ -75,7 +75,6 @@ class BernoulliProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.boolean
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
@@ -117,7 +116,6 @@ class BernoulliLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.boolean
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, logits=None, validate_args=None):
         self.logits = logits
@@ -170,7 +168,6 @@ class BinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
@@ -240,7 +237,6 @@ class BinomialLogits(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
-    is_discrete = True
     enumerate_support = BinomialProbs.enumerate_support
 
     def __init__(self, logits, total_count=1, validate_args=None):
@@ -301,7 +297,6 @@ def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
 class CategoricalProbs(Distribution):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         if jnp.ndim(probs) < 1:
@@ -352,7 +347,6 @@ class CategoricalProbs(Distribution):
 class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, logits, validate_args=None):
         if jnp.ndim(logits) < 1:
@@ -458,8 +452,6 @@ class PRNGIdentity(Distribution):
     handler. Only `sample` method is supported.
     """
 
-    is_discrete = True
-
     def __init__(self):
         warnings.warn(
             "PRNGIdentity distribution is deprecated. To get a random "
@@ -480,7 +472,6 @@ class MultinomialProbs(Distribution):
         "probs": constraints.simplex,
         "total_count": constraints.nonnegative_integer,
     }
-    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         if jnp.ndim(probs) < 1:
@@ -538,7 +529,6 @@ class MultinomialLogits(Distribution):
         "logits": constraints.real_vector,
         "total_count": constraints.nonnegative_integer,
     }
-    is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
         if jnp.ndim(logits) < 1:
@@ -608,7 +598,6 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
 class Poisson(Distribution):
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, rate, *, is_sparse=False, validate_args=None):
         self.rate = rate
@@ -661,7 +650,6 @@ class ZeroInflatedPoisson(Distribution):
 
     arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, gate, rate=1.0, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), jnp.shape(rate))
@@ -701,7 +689,6 @@ class ZeroInflatedPoisson(Distribution):
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
@@ -738,7 +725,6 @@ class GeometricProbs(Distribution):
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, logits, validate_args=None):
         self.logits = logits

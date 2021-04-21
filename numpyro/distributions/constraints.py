@@ -66,6 +66,7 @@ class Constraint(object):
     e.g. within which a variable can be optimized.
     """
 
+    is_discrete = False
     event_dim = 0
 
     def __call__(self, x):
@@ -86,6 +87,8 @@ class Constraint(object):
 
 
 class _Boolean(Constraint):
+    is_discrete = True
+
     def __call__(self, x):
         return (x == 0) | (x == 1)
 
@@ -271,6 +274,8 @@ class _LessThan(Constraint):
 
 
 class _IntegerInterval(Constraint):
+    is_discrete = True
+
     def __init__(self, lower_bound, upper_bound):
         self.lower_bound = lower_bound
         self.upper_bound = upper_bound
@@ -283,6 +288,8 @@ class _IntegerInterval(Constraint):
 
 
 class _IntegerGreaterThan(Constraint):
+    is_discrete = True
+
     def __init__(self, lower_bound):
         self.lower_bound = lower_bound
 
@@ -326,6 +333,7 @@ class _LowerCholesky(Constraint):
 
 
 class _Multinomial(Constraint):
+    is_discrete = True
     event_dim = 1
 
     def __init__(self, upper_bound):

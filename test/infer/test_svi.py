@@ -216,3 +216,16 @@ def test_stable_run(stable_run):
     svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
     svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_run)
     assert jnp.isfinite(svi_result.params["loc"]) == stable_run
+
+
+def test_svi_discrete_latent():
+    def model():
+        x = numpyro.sample("x", dist.Bernoulli(0.5))
+
+    def guide():
+        probs = numpyro.param("probs", 0.2)
+        numpyro.sample("x", dist.Bernoulli(0.5))
+
+    svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
+    with pytest.raises(ValueError, match="SVI does not support models with discrete"):
+        svi.run(random.PRNGKey(0), 10)

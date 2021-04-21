@@ -1376,6 +1376,9 @@ def test_categorical_log_prob_grad():
     ],
 )
 def test_constraints(constraint, x, expected):
+    v = constraint.feasible_like(x)
+    if jnp.result_type(v) == "float32" or jnp.result_type(v) == "float64":
+        assert not constraint.is_discrete
     assert_array_equal(constraint(x), expected)
 
     feasible_value = constraint.feasible_like(x)
