@@ -19,7 +19,7 @@ from numpyro.contrib.funsor.enum_messenger import NamedMessenger, plate as enum_
 from numpyro.contrib.funsor.infer_util import log_density
 from numpyro.contrib.indexing import Vindex
 import numpyro.distributions as dist
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, init_to_median
 from numpyro.primitives import _PYRO_STACK
 
 
@@ -49,7 +49,7 @@ def test_gaussian_mixture_model():
         random.PRNGKey(1)
     )
 
-    nuts_kernel = NUTS(gmm)
+    nuts_kernel = NUTS(gmm, init_strategy=init_to_median)
     mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=500)
     mcmc.run(random.PRNGKey(2), data)
     samples = mcmc.get_samples()
