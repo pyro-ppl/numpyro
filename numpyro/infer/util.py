@@ -239,8 +239,18 @@ def find_valid_initial_params(
         key, subkey = random.split(key)
 
         if radius is None or prototype_params is None:
+            # XXX: we don't want to apply enum to draw latent samples
+            model_ = model
+            if enum:
+                from numpyro.contrib.funsor import enum as enum_handler
+
+                if isinstance(model, substitute) and isinstance(model.fn, enum_handler):
+                    model_ = substitute(model.fn.fn, data=model.data)
+                elif isinstance(model, enum_handler):
+                    model_ = model.fn
+
             # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
-            seeded_model = substitute(seed(model, subkey), substitute_fn=init_strategy)
+            seeded_model = substitute(seed(model_, subkey), substitute_fn=init_strategy)
             model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
             constrained_values, inv_transforms = {}, {}
             for k, v in model_trace.items():
