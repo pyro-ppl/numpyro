@@ -114,6 +114,7 @@ class SVI(object):
         )
         params = {}
         inv_transforms = {}
+        mutable = []
         # NB: params in model_trace will be overwritten by params in guide_trace
         for site in list(model_trace.values()) + list(guide_trace.values()):
             if site["type"] == "param":
@@ -121,6 +122,8 @@ class SVI(object):
                 transform = biject_to(constraint)
                 inv_transforms[site["name"]] = transform
                 params[site["name"]] = transform.inv(site["value"])
+                if site["infer"].get("mutable", False):
+                    mutable.append(site["name"])
 
         self.constrain_fn = partial(transform_fn, inv_transforms)
         # we convert weak types like float to float32/float64
@@ -128,7 +131,7 @@ class SVI(object):
         params = tree_map(
             lambda x: lax.convert_element_type(x, jnp.result_type(x)), params
         )
-        return SVIState(self.optim.init(params), rng_key)
+        return SVIState(self.optim.init(params, mutable=mutable), rng_key)
 
     def get_params(self, svi_state):
         """

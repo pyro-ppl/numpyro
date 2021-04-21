@@ -66,8 +66,10 @@ class Trace_ELBO:
                 seeded_guide, args, kwargs, param_map
             )
             seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, _ = log_density(seeded_model, args, kwargs, param_map)
+            model_log_density, model_trace = log_density(seeded_model, args, kwargs, param_map)
 
+            if self.num_particles == 1:
+                ...
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
             return elbo

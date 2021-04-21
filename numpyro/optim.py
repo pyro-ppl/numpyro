@@ -38,13 +38,14 @@ class _NumPyroOptim(object):
     def __init__(self, optim_fn: Callable, *args, **kwargs) -> None:
         self.init_fn, self.update_fn, self.get_params_fn = optim_fn(*args, **kwargs)
 
-    def init(self, params: _Params) -> _IterOptState:
+    def init(self, params: _Params, mutable) -> _IterOptState:
         """
         Initialize the optimizer with parameters designated to be optimized.
 
         :param params: a collection of numpy arrays.
         :return: initial optimizer state.
         """
+        # store both opt_state and mutable
         opt_state = self.init_fn(params)
         return jnp.array(0), opt_state
 
