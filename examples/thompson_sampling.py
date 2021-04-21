@@ -1,6 +1,14 @@
 # Copyright Contributors to the Pyro project.
 # SPDX-License-Identifier: Apache-2.0
 
+"""
+Example: Gaussian Process
+=========================
+
+In this example we show how to implement Thompson sampling for Gaussian processes.
+
+"""
+
 import argparse
 
 import matplotlib.pyplot as plt
@@ -39,7 +47,7 @@ def matern32_kernel(X, Z, var=1.0, length=0.5, jitter=1.0e-6):
 
 
 def model(X, Y, kernel=matern32_kernel):
-    # set uninformative log-normal priors on our three kernel hyperparameters
+    # set uninformative log-normal priors on our kernel hyperparameters
     var = numpyro.sample("var", dist.LogNormal(0.0, 1.0))
     length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
 
@@ -55,7 +63,7 @@ def model(X, Y, kernel=matern32_kernel):
 
 
 class GP:
-    """ Adapted to numpyro from https://gdmarmerola.github.io/ts-for-bayesian-optim/"""
+    """ Adapted to numpyro from https://gdmarmerola.github.io/ts-for-bayesian-optim/ """
 
     def __init__(self, kernel=matern32_kernel):
         self.kernel = kernel
@@ -64,9 +72,14 @@ class GP:
     def fit(self, X, Y, rng_key, n_step):
         self.X_train = X
 
+        # store moments of training y (to normalize)
         self.y_mean = jnp.mean(Y)
         self.y_std = jnp.std(Y)
 
+        # normalize y
+        Y = (Y - self.y_mean) / self.y_std
+
+        # setup optimizer and SVI
         optim = numpyro.optim.Adam(step_size=0.005)
 
         svi = SVI(
@@ -75,17 +88,19 @@ class GP:
             optim=optim,
             loss=Trace_ELBO(),
             X=X,
-            Y=(Y - self.y_mean) / self.y_std,
+            Y=Y,
         )
 
         params, _ = svi.run(rng_key, n_step)
 
-        # self.kernel_params = {k: v.mean() for k, v in mcmc.get_samples().items()}
+        # get kernel parameters from guide with proper names
         self.kernel_params = svi.guide.median(params)
 
+        # store inverted prior covariance
         self.K_xx_inv = jnp.linalg.inv(self.kernel(X, X, **self.kernel_params))
 
-        self.alpha = jnp.matmul(self.K_xx_inv, (Y - self.y_mean) / self.y_std)
+        # store inverted prior covariance multiplied by y
+        self.alpha = self.K_xx_inv @ Y
 
         return self.kernel_params
 
@@ -95,8 +110,11 @@ class GP:
         # compute kernels between train and test data, etc.
         k_pp = self.kernel(X, X, **self.kernel_params)
         k_pX = self.kernel(X, self.X_train, **self.kernel_params, jitter=0.0)
-        K = k_pp - jnp.matmul(k_pX, jnp.matmul(self.K_xx_inv, jnp.transpose(k_pX)))
 
+        # compute posterior covariance
+        K = k_pp - k_pX @ self.K_xx_inv @ jnp.transpose(k_pX)
+
+        # compute posterior mean
         mean = jnp.matmul(k_pX, self.alpha)
 
         # we return both the mean function and the standard deviation
@@ -109,7 +127,9 @@ class GP:
             return (mean * self.y_std) + self.y_mean, K * self.y_std ** 2
 
     def sample_y(self, rng_key, X):
+        # get posterior mean and covariance
         y_mean, y_cov = self.predict(X)
+        # draw one sample
         return jax.random.multivariate_normal(rng_key, mean=y_mean, cov=y_cov)
 
 
