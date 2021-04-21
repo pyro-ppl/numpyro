@@ -225,7 +225,9 @@ def main(args):
             posterior_sample,
             posterior_mean,
             posterior_std,
-        ) = thompson.choose_next_sample(n_step=args.num_step,)
+        ) = thompson.choose_next_sample(
+            n_step=args.num_step,
+        )
 
         if i >= args.num_random:
             ax = axes[i - args.num_random]
