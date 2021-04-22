@@ -100,7 +100,8 @@ jobs:
         pip freeze
     - name: Test with pytest
       run: |
-        pytest -vs --durations=100 test/infer
+        pytest -vs --durations=20 test/infer/test_mcmc.py
+        pytest -vs --durations=20 test/infer --ignore=test/infer/test_mcmc.py
     - name: Test x64
       run: |
         JAX_ENABLE_X64=1 pytest -vs test/infer/test_mcmc.py -k x64
