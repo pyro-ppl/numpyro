@@ -434,3 +434,51 @@ def test_subsample_guide(auto_class):
             batch = data[:, beg:end]
             beg = end
             svi_state, loss = update_fn(svi_state, batch, subsample, full_size)
+
+
+@pytest.mark.parametrize(
+    "auto_class",
+    [
+        AutoDiagonalNormal,
+        AutoMultivariateNormal,
+        AutoLaplaceApproximation,
+        AutoLowRankMultivariateNormal,
+        AutoNormal,
+        AutoDelta,
+    ],
+)
+def test_autoguide_deterministic(auto_class):
+    def model(y=None):
+        n = y.size if y is not None else 1
+
+        mu = numpyro.sample("mu", dist.Normal(0, 5))
+        sigma = numpyro.param("sigma", 1, constraint=constraints.positive)
+
+        y = numpyro.sample("y", dist.Normal(mu, sigma).expand((n,)), obs=y)
+        numpyro.deterministic("z", (y - mu) / sigma)
+
+    mu, sigma = 2, 3
+    y = mu + sigma * random.normal(random.PRNGKey(0), shape=(300,))
+    y_train = y[:200]
+    y_test = y[200:]
+
+    guide = auto_class(model)
+    optimiser = numpyro.optim.Adam(step_size=0.01)
+    svi = SVI(model, guide, optimiser, Trace_ELBO())
+
+    params, losses = svi.run(random.PRNGKey(0), num_steps=500, y=y_train)
+    posterior_samples = guide.sample_posterior(
+        random.PRNGKey(0), params, sample_shape=(1000,)
+    )
+
+    predictive = Predictive(model, posterior_samples, params=params)
+    predictive_samples = predictive(random.PRNGKey(0), y_test)
+
+    assert predictive_samples["y"].shape == (1000, 100)
+    assert predictive_samples["z"].shape == (1000, 100)
+    assert_allclose(
+        (predictive_samples["y"] - posterior_samples["mu"][..., None])
+        / params["sigma"],
+        predictive_samples["z"],
+        atol=0.05,
+    )
