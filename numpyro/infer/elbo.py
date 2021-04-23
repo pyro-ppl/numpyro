@@ -57,6 +57,8 @@ class Trace_ELBO:
             during the course of fitting).
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
+        if isinstance(param_map, tuple):
+            assert self.num_particles == 1
 
         def single_particle_elbo(rng_key):
             model_seed, guide_seed = random.split(rng_key)
@@ -68,8 +70,6 @@ class Trace_ELBO:
             seeded_model = replay(seeded_model, guide_trace)
             model_log_density, model_trace = log_density(seeded_model, args, kwargs, param_map)
 
-            if self.num_particles == 1:
-                ...
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
             return elbo
