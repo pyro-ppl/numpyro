@@ -5,7 +5,7 @@
 Example: Gaussian Process
 =========================
 
-In this example we show how to implement Thompson sampling for Gaussian processes.
+In this example we show how to implement Thompson sampling for Bayesian optimization with Gaussian processes.
 
 """
 
@@ -26,7 +26,7 @@ from numpyro.infer.autoguide import AutoDelta
 numpyro.enable_x64()
 
 
-# defining the function. At y=0 to get a 1D cut at the origin
+# the function to be minimized. At y=0 to get a 1D cut at the origin
 def ackley_1d(x, y=0):
     out = (
         -20 * jnp.exp(-0.2 * jnp.sqrt(0.5 * (x ** 2 + y ** 2)))
@@ -37,16 +37,17 @@ def ackley_1d(x, y=0):
     return out
 
 
-# matern kernel with nu = 1.5
-def matern32_kernel(X, Z, var=1.0, length=0.5, jitter=1.0e-6):
+# matern kernel with nu = 5/2
+def matern52_kernel(X, Z, var=1.0, length=0.5, jitter=1.0e-6):
     d = jnp.sqrt(0.5) * jnp.sqrt(jnp.power((X[:, None] - Z), 2.0)) / length
     k = var * (1 + d + (d ** 2) / 3) * jnp.exp(-d)
     if jitter:
+        # we are assuming a noise free process, but add a small jitter for numerical stability
         k += jitter * jnp.eye(X.shape[0])
     return k
 
 
-def model(X, Y, kernel=matern32_kernel):
+def model(X, Y, kernel=matern52_kernel):
     # set uninformative log-normal priors on our kernel hyperparameters
     var = numpyro.sample("var", dist.LogNormal(0.0, 1.0))
     length = numpyro.sample("length", dist.LogNormal(0.0, 1.0))
@@ -63,9 +64,7 @@ def model(X, Y, kernel=matern32_kernel):
 
 
 class GP:
-    """ Adapted to numpyro from https://gdmarmerola.github.io/ts-for-bayesian-optim/ """
-
-    def __init__(self, kernel=matern32_kernel):
+    def __init__(self, kernel=matern52_kernel):
         self.kernel = kernel
         self.kernel_params = None
 
@@ -80,7 +79,7 @@ class GP:
         Y = (Y - self.y_mean) / self.y_std
 
         # setup optimizer and SVI
-        optim = numpyro.optim.Adam(step_size=0.005)
+        optim = numpyro.optim.Adam(step_size=0.005, b1=0.5)
 
         svi = SVI(
             model,
@@ -97,6 +96,7 @@ class GP:
         self.kernel_params = svi.guide.median(params)
 
         # store inverted prior covariance
+        # TODO: use jax.scipy.linalg.cholesky and related functions
         self.K_xx_inv = jnp.linalg.inv(self.kernel(X, X, **self.kernel_params))
 
         # store inverted prior covariance multiplied by y
@@ -135,10 +135,11 @@ class GP:
 
 # our TS-GP optimizer
 class ThompsonSamplingGP:
+    """ Adapted to numpyro from https://gdmarmerola.github.io/ts-for-bayesian-optim/ """
 
     # initialization
     def __init__(
-        self, gp, n_random_draws, objective, x_bounds, interval_resolution=1000
+        self, gp, n_random_draws, objective, x_bounds, grid_resolution=1000, seed=123
     ):
         # Gaussian Process
         self.gp = gp
@@ -155,16 +156,14 @@ class ThompsonSamplingGP:
         # interval resolution is defined as how many points we will use to
         # represent the posterior sample
         # we also define the x grid
-        self.interval_resolution = interval_resolution
-        self.X_grid = np.linspace(
-            self.bounds[0], self.bounds[1], self.interval_resolution
-        )
+        self.grid_resolution = grid_resolution
+        self.X_grid = np.linspace(self.bounds[0], self.bounds[1], self.grid_resolution)
 
         # also initializing our design matrix and target variable
         self.X = np.array([])
         self.y = np.array([])
 
-        self.rng_key = random.PRNGKey(0)
+        self.rng_key = random.PRNGKey(seed)
 
     # fitting process
     def fit(self, X, y, n_step):
@@ -175,12 +174,20 @@ class ThompsonSamplingGP:
         # return the fitted model
         return self.gp
 
-    # process of choosing next point
+    # choose the next Thompson sample
     def choose_next_sample(self, n_step=2_000):
 
         # if we do not have enough samples, sample randomly from bounds
         if self.X.shape[0] < self.n_random_draws:
-            next_sample = np.random.uniform(self.bounds[0], self.bounds[1], 1)[0]
+            self.rng_key, subkey = random.split(self.rng_key)
+            next_sample = random.uniform(
+                subkey, minval=self.bounds[0], maxval=self.bounds[1], shape=(1,)
+            )
+
+            # define dummy values for sample, mean and std to avoid errors when returning them
+            posterior_sample = np.array([np.mean(self.y)] * self.grid_resolution)
+            posterior_mean = np.array([np.mean(self.y)] * self.grid_resolution)
+            posterior_std = np.array([0] * self.grid_resolution)
 
         # if we do, we fit the GP and choose the next point based on the posterior draw minimum
         else:
@@ -206,32 +213,19 @@ class ThompsonSamplingGP:
         self.X = np.append(self.X, next_sample)
         self.y = np.append(self.y, next_observation)
 
-        # return everything if possible
-        try:
-            # returning values of interest
-            return (
-                self.X,
-                self.y,
-                self.X_grid,
-                posterior_sample,
-                posterior_mean,
-                posterior_std,
-            )
-
-        # if not, return whats possible to return
-        except UnboundLocalError:
-            return (
-                self.X,
-                self.y,
-                self.X_grid,
-                np.array([np.mean(self.y)] * self.interval_resolution),
-                np.array([np.mean(self.y)] * self.interval_resolution),
-                np.array([0] * self.interval_resolution),
-            )
+        # returning values of interest
+        return (
+            self.X,
+            self.y,
+            self.X_grid,
+            posterior_sample,
+            posterior_mean,
+            posterior_std,
+        )
 
 
 def main(args):
-    gp = GP(kernel=matern32_kernel)
+    gp = GP(kernel=matern52_kernel)
     # do inference
     thompson = ThompsonSamplingGP(
         gp, n_random_draws=args.num_random, objective=ackley_1d, x_bounds=(-4, 4)
@@ -285,7 +279,7 @@ if __name__ == "__main__":
         "--num-random", nargs="?", default=2, type=int, help="number of random draws"
     )
     parser.add_argument(
-        "--num-samples", nargs="?", default=10, type=int, help="number of samples"
+        "--num-samples", nargs="?", default=10, type=int, help="number of Thompson samples"
     )
     parser.add_argument(
         "--num-step",
