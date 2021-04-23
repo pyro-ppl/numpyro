@@ -106,7 +106,10 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
 
     def substitute_fn(site):
         if site["name"] in params:
-            return biject_to(site["fn"].support)(params[site["name"]])
+            if site["type"] == "sample":
+                return biject_to(site["fn"].support)(params[site["name"]])
+            else:
+                return params[site["name"]]
 
     substituted_model = substitute(model, substitute_fn=substitute_fn)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
