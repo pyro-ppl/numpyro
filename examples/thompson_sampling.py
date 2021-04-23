@@ -279,7 +279,11 @@ if __name__ == "__main__":
         "--num-random", nargs="?", default=2, type=int, help="number of random draws"
     )
     parser.add_argument(
-        "--num-samples", nargs="?", default=10, type=int, help="number of Thompson samples"
+        "--num-samples",
+        nargs="?",
+        default=10,
+        type=int,
+        help="number of Thompson samples",
     )
     parser.add_argument(
         "--num-step",
