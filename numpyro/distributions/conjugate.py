@@ -36,7 +36,6 @@ class BetaBinomial(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
-    is_discrete = True
     enumerate_support = BinomialProbs.enumerate_support
 
     def __init__(
@@ -105,7 +104,6 @@ class DirichletMultinomial(Distribution):
         "concentration": constraints.independent(constraints.positive, 1),
         "total_count": constraints.nonnegative_integer,
     }
-    is_discrete = True
 
     def __init__(self, concentration, total_count=1, validate_args=None):
         if jnp.ndim(concentration) < 1:
@@ -180,7 +178,6 @@ class GammaPoisson(Distribution):
         "rate": constraints.positive,
     }
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, concentration, rate=1.0, validate_args=None):
         self.concentration, self.rate = promote_shapes(concentration, rate)
