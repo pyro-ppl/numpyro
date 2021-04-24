@@ -17,6 +17,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import jax.random as random
+from jax.scipy import linalg
 
 import numpyro
 import numpyro.distributions as dist
@@ -95,12 +96,11 @@ class GP:
         # get kernel parameters from guide with proper names
         self.kernel_params = svi.guide.median(params)
 
-        # store inverted prior covariance
-        # TODO: use jax.scipy.linalg.cholesky and related functions
-        self.K_xx_inv = jnp.linalg.inv(self.kernel(X, X, **self.kernel_params))
+        # store cholesky factor of prior covariance
+        self.L = linalg.cho_factor(self.kernel(X, X, **self.kernel_params))
 
         # store inverted prior covariance multiplied by y
-        self.alpha = self.K_xx_inv @ Y
+        self.alpha = linalg.cho_solve(self.L, Y)
 
         return self.kernel_params
 
@@ -112,10 +112,10 @@ class GP:
         k_pX = self.kernel(X, self.X_train, **self.kernel_params, jitter=0.0)
 
         # compute posterior covariance
-        K = k_pp - k_pX @ self.K_xx_inv @ jnp.transpose(k_pX)
+        K = k_pp - k_pX @ linalg.cho_solve(self.L, k_pX.T)
 
         # compute posterior mean
-        mean = jnp.matmul(k_pX, self.alpha)
+        mean = k_pX @ self.alpha
 
         # we return both the mean function and the standard deviation
         if return_std:
