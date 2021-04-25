@@ -60,7 +60,9 @@ class _NumPyroOptim(object):
         opt_state = self.update_fn(i, g, opt_state)
         return i + 1, opt_state
 
-    def eval_and_update(self, fn: Callable, state: _IterOptState, has_aux: bool = False):
+    def eval_and_update(
+        self, fn: Callable, state: _IterOptState, has_aux: bool = False
+    ):
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient

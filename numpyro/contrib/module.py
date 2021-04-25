@@ -54,14 +54,6 @@ def flax_module(name, nn_module, *, input_shape=None, **kwargs):
         params_flat, tree_def = tree_flatten(nn_params)
         nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
-
-    mutable = []  # list of mutable list
-
-    def fn(..., ):
-        nn_output, mutable_params = ...
-        numpyro.param("...", name, mutable_params
-
-
     return partial(nn_module.call, nn_params)
 
 

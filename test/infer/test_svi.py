@@ -229,3 +229,22 @@ def test_svi_discrete_latent():
     svi = SVI(model, guide, optim.Adam(1), Trace_ELBO())
     with pytest.warns(UserWarning, match="SVI does not support models with discrete"):
         svi.run(random.PRNGKey(0), 10)
+
+
+def test_mutable_state():
+    def model():
+        x = numpyro.sample("x", dist.Normal(-1, 1))
+        numpyro.param("x1p", x + 1, infer={"mutable": True})
+
+    def guide():
+        loc = numpyro.param("loc", 0.0)
+        p = numpyro.param("loc1p", {"value": None}, infer={"mutable": True})
+        # we can modify the content of `p` if it is a dict
+        p["value"] = loc + 2
+        numpyro.sample("x", dist.Normal(loc, 1))
+
+    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
+    svi_result = svi.run(random.PRNGKey(0), 1000)
+    params = svi_result.params
+    assert set(params.keys()) == {"x1p", "loc", "loc1p"}
+    assert_allclose(params["loc1p"]["value"], params["loc"] + 2, atol=0.1)

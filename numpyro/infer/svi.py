@@ -33,14 +33,21 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
 
 def _apply_loss_fn(
-    loss_fn, rng_key, constrain_fn, model, guide, args, kwargs, static_kwargs, params, mutable_state=None
+    loss_fn,
+    rng_key,
+    constrain_fn,
+    model,
+    guide,
+    args,
+    kwargs,
+    static_kwargs,
+    params,
+    mutable_state=None,
 ):
     params = constrain_fn(params)
     if mutable_state is not None:
         params.update(mutable_state)
-    return loss_fn(
-        rng_key, params, model, guide, *args, **kwargs, **static_kwargs
-    )
+    return loss_fn(rng_key, params, model, guide, *args, **kwargs, **static_kwargs)
 
 
 class SVI(object):
@@ -145,7 +152,8 @@ class SVI(object):
         # we convert weak types like float to float32/float64
         # to avoid recompiling body_fn in svi.run
         params, mutable_state = tree_map(
-            lambda x: lax.convert_element_type(x, jnp.result_type(x)), (params, mutable_state)
+            lambda x: lax.convert_element_type(x, jnp.result_type(x)),
+            (params, mutable_state),
         )
         return SVIState(self.optim.init(params), mutable_state, rng_key)
 
@@ -183,7 +191,7 @@ class SVI(object):
             args,
             kwargs,
             self.static_kwargs,
-            mutable_state=svi_state.mutable_state
+            mutable_state=svi_state.mutable_state,
         )
         has_aux = svi_state.mutable_state is not None
         out, optim_state = self.optim.eval_and_update(
