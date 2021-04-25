@@ -61,23 +61,36 @@ class Trace_ELBO:
             assert self.num_particles == 1
 
         def single_particle_elbo(rng_key):
+            params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
             guide_log_density, guide_trace = log_density(
                 seeded_guide, args, kwargs, param_map
             )
+            mutable_params = {name: site["value"] for name, site in guide_trace.items()
+                              if site["type"] == "params" and site["infer"].get("mutable", False)}
+            params.update(mutable_params)
             seeded_model = replay(seeded_model, guide_trace)
-            model_log_density, model_trace = log_density(seeded_model, args, kwargs, param_map)
+            model_log_density, model_trace = log_density(seeded_model, args, kwargs, params)
+            mutable_params.update({name: site["value"] for name, site in model_trace.items()
+                                   if site["type"] == "params" and site["infer"].get("mutable", False)})
 
             # log p(z) - log q(z)
             elbo = model_log_density - guide_log_density
+            if self.num_particles == 1 and mutable_params:
+                return elbo, mutable_params
+            elif mutable_params:
+                warnings.warn("Currently, mutable state is updated only when num_particles=1.")
             return elbo
 
         # Return (-elbo) since by convention we do gradient descent on a loss and
         # the ELBO is a lower bound that needs to be maximized.
         if self.num_particles == 1:
-            return -single_particle_elbo(rng_key)
+            elbo = single_particle_elbo(rng_key)
+            if isinstance(elbo, tuple):
+                return -elbo[0], elbo[1]
+            return -elbo
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))
@@ -164,13 +177,19 @@ class TraceMeanField_ELBO(Trace_ELBO):
         """
 
         def single_particle_elbo(rng_key):
+            params = param_map.copy()
             model_seed, guide_seed = random.split(rng_key)
             seeded_model = seed(model, model_seed)
             seeded_guide = seed(guide, guide_seed)
             subs_guide = substitute(seeded_guide, data=param_map)
             guide_trace = trace(subs_guide).get_trace(*args, **kwargs)
-            subs_model = substitute(replay(seeded_model, guide_trace), data=param_map)
+            mutable_params = {name: site["value"] for name, site in guide_trace.items()
+                              if site["type"] == "params" and site["infer"].get("mutable", False)}
+            params.update(mutable_params)
+            subs_model = substitute(replay(seeded_model, guide_trace), data=params)
             model_trace = trace(subs_model).get_trace(*args, **kwargs)
+            mutable_params.update({name: site["value"] for name, site in model_trace.items()
+                                   if site["type"] == "params" and site["infer"].get("mutable", False)})
             _check_mean_field_requirement(model_trace, guide_trace)
 
             elbo_particle = 0
@@ -197,10 +216,17 @@ class TraceMeanField_ELBO(Trace_ELBO):
                     assert site["infer"].get("is_auxiliary")
                     elbo_particle = elbo_particle - _get_log_prob_sum(site)
 
+            if self.num_particles == 1 and mutable_params:
+                return elbo_particle, mutable_params
+            elif mutable_params:
+                warnings.warn("Currently, mutable state is updated only when num_particles=1.")
             return elbo_particle
 
         if self.num_particles == 1:
-            return -single_particle_elbo(rng_key)
+            elbo = single_particle_elbo(rng_key)
+            if isinstance(elbo, tuple):
+                return -elbo[0], elbo[1]
+            return -elbo
         else:
             rng_keys = random.split(rng_key, self.num_particles)
             return -jnp.mean(vmap(single_particle_elbo)(rng_keys))

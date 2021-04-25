@@ -38,17 +38,15 @@ class _NumPyroOptim(object):
     def __init__(self, optim_fn: Callable, *args, **kwargs) -> None:
         self.init_fn, self.update_fn, self.get_params_fn = optim_fn(*args, **kwargs)
 
-    def init(self, params: _Params, mutable=None) -> _IterOptState:
+    def init(self, params: _Params) -> _IterOptState:
         """
         Initialize the optimizer with parameters designated to be optimized.
 
         :param params: a collection of numpy arrays.
         :return: initial optimizer state.
         """
-        # store both opt_state and mutable
-        params, mutable_state = ...
         opt_state = self.init_fn(params)
-        return jnp.array(0), (opt_state, mutable_state)
+        return jnp.array(0), opt_state
 
     def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
         """
@@ -58,11 +56,11 @@ class _NumPyroOptim(object):
         :param state: current optimizer state.
         :return: new optimizer state after the update.
         """
-        i, (opt_state, mutable_state) = state
+        i, opt_state = state
         opt_state = self.update_fn(i, g, opt_state)
-        return i + 1, (opt_state, mutable_state)
+        return i + 1, opt_state
 
-    def eval_and_update(self, fn: Callable, state: _IterOptState, mutable=None) -> _IterOptState:
+    def eval_and_update(self, fn: Callable, state: _IterOptState, has_aux: bool = False):
         """
         Performs an optimization step for the objective function `fn`.
         For most optimizers, the update is performed based on the gradient
@@ -73,24 +71,18 @@ class _NumPyroOptim(object):
 
         :param fn: objective function.
         :param state: current optimizer state.
+        :param bool has_aux: a flag to indicate whether ``fn`` returns a pair of values
+            where the first one is the output that we want to differentiate and the the
+            second one is auxiliary data.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        if mutable is not None:
-            mutable_params = {k: v for k, v in params.items() if k in mutable}
-            params = {k: v for k, v in params.items() if k not in mutable}
-
-            def wrapped_fn(params, mutable_params):
-                return fn((params, mutable_params))
-
-            (out, mutable_params), grads = value_and_grad(wrapped_fn, has_aux=True)(params, mutable_params)
-        else:
-            out, grads = value_and_grad(fn)(params)
-            return out, self.update(grads, state)
+        out, grads = value_and_grad(fn, has_aux=has_aux)(params)
+        return out, self.update(grads, state)
 
     def eval_and_stable_update(
-        self, fn: Callable, state: _IterOptState
-    ) -> _IterOptState:
+        self, fn: Callable, state: _IterOptState, has_aux: bool = False
+    ):
         """
         Like :meth:`eval_and_update` but when the value of the objective function
         or the gradients are not finite, we will not update the input `state`
@@ -98,16 +90,21 @@ class _NumPyroOptim(object):
 
         :param fn: objective function.
         :param state: current optimizer state.
+        :param bool has_aux: a flag to indicate whether ``fn`` returns a pair of values
+            where the first one is the output that we want to differentiate and the the
+            second one is auxiliary data.
         :return: a pair of the output of objective function and the new optimizer state.
         """
         params = self.get_params(state)
-        out, grads = value_and_grad(fn)(params)
+        out, grads = value_and_grad(fn, has_aux=has_aux)(params)
+        out, aux = out if has_aux else out, None
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
             lambda _: (out, self.update(grads, state)),
             lambda _: (jnp.nan, state),
             None,
         )
+        out = (out, aux) if has_aux else out
         return out, state
 
     def get_params(self, state: _IterOptState) -> _Params:

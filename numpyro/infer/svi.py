@@ -15,10 +15,11 @@ from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import transform_fn
 
-SVIState = namedtuple("SVIState", ["optim_state", "rng_key"])
+SVIState = namedtuple("SVIState", ["optim_state", "mutable_state", "rng_key"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
  - **optim_state** - current optimizer's state.
+ - **mutable_state** - extra state to store params values indicated by `infer={"mutable": False}`
  - **rng_key** - random number generator seed used for the iteration.
 """
 
@@ -32,10 +33,13 @@ A :func:`~collections.namedtuple` consisting of the following fields:
 
 
 def _apply_loss_fn(
-    loss_fn, rng_key, constrain_fn, model, guide, args, kwargs, static_kwargs, params
+    loss_fn, rng_key, constrain_fn, model, guide, args, kwargs, static_kwargs, params, mutable_state=None
 ):
+    params = constrain_fn(params)
+    if mutable_state is not None:
+        params.update(mutable_state)
     return loss_fn(
-        rng_key, constrain_fn(params), model, guide, *args, **kwargs, **static_kwargs
+        rng_key, params, model, guide, *args, **kwargs, **static_kwargs
     )
 
 
@@ -115,16 +119,17 @@ class SVI(object):
         )
         params = {}
         inv_transforms = {}
-        mutable = []
+        mutable_state = {}
         # NB: params in model_trace will be overwritten by params in guide_trace
         for site in list(model_trace.values()) + list(guide_trace.values()):
             if site["type"] == "param":
+                if site["infer"].get("mutable", False):
+                    mutable_state[site["name"]] = site["value"]
+                    continue
                 constraint = site["kwargs"].pop("constraint", constraints.real)
                 transform = biject_to(constraint)
                 inv_transforms[site["name"]] = transform
                 params[site["name"]] = transform.inv(site["value"])
-                if site["infer"].get("mutable", False):
-                    mutable.append(site["name"])
             elif (
                 site["type"] == "sample"
                 and (not site["is_observed"])
@@ -134,13 +139,15 @@ class SVI(object):
                     "Currently, SVI does not support models with discrete latent variables"
                 )
 
+        if not mutable_state:
+            mutable_state = None
         self.constrain_fn = partial(transform_fn, inv_transforms)
         # we convert weak types like float to float32/float64
         # to avoid recompiling body_fn in svi.run
-        params = tree_map(
-            lambda x: lax.convert_element_type(x, jnp.result_type(x)), params
+        params, mutable_state = tree_map(
+            lambda x: lax.convert_element_type(x, jnp.result_type(x)), (params, mutable_state)
         )
-        return SVIState(self.optim.init(params, mutable=mutable), rng_key)
+        return SVIState(self.optim.init(params), mutable_state, rng_key)
 
     def get_params(self, svi_state):
         """
@@ -150,6 +157,7 @@ class SVI(object):
         :return: the corresponding parameters
         """
         params = self.constrain_fn(self.optim.get_params(svi_state.optim_state))
+        params.update(svi_state.mutable_state)
         return params
 
     def update(self, svi_state, *args, **kwargs):
@@ -175,11 +183,14 @@ class SVI(object):
             args,
             kwargs,
             self.static_kwargs,
+            mutable_state=svi_state.mutable_state
         )
-        loss_val, optim_state = self.optim.eval_and_update(
-            loss_fn, svi_state.optim_state
+        has_aux = svi_state.mutable_state is not None
+        out, optim_state = self.optim.eval_and_update(
+            loss_fn, svi_state.optim_state, has_aux=has_aux
         )
-        return SVIState(optim_state, rng_key), loss_val
+        loss_val, mutable_state = out if has_aux else (out, None)
+        return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def stable_update(self, svi_state, *args, **kwargs):
         """
@@ -205,10 +216,12 @@ class SVI(object):
             kwargs,
             self.static_kwargs,
         )
-        loss_val, optim_state = self.optim.eval_and_stable_update(
-            loss_fn, svi_state.optim_state
+        has_aux = svi_state.mutable_state is not None
+        out, optim_state = self.optim.eval_and_stable_update(
+            loss_fn, svi_state.optim_state, has_aux=has_aux
         )
-        return SVIState(optim_state, rng_key), loss_val
+        loss_val, mutable_state = out if has_aux else (out, None)
+        return SVIState(optim_state, mutable_state, rng_key), loss_val
 
     def run(
         self,
