@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Example: Gaussian Process
+Example: Thompson sampling for Bayesian Optimization with GPs
 =========================
 
 In this example we show how to implement Thompson sampling for Bayesian optimization with Gaussian processes.
