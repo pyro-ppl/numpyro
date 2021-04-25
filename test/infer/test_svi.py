@@ -14,7 +14,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import AffineTransform, SigmoidTransform
 from numpyro.handlers import substitute
-from numpyro.infer import SVI, RenyiELBO, Trace_ELBO
+from numpyro.infer import SVI, RenyiELBO, Trace_ELBO, TraceMeanField_ELBO
 from numpyro.util import fori_loop
 
 
@@ -231,7 +231,10 @@ def test_svi_discrete_latent():
         svi.run(random.PRNGKey(0), 10)
 
 
-def test_mutable_state():
+@pytest.mark.parametrize("stable_update", [True, False])
+@pytest.mark.parametrize("num_particles", [1, 10])
+@pytest.mark.parametrize("elbo", [Trace_ELBO, TraceMeanField_ELBO])
+def test_mutable_state(stable_update, num_particles, elbo):
     def model():
         x = numpyro.sample("x", dist.Normal(-1, 1))
         numpyro.param("x1p", x + 1, infer={"mutable": True})
@@ -243,8 +246,12 @@ def test_mutable_state():
         p["value"] = loc + 2
         numpyro.sample("x", dist.Normal(loc, 1))
 
-    svi = SVI(model, guide, optim.Adam(0.1), Trace_ELBO())
-    svi_result = svi.run(random.PRNGKey(0), 1000)
+    svi = SVI(model, guide, optim.Adam(0.1), elbo(num_particles=num_particles))
+    if num_particles > 1:
+        with pytest.raises(ValueError, match="mutable state"):
+            svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
+        return
+    svi_result = svi.run(random.PRNGKey(0), 1000, stable_update=stable_update)
     params = svi_result.params
     assert set(params.keys()) == {"x1p", "loc", "loc1p"}
     assert_allclose(params["loc1p"]["value"], params["loc"] + 2, atol=0.1)

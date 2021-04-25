@@ -223,6 +223,7 @@ class SVI(object):
             args,
             kwargs,
             self.static_kwargs,
+            mutable_state=svi_state.mutable_state,
         )
         has_aux = svi_state.mutable_state is not None
         out, optim_state = self.optim.eval_and_stable_update(

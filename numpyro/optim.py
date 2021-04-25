@@ -99,7 +99,7 @@ class _NumPyroOptim(object):
         """
         params = self.get_params(state)
         out, grads = value_and_grad(fn, has_aux=has_aux)(params)
-        out, aux = out if has_aux else out, None
+        out, aux = out if has_aux else (out, None)
         out, state = lax.cond(
             jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
             lambda _: (out, self.update(grads, state)),

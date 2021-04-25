@@ -57,8 +57,6 @@ class Trace_ELBO:
             during the course of fitting).
         :return: negative of the Evidence Lower Bound (ELBO) to be minimized.
         """
-        if isinstance(param_map, tuple):
-            assert self.num_particles == 1
 
         def single_particle_elbo(rng_key):
             params = param_map.copy()
@@ -91,7 +89,7 @@ class Trace_ELBO:
             if self.num_particles == 1 and mutable_params:
                 return elbo, mutable_params
             elif mutable_params:
-                warnings.warn(
+                raise ValueError(
                     "Currently, mutable state is updated only when num_particles=1."
                 )
             return elbo
@@ -239,7 +237,7 @@ class TraceMeanField_ELBO(Trace_ELBO):
             if self.num_particles == 1 and mutable_params:
                 return elbo_particle, mutable_params
             elif mutable_params:
-                warnings.warn(
+                raise ValueError(
                     "Currently, mutable state is updated only when num_particles=1."
                 )
             return elbo_particle
