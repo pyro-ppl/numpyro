@@ -6,6 +6,10 @@ Example: Gaussian Process
 =========================
 
 In this example we show how to implement Thompson sampling for Bayesian optimization with Gaussian processes.
+The implementation is based on this tutorial: https://gdmarmerola.github.io/ts-for-bayesian-optim/
+
+.. image:: ../_static/img/examples/thompson_sampling.png
+    :align: center
 
 """
 
@@ -232,7 +236,7 @@ def main(args):
     )
 
     fig, axes = plt.subplots(
-        args.num_samples - args.num_random, 1, figsize=(6, 12), constrained_layout=True
+        args.num_samples - args.num_random, 1, figsize=(6, 12), sharex=True, sharey=True
     )
     for i in range(args.num_samples):
         (
@@ -250,6 +254,12 @@ def main(args):
             ax = axes[i - args.num_random]
             # plot training data
             ax.scatter(X, y, color="blue", marker="o", label="samples")
+            ax.axvline(
+                X_grid[posterior_sample.argmin()],
+                color="blue",
+                linestyle="--",
+                label="next sample",
+            )
             ax.plot(X_grid, ackley_1d(X_grid), color="black", linestyle="--")
             ax.plot(
                 X_grid,
@@ -266,9 +276,20 @@ def main(args):
                 color="red",
                 alpha=0.5,
             )
-            ax.set(xlabel="X", ylabel="Y")
+            ax.set_ylabel("Y")
+            if i == args.num_samples - 1:
+                ax.set_xlabel("X")
 
-    plt.legend(frameon=True)
+    plt.legend(
+        loc="upper center",
+        bbox_to_anchor=(0.5, -0.15),
+        fancybox=True,
+        shadow=True,
+        ncol=3,
+    )
+
+    fig.suptitle("Thompson sampling")
+    fig.tight_layout()
     plt.show()
 
 
