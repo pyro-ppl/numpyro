@@ -165,7 +165,8 @@ class SVI(object):
         :return: the corresponding parameters
         """
         params = self.constrain_fn(self.optim.get_params(svi_state.optim_state))
-        params.update(svi_state.mutable_state)
+        if svi_state.mutable_state is not None:
+            params.update(svi_state.mutable_state)
         return params
 
     def update(self, svi_state, *args, **kwargs):
