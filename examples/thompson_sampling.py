@@ -3,7 +3,7 @@
 
 """
 Example: Thompson sampling for Bayesian Optimization with GPs
-=========================
+=============================================================
 
 In this example we show how to implement Thompson sampling for Bayesian optimization with Gaussian processes.
 The implementation is based on this tutorial: https://gdmarmerola.github.io/ts-for-bayesian-optim/
