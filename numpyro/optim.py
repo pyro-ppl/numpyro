@@ -275,7 +275,25 @@ class Minimize(_NumPyroOptim):
         self._method = method
         self._kwargs = kwargs
 
-    def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
+    def eval_and_update(
+        self, fn: Callable, state: _IterOptState, has_aux: bool = False
+    ):
+        """
+        Like :meth:`eval_and_update` but when the value of the objective function
+        or the gradients are not finite, we will not update the input `state`
+        and will set the objective output to `nan`.
+
+        :param fn: objective function.
+        :param state: current optimizer state.
+        :param bool has_aux: a flag to indicate whether ``fn`` returns a pair of values
+            where the first one is the output that we want to differentiate and the the
+            second one is auxiliary data.
+        :return: a pair of the output of objective function and the new optimizer state.
+        """
+        if has_aux:
+            raise ValueError(
+                "Minimize optimizer does not support models with mutable states"
+            )
         i, (flat_params, unravel_fn) = state
         results = minimize(
             lambda x: fn(unravel_fn(x)),
