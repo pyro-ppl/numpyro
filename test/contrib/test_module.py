@@ -8,6 +8,7 @@ from numpy.testing import assert_allclose
 import pytest
 
 from jax import random, test_util
+import jax.numpy as jnp
 
 import numpyro
 from numpyro import handlers
@@ -203,3 +204,36 @@ def test_random_module__mcmc(backend, init):
         true_coefs,
         atol=0.22,
     )
+
+
+@pytest.mark.parametrize("dropout", [True, False])
+@pytest.mark.parametrize("batchnorm", [True, False])
+def test_haiku_state_dropout_smoke(dropout, batchnorm):
+    import haiku as hk
+
+    def fn(x):
+        if dropout:
+            x = hk.dropout(hk.next_rng_key(), 0.5, x)
+        if batchnorm:
+            x = hk.BatchNorm(create_scale=True, create_offset=True, decay_rate=0.001)(x, is_training=True)
+        return x
+
+    def model():
+        transform = hk.transform_with_state if batchnorm else hk.transform
+        nn = haiku_module("nn", transform(fn), apply_rng=dropout, x=jnp.ones((4, 3)))
+        x = numpyro.sample("x", dist.Normal(0, 1).expand([4, 3]).to_event(2))
+        if dropout:
+            y = nn(numpyro.prng_key(), x)
+        else:
+            y = nn(x)
+        numpyro.deterministic("y", y)
+
+
+    with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
+        model()
+
+    if batchnorm:
+        assert set(tr.keys()) == {"nn$params", "nn$state", "x", "y"}
+        assert tr["nn$state"]["infer"].get("mutable", False)
+    else:
+        assert set(tr.keys()) == {"nn$params", "x", "y"}

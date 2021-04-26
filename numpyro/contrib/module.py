@@ -91,11 +91,22 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
 
     module_key = name + "$params"
     nn_params = numpyro.param(module_key)
+    with_state = isinstance(nn_module, hk.TransformedWithState)
+    nn_state = None
+    if with_state:
+        nn_state = numpyro.param(name + "$state")
+        assert nn_state is None or isinstance(nn_state, dict)
+
     if nn_params is None:
         args = (jnp.ones(input_shape),) if input_shape is not None else ()
         # feed in dummy data to init params
         rng_key = numpyro.prng_key()
-        nn_params = nn_module.init(rng_key, *args, **kwargs)
+        if with_state:
+            nn_params, nn_state = nn_module.init(rng_key, *args, **kwargs)
+            nn_state = dict(nn_state)
+            numpyro.param(name + "$state", nn_state, infer={"mutable": True})
+        else:
+            nn_params = nn_module.init(rng_key, *args, **kwargs)
         # haiku init returns an immutable dict
         nn_params = hk.data_structures.to_mutable_dict(nn_params)
         # we cast it to a mutable one to be able to set priors for parameters
@@ -103,6 +114,14 @@ def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs
         params_flat, tree_def = tree_flatten(nn_params)
         nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
+
+    def apply_with_state(params, state, *args, **kwargs):
+        out, state = nn_module.apply(params, state, *args, **kwargs)
+        nn_state.update(**state)
+        return out
+
+    if with_state:
+        return partial(apply_with_state, nn_params, nn_state)
     return partial(nn_module.apply, nn_params)
 
 
