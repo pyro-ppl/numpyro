@@ -62,14 +62,14 @@ class VonMises(Distribution):
 
     @property
     def mean(self):
-        """ Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi] """
+        """Computes circular mean of distribution. NOTE: same as location when mapped to support [-pi, pi]"""
         return jnp.broadcast_to(
             (self.loc + jnp.pi) % (2.0 * jnp.pi) - jnp.pi, self.batch_shape
         )
 
     @property
     def variance(self):
-        """ Computes circular variance of distribution """
+        """Computes circular variance of distribution"""
         return jnp.broadcast_to(
             1.0 - i1e(self.concentration) / i0e(self.concentration), self.batch_shape
         )
