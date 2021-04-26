@@ -215,7 +215,9 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
         if dropout:
             x = hk.dropout(hk.next_rng_key(), 0.5, x)
         if batchnorm:
-            x = hk.BatchNorm(create_scale=True, create_offset=True, decay_rate=0.001)(x, is_training=True)
+            x = hk.BatchNorm(create_scale=True, create_offset=True, decay_rate=0.001)(
+                x, is_training=True
+            )
         return x
 
     def model():
@@ -227,7 +229,6 @@ def test_haiku_state_dropout_smoke(dropout, batchnorm):
         else:
             y = nn(x)
         numpyro.deterministic("y", y)
-
 
     with handlers.trace(model) as tr, handlers.seed(rng_seed=0):
         model()

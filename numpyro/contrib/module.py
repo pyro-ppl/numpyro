@@ -256,7 +256,9 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
     return nn_new
 
 
-def random_haiku_module(name, nn_module, prior, *, input_shape=None, apply_rng=False, **kwargs):
+def random_haiku_module(
+    name, nn_module, prior, *, input_shape=None, apply_rng=False, **kwargs
+):
     """
     A primitive to place a prior over the parameters of the Haiku module `nn_module`.
 
@@ -279,7 +281,9 @@ def random_haiku_module(name, nn_module, prior, *, input_shape=None, apply_rng=F
         as an alternative to `input_shape`
     :returns: a sampled module
     """
-    nn = haiku_module(name, nn_module, input_shape=input_shape, apply_rng=apply_rng, **kwargs)
+    nn = haiku_module(
+        name, nn_module, input_shape=input_shape, apply_rng=apply_rng, **kwargs
+    )
     params = nn.args[0]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):
