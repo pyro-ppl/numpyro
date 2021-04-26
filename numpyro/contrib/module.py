@@ -57,7 +57,7 @@ def flax_module(name, nn_module, *, input_shape=None, **kwargs):
     return partial(nn_module.call, nn_params)
 
 
-def haiku_module(name, nn_module, *, input_shape=None, **kwargs):
+def haiku_module(name, nn_module, *, input_shape=None, apply_rng=False, **kwargs):
     """
     Declare a :mod:`~haiku` style neural network inside a
     model so that its parameters are registered for optimization via
@@ -67,6 +67,9 @@ def haiku_module(name, nn_module, *, input_shape=None, **kwargs):
     :param haiku.Module nn_module: a `haiku` Module which has .init and .apply methods
     :param tuple input_shape: shape of the input taken by the
         neural network.
+    :param bool apply_rng: A flag to indicate if the returned callable requires
+        a rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
+        to False, which means no rng argument is needed.
     :param kwargs: optional keyword arguments to initialize flax neural network
         as an alternative to `input_shape`
     :return: a callable with bound parameters that takes an array
@@ -74,7 +77,7 @@ def haiku_module(name, nn_module, *, input_shape=None, **kwargs):
         array.
     """
     try:
-        import haiku  # noqa: F401
+        import haiku as hk  # noqa: F401
     except ImportError as e:
         raise ImportError(
             "Looking like you want to use haiku to declare "
@@ -82,6 +85,9 @@ def haiku_module(name, nn_module, *, input_shape=None, **kwargs):
             "You need to install `haiku` to be able to use this feature. "
             "It can be installed with `pip install dm-haiku`."
         ) from e
+
+    if not apply_rng:
+        nn_module = hk.without_apply_rng(nn_module)
 
     module_key = name + "$params"
     nn_params = numpyro.param(module_key)
@@ -91,13 +97,13 @@ def haiku_module(name, nn_module, *, input_shape=None, **kwargs):
         rng_key = numpyro.prng_key()
         nn_params = nn_module.init(rng_key, *args, **kwargs)
         # haiku init returns an immutable dict
-        nn_params = haiku.data_structures.to_mutable_dict(nn_params)
+        nn_params = hk.data_structures.to_mutable_dict(nn_params)
         # we cast it to a mutable one to be able to set priors for parameters
         # make sure that nn_params keep the same order after unflatten
         params_flat, tree_def = tree_flatten(nn_params)
         nn_params = tree_unflatten(tree_def, params_flat)
         numpyro.param(module_key, nn_params)
-    return partial(nn_module.apply, nn_params, None)
+    return partial(nn_module.apply, nn_params)
 
 
 # register an "empty" parameter which only stores its shape
@@ -231,7 +237,7 @@ def random_flax_module(name, nn_module, prior, *, input_shape=None, **kwargs):
     return nn_new
 
 
-def random_haiku_module(name, nn_module, prior, *, input_shape=None, **kwargs):
+def random_haiku_module(name, nn_module, prior, *, input_shape=None, apply_rng=False, **kwargs):
     """
     A primitive to place a prior over the parameters of the Haiku module `nn_module`.
 
@@ -247,9 +253,14 @@ def random_haiku_module(name, nn_module, prior, *, input_shape=None, **kwargs):
 
     :type param: dict or ~numpyro.distributions.Distribution
     :param tuple input_shape: shape of the input taken by the neural network.
+    :param bool apply_rng: A flag to indicate if the returned callable requires
+        a rng argument (e.g. when ``nn_module`` includes dropout layers). Defaults
+        to False, which means no rng argument is needed.
+    :param kwargs: optional keyword arguments to initialize flax neural network
+        as an alternative to `input_shape`
     :returns: a sampled module
     """
-    nn = haiku_module(name, nn_module, input_shape=input_shape, **kwargs)
+    nn = haiku_module(name, nn_module, input_shape=input_shape, apply_rng=apply_rng, **kwargs)
     params = nn.args[0]
     new_params = deepcopy(params)
     with numpyro.handlers.scope(prefix=name):

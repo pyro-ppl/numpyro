@@ -48,7 +48,6 @@ def haiku_model_by_kwargs_2(w, x, y):
         def __init__(self, dim: int = 100):
             super().__init__()
             self._dim = dim
-            return
 
         def __call__(self, w, x):
             l1 = hk.Linear(self._dim, name="w_linear")(w)
