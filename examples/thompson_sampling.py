@@ -139,7 +139,7 @@ class GP:
 
 # our TS-GP optimizer
 class ThompsonSamplingGP:
-    """ Adapted to numpyro from https://gdmarmerola.github.io/ts-for-bayesian-optim/ """
+    """Adapted to numpyro from https://gdmarmerola.github.io/ts-for-bayesian-optim/"""
 
     # initialization
     def __init__(
