@@ -130,5 +130,5 @@ def test_scan_without_stack():
 
     assert_allclose(
         result,
-        [[[1.7, 0.3]]],
+        [[1.7, 0.3]],
     )
