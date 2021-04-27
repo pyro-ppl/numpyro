@@ -115,7 +115,6 @@ def test_scan_constrain_reparam_compatible():
 
 
 def test_scan_without_stack():
-
     def multiply_and_add_repeatedly(K, c_in):
         def iteration(c_prev, c_in):
             c_next = jnp.dot(c_prev, K) + c_in
@@ -126,9 +125,7 @@ def test_scan_without_stack():
         return ys
 
     result = multiply_and_add_repeatedly(
-        K=jnp.asarray([[0.7, 0.3],
-                       [0.3, 0.7]]),
-        c_in=jnp.asarray([[1.0, 0.0]])
+        K=jnp.asarray([[0.7, 0.3], [0.3, 0.7]]), c_in=jnp.asarray([[1.0, 0.0]])
     )
 
     assert_allclose(
