@@ -73,6 +73,10 @@ from numpyro.distributions.truncated import (
     TruncatedNormal,
     TruncatedPolyaGamma,
     TwoSidedTruncatedDistribution,
+    TruncatedGamma,
+    LeftTruncatedGamma,
+    RightTruncatedGamma,
+    TwoSidedTruncatedGamma,
 )
 
 from . import constraints, transforms
