@@ -564,14 +564,14 @@ def gammaincinv(a, p):
     # until jax/lax has direct implementation we'll need to rely on tfp
     # https://github.com/pyro-ppl/numpyro/issues/969
     try:
-        import tensorflow_probability.math as tfpm
+        import tensorflow_probability as tfpm
     except ImportError as e:
         raise ImportError(
                 "To use gammaincinv, please install TensorFlow Probability. It can be"
                 " installed with `pip install tensorflow_probability`"
                 ) from e
 
-    return tfpm.igammacinv(a, p)
+    return tfpm.math.igammainv(a, p)
 
 
 # The is sourced from: torch.distributions.util.py

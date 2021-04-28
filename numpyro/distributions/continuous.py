@@ -282,7 +282,7 @@ class Gamma(Distribution):
     def icdf(self, q):
         # https://github.com/pyro-ppl/numpyro/issues/969
         from numpyro.distributions.util import gammaincinv
-        return gammaincinv(self.concentration, q) * self.rate
+        return gammaincinv(self.concentration, q) / self.rate
 
 
 class Chi2(Gamma):

@@ -449,9 +449,7 @@ class LeftTruncatedGamma(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
-        lscale = self.base_gamma.cdf(self.low)
-        q = (1 - u) * lscale + u
-        return self.base_gamma.icdf(q)
+        return self.icdf(u)
 
     @validate_sample
     def log_prob(self, value):
@@ -460,8 +458,10 @@ class LeftTruncatedGamma(Distribution):
         return lprob - jnp.log(1.0 - lscale)
 
     def _scale_moment(self, t):
-        assert t > -self.concentration
-        s_lscale = gammainc(self.base_gamma.concentration + t, self.low * self.rate)
+        assert t > -self.base_gamma.concentration
+        s_lscale = gammainc(
+            self.base_gamma.concentration + t, self.low * self.base_gamma.rate
+        )
         lscale = self.base_gamma.cdf(self.low)
         return (1.0 - s_lscale) / (1.0 - lscale)
 
@@ -474,11 +474,13 @@ class LeftTruncatedGamma(Distribution):
     @property
     def variance(self):
         # compute E[X]^2
-        fst_m_sq = jnp.pow(self.mean, 2.0)
+        fst_m_sq = jnp.power(self.mean, 2.0)
 
         # compute E[X^2]
         base_sec_mt = (
-            (self.concentration + 1) * self.concentration * jnp.pow(self.rate, -2.0)
+            (self.base_gamma.concentration + 1)
+            * self.base_gamma.concentration
+            * jnp.power(self.base_gamma.rate, -2.0)
         )
         rescale = self._scale_moment(2.0)
         sec_mt = base_sec_mt * rescale
@@ -541,9 +543,7 @@ class RightTruncatedGamma(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
-        hscale = self.base_gamma.cdf(self.high)
-        q = u * hscale
-        return self.base_gamma.icdf(q)
+        return self.icdf(u)
 
     @validate_sample
     def log_prob(self, value):
@@ -552,8 +552,10 @@ class RightTruncatedGamma(Distribution):
         return lprob - jnp.log(hscale)
 
     def _scale_moment(self, t):
-        assert t > -self.concentration
-        s_hscale = gammainc(self.base_gamma.concentration + t, self.high * self.rate)
+        assert t > -self.base_gamma.concentration
+        s_hscale = gammainc(
+            self.base_gamma.concentration + t, self.high * self.base_gamma.rate
+        )
         hscale = self.base_gamma.cdf(self.high)
         return s_hscale / hscale
 
@@ -566,11 +568,13 @@ class RightTruncatedGamma(Distribution):
     @property
     def variance(self):
         # compute E[X]^2
-        fst_m_sq = jnp.pow(self.mean, 2.0)
+        fst_m_sq = jnp.power(self.mean, 2.0)
 
         # compute E[X^2]
         base_sec_mt = (
-            (self.concentration + 1) * self.concentration * jnp.pow(self.rate, -2.0)
+            (self.base_gamma.concentration + 1)
+            * self.base_gamma.concentration
+            * jnp.power(self.base_gamma.rate, -2.0)
         )
         rescale = self._scale_moment(2.0)
         sec_mt = base_sec_mt * rescale
@@ -639,10 +643,7 @@ class TwoSidedTruncatedGamma(Distribution):
     def sample(self, key, sample_shape=()):
         assert is_prng_key(key)
         u = random.uniform(key, sample_shape + self.batch_shape)
-        lscale = self.base_gamma.cdf(self.low)
-        hscale = self.base_gamma.cdf(self.high)
-        q = (1 - u) * lscale + u * hscale
-        return self.base_gamma.icdf(q)
+        return self.icdf(u)
 
     @validate_sample
     def log_prob(self, value):
@@ -652,9 +653,13 @@ class TwoSidedTruncatedGamma(Distribution):
         return lprob - jnp.log(hscale - lscale)
 
     def _scale_moment(self, t):
-        assert t > -self.concentration
-        s_lscale = gammainc(self.base_gamma.concentration + t, self.low * self.rate)
-        s_hscale = gammainc(self.base_gamma.concentration + t, self.high * self.rate)
+        assert t > -self.base_gamma.concentration
+        s_lscale = gammainc(
+            self.base_gamma.concentration + t, self.low * self.base_gamma.rate
+        )
+        s_hscale = gammainc(
+            self.base_gamma.concentration + t, self.high * self.base_gamma.rate
+        )
         lscale = self.base_gamma.cdf(self.low)
         hscale = self.base_gamma.cdf(self.high)
         return (s_hscale - s_lscale) / (hscale - lscale)
@@ -668,11 +673,13 @@ class TwoSidedTruncatedGamma(Distribution):
     @property
     def variance(self):
         # compute E[X]^2
-        fst_m_sq = jnp.pow(self.mean, 2.0)
+        fst_m_sq = jnp.power(self.mean, 2.0)
 
         # compute E[X^2]
         base_sec_mt = (
-            (self.concentration + 1) * self.concentration * jnp.pow(self.rate, -2.0)
+            (self.base_gamma.concentration + 1)
+            * self.base_gamma.concentration
+            * jnp.power(self.base_gamma.rate, -2.0)
         )
         rescale = self._scale_moment(2.0)
         sec_mt = base_sec_mt * rescale
