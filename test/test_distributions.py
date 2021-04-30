@@ -755,7 +755,11 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
     assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
 
 
-@pytest.mark.parametrize("jax_dist, sp_dist, params", CONTINUOUS)
+@pytest.mark.parametrize(
+    "jax_dist, sp_dist, params",
+    # TODO: add more complete pattern for Discrete.cdf
+    CONTINUOUS + [T(dist.Poisson, 2.0), T(dist.Poisson, jnp.array([2.0, 3.0, 5.0]))],
+)
 def test_cdf_and_icdf(jax_dist, sp_dist, params):
     d = jax_dist(*params)
     if d.event_dim > 0:
@@ -763,7 +767,7 @@ def test_cdf_and_icdf(jax_dist, sp_dist, params):
     samples = d.sample(key=random.PRNGKey(0), sample_shape=(100,))
     quantiles = random.uniform(random.PRNGKey(1), (100,) + d.shape())
     try:
-        if d.shape() == ():
+        if d.shape() == () and not d.is_discrete:
             rtol = 1e-3 if jax_dist is dist.StudentT else 1e-5
             assert_allclose(
                 jax.vmap(jax.grad(d.cdf))(samples),
