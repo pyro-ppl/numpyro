@@ -106,7 +106,10 @@ def constrain_fn(model, model_args, model_kwargs, params, return_deterministic=F
 
     def substitute_fn(site):
         if site["name"] in params:
-            return biject_to(site["fn"].support)(params[site["name"]])
+            if site["type"] == "sample":
+                return biject_to(site["fn"].support)(params[site["name"]])
+            else:
+                return params[site["name"]]
 
     substituted_model = substitute(model, substitute_fn=substitute_fn)
     model_trace = trace(substituted_model).get_trace(*model_args, **model_kwargs)
@@ -182,12 +185,14 @@ def _init_to_unconstrained_value(site=None, values={}):
 def find_valid_initial_params(
     rng_key,
     model,
+    *,
     init_strategy=init_to_uniform,
     enum=False,
     model_args=(),
     model_kwargs=None,
     prototype_params=None,
     forward_mode_differentiation=False,
+    validate_grad=True,
 ):
     """
     (EXPERIMENTAL INTERFACE) Given a model with Pyro primitives, returns an initial
@@ -207,6 +212,10 @@ def find_valid_initial_params(
     :param dict model_kwargs: kwargs provided to the model.
     :param dict prototype_params: an optional prototype parameters, which is used
         to define the shape for initial parameters.
+    :param bool forward_mode_differentiation: whether to use forward-mode differentiation
+        or reverse-mode differentiation. Defaults to False.
+    :param bool validate_grad: whether to validate gradient of the initial params.
+        Defaults to True.
     :return: tuple of `init_params_info` and `is_valid`, where `init_params_info` is the tuple
         containing the initial params, their potential energy, and their gradients.
     """
@@ -233,8 +242,18 @@ def find_valid_initial_params(
         key, subkey = random.split(key)
 
         if radius is None or prototype_params is None:
+            # XXX: we don't want to apply enum to draw latent samples
+            model_ = model
+            if enum:
+                from numpyro.contrib.funsor import enum as enum_handler
+
+                if isinstance(model, substitute) and isinstance(model.fn, enum_handler):
+                    model_ = substitute(model.fn.fn, data=model.data)
+                elif isinstance(model, enum_handler):
+                    model_ = model.fn
+
             # Wrap model in a `substitute` handler to initialize from `init_loc_fn`.
-            seeded_model = substitute(seed(model, subkey), substitute_fn=init_strategy)
+            seeded_model = substitute(seed(model_, subkey), substitute_fn=init_strategy)
             model_trace = trace(seeded_model).get_trace(*model_args, **model_kwargs)
             constrained_values, inv_transforms = {}, {}
             for k, v in model_trace.items():
@@ -264,13 +283,19 @@ def find_valid_initial_params(
         potential_fn = partial(
             potential_energy, model, model_args, model_kwargs, enum=enum
         )
-        if forward_mode_differentiation:
-            pe = potential_fn(params)
-            z_grad = jacfwd(potential_fn)(params)
+        if validate_grad:
+            if forward_mode_differentiation:
+                pe = potential_fn(params)
+                z_grad = jacfwd(potential_fn)(params)
+            else:
+                pe, z_grad = value_and_grad(potential_fn)(params)
+            z_grad_flat = ravel_pytree(z_grad)[0]
+            is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
         else:
-            pe, z_grad = value_and_grad(potential_fn)(params)
-        z_grad_flat = ravel_pytree(z_grad)[0]
-        is_valid = jnp.isfinite(pe) & jnp.all(jnp.isfinite(z_grad_flat))
+            pe = potential_fn(params)
+            is_valid = jnp.isfinite(pe)
+            z_grad = None
+
         return i + 1, key, (params, pe, z_grad), is_valid
 
     def _find_valid_params(rng_key, exit_early=False):
@@ -336,6 +361,7 @@ def _get_model_transforms(model, model_args=(), model_kwargs=None):
 def get_potential_fn(
     model,
     inv_transforms,
+    *,
     enum=False,
     replay_model=False,
     dynamic_args=False,
@@ -438,11 +464,13 @@ def _validate_model(model_trace):
 def initialize_model(
     rng_key,
     model,
+    *,
     init_strategy=init_to_uniform,
     dynamic_args=False,
     model_args=(),
     model_kwargs=None,
     forward_mode_differentiation=False,
+    validate_grad=True,
 ):
     """
     (EXPERIMENTAL INTERFACE) Helper function that calls :func:`~numpyro.infer.util.get_potential_fn`
@@ -468,6 +496,8 @@ def initialize_model(
         only supports forward-mode differentiation. See
         `JAX's The Autodiff Cookbook <https://jax.readthedocs.io/en/latest/notebooks/autodiff_cookbook.html>`_
         for more information.
+    :param bool validate_grad: whether to validate gradient of the initial params.
+        Defaults to True.
     :return: a namedtupe `ModelInfo` which contains the fields
         (`param_info`, `potential_fn`, `postprocess_fn`, `model_trace`), where
         `param_info` is a namedtuple `ParamInfo` containing values from the prior
@@ -546,6 +576,7 @@ def initialize_model(
         model_kwargs=model_kwargs,
         prototype_params=prototype_params,
         forward_mode_differentiation=forward_mode_differentiation,
+        validate_grad=validate_grad,
     )
 
     if not_jax_tracer(is_valid):

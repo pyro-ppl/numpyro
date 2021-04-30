@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from functools import namedtuple, partial
+import warnings
 
 import tqdm
 
@@ -121,6 +122,14 @@ class SVI(object):
                 transform = biject_to(constraint)
                 inv_transforms[site["name"]] = transform
                 params[site["name"]] = transform.inv(site["value"])
+            elif (
+                site["type"] == "sample"
+                and (not site["is_observed"])
+                and site["fn"].support.is_discrete
+            ):
+                warnings.warn(
+                    "Currently, SVI does not support models with discrete latent variables"
+                )
 
         self.constrain_fn = partial(transform_fn, inv_transforms)
         # we convert weak types like float to float32/float64

@@ -6,7 +6,8 @@ from pyroapi.tests import *  # noqa F401
 import pytest
 
 pytestmark = pytest.mark.filterwarnings(
-    "ignore::numpyro.compat.util.UnsupportedAPIWarning"
+    "ignore::numpyro.compat.util.UnsupportedAPIWarning",
+    "ignore:Currently, SVI does not support models with discrete",
 )
 
 

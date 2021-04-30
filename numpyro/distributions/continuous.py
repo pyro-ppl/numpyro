@@ -1281,7 +1281,7 @@ class SoftLaplace(Distribution):
         )
         return self.icdf(u)
 
-    @validate_sample
+    # TODO: refactor validate_sample to only does validation check and use it here
     def cdf(self, value):
         z = (value - self.loc) / self.scale
         return jnp.arctan(jnp.exp(z)) * (2 / jnp.pi)

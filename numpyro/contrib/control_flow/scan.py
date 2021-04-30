@@ -451,6 +451,7 @@ def scan(f, init, xs, length=None, reverse=False, history=1):
         (length, rng_key, carry), (pytree_trace, ys) = scan_wrapper(
             f, init, xs, length=length, reverse=reverse
         )
+        return carry, ys
     else:
         # Otherwise, we initialize a message...
         initial_msg = {

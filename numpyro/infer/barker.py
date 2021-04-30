@@ -285,3 +285,9 @@ class BarkerMH(MCMCKernel):
         return BarkerMHState(
             itr, x, pe, x_grad, accept_prob, mean_accept_prob, adapt_state, rng_key
         )
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["_postprocess_fn"] = None
+        state["_wa_update"] = None
+        return state

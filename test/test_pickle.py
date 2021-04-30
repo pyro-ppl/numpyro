@@ -10,7 +10,16 @@ import jax.numpy as jnp
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.infer import HMC, HMCECS, MCMC, NUTS, SA, DiscreteHMCGibbs, MixedHMC
+from numpyro.infer import (
+    HMC,
+    HMCECS,
+    MCMC,
+    NUTS,
+    SA,
+    BarkerMH,
+    DiscreteHMCGibbs,
+    MixedHMC,
+)
 
 
 def normal_model():
@@ -29,7 +38,7 @@ def logistic_regression():
         numpyro.sample("obs", dist.Bernoulli(logits=x), obs=batch)
 
 
-@pytest.mark.parametrize("kernel", [HMC, NUTS, SA])
+@pytest.mark.parametrize("kernel", [BarkerMH, HMC, NUTS, SA])
 def test_pickle_hmc(kernel):
     mcmc = MCMC(kernel(normal_model), 10, 10)
     mcmc.run(random.PRNGKey(0))

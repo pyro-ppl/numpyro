@@ -35,7 +35,7 @@ from jax.nn import softmax, softplus
 import jax.numpy as jnp
 from jax.ops import index_add
 import jax.random as random
-from jax.scipy.special import expit, gammaln, logsumexp, xlog1py, xlogy
+from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -75,7 +75,6 @@ class BernoulliProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.boolean
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
@@ -117,7 +116,6 @@ class BernoulliLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.boolean
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, logits=None, validate_args=None):
         self.logits = logits
@@ -170,7 +168,6 @@ class BinomialProbs(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         self.probs, self.total_count = promote_shapes(probs, total_count)
@@ -240,7 +237,6 @@ class BinomialLogits(Distribution):
         "total_count": constraints.nonnegative_integer,
     }
     has_enumerate_support = True
-    is_discrete = True
     enumerate_support = BinomialProbs.enumerate_support
 
     def __init__(self, logits, total_count=1, validate_args=None):
@@ -301,7 +297,6 @@ def Binomial(total_count=1, probs=None, logits=None, validate_args=None):
 class CategoricalProbs(Distribution):
     arg_constraints = {"probs": constraints.simplex}
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         if jnp.ndim(probs) < 1:
@@ -352,7 +347,6 @@ class CategoricalProbs(Distribution):
 class CategoricalLogits(Distribution):
     arg_constraints = {"logits": constraints.real_vector}
     has_enumerate_support = True
-    is_discrete = True
 
     def __init__(self, logits, validate_args=None):
         if jnp.ndim(logits) < 1:
@@ -458,8 +452,6 @@ class PRNGIdentity(Distribution):
     handler. Only `sample` method is supported.
     """
 
-    is_discrete = True
-
     def __init__(self):
         warnings.warn(
             "PRNGIdentity distribution is deprecated. To get a random "
@@ -480,7 +472,6 @@ class MultinomialProbs(Distribution):
         "probs": constraints.simplex,
         "total_count": constraints.nonnegative_integer,
     }
-    is_discrete = True
 
     def __init__(self, probs, total_count=1, validate_args=None):
         if jnp.ndim(probs) < 1:
@@ -538,7 +529,6 @@ class MultinomialLogits(Distribution):
         "logits": constraints.real_vector,
         "total_count": constraints.nonnegative_integer,
     }
-    is_discrete = True
 
     def __init__(self, logits, total_count=1, validate_args=None):
         if jnp.ndim(logits) < 1:
@@ -608,7 +598,6 @@ def Multinomial(total_count=1, probs=None, logits=None, validate_args=None):
 class Poisson(Distribution):
     arg_constraints = {"rate": constraints.positive}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, rate, *, is_sparse=False, validate_args=None):
         self.rate = rate
@@ -650,10 +639,13 @@ class Poisson(Distribution):
     def variance(self):
         return self.rate
 
+    def cdf(self, value):
+        k = jnp.floor(value) + 1
+        return gammaincc(k, self.rate)
+
 
 class ZeroInflatedProbs(Distribution):
     arg_constraints = {"gate": constraints.unit_interval}
-    is_discrete = True
 
     def __init__(self, base_dist, gate, *, validate_args=None):
         batch_shape = lax.broadcast_shapes(jnp.shape(gate), base_dist.batch_shape)
@@ -702,7 +694,6 @@ class ZeroInflatedProbs(Distribution):
 
 class ZeroInflatedLogits(ZeroInflatedProbs):
     arg_constraints = {"gate_logits": constraints.real}
-    is_discrete = True
 
     def __init__(self, base_dist, gate_logits, *, validate_args=None):
         gate = _to_probs_bernoulli(gate_logits)
@@ -748,6 +739,7 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
     """
 
     arg_constraints = {"gate": constraints.unit_interval, "rate": constraints.positive}
+    support = constraints.nonnegative_integer
 
     # TODO: resolve inconsistent parameter order w.r.t. Pyro
     # and support `gate_logits` argument
@@ -759,7 +751,6 @@ class ZeroInflatedPoisson(ZeroInflatedProbs):
 class GeometricProbs(Distribution):
     arg_constraints = {"probs": constraints.unit_interval}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, probs, validate_args=None):
         self.probs = probs
@@ -796,7 +787,6 @@ class GeometricProbs(Distribution):
 class GeometricLogits(Distribution):
     arg_constraints = {"logits": constraints.real}
     support = constraints.nonnegative_integer
-    is_discrete = True
 
     def __init__(self, logits, validate_args=None):
         self.logits = logits
