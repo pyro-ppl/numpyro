@@ -405,6 +405,10 @@ PRNGIdentity
     :show-inheritance:
     :member-order: bysource
 
+ZeroInflatedDistribution
+------------------------
+.. autofunction:: numpyro.distributions.discrete.ZeroInflatedDistribution
+
 ZeroInflatedPoisson
 -------------------
 .. autoclass:: numpyro.distributions.discrete.ZeroInflatedPoisson

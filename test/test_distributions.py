@@ -15,7 +15,7 @@ import jax
 from jax import grad, jacfwd, lax, vmap
 import jax.numpy as jnp
 import jax.random as random
-from jax.scipy.special import logsumexp
+from jax.scipy.special import expit, logsumexp
 
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, kl_divergence, transforms
@@ -94,6 +94,14 @@ class _ImproperWrapper(dist.ImproperUniform):
         shape = sample_shape + self.batch_shape + unconstrained_event_shape
         unconstrained_samples = random.uniform(key, shape, minval=-2, maxval=2)
         return transform(unconstrained_samples)
+
+
+class ZeroInflatedPoissonLogits(dist.discrete.ZeroInflatedLogits):
+    arg_constraints = {"rate": constraints.positive, "gate_logits": constraints.real}
+
+    def __init__(self, rate, gate_logits, *, validate_args=None):
+        self.rate = rate
+        super().__init__(dist.Poisson(rate), gate_logits, validate_args=validate_args)
 
 
 class SparsePoisson(dist.Poisson):
@@ -346,6 +354,12 @@ DISCRETE = [
     T(SparsePoisson, jnp.array([2.0, 3.0, 5.0])),
     T(dist.ZeroInflatedPoisson, 0.6, 2.0),
     T(dist.ZeroInflatedPoisson, jnp.array([0.2, 0.7, 0.3]), jnp.array([2.0, 3.0, 5.0])),
+    T(ZeroInflatedPoissonLogits, 2.0, 3.0),
+    T(
+        ZeroInflatedPoissonLogits,
+        jnp.array([0.2, 4.0, 0.3]),
+        jnp.array([2.0, -3.0, 5.0]),
+    ),
 ]
 
 
@@ -921,6 +935,25 @@ def test_log_prob_LKJCholesky(dimension, concentration):
     assert_allclose(jax.jit(d.log_prob)(sample), d.log_prob(sample), atol=2e-6)
 
 
+def test_zero_inflated_logits_probs_agree():
+    concentration = np.exp(np.random.normal(100))
+    rate = np.exp(np.random.normal(100))
+    d = dist.GammaPoisson(concentration, rate)
+    gate_logits = np.random.normal(100)
+    gate_probs = expit(gate_logits)
+    zi_logits = dist.ZeroInflatedDistribution(d, gate_logits=gate_logits)
+    zi_probs = dist.ZeroInflatedDistribution(d, gate=gate_probs)
+    sample = np.random.randint(
+        0,
+        20,
+        (
+            1000,
+            100,
+        ),
+    )
+    assert_allclose(zi_probs.log_prob(sample), zi_logits.log_prob(sample))
+
+
 @pytest.mark.parametrize("rate", [0.1, 0.5, 0.9, 1.0, 1.1, 2.0, 10.0])
 def test_ZIP_log_prob(rate):
     # if gate is 0 ZIP is Poisson
@@ -929,7 +962,7 @@ def test_ZIP_log_prob(rate):
     s = zip_.sample(random.PRNGKey(0), (20,))
     zip_prob = zip_.log_prob(s)
     pois_prob = pois.log_prob(s)
-    assert_allclose(zip_prob, pois_prob)
+    assert_allclose(zip_prob, pois_prob, rtol=1e-6)
 
     # if gate is 1 ZIP is Delta(0)
     zip_ = dist.ZeroInflatedPoisson(1.0, rate)
@@ -937,7 +970,7 @@ def test_ZIP_log_prob(rate):
     s = jnp.array([0.0, 1.0])
     zip_prob = zip_.log_prob(s)
     delta_prob = delta.log_prob(s)
-    assert_allclose(zip_prob, delta_prob)
+    assert_allclose(zip_prob, delta_prob, rtol=1e-6)
 
 
 @pytest.mark.parametrize("total_count", [1, 2, 3, 10])
