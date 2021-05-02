@@ -68,7 +68,9 @@ def cond(pred, true_fun, false_fun, operand):
 
        >>> import numpyro
        >>> import numpyro.distributions as dist
+       >>> from jax import random
        >>> from numpyro.contrib.control_flow import cond
+       >>> from numpyro.infer import SVI, Trace_ELBO
        >>>
        >>> def model():
        ...     def true_fun(_):
