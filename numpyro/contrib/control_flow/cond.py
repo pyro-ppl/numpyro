@@ -98,17 +98,30 @@ def cond(pred, true_fun, false_fun, operand):
        >>> svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
        >>> params, losses = svi.run(random.PRNGKey(0), num_steps=2500)
 
-        .. warning:: This is an experimental utility function that allows users to use
+    .. warning:: This is an experimental utility function that allows users to use
         JAX control flow with NumPyro's effect handlers. Currently, `sample` and
-        `deterministic` sites within `true_fun` and `false_fun` are supported. If you notice
-        that any effect handlers or distributions are unsupported, please file an issue.
+        `deterministic` sites within `true_fun` and `false_fun` are supported. If you
+        notice that any effect handlers or distributions are unsupported, please file
+        an issue.
 
-        :param bool pred: Boolean scalar type indicating which branch function to apply
-        :param callable true_fun: A function to be applied if `pred` is true.
-        :param callable false_fun: A function to be applied if `pred` is false.
-        :param operand: Operand input to either branch depending on `pred`. This can
-            be any JAX PyTree (e.g. list / dict of arrays).
-        :return: Output of the applied branch function.
+    .. note:: All `sample` sites must belong to the same distribution class. For
+        example the following is not supported
+
+        .. code-block:: python
+
+            cond(
+                True,
+                lambda _: numpyro.sample("x", dist.Normal()),
+                lambda _: numpyro.sample("x", dist.Laplace()),
+                None,
+            )
+
+    :param bool pred: Boolean scalar type indicating which branch function to apply
+    :param callable true_fun: A function to be applied if `pred` is true.
+    :param callable false_fun: A function to be applied if `pred` is false.
+    :param operand: Operand input to either branch depending on `pred`. This can
+        be any JAX PyTree (e.g. list / dict of arrays).
+    :return: Output of the applied branch function.
     """
     if not _PYRO_STACK:
         value, _ = cond_wrapper(pred, true_fun, false_fun, operand)
