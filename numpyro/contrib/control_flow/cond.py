@@ -59,7 +59,7 @@ def cond_wrapper(
 
 def cond(pred, true_fun, false_fun, operand):
     """
-    This primitive conditionally applies `true_fun` or `false_fun`. See
+    This primitive conditionally applies ``true_fun`` or ``false_fun``. See
     :func:`jax.lax.cond` for more information.
 
     **Usage**:
@@ -104,7 +104,7 @@ def cond(pred, true_fun, false_fun, operand):
         notice that any effect handlers or distributions are unsupported, please file
         an issue.
 
-    .. note:: All `sample` sites must belong to the same distribution class. For
+    .. note:: All ``sample`` sites must belong to the same distribution class. For
         example the following is not supported
 
         .. code-block:: python
@@ -117,9 +117,9 @@ def cond(pred, true_fun, false_fun, operand):
             )
 
     :param bool pred: Boolean scalar type indicating which branch function to apply
-    :param callable true_fun: A function to be applied if `pred` is true.
-    :param callable false_fun: A function to be applied if `pred` is false.
-    :param operand: Operand input to either branch depending on `pred`. This can
+    :param callable true_fun: A function to be applied if ``pred`` is true.
+    :param callable false_fun: A function to be applied if ``pred`` is false.
+    :param operand: Operand input to either branch depending on ``pred``. This can
         be any JAX PyTree (e.g. list / dict of arrays).
     :return: Output of the applied branch function.
     """
