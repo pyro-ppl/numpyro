@@ -177,3 +177,20 @@ def test_cond():
     assert result["cluster"].shape == (1000,)
     assert result["x"].shape == (1000,)
     assert result["z"].shape == (1000,)
+
+    mcmc = MCMC(
+        NUTS(model),
+        num_warmup=100,
+        num_samples=2500,
+        num_chains=4,
+        chain_method="sequential",
+    )
+    mcmc.run(random.PRNGKey(0))
+
+    x = mcmc.get_samples()["x"]
+    assert x.shape == (10_000,)
+    assert_allclose(
+        [x[x > 10].mean(), x[x > 10].std(), x[x < 10].mean(), x[x < 10].std()],
+        [20.0, 1.0, 0.0, 1.0],
+        atol=0.05,
+    )
