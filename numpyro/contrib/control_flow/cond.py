@@ -72,13 +72,13 @@ def cond(pred, true_fun, false_fun, operand):
        >>>
        >>> def model():
        ...     def true_fun(_):
-       ...         numpyro.sample("x", dist.Normal(20.0))
+       ...         return numpyro.sample("x", dist.Normal(20.0))
        ...
        ...     def false_fun(_):
-       ...         numpyro.sample("x", dist.Normal(0.0))
+       ...         return numpyro.sample("x", dist.Normal(0.0))
        ...
        ...     cluster = numpyro.sample("cluster", dist.Normal())
-       ...     cond(cluster > 0, true_fun, false_fun, None)
+       ...     return cond(cluster > 0, true_fun, false_fun, None)
        >>>
        >>> def guide():
        ...     m1 = numpyro.param("m1", 10.0)
@@ -87,13 +87,13 @@ def cond(pred, true_fun, false_fun, operand):
        ...     s2 = numpyro.param("s2", 0.1, constraint=dist.constraints.positive)
        ...
        ...     def true_fun(_):
-       ...         numpyro.sample("x", dist.Normal(m1, s1))
+       ...         return numpyro.sample("x", dist.Normal(m1, s1))
        ...
        ...     def false_fun(_):
-       ...         numpyro.sample("x", dist.Normal(m2, s2))
+       ...         return numpyro.sample("x", dist.Normal(m2, s2))
        ...
        ...     cluster = numpyro.sample("cluster", dist.Normal())
-       ...     cond(cluster > 0, true_fun, false_fun, None)
+       ...     return cond(cluster > 0, true_fun, false_fun, None)
        >>>
        >>> svi = SVI(model, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(num_particles=100))
        >>> params, losses = svi.run(random.PRNGKey(0), num_steps=2500)
