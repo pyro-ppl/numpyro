@@ -46,8 +46,21 @@ def wrap_fn(fn, substitute_stack):
 
 
 def cond_wrapper(
-    pred, true_fun, false_fun, operand, rng_key=None, substitute_stack=None
+    pred,
+    true_fun,
+    false_fun,
+    operand,
+    rng_key=None,
+    substitute_stack=None,
+    enum=False,
+    first_available_dim=None,
 ):
+    if enum:
+        # TODO: support enumeration. note that pred passed to lax.cond must be scalar
+        # which means that even simple conditions like `x == 0` can get complicated if
+        # x is an enumerated discrete random variable
+        raise RuntimeError("The cond primitive does not currently support enumeration")
+
     if substitute_stack is None:
         substitute_stack = []
 
@@ -105,6 +118,9 @@ def cond(pred, true_fun, false_fun, operand):
         `deterministic` sites within `true_fun` and `false_fun` are supported. If you
         notice that any effect handlers or distributions are unsupported, please file
         an issue.
+
+    .. warning:: The ``cond`` primitive does not currently support enumeration and can
+        not be used inside a ``numpyro.plate`` context.
 
     .. note:: All ``sample`` sites must belong to the same distribution class. For
         example the following is not supported
