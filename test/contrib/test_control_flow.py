@@ -137,8 +137,8 @@ def test_scan_without_stack():
 def test_cond():
     def model():
         def true_fun(_):
-            x = numpyro.sample("x", dist.Normal(20.0))
-            numpyro.deterministic("z", x - 20.0)
+            x = numpyro.sample("x", dist.Normal(5.0))
+            numpyro.deterministic("z", x - 5.0)
 
         def false_fun(_):
             x = numpyro.sample("x", dist.Normal(0.0))
@@ -148,9 +148,9 @@ def test_cond():
         cond(cluster > 0, true_fun, false_fun, None)
 
     def guide():
-        m1 = numpyro.param("m1", 10.0)
+        m1 = numpyro.param("m1", 2.5)
         s1 = numpyro.param("s1", 0.1, constraint=dist.constraints.positive)
-        m2 = numpyro.param("m2", 10.0)
+        m2 = numpyro.param("m2", 2.5)
         s2 = numpyro.param("s2", 0.1, constraint=dist.constraints.positive)
 
         def true_fun(_):
@@ -190,7 +190,7 @@ def test_cond():
     x = mcmc.get_samples()["x"]
     assert x.shape == (10_000,)
     assert_allclose(
-        [x[x > 10].mean(), x[x > 10].std(), x[x < 10].mean(), x[x < 10].std()],
-        [20.0, 1.0, 0.0, 1.0],
-        atol=0.05,
+        [x[x > 2.5].mean(), x[x > 2.5].std(), x[x < 2.5].mean(), x[x < 2.5].std()],
+        [5.0, 1.0, 0.0, 1.0],
+        atol=0.1,
     )
