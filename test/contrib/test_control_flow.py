@@ -190,7 +190,14 @@ def test_cond():
     x = mcmc.get_samples()["x"]
     assert x.shape == (10_000,)
     assert_allclose(
-        [x[x > 2.5].mean(), x[x > 2.5].std(), x[x < 2.5].mean(), x[x < 2.5].std()],
-        [5.0, 1.0, 0.0, 1.0],
+        [
+            x.mean(),
+            x.std(),
+            x[x > 2.5].mean(),
+            x[x > 2.5].std(),
+            x[x < 2.5].mean(),
+            x[x < 2.5].std(),
+        ],
+        [2.5, jnp.sqrt(29 / 4), 5.0, 1.0, 0.0, 1.0],
         atol=0.1,
     )
