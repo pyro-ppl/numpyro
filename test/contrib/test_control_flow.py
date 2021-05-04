@@ -137,8 +137,8 @@ def test_scan_without_stack():
 def test_cond():
     def model():
         def true_fun(_):
-            x = numpyro.sample("x", dist.Normal(5.0))
-            numpyro.deterministic("z", x - 5.0)
+            x = numpyro.sample("x", dist.Normal(4.0))
+            numpyro.deterministic("z", x - 4.0)
 
         def false_fun(_):
             x = numpyro.sample("x", dist.Normal(0.0))
@@ -148,9 +148,9 @@ def test_cond():
         cond(cluster > 0, true_fun, false_fun, None)
 
     def guide():
-        m1 = numpyro.param("m1", 2.5)
+        m1 = numpyro.param("m1", 2.0)
         s1 = numpyro.param("s1", 0.1, constraint=dist.constraints.positive)
-        m2 = numpyro.param("m2", 2.5)
+        m2 = numpyro.param("m2", 2.0)
         s2 = numpyro.param("s2", 0.1, constraint=dist.constraints.positive)
 
         def true_fun(_):
@@ -180,7 +180,7 @@ def test_cond():
 
     mcmc = MCMC(
         NUTS(model),
-        num_warmup=100,
+        num_warmup=500,
         num_samples=2500,
         num_chains=4,
         chain_method="sequential",
@@ -193,11 +193,11 @@ def test_cond():
         [
             x.mean(),
             x.std(),
-            x[x > 2.5].mean(),
-            x[x > 2.5].std(),
-            x[x < 2.5].mean(),
-            x[x < 2.5].std(),
+            x[x > 2.0].mean(),
+            x[x > 2.0].std(),
+            x[x < 2.0].mean(),
+            x[x < 2.0].std(),
         ],
-        [2.5, jnp.sqrt(29 / 4), 5.0, 1.0, 0.0, 1.0],
+        [2.0, jnp.sqrt(5.0), 5.0, 1.0, 0.0, 1.0],
         atol=0.1,
     )
