@@ -35,6 +35,26 @@ def init_to_median(site=None, num_samples=15):
         except NotImplementedError:
             return init_to_uniform(site)
 
+def init_to_mean(site=None):
+    """
+    Initialize to the prior mean; fallback to median if mean is undefined.
+    """
+    if site is None:
+        return partial(init_to_mean)
+
+    try:
+        # Try .mean() method.
+        if site['type'] == 'sample' and not site['is_observed'] and not site['fn'].is_discrete:
+            value = site["fn"].mean
+            # if jnp.isnan(value):
+            #    raise ValueError
+            if hasattr(site["fn"], "_validate_sample"):
+                site["fn"]._validate_sample(value)
+            return np.array(value)
+    except (NotImplementedError, ValueError):
+        # Fall back to a median.
+        # This is required for distributions with infinite variance, e.g. Cauchy.
+        return init_to_median(site)
 
 def init_to_sample(site=None):
     """
