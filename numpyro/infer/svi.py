@@ -8,8 +8,8 @@ import tqdm
 
 from jax import jit, lax, random
 import jax.numpy as jnp
-import optax
 from jax.tree_util import tree_map
+import optax
 
 from numpyro.contrib.optax import _OptaxWrapper
 from numpyro.distributions import constraints

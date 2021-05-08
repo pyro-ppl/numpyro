@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from numpy.testing import assert_allclose
-import optax
 import pytest
 
 from jax import grad, jit, partial, random
 from jax.lax import fori_loop
 import jax.numpy as jnp
 from jax.test_util import check_close
+import optax
 
 import numpyro
 from numpyro.contrib.optax import _OptaxWrapper

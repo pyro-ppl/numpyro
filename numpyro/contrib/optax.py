@@ -8,10 +8,10 @@ NumPyro inference algorithms.
 """
 from typing import Callable, Tuple, TypeVar
 
-import jax.numpy as jnp
-import optax
 from jax import lax, value_and_grad
 from jax.flatten_util import ravel_pytree
+import jax.numpy as jnp
+import optax
 
 _Params = TypeVar("_Params")
 _OptState = TypeVar("_OptState")
