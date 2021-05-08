@@ -8,8 +8,10 @@ import tqdm
 
 from jax import jit, lax, random
 import jax.numpy as jnp
+import optax
 from jax.tree_util import tree_map
 
+from numpyro.contrib.optax import _OptaxWrapper
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
@@ -80,7 +82,8 @@ class SVI(object):
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
-    :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
+    :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim` or an Optax
+        ``GradientTransformation``.
     :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param static_kwargs: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
@@ -91,9 +94,13 @@ class SVI(object):
         self.model = model
         self.guide = guide
         self.loss = loss
-        self.optim = optim
         self.static_kwargs = static_kwargs
         self.constrain_fn = None
+
+        if isinstance(optim, optax.GradientTransformation):
+            self.optim = _OptaxWrapper(optim)
+        else:
+            self.optim = optim
 
     def init(self, rng_key, *args, **kwargs):
         """
