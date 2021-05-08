@@ -3,6 +3,7 @@ flax
 funsor
 jax>=0.1.65
 jaxlib>=0.1.45
+optax==0.0.6
 nbsphinx==0.8.1
 sphinx-gallery
 tfp-nightly  # TODO: change this to tensorflow-probability when it is stable
