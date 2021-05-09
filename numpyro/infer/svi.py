@@ -9,13 +9,17 @@ import tqdm
 from jax import jit, lax, random
 import jax.numpy as jnp
 from jax.tree_util import tree_map
-import optax
 
-from numpyro.contrib.optax import _OptaxWrapper
 from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import transform_fn
+from numpyro.optim import _NumPyroOptim
+
+try:
+    from numpyro.contrib.optax import optax, optax_to_numpyro
+except ImportError:
+    optax, optax_to_numpyro = None, None
 
 SVIState = namedtuple("SVIState", ["optim_state", "rng_key"])
 """
@@ -97,10 +101,15 @@ class SVI(object):
         self.static_kwargs = static_kwargs
         self.constrain_fn = None
 
-        if isinstance(optim, optax.GradientTransformation):
-            self.optim = _OptaxWrapper(optim)
-        else:
+        if isinstance(optim, _NumPyroOptim):
             self.optim = optim
+        elif optax is not None and isinstance(optim, optax.GradientTransformation):
+            self.optim = optax_to_numpyro(optim)
+        else:
+            raise TypeError(
+                "Type of optim not recognised. Expected either a NumPyro optimizer "
+                "or an Optax GradientTransformation. Got {}".format(type(optim))
+            )
 
     def init(self, rng_key, *args, **kwargs):
         """

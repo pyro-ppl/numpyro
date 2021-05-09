@@ -11,7 +11,7 @@ from jax.test_util import check_close
 import optax
 
 import numpyro
-from numpyro.contrib.optax import _OptaxWrapper
+from numpyro.contrib.optax import optax_to_numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import SVI, RenyiELBO, Trace_ELBO
@@ -45,7 +45,7 @@ def step(opt_state, optim):
 )
 def test_optim_multi_params(optim_class, args, kwargs):
     params = {"x": jnp.array([1.0, 1.0, 1.0]), "y": jnp.array([-1, -1.0, -1.0])}
-    opt = _OptaxWrapper(optim_class(*args, **kwargs))
+    opt = optax_to_numpyro(optim_class(*args, **kwargs))
     opt_state = opt.init(params)
     for i in range(2000):
         opt_state = step(opt_state, opt)

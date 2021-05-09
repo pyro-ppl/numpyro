@@ -2,93 +2,46 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Optimizer classes defined here are light wrappers over the corresponding optimizers
-sourced from :mod:`optax` with an interface that is better suited for working with
+This module provides a wrapper for Optax optimizers so that they can be used with
 NumPyro inference algorithms.
 """
-from typing import Callable, Tuple, TypeVar
 
-from jax import lax, value_and_grad
-from jax.flatten_util import ravel_pytree
-import jax.numpy as jnp
+from typing import Tuple, TypeVar
+
 import optax
+
+from numpyro.optim import _NumPyroOptim
 
 _Params = TypeVar("_Params")
 _OptState = TypeVar("_OptState")
-_IterOptState = Tuple[int, Tuple[_Params, _OptState]]
+_State = Tuple[_Params, _OptState]
 
 
-class _OptaxWrapper:
+def optax_to_numpyro(transformation: optax.GradientTransformation) -> _NumPyroOptim:
     """
-    Wrapper class for Optax transforms / optimisers.
+    This function produces a ``numpyro.optim._NumPyroOptim`` instance from an
+    ``optax.GradientTransformation`` so that it can be used with
+    ``numpyro.infer.svi.SVI``. It is a lightweight wrapper that recreates the
+    ``(init_fn, update_fn, get_params_fn)`` interface defined by
+    :mod:`jax.experimental.optimizers`.
+
+    :param transformation: An ``optax.GradientTransformation`` instance to wrap.
+    :return: An instance of ``numpyro.optim._NumPyroOptim`` wrapping the supplied
+        Optax optimizer.
     """
 
-    def __init__(self, transformation: optax.GradientTransformation) -> None:
-        self.transformation = transformation
+    def init_fn(params: _Params) -> _State:
+        opt_state = transformation.init(params)
+        return params, opt_state
 
-    def init(self, params: _Params) -> _IterOptState:
-        """
-        Initialise the optimizer with the parameters to be optimized.
-
-        :param params: A PyTree of JAX arrays.
-        :return: Initial optimizer state.
-        """
-        opt_state = self.transformation.init(params)
-        return jnp.array(0), (params, opt_state)
-
-    def update(self, g: _Params, state: _IterOptState) -> _IterOptState:
-        """
-        Gradient update for the optimizer.
-
-        :param g: Gradients information for the parameters. Should have the same
-            structure as the parameters.
-        :param state: The current optimizer state.
-        :return: The new optimizer state after the update.
-        """
-        i, (params, opt_state) = state
-        updates, opt_state = self.transformation.update(g, opt_state, params)
+    def update_fn(step, grads: _Params, state: _State) -> _State:
+        params, opt_state = state
+        updates, opt_state = transformation.update(grads, opt_state, params)
         updated_params = optax.apply_updates(params, updates)
-        return i + 1, (updated_params, opt_state)
+        return updated_params, opt_state
 
-    def eval_and_update(self, fn: Callable, state: _IterOptState) -> _IterOptState:
-        """
-        Performs an optimization step for the objective function ``fn``.
-
-        :param fn: The objective function.
-        :param state: Current optimizer state.
-        :return: A pair of the current output of the objective function and the new
-            optimizer state.
-        """
-        params = self.get_params(state)
-        out, grads = value_and_grad(fn)(params)
-        return out, self.update(grads, state)
-
-    def eval_and_stable_update(self, fn, state):
-        """
-        Like :meth:`eval_and_update` but when the value of the objective function or
-        the gradients are not finite, we will not update the input ``state`` and will
-        set the objective output to ``nan``.
-
-        :param fn: The objective function.
-        :param state: Current optimizer state.
-        :return: A pair of the current output of the objective function and the new
-            optimizer state.
-        """
-        params = self.get_params(state)
-        out, grads = value_and_grad(fn)(params)
-        return lax.cond(
-            jnp.isfinite(out) & jnp.isfinite(ravel_pytree(grads)[0]).all(),
-            lambda _: (out, self.update(grads, state)),
-            lambda _: (jnp.nan, state),
-            None,
-        )
-
-    def get_params(self, state):
-        """
-        Helper function to extract parameter values from the current optimizer state.
-
-        :param state: The current optimizer state.
-        :return: PyTree with current parameter values.
-        """
-        _, (params, _) = state
+    def get_params_fn(state: _State) -> _Params:
+        params, _ = state
         return params
+
+    return _NumPyroOptim(lambda x, y, z: (x, y, z), init_fn, update_fn, get_params_fn)
