@@ -65,3 +65,10 @@ SM3
    :members:
    :undoc-members:
    :inherited-members:
+
+Optax support
+=============
+
+.. automodule:: numpyro.contrib.optim
+
+.. autofunction:: numpyro.contrib.optim.optax_to_numpyro
