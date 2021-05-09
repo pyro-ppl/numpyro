@@ -16,11 +16,6 @@ from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import transform_fn
 from numpyro.optim import _NumPyroOptim
 
-try:
-    from numpyro.contrib.optax import optax, optax_to_numpyro
-except ImportError:
-    optax, optax_to_numpyro = None, None
-
 SVIState = namedtuple("SVIState", ["optim_state", "rng_key"])
 """
 A :func:`~collections.namedtuple` consisting of the following fields:
@@ -103,13 +98,24 @@ class SVI(object):
 
         if isinstance(optim, _NumPyroOptim):
             self.optim = optim
-        elif optax is not None and isinstance(optim, optax.GradientTransformation):
-            self.optim = optax_to_numpyro(optim)
         else:
-            raise TypeError(
-                "Type of optim not recognised. Expected either a NumPyro optimizer "
-                "or an Optax GradientTransformation. Got {}".format(type(optim))
-            )
+            try:
+                from numpyro.contrib.optax import optax, optax_to_numpyro
+            except ImportError:
+                raise ImportError(
+                    "It looks like you tried to use an optimizer that isn't an "
+                    "instance of numpyro.optim._NumPyroOptim. There is experimental "
+                    "support for Optax optimizers, but you need to install Optax. "
+                    "It can be installed with `pip install optax`."
+                )
+
+            if not isinstance(optim, optax.GradientTransformation):
+                raise TypeError(
+                    "Expected either an instance of numpyro.optim._NumPyroOptim or "
+                    "optax.GradientTransformation. Got {}".format(type(optim))
+                )
+
+            self.optim = optax_to_numpyro(optim)
 
     def init(self, rng_key, *args, **kwargs):
         """
