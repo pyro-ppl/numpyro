@@ -40,7 +40,7 @@ setup(
         "doc": [
             "ipython",  # sphinx needs this to render codes
             "nbsphinx",
-            "sphinx",
+            "sphinx<4.0.0",
             "sphinx_rtd_theme",
             "sphinx-gallery",
         ],
