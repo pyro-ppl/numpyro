@@ -8,13 +8,34 @@ from jax import grad, jit, partial, random
 from jax.lax import fori_loop
 import jax.numpy as jnp
 from jax.test_util import check_close
-import optax
 
 import numpyro
-from numpyro.contrib.optax import optax_to_numpyro
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
 from numpyro.infer import SVI, RenyiELBO, Trace_ELBO
+
+try:
+    import optax
+    from numpyro.contrib.optim import optax_to_numpyro
+
+    # the optimizer test is parameterized by different optax optimizers, but we have
+    # to define them here to ensure that `optax` is defined. pytest.mark.parameterize
+    # decorators are run even if tests are skipped at the top of the file.
+    optimizers = [
+        (optax.adam, (1e-2,), {}),
+        # clipped adam
+        (optax.chain, (optax.clip(10.0), optax.adam(1e-2)), {}),
+        (optax.adagrad, (1e-1,), {}),
+        # SGD with momentum
+        (optax.sgd, (1e-2,), {"momentum": 0.9}),
+        (optax.rmsprop, (1e-2,), {"decay": 0.95}),
+        # RMSProp with momentum
+        (optax.rmsprop, (1e-4,), {"decay": 0.9, "momentum": 0.9}),
+        (optax.sgd, (1e-2,), {}),
+    ]
+except ImportError:
+    pytestmark = pytest.mark.skip(reason="optax is not installed")
+    optimizers = []
 
 
 def loss(params):
@@ -28,21 +49,7 @@ def step(opt_state, optim):
     return optim.update(g, opt_state)
 
 
-@pytest.mark.parametrize(
-    "optim_class, args, kwargs",
-    [
-        (optax.adam, (1e-2,), {}),
-        # clipped adam
-        (optax.chain, (optax.clip(10.0), optax.adam(1e-2)), {}),
-        (optax.adagrad, (1e-1,), {}),
-        # SGD with momentum
-        (optax.sgd, (1e-2,), {"momentum": 0.9}),
-        (optax.rmsprop, (1e-2,), {"decay": 0.95}),
-        # RMSProp with momentum
-        (optax.rmsprop, (1e-4,), {"decay": 0.9, "momentum": 0.9}),
-        (optax.sgd, (1e-2,), {}),
-    ],
-)
+@pytest.mark.parametrize("optim_class, args, kwargs", optimizers)
 def test_optim_multi_params(optim_class, args, kwargs):
     params = {"x": jnp.array([1.0, 1.0, 1.0]), "y": jnp.array([-1, -1.0, -1.0])}
     opt = optax_to_numpyro(optim_class(*args, **kwargs))

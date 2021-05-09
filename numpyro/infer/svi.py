@@ -81,8 +81,13 @@ class SVI(object):
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
-    :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim` or an Optax
-        ``GradientTransformation``.
+    :param optim: An instance of :class:`~numpyro.optim._NumpyroOptim` or an Optax
+        ``GradientTransformation``. If you pass an Optax optimizer it will
+        automatically be wrapped using :func:`numpyro.contrib.optim.optax_to_numpyro`.
+
+            >>> from optax import adam, chain, clip
+            >>> svi = SVI(model, guide, chain(clip(10.0), adam(1e-3)), loss)
+
     :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param static_kwargs: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
@@ -100,7 +105,8 @@ class SVI(object):
             self.optim = optim
         else:
             try:
-                from numpyro.contrib.optax import optax, optax_to_numpyro
+                import optax
+                from numpyro.contrib.optim import optax_to_numpyro
             except ImportError:
                 raise ImportError(
                     "It looks like you tried to use an optimizer that isn't an "
