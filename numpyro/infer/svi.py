@@ -6,6 +6,7 @@ import warnings
 
 import tqdm
 
+import jax
 from jax import jit, lax, random
 import jax.numpy as jnp
 from jax.tree_util import tree_map
@@ -81,7 +82,8 @@ class SVI(object):
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
-    :param optim: An instance of :class:`~numpyro.optim._NumpyroOptim` or an Optax
+    :param optim: An instance of :class:`~numpyro.optim._NumpyroOptim`, a
+        ``jax.experimental.optimizers.Optimizer`` or an Optax
         ``GradientTransformation``. If you pass an Optax optimizer it will
         automatically be wrapped using :func:`numpyro.contrib.optim.optax_to_numpyro`.
 
@@ -103,6 +105,8 @@ class SVI(object):
 
         if isinstance(optim, _NumPyroOptim):
             self.optim = optim
+        elif isinstance(optim, jax.experimental.optimizers.Optimizer):
+            self.optim = _NumPyroOptim(lambda *args: args, *optim)
         else:
             try:
                 import optax
@@ -111,14 +115,16 @@ class SVI(object):
             except ImportError:
                 raise ImportError(
                     "It looks like you tried to use an optimizer that isn't an "
-                    "instance of numpyro.optim._NumPyroOptim. There is experimental "
+                    "instance of numpyro.optim._NumPyroOptim or "
+                    "jax.experimental.optimizers.Optimizer. There is experimental "
                     "support for Optax optimizers, but you need to install Optax. "
                     "It can be installed with `pip install optax`."
                 )
 
             if not isinstance(optim, optax.GradientTransformation):
                 raise TypeError(
-                    "Expected either an instance of numpyro.optim._NumPyroOptim or "
+                    "Expected either an instance of numpyro.optim._NumPyroOptim, "
+                    "jax.experimental.optimizers.Optimizer or "
                     "optax.GradientTransformation. Got {}".format(type(optim))
                 )
 
