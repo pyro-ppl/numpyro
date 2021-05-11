@@ -16,6 +16,7 @@ from numpyro.infer import SVI, RenyiELBO, Trace_ELBO
 
 try:
     import optax
+
     from numpyro.contrib.optim import optax_to_numpyro
 
     # the optimizer test is parameterized by different optax optimizers, but we have

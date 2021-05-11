@@ -106,6 +106,7 @@ class SVI(object):
         else:
             try:
                 import optax
+
                 from numpyro.contrib.optim import optax_to_numpyro
             except ImportError:
                 raise ImportError(
