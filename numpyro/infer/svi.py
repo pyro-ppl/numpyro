@@ -86,7 +86,7 @@ class SVI(object):
         automatically be wrapped using :func:`numpyro.contrib.optim.optax_to_numpyro`.
 
             >>> from optax import adam, chain, clip
-            >>> svi = SVI(model, guide, chain(clip(10.0), adam(1e-3)), loss)
+            >>> svi = SVI(model, guide, chain(clip(10.0), adam(1e-3)), loss=Trace_ELBO())
 
     :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param static_kwargs: static arguments for the model / guide, i.e. arguments
