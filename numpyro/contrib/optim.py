@@ -13,8 +13,7 @@ import optax
 from numpyro.optim import _NumPyroOptim
 
 _Params = TypeVar("_Params")
-_OptState = TypeVar("_OptState")
-_State = Tuple[_Params, _OptState]
+_State = Tuple[_Params, optax.OptState]
 
 
 def optax_to_numpyro(transformation: optax.GradientTransformation) -> _NumPyroOptim:
