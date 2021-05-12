@@ -733,6 +733,41 @@ def test_log_prob(jax_dist, sp_dist, params, prepend_shape, jit):
             )
             assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
             return
+        elif isinstance(jax_dist,
+                (
+                    dist.LeftTruncatedGamma,
+                    dist.RightTruncatedGamma,
+                    dist.TwoSidedTruncatedGamma,
+                ),
+        ):
+            # params = [base_gamma[concentration, rate], low, high] 
+            if isinstance(jax_dist, dist.LeftTruncatedGamma):
+                conc, rate, low = (
+                        params[0].concentration,
+                        params[0].rate,
+                        params[1],
+                )
+                high = np.inf
+            elif isinstance(jax_dist, dist.RightTruncatedGamma):
+                conc, rate, high = (
+                        params[0].concentration,
+                        params[0].rate,
+                        params[1],
+                )
+                low = -np.inf
+            else:
+                conc, rate, low, high = (
+                        params[0].concentration,
+                        params[0].rate,
+                        params[1],
+                        params[2],
+                )
+            sp_dist = get_sp_dist(dist.Gamma)(conc, rate)
+            expected = sp_dist.logpdf(samples) - jnp.log(
+                sp_dist.cdf(high) - sp_dist.cdf(low)
+            )
+            assert_allclose(jit_fn(jax_dist.log_prob)(samples), expected, atol=1e-5)
+            return
         pytest.skip("no corresponding scipy distn.")
     if _is_batched_multivariate(jax_dist):
         pytest.skip("batching not allowed in multivariate distns.")
@@ -1148,6 +1183,11 @@ def test_distribution_constraints(jax_dist, sp_dist, params, prepend_shape):
         if (
             jax_dist is dist.TwoSidedTruncatedDistribution
             and dist_args[i] == "base_dist"
+        ):
+            continue
+        if (
+            jax_dist is dist.TwoSidedTruncatedGamma
+            and dist_args[i] == "base_gamma"
         ):
             continue
         if jax_dist is dist.GaussianRandomWalk and dist_args[i] == "num_steps":

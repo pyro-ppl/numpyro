@@ -571,7 +571,7 @@ def gammaincinv(a, p):
                 " installed with `pip install tensorflow_probability`"
                 ) from e
 
-    return tfpm.math.igammainv(a, p)
+    return tfpm.substrates.jax.math.igammainv(a, p)
 
 
 # The is sourced from: torch.distributions.util.py
