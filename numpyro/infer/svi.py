@@ -6,6 +6,7 @@ import warnings
 
 import tqdm
 
+import jax
 from jax import jit, lax, random
 import jax.numpy as jnp
 from jax.tree_util import tree_map
@@ -14,6 +15,7 @@ from numpyro.distributions import constraints
 from numpyro.distributions.transforms import biject_to
 from numpyro.handlers import replay, seed, trace
 from numpyro.infer.util import transform_fn
+from numpyro.optim import _NumPyroOptim
 
 SVIState = namedtuple("SVIState", ["optim_state", "rng_key"])
 """
@@ -80,7 +82,14 @@ class SVI(object):
     :param model: Python callable with Pyro primitives for the model.
     :param guide: Python callable with Pyro primitives for the guide
         (recognition network).
-    :param optim: an instance of :class:`~numpyro.optim._NumpyroOptim`.
+    :param optim: An instance of :class:`~numpyro.optim._NumpyroOptim`, a
+        ``jax.experimental.optimizers.Optimizer`` or an Optax
+        ``GradientTransformation``. If you pass an Optax optimizer it will
+        automatically be wrapped using :func:`numpyro.contrib.optim.optax_to_numpyro`.
+
+            >>> from optax import adam, chain, clip
+            >>> svi = SVI(model, guide, chain(clip(10.0), adam(1e-3)), loss=Trace_ELBO())
+
     :param loss: ELBO loss, i.e. negative Evidence Lower Bound, to minimize.
     :param static_kwargs: static arguments for the model / guide, i.e. arguments
         that remain constant during fitting.
@@ -91,9 +100,35 @@ class SVI(object):
         self.model = model
         self.guide = guide
         self.loss = loss
-        self.optim = optim
         self.static_kwargs = static_kwargs
         self.constrain_fn = None
+
+        if isinstance(optim, _NumPyroOptim):
+            self.optim = optim
+        elif isinstance(optim, jax.experimental.optimizers.Optimizer):
+            self.optim = _NumPyroOptim(lambda *args: args, *optim)
+        else:
+            try:
+                import optax
+
+                from numpyro.contrib.optim import optax_to_numpyro
+            except ImportError:
+                raise ImportError(
+                    "It looks like you tried to use an optimizer that isn't an "
+                    "instance of numpyro.optim._NumPyroOptim or "
+                    "jax.experimental.optimizers.Optimizer. There is experimental "
+                    "support for Optax optimizers, but you need to install Optax. "
+                    "It can be installed with `pip install optax`."
+                )
+
+            if not isinstance(optim, optax.GradientTransformation):
+                raise TypeError(
+                    "Expected either an instance of numpyro.optim._NumPyroOptim, "
+                    "jax.experimental.optimizers.Optimizer or "
+                    "optax.GradientTransformation. Got {}".format(type(optim))
+                )
+
+            self.optim = optax_to_numpyro(optim)
 
     def init(self, rng_key, *args, **kwargs):
         """

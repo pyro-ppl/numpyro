@@ -39,8 +39,9 @@ setup(
     extras_require={
         "doc": [
             "ipython",  # sphinx needs this to render codes
+            "jinja2<3.0.0",
             "nbsphinx",
-            "sphinx",
+            "sphinx<4.0.0",
             "sphinx_rtd_theme",
             "sphinx-gallery",
         ],
@@ -58,6 +59,7 @@ setup(
             # TODO: bump funsor version before the release
             "funsor @ git+https://github.com/pyro-ppl/funsor.git@d5574988665dd822ec64e41f2b54b9dc929959dc",
             "graphviz",
+            "optax==0.0.6",
             # TODO: change this to tensorflow_probability>0.12.1 when the next version
             # of tfp is released. The current release is not compatible with jax>=0.2.12.
             "tfp-nightly",
