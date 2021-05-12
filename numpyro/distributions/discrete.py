@@ -31,11 +31,12 @@ import numpy as np
 
 import jax
 from jax import lax
+from jax._src.lax.lax import betainc
 from jax.nn import softmax, softplus
 import jax.numpy as jnp
 from jax.ops import index_add
 import jax.random as random
-from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy
+from jax.scipy.special import expit, gammaincc, gammaln, logsumexp, xlog1py, xlogy, digamma
 
 from numpyro.distributions import constraints
 from numpyro.distributions.distribution import Distribution
@@ -826,3 +827,82 @@ def Geometric(probs=None, logits=None, validate_args=None):
         return GeometricLogits(logits, validate_args=validate_args)
     else:
         raise ValueError("One of `probs` or `logits` must be specified.")
+
+
+class NegativeBinomial(Distribution):
+    arg_constraints = {"alpha": constraints.positive,
+                       "beta": constraints.positive}
+    support = constraints.nonnegative_integer
+
+    def __init__(self, alpha, beta, validate_args=None):
+        self.alpha = alpha
+        self.beta = beta
+        self.alpha, self.beta = promote_shapes(alpha, beta)
+        batch_shape = lax.broadcast_shapes(jnp.shape(alpha), jnp.shape(beta))
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        gam = random.gamma(key, self.alpha, 1.0 / self.beta)
+        return random.poisson(key, gam, shape=sample_shape + self.batch_shape)
+
+    @validate_sample
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        ll = gammaln(value + self.alpha) - gammaln(self.alpha) - gammaln(value + 1.0)
+        ll += self.alpha * jnp.log(self.beta / (self.beta + 1.0))
+        ll += value * jnp.log(1 / (self.beta + 1.0))
+        return ll
+
+    @property
+    def mean(self):
+        return self.alpha / self.beta
+
+    @property
+    def variance(self):
+        return self.alpha / (self.beta ** 2) * (self.beta + 1.0)
+
+    def cdf(self, value):
+        bt = betainc(self.alpha, value + 1.0, self.beta / (self.beta + 1.0))
+        return bt
+
+
+class NegativeBinomial2(Distribution):
+    arg_constraints = {"mu": constraints.positive,
+                       "phi": constraints.positive}
+    support = constraints.nonnegative_integer
+
+    def __init__(self, mu, phi, validate_args=None):
+        self.mu = mu
+        self.phi = phi
+        self.mu, self.scale = promote_shapes(mu, phi)
+        batch_shape = lax.broadcast_shapes(jnp.shape(mu), jnp.shape(phi))
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        beta = self.mu / self.phi
+        gam = random.gamma(key, self.mu, beta)
+        return random.poisson(key, gam, shape=sample_shape + self.batch_shape)
+
+    @validate_sample
+    def log_prob(self, value):
+        if self._validate_args:
+            self._validate_sample(value)
+        ll = gammaln(value + self.alpha) - gammaln(self.alpha) - gammaln(value + 1.0)
+        ll += value * jnp.log(self.mu / (self.mu + self.phi))
+        ll += self.phi * jnp.log(self.mu / (self.mu + self.phi))
+        return ll
+
+    @property
+    def mean(self):
+        return self.mu
+
+    @property
+    def variance(self):
+        return self.mu + self.mu ** 2 / self.phi
+
+    def cdf(self, value):
+        bt = betainc(self.phi, value + 1.0, self.phi / (self.mu + self.phi))
+        return bt

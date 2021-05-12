@@ -1486,9 +1486,7 @@ class BetaProportion(Distribution):
     support = constraints.unit_interval
 
     def __init__(self, mu, kappa, validate_args=None):
-        self.mu, self.kappa = promote_shapes(
-            mu, kappa
-        )
+        self.mu, self.kappa = promote_shapes(mu, kappa)
         batch_shape = lax.broadcast_shapes(
             jnp.shape(mu), jnp.shape(kappa)
         )
