@@ -1426,3 +1426,90 @@ class Uniform(Distribution):
         batch_shape = lax.broadcast_shapes(low, high)
         event_shape = ()
         return batch_shape, event_shape
+
+
+class Weibull(Distribution):
+    arg_constraints = {"scale": constraints.positive,
+                       "concentration": constraints.positive}
+    support = constraints.real
+    reparametrized_params = ["scale", "concentration"]
+
+    def __init__(self, scale=0.0, concentration=1.0, validate_args=None):
+        self.concentration, self.scale = promote_shapes(concentration, scale)
+        batch_shape = lax.broadcast_shapes(jnp.shape(concentration), jnp.shape(scale))
+        super().__init__(
+            batch_shape=batch_shape, validate_args=validate_args
+        )
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        return random.weibull_min(
+            key,
+            scale=self.scale,
+            concentration=self.concentration,
+            shape=sample_shape + self.batch_shape + self.event_shape
+        )
+
+    @validate_sample
+    def log_prob(self, value):
+        ll = jnp.log(self.concentration / self.scale)
+        ll += (self.concentration - 1) * jnp.log(value / self.scale)
+        ll -= (value / self.scale)**self.concentration
+        return ll
+
+    def cdf(self, value):
+        return 1 - jnp.exp(-(value / self.scale)**self.concentration)
+
+    @property
+    def mean(self):
+        return jnp.broadcast_to(
+            self.scale * jnp.exp(gammaln(1.0 + 1.0/self.concentration)),
+            self.batch_shape)
+
+    @property
+    def variance(self):
+        return jnp.broadcast_to(
+            self.scale ** 2 * (
+                jnp.exp(gammaln(1.0 + 2.0/self.concentration)) -
+                jnp.exp(gammaln(1.0 + 1.0/self.concentration)) ** 2
+             ),
+            self.batch_shape
+        )
+
+
+class BetaProportion(Distribution):
+    arg_constraints = {
+        "mu": constraints.unit_interval,
+        "kappa": constraints.positive,
+    }
+    reparametrized_params = ["mu", "kappa"]
+    support = constraints.unit_interval
+
+    def __init__(self, mu, kappa, validate_args=None):
+        self.mu, self.kappa = promote_shapes(
+            mu, kappa
+        )
+        batch_shape = lax.broadcast_shapes(
+            jnp.shape(mu), jnp.shape(kappa)
+        )
+        super().__init__(batch_shape=batch_shape, validate_args=validate_args)
+        self._beta = Beta(self.mu * self.kappa, (1.0 - self.mu) * self.kappa)
+
+    def sample(self, key, sample_shape=()):
+        assert is_prng_key(key)
+        return self._beta.sample(key, sample_shape)[..., 0]
+
+    @validate_sample
+    def log_prob(self, value):
+        return self._beta.log_prob(jnp.stack([value, 1.0 - value], -1))
+
+    @property
+    def mean(self):
+        return self._beta.mean
+
+    @property
+    def variance(self):
+        return self._beta.variance
+
+    def cdf(self, value):
+        return self._beta.cdf(value)
